@@ -112,29 +112,23 @@ func main() {
 	}
 
 	// Kubeconfig secret in test-pod cluster
-	phase3wg.Add(1)
-	go func() {
-		defer phase3wg.Done()
+	phase3wg.Go(func() {
 		kubeconfigPath := cfg.kubeconfigPath
 		if cfg.clusterType == clusterTypeKind && kindKubeconfig != "" {
 			kubeconfigPath = kindKubeconfig
 		}
 		createKubeconfigSecret(ctx, clients[cfg.testPodCluster], cfg.testPodCluster, cfg.namespace, kubeconfigPath, collectErrorFor(cfg.testPodCluster))
-	}()
+	})
 
 	// Project ConfigMap in central cluster
-	phase3wg.Add(1)
-	go func() {
-		defer phase3wg.Done()
+	phase3wg.Go(func() {
 		createProjectConfigMap(ctx, clients[cfg.centralCluster], cfg.centralCluster, cfg.namespace, cfg, collectErrorFor(cfg.centralCluster))
-	}()
+	})
 
 	// Credentials Secret in central cluster
-	phase3wg.Add(1)
-	go func() {
-		defer phase3wg.Done()
+	phase3wg.Go(func() {
 		createCredentialsSecret(ctx, clients[cfg.centralCluster], cfg.centralCluster, cfg.namespace, cfg, collectErrorFor(cfg.centralCluster))
-	}()
+	})
 
 	phase3wg.Wait()
 
@@ -458,15 +452,15 @@ func applyPeerAuthentication(ctx context.Context, dynClient dynamic.Interface, c
 	}
 
 	desired := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "security.istio.io/v1beta1",
 			"kind":       "PeerAuthentication",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      "default",
 				"namespace": namespace,
 			},
-			"spec": map[string]interface{}{
-				"mtls": map[string]interface{}{
+			"spec": map[string]any{
+				"mtls": map[string]any{
 					"mode": "STRICT",
 				},
 			},

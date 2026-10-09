@@ -17,9 +17,9 @@ type Versioned interface {
 }
 
 type patchValue struct {
-	Op    string      `json:"op"`
-	Path  string      `json:"path"`
-	Value interface{} `json:"value,omitempty"`
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value any    `json:"value,omitempty"`
 }
 
 const (
@@ -49,7 +49,7 @@ func SetAnnotations(ctx context.Context, object client.Object, annotations map[s
 		payload = append(payload, patchValue{
 			Op:    "replace",
 			Path:  "/metadata/annotations",
-			Value: map[string]interface{}{},
+			Value: map[string]any{},
 		})
 	}
 

@@ -16,6 +16,7 @@
 #   P2: update-release-json — reads/writes release.json
 #   P3: update-values-yaml — reads release.json, writes helm_chart/values.yaml
 #   P4: generate-standalone-yaml — reads helm_chart/values.yaml (P3) + helm_chart/crds/ (P1)
+#   P5: go-fix — rewrites .go files; must finish before the P6 linters read them
 #   P6: Lint/validate group — all linters and validators run concurrently
 
 default_stages: [pre-commit]
@@ -104,6 +105,18 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
         priority: 4
+
+  # ── P5: serial — rewrites Go sources; runs before the concurrent linters ──
+  - repo: local
+    hooks:
+      - id: go-fix
+        name: go fix
+        entry: go fix ./...
+        language: system
+        pass_filenames: false
+        files: \.go$
+        stages: [pre-commit]
+        priority: 5
 
   # ── P6: linters & validators (all concurrent) ─────────────────────────────
   - repo: local
@@ -248,8 +261,8 @@ repos:
       # staticcheck) see the full codebase and pre-existing violations are not silently skipped.
       - id: golangci-lint-full
         args: [--timeout=10m]
-        language_version: 1.26.6
+        language_version: 1.26.9
         priority: 6
       - id: golangci-lint-fmt
-        language_version: 1.26.6
+        language_version: 1.26.9
         priority: 6

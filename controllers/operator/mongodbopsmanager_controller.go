@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"syscall"
@@ -17,7 +18,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -492,9 +492,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 			}
 		}
 
-		for k, val := range vaultMap {
-			annotationsToAdd[k] = val
-		}
+		maps.Copy(annotationsToAdd, vaultMap)
 	}
 
 	if err := annotations.SetAnnotations(ctx, opsManager, annotationsToAdd, r.client); err != nil {
@@ -743,8 +741,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 		mutatedSts, err := r.createBackupDaemonStatefulset(ctx, reconcilerHelper, appDBConfig, memberCluster, initOpsManagerImage, opsManagerImage, log)
 		if err != nil {
 			// Check if it is a k8s error or a custom one
-			var statefulSetIsRecreatingError create.StatefulSetIsRecreating
-			if errors.As(err, &statefulSetIsRecreatingError) {
+			if statefulSetIsRecreatingError, ok := errors.AsType[create.StatefulSetIsRecreating](err); ok {
 				return workflow.Pending("%s", statefulSetIsRecreatingError.Error()).Requeue()
 			}
 
@@ -1349,11 +1346,11 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 		if opsManagerCA == "" {
 			log.Info("Custom CA was not provided, will use host root CA")
 		} else {
-			cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(opsManager.Namespace, opsManagerCA))
+			cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(opsManager.Namespace, opsManagerCA)) //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("failed to retrieve om ca certificate to create the initial user: %w", err)).WithRetry(30), nil
 			}
-			ca = ptr.To(cm.Data["mms-ca.crt"])
+			ca = new(cm.Data["mms-ca.crt"])
 		}
 	}
 
@@ -2058,7 +2055,7 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 
 // OnDelete cleans up Ops Manager related resources on CR removal.
 // it's used in MongoDBOpsManagerEventHandler
-func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj interface{}, log *zap.SugaredLogger) {
+func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj any, log *zap.SugaredLogger) {
 	opsManager := obj.(*omv1.MongoDBOpsManager)
 	if opsManager.IsReconciliationDisabled() {
 		log.Infof("OpsManager %s/%s OnDelete skipped due to %s annotation",

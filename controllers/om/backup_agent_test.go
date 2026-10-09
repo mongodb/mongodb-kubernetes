@@ -10,8 +10,8 @@ import (
 
 var testBackupAgentConfig = *getTestBackupConfig()
 
-func getLinuxUrls(config BackupAgentConfig) map[string]interface{} {
-	return config.BackingMap["urls"].(map[string]interface{})["linux"].(map[string]interface{})
+func getLinuxUrls(config BackupAgentConfig) map[string]any {
+	return config.BackingMap["urls"].(map[string]any)["linux"].(map[string]any)
 }
 
 func getTestBackupConfig() *BackupAgentConfig {
@@ -52,13 +52,13 @@ func TestNestedFieldsAreNotLost(t *testing.T) {
 
 	_ = config.Apply()
 
-	urls := config.BackingMap["urls"].(map[string]interface{})
+	urls := config.BackingMap["urls"].(map[string]any)
 
 	assert.Contains(t, urls, "linux")
 	assert.Contains(t, urls, "osx")
 	assert.Contains(t, urls, "windows")
 
-	linuxUrls := urls["linux"].(map[string]interface{})
+	linuxUrls := urls["linux"].(map[string]any)
 
 	testUrls := getLinuxUrls(testBackupAgentConfig)
 

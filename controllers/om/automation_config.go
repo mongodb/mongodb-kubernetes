@@ -44,7 +44,7 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 	// applies all changes made to the Auth struct and merges with the corresponding map[string]interface{}
 	// inside the Deployment
 	if _, ok := a.Deployment["auth"]; ok {
-		mergedAuth, err := util.MergeWith(a.Auth, a.Deployment["auth"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+		mergedAuth, err := util.MergeWith(a.Auth, a.Deployment["auth"].(map[string]any), &util.AutomationConfigTransformer{})
 		if err != nil {
 			return err
 		}
@@ -52,7 +52,7 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 	}
 	// the same applies for the ssl object and map
 	if _, ok := a.Deployment["tls"]; ok {
-		mergedTLS, err := util.MergeWith(a.AgentSSL, a.Deployment["tls"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+		mergedTLS, err := util.MergeWith(a.AgentSSL, a.Deployment["tls"].(map[string]any), &util.AutomationConfigTransformer{})
 		if err != nil {
 			return err
 		}
@@ -62,7 +62,7 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 	if a.Ldap == nil {
 		delete(*into, "ldap")
 	} else if _, ok := a.Deployment["ldap"]; ok {
-		mergedLdap, err := util.MergeWith(a.Ldap, a.Deployment["ldap"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+		mergedLdap, err := util.MergeWith(a.Ldap, a.Deployment["ldap"].(map[string]any), &util.AutomationConfigTransformer{})
 		if err != nil {
 			return err
 		}
@@ -226,7 +226,7 @@ func (ac *AutomationConfig) SetVersion(configVersion int64) *AutomationConfig {
 
 // SetOptionsDownloadBase is needed only for the cluster config file when we use a headless agent
 func (ac *AutomationConfig) SetOptionsDownloadBase(downloadBase string) *AutomationConfig {
-	ac.Deployment["options"] = map[string]interface{}{"downloadBase": downloadBase}
+	ac.Deployment["options"] = map[string]any{"downloadBase": downloadBase}
 
 	return ac
 }

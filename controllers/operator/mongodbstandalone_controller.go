@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -338,18 +339,14 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 		path := fmt.Sprintf("%s/%s/%s", r.VaultClient.OperatorScretMetadataPath(), s.Namespace, s.Spec.Credentials)
 		vaultMap = merge.StringToStringMap(vaultMap, r.VaultClient.GetSecretAnnotation(path))
-		for k, val := range vaultMap {
-			annotationsToAdd[k] = val
-		}
+		maps.Copy(annotationsToAdd, vaultMap)
 	}
 
 	roleAnnotation, _, err := r.getRoleAnnotation(ctx, s.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(s))
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
-	for k, val := range roleAnnotation {
-		annotationsToAdd[k] = val
-	}
+	maps.Copy(annotationsToAdd, roleAnnotation)
 
 	if err := annotations.SetAnnotations(ctx, s, annotationsToAdd, r.client); err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)

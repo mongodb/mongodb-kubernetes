@@ -20,7 +20,6 @@ import (
 	"golang.org/x/exp/constraints"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -67,12 +66,12 @@ func createMockStateConfigMap(kubeClient client.Client, namespace, scName string
 	configServerSum := sumMap(state.configServerDistribution)
 	mongosSum := sumMap(state.mongosDistribution)
 
-	sizeStatus := map[string]interface{}{
-		"status": map[string]interface{}{
+	sizeStatus := map[string]any{
+		"status": map[string]any{
 			"shardCount":        state.shardCount,
 			"configServerCount": configServerSum,
 			"mongosCount":       mongosSum,
-			"sizeStatusInClusters": map[string]interface{}{
+			"sizeStatusInClusters": map[string]any{
 				"shardMongodsInClusters":        state.shardDistribution,
 				"mongosCountInClusters":         state.mongosDistribution,
 				"configServerMongodsInClusters": state.configServerDistribution,
@@ -1046,34 +1045,6 @@ func (r *MultiClusterShardedClusterConfigList) GetNames() []string {
 	return clusterNames
 }
 
-func (r *MultiClusterShardedClusterConfigList) GenerateAllHosts(sc *mdbv1.MongoDB, clusterMapping map[string]int) ([]string, []string) {
-	var allHosts []string
-	var allPodNames []string
-	for _, clusterSpec := range *r {
-		memberClusterName := clusterSpec.Name
-		clusterIdx := clusterMapping[memberClusterName]
-
-		for podIdx := range clusterSpec.MongosMembers {
-			allHosts = append(allHosts, getMultiClusterFQDN(sc.MongosRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
-			allPodNames = append(allPodNames, getPodName(sc.MongosRsName(), clusterIdx, podIdx))
-		}
-
-		for podIdx := range clusterSpec.ConfigSrvMembers {
-			allHosts = append(allHosts, getMultiClusterFQDN(sc.ConfigRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
-			allPodNames = append(allPodNames, getPodName(sc.ConfigRsName(), clusterIdx, podIdx))
-		}
-
-		for shardIdx := 0; shardIdx < len(clusterSpec.ShardsMembersArray); shardIdx++ {
-			for podIdx := 0; podIdx < clusterSpec.ShardsMembersArray[shardIdx]; podIdx++ {
-				allHosts = append(allHosts, getMultiClusterFQDN(sc.ShardName(shardIdx), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
-				allPodNames = append(allPodNames, getPodName(sc.ShardName(shardIdx), clusterIdx, podIdx))
-			}
-		}
-	}
-
-	return allHosts, allPodNames
-}
-
 func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testing.T) {
 	expectedClusterConfigList := make(MultiClusterShardedClusterConfigList, 0)
 	expectedClusterConfigList.AddCluster("member-cluster-1", []int{2, 2}, 0, 2)
@@ -1197,7 +1168,7 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 
 func createSecretsForShards(resourceName string, shardCount int, certificatesSecretsPrefix string) []client.Object {
 	var shardSecrets []client.Object
-	for i := 0; i < shardCount; i++ {
+	for i := range shardCount {
 		shardData := make(map[string][]byte)
 		shardData["tls.crt"], shardData["tls.key"] = createMockCertAndKeyBytes()
 
@@ -1458,7 +1429,7 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 	require.Contains(t, updatedSc.Annotations, util.LastAchievedSpec)
 	actualLastAchievedSpec := updatedSc.Annotations[util.LastAchievedSpec]
 
-	var configMapData, actualLastAchievedSpecData map[string]interface{}
+	var configMapData, actualLastAchievedSpecData map[string]any
 	// Deserialize the JSON data from the  annotation
 	err = json.Unmarshal([]byte(actualLastAchievedSpec), &actualLastAchievedSpecData)
 	require.NoError(t, err)
@@ -1466,7 +1437,7 @@ func TestMigrateToNewDeploymentState(t *testing.T) {
 	// Extract lastAchievedSpec from the state Config Map
 	err = json.Unmarshal([]byte(stateConfigMap.Data[stateKey]), &configMapData)
 	require.NoError(t, err)
-	expectedLastAchievedSpec, ok := configMapData["lastAchievedSpec"].(map[string]interface{})
+	expectedLastAchievedSpec, ok := configMapData["lastAchievedSpec"].(map[string]any)
 	require.True(t, ok, "Expected lastAchievedSpec field is missing or invalid")
 
 	require.Equal(t, expectedLastAchievedSpec, actualLastAchievedSpecData)
@@ -1486,7 +1457,7 @@ func testDesiredConfigurationFromYAML[T *mdbv1.ShardedClusterComponentSpec | map
 	_, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 	require.NoError(t, err)
 
-	var actual interface{}
+	var actual any
 	// no reconcile here, we just test prepareDesiredConfiguration
 	switch shardedComponentType {
 	case "shard":
@@ -2224,7 +2195,7 @@ func computeShardOverridesFromDistribution(shardOverridesDistribution []map[stri
 		for clusterName, members := range distribution {
 			clusterSpecList = append(clusterSpecList, mdbv1.ClusterSpecItemOverride{
 				ClusterName: clusterName,
-				Members:     ptr.To(members),
+				Members:     new(members),
 			})
 		}
 
@@ -2871,7 +2842,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 				{
 					ClusterName: memberClusterName2,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-						ExternalDomain: ptr.To("custom.domain"),
+						ExternalDomain: new("custom.domain"),
 					},
 					Members: 1,
 				},
@@ -2880,7 +2851,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 				{
 					ClusterName: memberClusterName3,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-						ExternalDomain: ptr.To("custom.config.domain"),
+						ExternalDomain: new("custom.config.domain"),
 					},
 					Members: 1,
 				},
@@ -3149,7 +3120,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 						},
-						ExternalDomain: ptr.To("custom.domain"),
+						ExternalDomain: new("custom.domain"),
 					},
 					Members: 1,
 				},
@@ -3172,7 +3143,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 						},
-						ExternalDomain: ptr.To("custom.config.domain"),
+						ExternalDomain: new("custom.config.domain"),
 					},
 					Members: 1,
 				},
@@ -3303,7 +3274,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 						},
-						ExternalDomain: ptr.To("custom.mongos.domain"),
+						ExternalDomain: new("custom.mongos.domain"),
 					},
 					Members: 2,
 				},
@@ -3338,7 +3309,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 						},
-						ExternalDomain: ptr.To("custom.domain"),
+						ExternalDomain: new("custom.domain"),
 					},
 					Members: 2,
 				},
@@ -3373,7 +3344,7 @@ func TestMultiClusterShardedServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 						},
-						ExternalDomain: ptr.To("custom.config.domain"),
+						ExternalDomain: new("custom.config.domain"),
 					},
 					Members: 2,
 				},
@@ -3876,12 +3847,12 @@ func loadExpectedReplicaSets(path string) (map[string]any, error) {
 	return ac, nil
 }
 
-func normalizeObjectToInterfaceMap(obj any) (map[string]interface{}, error) {
+func normalizeObjectToInterfaceMap(obj any) (map[string]any, error) {
 	objJson, err := json.Marshal(obj)
 	if err != nil {
 		return nil, err
 	}
-	result := map[string]interface{}{}
+	result := map[string]any{}
 	err = json.Unmarshal(objJson, &result)
 	if err != nil {
 		return nil, err
@@ -3901,7 +3872,7 @@ func visualJsonDiffOfAnyObjects(t *testing.T, expectedObj any, actualObj any) st
 	return visualDiff
 }
 
-func getVisualJsonDiff(expectedMap map[string]interface{}, actualMap map[string]interface{}) (string, error) {
+func getVisualJsonDiff(expectedMap map[string]any, actualMap map[string]any) (string, error) {
 	differ := gojsondiff.New()
 	diff := differ.CompareObjects(expectedMap, actualMap)
 	if !diff.Modified() {

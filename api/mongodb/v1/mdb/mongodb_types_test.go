@@ -7,13 +7,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 func TestEnsureSecurity_WithAllNilValues(t *testing.T) {
@@ -159,7 +157,7 @@ func TestMinimumMajorVersion(t *testing.T) {
 	mdbSpec = MongoDbSpec{
 		DbCommonSpec: DbCommonSpec{
 			Version:                     "4.0.0-ent",
-			FeatureCompatibilityVersion: stringutil.Ref("3.6"),
+			FeatureCompatibilityVersion: new("3.6"),
 		},
 	}
 
@@ -168,7 +166,7 @@ func TestMinimumMajorVersion(t *testing.T) {
 	mdbSpec = MongoDbSpec{
 		DbCommonSpec: DbCommonSpec{
 			Version:                     "4.0.0",
-			FeatureCompatibilityVersion: stringutil.Ref("3.6"),
+			FeatureCompatibilityVersion: new("3.6"),
 		},
 	}
 
@@ -538,7 +536,7 @@ func TestUpdateStatus_DoesNotSetProjectIdWhenOptionAbsent(t *testing.T) {
 func TestAdditionalMongodConfigMarshalJSON(t *testing.T) {
 	mdb := MongoDB{Spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{Version: "4.2.1"}}}
 	mdb.InitDefaults()
-	mdb.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{object: map[string]interface{}{"net": map[string]interface{}{"port": "30000"}}}
+	mdb.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{object: map[string]any{"net": map[string]any{"port": "30000"}}}
 
 	marshal, err := json.Marshal(mdb.Spec)
 	assert.NoError(t, err)
@@ -760,7 +758,7 @@ func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomClusterDomain(t *testing.T)
 
 func TestGetRSHostnamesAndPorts_ReplicaSet_WithCustomPort(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetMembers(2).Build()
-	rs.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{object: map[string]interface{}{"net": map[string]interface{}{"port": float64(30000)}}}
+	rs.Spec.AdditionalMongodConfig = &AdditionalMongodConfig{object: map[string]any{"net": map[string]any{"port": float64(30000)}}}
 
 	got := rs.GetRSHostnamesAndPorts()
 
@@ -829,9 +827,9 @@ func TestGetDownloadBase(t *testing.T) {
 }
 
 func TestEffectiveExternalAccessConfiguration(t *testing.T) {
-	perTier := &ExternalAccessConfiguration{ExternalDomain: ptr.To("per-tier.example.com")}
-	perCluster := &ExternalAccessConfiguration{ExternalDomain: ptr.To("per-cluster.example.com")}
-	topLevel := &ExternalAccessConfiguration{ExternalDomain: ptr.To("top-level.example.com")}
+	perTier := &ExternalAccessConfiguration{ExternalDomain: new("per-tier.example.com")}
+	perCluster := &ExternalAccessConfiguration{ExternalDomain: new("per-cluster.example.com")}
+	topLevel := &ExternalAccessConfiguration{ExternalDomain: new("top-level.example.com")}
 
 	// A multi-cluster clusterSpecList entry naming a member cluster.
 	mcComponentWithPerCluster := &ShardedClusterComponentSpec{

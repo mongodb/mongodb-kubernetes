@@ -5,6 +5,7 @@ package v1
 
 import (
 	"encoding/json"
+	"maps"
 
 	"github.com/stretchr/objx"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,7 +20,7 @@ import (
 // on the top level and hence we need to work around this with
 // a wrapping struct.
 type MapWrapper struct {
-	Object map[string]interface{} `json:"-"`
+	Object map[string]any `json:"-"`
 }
 
 // MarshalJSON defers JSON encoding to the wrapped map
@@ -30,13 +31,13 @@ func (m *MapWrapper) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON will decode the data into the wrapped map
 func (m *MapWrapper) UnmarshalJSON(data []byte) error {
 	if m.Object == nil {
-		m.Object = map[string]interface{}{}
+		m.Object = map[string]any{}
 	}
 
 	// Handle keys like net.port to be set as nested maps.
 	// Without this after unmarshalling there is just key "net.port" which is not
 	// a nested map and methods like GetPort() cannot access the value.
-	tmpMap := map[string]interface{}{}
+	tmpMap := map[string]any{}
 	err := json.Unmarshal(data, &tmpMap)
 	if err != nil {
 		return err
@@ -61,11 +62,11 @@ func (m *MapWrapper) DeepCopy() *MapWrapper {
 
 // NewMapWrapper returns an empty MapWrapper
 func NewMapWrapper() MapWrapper {
-	return MapWrapper{Object: map[string]interface{}{}}
+	return MapWrapper{Object: map[string]any{}}
 }
 
 // SetOption updates the MapWrapper with a new option
-func (m MapWrapper) SetOption(key string, value interface{}) MapWrapper {
+func (m MapWrapper) SetOption(key string, value any) MapWrapper {
 	m.Object = objx.New(m.Object).Set(key, value)
 	return m
 }
@@ -310,15 +311,11 @@ func (in *DeploymentMetadataWrapper) DeepCopy() *DeploymentMetadataWrapper {
 	out := &DeploymentMetadataWrapper{}
 	if in.Labels != nil {
 		out.Labels = make(map[string]string, len(in.Labels))
-		for k, v := range in.Labels {
-			out.Labels[k] = v
-		}
+		maps.Copy(out.Labels, in.Labels)
 	}
 	if in.Annotations != nil {
 		out.Annotations = make(map[string]string, len(in.Annotations))
-		for k, v := range in.Annotations {
-			out.Annotations[k] = v
-		}
+		maps.Copy(out.Annotations, in.Annotations)
 	}
 	return out
 }

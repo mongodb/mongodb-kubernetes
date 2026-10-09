@@ -542,7 +542,7 @@ type DataStoreConfig struct {
 	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
 }
 
-func (f DataStoreConfig) Identifier() interface{} {
+func (f DataStoreConfig) Identifier() any {
 	return f.Name
 }
 
@@ -586,7 +586,7 @@ type S3Config struct {
 	ObjectLockEnabled *bool `json:"objectLockEnabled"`
 }
 
-func (s S3Config) Identifier() interface{} {
+func (s S3Config) Identifier() any {
 	return s.Name
 }
 
@@ -860,7 +860,7 @@ func (om *MongoDBOpsManager) AddBackupWarningIfNotExists(warning status.Warning)
 	om.Status.BackupStatus.Warnings = status.Warnings(om.Status.BackupStatus.Warnings).AddIfNotExists(warning)
 }
 
-func (om *MongoDBOpsManager) GetStatus(options ...status.Option) interface{} {
+func (om *MongoDBOpsManager) GetStatus(options ...status.Option) any {
 	if part, exists := status.GetOption(options, status.OMPartOption{}); exists {
 		switch part.Value().(status.Part) {
 		case status.OpsManager:

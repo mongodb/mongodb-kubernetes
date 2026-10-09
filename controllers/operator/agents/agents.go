@@ -176,7 +176,7 @@ func GetMongoDBClusterState(ctx context.Context, omConnection om.Connection) (Mo
 	_, err := om.TraversePages(
 		ctx,
 		omConnection.ReadAutomationAgents,
-		func(aa interface{}) bool {
+		func(aa any) bool {
 			agentStatuses = append(agentStatuses, aa.(om.AgentStatus))
 			return false
 		},
@@ -199,14 +199,6 @@ func GetMongoDBClusterState(ctx context.Context, omConnection om.Connection) (Mo
 		GoalVersion:     automationStatus.GoalVersion,
 		ProcessStateMap: processStateMap,
 	}, nil
-}
-
-func (c *MongoDBClusterStateInOM) GetProcessState(hostname string) ProcessState {
-	if processState, ok := c.ProcessStateMap[hostname]; ok {
-		return processState
-	}
-
-	return NewProcessState(hostname)
 }
 
 func (c *MongoDBClusterStateInOM) GetProcesses() []ProcessState {
@@ -263,7 +255,7 @@ func calculateProcessStateMap(processStatuses []om.ProcessStatus, agentStatuses 
 
 func agentCheck(ctx context.Context, omConnection om.Connection, agentHostnames []string, log *zap.SugaredLogger) (string, bool) {
 	registeredHostnamesSet := map[string]struct{}{}
-	predicateFunc := func(aa interface{}) bool {
+	predicateFunc := func(aa any) bool {
 		automationAgent := aa.(om.Status)
 		for _, hostname := range agentHostnames {
 			if automationAgent.IsRegistered(hostname, log) {

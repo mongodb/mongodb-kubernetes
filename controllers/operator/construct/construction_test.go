@@ -19,7 +19,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 func TestBuildStatefulSet_PersistentFlagStatic(t *testing.T) {
@@ -29,14 +28,14 @@ func TestBuildStatefulSet_PersistentFlagStatic(t *testing.T) {
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 
-	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(true)).Build()
+	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(new(true)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 
 	// If no persistence is set then we still mount init scripts
-	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(false)).Build()
+	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(new(false)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
@@ -49,13 +48,13 @@ func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 
-	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(true)).Build()
+	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(new(true)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
 
 	// If no persistence is set then we still mount init scripts
-	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(util.BooleanRef(false)).Build()
+	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(new(false)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
 	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
@@ -70,7 +69,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec).Build()
 	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 
-	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), labels)})
+	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", new("fast"), labels)})
 
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
@@ -93,7 +92,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingleStatic(t *testing.T) {
 	rs := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).SetPodSpec(&podSpec).Build()
 	set := DatabaseStatefulSet(*rs, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
 
-	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), labels)})
+	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{pvClaim(util.PvcNameData, "40G", new("fast"), labels)})
 
 	checkMounts(t, set, []corev1.VolumeMount{
 		{Name: util.PvMms, MountPath: util.PvcMmsHomeMountPath, SubPath: util.PvcMmsHome},
@@ -122,9 +121,9 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
-		pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), nil),
-		pvClaim(util.PvcNameJournal, "3G", stringutil.Ref("slow"), labels1),
-		pvClaim(util.PvcNameLogs, "500M", stringutil.Ref("fast"), labels2),
+		pvClaim(util.PvcNameData, "40G", new("fast"), nil),
+		pvClaim(util.PvcNameJournal, "3G", new("slow"), labels1),
+		pvClaim(util.PvcNameLogs, "500M", new("fast"), labels2),
 	})
 
 	checkMounts(t, set, []corev1.VolumeMount{
@@ -151,7 +150,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
 
 	checkPvClaims(t, set, []corev1.PersistentVolumeClaim{
-		pvClaim(util.PvcNameData, "40G", stringutil.Ref("fast"), nil),
+		pvClaim(util.PvcNameData, "40G", new("fast"), nil),
 		pvClaim(util.PvcNameJournal, util.DefaultJournalStorageSize, nil, nil),
 		pvClaim(util.PvcNameLogs, util.DefaultLogsStorageSize, nil, nil),
 	})
@@ -241,7 +240,7 @@ func TestBasePodSpec_ImagePullSecrets(t *testing.T) {
 // TestBasePodSpec_TerminationGracePeriodSeconds verifies that the TerminationGracePeriodSeconds is set to 600 seconds
 func TestBasePodSpec_TerminationGracePeriodSeconds(t *testing.T) {
 	sts := DatabaseStatefulSet(*mdbv1.NewReplicaSetBuilder().Build(), ReplicaSetOptions(GetPodEnvOptions()), zap.S())
-	assert.Equal(t, util.Int64Ref(600), sts.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	assert.Equal(t, new(int64(600)), sts.Spec.Template.Spec.TerminationGracePeriodSeconds)
 }
 
 func checkPvClaims(t *testing.T, set appsv1.StatefulSet, expectedClaims []corev1.PersistentVolumeClaim) {
@@ -289,11 +288,11 @@ func TestDefaultPodSpec_SecurityContext(t *testing.T) {
 	assert.Len(t, spec.InitContainers, 1)
 	assert.NotNil(t, spec.SecurityContext)
 	assert.NotNil(t, spec.InitContainers[0].SecurityContext)
-	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
-	assert.Equal(t, util.Int64Ref(util.RunAsUser), spec.SecurityContext.RunAsUser)
-	assert.Equal(t, util.BooleanRef(true), spec.SecurityContext.RunAsNonRoot)
-	assert.Equal(t, util.BooleanRef(true), spec.InitContainers[0].SecurityContext.ReadOnlyRootFilesystem)
-	assert.Equal(t, util.BooleanRef(false), spec.InitContainers[0].SecurityContext.AllowPrivilegeEscalation)
+	assert.Equal(t, new(int64(util.FsGroup)), spec.SecurityContext.FSGroup)
+	assert.Equal(t, new(int64(util.RunAsUser)), spec.SecurityContext.RunAsUser)
+	assert.Equal(t, new(true), spec.SecurityContext.RunAsNonRoot)
+	assert.Equal(t, new(true), spec.InitContainers[0].SecurityContext.ReadOnlyRootFilesystem)
+	assert.Equal(t, new(false), spec.InitContainers[0].SecurityContext.AllowPrivilegeEscalation)
 
 	t.Setenv(util.ManagedSecurityContextEnv, "true")
 

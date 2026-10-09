@@ -24,9 +24,9 @@ var (
 )
 
 type patchValue struct {
-	Op    string      `json:"op"`
-	Path  string      `json:"path"`
-	Value interface{} `json:"value"`
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value any    `json:"value"`
 }
 
 // mockedClient dynamically creates maps to store instances of k8sClient.Object

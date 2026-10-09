@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -380,30 +379,30 @@ func TestReplicasetFCV(t *testing.T) {
 	}{
 		{
 			name:                 "Invalid FCV value",
-			fcv:                  ptr.To("test"),
+			fcv:                  new("test"),
 			expectError:          true,
 			expectedErrorMessage: "invalid feature compatibility version \"test\", possible values are: 'AlwaysMatchVersion' or 'major.minor'",
 		},
 		{
 			name:        "Valid FCV with specific version",
-			fcv:         ptr.To("4.0"),
+			fcv:         new("4.0"),
 			expectError: false,
 		},
 		{
 			name:                 "Invalid FCV - not major.minor only",
-			fcv:                  ptr.To("4.0.0"),
+			fcv:                  new("4.0.0"),
 			expectError:          true,
 			expectedErrorMessage: "invalid feature compatibility version \"4.0.0\", possible values are: 'AlwaysMatchVersion' or 'major.minor'",
 		},
 		{
 			name:                 "Invalid FCV - not major leading 0",
-			fcv:                  ptr.To("4.01"),
+			fcv:                  new("4.01"),
 			expectError:          true,
 			expectedErrorMessage: "invalid feature compatibility version \"4.01\": Minor number must not contain leading zeroes \"01\"",
 		},
 		{
 			name:        "Valid FCV with AlwaysMatchVersion",
-			fcv:         ptr.To("AlwaysMatchVersion"),
+			fcv:         new("AlwaysMatchVersion"),
 			expectError: false,
 		},
 	}
@@ -484,13 +483,13 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName:   "provider",
 						IssuerURI:           "https://example1.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            ptr.To("clientId1"),
+						ClientId:            new("clientId1"),
 					},
 					{
 						ConfigurationName:   "provider",
 						IssuerURI:           "https://example2.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            ptr.To("clientId2"),
+						ClientId:            new("clientId2"),
 					},
 				},
 			},
@@ -507,13 +506,13 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName:   "test-provider1",
 						IssuerURI:           "https://example1.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            ptr.To("clientId1"),
+						ClientId:            new("clientId1"),
 					},
 					{
 						ConfigurationName:   "test-provider2",
 						IssuerURI:           "https://example2.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            ptr.To("clientId2"),
+						ClientId:            new("clientId2"),
 					},
 				},
 			},
@@ -530,7 +529,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName:   "test-provider-workforce1",
 						IssuerURI:           "https://example1.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkforceIdentityFederation,
-						ClientId:            ptr.To("clientId1"),
+						ClientId:            new("clientId1"),
 					},
 					{
 						ConfigurationName:   "test-provider-workload2",
@@ -602,7 +601,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName:   "test-provider",
 						IssuerURI:           "https://example.com",
 						AuthorizationMethod: OIDCAuthorizationMethodWorkloadIdentityFederation,
-						ClientId:            ptr.To("clientId"),
+						ClientId:            new("clientId"),
 					},
 				},
 			},
@@ -636,7 +635,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName: "test-provider1",
 						IssuerURI:         "https://example.com",
 						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
-						GroupsClaim:       ptr.To("groups"),
+						GroupsClaim:       new("groups"),
 					},
 					{
 						ConfigurationName: "test-provider2",
@@ -658,7 +657,7 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName: "test-provider1",
 						IssuerURI:         "https://example.com",
 						AuthorizationType: OIDCAuthorizationTypeUserID,
-						GroupsClaim:       ptr.To("groups"),
+						GroupsClaim:       new("groups"),
 						UserClaim:         "sub",
 					},
 					{
@@ -682,13 +681,13 @@ func TestOIDCAuthValidation(t *testing.T) {
 						ConfigurationName: "test-provider1",
 						IssuerURI:         "https://example.com",
 						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
-						GroupsClaim:       ptr.To("groups"),
+						GroupsClaim:       new("groups"),
 					},
 					{
 						ConfigurationName: "test-provider2",
 						IssuerURI:         "https://example.com",
 						AuthorizationType: OIDCAuthorizationTypeGroupMembership,
-						GroupsClaim:       ptr.To("groups"),
+						GroupsClaim:       new("groups"),
 					},
 				},
 			},
@@ -1455,12 +1454,12 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 			oldSpec: MongoDbSpec{
 				ExternalMembers:                 shardedExternalMembers,
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
-				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(0), Priority: ptr.To("0")}},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: new(0), Priority: new("0")}},
 			},
 			newSpec: MongoDbSpec{
 				ExternalMembers:                 shardedExternalMembers,
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
-				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(1), Priority: ptr.To("1")}},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: new(1), Priority: new("1")}},
 			},
 			expectError: false,
 		},
@@ -1469,12 +1468,12 @@ func TestAtMostOneMigrationChangeAtATime_ShardedCluster_ExternalMembersOnly(t *t
 			oldSpec: MongoDbSpec{
 				ExternalMembers:                 shardedExternalMembers,
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
-				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(0), Priority: ptr.To("0")}},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: new(0), Priority: new("0")}},
 			},
 			newSpec: MongoDbSpec{
 				ExternalMembers:                 shardedExternalMembers[1:],
 				MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{ShardCount: 1, MongodsPerShardCount: 3, ConfigServerCount: 3},
-				MemberConfig:                    []automationconfig.MemberOptions{{Votes: ptr.To(1), Priority: ptr.To("1")}},
+				MemberConfig:                    []automationconfig.MemberOptions{{Votes: new(1), Priority: new("1")}},
 			},
 			expectError: true,
 			errorMsg:    "only one migration change type is allowed per update",
@@ -2065,8 +2064,8 @@ func multiClusterShardedSpec(clusterNames []string, domainForCluster map[string]
 }
 
 func TestNoExternalDomainChanges(t *testing.T) {
-	oldDomain := ptr.To("old.example.com")
-	newDomain := ptr.To("new.example.com")
+	oldDomain := new("old.example.com")
+	newDomain := new("new.example.com")
 
 	tests := []struct {
 		name        string
@@ -2083,7 +2082,7 @@ func TestNoExternalDomainChanges(t *testing.T) {
 		{
 			name:    "replica set with unchanged external domain",
 			oldSpec: replicaSetSpecWithExternalDomain(oldDomain),
-			newSpec: replicaSetSpecWithExternalDomain(ptr.To("old.example.com")),
+			newSpec: replicaSetSpecWithExternalDomain(new("old.example.com")),
 		},
 		{
 			name:        "replica set external domain changed",
@@ -2109,7 +2108,7 @@ func TestNoExternalDomainChanges(t *testing.T) {
 		{
 			name:    "sharded cluster top level external domain unchanged",
 			oldSpec: shardedSpecWithExternalDomains(oldDomain, nil, nil, nil),
-			newSpec: shardedSpecWithExternalDomains(ptr.To("old.example.com"), nil, nil, nil),
+			newSpec: shardedSpecWithExternalDomains(new("old.example.com"), nil, nil, nil),
 		},
 		{
 			name:        "sharded cluster top level external domain changed",
@@ -2137,27 +2136,27 @@ func TestNoExternalDomainChanges(t *testing.T) {
 			// In single cluster only mongos resolves the top level field, so an identical per tier
 			// mongos value leaves every effective domain untouched.
 			oldSpec: shardedSpecWithExternalDomains(oldDomain, nil, nil, nil),
-			newSpec: shardedSpecWithExternalDomains(nil, ptr.To("old.example.com"), nil, nil),
+			newSpec: shardedSpecWithExternalDomains(nil, new("old.example.com"), nil, nil),
 		},
 		{
 			name:    "multi cluster with unchanged per cluster domains",
-			oldSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
-			newSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
+			oldSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": new("c1.example.com"), "c2": new("c2.example.com")}),
+			newSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": new("c1.example.com"), "c2": new("c2.example.com")}),
 		},
 		{
 			name:    "multi cluster adding a member cluster with its own domain",
-			oldSpec: multiClusterShardedSpec([]string{"c1"}, map[string]*string{"c1": ptr.To("c1.example.com")}),
-			newSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
+			oldSpec: multiClusterShardedSpec([]string{"c1"}, map[string]*string{"c1": new("c1.example.com")}),
+			newSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": new("c1.example.com"), "c2": new("c2.example.com")}),
 		},
 		{
 			name:    "multi cluster removing a member cluster",
-			oldSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
-			newSpec: multiClusterShardedSpec([]string{"c1"}, map[string]*string{"c1": ptr.To("c1.example.com")}),
+			oldSpec: multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": new("c1.example.com"), "c2": new("c2.example.com")}),
+			newSpec: multiClusterShardedSpec([]string{"c1"}, map[string]*string{"c1": new("c1.example.com")}),
 		},
 		{
 			name:        "multi cluster changing the domain of an existing member cluster",
-			oldSpec:     multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("c2.example.com")}),
-			newSpec:     multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": ptr.To("c1.example.com"), "c2": ptr.To("changed.example.com")}),
+			oldSpec:     multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": new("c1.example.com"), "c2": new("c2.example.com")}),
+			newSpec:     multiClusterShardedSpec([]string{"c1", "c2"}, map[string]*string{"c1": new("c1.example.com"), "c2": new("changed.example.com")}),
 			expectError: true,
 			errorMsg:    `for configSrv in member cluster "c2"`,
 		},
@@ -2178,10 +2177,10 @@ func TestNoExternalDomainChanges(t *testing.T) {
 
 func TestNoExternalDomainChanges_WiredIntoWebhook(t *testing.T) {
 	oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(3).Build()
-	oldRs.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{ExternalDomain: ptr.To("old.example.com")}
+	oldRs.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{ExternalDomain: new("old.example.com")}
 
 	newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetMembers(3).Build()
-	newRs.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{ExternalDomain: ptr.To("new.example.com")}
+	newRs.Spec.ExternalAccessConfiguration = &ExternalAccessConfiguration{ExternalDomain: new("new.example.com")}
 
 	_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
 	require.Error(t, err)

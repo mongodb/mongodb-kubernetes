@@ -2,7 +2,7 @@
 # Updates Go version across all files in the codebase.
 # Source of truth: go.mod in the root directory.
 #
-# Usage: ./scripts/update-go-version.sh
+# Usage: ./scripts/dev/update_go_version.sh
 #
 # When adding new files that reference Go version, add them to the
 # appropriate array below.
@@ -43,7 +43,7 @@ DEV_SCRIPT_FILES=(
 )
 
 # Hook version
-DEV_SCRIPT_FILES=(
+HOOK_CONFIG_FILES=(
     ".pre-commit-config.yaml"
 )
 
@@ -83,7 +83,7 @@ update_files "^go .*" "go ${FULL_VERSION}" "${GO_MOD_FILES[@]}"
 update_files "^golang .*" "golang ${FULL_VERSION}" "${TOOL_VERSION_FILES[@]}"
 update_files "golang:[0-9.]*" "golang:${MINOR_VERSION}" "${DOCKERFILE_FILES[@]}"
 update_files "/opt/golang/go[0-9.]*" "/opt/golang/go${MINOR_VERSION}" "${DEV_SCRIPT_FILES[@]}"
-update_files "language_version:.*" "language_version: ${FULL_VERSION}" "${DEV_SCRIPT_FILES[@]}"
+update_files "language_version:.*" "language_version: ${FULL_VERSION}" "${HOOK_CONFIG_FILES[@]}"
 
 echo ""
 echo "Done. Run 'git diff' to review changes."

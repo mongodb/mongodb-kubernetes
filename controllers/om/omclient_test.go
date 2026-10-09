@@ -140,13 +140,11 @@ func TestHTTPOmConnectionGetHTTPClientRace(t *testing.T) {
 	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"}).(*HTTPOmConnection)
 	wg := sync.WaitGroup{}
 
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
+	for range 5 {
+		wg.Go(func() {
 			_, err := connection.getHTTPClient()
 			assert.NoError(t, err)
-			wg.Done()
-		}()
+		})
 	}
 
 	wg.Wait()

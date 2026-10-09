@@ -3,6 +3,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -208,7 +209,7 @@ type AdvancedMongotConfigs struct {
 }
 
 // ToMap returns a deep copy of the wrapped config, or nil when unset.
-func (a *AdvancedMongotConfigs) ToMap() map[string]interface{} {
+func (a *AdvancedMongotConfigs) ToMap() map[string]any {
 	if a == nil || a.Object == nil {
 		return nil
 	}
@@ -674,7 +675,7 @@ func (s *MongoDBSearch) GetCommonStatus(options ...status.Option) *status.Common
 	return &s.Status.Common
 }
 
-func (s *MongoDBSearch) GetStatus(options ...status.Option) interface{} {
+func (s *MongoDBSearch) GetStatus(options ...status.Option) any {
 	if partOpt, exists := status.GetOption(options, SearchPartOption{}); exists {
 		switch partOpt.(SearchPartOption).Part {
 		case SearchPartLoadBalancer:
@@ -1178,10 +1179,8 @@ func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName stri
 // findShardOverride returns the override whose ShardNames contains shardName, or nil.
 func findShardOverride(overrides []ShardOverride, shardName string) *ShardOverride {
 	for i := range overrides {
-		for _, name := range overrides[i].ShardNames {
-			if name == shardName {
-				return &overrides[i]
-			}
+		if slices.Contains(overrides[i].ShardNames, shardName) {
+			return &overrides[i]
 		}
 	}
 	return nil

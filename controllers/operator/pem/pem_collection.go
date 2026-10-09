@@ -82,27 +82,6 @@ func (p Collection) MergeEntry(hostname string, pem File) {
 	}
 }
 
-// Merge combines all Pem Files into a map[string]string.
-func (p *Collection) Merge() map[string]string {
-	result := make(map[string]string)
-
-	for k, v := range p.PemFiles {
-		result[k+"-pem"] = v.String()
-	}
-
-	return result
-}
-
-// MergeWith merges the provided entry into this Collection.
-func (p *Collection) MergeWith(data map[string][]byte) map[string]string {
-	for k, v := range data {
-		hostname := strings.TrimSuffix(k, "-pem")
-		p.MergeEntry(hostname, NewFileFrom(string(v)))
-	}
-
-	return p.Merge()
-}
-
 func (p File) ParseCertificate() ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 	for block, rest := pem.Decode([]byte(p.Certificate)); block != nil; block, rest = pem.Decode(rest) {
@@ -132,11 +111,11 @@ type File struct {
 func NewFileFrom(data string) File {
 	parts := separatePemFile(data)
 	privateKey := ""
-	certificate := ""
+	var certificate strings.Builder
 
 	for _, el := range parts {
 		if strings.Contains(el, "BEGIN CERTIFICATE") {
-			certificate += el
+			certificate.WriteString(el)
 		} else if strings.Contains(el, "PRIVATE KEY") {
 			privateKey = el
 		}
@@ -144,7 +123,7 @@ func NewFileFrom(data string) File {
 
 	return File{
 		PrivateKey:  privateKey,
-		Certificate: certificate,
+		Certificate: certificate.String(),
 	}
 }
 

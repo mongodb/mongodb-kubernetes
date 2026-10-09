@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -394,17 +395,13 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not get resource annotations: %w", err)))
 	}
 
-	for k, val := range r.getVaultAnnotations() {
-		annotationsToAdd[k] = val
-	}
+	maps.Copy(annotationsToAdd, r.getVaultAnnotations())
 
 	roleAnnotation, _, err := r.reconciler.getRoleAnnotation(ctx, r.resource.Spec.DbCommonSpec, r.reconciler.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(r.resource))
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(err))
 	}
-	for k, val := range roleAnnotation {
-		annotationsToAdd[k] = val
-	}
+	maps.Copy(annotationsToAdd, roleAnnotation)
 
 	if err := annotations.SetAnnotations(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not update resource annotations: %w", err)))

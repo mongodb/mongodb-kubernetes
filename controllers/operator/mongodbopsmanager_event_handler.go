@@ -19,7 +19,7 @@ import (
 type MongoDBOpsManagerEventHandler struct {
 	*handler.EnqueueRequestForObject
 	reconciler interface {
-		OnDelete(ctx context.Context, obj interface{}, log *zap.SugaredLogger)
+		OnDelete(ctx context.Context, obj any, log *zap.SugaredLogger)
 	}
 }
 

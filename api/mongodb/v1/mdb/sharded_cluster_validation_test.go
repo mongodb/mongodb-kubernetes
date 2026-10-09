@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -66,7 +65,7 @@ func TestMandatorySingleClusterFieldsAreSpecified_WaivedDuringMigration(t *testi
 }
 
 func TestShardOverridesAreCorrect(t *testing.T) {
-	intPointer := ptr.To(3)
+	intPointer := new(3)
 	resourceName := "foo"
 	tests := []struct {
 		name                   string
@@ -283,7 +282,7 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			mongosCount:       2,
 			shardOverrides: []ShardOverride{
 				{ShardNames: []string{"foo-0"}, MemberConfig: defaultMemberConfig},
-				{ShardNames: []string{"foo-1"}, Members: ptr.To(2)},
+				{ShardNames: []string{"foo-1"}, Members: new(2)},
 				{ShardNames: []string{"foo-2"}, StatefulSetConfiguration: &v1.StatefulSetConfiguration{}},
 			},
 			expectWarning:    false,
@@ -329,7 +328,7 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			name:           "Warning when Members is set in ShardOverrides in MultiCluster topology",
 			isMultiCluster: true,
 			shardOverrides: []ShardOverride{
-				{ShardNames: []string{"foo-0"}, Members: ptr.To(2)},
+				{ShardNames: []string{"foo-0"}, Members: new(2)},
 			},
 			expectWarning: true,
 			expectedWarnings: []status.Warning{
@@ -341,8 +340,8 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			isMultiCluster: true,
 			members:        1,
 			memberConfig: []automationconfig.MemberOptions{{
-				Votes:    ptr.To(1),
-				Priority: ptr.To("3"),
+				Votes:    new(1),
+				Priority: new("3"),
 			}},
 			expectWarning: true,
 			expectedWarnings: []status.Warning{
@@ -355,7 +354,7 @@ func TestNoIgnoredFieldUsed(t *testing.T) {
 			isMultiCluster: true,
 			shardOverrides: []ShardOverride{
 				{ShardNames: []string{"foo-0"}, MemberConfig: defaultMemberConfig},
-				{ShardNames: []string{"foo-1"}, Members: ptr.To(2)},
+				{ShardNames: []string{"foo-1"}, Members: new(2)},
 				{ShardNames: []string{"foo-2"}, StatefulSetConfiguration: &v1.StatefulSetConfiguration{}},
 				{
 					ShardNames: []string{"foo-3"},
@@ -441,7 +440,7 @@ func TestPodSpecTemplatesWarnings(t *testing.T) {
 
 func TestDuplicateServiceObjectsIsIgnoredInSingleCluster(t *testing.T) {
 	sc := NewDefaultShardedClusterBuilder().Build()
-	truePointer := ptr.To(true)
+	truePointer := new(true)
 	sc.Spec.DuplicateServiceObjects = truePointer
 	_, err := validator.ValidateCreate(ctx, sc)
 	assert.NoError(t, err)

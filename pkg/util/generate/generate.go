@@ -3,11 +3,8 @@ package generate
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"math/big"
 	"unicode"
 )
-
-var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ123")
 
 // final key must be between 6 and at most 1024 characters
 func KeyFileContents() (string, error) {
@@ -53,24 +50,4 @@ func RandomValidDNS1123Label(n int) (string, error) {
 	}
 
 	return string(runes), nil
-}
-
-func randSeq(n int) string {
-	maxRand := int64(len(letters))
-	randomRune, err := rand.Int(rand.Reader, big.NewInt(maxRand))
-	if err != nil {
-		panic(err)
-	}
-
-	randomRuneAsInt := int(randomRune.Int64())
-
-	b := make([]rune, n)
-	for i := range b {
-		b[i] = letters[randomRuneAsInt]
-	}
-	return string(b)
-}
-
-func GenerateRandomPassword() string {
-	return randSeq(10)
 }

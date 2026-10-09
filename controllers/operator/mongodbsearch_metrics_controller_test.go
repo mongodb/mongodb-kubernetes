@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -154,7 +153,7 @@ func newStubOMAgentRequester(groupID string) stubOMAgentRequester {
 		fn: func(_ mdbv1.ProjectConfig, method, path, _ string, _ any) ([]byte, error) {
 			switch {
 			case method == "GET" && path == "/agents/api/group/v1":
-				return []byte(fmt.Sprintf(`{"groupId":%q}`, groupID)), nil
+				return fmt.Appendf(nil, `{"groupId":%q}`, groupID), nil
 			case method == "POST" && strings.HasSuffix(path, "/v1/delete"):
 				return []byte(`{"results":[]}`), nil
 			default:
@@ -258,10 +257,10 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 		{
 			name: "legacy index left unused: entry deleted",
 			clusters: []searchv1.ClusterSpec{
-				{Name: "cluster-a", Index: ptr.To(int32(1))},
-				{Name: "cluster-b", Index: ptr.To(int32(2))},
+				{Name: "cluster-a", Index: new(int32(1))},
+				{Name: "cluster-b", Index: new(int32(2))},
 			},
-			initialState: clusterTopologyState{ClusterIndex: ptr.To(0)},
+			initialState: clusterTopologyState{ClusterIndex: new(0)},
 			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, legacyDeployment *appsv1.Deployment, deletedHostIDs []string) {
 				assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), &appsv1.Deployment{})),
 					"legacy central Deployment must be deleted after the move to named clusters")
@@ -281,10 +280,10 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 		{
 			name: "legacy index 0 renamed to a named cluster: state re-keys, no cleanup",
 			clusters: []searchv1.ClusterSpec{
-				{Name: "cluster-a", Index: ptr.To(int32(0))},
-				{Name: "cluster-b", Index: ptr.To(int32(2))},
+				{Name: "cluster-a", Index: new(int32(0))},
+				{Name: "cluster-b", Index: new(int32(2))},
 			},
-			initialState: clusterTopologyState{ClusterIndex: ptr.To(0), Replicas: 2},
+			initialState: clusterTopologyState{ClusterIndex: new(0), Replicas: 2},
 			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, legacyDeployment *appsv1.Deployment, deletedHostIDs []string) {
 				assert.Empty(t, deletedHostIDs, "index 0 is live under cluster-a: its hosts must not be deregistered")
 				topologyState := getFullTopologyState(t, fakeClient, search)
@@ -302,12 +301,12 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 		{
 			name: "same name at a new index: old index cleaned, new index added",
 			clusters: []searchv1.ClusterSpec{
-				{Name: "cluster-a", Index: ptr.To(int32(7))},
-				{Name: "cluster-b", Index: ptr.To(int32(1))},
+				{Name: "cluster-a", Index: new(int32(7))},
+				{Name: "cluster-b", Index: new(int32(1))},
 			},
 			fullState: &searchTopologyState{Clusters: map[string]clusterTopologyState{
-				"cluster-a": {ClusterIndex: ptr.To(0), Replicas: 2},
-				"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+				"cluster-a": {ClusterIndex: new(0), Replicas: 2},
+				"cluster-b": {ClusterIndex: new(1), Replicas: 1},
 			}},
 			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, oldDeployment *appsv1.Deployment, deletedHostIDs []string) {
 				assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(oldDeployment), &appsv1.Deployment{})),
@@ -424,14 +423,14 @@ func TestMongoDBSearchMetricsDependencyWatchesRouteRotations(t *testing.T) {
 // with no resolvable index is skipped rather than guessed.
 func TestWorkForRemovedClusters_IndexKeyed(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
-	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-c", Index: ptr.To(int32(5))}}
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-c", Index: new(int32(5))}}
 	r, _ := newMetricsForwarderReconciler(testDefaultImage, search)
 
 	topologyState := &searchTopologyState{Clusters: map[string]clusterTopologyState{
-		"":          {ClusterIndex: ptr.To(0), Replicas: 1}, // index 0 unoccupied: cleaned
-		"cluster-a": {Replicas: 1},                          // no persisted index, not in spec: invalid state, skipped
-		"cluster-b": {ClusterIndex: ptr.To(2), Replicas: 1}, // index 2 unoccupied: cleaned
-		"cluster-c": {Replicas: 1},                          // legacy entry resolves to the spec's index 5: live
+		"":          {ClusterIndex: new(0), Replicas: 1}, // index 0 unoccupied: cleaned
+		"cluster-a": {Replicas: 1},                       // no persisted index, not in spec: invalid state, skipped
+		"cluster-b": {ClusterIndex: new(2), Replicas: 1}, // index 2 unoccupied: cleaned
+		"cluster-c": {Replicas: 1},                       // legacy entry resolves to the spec's index 5: live
 	}}
 	normalizeTopologyState(search, topologyState, zap.S())
 
@@ -484,8 +483,8 @@ func TestMetricsForwarderResources_WorkListAndOwnerLocality(t *testing.T) {
 		wantIdx             int
 	}{
 		{name: "local legacy single cluster"},
-		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: ptr.To(int32(0))}}, crossCluster: true},
-		{name: "operator-per-cluster entry keeps pinned index and stays local", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7},
+		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: new(int32(0))}}, crossCluster: true},
+		{name: "operator-per-cluster entry keeps pinned index and stays local", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: new(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -838,8 +837,8 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 		wantStateKey        string
 	}{
 		{name: "legacy single cluster"},
-		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: ptr.To(int32(0))}}, crossCluster: true, wantStateKey: "member-a"},
-		{name: "operator-per-cluster", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7, wantStateKey: "cluster-b"},
+		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: new(int32(0))}}, crossCluster: true, wantStateKey: "member-a"},
+		{name: "operator-per-cluster", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: new(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7, wantStateKey: "cluster-b"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -905,12 +904,12 @@ func TestReconcile_DisabledMode_DeletesResources(t *testing.T) {
 			Mode: searchv1.MetricsForwarderModeDisabled,
 		},
 	}
-	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(0))}}
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
 	stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
-		"cluster-a": {ClusterIndex: ptr.To(0)},
-		"cluster-b": {ClusterIndex: ptr.To(1)},
+		"cluster-a": {ClusterIndex: new(0)},
+		"cluster-b": {ClusterIndex: new(1)},
 	}})
 	require.NoError(t, err)
 	stateCM.Data[stateKey] = string(stateJSON)
@@ -1050,7 +1049,7 @@ func TestReconcile_CommunitySource_FinalizerLifecycle(t *testing.T) {
 				search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
 			}
 			if tc.persistedHosts {
-				objects = append(objects, newTestTopologyStateConfigMap(t, search, clusterTopologyState{ClusterIndex: ptr.To(0), Replicas: 1}))
+				objects = append(objects, newTestTopologyStateConfigMap(t, search, clusterTopologyState{ClusterIndex: new(0), Replicas: 1}))
 			}
 			r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, objects...)
 			if tc.deleteSearch {
@@ -1224,8 +1223,8 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
 		search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 		search.Spec.Clusters = []searchv1.ClusterSpec{
-			{Name: "cluster-a", Index: ptr.To(int32(0))},
-			{Name: "cluster-b", Index: ptr.To(int32(1))},
+			{Name: "cluster-a", Index: new(int32(0))},
+			{Name: "cluster-b", Index: new(int32(1))},
 		}
 		projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 		agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
@@ -1272,7 +1271,7 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		require.NoError(t, memberRemoved.Create(context.Background(), removedDep))
 		stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
 		stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
-			"cluster-removed": {ClusterIndex: ptr.To(2)},
+			"cluster-removed": {ClusterIndex: new(2)},
 		}})
 		require.NoError(t, err)
 		stateCM.Data[stateKey] = string(stateJSON)
@@ -1297,7 +1296,7 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		r, fakeClient, search := newFixture(t, map[string]kubernetesClient.Client{"cluster-a": memberA, "cluster-b": memberB})
 		stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
 		stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
-			"cluster-gone": {ClusterIndex: ptr.To(2), Replicas: 1},
+			"cluster-gone": {ClusterIndex: new(2), Replicas: 1},
 		}})
 		require.NoError(t, err)
 		stateCM.Data[stateKey] = string(stateJSON)
@@ -1333,10 +1332,10 @@ func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
 			search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
-			search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+			search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(0))}}
 			stateClusters := map[string]clusterTopologyState{
-				"cluster-a": {ClusterIndex: ptr.To(0)},
-				"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+				"cluster-a": {ClusterIndex: new(0)},
+				"cluster-b": {ClusterIndex: new(1), Replicas: 1},
 			}
 			search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
 			projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
@@ -1644,7 +1643,7 @@ func TestReconcile_ShardedSource_ConfigMapUsesClusterIndex(t *testing.T) {
 					},
 				},
 			},
-			Clusters: []searchv1.ClusterSpec{{Name: "", Index: ptr.To(int32(clusterIndex))}},
+			Clusters: []searchv1.ClusterSpec{{Name: "", Index: new(int32(clusterIndex))}},
 		},
 		Status: searchv1.MongoDBSearchStatus{Version: "1.0.0"},
 	}

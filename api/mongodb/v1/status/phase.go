@@ -32,7 +32,7 @@ const (
 
 type Updater interface {
 	GetStatusPath(options ...Option) string
-	GetStatus(options ...Option) interface{}
+	GetStatus(options ...Option) any
 	UpdateStatus(phase Phase, statusOptions ...Option)
 	GetCommonStatus(options ...Option) *Common
 	client.Object

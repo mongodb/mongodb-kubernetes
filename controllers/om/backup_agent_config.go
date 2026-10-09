@@ -12,12 +12,12 @@ type BackupAgentTemplate struct {
 	Password      string                                `json:"password,omitempty"`
 	SSLPemKeyFile string                                `json:"sslPEMKeyFile,omitempty"`
 	LdapGroupDN   string                                `json:"ldapGroupDN,omitempty"`
-	LogRotate     mdbv1.LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
+	LogRotate     mdbv1.LogRotateForBackupAndMonitoring `json:"logRotate"`
 }
 
 type BackupAgentConfig struct {
 	BackupAgentTemplate *BackupAgentTemplate
-	BackingMap          map[string]interface{}
+	BackingMap          map[string]any
 }
 
 func (bac *BackupAgentConfig) Apply() error {
@@ -86,7 +86,7 @@ func (bac *BackupAgentConfig) LogPath() string {
 }
 
 func BuildBackupAgentConfigFromBytes(jsonBytes []byte) (*BackupAgentConfig, error) {
-	fullMap := make(map[string]interface{})
+	fullMap := make(map[string]any)
 	if err := json.Unmarshal(jsonBytes, &fullMap); err != nil {
 		return nil, err
 	}

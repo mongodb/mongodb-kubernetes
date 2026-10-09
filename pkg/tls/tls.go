@@ -15,7 +15,7 @@ const (
 	CAConfigMapKey             = "ca-pem"
 )
 
-func GetTLSModeFromMongodConfig(config map[string]interface{}) Mode {
+func GetTLSModeFromMongodConfig(config map[string]any) Mode {
 	// spec.Security.TLSConfig.IsEnabled() is true -> requireSSLMode
 	if config == nil {
 		return Require

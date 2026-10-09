@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"maps"
 	"sort"
 	"strings"
 
@@ -29,25 +30,8 @@ func StringToStringMap(map1, map2 map[string]string) map[string]string {
 		return nil
 	}
 	mergedMap := make(map[string]string)
-	for k, v := range map1 {
-		mergedMap[k] = v
-	}
-	for k, v := range map2 {
-		mergedMap[k] = v
-	}
-	return mergedMap
-}
-
-// StringToBoolMap merges two string-to-bool maps together with the second map
-// overriding any values also specified in the first.
-func StringToBoolMap(map1, map2 map[string]bool) map[string]bool {
-	mergedMap := make(map[string]bool)
-	for k, v := range map1 {
-		mergedMap[k] = v
-	}
-	for k, v := range map2 {
-		mergedMap[k] = v
-	}
+	maps.Copy(mergedMap, map1)
+	maps.Copy(mergedMap, map2)
 	return mergedMap
 }
 
@@ -58,9 +42,7 @@ func Containers(defaultContainers, overrideContainers []corev1.Container) []core
 	originalMap := createContainerMap(defaultContainers)
 	overrideMap := createContainerMap(overrideContainers)
 
-	for k, v := range originalMap {
-		mergedContainerMap[k] = v
-	}
+	maps.Copy(mergedContainerMap, originalMap)
 
 	for k, v := range overrideMap {
 		if orig, ok := originalMap[k]; ok {
@@ -261,9 +243,7 @@ func VolumeDevices(original, override []corev1.VolumeDevice) []corev1.VolumeDevi
 	originalDevicesMap := createVolumeDevicesMap(original)
 	overrideDevicesMap := createVolumeDevicesMap(override)
 
-	for k, v := range originalDevicesMap {
-		mergedDevicesMap[k] = v
-	}
+	maps.Copy(mergedDevicesMap, originalDevicesMap)
 
 	for k, v := range overrideDevicesMap {
 		if orig, ok := originalDevicesMap[k]; ok {
@@ -311,9 +291,7 @@ func Envs(original, override []corev1.EnvVar) []corev1.EnvVar {
 	originalMap := createEnvMap(original)
 	overrideMap := createEnvMap(override)
 
-	for k, v := range originalMap {
-		mergedEnvsMap[k] = v
-	}
+	maps.Copy(mergedEnvsMap, originalMap)
 
 	for k, v := range overrideMap {
 		if orig, ok := originalMap[k]; ok {
@@ -435,9 +413,7 @@ func VolumeMounts(original, override []corev1.VolumeMount) []corev1.VolumeMount 
 	originalMounts := createVolumeMountMap(original)
 	overrideMounts := createVolumeMountMap(override)
 
-	for k, v := range originalMounts {
-		mergedMountsMap[k] = v
-	}
+	maps.Copy(mergedMountsMap, originalMounts)
 
 	for k, v := range overrideMounts {
 		if orig, ok := originalMounts[k]; ok {

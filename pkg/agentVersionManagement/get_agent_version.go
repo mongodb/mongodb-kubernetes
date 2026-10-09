@@ -80,7 +80,7 @@ func newAgentVersionManager(omVersionToAgentVersion map[omv1.OpsManagerVersion]o
 func isLaterVersion(version1, version2 string) bool {
 	splitVersion := func(version string) []int {
 		var parts []int
-		for _, part := range strings.Split(strings.Split(version, "-")[0], ".") {
+		for part := range strings.SplitSeq(strings.Split(version, "-")[0], ".") {
 			if num, err := strconv.Atoi(part); err == nil {
 				parts = append(parts, num)
 			}
