@@ -81,6 +81,15 @@ func TestCreateReplicaSet(t *testing.T) {
 	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
+func TestReplicaSetReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	rs.SetUID(types.UID("replica-set-uid"))
+	reconciler, kubeClient, _ := defaultReplicaSetReconcilerWithConnectionFactory(ctx, nil, "", "", rs, architectures.NonStatic, monitoringMappingConnectionFactory())
+
+	runReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, rs, rs.GetReplicaSetName())
+}
+
 func TestReplicaSetRace(t *testing.T) {
 	ctx := context.Background()
 	rs, cfgMap, projectName := buildReplicaSetWithCustomProjectName("my-rs")

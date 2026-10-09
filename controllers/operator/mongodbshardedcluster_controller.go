@@ -859,6 +859,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
+	r.ReleaseOtelExporterForProject(ctx, sc, sc.Status.ProjectId, log)
 	if sc.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
@@ -911,11 +912,11 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
-
 	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
+	r.commonController.EnsureOtelExporterForDeployment(conn, agentAPIKey, sc, log)
 
 	if !architectures.IsRunningStaticArchitecture(sc.Annotations, r.defaultArchitecture) {
 		agents.UpgradeIfNeeded(sc, conn)
@@ -1772,6 +1773,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	if err != nil {
 		return err
 	}
+	r.commonController.ReleaseOtelExporterForConnection(conn, sc.Status.ProjectId, log)
 
 	// A resource that still declares externalMembers is mid-migration from VMs: the sharded cluster in
 	// Ops Manager is partly made of processes the operator does not own. Removing it from the

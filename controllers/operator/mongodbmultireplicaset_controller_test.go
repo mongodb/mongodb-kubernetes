@@ -98,6 +98,15 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 }
 
+func TestMultiReplicaSetReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs.SetUID(types.UID("multi-replica-set-uid"))
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconcilerWithConnectionFactory(ctx, nil, "", "", mrs, architectures.NonStatic, monitoringMappingConnectionFactory())
+
+	runMultiReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, mrs, mrs.GetResourceName())
+}
+
 func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)

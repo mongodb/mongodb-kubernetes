@@ -157,10 +157,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Error reading project config and credentials: %w", err)), log)
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, true, log)
+	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("error establishing connection to Ops Manager: %w", err)), log)
 	}
+	r.EnsureOtelExporterForDeployment(conn, agentAPIKey, &mrs, log)
 
 	if !architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) {
 		agents.UpgradeIfNeededMC(&mrs, conn)
@@ -1223,6 +1224,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	if err != nil {
 		return err
 	}
+	// TODO: add ProjectId to MongoDBMultiStatus so release works without OM, like MongoDB resources.
+	r.ReleaseOtelExporterForConnection(conn, "", log)
 
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(

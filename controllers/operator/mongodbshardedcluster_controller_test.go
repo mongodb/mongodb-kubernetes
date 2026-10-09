@@ -108,6 +108,16 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.GetHosts), reflect.ValueOf(mockedConn.RemoveHost))
 }
 
+func TestShardedClusterReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	sc.SetUID(types.UID("sharded-cluster-uid"))
+	reconciler, _, kubeClient, _, err := defaultShardedClusterReconcilerWithConnectionFactory(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic, monitoringMappingConnectionFactory())
+	require.NoError(t, err)
+
+	runReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, sc, sc.GetShardedClusterName())
+}
+
 // TestReconcileCreateSingleClusterShardedClusterWithNoServiceMeshSimplest assumes only Services for Mongos
 // will be created.
 func TestReconcileCreateSingleClusterShardedClusterWithExternalDomainSimplest(t *testing.T) {

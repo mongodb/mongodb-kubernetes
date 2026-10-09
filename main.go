@@ -228,6 +228,32 @@ func run() error {
 	}
 	log.Info("Registering Components.")
 
+	omMetricsCfg := ommetrics.NewConfig()
+	omMetricsCfg.Resource = map[string]string{
+		"mongodb.opsmanager.service.type":    "mck-operator",
+		"mongodb.opsmanager.service.name":    "mongodb-kubernetes-operator",
+		"mongodb.opsmanager.service.version": util.OperatorVersion,
+		"mongodb.opsmanager.host.name":       env.ReadOrDefault("HOSTNAME", ""),
+		"mongodb.opsmanager.host.id":         env.ReadOrDefault("POD_UID", ""),
+		"k8s.namespace.name":                 currentNamespace,
+	}
+	multiplexer, err := ommetrics.New(omMetricsCfg)
+	if err != nil {
+		log.Errorf("Unable to initialize Ops Manager metrics multiplexer: %s", err)
+	} else {
+		omMetricsMultiplexer = multiplexer
+		defer func() {
+			// ctx is already cancelled by the signal at this point; detach so the final export can run.
+			shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			_ = multiplexer.Shutdown(shutdownCtx)
+		}()
+		if err := mgr.Add(ommetrics.NewStalePruner(multiplexer, time.Hour, util.TWENTY_FOUR_HOURS+(1*time.Hour))); err != nil {
+			log.Errorf("Unable to add Ops Manager metrics stale pruner: %s", err)
+		}
+		log.Info("Ops Manager metrics multiplexer enabled")
+	}
+
 	// The migration dry-run Job runs the connectivity-validator binary from the operator image.
 	if imageUrls[util.OperatorImageEnv] == "" {
 		podClient, err := client.New(cfg, client.Options{})
