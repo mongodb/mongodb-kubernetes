@@ -44,7 +44,7 @@ kubectl apply -f replica-set.yaml
 
 ### 2. Start a tools pod
 
-The database pods ship mongodump and mongorestore but not mongosh, run the commands from a pod with the enterprise server image matching the standalone version.
+The non static database images do not carry mongosh, mongodump or mongorestore, run the commands from a pod with the enterprise server image matching the standalone version.
 
 ```yaml
 apiVersion: v1

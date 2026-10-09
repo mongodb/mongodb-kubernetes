@@ -170,7 +170,8 @@ def standalone(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 @fixture(scope="module")
 def tools_pod(namespace: str, custom_mdb_version: str) -> ToolsPod:
-    """The guide's tools pod, the database pods ship mongodump and mongorestore but not mongosh."""
+    """The e2e pods run the mongodb-kubernetes-database base image without the CLI tools,
+    the commands run in a dedicated pod with the official server image."""
     return get_tools_pod(namespace, custom_mdb_version)
 
 
@@ -305,6 +306,14 @@ class TestStandaloneToReplicaSetMigration:
         standalone.update()
         standalone.assert_reaches_phase(Phase.Running, timeout=600)
 
+    def test_tools_pod_ships_cli_tools(self, tools_pod: ToolsPod):
+        """Guide step 2, the official server image of the tools pod carries mongosh,
+        mongodump and mongorestore in /usr/bin, the e2e database pods run the
+        mongodb-kubernetes-database base image without them."""
+        for tool in ("mongosh", "mongodump", "mongorestore"):
+            out = tools_pod.run_command([f"/usr/bin/{tool}", "--version"])
+            assert out.strip(), f"{tool} is missing in the tools pod"
+
     def test_create_source_users(self, standalone_users: list):
         """The dump user and the application user."""
         for user in standalone_users:
@@ -438,7 +447,7 @@ class TestStandaloneToReplicaSetMigration:
         count = mongosh_eval(tools_pod, app_uri, 'print(db.getSiblingDB("shop").orders.countDocuments({}))')
         assert count.strip() == "1001"
 
-    def test_cleanup(self, standalone: MongoDB, replica_set: MongoDB, namespace: str, tools_pod: ToolsPod):
+    def test_cleanup(self, standalone: MongoDB, replica_set: MongoDB, namespace: str):
         """Guide step 4, the operator does not delete the PVC, it must be deleted manually."""
         core = client.CoreV1Api()
         pvc_name = f"data-{STANDALONE_NAME}-0"
@@ -454,8 +463,6 @@ class TestStandaloneToReplicaSetMigration:
 
         # Optional in the guide, the standalone project ConfigMap has no other consumers.
         core.delete_namespaced_config_map(standalone.config_map_name, namespace)
-
-        tools_pod.core_v1.delete_namespaced_pod(tools_pod.pod_name, namespace)
 
         # Best effort removal of the migration project in Ops Manager.
         try:
