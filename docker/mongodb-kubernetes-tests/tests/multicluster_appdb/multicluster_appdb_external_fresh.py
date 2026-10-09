@@ -212,7 +212,7 @@ class TestReverseMigrationAfterFreshStart:
     def test_external_appdb_is_unmanaged(self, external_appdb: MongoDBMulti):
         external_appdb.assert_reaches_phase(
             Phase.Pending,
-            msg_regexp="Cannot take ownership of the AppDB Statefulset: it has other owner",
+            msg_regexp="Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef",
             timeout=300,
         )
 
