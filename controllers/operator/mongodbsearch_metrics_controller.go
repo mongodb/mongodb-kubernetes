@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blang/semver"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -68,11 +67,6 @@ const (
 	metricsForwarderCACertMountPath      = "/mongodb-automation/certs"
 	metricsForwarderConfigHashAnnotation = "mongodb.com/metrics-forwarder-config-hash"
 	metricsForwarderLabelName            = "search-metrics-forwarder"
-
-	// metricsForwarderMinOpsManagerVersion is the minimum supported self-hosted Ops Manager version.
-	// 8.0.24 exposes the ingest endpoint too, but registering mongot hosts on it triggers a bug
-	// that prevents Ops Manager from restarting; 8.0.25 fixes it.
-	metricsForwarderMinOpsManagerVersion = "8.0.25"
 
 	// how long to wait before re-checking whether removed mongot
 	// pods have terminated so their Ops Manager hosts can be safely deregistered.
@@ -866,17 +860,16 @@ func (r *MongoDBSearchMetricsForwarderReconciler) checkOMVersionForMetricsEndpoi
 		return false, workflow.Unsupported(unknownVersionMsg)
 	}
 
-	minVersion := semver.MustParse(metricsForwarderMinOpsManagerVersion)
-	if sv.GTE(minVersion) {
+	if sv.GTE(versionutil.MinOTLPMetricsOpsManagerSemver) {
 		return true, workflow.OK()
 	}
 
 	const message = "Ops Manager version %s does not support the metrics forwarding endpoint (minimum: %s)." + disableHint
 
 	if explicit {
-		return false, workflow.Failed(fmt.Errorf(message, omVersion, metricsForwarderMinOpsManagerVersion)) //nolint:staticcheck // ST1005: "Ops Manager" is a proper product name
+		return false, workflow.Failed(fmt.Errorf(message, omVersion, versionutil.MinOTLPMetricsOpsManagerVersion)) //nolint:staticcheck // ST1005: "Ops Manager" is a proper product name
 	}
-	return false, workflow.Unsupported(message, omVersion, metricsForwarderMinOpsManagerVersion)
+	return false, workflow.Unsupported(message, omVersion, versionutil.MinOTLPMetricsOpsManagerVersion)
 }
 
 // newOMHTTPClient builds an Ops Manager HTTP client honouring the project's TLS configuration.

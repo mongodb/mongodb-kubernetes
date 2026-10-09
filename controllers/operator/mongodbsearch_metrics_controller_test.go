@@ -143,7 +143,7 @@ func (s stubOMAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (v
 		return s.getOMVersionFn(projectConfig)
 	}
 	// Default: return the minimum supported version so existing tests are unaffected.
-	return versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion}, nil
+	return versionutil.OpsManagerVersion{VersionString: versionutil.MinOTLPMetricsOpsManagerVersion}, nil
 }
 
 // newStubOMAgentRequester returns a requester that resolves the group API to the given groupID and
@@ -1963,7 +1963,7 @@ func (r *recordingOMAgentRequester) RequestWithAgentAuth(_ mdbv1.ProjectConfig, 
 
 func (r *recordingOMAgentRequester) GetOMVersion(_ mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
 	// recordingOMAgentRequester is used only for host-deletion tests; return a supported version.
-	return versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion}, nil
+	return versionutil.OpsManagerVersion{VersionString: versionutil.MinOTLPMetricsOpsManagerVersion}, nil
 }
 
 func TestCleanupRemovedMongotPods(t *testing.T) {
@@ -2132,7 +2132,7 @@ func TestMetricsForwarder_OMVersionTooOld_ImplicitConnection(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseUnsupported, updatedSearch.Status.MetricsForwarder.Phase)
-	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, versionutil.MinOTLPMetricsOpsManagerVersion)
 
 	// No Deployment must exist.
 	dep := &appsv1.Deployment{}
@@ -2157,7 +2157,7 @@ func TestMetricsForwarder_OMVersionTooOld_ExplicitConnection(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
-	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, versionutil.MinOTLPMetricsOpsManagerVersion)
 
 	dep := &appsv1.Deployment{}
 	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
@@ -2180,7 +2180,7 @@ func TestMetricsForwarder_ExternalSource_OMVersionTooOld(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
-	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, versionutil.MinOTLPMetricsOpsManagerVersion)
 }
 
 // TestMetricsForwarder_CloudManager_ImplicitConnection: implicit connection pointing at Cloud Manager.
@@ -2239,7 +2239,7 @@ func TestMetricsForwarder_OMVersionSupported(t *testing.T) {
 
 	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret)
 	// Default stub already returns 8.0.25; being explicit here for clarity.
-	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion})
+	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: versionutil.MinOTLPMetricsOpsManagerVersion})
 
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
