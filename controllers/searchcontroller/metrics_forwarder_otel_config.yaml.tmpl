@@ -21,6 +21,13 @@ receivers:
             type: SRV
             refresh_interval: 30s
           metrics_path: /metrics
+          {{ if .MongotTLSEnabled }}
+          scheme: https
+          tls_config:
+            ca_file: {{ .MongotTLSCAFile }}
+            cert_file: {{ .MongotTLSCertFile }}
+            key_file: {{ .MongotTLSKeyFile }}
+          {{ end }}
 processors:
   memory_limiter:
     check_interval: 1s

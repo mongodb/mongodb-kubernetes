@@ -3106,12 +3106,12 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 }
 
 func TestKeyFilePasswordContentHash(t *testing.T) {
-	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, secrets ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
-		t.Helper()
-		objs := append([]client.Object{search}, secrets...)
-		fakeClient := newTestFakeClient(objs...)
-		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
-		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil), fakeClient
+	content := func(search *searchv1.MongoDBSearch) MountedContent {
+		return MountedContent{Secrets: []types.NamespacedName{
+			search.GrpcKeyFilePasswordSecret(),
+			search.X509KeyFilePasswordSecret(),
+			search.ScramKeyFilePasswordSecret(),
+		}}
 	}
 
 	passwordSecret := func(name, password string) *corev1.Secret {
@@ -3123,9 +3123,9 @@ func TestKeyFilePasswordContentHash(t *testing.T) {
 
 	t.Run("empty when no password secret configured", func(t *testing.T) {
 		search := newTestMongoDBSearch("test-search", "test-ns")
-		helper, kubeClient := newHelper(t, search)
+		kubeClient := newTestFakeClient(search)
 
-		hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+		hash, err := HashMountedContent(t.Context(), kubeClient, content(search))
 		require.NoError(t, err)
 		assert.Empty(t, hash)
 	})
@@ -3137,13 +3137,13 @@ func TestKeyFilePasswordContentHash(t *testing.T) {
 				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
 			}
 		})
-		helper, kubeClient := newHelper(t, search, passwordSecret("x509-key-password-secret", "pw-1"))
+		kubeClient := newTestFakeClient(search, passwordSecret("x509-key-password-secret", "pw-1"))
 
-		hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+		hash, err := HashMountedContent(t.Context(), kubeClient, content(search))
 		require.NoError(t, err)
 		assert.NotEmpty(t, hash)
 
-		again, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+		again, err := HashMountedContent(t.Context(), kubeClient, content(search))
 		require.NoError(t, err)
 		assert.Equal(t, hash, again, "hash must be stable for unchanged content")
 	})
@@ -3156,8 +3156,8 @@ func TestKeyFilePasswordContentHash(t *testing.T) {
 					KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
 				}
 			})
-			helper, kubeClient := newHelper(t, search, passwordSecret("x509-key-password-secret", password))
-			hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+			kubeClient := newTestFakeClient(search, passwordSecret("x509-key-password-secret", password))
+			hash, err := HashMountedContent(t.Context(), kubeClient, content(search))
 			require.NoError(t, err)
 			return hash
 		}
@@ -3172,9 +3172,9 @@ func TestKeyFilePasswordContentHash(t *testing.T) {
 				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "missing-secret"},
 			}
 		})
-		helper, kubeClient := newHelper(t, search)
+		kubeClient := newTestFakeClient(search)
 
-		_, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+		_, err := HashMountedContent(t.Context(), kubeClient, content(search))
 		require.Error(t, err)
 	})
 }
