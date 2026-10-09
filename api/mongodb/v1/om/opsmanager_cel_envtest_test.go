@@ -2,6 +2,7 @@ package om_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -83,6 +84,126 @@ func TestOpsManagerCELValidation_AppDBOrExternalRefRequired(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
+
+func TestOpsManagerCELValidation_ExternalAppDBTopologyTransition(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	tests := []struct {
+		name             string
+		initialAppDBMC   bool
+		newKind          string
+		expectedErrorMsg string
+	}{
+		{
+			name:             "single-cluster internal AppDB rejects MongoDBMultiCluster external ref",
+			newKind:          "MongoDBMultiCluster",
+			expectedErrorMsg: "topology does not match between the current AppDB and the external AppDB",
+		},
+		{
+			name:             "multi-cluster internal AppDB rejects MongoDB external ref",
+			initialAppDBMC:   true,
+			newKind:          "MongoDB",
+			expectedErrorMsg: "topology does not match between the current AppDB and the external AppDB",
+		},
+		{
+			name:    "single-cluster internal AppDB accepts MongoDB external ref",
+			newKind: "MongoDB",
+		},
+		{
+			name:           "multi-cluster internal AppDB accepts MongoDBMultiCluster external ref",
+			initialAppDBMC: true,
+			newKind:        "MongoDBMultiCluster",
+		},
+	}
+
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			name := fmt.Sprintf("cel-topology-%d", i)
+			appDB := &omv1.AppDBSpec{
+				Version:         "6.0.0",
+				MonitoringAgent: mdbv1.MonitoringAgentConfig{StartupParameters: mdbv1.StartupParameters{}},
+			}
+			if tc.initialAppDBMC {
+				appDB.Topology = omv1.ClusterTopologyMultiCluster
+				appDB.ClusterSpecList = mdbv1.ClusterSpecList{
+					{ClusterName: "cluster-1", Members: 3},
+					{ClusterName: "cluster-2", Members: 3},
+				}
+			}
+			om := &omv1.MongoDBOpsManager{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+				Spec: omv1.MongoDBOpsManagerSpec{
+					Version:  "8.0.19",
+					Replicas: 1,
+					AppDB:    appDB,
+				},
+			}
+
+			require.NoError(t, k8sClient.Create(ctx, om))
+			t.Cleanup(func() { _ = k8sClient.Delete(ctx, om) })
+
+			om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: name + "-db", Kind: tc.newKind}
+			err := k8sClient.Update(ctx, om)
+
+			if tc.expectedErrorMsg == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.expectedErrorMsg)
+		})
+	}
+}
+
+func TestOpsManagerCELValidation_ExternalRefKindEnum(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	tests := []struct {
+		name          string
+		kind          string
+		errorContains string
+	}{
+		{
+			name: "om-mongodb",
+			kind: "MongoDB",
+		},
+		{
+			name: "om-multicluster",
+			kind: "MongoDBMultiCluster",
+		},
+		{
+			name:          "om-bogus",
+			kind:          "Bogus",
+			errorContains: `Unsupported value: "Bogus": supported values: "MongoDB", "MongoDBMultiCluster"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := omv1.NewOpsManagerBuilder().
+				SetName(tc.name).
+				SetNamespace("default").
+				SetVersion("8.0.25").
+				SetAppDBToNil().
+				SetExternalAppDBRef(omv1.ExternalAppDBRef{Name: "om-db", Kind: tc.kind}).
+				Build()
+
+			err := k8sClient.Create(ctx, om)
+
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+
 			require.Error(t, err)
 			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
 			assert.Contains(t, err.Error(), tc.errorContains)

@@ -98,6 +98,7 @@ type MongoDBOpsManagerList struct {
 	Items           []MongoDBOpsManager `json:"items"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.externalApplicationDatabaseRef) || !has(oldSelf.applicationDatabase) || (self.externalApplicationDatabaseRef.kind == 'MongoDBMultiCluster' ? (has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster') : !(has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster'))",message="topology does not match between the current AppDB and the external AppDB"
 // +kubebuilder:validation:XValidation:rule="has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)",message="at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set"
 type MongoDBOpsManagerSpec struct {
 	// The configuration properties passed to Ops Manager/Backup Daemon
@@ -185,13 +186,18 @@ type ExternalAppDBRef struct {
 	Name string `json:"name"`
 
 	// Kind of the referenced resource.
-	// +kubebuilder:validation:Enum=MongoDB
+	// +kubebuilder:validation:Enum=MongoDB;MongoDBMultiCluster
 	// +kubebuilder:validation:Required
 	Kind string `json:"kind"`
 
 	// Transient fields
 	Namespace string `json:"-"`
 }
+
+const (
+	ExternalAppDBRefKindMongoDB             = "MongoDB"
+	ExternalAppDBRefKindMongoDBMultiCluster = "MongoDBMultiCluster"
+)
 
 type Logging struct {
 	// LogBackAccessRef points at a ConfigMap/key with the logback access configuration file to mount on the Pod
