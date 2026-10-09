@@ -2456,22 +2456,25 @@ func TestEnsureDeployment_ConfigHashTracksLBCertSecrets(t *testing.T) {
 			name    string
 			client  client.Client
 			secret  types.NamespacedName
-			key     string
-			value   string
+			mutate  func(*corev1.Secret)
 			changed bool
 		}{
-			{"same data: same hash", member, serverName, "tls.crt", "server-v1", false},
-			{"server rotation", member, serverName, "tls.crt", "server-v2", true},
-			{"client rotation", member, clientName, "tls.crt", "client-v2", true},
-			{"private key rotation", member, clientName, "tls.key", "key-v2", true},
-			{"extra key included", member, serverName, "ca.crt", "ca", true},
-			{"central decoy ignored", central, serverName, "tls.crt", "central-v2", false},
-			{"other cluster index ignored", member, search.LoadBalancerServerCert(0), "tls.crt", "wrong-index-v2", false},
+			{"same data: same hash", member, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("server-v1") }, false},
+			{"labels only: same hash", member, serverName, func(s *corev1.Secret) { s.Labels = map[string]string{"managed-by": "cert-manager"} }, false},
+			{"annotations only: same hash", member, clientName, func(s *corev1.Secret) {
+				s.Annotations = map[string]string{"cert-manager.io/alt-names": "mongot.example.com"}
+			}, false},
+			{"server rotation", member, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("server-v2") }, true},
+			{"client rotation", member, clientName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("client-v2") }, true},
+			{"private key rotation", member, clientName, func(s *corev1.Secret) { s.Data["tls.key"] = []byte("key-v2") }, true},
+			{"extra key included", member, serverName, func(s *corev1.Secret) { s.Data["ca.crt"] = []byte("ca") }, true},
+			{"central decoy ignored", central, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("central-v2") }, false},
+			{"other cluster index ignored", member, search.LoadBalancerServerCert(0), func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("wrong-index-v2") }, false},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				secret := &corev1.Secret{}
 				require.NoError(t, tc.client.Get(ctx, tc.secret, secret))
-				secret.Data[tc.key] = []byte(tc.value)
+				tc.mutate(secret)
 				require.NoError(t, tc.client.Update(ctx, secret))
 				current := ensureHash(t, r, search)
 				if tc.changed {

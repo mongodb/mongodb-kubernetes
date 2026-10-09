@@ -65,4 +65,25 @@ func TestShouldHandleUpdate(t *testing.T) {
 
 		assert.True(t, shouldHandleUpdate(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}))
 	})
+	for _, tc := range []struct {
+		name   string
+		mutate func(*corev1.Secret)
+	}{
+		{"Secret labels only", func(s *corev1.Secret) { s.Labels = map[string]string{"managed-by": "cert-manager"} }},
+		{"Secret annotations only", func(s *corev1.Secret) {
+			s.Annotations = map[string]string{"cert-manager.io/alt-names": "mongot.example.com"}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			oldObj := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "name", Namespace: "ns"},
+				Data:       map[string][]byte{"testKey": []byte("testValue")},
+			}
+			newObj := oldObj.DeepCopy()
+			newObj.ResourceVersion = "4243"
+			tc.mutate(newObj)
+
+			assert.False(t, shouldHandleUpdate(event.UpdateEvent{ObjectOld: oldObj, ObjectNew: newObj}))
+		})
+	}
 }
