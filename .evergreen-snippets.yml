@@ -98,6 +98,42 @@ variables:
         variant: release_om_and_agents
         patch_optional: true
 
+# This variable is copied over from .evergreen.yml because anchors don't work for included files.
+# Same dependency set as base_om8_dependency but building the OM 9.0 images: the multi-cluster
+# external-AppDB snippets run under the e2e_multi_cluster_om_appdb context (variables/om90), which
+# pins OM 9.0.0 + AppDB 9.0.2-ent, matching the e2e_multi_cluster_om_appdb variant in .evergreen.yml.
+  - &base_om9_dependency
+    depends_on:
+      - name: build_om_images
+        variant: build_om90_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      # The single-cluster task group includes Community scenarios that pull
+      # these images directly, so they must be explicit patch dependencies.
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      # The multi-cluster variant downloads this artifact directly. This adds
+      # no build latency because build_test_image already depends on it.
+      - name: build_kubectl_mongodb_plugin
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      # Wait for OM images to be published to quay.io on commit builds (staging).
+      # On patch builds, this dependency is skipped (task doesn't exist).
+      - name: release_om_and_agents
+        variant: release_om_and_agents
+        patch_optional: true
+
 functions:
   upload_code_snippets_logs:
     - command: s3.put
@@ -215,6 +251,24 @@ tasks:
       - func: test_code_snippets
       - func: archive_snippets_output
 
+  - name: test_kind_external_appdb_mc_fresh_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_external_appdb_mc_forward_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
+  - name: test_kind_external_appdb_mc_reverse_snippets.sh
+    tags: [ "code_snippets", "patch-run" ]
+    commands:
+      - func: test_code_snippets
+      - func: archive_snippets_output
+
   - name: update_docs_snippets
     commands:
       - func: clone
@@ -266,6 +320,9 @@ task_groups:
     tasks:
       - test_kind_search_rs_multi_cluster_snippets.sh
       - test_kind_search_sharded_multi_cluster_snippets.sh
+      - test_kind_external_appdb_mc_fresh_snippets.sh
+      - test_kind_external_appdb_mc_forward_snippets.sh
+      - test_kind_external_appdb_mc_reverse_snippets.sh
 
 buildvariants:
   # NOTE: public_gke|kind_code_snippets are docs-publishing jobs, not release-gating tests - they run
@@ -342,6 +399,6 @@ buildvariants:
     tags: [ "pr_patch", "staging", "e2e_test_suite" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om8_dependency
+    <<: *base_om9_dependency
     tasks:
       - name: kind_multi_cluster_code_snippets_task_group
