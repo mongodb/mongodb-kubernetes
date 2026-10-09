@@ -3,14 +3,12 @@ package operator
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -149,17 +147,6 @@ type ReconcileMongoDbStandalone struct {
 	defaultArchitecture architectures.DefaultArchitecture
 }
 
-// warnedStandalones keeps each Standalone from being warned about more than once per
-// operator process, repeated reconciles must not flood the log with the deprecation warning.
-var warnedStandalones sync.Map
-
-func logStandaloneDeprecationWarning(log *zap.SugaredLogger, namespacedName types.NamespacedName) {
-	if _, alreadyWarned := warnedStandalones.LoadOrStore(namespacedName, struct{}{}); alreadyWarned {
-		return
-	}
-	log.Warn(mdbv1.StandaloneDeprecationMessage)
-}
-
 func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
@@ -171,7 +158,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
-	logStandaloneDeprecationWarning(log, request.NamespacedName)
+	log.Warn(mdbv1.StandaloneDeprecationMessage)
 
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
