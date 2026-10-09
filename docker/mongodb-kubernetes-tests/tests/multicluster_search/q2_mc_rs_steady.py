@@ -53,7 +53,7 @@ from tests.common.search.connectivity import (
     wait_for_search_artifacts_deleted,
     wait_for_search_deleted,
 )
-from tests.common.search.envoy_helpers import ENVOY_CONFIG_HASH_ANNOTATION, wait_for_envoy_certificates
+from tests.common.search.envoy_helpers import ENVOY_CONFIG_HASH_ANNOTATION, wait_for_envoy_certificate_rollout
 from tests.common.search.mc_search_helper import strip_k8s_process_name_prefix
 from tests.common.search.movies_search_helper import (
     EMBEDDING_QUERY_KEY_ENV_VAR,
@@ -1257,16 +1257,17 @@ def test_rotate_lb_certificates_rolls_per_cluster_envoy(
             expected=before.spec.replicas,
             timeout=300,
         )
-        wait_for_envoy_certificates(
+        wait_for_envoy_certificate_rollout(
             namespace,
             deployment_name,
-            rotated[server_cert]["tls.crt"],
-            rotated[client_cert]["tls.crt"],
+            search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME, ci),
+            server_cert,
+            client_cert,
             api_client=mcc.api_client,
         )
         after = apps.read_namespaced_deployment(deployment_name, namespace)
         assert after.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION] != hash_before
-        logger.info(f"cluster {mcc.cluster_name}: Envoy rolled and loaded both rotated certificates")
+        logger.info(f"cluster {mcc.cluster_name}: Envoy rolled with both rotated certificates")
 
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 

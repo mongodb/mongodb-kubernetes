@@ -24,7 +24,7 @@ from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.connectivity import wait_for_pods_by_label_replaced
-from tests.common.search.envoy_helpers import ENVOY_CONFIG_HASH_ANNOTATION, wait_for_envoy_certificates
+from tests.common.search.envoy_helpers import ENVOY_CONFIG_HASH_ANNOTATION, wait_for_envoy_certificate_rollout
 from tests.common.search.rs_search_helper import (
     create_rs_lb_certificates,
     create_rs_search_tls_cert,
@@ -274,11 +274,12 @@ def test_rotate_lb_certificates_rolls_envoy(namespace: str):
     wait_for_pods_by_label_replaced(
         namespace, label_selector, original_uids, expected=before.spec.replicas, timeout=300
     )
-    wait_for_envoy_certificates(
+    wait_for_envoy_certificate_rollout(
         namespace,
         deployment_name,
-        read_secret(namespace, server_cert)["tls.crt"],
-        read_secret(namespace, client_cert)["tls.crt"],
+        search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME),
+        server_cert,
+        client_cert,
     )
     after = apps.read_namespaced_deployment(deployment_name, namespace)
     assert after.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION] != hash_before

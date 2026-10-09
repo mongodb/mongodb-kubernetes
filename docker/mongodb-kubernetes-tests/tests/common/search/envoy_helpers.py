@@ -1,7 +1,8 @@
+import base64
+import hashlib
 import json
 from typing import Optional
 
-from cryptography import x509
 from kubernetes import client
 from kubetester import create_or_update_configmap, list_matching_pods, pod_is_ready
 from kubetester.certs import create_tls_certs
@@ -13,21 +14,44 @@ logger = test_logger.get_test_logger(__name__)
 ENVOY_CONFIG_HASH_ANNOTATION = "mongodb.com/envoy-config-hash"
 
 
-def wait_for_envoy_certificates(
+def wait_for_envoy_certificate_rollout(
     namespace: str,
     deployment_name: str,
-    server_crt: str,
-    client_crt: str,
+    configmap_name: str,
+    server_secret: str,
+    client_secret: str,
     *,
     api_client: Optional[client.ApiClient] = None,
 ) -> None:
-    """Wait for a converged rollout and both certs loaded, not merely refreshed on disk."""
-    expected_serials = {
-        "/etc/envoy/tls/server/tls.crt": x509.load_pem_x509_certificate(server_crt.encode()).serial_number,
-        "/etc/envoy/tls/client/tls.crt": x509.load_pem_x509_certificate(client_crt.encode()).serial_number,
-    }
+    """Require the final hash for both Secrets, not an intermediate single-cert rollout."""
     apps = client.AppsV1Api(api_client=api_client)
     core = client.CoreV1Api(api_client=api_client)
+    bootstrap = core.read_namespaced_config_map(configmap_name, namespace).data["bootstrap.json"]
+    cert_data = bytearray()
+
+    def append_uvarint(value: int) -> None:
+        while value >= 128:
+            cert_data.append((value & 127) | 128)
+            value >>= 7
+        cert_data.append(value)
+
+    expected_pems = {}
+    for name, path in (
+        (server_secret, "/etc/envoy/tls/server/tls.crt"),
+        (client_secret, "/etc/envoy/tls/client/tls.crt"),
+    ):
+        data = core.read_namespaced_secret(name, namespace).data
+        encoded_name = name.encode()
+        append_uvarint(len(encoded_name))
+        cert_data.extend(encoded_name)
+        append_uvarint(len(data))
+        for key in sorted(data):
+            for field in (key.encode(), base64.b64decode(data[key])):
+                append_uvarint(len(field))
+                cert_data.extend(field)
+        expected_pems[path] = base64.b64decode(data["tls.crt"]).decode()
+    compact_bootstrap = json.dumps(json.loads(bootstrap), separators=(",", ":"), ensure_ascii=False).encode()
+    expected_hash = hashlib.sha256(compact_bootstrap + cert_data).hexdigest()
 
     def check() -> tuple[bool, str]:
         deployment = apps.read_namespaced_deployment(deployment_name, namespace)
@@ -39,39 +63,29 @@ def wait_for_envoy_certificates(
             or status.replicas != desired
             or status.updated_replicas != desired
             or status.ready_replicas != desired
+            or deployment.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION] != expected_hash
         ):
             return False, f"{deployment_name}: rollout not converged"
         pods = list_matching_pods(namespace, label_selector=f"app={deployment_name}", api_client=api_client)
         if len(pods) != desired or any(p.metadata.deletion_timestamp or not pod_is_ready(p) for p in pods):
             return False, f"{deployment_name}: waiting for exactly {desired} ready pods"
         for pod in pods:
-            if (
-                pod.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
-                != deployment.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
-            ):
+            if pod.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION] != expected_hash:
                 return False, f"{pod.metadata.name}: stale config hash"
-            try:
-                loaded = json.loads(
-                    core.connect_get_namespaced_pod_proxy_with_path(
-                        name=f"{pod.metadata.name}:9901", namespace=namespace, path="certs", _request_timeout=10
+            for path, expected_pem in expected_pems.items():
+                try:
+                    mounted = KubernetesTester.run_command_in_pod_container(
+                        pod.metadata.name, namespace, ["cat", path], container="envoy", api_client=api_client
                     )
-                )
-            except client.exceptions.ApiException as exc:
-                if exc.status in (404, 503):
-                    return False, f"{pod.metadata.name}: admin endpoint unavailable: {exc}"
-                raise
-            for path, serial in expected_serials.items():
-                actual = {
-                    int(cert["serial_number"], 16)
-                    for context in loaded["certificates"]
-                    for cert in context.get("cert_chain", [])
-                    if cert["path"] == path
-                }
-                if actual != {serial}:
-                    return False, f"{pod.metadata.name}: {path} loaded serials={actual}, expected={serial}"
-        return True, f"{deployment_name}: every ready pod loaded both rotated certificates"
+                except client.exceptions.ApiException as exc:
+                    if exc.status in (404, 503):
+                        return False, f"{pod.metadata.name}: exec unavailable: {exc}"
+                    raise
+                if mounted.strip() != expected_pem.strip():
+                    return False, f"{pod.metadata.name}: {path} has not rotated"
+        return True, f"{deployment_name}: every ready pod has the final hash and both rotated certificates"
 
-    run_periodically(check, timeout=300, sleep_time=5, msg="Envoy rollout and loaded TLS certificates")
+    run_periodically(check, timeout=300, sleep_time=5, msg="Envoy rollout with both rotated TLS certificates")
 
 
 class EnvoyProxy:
