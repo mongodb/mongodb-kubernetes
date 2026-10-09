@@ -10,7 +10,8 @@ This test verifies the RS + managed LB implementation:
 """
 
 from kubernetes import client
-from kubetester import try_load
+from kubetester import list_matching_pods, read_secret, try_load
+from kubetester.certs import rotate_cert
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
@@ -22,6 +23,8 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import wait_for_pods_by_label_replaced
+from tests.common.search.envoy_helpers import ENVOY_CONFIG_HASH_ANNOTATION, wait_for_envoy_certificate_rollout
 from tests.common.search.rs_search_helper import (
     create_rs_lb_certificates,
     create_rs_search_tls_cert,
@@ -241,6 +244,52 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
     # loadBalancer sub-phases Running.
     mdbs.assert_cluster_statuses(expected_count=1, expect_managed_lb=True)
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")
+
+
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
+def test_rotate_lb_certificates_rolls_envoy(namespace: str):
+    deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
+    label_selector = f"app={deployment_name}"
+    server_cert = search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    client_cert = search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    apps = client.AppsV1Api()
+    before = apps.read_namespaced_deployment(deployment_name, namespace)
+    hash_before = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
+    original_uids = {
+        p.metadata.name: p.metadata.uid for p in list_matching_pods(namespace, label_selector=label_selector)
+    }
+    assert original_uids, f"no Envoy pods matched {label_selector}"
+    server_before = read_secret(namespace, server_cert)["tls.crt"]
+    client_before = read_secret(namespace, client_cert)["tls.crt"]
+
+    rotate_cert(namespace, server_cert)
+    rotate_cert(namespace, client_cert)
+
+    def secrets_rotated() -> tuple[bool, str]:
+        server_changed = read_secret(namespace, server_cert)["tls.crt"] != server_before
+        client_changed = read_secret(namespace, client_cert)["tls.crt"] != client_before
+        return server_changed and client_changed, f"server_changed={server_changed}, client_changed={client_changed}"
+
+    run_periodically(secrets_rotated, timeout=120, sleep_time=5, msg="cert-manager to reissue both LB certificates")
+    wait_for_pods_by_label_replaced(
+        namespace, label_selector, original_uids, expected=before.spec.replicas, timeout=300
+    )
+    wait_for_envoy_certificate_rollout(
+        namespace,
+        deployment_name,
+        search_resource_names.lb_configmap_name(MDBS_RESOURCE_NAME),
+        server_cert,
+        client_cert,
+    )
+    after = apps.read_namespaced_deployment(deployment_name, namespace)
+    assert after.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION] != hash_before
+
+
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
+def test_search_works_after_lb_certificate_rotation(mdb: MongoDB, mdbs: MongoDBSearch):
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbs.assert_lb_status()
+    verify_text_search_query(get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True))
 
 
 @mark.e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
