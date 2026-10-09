@@ -101,11 +101,6 @@ func (b *Builder) SetTLSConfig(tlsConfig TLS) *Builder {
 	return b
 }
 
-func (b *Builder) SetSSLConfig(sslConfig TLS) *Builder {
-	b.sslConfig = &sslConfig
-	return b
-}
-
 func (b *Builder) SetMembers(members int) *Builder {
 	b.members = members
 	return b
@@ -136,19 +131,8 @@ func (b *Builder) SetDataDir(dataDir string) *Builder {
 	return b
 }
 
-// Deprecated: ports should be set via ProcessModification or Modification
-func (b *Builder) SetPort(port int) *Builder {
-	b.port = port
-	return b
-}
-
 func (b *Builder) SetFCV(fcv string) *Builder {
 	b.fcv = fcv
-	return b
-}
-
-func (b *Builder) SetCAFilePath(caFilePath string) *Builder {
-	b.cafilePath = caFilePath
 	return b
 }
 
@@ -171,16 +155,6 @@ func (b *Builder) AddVersion(version MongoDbVersionConfig) *Builder {
 
 func (b *Builder) SetMongoDBVersion(version string) *Builder {
 	b.mongodbVersion = version
-	return b
-}
-
-func (b *Builder) SetBackupVersions(versions []BackupVersion) *Builder {
-	b.backupVersions = versions
-	return b
-}
-
-func (b *Builder) SetMonitoringVersions(versions []MonitoringVersion) *Builder {
-	b.monitoringVersions = versions
 	return b
 }
 

@@ -35,15 +35,6 @@ func StringToStringMap(map1, map2 map[string]string) map[string]string {
 	return mergedMap
 }
 
-// StringToBoolMap merges two string-to-bool maps together with the second map
-// overriding any values also specified in the first.
-func StringToBoolMap(map1, map2 map[string]bool) map[string]bool {
-	mergedMap := make(map[string]bool)
-	maps.Copy(mergedMap, map1)
-	maps.Copy(mergedMap, map2)
-	return mergedMap
-}
-
 // Containers merges two slices of containers merging each item by container name.
 func Containers(defaultContainers, overrideContainers []corev1.Container) []corev1.Container {
 	mergedContainerMap := map[string]corev1.Container{}

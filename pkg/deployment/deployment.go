@@ -10,25 +10,12 @@ import (
 
 type Modification func(*appsv1.Deployment)
 
-func New(mods ...Modification) appsv1.Deployment {
-	dep := appsv1.Deployment{}
-	for _, mod := range mods {
-		mod(&dep)
-	}
-	return dep
-}
-
 func Apply(funcs ...Modification) Modification {
 	return func(dep *appsv1.Deployment) {
 		for _, f := range funcs {
 			f(dep)
 		}
 	}
-}
-
-// NOOP is a valid Modification which applies no changes
-func NOOP() Modification {
-	return func(dep *appsv1.Deployment) {}
 }
 
 func WithName(name string) Modification {
@@ -49,23 +36,6 @@ func WithLabels(labels map[string]string) Modification {
 			dep.Labels = map[string]string{}
 		}
 		maps.Copy(dep.Labels, labels)
-	}
-}
-
-func WithAnnotations(annotations map[string]string) Modification {
-	return func(dep *appsv1.Deployment) {
-		if dep.Annotations == nil {
-			dep.Annotations = map[string]string{}
-		}
-		maps.Copy(dep.Annotations, annotations)
-	}
-}
-
-func WithOwnerReference(ownerRefs []metav1.OwnerReference) Modification {
-	ownerReference := make([]metav1.OwnerReference, len(ownerRefs))
-	copy(ownerReference, ownerRefs)
-	return func(dep *appsv1.Deployment) {
-		dep.OwnerReferences = ownerReference
 	}
 }
 

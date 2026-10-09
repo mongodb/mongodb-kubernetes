@@ -856,18 +856,8 @@ func (b *MongoDBUserBuilder) SetConnectionStringSecretName(name string) *MongoDB
 	return b
 }
 
-func (b *MongoDBUserBuilder) SetPasswordRef(secretName, key string) *MongoDBUserBuilder {
-	b.passwordRef = userv1.SecretKeyRef{Name: secretName, Key: key}
-	return b
-}
-
 func (b *MongoDBUserBuilder) SetMongoDBResourceName(name string) *MongoDBUserBuilder {
 	b.mongodbResourceName = name
-	return b
-}
-
-func (b *MongoDBUserBuilder) SetUsername(username string) *MongoDBUserBuilder {
-	b.username = username
 	return b
 }
 
@@ -886,18 +876,8 @@ func (b *MongoDBUserBuilder) SetConnectionStringDatabase(db string) *MongoDBUser
 	return b
 }
 
-func (b *MongoDBUserBuilder) SetProject(project string) *MongoDBUserBuilder {
-	b.project = project
-	return b
-}
-
 func (b *MongoDBUserBuilder) SetResourceName(resourceName string) *MongoDBUserBuilder {
 	b.resourceName = resourceName
-	return b
-}
-
-func (b *MongoDBUserBuilder) SetRoles(roles []userv1.Role) *MongoDBUserBuilder {
-	b.roles = roles
 	return b
 }
 

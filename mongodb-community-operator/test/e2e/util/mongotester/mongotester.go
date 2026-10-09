@@ -590,23 +590,6 @@ func GetClientCert(ctx context.Context, mdb mdbv1.MongoDBCommunity) (*x509.Certi
 	return x509.ParseCertificate(block.Bytes)
 }
 
-func GetUserCert(ctx context.Context, mdb mdbv1.MongoDBCommunity, userCertSecret string) (string, error) {
-	certSecret := corev1.Secret{}
-	certSecretName := types.NamespacedName{Name: userCertSecret, Namespace: mdb.Namespace}
-	if err := e2eutil.TestClient.Get(ctx, certSecretName, &certSecret); err != nil {
-		return "", err
-	}
-	crt, _ := pem.Decode(certSecret.Data["tls.crt"])
-	if crt == nil {
-		return "", fmt.Errorf("error decoding client cert key")
-	}
-	key, _ := pem.Decode(certSecret.Data["tls.key"])
-	if key == nil {
-		return "", fmt.Errorf("error decoding client cert key")
-	}
-	return string(crt.Bytes) + string(key.Bytes), nil
-}
-
 // defaults returns the default connectivity options
 // that our used in our tests.
 // TODO: allow these to be configurable

@@ -40,13 +40,6 @@ func NewPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
 	}}
 }
 
-func NewPodSpecWrapperBuilderFromSpec(spec *MongoDbPodSpec) *PodSpecWrapperBuilder {
-	if spec == nil {
-		return &PodSpecWrapperBuilder{PodSpecWrapper{}}
-	}
-	return &PodSpecWrapperBuilder{PodSpecWrapper{MongoDbPodSpec: *spec}}
-}
-
 func NewEmptyPodSpecWrapperBuilder() *PodSpecWrapperBuilder {
 	return &PodSpecWrapperBuilder{spec: PodSpecWrapper{
 		MongoDbPodSpec: MongoDbPodSpec{
@@ -90,11 +83,6 @@ func (p *PodSpecWrapperBuilder) SetNodeAffinity(affinity corev1.NodeAffinity) *P
 
 func (p *PodSpecWrapperBuilder) SetPodAntiAffinityTopologyKey(topologyKey string) *PodSpecWrapperBuilder {
 	p.spec.PodAntiAffinityTopologyKey = topologyKey
-	return p
-}
-
-func (p *PodSpecWrapperBuilder) SetPodTemplate(template *corev1.PodTemplateSpec) *PodSpecWrapperBuilder {
-	p.spec.PodTemplateWrapper.PodTemplate = template
 	return p
 }
 

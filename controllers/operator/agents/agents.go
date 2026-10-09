@@ -201,14 +201,6 @@ func GetMongoDBClusterState(ctx context.Context, omConnection om.Connection) (Mo
 	}, nil
 }
 
-func (c *MongoDBClusterStateInOM) GetProcessState(hostname string) ProcessState {
-	if processState, ok := c.ProcessStateMap[hostname]; ok {
-		return processState
-	}
-
-	return NewProcessState(hostname)
-}
-
 func (c *MongoDBClusterStateInOM) GetProcesses() []ProcessState {
 	return slices.Collect(maps.Values(c.ProcessStateMap))
 }

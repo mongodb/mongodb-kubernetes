@@ -64,18 +64,8 @@ func (s *Builder) SetMatchLabels(matchLabels map[string]string) *Builder {
 	return s
 }
 
-func (s *Builder) SetReadinessProbe(probe *corev1.Probe, containerName string) *Builder {
-	s.readinessProbePerContainer[containerName] = probe
-	return s
-}
-
 func (s *Builder) SetPodTemplateSpec(podTemplateSpec corev1.PodTemplateSpec) *Builder {
 	s.podTemplateSpec = podTemplateSpec
-	return s
-}
-
-func (s *Builder) SetUpdateStrategy(updateStrategyType appsv1.StatefulSetUpdateStrategyType) *Builder {
-	s.updateStrategyType = updateStrategyType
 	return s
 }
 
@@ -98,13 +88,6 @@ func (s *Builder) AddVolumeMounts(containerName string, mounts []corev1.VolumeMo
 
 func (s *Builder) AddVolume(volume corev1.Volume) *Builder {
 	s.podTemplateSpec.Spec.Volumes = append(s.podTemplateSpec.Spec.Volumes, volume)
-	return s
-}
-
-func (s *Builder) AddVolumes(volumes []corev1.Volume) *Builder {
-	for _, v := range volumes {
-		s.AddVolume(v)
-	}
 	return s
 }
 

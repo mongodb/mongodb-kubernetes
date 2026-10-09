@@ -77,13 +77,6 @@ func RotateAgentCertificate(ctx context.Context, mdb *mdbv1.MongoDBCommunity) fu
 	}
 }
 
-func RotateCACertificate(ctx context.Context, mdb *mdbv1.MongoDBCommunity) func(*testing.T) {
-	return func(t *testing.T) {
-		caCertSecretName := mdb.TLSCaCertificateSecretNamespacedName()
-		rotateCertManagerSecret(ctx, caCertSecretName, t)
-	}
-}
-
 func rotateCertManagerSecret(ctx context.Context, secretName types.NamespacedName, t *testing.T) {
 	currentSecret := corev1.Secret{}
 	err := e2eutil.TestClient.Get(ctx, secretName, &currentSecret)
