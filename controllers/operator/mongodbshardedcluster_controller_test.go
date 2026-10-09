@@ -203,7 +203,7 @@ func TestShardedClusterRace(t *testing.T) {
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
 }
@@ -1018,7 +1018,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	sc := test.DefaultClusterBuilder().RemoveAuth().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1219,7 +1219,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1816,8 +1816,8 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 	return d
 }
 
-func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
-	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
+func defaultShardedClusterReconcilerWithConnectionFactory(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
 	r, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, sc, globalMemberClustersMap, kubeClient, omConnectionFactory, backupEnableDelay, arch)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -1825,8 +1825,12 @@ func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.Image
 	return r, reconcileHelper, kubeClient, omConnectionFactory, nil
 }
 
+func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
+	return defaultShardedClusterReconcilerWithConnectionFactory(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, sc, globalMemberClustersMap, backupEnableDelay, arch, om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection))
+}
+
 func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay)
+	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay, nil)
 	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), backupEnableDelay)
 	if err != nil {
 		return nil, nil, err
