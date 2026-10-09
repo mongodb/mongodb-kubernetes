@@ -713,6 +713,77 @@ func TestService_connectionStringSecretAnnotationsAreApplied(t *testing.T) {
 	assertConnectionStringSecretAnnotations(ctx, t, mgr.Client, mdb, secretAnnotations)
 }
 
+func TestConnectionStringSecret_ForeignSecretFailsReconcileAndIsNotDeleted(t *testing.T) {
+	ctx := context.Background()
+	const victimSecretName = "victim-app-secret"
+
+	newUser := func(connectionStringSecretName string) mdbv1.MongoDBUser {
+		return mdbv1.MongoDBUser{
+			Name: "testuser",
+			PasswordSecretRef: v1.SecretKeyReference{
+				Name: "password-secret-name",
+			},
+			ScramCredentialsSecretName: "scram-credentials",
+			ConnectionStringSecretName: connectionStringSecretName,
+		}
+	}
+	mdb := newScramReplicaSet(newUser(victimSecretName))
+	mdb.UID = "mdb-uid"
+
+	mgr := client.NewManager(ctx, &mdb)
+	require.NoError(t, createUserPasswordSecret(ctx, mgr.Client, mdb, "password-secret-name", "pass"))
+
+	// a Secret that belongs to someone else, not managed by this MongoDBCommunity
+	victim := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: victimSecretName, Namespace: mdb.Namespace},
+		Data:       map[string][]byte{"original-data": []byte("do-not-touch")},
+	}
+	require.NoError(t, mgr.Client.Create(ctx, &victim))
+
+	assertVictimIntact := func(t *testing.T) {
+		s, err := mgr.Client.GetSecret(ctx, types.NamespacedName{Name: victimSecretName, Namespace: mdb.Namespace})
+		require.NoError(t, err, "foreign secret must not be deleted")
+		assert.Equal(t, []byte("do-not-touch"), s.Data["original-data"], "foreign secret must not be overwritten")
+	}
+
+	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+
+	t.Run("reconcile fails and does not record the foreign secret name", func(t *testing.T) {
+		res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: mdb.NamespacedName()})
+		require.NoError(t, err)
+		assert.True(t, res.RequeueAfter > 0, "expected requeue after failure")
+
+		require.NoError(t, mgr.Client.Get(ctx, mdb.NamespacedName(), &mdb))
+		assert.Equal(t, mdbv1.Failed, mdb.Status.Phase)
+		assert.Contains(t, mdb.Status.Message, "not managed by the operator")
+		assert.NotContains(t, mdb.Annotations[lastSuccessfulConfiguration], victimSecretName)
+		assertVictimIntact(t)
+	})
+
+	t.Run("removing the foreign name from the spec does not delete the secret", func(t *testing.T) {
+		mdb.Spec.Users = []mdbv1.MongoDBUser{newUser("")}
+		require.NoError(t, mgr.Client.Update(ctx, &mdb))
+
+		res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: mdb.NamespacedName()})
+		assertReconciliationSuccessful(t, res, err)
+		assertVictimIntact(t)
+	})
+
+	t.Run("a foreign name already recorded as applied is still not deleted", func(t *testing.T) {
+		// simulates an annotation written by an operator version that recorded the rejected name
+		recorded := newScramReplicaSet(newUser(victimSecretName))
+		recordedSpec, err := json.Marshal(recorded.Spec)
+		require.NoError(t, err)
+		require.NoError(t, mgr.Client.Get(ctx, mdb.NamespacedName(), &mdb))
+		mdb.Annotations[lastSuccessfulConfiguration] = string(recordedSpec)
+		require.NoError(t, mgr.Client.Update(ctx, &mdb))
+
+		res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: mdb.NamespacedName()})
+		assertReconciliationSuccessful(t, res, err)
+		assertVictimIntact(t)
+	})
+}
+
 func assertConnectionStringSecretAnnotations(ctx context.Context, t *testing.T, c k8sClient.Client, mdb mdbv1.MongoDBCommunity, expectedAnnotations map[string]string) {
 	connectionStringSecret := corev1.Secret{}
 	scramUsers := mdb.GetAuthUsers()
