@@ -12,12 +12,6 @@ name: Conditional review requirement
 #   - workflow_run: review events, including fork heads, through the no-op
 #     "Conditional review trigger" workflow.
 on:
-  # TEMPORARY live-test trigger: fires on the push that adds this file so the
-  # workflow can be exercised on PR #1670 with a real GITHUB_TOKEN. Removed in
-  # the next commit.
-  pull_request:
-    branches: [master]
-    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
   pull_request_target:
     branches: [master]
     types: [opened, reopened, synchronize, edited, labeled, unlabeled]
