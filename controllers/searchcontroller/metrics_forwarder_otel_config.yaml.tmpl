@@ -103,6 +103,32 @@ processors:
       metric1: mongot.query.vector_search.latency.avg.seconds
       operation: multiply
       scale_by: 1000
+  metrics_transform/perindex_forward:
+    transforms:
+    - include: mongot_index_stats_indexSizeBytes
+      match_type: strict
+      action: insert
+      new_name: mongot.indexStats.size.bytes
+    - include: mongot_index_stats_indexing_replicationLagMs
+      match_type: strict
+      action: insert
+      new_name: mongot.indexStats.replication.lag.ms
+    - include: mongot_index_stats_segment_count
+      match_type: strict
+      action: insert
+      new_name: mongot.indexStats.segment.count
+    - include: mongot_index_stats_indexStatusCode
+      match_type: strict
+      action: insert
+      new_name: mongot.indexStats.status.code
+    - include: mongot_index_stats_indexing_initialSyncExceptions_total
+      match_type: strict
+      action: insert
+      new_name: mongot.indexStats.initial.sync.exceptions
+    - include: mongot_index_stats_indexing_consecutiveInitialSyncResyncExceptions
+      match_type: strict
+      action: insert
+      new_name: mongot.indexStats.resync.exceptions
   metrics_transform/aggregate_and_rename:
     transforms:
     - include: mongot_replication_mongodb_indexManagerState
@@ -256,6 +282,12 @@ processors:
         - mongot.health.index_manager_state
         - mongot.health.index_manager_state.failed
         - mongot.health.index_manager_state.failed_exceeded
+        - mongot.indexStats.size.bytes
+        - mongot.indexStats.replication.lag.ms
+        - mongot.indexStats.segment.count
+        - mongot.indexStats.status.code
+        - mongot.indexStats.initial.sync.exceptions
+        - mongot.indexStats.resync.exceptions
   resource/ops_manager_discovery_attributes:
     attributes:
       - action: upsert
@@ -330,6 +362,7 @@ service:
         - cumulativetodelta/latency
         - metricsgeneration/latency_avg_seconds
         - metricsgeneration/latency_avg_ms
+        - metrics_transform/perindex_forward
         - metrics_transform/aggregate_and_rename
         - metricsgeneration/disk_used_bytes
         - metricsgeneration/disk_percent_used
