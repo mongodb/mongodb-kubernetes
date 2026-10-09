@@ -49,6 +49,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/ommetrics"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -71,9 +72,17 @@ type ReconcileCommonController struct {
 	resourceWatcher *watch.ResourceWatcher
 
 	customAgentURL string
+
+	omMetrics OMMetricsMultiplexer
 }
 
-func NewReconcileCommonController(ctx context.Context, client client.Client) *ReconcileCommonController {
+// OMMetricsMultiplexer must be passed as a true nil, not a typed-nil pointer.
+type OMMetricsMultiplexer interface {
+	EnsureProject(ommetrics.Project, string, ommetrics.TLSOptions, ommetrics.Deployment) error
+	ReleaseProject(ommetrics.Project) error
+}
+
+func NewReconcileCommonController(ctx context.Context, client client.Client, omMetrics OMMetricsMultiplexer) *ReconcileCommonController {
 	newClient := kubernetesClient.NewClient(client)
 	var vaultClient *vault.VaultClient
 
@@ -99,7 +108,7 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 	customAgentURL := env.ReadOrDefault(util.EnvVarCustomAgentURL, "") // nolint:forbidigo
 
-	return &ReconcileCommonController{
+	rc := &ReconcileCommonController{
 		client: newClient,
 		SecretClient: secrets.SecretClient{
 			VaultClient: vaultClient,
@@ -107,7 +116,9 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 		},
 		resourceWatcher: watch.NewResourceWatcher(),
 		customAgentURL:  customAgentURL,
+		omMetrics:       omMetrics,
 	}
+	return rc
 }
 
 func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) (map[string]string, []string, error) {
