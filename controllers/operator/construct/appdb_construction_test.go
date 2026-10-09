@@ -369,6 +369,34 @@ func TestCustomAgentURL(t *testing.T) {
 	})
 }
 
+func TestAppDbStatefulSet_ImagePullPolicy(t *testing.T) {
+	// mongod and the single non-static init container have no explicit policy
+	unmanaged := map[string]bool{util.MongodbContainerName: true, InitAppDbContainerName: true}
+
+	for _, arch := range []architectures.DefaultArchitecture{architectures.NonStatic, architectures.Static} {
+		t.Run(string(arch), func(t *testing.T) {
+			t.Setenv(util.ImagePullPolicyEnv, string(corev1.PullIfNotPresent))
+
+			om := omv1.NewOpsManagerBuilderDefault().Build()
+			sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+				AppDBStatefulSetOptions{},
+				scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+				appsv1.OnDeleteStatefulSetStrategyType, arch, zap.S())
+			require.NoError(t, err)
+
+			checked := 0
+			for _, c := range append(sts.Spec.Template.Spec.Containers, sts.Spec.Template.Spec.InitContainers...) {
+				if unmanaged[c.Name] {
+					continue
+				}
+				assert.Equal(t, corev1.PullIfNotPresent, c.ImagePullPolicy, "container %s", c.Name)
+				checked++
+			}
+			assert.Positive(t, checked)
+		})
+	}
+}
+
 func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 	logLevel := v1.LogLevel("INFO")
 	logFile := "/var/log/mongodb-mms-automation/automation-agent.log"
