@@ -25,13 +25,6 @@ const (
 	ArbitersStatefulSet
 )
 
-// ForConfigMapToExist waits until a ConfigMap of the given name exists
-// using the provided retryInterval and timeout
-func ForConfigMapToExist(ctx context.Context, cmName string, retryInterval, timeout time.Duration) (corev1.ConfigMap, error) {
-	cm := corev1.ConfigMap{}
-	return cm, waitForRuntimeObjectToExist(ctx, cmName, retryInterval, timeout, &cm, e2eutil.OperatorNamespace)
-}
-
 // ForSecretToExist waits until a Secret of the given name exists
 // using the provided retryInterval and timeout
 func ForSecretToExist(ctx context.Context, cmName string, retryInterval, timeout time.Duration, namespace string) (corev1.Secret, error) {
