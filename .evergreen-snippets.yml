@@ -330,7 +330,7 @@ buildvariants:
 
   - name: private_kind_code_snippets
     display_name: private_kind_code_snippets
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "staging", "e2e_test_suite", "pr_patch" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -339,7 +339,7 @@ buildvariants:
 
   - name: private_kind_multi_cluster_code_snippets
     display_name: private_kind_multi_cluster_code_snippets
-    tags: [ "pr_patch", "staging", "e2e_test_suite" ]
+    tags: [ "staging", "e2e_test_suite", "pr_patch" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
