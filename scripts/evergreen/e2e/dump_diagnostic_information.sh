@@ -279,6 +279,7 @@ dump_pprof() {
   local prefix="${4}"
   kubectl --context="${context}" exec "${operator_pod}" -n "${namespace}" -- curl -s "localhost:10081/debug/pprof/goroutine?debug=2" > "logs/${prefix}pprof_goroutine_${operator_pod}.txt" || true
   kubectl --context="${context}" exec "${operator_pod}" -n "${namespace}" -- curl -s "localhost:10081/debug/pprof/goroutineleak?debug=1" > "logs/${prefix}pprof_goroutineleak_${operator_pod}.txt" || true
+  kubectl --context="${context}" exec "${operator_pod}" -n "${namespace}" -- curl -s "localhost:10081/debug/pprof/heap?debug=1" > "logs/${prefix}pprof_heap_${operator_pod}.txt" || true
 }
 
 # dump_pods writes logs for each relevant Pod in the namespace: agent, mongodb
