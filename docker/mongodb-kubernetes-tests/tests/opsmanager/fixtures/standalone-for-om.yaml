@@ -1,0 +1,13 @@
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: the-standalone
+spec:
+  version: 6.0.5-ent
+  type: Standalone
+  opsManager:
+    configMapRef:
+      name: om-standalone-configmap
+  credentials: my-credentials
+  persistent: true
+  logLevel: DEBUG

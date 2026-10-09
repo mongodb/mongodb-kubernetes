@@ -1099,6 +1099,15 @@ task_groups:
       - e2e_search_enterprise_metrics_forwarder_sharded
       - e2e_search_external_metrics_forwarder_sharded
 
+  # Verifies the operator's OTLP exporter forwards MCK deployment mappings to Ops Manager (>= 8.0.27).
+  - name: e2e_om_kind_deployment_mappings_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
+    tasks:
+      - e2e_om_deployment_mappings_replica_set
+      - e2e_om_deployment_mappings_sharded_cluster
+      - e2e_om_deployment_mappings_standalone
+
   # this task group contains just a one task, which is smoke testing whether the operator
   # works correctly when we run it without installing webhook cluster roles
   - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
@@ -1877,6 +1886,7 @@ buildvariants:
     tasks:
       - name: e2e_om_kind_search_task_group
       - name: e2e_om_kind_search_large_task_group
+      - name: e2e_om_kind_deployment_mappings_task_group
 
   - name: e2e_static_om80_kind_ubi_large
     display_name: e2e_static_om80_kind_ubi_large
@@ -1887,6 +1897,7 @@ buildvariants:
     tasks:
       - name: e2e_om_kind_search_task_group
       - name: e2e_om_kind_search_large_task_group
+      - name: e2e_om_kind_deployment_mappings_task_group
 
   - name: e2e_operator_race_ubi_with_telemetry
     display_name: e2e_operator_race_ubi_with_telemetry

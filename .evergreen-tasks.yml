@@ -955,6 +955,21 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_deployment_mappings_replica_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_deployment_mappings_sharded_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_deployment_mappings_standalone
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_om_ops_manager_https_enabled
     tags: [ "patch-run" ]
     commands:
