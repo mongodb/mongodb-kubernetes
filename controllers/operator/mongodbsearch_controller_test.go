@@ -480,9 +480,10 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 
 			mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
 			operatorConfig := searchcontroller.OperatorSearchConfig{
-				SearchRepo:    "testrepo",
-				SearchName:    "mongot",
-				SearchVersion: "1.70.1",
+				SearchRepo:      "testrepo",
+				SearchName:      "mongot",
+				SearchVersion:   "1.70.1",
+				ImagePullPolicy: corev1.PullIfNotPresent,
 			}
 			reconciler, c := newSearchReconcilerWithOperatorConfig(mdbc, operatorConfig, search)
 
@@ -521,6 +522,8 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			sts := &appsv1.StatefulSet{}
 			err = c.Get(ctx, search.StatefulSetNamespacedNameForCluster(0), sts)
 			assert.NoError(t, err)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
+			assert.Equal(t, corev1.PullIfNotPresent, sts.Spec.Template.Spec.Containers[0].ImagePullPolicy)
 		})
 	}
 
