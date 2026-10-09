@@ -708,6 +708,70 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	})
 }
 
+func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoringOnShardRemoval(t *testing.T) {
+	ctx := context.Background()
+
+	initialState := MultiClusterShardedScalingStep{
+		shardCount: 3,
+		shardDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 3,
+		},
+		mongosDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 1,
+		},
+		configServerDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 3,
+		},
+	}
+
+	sc := test.DefaultClusterBuilder().
+		SetShardCountSpec(3).
+		SetMongodsPerShardCountSpec(3).
+		SetConfigServerCountSpec(3).
+		SetMongosCountSpec(1).
+		Build()
+
+	scScaledDown := test.DefaultClusterBuilder().
+		SetShardCountSpec(2).
+		SetMongodsPerShardCountSpec(3).
+		SetConfigServerCountSpec(3).
+		SetMongosCountSpec(1).
+		Build()
+
+	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, sc)))
+	kubeClient, _ := mock.NewDefaultFakeClient(scScaledDown)
+	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scScaledDown.Name, initialState))
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", scScaledDown, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	assert.NoError(t, err)
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		deployment := createDeploymentFromShardedCluster(t, sc)
+		if _, err := connection.UpdateDeployment(deployment); err != nil {
+			panic(err)
+		}
+		connection.(*om.MockedOmConnection).AddHosts(deployment.GetAllHostnames())
+		connection.(*om.MockedOmConnection).CleanHistory()
+	})
+
+	_ = omConnectionFactory.GetConnection().ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		ac.Auth.DeploymentAuthMechanisms = []string{}
+		return nil
+	}, nil)
+
+	mockOm := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
+
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
+
+	removedShardStsName := sc.ShardName(2)
+	removedShardHostnames := make([]string, 3)
+	for i := range 3 {
+		removedShardHostnames[i] = fmt.Sprintf("%s-%d.%s-sh.%s.svc.cluster.local", removedShardStsName, i, scScaledDown.ShardServiceName(), mock.TestNamespace)
+	}
+
+	mockOm.CheckMonitoredHostsRemoved(t, removedShardHostnames)
+}
+
 // CLOUDP-32765: checks that pod anti affinity rule spreads mongods inside one shard, not inside all shards
 func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()

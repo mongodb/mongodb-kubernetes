@@ -304,10 +304,14 @@ func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap
 	return shardMemberClustersMap, allShardsMemberClusters
 }
 
+func (r *ShardedClusterReconcileHelper) maxShardCount() int {
+	return max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount)
+}
+
 // shardK8sNameToIndex returns a map from K8s shard StatefulSet name to shard index.
 func (r *ShardedClusterReconcileHelper) shardK8sNameToIndex() map[string]int {
 	mapping := map[string]int{}
-	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
+	for shardIdx := 0; shardIdx < r.maxShardCount(); shardIdx++ {
 		mapping[r.sc.ShardName(shardIdx)] = shardIdx
 	}
 	return mapping
@@ -329,7 +333,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 	// For multiple clusters, each shard will have configuration specified for each member cluster.
 	shardComponentSpecs := map[int]*mdbv1.ShardedClusterComponentSpec{}
 
-	for shardIdx := 0; shardIdx < max(spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
+	for shardIdx := 0; shardIdx < r.maxShardCount(); shardIdx++ {
 		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIdx)
 
 		shardComponentSpec := *spec.ShardSpec.DeepCopy()
@@ -1825,7 +1829,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		}
 	}
 
-	hostsToRemove := r.getAllHostnames(false)
+	hostsToRemove := r.getAllHosts(false)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
 
 	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
@@ -2075,10 +2079,10 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		}
 	}
 
-	currentHosts := r.getAllHostnames(false)
-	wantedHosts := r.getAllHostnames(true)
+	hostsBefore := r.getAllHosts(false)
+	hostsAfter := r.getAllHosts(true)
 
-	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
+	if err = host.CalculateDiffAndStopMonitoring(conn, hostsBefore, hostsAfter, log); err != nil {
 		if !isRecovering {
 			return workflow.Failed(err)
 		}
@@ -2325,10 +2329,10 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(ctx context.Cont
 	return nil
 }
 
-func (r *ShardedClusterReconcileHelper) getAllHostnames(desiredReplicas bool) []string {
+func (r *ShardedClusterReconcileHelper) getAllHosts(desiredReplicas bool) []string {
 	configSrvHostnames, _ := r.getAllConfigSrvHostnamesAndPodNames(desiredReplicas)
 	mongosHostnames, _ := r.getAllMongosHostnamesAndPodNames(desiredReplicas)
-	shardHostnames, _ := r.getAllShardHostnamesAndPodNames(desiredReplicas)
+	shardHostnames, _ := r.getShardsHostnamesAndPodNames(desiredReplicas)
 
 	var hostnames []string
 	hostnames = append(hostnames, configSrvHostnames...)
@@ -2353,11 +2357,16 @@ func (r *ShardedClusterReconcileHelper) getAllConfigSrvHostnamesAndPodNames(desi
 	return configSrvHostnames, configSrvPodNames
 }
 
-func (r *ShardedClusterReconcileHelper) getAllShardHostnamesAndPodNames(desiredReplicas bool) ([]string, []string) {
+func (r *ShardedClusterReconcileHelper) getShardsHostnamesAndPodNames(desiredReplicas bool) ([]string, []string) {
+	shardCount := r.sc.Spec.ShardCount
+	if !desiredReplicas {
+		shardCount = r.maxShardCount()
+	}
+
 	var shardHostnames []string
 	var shardPodNames []string
-	for shardIdx, memberClusterMap := range r.shardsMemberClustersMap {
-		for _, memberCluster := range memberClusterMap {
+	for shardIdx := range shardCount {
+		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 			replicas := memberCluster.Replicas
 			if desiredReplicas {
 				replicas = scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
@@ -2887,7 +2896,7 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMapData() ma
 		}
 	}
 
-	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
+	for shardIdx := 0; shardIdx < r.maxShardCount(); shardIdx++ {
 		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 			shardScaler := r.GetShardScaler(shardIdx, memberCluster)
 			shardHostnames, shardPodNames := r.getShardHostnames(shardIdx, memberCluster, max(shardScaler.CurrentReplicas(), shardScaler.DesiredReplicas()))
