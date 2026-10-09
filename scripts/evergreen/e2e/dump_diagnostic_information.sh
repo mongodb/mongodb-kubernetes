@@ -272,6 +272,15 @@ dump_metrics() {
   kubectl --context="${context}" exec -it "${operator_pod}"  -n "${namespace}" -- curl localhost:8080/metrics > "logs/${prefix}metrics_${operator_pod}.txt"
 }
 
+dump_pprof() {
+  local context="${1}"
+  local namespace="${2}"
+  local operator_pod="${3}"
+  local prefix="${4}"
+  kubectl --context="${context}" exec "${operator_pod}" -n "${namespace}" -- curl -s "localhost:10081/debug/pprof/goroutine?debug=2" > "logs/${prefix}pprof_goroutine_${operator_pod}.txt" || true
+  kubectl --context="${context}" exec "${operator_pod}" -n "${namespace}" -- curl -s "localhost:10081/debug/pprof/goroutineleak?debug=1" > "logs/${prefix}pprof_goroutineleak_${operator_pod}.txt" || true
+}
+
 # dump_pods writes logs for each relevant Pod in the namespace: agent, mongodb
 # logs, etc.
 dump_pods() {
@@ -299,6 +308,7 @@ dump_pods() {
         if [ -n "${operator_pod}" ]; then
           kubectl --context="${context}" describe "pod/${operator_pod}" -n "${namespace}" > "logs/${prefix}z_${operator_pod}-pod-describe.txt"
           dump_metrics "${context}" "${namespace}" "${operator_pod}" "${prefix}"
+          dump_pprof "${context}" "${namespace}" "${operator_pod}" "${prefix}"
         fi
 
     fi
