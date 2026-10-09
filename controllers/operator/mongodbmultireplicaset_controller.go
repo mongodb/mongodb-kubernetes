@@ -68,7 +68,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -174,6 +176,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 	if len(failedClusterNames) > 0 && !multicluster.ShouldPerformFailover() {
 		log.Warnf("Reconciling with degraded clusters; the following will be skipped this cycle: %+v (automated failover disabled)", failedClusterNames)
+	}
+
+	if mrs.IsRoleAppDB() {
+		ownershipStatus := r.ensureAppDBStatefulSetOwnershipAll(ctx, &mrs, log)
+		if !ownershipStatus.IsOK() {
+			return r.updateStatus(ctx, &mrs, ownershipStatus, log)
+		}
+
+		if err := r.claimAppDBRoleSecrets(ctx, &mrs); err != nil {
+			return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
+		}
 	}
 
 	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
@@ -292,6 +305,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) publishAutomationConfigFirstMultiClust
 	}
 
 	databaseContainer := container.GetByName(util.DatabaseContainerName, firstStatefulSet.Spec.Template.Spec.Containers)
+	if databaseContainer == nil {
+		// The StatefulSet we found is not one this operator renders for this resource, so there are no
+		// mounts to compare; publishing the automation config first cannot be decided from it.
+		return false, nil
+	}
 	volumeMounts := databaseContainer.VolumeMounts
 	if mrs.Spec.Security != nil {
 		if !mrs.Spec.Security.IsTLSEnabled() && statefulset.VolumeMountWithNameExists(volumeMounts, util.SecretVolumeName) {
@@ -405,6 +423,259 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 	}
 
 	return r.reconcileStatefulSets(ctx, mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) validateAppDBForwardMigration(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem, sts appsv1.StatefulSet, secretGetter secret.Getter, log *zap.SugaredLogger) workflow.Status {
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] != trueString {
+		return workflow.OK()
+	}
+
+	if wasTLSSecretMounted(ctx, secretGetter, sts, mdb.MongoDB{ObjectMeta: metav1.ObjectMeta{Namespace: mrs.Namespace}}, log) {
+		if !mrs.Spec.Security.IsTLSEnabled() {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, "spec.security.tls.enabled must remain true")
+		}
+		if caVolume, err := getVolumeFromStatefulSet(sts, tls.ConfigMapVolumeCAName); err == nil && mrs.Spec.Security.TLSConfig.CA != caVolume.ConfigMap.Name {
+			return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.security.tls.ca must reference ConfigMap %q", caVolume.ConfigMap.Name))
+		}
+	}
+
+	if sts.Spec.Replicas != nil && item.Members != int(*sts.Spec.Replicas) {
+		return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.members must remain %d", *sts.Spec.Replicas))
+	}
+
+	return workflow.OK()
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) reclaimAppDBStatefulsetOwnership(ctx context.Context, memberClient client.Client, mrs *mdbmultiv1.MongoDBMultiCluster, sts appsv1.StatefulSet) error {
+	sts.Labels = merge.StringToStringMap(sts.Labels, mrs.GetOwnerLabels())
+	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
+	if err := memberClient.Update(ctx, &sts); err != nil {
+		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
+	}
+
+	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) releaseAppDBStatefulsetOwnership(ctx context.Context, memberClient client.Client, mrs *mdbmultiv1.MongoDBMultiCluster, sts appsv1.StatefulSet) error {
+	delete(sts.Labels, util.MongoDBMultiClusterResourceOwnerLabel)
+	if err := memberClient.Update(ctx, &sts); err != nil {
+		return xerrors.Errorf("failed to strip OwnerReferences from StatefulSet %s: %w", sts.GetName(), err)
+	}
+
+	return nil
+}
+
+// ensureAppDBStatefulSetOwnershipAll arbitrates the AppDB StatefulSet ownership in every member cluster
+// and merges the per-cluster statuses. The AppDB is a single logical deployment, so the merged status
+// decides whether credential handover and StatefulSet reconciliation may proceed.
+func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnershipAll(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) workflow.Status {
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to read cluster spec list: %w", err))
+	}
+
+	failedClusterNames, err := mrs.GetFailedClusterNames()
+	if err != nil {
+		log.Errorf("failed retrieving list of failed clusters: %s", err.Error())
+	}
+
+	var aggregated workflow.Status = workflow.OK()
+	for _, item := range clusterSpecList {
+		if stringutil.Contains(failedClusterNames, item.ClusterName) {
+			log.Warnf(fmt.Sprintf("failed to arbitrate AppDB ownership: cluster %s is marked as failed", item.ClusterName))
+			continue
+		}
+
+		memberClient, ok := r.memberClusterClientsMap[item.ClusterName]
+		if !ok {
+			return workflow.Failed(xerrors.Errorf("failed to arbitrate AppDB ownership: cluster %s missing from client map", item.ClusterName))
+		}
+
+		aggregated = aggregated.Merge(r.ensureAppDBStatefulSetOwnership(ctx, mrs, item, memberClient, r.memberClusterSecretClientsMap[item.ClusterName], log))
+	}
+
+	return aggregated
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBStatefulSetOwnership(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, item mdb.ClusterSpecItem, memberClient client.Client, secretGetter secret.Getter, log *zap.SugaredLogger) workflow.Status {
+	if memberClient == nil {
+		return workflow.Failed(xerrors.Errorf("member cluster %s client is not available", item.ClusterName))
+	}
+
+	clusterNum := mrs.ClusterNum(item.ClusterName)
+	sts := appsv1.StatefulSet{}
+	if err := memberClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(clusterNum)), &sts); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return workflow.OK()
+		}
+		return workflow.Failed(xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err))
+	}
+
+	ownershipLabels := util.GetOwnershipLabels(sts.Labels)
+	currentOwner := mrs.GetOwnerLabels()[util.MongoDBMultiClusterResourceOwnerLabel]
+
+	if validationStatus := r.validateAppDBForwardMigration(ctx, mrs, item, sts, secretGetter, log); !validationStatus.IsOK() {
+		return validationStatus
+	}
+
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
+		if len(ownershipLabels) == 0 {
+			if err := r.reclaimAppDBStatefulsetOwnership(ctx, memberClient, mrs, sts); err != nil {
+				return workflow.Failed(err)
+			}
+			return workflow.OK()
+		}
+
+		if ownershipLabels[util.MongoDBMultiClusterResourceOwnerLabel] == currentOwner {
+			return workflow.OK()
+		}
+
+		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: it has other owner")
+	}
+
+	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
+		if ownershipLabels[util.MongoDBMultiClusterResourceOwnerLabel] == currentOwner {
+			if err := r.releaseAppDBStatefulsetOwnership(ctx, memberClient, mrs, sts); err != nil {
+				return workflow.Failed(err)
+			}
+		}
+		return workflow.Pending("This AppDB resource is under Reverse Migration to Ops Manager CR")
+	}
+
+	if ownershipLabels[util.MongoDBMultiClusterResourceOwnerLabel] != currentOwner {
+		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource")
+	}
+
+	return workflow.OK()
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBRoleUser(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, conn om.Connection) error {
+	if !mrs.IsRoleAppDB() {
+		return nil
+	}
+
+	secretName := omv1.OpsManagerUserPasswordSecretName(mrs.Name)
+	secretObjectKey := kube.ObjectKey(mrs.Namespace, secretName)
+
+	password, err := secret.ReadKey(ctx, r.SecretClient, util.OpsManagerPasswordKey, secretObjectKey)
+	if err != nil && !secret.SecretNotExist(err) {
+		return xerrors.Errorf("failed to read password secret %s: %w", secretName, err)
+	}
+	if password == "" {
+		password, err = generate.RandomFixedLengthStringOfSize(20)
+		if err != nil {
+			return xerrors.Errorf("failed to generate password: %w", err)
+		}
+	}
+
+	newSecret := secret.Builder().
+		SetName(secretName).
+		SetNamespace(mrs.Namespace).
+		SetField(util.OpsManagerPasswordKey, password).
+		SetOwnerReferences(kube.BaseOwnerReference(mrs)).
+		Build()
+	if err := secret.CreateOrUpdateIfNeeded(ctx, r.SecretClient, newSecret); err != nil {
+		return xerrors.Errorf("failed to create/update password secret: %w", err)
+	}
+
+	return conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		omUser := om.MongoDBUser{
+			Username:                   util.OpsManagerMongoDBUserName,
+			Database:                   util.DefaultUserDatabase,
+			Roles:                      []*om.Role{},
+			AuthenticationRestrictions: []string{},
+			Mechanisms:                 []string{},
+		}
+		for _, role := range omv1.AppDBUserRoles {
+			omUser.AddRole(&om.Role{Role: role.Name, Database: role.Database})
+		}
+		if _, err := authentication.ConfigureScramCredentials(&omUser, password, ac); err != nil {
+			return xerrors.Errorf("error generating SCRAM credentials for %s: %w", util.OpsManagerMongoDBUserName, err)
+		}
+		ac.Auth.EnsureUser(omUser)
+		return nil
+	}, zap.S())
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) ensureAppDBRoleKeyfile(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, conn om.Connection) error {
+	if !mrs.IsRoleAppDB() {
+		return nil
+	}
+
+	secretName := fmt.Sprintf("%s-keyfile", mrs.Name)
+	secretObjectKey := kube.ObjectKey(mrs.Namespace, secretName)
+
+	sharedKey, err := secret.ReadKey(ctx, r.SecretClient, constants.AgentKeyfileKey, secretObjectKey)
+	if err != nil && !secret.SecretNotExist(err) {
+		return xerrors.Errorf("failed to read keyfile secret %s: %w", secretName, err)
+	}
+
+	var projectKey string
+	if err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		if sharedKey != "" {
+			ac.Auth.Key = sharedKey
+			return nil
+		}
+		if err := ac.EnsureKeyFileContents(); err != nil {
+			return xerrors.Errorf("failed to ensure keyfile contents: %w", err)
+		}
+		projectKey = ac.Auth.Key
+		return nil
+	}, zap.S()); err != nil {
+		return err
+	}
+	if sharedKey == "" {
+		sharedKey = projectKey
+	}
+
+	newSecret := secret.Builder().
+		SetName(secretName).
+		SetNamespace(mrs.Namespace).
+		SetField(constants.AgentKeyfileKey, sharedKey).
+		SetOwnerReferences(kube.BaseOwnerReference(mrs)).
+		Build()
+	if err := secret.CreateOrUpdateIfNeeded(ctx, r.SecretClient, newSecret); err != nil {
+		return xerrors.Errorf("failed to create/update keyfile secret: %w", err)
+	}
+
+	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) claimAppDBRoleSecrets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster) error {
+	passwordSecretName := omv1.OpsManagerUserPasswordSecretName(mrs.Name)
+	keyfileSecretName := fmt.Sprintf("%s-keyfile", mrs.Name)
+
+	for _, name := range []string{passwordSecretName, keyfileSecretName} {
+		if err := r.claimSecretForCR(ctx, mrs, name); err != nil {
+			return xerrors.Errorf("failed to claim secret %s: %w", name, err)
+		}
+	}
+
+	return nil
+}
+
+func (r *ReconcileMongoDbMultiReplicaSet) claimSecretForCR(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, name string) error {
+	s, err := r.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, name))
+	if err != nil {
+		if secret.SecretNotExist(err) {
+			return nil
+		}
+
+		return xerrors.Errorf("failed to fetch secret %s while claiming ownership: %w", name, err)
+	}
+
+	for _, ref := range s.OwnerReferences {
+		if ref.UID == mrs.UID {
+			return nil
+		}
+	}
+
+	s.OwnerReferences = kube.BaseOwnerReference(mrs)
+	if err := r.UpdateSecret(ctx, s); err != nil {
+		return xerrors.Errorf("failed to claim secret %s: %w", name, err)
+	}
+
+	return nil
 }
 
 func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger, conn om.Connection, projectConfig mdb.ProjectConfig, agentCertHash, agentCertPath string) workflow.Status {
@@ -532,7 +803,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			AgentCertHash(agentCertHash),
 			WithAgentCertPath(agentCertPath),
 			InternalClusterHash(internalCertHash),
-			WithLabels(mrs.GetOwnerLabels()),
+			WithStsLabels(mrs.GetOwnerLabels()),
 			WithAdditionalMongodConfig(mrs.Spec.GetAdditionalMongodConfig()),
 			WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
 			WithDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.NonStaticDatabaseEnterpriseImage, r.databaseNonStaticImageVersion)),
@@ -782,6 +1053,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	)
 	if err != nil && !isRecovering {
 		return err
+	}
+
+	if mrs.IsRoleAppDB() {
+		if err := r.ensureAppDBRoleUser(ctx, &mrs, conn); err != nil {
+			return err
+		}
+		if err := r.ensureAppDBRoleKeyfile(ctx, &mrs, conn); err != nil {
+			return err
+		}
 	}
 
 	reconcileResult, err := ReconcileLogRotateSetting(conn, mrs.Spec.Agent, log)
@@ -1279,22 +1559,29 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 // deleteManagedResources deletes resources across all member clusters that are owned by this MongoDBMultiCluster resource.
 func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
 	var errs error
-	if err := r.cleanOpsManagerState(ctx, mrs, log); err != nil {
-		errs = multierror.Append(errs, err)
-	}
 
-	clusterSpecList, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		errs = multierror.Append(errs, err)
-	} else {
-		for _, item := range clusterSpecList {
-			clusterName := item.ClusterName
-			clusterClient := r.memberClusterClientsMap[clusterName]
-			if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
-				errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+	// AppDB-role CR deletion is a reverse-migration handover, not a deprovision:
+	// the project and member-cluster resources are handed back to Ops Manager.
+	if !mrs.IsRoleAppDB() {
+		if err := r.cleanOpsManagerState(ctx, mrs, log); err != nil {
+			errs = multierror.Append(errs, err)
+		}
+
+		clusterSpecList, err := mrs.GetClusterSpecItems()
+		if err != nil {
+			errs = multierror.Append(errs, err)
+		} else {
+			for _, item := range clusterSpecList {
+				clusterName := item.ClusterName
+				clusterClient := r.memberClusterClientsMap[clusterName]
+				if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
+					errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+				}
 			}
 		}
 	}
+
+	r.resourceWatcher.RemoveDependentWatchedResources(mrs.ObjectKey())
 
 	return errs
 }

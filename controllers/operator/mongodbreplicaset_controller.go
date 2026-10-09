@@ -929,7 +929,7 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 			return workflow.OK()
 		}
 
-		return workflow.Failed(xerrors.New("Cannot take ownership of the AppDB Statefulset: it has other owner"))
+		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: it has other owner")
 	}
 
 	// Reverse Migration, release the AppDB Statefulset

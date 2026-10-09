@@ -386,8 +386,16 @@ func TestOpsManagerReconciler_OnDeleteClusterResourceCleanup(t *testing.T) {
 	}
 }
 
+func resetCurrMockedAdmin(t *testing.T) {
+	t.Helper()
+	previousAdmin := api.CurrMockedAdmin
+	api.CurrMockedAdmin = nil
+	t.Cleanup(func() { api.CurrMockedAdmin = previousAdmin })
+}
+
 func TestOpsManagerReconciler_prepareOpsManager(t *testing.T) {
 	ctx := context.Background()
+	resetCurrMockedAdmin(t)
 	testOm := DefaultOpsManagerBuilder().Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
@@ -464,6 +472,7 @@ func addOmCACm(ctx context.Context, t *testing.T, testOm *omv1.MongoDBOpsManager
 // OM api to create a user as the API secret already exists
 func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 	ctx := context.Background()
+	resetCurrMockedAdmin(t)
 	testOm := DefaultOpsManagerBuilder().Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
@@ -499,6 +508,7 @@ func TestOpsManagerReconciler_prepareOpsManagerTwoCalls(t *testing.T) {
 // user - the Operator will try to create a user again and this will result in UserAlreadyExists error
 func TestOpsManagerReconciler_prepareOpsManagerDuplicatedUser(t *testing.T) {
 	ctx := context.Background()
+	resetCurrMockedAdmin(t)
 	testOm := DefaultOpsManagerBuilder().Build()
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, client, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
@@ -1644,6 +1654,9 @@ func TestOpsManagerReconcile_ExternalAppDBRef_TLS_MountsAppDBCAVolume(t *testing
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
 	require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+	// the ownership gate waits for the external AppDB StatefulSet to exist before the OM deploys
+	externalAppDBSts := DefaultStatefulSetBuilder().SetName("test-om-db").SetLabels(map[string]string{util.MongoDBResourceOwnerLabel: "test-om-db"}).Build()
+	require.NoError(t, reconciler.client.Create(ctx, &externalAppDBSts))
 	require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
 		SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
 		SetNamespace(testOm.Namespace).
