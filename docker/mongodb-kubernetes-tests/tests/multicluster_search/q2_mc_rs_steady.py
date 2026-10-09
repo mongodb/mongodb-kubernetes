@@ -25,7 +25,7 @@ import pytest
 import yaml
 from kubernetes.client import CoreV1Api
 from kubernetes.client.rest import ApiException
-from kubetester import create_or_update_configmap, create_or_update_secret, read_secret, try_load
+from kubetester import create_or_update_configmap, create_or_update_secret, list_matching_pods, read_secret, try_load
 from kubetester.certs import create_tls_certs
 from kubetester.certs_mongodb_multi import create_multi_cluster_mongodb_tls_certs
 from kubetester.kubetester import KubernetesTester
@@ -49,9 +49,11 @@ from tests.common.search.connectivity import (
     mongot_data_pvc_names,
     search_artifact_uids,
     wait_for_deployment_recreated,
+    wait_for_pods_by_label_replaced,
     wait_for_search_artifacts_deleted,
     wait_for_search_deleted,
 )
+from tests.common.search.envoy_helpers import ENVOY_CONFIG_HASH_ANNOTATION, wait_for_envoy_certificates
 from tests.common.search.mc_search_helper import strip_k8s_process_name_prefix
 from tests.common.search.movies_search_helper import (
     EMBEDDING_QUERY_KEY_ENV_VAR,
@@ -1187,6 +1189,95 @@ def test_per_cluster_search_query(
             sleep_time=5,
             msg=f"cluster {cluster_index}: $search query to succeed",
         )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_rotate_lb_certificates_rolls_per_cluster_envoy(
+    namespace: str,
+    multi_cluster_issuer: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    helper: MCSearchDeploymentHelper,
+    mdbs: MongoDBSearch,
+):
+    """Write members first, central last: only central Secret names are watched,
+    while each Envoy hashes its member's data. No test-only reconcile nudge is used.
+    """
+    server_domains = [
+        f"{MDBS_RESOURCE_NAME}-search-{helper.cluster_index(name)}-proxy-svc.{namespace}.svc.cluster.local"
+        for name in helper.member_cluster_names()
+    ]
+    for mcc in member_cluster_clients:
+        ci = _idx(mcc)
+        deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME, ci)
+        label_selector = f"app={deployment_name}"
+        server_cert = search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, ci)
+        client_cert = search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX, ci)
+        apps = mcc.apps_v1_api()
+        before = apps.read_namespaced_deployment(deployment_name, namespace)
+        hash_before = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
+        original_uids = {
+            p.metadata.name: p.metadata.uid
+            for p in list_matching_pods(namespace, label_selector=label_selector, api_client=mcc.api_client)
+        }
+        assert original_uids, f"cluster {mcc.cluster_name}: no Envoy pods matched {label_selector}"
+
+        rotated = {}
+        for secret_name, domains in (
+            (server_cert, server_domains),
+            (client_cert, [f"*.{namespace}.svc.cluster.local"]),
+        ):
+            scratch_name = f"{secret_name}-rotated"
+            create_tls_certs(
+                issuer=multi_cluster_issuer,
+                namespace=namespace,
+                resource_name=deployment_name,
+                replicas=ENVOY_LB_REPLICAS,
+                service_name=deployment_name,
+                additional_domains=domains,
+                secret_name=scratch_name,
+                api_client=central_cluster_client,
+            )
+            data = read_secret(namespace, scratch_name, api_client=central_cluster_client)
+            assert data["tls.crt"] != read_secret(namespace, secret_name, api_client=mcc.api_client)["tls.crt"]
+            rotated[secret_name] = data
+
+        for secret_name, data in rotated.items():
+            create_or_update_secret(namespace, secret_name, data, type="kubernetes.io/tls", api_client=mcc.api_client)
+        for secret_name, data in rotated.items():
+            create_or_update_secret(
+                namespace, secret_name, data, type="kubernetes.io/tls", api_client=central_cluster_client
+            )
+
+        wait_for_pods_by_label_replaced(
+            namespace,
+            label_selector,
+            original_uids,
+            api_client=mcc.api_client,
+            expected=before.spec.replicas,
+            timeout=300,
+        )
+        wait_for_envoy_certificates(
+            namespace,
+            deployment_name,
+            rotated[server_cert]["tls.crt"],
+            rotated[client_cert]["tls.crt"],
+            api_client=mcc.api_client,
+        )
+        after = apps.read_namespaced_deployment(deployment_name, namespace)
+        assert after.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION] != hash_before
+        logger.info(f"cluster {mcc.cluster_name}: Envoy rolled and loaded both rotated certificates")
+
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_per_cluster_search_query_after_lb_certificate_rotation(
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    test_per_cluster_search_query(mdb, helper, member_cluster_clients)
 
 
 @mark.e2e_search_q2_mc_rs_steady

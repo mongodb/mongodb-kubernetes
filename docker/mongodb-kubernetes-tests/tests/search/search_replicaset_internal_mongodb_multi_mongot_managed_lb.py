@@ -9,11 +9,8 @@ This test verifies the RS + managed LB implementation:
 - Imports sample data, creates search indexes, and executes search queries
 """
 
-import json
-
-from cryptography import x509
 from kubernetes import client
-from kubetester import list_matching_pods, pod_is_ready, read_secret, try_load
+from kubetester import list_matching_pods, read_secret, try_load
 from kubetester.certs import rotate_cert
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import run_periodically
@@ -27,6 +24,7 @@ from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.connectivity import wait_for_pods_by_label_replaced
+from tests.common.search.envoy_helpers import ENVOY_CONFIG_HASH_ANNOTATION, wait_for_envoy_certificates
 from tests.common.search.rs_search_helper import (
     create_rs_lb_certificates,
     create_rs_search_tls_cert,
@@ -66,7 +64,6 @@ RS_MEMBERS = 3
 # TLS configuration
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
-ENVOY_CONFIG_HASH_ANNOTATION = "mongodb.com/envoy-config-hash"
 
 
 @fixture(scope="module")
@@ -249,58 +246,6 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")
 
 
-def _wait_for_envoy_certificates(namespace: str, deployment_name: str, server_crt: str, client_crt: str):
-    expected_serials = {
-        "/etc/envoy/tls/server/tls.crt": x509.load_pem_x509_certificate(server_crt.encode()).serial_number,
-        "/etc/envoy/tls/client/tls.crt": x509.load_pem_x509_certificate(client_crt.encode()).serial_number,
-    }
-    apps = client.AppsV1Api()
-    core = client.CoreV1Api()
-
-    def check() -> tuple[bool, str]:
-        deployment = apps.read_namespaced_deployment(deployment_name, namespace)
-        desired = deployment.spec.replicas
-        status = deployment.status
-        if (
-            status.observed_generation != deployment.metadata.generation
-            or status.replicas != desired
-            or status.updated_replicas != desired
-            or status.ready_replicas != desired
-        ):
-            return False, f"{deployment_name}: rollout not converged"
-        pods = list_matching_pods(namespace, label_selector=f"app={deployment_name}")
-        if len(pods) != desired or any(p.metadata.deletion_timestamp or not pod_is_ready(p) for p in pods):
-            return False, f"{deployment_name}: waiting for exactly {desired} ready pods"
-        for pod in pods:
-            if (
-                pod.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
-                != deployment.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
-            ):
-                return False, f"{pod.metadata.name}: stale config hash"
-            try:
-                loaded = json.loads(
-                    core.connect_get_namespaced_pod_proxy_with_path(
-                        name=f"{pod.metadata.name}:9901", namespace=namespace, path="certs", _request_timeout=10
-                    )
-                )
-            except client.exceptions.ApiException as exc:
-                if exc.status in (404, 503):
-                    return False, f"{pod.metadata.name}: admin endpoint unavailable: {exc}"
-                raise
-            for path, serial in expected_serials.items():
-                actual = {
-                    int(cert["serial_number"], 16)
-                    for context in loaded["certificates"]
-                    for cert in context.get("cert_chain", [])
-                    if cert["path"] == path
-                }
-                if actual != {serial}:
-                    return False, f"{pod.metadata.name}: {path} loaded serials={actual}, expected={serial}"
-        return True, f"{deployment_name}: every ready pod loaded both rotated certificates"
-
-    run_periodically(check, timeout=300, sleep_time=5, msg="Envoy rollout and loaded TLS certificates")
-
-
 @mark.e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
 def test_rotate_lb_certificates_rolls_envoy(namespace: str):
     deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
@@ -329,7 +274,7 @@ def test_rotate_lb_certificates_rolls_envoy(namespace: str):
     wait_for_pods_by_label_replaced(
         namespace, label_selector, original_uids, expected=before.spec.replicas, timeout=300
     )
-    _wait_for_envoy_certificates(
+    wait_for_envoy_certificates(
         namespace,
         deployment_name,
         read_secret(namespace, server_cert)["tls.crt"],

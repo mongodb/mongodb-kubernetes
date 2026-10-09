@@ -1,13 +1,77 @@
+import json
 from typing import Optional
 
+from cryptography import x509
 from kubernetes import client
-from kubetester import create_or_update_configmap
+from kubetester import create_or_update_configmap, list_matching_pods, pod_is_ready
 from kubetester.certs import create_tls_certs
 from kubetester.kubetester import KubernetesTester, run_periodically
 from tests import test_logger
 from tests.common.search import search_resource_names
 
 logger = test_logger.get_test_logger(__name__)
+ENVOY_CONFIG_HASH_ANNOTATION = "mongodb.com/envoy-config-hash"
+
+
+def wait_for_envoy_certificates(
+    namespace: str,
+    deployment_name: str,
+    server_crt: str,
+    client_crt: str,
+    *,
+    api_client: Optional[client.ApiClient] = None,
+) -> None:
+    """Wait for a converged rollout and both certs loaded, not merely refreshed on disk."""
+    expected_serials = {
+        "/etc/envoy/tls/server/tls.crt": x509.load_pem_x509_certificate(server_crt.encode()).serial_number,
+        "/etc/envoy/tls/client/tls.crt": x509.load_pem_x509_certificate(client_crt.encode()).serial_number,
+    }
+    apps = client.AppsV1Api(api_client=api_client)
+    core = client.CoreV1Api(api_client=api_client)
+
+    def check() -> tuple[bool, str]:
+        deployment = apps.read_namespaced_deployment(deployment_name, namespace)
+        desired = deployment.spec.replicas
+        status = deployment.status
+        if (
+            not desired
+            or status.observed_generation != deployment.metadata.generation
+            or status.replicas != desired
+            or status.updated_replicas != desired
+            or status.ready_replicas != desired
+        ):
+            return False, f"{deployment_name}: rollout not converged"
+        pods = list_matching_pods(namespace, label_selector=f"app={deployment_name}", api_client=api_client)
+        if len(pods) != desired or any(p.metadata.deletion_timestamp or not pod_is_ready(p) for p in pods):
+            return False, f"{deployment_name}: waiting for exactly {desired} ready pods"
+        for pod in pods:
+            if (
+                pod.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
+                != deployment.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
+            ):
+                return False, f"{pod.metadata.name}: stale config hash"
+            try:
+                loaded = json.loads(
+                    core.connect_get_namespaced_pod_proxy_with_path(
+                        name=f"{pod.metadata.name}:9901", namespace=namespace, path="certs", _request_timeout=10
+                    )
+                )
+            except client.exceptions.ApiException as exc:
+                if exc.status in (404, 503):
+                    return False, f"{pod.metadata.name}: admin endpoint unavailable: {exc}"
+                raise
+            for path, serial in expected_serials.items():
+                actual = {
+                    int(cert["serial_number"], 16)
+                    for context in loaded["certificates"]
+                    for cert in context.get("cert_chain", [])
+                    if cert["path"] == path
+                }
+                if actual != {serial}:
+                    return False, f"{pod.metadata.name}: {path} loaded serials={actual}, expected={serial}"
+        return True, f"{deployment_name}: every ready pod loaded both rotated certificates"
+
+    run_periodically(check, timeout=300, sleep_time=5, msg="Envoy rollout and loaded TLS certificates")
 
 
 class EnvoyProxy:
