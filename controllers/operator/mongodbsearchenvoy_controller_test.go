@@ -1152,6 +1152,48 @@ func TestReconcile_RegistersSearchStateConfigMapWatch(t *testing.T) {
 		},
 	}
 	assert.Contains(t, r.watch.GetWatchedResources()[stateCMKey], search.NamespacedName())
+
+	require.NoError(t, central.Get(ctx, search.NamespacedName(), search))
+	search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
+	require.NoError(t, central.Update(ctx, search))
+	_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
+	require.NoError(t, err)
+	for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(0), search.LoadBalancerClientCert(0)} {
+		assert.Contains(t, r.watch.GetWatchedResources()[watch.Object{ResourceType: watch.Secret, Resource: name}], search.NamespacedName())
+	}
+}
+
+func TestRegisterLBCertSecretWatches(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		tls      bool
+		clusters []searchv1.ClusterSpec
+	}{
+		{"single cluster", true, []searchv1.ClusterSpec{pinnedCluster("", 0)}},
+		{"noncontiguous member indexes", true, []searchv1.ClusterSpec{pinnedCluster("a", 0), pinnedCluster("b", 3)}},
+		{"TLS disabled", false, []searchv1.ClusterSpec{pinnedCluster("", 0)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			central := fake.NewClientBuilder().WithScheme(envoyTestScheme(t)).Build()
+			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+			search := newMCEnvoySearch("mdb-search", "ns", "uid", tc.clusters...)
+			if tc.tls {
+				search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
+			}
+			for range 2 {
+				r.registerLBCertSecretWatches(search, r.buildClusterWorkList(search))
+			}
+			expected := map[watch.Object][]types.NamespacedName{}
+			if tc.tls {
+				for _, cluster := range tc.clusters {
+					for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(cluster.ResolveIndex()), search.LoadBalancerClientCert(cluster.ResolveIndex())} {
+						expected[watch.Object{ResourceType: watch.Secret, Resource: name}] = []types.NamespacedName{search.NamespacedName()}
+					}
+				}
+			}
+			assert.Equal(t, expected, r.watch.GetWatchedResources())
+		})
+	}
 }
 
 func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {

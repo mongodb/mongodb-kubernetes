@@ -196,6 +196,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
 	workList := r.buildClusterWorkList(mdbSearch)
+	r.registerLBCertSecretWatches(mdbSearch, workList)
 	var reconcileErrs error
 	var worstPhase status.Phase
 	var missingClusters []string
@@ -253,6 +254,17 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, r.memberClients, r.operatorClusterName))
 	}
 	return work
+}
+
+func (r *MongoDBSearchEnvoyReconciler) registerLBCertSecretWatches(search *searchv1.MongoDBSearch, workList []clusterWorkItem) {
+	if !search.IsTLSConfigured() {
+		return
+	}
+	for _, w := range workList {
+		for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(w.ClusterIndex), search.LoadBalancerClientCert(w.ClusterIndex)} {
+			r.watch.AddWatchedResourceIfNotAdded(name.Name, name.Namespace, watch.Secret, search.NamespacedName())
+		}
+	}
 }
 
 // newClusterWorkItem builds one per-cluster work unit. Local clusters — the
@@ -909,6 +921,11 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// route create/update events; the rendered LB ConfigMap is not registered, so
 	// manual edits to it never trigger a re-render (Envoy hot-reloads it in place).
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	// User cert Secrets have no owner labels. Watch registered names centrally,
+	// as mongot does; remote-only Secret updates do not enqueue a reconcile.
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
 
