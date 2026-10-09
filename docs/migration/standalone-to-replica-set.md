@@ -71,7 +71,7 @@ Stop application writes before the dump and keep them stopped until the applicat
 
 Hash every user database and note each collection's document count and [dbHash](https://www.mongodb.com/docs/manual/reference/command/dbHash/).
 
-Dump the standalone with mongodump, see the [mongodump docs](https://www.mongodb.com/docs/database-tools/mongodump/). Restore the dump into the replica set with mongorestore, excluding admin.* and config.*, see the [mongorestore docs](https://www.mongodb.com/docs/database-tools/mongorestore/).
+Dump the standalone with mongodump, see the [mongodump docs](https://www.mongodb.com/docs/database-tools/mongodump/). Restore the dump into the replica set with mongorestore, excluding admin.* and config.*, see the [mongorestore docs](https://www.mongodb.com/docs/database-tools/mongorestore/). The copy does not include users, recreate the users of the standalone as MongoDBUser resources on the replica set, see [Manage Database Users](https://www.mongodb.com/docs/kubernetes/current/manage-users/).
 
 ✅ Verify the restore output: N document(s) restored successfully, 0 document(s) failed to restore. Run the same counts and hashes against the replica set and compare with the source notes.
 
