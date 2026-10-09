@@ -99,6 +99,8 @@ type Connection interface {
 	PublicKey() string
 	PrivateKey() string
 
+	Context() *OMContext
+
 	// ConfigureProject configures the OMContext to have the correct project and org ids
 	ConfigureProject(project *Project)
 }
@@ -387,6 +389,10 @@ func (oc *HTTPOmConnection) PublicKey() string {
 // PrivateKey returns PrivateKey of HTTPOmConnection
 func (oc *HTTPOmConnection) PrivateKey() string {
 	return oc.context.PrivateKey
+}
+
+func (oc *HTTPOmConnection) Context() *OMContext {
+	return oc.context
 }
 
 // OpsManagerVersion returns the current Ops Manager version

@@ -16,6 +16,31 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
+func TestAutomationDeploymentName(t *testing.T) {
+	tests := map[string]struct {
+		spec MongoDbSpec
+		want string
+	}{
+		"replica set":                   {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ReplicaSet}}, want: "my-db"},
+		"replica set with override":     {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ReplicaSet}, ReplicaSetNameOverride: "rs-override"}, want: "rs-override"},
+		"sharded cluster":               {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster}}, want: "my-db"},
+		"sharded cluster with override": {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster}, ShardedClusterSpec: ShardedClusterSpec{ShardedClusterNameOverride: "sc-override"}}, want: "sc-override"},
+		"standalone":                    {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: Standalone}}, want: "my-db-0.my-db-svc.my-ns.svc.cluster.local"},
+		"standalone with cluster domain": {
+			spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: Standalone, ClusterDomain: "example.internal"}},
+			want: "my-db-0.my-db-svc.my-ns.svc.example.internal",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			m := &MongoDB{Spec: tc.spec}
+			m.Name, m.Namespace, m.UID = "my-db", "my-ns", "uid-1"
+			assert.Equal(t, tc.want, m.AutomationDeploymentName())
+			assert.Equal(t, "uid-1", m.TelemetryIdentifier())
+		})
+	}
+}
+
 func TestEnsureSecurity_WithAllNilValues(t *testing.T) {
 	spec := &MongoDbSpec{
 		DbCommonSpec: DbCommonSpec{

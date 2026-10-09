@@ -256,6 +256,30 @@ func (m *MongoDB) GetReplicaSetName() string {
 	return m.GetName()
 }
 
+func (m *MongoDB) TelemetryIdentifier() string {
+	return string(m.UID)
+}
+
+// AutomationDeploymentName is the name Ops Manager resolves this deployment by; standalones match on hostname:
+// https://github.com/10gen/ops-manager/blob/main/server/src/main/com/xgen/cloud/monitoring/ingestion/_public/svc/MetricsIngestionSvc.java#L333-L355
+func (m *MongoDB) AutomationDeploymentName() string {
+	switch m.GetResourceType() {
+	case ReplicaSet:
+		return m.GetReplicaSetName()
+	case ShardedCluster:
+		return m.GetShardedClusterName()
+	case Standalone:
+		return m.StandaloneHostname()
+	default:
+		return ""
+	}
+}
+
+// StandaloneHostname is the hostname of the standalone's single pod, as registered in the automation config.
+func (m *MongoDB) StandaloneHostname() string {
+	return dns.GetPodFQDN(dns.GetPodName(m.Name, 0), m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), nil)
+}
+
 func (m *MongoDB) IsRoleAppDB() bool {
 	return m.Spec.Role == RoleAppDB
 }

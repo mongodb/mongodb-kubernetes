@@ -36,8 +36,7 @@ import (
 
 func TestCreateOmProcess(t *testing.T) {
 	const mongodbImage = "quay.io/mongodb/mongodb-enterprise-server"
-	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), zap.S())
-	process := createProcess(mongodbImage, false, sts, util.AgentContainerName, DefaultStandaloneBuilder().Build(), architectures.NonStatic)
+	process := createProcess(mongodbImage, false, util.AgentContainerName, DefaultStandaloneBuilder().Build(), architectures.NonStatic)
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
 	assert.Equal(t, "dublin-0.dublin-svc.my-namespace.svc.cluster.local", process.HostName())
@@ -46,9 +45,7 @@ func TestCreateOmProcess(t *testing.T) {
 
 func TestCreateOmProcesStatic(t *testing.T) {
 	const mongodbImage = "quay.io/mongodb/mongodb-enterprise-server"
-
-	sts := construct.DatabaseStatefulSet(*DefaultReplicaSetBuilder().SetName("dublin").Build(), construct.StandaloneOptions(construct.GetPodEnvOptions()), zap.S())
-	process := createProcess(mongodbImage, false, sts, util.AgentContainerName, DefaultStandaloneBuilder().Build(), architectures.Static)
+	process := createProcess(mongodbImage, false, util.AgentContainerName, DefaultStandaloneBuilder().Build(), architectures.Static)
 	// Note, that for standalone the name of process is the name of statefulset - not the pod inside it.
 	assert.Equal(t, "dublin", process.Name())
 	assert.Equal(t, "dublin-0.dublin-svc.my-namespace.svc.cluster.local", process.HostName())

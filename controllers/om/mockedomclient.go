@@ -145,6 +145,10 @@ func (oc *MockedOmConnection) ConfigureProject(project *Project) {
 	oc.context.OrgID = project.OrgID
 }
 
+func (oc *MockedOmConnection) Context() *OMContext {
+	return oc.context
+}
+
 var _ Connection = &MockedOmConnection{}
 
 // NewEmptyMockedOmConnection is the standard function for creating mocked connections that is usually used for testing

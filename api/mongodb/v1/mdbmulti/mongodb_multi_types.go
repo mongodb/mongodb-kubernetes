@@ -109,6 +109,15 @@ func (m *MongoDBMultiCluster) GetResourceName() string {
 	return m.Name
 }
 
+func (m *MongoDBMultiCluster) TelemetryIdentifier() string {
+	return string(m.UID)
+}
+
+// AutomationDeploymentName matches the replica set name the reconciler writes to the automation config.
+func (m *MongoDBMultiCluster) AutomationDeploymentName() string {
+	return m.Name
+}
+
 func (m *MongoDBMultiCluster) GetSecurity() *mdbv1.Security {
 	return m.Spec.Security
 }
