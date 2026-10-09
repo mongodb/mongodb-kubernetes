@@ -3266,26 +3266,6 @@ func (r *ShardedClusterReconcileHelper) statefulsetLabels() map[string]string {
 	return merge.StringToStringMap(r.sc.Labels, r.sc.GetOwnerLabels())
 }
 
-func (r *ShardedClusterReconcileHelper) ShardsMemberClustersMap() map[int][]multicluster.MemberCluster {
-	return r.shardsMemberClustersMap
-}
-
-func (r *ShardedClusterReconcileHelper) ConfigSrvMemberClusters() []multicluster.MemberCluster {
-	return r.configSrvMemberClusters
-}
-
-func (r *ShardedClusterReconcileHelper) MongosMemberClusters() []multicluster.MemberCluster {
-	return r.mongosMemberClusters
-}
-
-func (r *ShardedClusterReconcileHelper) AllShardsMemberClusters() []multicluster.MemberCluster {
-	return r.allShardsMemberClusters
-}
-
-func (r *ShardedClusterReconcileHelper) AllMemberClusters() []multicluster.MemberCluster {
-	return r.allMemberClusters
-}
-
 func (r *ShardedClusterReconcileHelper) getHealthyProcessNames(existingDeployment om.Deployment) []string {
 	_, mongosProcessNames := r.getHealthyMongosProcesses(existingDeployment)
 	_, configSrvProcessNames := r.getHealthyConfigSrvProcesses(existingDeployment)

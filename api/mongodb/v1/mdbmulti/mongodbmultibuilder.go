@@ -80,14 +80,6 @@ func (m *MultiReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDBRole) *MultiRepli
 	return m
 }
 
-func (m *MultiReplicaSetBuilder) SetRoleRefs(roleRefs []mdbv1.MongoDBRoleRef) *MultiReplicaSetBuilder {
-	if m.Spec.Security == nil {
-		m.Spec.Security = &mdbv1.Security{}
-	}
-	m.Spec.Security.RoleRefs = roleRefs
-	return m
-}
-
 func (m *MultiReplicaSetBuilder) SetClusterSpecList(clusters []string) *MultiReplicaSetBuilder {
 	randFive, err := rand.Int(rand.Reader, big.NewInt(5))
 	if err != nil {

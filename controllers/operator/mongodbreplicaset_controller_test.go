@@ -1471,21 +1471,6 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 	return b
 }
 
-func (b *ReplicaSetBuilder) SetExternalMembers(members []mdbv1.ExternalMember) *ReplicaSetBuilder {
-	b.Spec.ExternalMembers = members
-	return b
-}
-
-func (b *ReplicaSetBuilder) SetFinalizers(finalizers []string) *ReplicaSetBuilder {
-	b.Finalizers = finalizers
-	return b
-}
-
-func (b *ReplicaSetBuilder) SetDeletionTimestamp(t metav1.Time) *ReplicaSetBuilder {
-	b.DeletionTimestamp = &t
-	return b
-}
-
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.DeepCopy()

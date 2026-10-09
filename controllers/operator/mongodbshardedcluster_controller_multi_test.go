@@ -1045,34 +1045,6 @@ func (r *MultiClusterShardedClusterConfigList) GetNames() []string {
 	return clusterNames
 }
 
-func (r *MultiClusterShardedClusterConfigList) GenerateAllHosts(sc *mdbv1.MongoDB, clusterMapping map[string]int) ([]string, []string) {
-	var allHosts []string
-	var allPodNames []string
-	for _, clusterSpec := range *r {
-		memberClusterName := clusterSpec.Name
-		clusterIdx := clusterMapping[memberClusterName]
-
-		for podIdx := range clusterSpec.MongosMembers {
-			allHosts = append(allHosts, getMultiClusterFQDN(sc.MongosRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
-			allPodNames = append(allPodNames, getPodName(sc.MongosRsName(), clusterIdx, podIdx))
-		}
-
-		for podIdx := range clusterSpec.ConfigSrvMembers {
-			allHosts = append(allHosts, getMultiClusterFQDN(sc.ConfigRsName(), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
-			allPodNames = append(allPodNames, getPodName(sc.ConfigRsName(), clusterIdx, podIdx))
-		}
-
-		for shardIdx := 0; shardIdx < len(clusterSpec.ShardsMembersArray); shardIdx++ {
-			for podIdx := 0; podIdx < clusterSpec.ShardsMembersArray[shardIdx]; podIdx++ {
-				allHosts = append(allHosts, getMultiClusterFQDN(sc.ShardName(shardIdx), sc.Namespace, clusterIdx, podIdx, "cluster.local", ""))
-				allPodNames = append(allPodNames, getPodName(sc.ShardName(shardIdx), clusterIdx, podIdx))
-			}
-		}
-	}
-
-	return allHosts, allPodNames
-}
-
 func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testing.T) {
 	expectedClusterConfigList := make(MultiClusterShardedClusterConfigList, 0)
 	expectedClusterConfigList.AddCluster("member-cluster-1", []int{2, 2}, 0, 2)

@@ -3,25 +3,12 @@ package process
 import (
 	"fmt"
 
-	appsv1 "k8s.io/api/apps/v1"
-
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
-
-func CreateMongodProcessesWithLimit(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, dbSpec mdbv1.DbSpec, limit int, fcv string, tlsCertPath string, defaultArchitecture architectures.DefaultArchitecture) []om.Process {
-	hostnames, names := dns.GetDnsForStatefulSetReplicasSpecified(set, dbSpec.GetClusterDomain(), limit, dbSpec.GetExternalDomain())
-	processes := make([]om.Process, len(hostnames))
-
-	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, dbSpec.GetAdditionalMongodConfig(), dbSpec, tlsCertPath, set.Annotations, fcv, defaultArchitecture)
-	}
-
-	return processes
-}
 
 // CreateMongodProcessesFromMongoDB creates mongod processes directly from MongoDB resource without StatefulSet
 func CreateMongodProcessesFromMongoDB(mongoDBImage string, forceEnterprise bool, mdb *mdbv1.MongoDB, limit int, fcv string, tlsCertPath string, defaultArchitecture architectures.DefaultArchitecture, useLegacyNames bool) []om.Process {

@@ -13,7 +13,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1190,11 +1189,6 @@ func onSecretCreate(s *corev1.Secret, clusterName string, clientset *fake.Client
 			panic(err)
 		}
 	}
-}
-
-// containsResourceType returns true if r is in resourceTypes, otherwise false.
-func containsResourceType(resourceTypes []resourceType, r resourceType) bool { // nolint:unused
-	return slices.Contains(resourceTypes, r)
 }
 
 // readSecretKey reads a key from a Secret in the given namespace with the given name.

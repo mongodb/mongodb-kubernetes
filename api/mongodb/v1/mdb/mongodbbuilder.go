@@ -226,11 +226,6 @@ func (b *MongoDBBuilder) SetMongosCountSpec(count int) *MongoDBBuilder {
 	return b
 }
 
-func (b *MongoDBBuilder) SetAdditionalOptions(config AdditionalMongodConfig) *MongoDBBuilder {
-	b.mdb.Spec.AdditionalMongodConfig = &config
-	return b
-}
-
 func (b *MongoDBBuilder) SetBackup(backupSpec Backup) *MongoDBBuilder {
 	if b.mdb.Spec.ResourceType == Standalone {
 		panic("Backup is only supported for ReplicaSets and ShardedClusters")

@@ -76,16 +76,8 @@ type ShardedClusterConfigServerOption struct {
 	Members int
 }
 
-func (o ShardedClusterConfigServerOption) Value() any {
-	return o.Members
-}
-
 type ShardedClusterMongosOption struct {
 	Members int
-}
-
-func (o ShardedClusterMongosOption) Value() any {
-	return o.Members
 }
 
 type ShardedClusterSizeConfigOption struct {
@@ -124,10 +116,6 @@ type MongodbShardedSizeStatusInClusters struct {
 	ShardOverridesInClusters      map[string]map[string]int `json:"shardOverridesInClusters,omitempty"`
 	MongosCountInClusters         map[string]int            `json:"mongosCountInClusters,omitempty"`
 	ConfigServerMongodsInClusters map[string]int            `json:"configServerMongodsInClusters,omitempty"`
-}
-
-func String(m *MongodbShardedSizeStatusInClusters) string {
-	return fmt.Sprintf("%+v", *m)
 }
 
 func sumMap(m map[string]int) int {

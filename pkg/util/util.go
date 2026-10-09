@@ -55,34 +55,6 @@ func FindLeftDifference(left, right []string) []string {
 	return ans
 }
 
-// Int32Ref is required to return a *int32, which can't be declared as a literal.
-//
-//go:fix inline
-func Int32Ref(i int32) *int32 {
-	return new(i)
-}
-
-// Int64Ref is required to return a *int64, which can't be declared as a literal.
-//
-//go:fix inline
-func Int64Ref(i int64) *int64 {
-	return new(i)
-}
-
-// Float64Ref is required to return a *float64, which can't be declared as a literal.
-//
-//go:fix inline
-func Float64Ref(i float64) *float64 {
-	return new(i)
-}
-
-// BooleanRef is required to return a *bool, which can't be declared as a literal.
-//
-//go:fix inline
-func BooleanRef(b bool) *bool {
-	return new(b)
-}
-
 func StripEnt(version string) string {
 	return strings.Trim(version, "-ent")
 }
@@ -202,13 +174,6 @@ func RedactMongoURI(uri string) string {
 	}
 	re := regexp.MustCompile("(mongodb://.*:)(.*)(@.*:.*)")
 	return re.ReplaceAllString(uri, "$1<redacted>$3")
-}
-
-func Redact(toRedact any) string {
-	if toRedact == nil {
-		return "nil"
-	}
-	return "<redacted>"
 }
 
 // Transform converts a slice of objects to a new slice containing objects returned from f.
