@@ -41,7 +41,7 @@ func NewDataStoreConfig(id, uri string, tls bool, assignmentLabels []string) Dat
 	return ret
 }
 
-func (s DataStoreConfig) Identifier() interface{} {
+func (s DataStoreConfig) Identifier() any {
 	return s.Id
 }
 

@@ -284,11 +284,9 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 		// so we should do that even if the jvm flags are not configured by users.
 		memRequest := resourceRequirements.Requests.Memory()
 		halfBytes := memRequest.Value() / 2
-		halfMB := halfBytes / (1024 * 1024)
-		// The same document recommends staying under ~30GB so the JVM keeps compressed object pointers.
-		if halfMB > maxDefaultHeapMB {
-			halfMB = maxDefaultHeapMB
-		}
+		halfMB := min(
+			// The same document recommends staying under ~30GB so the JVM keeps compressed object pointers.
+			halfBytes/(1024*1024), maxDefaultHeapMB)
 		flags = append(flags, fmt.Sprintf("-Xmx%dm", halfMB))
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}

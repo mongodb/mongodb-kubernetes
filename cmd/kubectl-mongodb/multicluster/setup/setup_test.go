@@ -275,7 +275,7 @@ func fakeClientMap(t *testing.T, flags common.Flags, existingKubeConfig []byte) 
 			Type: corev1.SecretTypeServiceAccountToken,
 			Data: map[string][]byte{
 				"ca.crt": serviceAccountCA(clusterName),
-				"token":  []byte(fmt.Sprintf("token: %s", clusterName)),
+				"token":  fmt.Appendf(nil, "token: %s", clusterName),
 			},
 		}
 		clientMap[clusterName] = common.NewKubeClientContainer(nil, fake.NewSimpleClientset(tokenSecret), nil)
@@ -299,7 +299,7 @@ func fakeClientMap(t *testing.T, flags common.Flags, existingKubeConfig []byte) 
 
 // serviceAccountCA is the ca.crt k8s would write into that cluster's Service Account token Secret.
 func serviceAccountCA(clusterName string) []byte {
-	return []byte(fmt.Sprintf("ca.crt: %s", clusterName))
+	return fmt.Appendf(nil, "ca.crt: %s", clusterName)
 }
 
 func generateCAPEM(t *testing.T, commonName string) []byte {

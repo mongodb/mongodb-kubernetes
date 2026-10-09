@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"sort"
@@ -14,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -1590,14 +1590,14 @@ func (r *ReconcileAppDbReplicaSet) generateMemberOptions(opsManager *omv1.MongoD
 				if replicaSetMember, ok := previousMembers[hostname]; ok {
 					memberOptions.Votes = replicaSetMember.Votes
 					if replicaSetMember.Priority != nil {
-						memberOptions.Priority = ptr.To(fmt.Sprintf("%f", *replicaSetMember.Priority))
+						memberOptions.Priority = new(fmt.Sprintf("%f", *replicaSetMember.Priority))
 					}
 					memberOptions.Tags = replicaSetMember.Tags
 
 				} else {
 					// If the member does not exist in the previous automation config, we populate the member options with defaults
-					memberOptions.Votes = ptr.To(1)
-					memberOptions.Priority = ptr.To("1.0")
+					memberOptions.Votes = new(1)
+					memberOptions.Priority = new("1.0")
 				}
 			}
 			memberOptionsList = append(memberOptionsList, memberOptions)
@@ -1708,9 +1708,7 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 
 		params := map[string]string{}
 		if tls {
-			for k, v := range om.NewTLSParams(appdbCAFilePath, pemKeyFile) {
-				params[k] = v
-			}
+			maps.Copy(params, om.NewTLSParams(appdbCAFilePath, pemKeyFile))
 			if requireValidCert {
 				params["sslRequireValidMMSServerCertificates"] = trueString
 			} else {
@@ -2221,9 +2219,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 		return workflowStatus
 	}
 
-	for k, v := range currentClusterSpecs {
-		r.helper.deploymentState.LastAppliedMemberSpec[k] = v
-	}
+	maps.Copy(r.helper.deploymentState.LastAppliedMemberSpec, currentClusterSpecs)
 
 	return workflow.OK()
 }

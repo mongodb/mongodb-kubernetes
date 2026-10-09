@@ -8,7 +8,7 @@ const (
 )
 
 // NewTLSParams creates and returns a new map with TLS parameters.
-func NewTLSParams(caFilePath string, pemKeyFile interface{}) map[string]string {
+func NewTLSParams(caFilePath string, pemKeyFile any) map[string]string {
 	params := map[string]string{
 		TLSParamUseSsl:      "true",
 		TLSParamTrustedCert: caFilePath,
@@ -33,13 +33,13 @@ func ClearTLSParams(params map[string]string) {
 // ClearTLSParamsFromMonitoringVersion removes TLS-specific fields from the monitoring
 // version's additionalParams. If additionalParams becomes empty after removing TLS fields,
 // it is deleted from the monitoring version.
-func ClearTLSParamsFromMonitoringVersion(monitoringVersion map[string]interface{}) {
+func ClearTLSParamsFromMonitoringVersion(monitoringVersion map[string]any) {
 	var isEmpty bool
 	switch params := monitoringVersion["additionalParams"].(type) {
 	case map[string]string:
 		clearTLSParamsFromMap(params)
 		isEmpty = len(params) == 0
-	case map[string]interface{}:
+	case map[string]any:
 		clearTLSParamsFromMap(params)
 		isEmpty = len(params) == 0
 	}

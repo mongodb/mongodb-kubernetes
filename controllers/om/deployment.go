@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/blang/semver"
 	"github.com/spf13/cast"
@@ -43,11 +44,11 @@ func init() {
 	// registered below as otherwise the operator will successfully compile and
 	// run but be completely broken.
 	// TODO should we move this to main.go?
-	gob.Register(map[string]interface{}{})
-	gob.Register([]interface{}{})
+	gob.Register(map[string]any{})
+	gob.Register([]any{})
 	gob.Register(map[string]int{})
 	gob.Register(map[string]string{})
-	gob.Register([]interface{}{})
+	gob.Register([]any{})
 	gob.Register([]Process{})
 	gob.Register([]ReplicaSet{})
 	gob.Register([]ReplicaSetMember{})
@@ -75,7 +76,7 @@ func init() {
 // Also, we don't want to override any configuration provided by OM by accident.
 // The Operator only sets the configuration it "owns" but
 // keeps the other one that was set by the user in Ops Manager if any
-type Deployment map[string]interface{}
+type Deployment map[string]any
 
 func BuildDeploymentFromBytes(jsonBytes []byte) (Deployment, error) {
 	deployment := Deployment{}
@@ -88,13 +89,13 @@ func NewDeployment() Deployment {
 	ans.setProcesses(make([]Process, 0))
 	ans.setReplicaSets(make([]ReplicaSet, 0))
 	ans.setShardedClusters(make([]ShardedCluster, 0))
-	ans.setMonitoringVersions(make([]interface{}, 0))
-	ans.setBackupVersions(make([]interface{}, 0))
+	ans.setMonitoringVersions(make([]any, 0))
+	ans.setBackupVersions(make([]any, 0))
 
 	// these keys are required to exist for mergo to merge
 	// correctly
-	ans["auth"] = make(map[string]interface{})
-	ans["tls"] = map[string]interface{}{
+	ans["auth"] = make(map[string]any)
+	ans["tls"] = map[string]any{
 		"clientCertificateMode": util.OptionalClientCertficates,
 		"CAFilePath":            util.CAFilePathInContainer,
 	}
@@ -122,7 +123,7 @@ func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
 
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
 // with the same name - update some fields there. Otherwise, add the new one
-func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArgs26 map[string]interface{}, l *zap.SugaredLogger) {
+func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArgs26 map[string]any, l *zap.SugaredLogger) {
 	if l == nil {
 		l = zap.S()
 	}
@@ -142,7 +143,7 @@ func (d Deployment) MergeStandalone(standaloneMongo Process, specArgs26, prevArg
 
 // MergeReplicaSet merges the "operator" replica set and its members to the "OM" deployment ("d"). If "alien" RS members are
 // removed after merge - corresponding processes are removed as well.
-func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]interface{}, externalMembers []string, l *zap.SugaredLogger) {
+func (d Deployment) MergeReplicaSet(operatorRs ReplicaSetWithProcesses, specArgs26, prevArgs26 map[string]any, externalMembers []string, l *zap.SugaredLogger) {
 	log := l.With("replicaSet", operatorRs.Rs.Name())
 
 	r := d.getReplicaSetByName(operatorRs.Rs.Name())
@@ -269,12 +270,12 @@ type DeploymentShardedClusterMergeOptions struct {
 	ConfigServerRs                       ReplicaSetWithProcesses
 	Shards                               []ReplicaSetWithProcesses
 	Finalizing                           bool
-	ConfigServerAdditionalOptionsDesired map[string]interface{}
-	MongosAdditionalOptionsDesired       map[string]interface{}
-	ShardAdditionalOptionsDesired        map[string]interface{}
-	ConfigServerAdditionalOptionsPrev    map[string]interface{}
-	MongosAdditionalOptionsPrev          map[string]interface{}
-	ShardAdditionalOptionsPrev           map[string]interface{}
+	ConfigServerAdditionalOptionsDesired map[string]any
+	MongosAdditionalOptionsDesired       map[string]any
+	ShardAdditionalOptionsDesired        map[string]any
+	ConfigServerAdditionalOptionsPrev    map[string]any
+	MongosAdditionalOptionsPrev          map[string]any
+	ShardAdditionalOptionsPrev           map[string]any
 	ExternalCluster                      ExternalShardedCluster
 }
 
@@ -330,12 +331,12 @@ func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFile
 		hostname := p.HostName()
 		pemKeyFile := p.EnsureTLSConfig()["PEMKeyFile"]
 
-		foundIdx := slices.IndexFunc(monitoringVersions, func(m interface{}) bool {
-			return m.(map[string]interface{})["hostname"] == hostname
+		foundIdx := slices.IndexFunc(monitoringVersions, func(m any) bool {
+			return m.(map[string]any)["hostname"] == hostname
 		})
 
 		if foundIdx == -1 {
-			mv := map[string]interface{}{
+			mv := map[string]any{
 				"hostname": hostname,
 				"name":     MonitoringAgentDefaultVersion,
 			}
@@ -345,7 +346,7 @@ func (d Deployment) ConfigureMonitoring(log *zap.SugaredLogger, tls bool, caFile
 			log.Debugw("Added monitoring agent configuration", "host", hostname, "tls", tls)
 			monitoringVersions = append(monitoringVersions, mv)
 		} else {
-			mv := monitoringVersions[foundIdx].(map[string]interface{})
+			mv := monitoringVersions[foundIdx].(map[string]any)
 			if tls {
 				mv["additionalParams"] = NewTLSParams(caFilePath, pemKeyFile)
 			} else {
@@ -375,17 +376,17 @@ func (d Deployment) MarkRsMembersUnvoted(rsName string, rsMembers []string) erro
 		return xerrors.New("Failed to find Replica Set " + rsName)
 	}
 
-	failedMembers := ""
+	var failedMembers strings.Builder
 	for _, m := range rsMembers {
 		rsMember := rs.findMemberByName(m)
 		if rsMember == nil {
-			failedMembers += m
+			failedMembers.WriteString(m)
 		} else {
 			rsMember.setVotes(0).setPriority(0)
 		}
 	}
-	if failedMembers != "" {
-		return xerrors.Errorf("failed to find the following members of Replica Set %s: %v", rsName, failedMembers)
+	if failedMembers.String() != "" {
+		return xerrors.Errorf("failed to find the following members of Replica Set %s: %v", rsName, failedMembers.String())
 	}
 	return nil
 }
@@ -471,7 +472,7 @@ func (d Deployment) RemoveShardedClusterByName(clusterName string, log *zap.Suga
 // GetProcessNames returns an array of all the process names relevant to the given deployment
 // these processes are the only ones checked for goal state when updating the
 // deployment
-func (d Deployment) GetProcessNames(kind interface{}, name string) []string {
+func (d Deployment) GetProcessNames(kind any, name string) []string {
 	switch kind.(type) {
 	case ShardedCluster:
 		return d.getShardedClusterProcessNames(name)
@@ -668,13 +669,7 @@ func (d Deployment) CheckProcessFields(processName, expectedHostName, expectedTy
 	}
 
 	processNames := d.getReplicaSetProcessNames(replicaSetName)
-	for _, p := range processNames {
-		if p == processName {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(processNames, processName)
 }
 
 func (d Deployment) SetRoles(roles []mdbv1.MongoDBRole) {
@@ -727,7 +722,7 @@ func (d Deployment) SetDownloadBase(downloadBase string) {
 	if downloadBase == "" || downloadBase == util.DefaultPvcMmsMountPath {
 		return
 	}
-	d["options"] = map[string]interface{}{"downloadBase": downloadBase}
+	d["options"] = map[string]any{"downloadBase": downloadBase}
 }
 
 // ProcessesCopy returns the COPY of processes in the deployment.
@@ -746,12 +741,12 @@ func (d Deployment) ShardedClustersCopy() []ShardedCluster {
 }
 
 // MonitoringVersionsCopy returns the COPY of monitoring versions in the deployment.
-func (d Deployment) MonitoringVersionsCopy() []interface{} {
+func (d Deployment) MonitoringVersionsCopy() []any {
 	return d.deepCopy().getMonitoringVersions()
 }
 
 // BackupVersionsCopy returns the COPY of backup versions in the deployment.
-func (d Deployment) BackupVersionsCopy() []interface{} {
+func (d Deployment) BackupVersionsCopy() []any {
 	return d.deepCopy().getBackupVersions()
 }
 
@@ -994,7 +989,7 @@ func (d Deployment) getProcesses() []Process {
 	switch v := d["processes"].(type) {
 	case []Process:
 		return v
-	case []interface{}:
+	case []any:
 		// seems we cannot directly cast the array of interfaces to array of Processes - have to manually copy references
 		ans := make([]Process, len(v))
 		for i, val := range v {
@@ -1091,7 +1086,7 @@ func (d Deployment) GetReplicaSets() []ReplicaSet {
 	switch v := d["replicaSets"].(type) {
 	case []ReplicaSet:
 		return v
-	case []interface{}:
+	case []any:
 		ans := make([]ReplicaSet, len(v))
 		for i, val := range v {
 			ans[i] = NewReplicaSetFromInterface(val)
@@ -1119,7 +1114,7 @@ func (d Deployment) getShardedClusters() []ShardedCluster {
 	switch v := d["sharding"].(type) {
 	case []ShardedCluster:
 		return v
-	case []interface{}:
+	case []any:
 		ans := make([]ShardedCluster, len(v))
 		for i, val := range v {
 			ans[i] = NewShardedClusterFromInterface(val)
@@ -1138,23 +1133,23 @@ func (d Deployment) addShardedCluster(shardedCluster ShardedCluster) {
 	d.setShardedClusters(append(d.getShardedClusters(), shardedCluster))
 }
 
-func (d Deployment) getMonitoringVersions() []interface{} {
-	return d["monitoringVersions"].([]interface{})
+func (d Deployment) getMonitoringVersions() []any {
+	return d["monitoringVersions"].([]any)
 }
 
-func (d Deployment) getBackupVersions() []interface{} {
-	return d["backupVersions"].([]interface{})
+func (d Deployment) getBackupVersions() []any {
+	return d["backupVersions"].([]any)
 }
 
-func (d Deployment) setMonitoringVersions(monitoring []interface{}) {
+func (d Deployment) setMonitoringVersions(monitoring []any) {
 	d["monitoringVersions"] = monitoring
 }
 
-func (d Deployment) setBackupVersions(backup []interface{}) {
+func (d Deployment) setBackupVersions(backup []any) {
 	d["backupVersions"] = backup
 }
 
-func (d Deployment) getTLS() map[string]interface{} {
+func (d Deployment) getTLS() map[string]any {
 	return util.ReadOrCreateMap(d, "tls")
 }
 
@@ -1184,10 +1179,10 @@ func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string)
 // which doesn't have a monitoring agents (one monitoring agent per cluster)
 func (d Deployment) removeMonitoring(processNames []string) {
 	monitoringVersions := d.getMonitoringVersions()
-	updatedMonitoringVersions := make([]interface{}, 0)
+	updatedMonitoringVersions := make([]any, 0)
 	hostNames := d.getProcessesHostNames(processNames)
 	for _, m := range monitoringVersions {
-		monitoring := m.(map[string]interface{})
+		monitoring := m.(map[string]any)
 		hostname := monitoring["hostname"].(string)
 		if !stringutil.Contains(hostNames, hostname) {
 			updatedMonitoringVersions = append(updatedMonitoringVersions, m)
@@ -1204,9 +1199,9 @@ func (d Deployment) ConfigureBackup(log *zap.SugaredLogger) {
 	backupVersions := d.getBackupVersions()
 	for _, p := range d.GetProcesses() {
 		found := false
-		var backupVersion map[string]interface{}
+		var backupVersion map[string]any
 		for _, b := range backupVersions {
-			backupVersion = b.(map[string]interface{})
+			backupVersion = b.(map[string]any)
 			if backupVersion["hostname"] == p.HostName() {
 				found = true
 				break
@@ -1214,7 +1209,7 @@ func (d Deployment) ConfigureBackup(log *zap.SugaredLogger) {
 		}
 
 		if !found {
-			backupVersion = map[string]interface{}{"hostname": p.HostName(), "name": BackupAgentDefaultVersion}
+			backupVersion = map[string]any{"hostname": p.HostName(), "name": BackupAgentDefaultVersion}
 			backupVersions = append(backupVersions, backupVersion)
 			log.Debugw("Added backup agent configuration", "host", p.HostName())
 		}
@@ -1225,11 +1220,11 @@ func (d Deployment) ConfigureBackup(log *zap.SugaredLogger) {
 // removeBackup removes the backup versions from Deployment that are in 'hosts' array parameter
 func (d Deployment) removeBackup(processNames []string, log *zap.SugaredLogger) {
 	backupVersions := d.getBackupVersions()
-	updatedBackupVersions := make([]interface{}, 0)
+	updatedBackupVersions := make([]any, 0)
 	initialLength := len(processNames)
 	hostNames := d.getProcessesHostNames(processNames)
 	for _, b := range backupVersions {
-		backup := b.(map[string]interface{})
+		backup := b.(map[string]any)
 		hostname := backup["hostname"].(string)
 		if !stringutil.Contains(hostNames, hostname) {
 			updatedBackupVersions = append(updatedBackupVersions, b)

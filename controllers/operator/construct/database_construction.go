@@ -2,14 +2,15 @@ package construct
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"go.uber.org/zap"
-	"k8s.io/utils/ptr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -385,7 +386,7 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 			memberClusterName: memberClusterName,
 			serviceName:       mdb.ServiceName(),
 			stsType:           Mongos,
-			persistent:        ptr.To(false),
+			persistent:        new(false),
 		}
 
 		return shardedOptions(cfg, additionalOpts...)
@@ -549,7 +550,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	var staticMods []podtemplatespec.Modification
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
 		}
 		// Add volume mounts to all containers in static architecture
 		// This runs after all containers have been added to the spec
@@ -569,7 +570,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 			log.Warnf("%s is true but delve image is not configured. Plese configure %s", util.EnvVarDebug, util.EnvVarDebugImage)
 		} else {
 			shareProcessNs = func(sts *appsv1.StatefulSet) {
-				sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+				sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
 			}
 
 			agentDebugMod = podtemplatespec.WithInitContainer("delve-sidecar", func(c *corev1.Container) {
@@ -676,7 +677,7 @@ func getTLSPrometheusVolumeAndVolumeMount(prom *v1.Prometheus) ([]corev1.Volume,
 		return volumes, volumeMounts
 	}
 
-	secretFunc := func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
+	secretFunc := func(v *corev1.Volume) { v.Secret.Optional = new(true) }
 	// Name of the Secret (PEM-format) with the concatenation of the certificate and key.
 	secretName := prom.TLSSecretRef.Name + certs.OperatorGeneratedCertSuffix
 
@@ -944,7 +945,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 // and concatenates them into a single string that is then
 // returned as env variable AGENT_FLAGS
 func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.EnvVar {
-	agentParams := ""
+	var agentParams strings.Builder
 	finalParameters := mdbv1.StartupParameters{}
 	// add default parameters if not already set
 	for key, value := range defaultAgentParameters() {
@@ -953,9 +954,7 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 			finalParameters[key] = value
 		}
 	}
-	for key, value := range parameters {
-		finalParameters[key] = value
-	}
+	maps.Copy(finalParameters, parameters)
 	// sort the parameters by key
 	keys := make([]string, 0, len(finalParameters))
 	for k := range finalParameters {
@@ -965,10 +964,10 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 	for _, key := range keys {
 		// Using comma as delimiter to split the string later
 		// in the agentlauncher script
-		agentParams += "-" + key + "=" + finalParameters[key] + ","
+		agentParams.WriteString("-" + key + "=" + finalParameters[key] + ",")
 	}
 
-	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams}
+	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams.String()}
 }
 
 // readinessEnvironmentVariablesToEnvVars returns the environment variables to bet set in the readinessProbe container

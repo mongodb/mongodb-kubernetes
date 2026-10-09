@@ -22,7 +22,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
-func decodeStateJSON(cm *corev1.ConfigMap, dst interface{}) error {
+func decodeStateJSON(cm *corev1.ConfigMap, dst any) error {
 	raw, ok := cm.Data[searchStateKey]
 	if !ok {
 		return fmt.Errorf("state key missing from ConfigMap %s", cm.Name)

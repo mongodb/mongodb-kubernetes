@@ -14,11 +14,11 @@ import (
 
 func TestPagination_SinglePage(t *testing.T) {
 	ctx := context.Background()
-	found, err := TraversePages(ctx, singleOrganizationsPage, func(obj interface{}) bool { return obj.(*Organization).Name == "test" })
+	found, err := TraversePages(ctx, singleOrganizationsPage, func(obj any) bool { return obj.(*Organization).Name == "test" })
 	assert.True(t, found)
 	assert.NoError(t, err)
 
-	found, err = TraversePages(ctx, singleOrganizationsPage, func(obj interface{}) bool { return obj.(*Organization).Name == "fake" })
+	found, err = TraversePages(ctx, singleOrganizationsPage, func(obj any) bool { return obj.(*Organization).Name == "fake" })
 	assert.False(t, found)
 	assert.NoError(t, err)
 }
@@ -32,13 +32,13 @@ func TestPagination_MultiplePages(t *testing.T) {
 		return multipleOrganizationsPage(ctx, pageNum)
 	}
 
-	found, err := TraversePages(ctx, reader, func(obj interface{}) bool { return obj.(*Organization).Name == "test1220" })
+	found, err := TraversePages(ctx, reader, func(obj any) bool { return obj.(*Organization).Name == "test1220" })
 	assert.True(t, found)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, pagesRead)
 
 	pagesRead = 0
-	found, err = TraversePages(ctx, reader, func(obj interface{}) bool { return obj.(*Organization).Name == "test1400" })
+	found, err = TraversePages(ctx, reader, func(obj any) bool { return obj.(*Organization).Name == "test1400" })
 	assert.False(t, found)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, pagesRead)
@@ -46,7 +46,7 @@ func TestPagination_MultiplePages(t *testing.T) {
 
 func TestPagination_Error(t *testing.T) {
 	_, err := TraversePages(context.Background(), func(_ context.Context, _ int) (Paginated, error) { return nil, errors.New("Error!") },
-		func(obj interface{}) bool { return obj.(*Organization).Name == "test1220" })
+		func(obj any) bool { return obj.(*Organization).Name == "test1220" })
 	assert.EqualError(t, err, "Error!")
 }
 
@@ -61,7 +61,7 @@ func TestPagination_StopsAtMaxPagesWhenServerAlwaysReportsNext(t *testing.T) {
 	}
 
 	itemsSeen := 0
-	found, err := TraversePages(context.Background(), reader, func(interface{}) bool {
+	found, err := TraversePages(context.Background(), reader, func(any) bool {
 		itemsSeen++
 		return false
 	})
@@ -88,7 +88,7 @@ func TestPagination_ContextDeadlineAbortsTraversal(t *testing.T) {
 		return nil, ctx.Err()
 	}
 
-	_, err := TraversePages(ctx, reader, func(interface{}) bool { return false })
+	_, err := TraversePages(ctx, reader, func(any) bool { return false })
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
@@ -104,7 +104,7 @@ func TestPagination_DeadlineKeepsReaderError(t *testing.T) {
 		return nil, errors.New("401 Unauthorized")
 	}
 
-	_, err := TraversePages(ctx, reader, func(interface{}) bool { return false })
+	_, err := TraversePages(ctx, reader, func(any) bool { return false })
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
@@ -120,7 +120,7 @@ func TestPagination_ReaderReceivesContextWithDeadline(t *testing.T) {
 		return singleOrganizationsPage(ctx, pageNum)
 	}
 
-	_, err := TraversePages(context.Background(), reader, func(interface{}) bool { return false })
+	_, err := TraversePages(context.Background(), reader, func(any) bool { return false })
 
 	require.NoError(t, err)
 	assert.True(t, hasDeadline, "the reader must receive a context bounded by traversePagesTimeout")
@@ -139,7 +139,7 @@ func TestPagination_CancelledParentContextStopsBeforeNextPage(t *testing.T) {
 		return endlessOrganizationsPage(), nil
 	}
 
-	_, err := TraversePages(ctx, reader, func(interface{}) bool { return false })
+	_, err := TraversePages(ctx, reader, func(any) bool { return false })
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
@@ -163,7 +163,7 @@ func TestPagination_DeadlineBetweenPages(t *testing.T) {
 		return nil, errors.New("no further page may be requested")
 	}
 
-	_, err := TraversePages(ctx, reader, func(interface{}) bool { return false })
+	_, err := TraversePages(ctx, reader, func(any) bool { return false })
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
@@ -215,7 +215,7 @@ func multipleOrganizationsPage(_ context.Context, pageNum int) (Paginated, error
 func generateOrganizations(startFrom, count int) []*Organization {
 	ans := make([]*Organization, count)
 	c := startFrom
-	for i := 0; i < count; i++ {
+	for i := range count {
 		ans[i] = &Organization{ID: fmt.Sprintf("id%d", c), Name: fmt.Sprintf("test%d", c)}
 		c++
 	}

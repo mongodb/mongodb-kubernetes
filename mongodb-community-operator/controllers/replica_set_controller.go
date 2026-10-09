@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -543,7 +544,7 @@ func buildAutomationConfig(mdb mdbv1.MongoDBCommunity, isEnterprise bool, auth a
 		arbitersCount = mdb.Status.CurrentMongoDBArbiters
 	}
 
-	var acOverrideSettings map[string]interface{}
+	var acOverrideSettings map[string]any
 	var acReplicaSetId *string
 	if mdb.Spec.AutomationConfigOverride != nil {
 		acOverrideSettings = mdb.Spec.AutomationConfigOverride.ReplicaSet.Settings.Object
@@ -841,10 +842,8 @@ func getMongoDBImage(repoUrl, mongodbImage, mongodbImageType, version string) st
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 	mongoImageName := mongodbImage
-	for _, officialUrl := range util.OfficialMongodbRepoUrls {
-		if repoUrl == officialUrl {
-			return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
-		}
+	if slices.Contains(util.OfficialMongodbRepoUrls, repoUrl) {
+		return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
 	}
 
 	// This is the old images backwards compatibility code path.

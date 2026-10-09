@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,7 +15,7 @@ import (
 )
 
 func pinnedSpec(name string, idx int32) ClusterSpec {
-	return ClusterSpec{Name: name, Index: ptr.To(idx)}
+	return ClusterSpec{Name: name, Index: new(idx)}
 }
 
 func TestValidateShardNames(t *testing.T) {
@@ -125,7 +124,7 @@ func TestValidateShardNames(t *testing.T) {
 			name: "invalid shard Proxy Service at pinned index 999",
 			search: func() *MongoDBSearch {
 				s := newSearch(strings.Repeat("a", 38), []ExternalShardConfig{shard("sh-0")}, "", false, false)
-				s.Spec.Clusters = []ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(999))}}
+				s.Spec.Clusters = []ClusterSpec{{Name: "cluster-a", Index: new(int32(999))}}
 				return s
 			}(),
 			errorContains: "exceeds",
@@ -202,7 +201,7 @@ func TestValidateX509AuthConfig(t *testing.T) {
 				X509: &X509Auth{
 					ClientCertificateSecret: corev1.LocalObjectReference{Name: "my-cert"},
 				},
-				Username: ptr.To("some-user"),
+				Username: new("some-user"),
 			},
 			errorContains: "mutually exclusive",
 		},
@@ -213,7 +212,7 @@ func TestValidateX509AuthConfig(t *testing.T) {
 					ClientCertificateSecret: corev1.LocalObjectReference{Name: "my-cert"},
 				},
 				PasswordSecretRef: &userv1.SecretKeyRef{Name: "my-password"},
-				Username:          ptr.To("some-user"),
+				Username:          new("some-user"),
 			},
 			errorContains: "mutually exclusive",
 		},
@@ -848,7 +847,7 @@ func TestValidateClustersEnvoyResourceNames(t *testing.T) {
 			// actually uses for the resource name.
 			name:          "pinned index 999 rejected where position 0 would pass",
 			searchName:    strings.Repeat("a", 50),
-			clusters:      []ClusterSpec{{Name: "us-east-k8s", Index: ptr.To(int32(999))}},
+			clusters:      []ClusterSpec{{Name: "us-east-k8s", Index: new(int32(999))}},
 			errorContains: "exceeds",
 		},
 		{
@@ -901,28 +900,28 @@ func TestValidateMultipleReplicasRequireLB(t *testing.T) {
 	}{
 		{
 			name:     "single replica no LB ok",
-			clusters: []ClusterSpec{{Replicas: ptr.To(int32(1))}},
+			clusters: []ClusterSpec{{Replicas: new(int32(1))}},
 		},
 		{
 			name:          "multiple replicas without LB rejected",
-			clusters:      []ClusterSpec{{Replicas: ptr.To(int32(3))}},
+			clusters:      []ClusterSpec{{Replicas: new(int32(3))}},
 			errorContains: "multiple mongot replicas (3) require load balancer",
 		},
 		{
 			name:     "multiple replicas with unmanaged LB ok",
-			clusters: []ClusterSpec{{Replicas: ptr.To(int32(3))}},
+			clusters: []ClusterSpec{{Replicas: new(int32(3))}},
 			lb:       &LoadBalancerConfig{Unmanaged: &UnmanagedLBConfig{Endpoint: "lb.example.com:443"}},
 		},
 		{
 			name:     "multiple replicas with managed LB ok",
-			clusters: []ClusterSpec{{Replicas: ptr.To(int32(3))}},
+			clusters: []ClusterSpec{{Replicas: new(int32(3))}},
 			lb:       &LoadBalancerConfig{Managed: &ManagedLBConfig{}},
 		},
 		{
 			name: "shard override replicas without LB rejected",
 			clusters: []ClusterSpec{{
-				Replicas:       ptr.To(int32(1)),
-				ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-1"}, Replicas: ptr.To(int32(2))}},
+				Replicas:       new(int32(1)),
+				ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-1"}, Replicas: new(int32(2))}},
 			}},
 			errorContains: "multiple mongot replicas (2) require load balancer",
 		},

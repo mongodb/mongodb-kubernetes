@@ -1,6 +1,8 @@
 package podtemplatespec
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -273,9 +275,7 @@ func WithAnnotations(annotations map[string]string) Modification {
 		if podTemplateSpec.Annotations == nil {
 			podTemplateSpec.Annotations = map[string]string{}
 		}
-		for k, v := range annotations {
-			podTemplateSpec.Annotations[k] = v
-		}
+		maps.Copy(podTemplateSpec.Annotations, annotations)
 	}
 }
 

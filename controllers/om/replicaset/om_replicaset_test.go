@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -17,9 +16,9 @@ import (
 // This test focuses on the integration/glue logic, not re-testing components.
 func TestBuildFromMongoDBWithReplicas(t *testing.T) {
 	memberOptions := []automationconfig.MemberOptions{
-		{Votes: ptr.To(1), Priority: ptr.To("1.0")},
-		{Votes: ptr.To(1), Priority: ptr.To("0.5")},
-		{Votes: ptr.To(0), Priority: ptr.To("0")}, // Non-voting member
+		{Votes: new(1), Priority: new("1.0")},
+		{Votes: new(1), Priority: new("0.5")},
+		{Votes: new(0), Priority: new("0")}, // Non-voting member
 	}
 
 	mdb := &mdbv1.MongoDB{
@@ -81,7 +80,7 @@ func TestBuildFromMongoDBWithReplicas(t *testing.T) {
 		"test-rs-2.test-rs-svc.test-namespace.svc.cluster.local",
 	}
 
-	for i := 0; i < replicas; i++ {
+	for i := range replicas {
 		assert.Equal(t, expectedProcessNames[i], rsWithProcesses.Processes[i].Name(),
 			"Process name mismatch at index %d", i)
 		assert.Equal(t, expectedHostnames[i], rsWithProcesses.Processes[i].HostName(),
@@ -98,7 +97,7 @@ func TestBuildFromMongoDBWithReplicas(t *testing.T) {
 
 	// Assert: Member host field contains process name (not full hostname)
 	// Note: ReplicaSetMember["host"] is the process name, not the full hostname
-	for i := 0; i < replicas; i++ {
+	for i := range replicas {
 		assert.Equal(t, expectedProcessNames[i], members[i].Name(),
 			"Member host should match process name at index %d", i)
 	}
@@ -109,9 +108,9 @@ func TestBuildFromMongoDBWithReplicas(t *testing.T) {
 // IsLegacyDeployment returns true, so processes keep their bare names.
 func TestBuildFromMongoDBWithReplicas_LegacyNaming(t *testing.T) {
 	memberOptions := []automationconfig.MemberOptions{
-		{Votes: ptr.To(1), Priority: ptr.To("1.0")},
-		{Votes: ptr.To(1), Priority: ptr.To("0.5")},
-		{Votes: ptr.To(0), Priority: ptr.To("0")},
+		{Votes: new(1), Priority: new("1.0")},
+		{Votes: new(1), Priority: new("0.5")},
+		{Votes: new(0), Priority: new("0")},
 	}
 
 	mdb := &mdbv1.MongoDB{
@@ -174,7 +173,7 @@ func TestBuildFromMongoDBWithReplicas_LegacyNaming(t *testing.T) {
 		"test-rs-2.test-rs-svc.test-namespace.svc.cluster.local",
 	}
 
-	for i := 0; i < replicas; i++ {
+	for i := range replicas {
 		assert.Equal(t, expectedProcessNames[i], rsWithProcesses.Processes[i].Name(),
 			"Process name should use legacy naming at index %d", i)
 		assert.Equal(t, expectedHostnames[i], rsWithProcesses.Processes[i].HostName(),

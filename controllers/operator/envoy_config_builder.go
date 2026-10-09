@@ -48,8 +48,8 @@ const (
 // discovery and does not contain any static_resources. bootstrap config json
 // is stable across shard add/remove operations — only CDS/LDS files change.
 func buildBootstrapJSON() (string, error) {
-	runtimeStruct, err := structpb.NewStruct(map[string]interface{}{
-		"overload": map[string]interface{}{
+	runtimeStruct, err := structpb.NewStruct(map[string]any{
+		"overload": map[string]any{
 			"global_downstream_max_connections": 50000,
 		},
 	})
@@ -509,7 +509,7 @@ func buildHCMAccessLog() ([]*accesslogv3.AccessLog, error) {
 	// Tools that consume the envoy pod's stdout (analyzer, lnav, jq
 	// pipelines) only have to know one shape — the access-specific
 	// fields hang off the same record.
-	jsonFields, err := structpb.NewStruct(map[string]interface{}{
+	jsonFields, err := structpb.NewStruct(map[string]any{
 		"time":           "%START_TIME(%Y-%m-%dT%H:%M:%E3S%Ez)%",
 		"level":          "info",
 		"logger":         "access",

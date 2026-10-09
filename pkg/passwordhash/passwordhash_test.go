@@ -1,6 +1,7 @@
 package passwordhash
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,7 +80,7 @@ func Test_PasswordMatchesHash_DeterministicSameInput(t *testing.T) {
 	password := "test-password"
 	hash, salt := GenerateHashAndSaltForPassword(password)
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		match, err := PasswordMatchesHash(password, hash, salt)
 		require.NoError(t, err)
 		assert.True(t, match)
@@ -112,13 +113,13 @@ func Test_PasswordMatchesHash_Unicode(t *testing.T) {
 
 // Test_PasswordMatchesHash_VeryLongPassword verifies passwords near typical max lengths.
 func Test_PasswordMatchesHash_VeryLongPassword(t *testing.T) {
-	password := ""
-	for i := 0; i < 100; i++ {
-		password += "a"
+	var password strings.Builder
+	for range 100 {
+		password.WriteString("a")
 	}
-	hash, salt := GenerateHashAndSaltForPassword(password)
+	hash, salt := GenerateHashAndSaltForPassword(password.String())
 
-	match, err := PasswordMatchesHash(password, hash, salt)
+	match, err := PasswordMatchesHash(password.String(), hash, salt)
 	require.NoError(t, err)
 	assert.True(t, match)
 }

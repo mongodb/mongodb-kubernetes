@@ -177,7 +177,7 @@ func (u *MongoDBUser) SetWarnings(warnings []status.Warning, _ ...status.Option)
 	u.Status.Warnings = warnings
 }
 
-func (u *MongoDBUser) GetStatus(...status.Option) interface{} {
+func (u *MongoDBUser) GetStatus(...status.Option) any {
 	return u.Status
 }
 

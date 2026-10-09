@@ -394,7 +394,7 @@ func AutomationConfigHasLogRotationConfig(ctx context.Context, mdb *mdbv1.MongoD
 	}
 }
 
-func AutomationConfigHasSettings(ctx context.Context, mdb *mdbv1.MongoDBCommunity, settings map[string]interface{}) func(t *testing.T) {
+func AutomationConfigHasSettings(ctx context.Context, mdb *mdbv1.MongoDBCommunity, settings map[string]any) func(t *testing.T) {
 	return func(t *testing.T) {
 		currentAc := getAutomationConfig(ctx, t, mdb)
 		assert.Equal(t, currentAc.ReplicaSets[0].Settings, settings)
@@ -649,7 +649,7 @@ func ChangePort(ctx context.Context, mdb *mdbv1.MongoDBCommunity, newPort int) f
 	}
 }
 
-func AddConnectionStringOption(ctx context.Context, mdb *mdbv1.MongoDBCommunity, key string, value interface{}) func(t *testing.T) {
+func AddConnectionStringOption(ctx context.Context, mdb *mdbv1.MongoDBCommunity, key string, value any) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Logf("Adding %s:%v to connection string", key, value)
 		err := e2eutil.UpdateMongoDBResource(ctx, mdb, func(db *mdbv1.MongoDBCommunity) {
@@ -673,7 +673,7 @@ func ResetConnectionStringOptions(ctx context.Context, mdb *mdbv1.MongoDBCommuni
 	}
 }
 
-func AddConnectionStringOptionToUser(ctx context.Context, mdb *mdbv1.MongoDBCommunity, key string, value interface{}) func(t *testing.T) {
+func AddConnectionStringOptionToUser(ctx context.Context, mdb *mdbv1.MongoDBCommunity, key string, value any) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Logf("Adding %s:%v to connection string to first user", key, value)
 		err := e2eutil.UpdateMongoDBResource(ctx, mdb, func(db *mdbv1.MongoDBCommunity) {

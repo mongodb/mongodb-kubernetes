@@ -31,7 +31,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 
 	spec := mdb.MongoDbSpec{
 		DbCommonSpec: mdb.DbCommonSpec{
-			Persistent: util.BooleanRef(false),
+			Persistent: new(false),
 			ConnectionSpec: mdb.ConnectionSpec{
 				SharedConnectionSpec: mdb.SharedConnectionSpec{
 					OpsManagerConfig: &mdb.PrivateCloudConfig{

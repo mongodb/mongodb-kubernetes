@@ -31,7 +31,7 @@ type ReplicaSetMembersOption struct {
 	Members int
 }
 
-func (o ReplicaSetMembersOption) Value() interface{} {
+func (o ReplicaSetMembersOption) Value() any {
 	return o.Members
 }
 
@@ -54,7 +54,7 @@ type MultiReplicaSetMemberOption struct {
 	ClusterStatusList []ClusterStatusItem
 }
 
-func (o MultiReplicaSetMemberOption) Value() interface{} {
+func (o MultiReplicaSetMemberOption) Value() any {
 	return struct {
 		Members           int
 		ClusterStatusList []ClusterStatusItem
@@ -68,7 +68,7 @@ type ShardedClusterMongodsPerShardCountOption struct {
 	Members int
 }
 
-func (o ShardedClusterMongodsPerShardCountOption) Value() interface{} {
+func (o ShardedClusterMongodsPerShardCountOption) Value() any {
 	return o.Members
 }
 
@@ -76,7 +76,7 @@ type ShardedClusterConfigServerOption struct {
 	Members int
 }
 
-func (o ShardedClusterConfigServerOption) Value() interface{} {
+func (o ShardedClusterConfigServerOption) Value() any {
 	return o.Members
 }
 
@@ -84,7 +84,7 @@ type ShardedClusterMongosOption struct {
 	Members int
 }
 
-func (o ShardedClusterMongosOption) Value() interface{} {
+func (o ShardedClusterMongosOption) Value() any {
 	return o.Members
 }
 
@@ -92,7 +92,7 @@ type ShardedClusterSizeConfigOption struct {
 	SizeConfig *MongodbShardedClusterSizeConfig
 }
 
-func (o ShardedClusterSizeConfigOption) Value() interface{} {
+func (o ShardedClusterSizeConfigOption) Value() any {
 	return o.SizeConfig
 }
 
@@ -100,7 +100,7 @@ type ShardedClusterSizeStatusInClustersOption struct {
 	SizeConfigInClusters *MongodbShardedSizeStatusInClusters
 }
 
-func (o ShardedClusterSizeStatusInClustersOption) Value() interface{} {
+func (o ShardedClusterSizeStatusInClustersOption) Value() any {
 	return o.SizeConfigInClusters
 }
 

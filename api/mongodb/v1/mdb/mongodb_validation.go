@@ -728,7 +728,7 @@ func ValidateFCV(fcvStringPointer *string) v1.ValidationResult {
 // entry appended for a freshly added k8s member is not counted as a change.
 func countMemberConfigChangesForExistingMembers(newConf, oldConf []automationconfig.MemberOptions, existingMembersCount int) int {
 	changes := 0
-	for i := 0; i < existingMembersCount; i++ {
+	for i := range existingMembersCount {
 		var oldOpts, newOpts automationconfig.MemberOptions
 		if i < len(oldConf) {
 			oldOpts = oldConf[i]

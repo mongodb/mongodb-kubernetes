@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -133,7 +132,7 @@ func TestEnsureAppDBStatefulSetOwnership_StripsOwnerReferencesAndAnnotates(t *te
 			OwnerReferences: kube.BaseOwnerReference(testOm),
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: ptr.To(int32(3)),
+			Replicas: new(int32(3)),
 		},
 	}
 
@@ -178,7 +177,7 @@ func TestEnsureAppDBStatefulSetOwnership_IsIdempotent(t *testing.T) {
 			OwnerReferences: kube.BaseOwnerReference(testOm),
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: ptr.To(int32(3)),
+			Replicas: new(int32(3)),
 		},
 	}
 
@@ -326,7 +325,7 @@ func TestEnsureAppDBStatefulSetOwnership_OnlyDetachesOMOwnedStatefulSet(t *testi
 					OwnerReferences: originalOwnerRefs,
 				},
 				Spec: appsv1.StatefulSetSpec{
-					Replicas: ptr.To(int32(3)),
+					Replicas: new(int32(3)),
 				},
 			}
 

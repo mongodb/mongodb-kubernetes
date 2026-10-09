@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -826,9 +827,9 @@ func (s StartupParameters) ToCommandLineArgs() string {
 	sb := strings.Builder{}
 	for _, key := range keys {
 		if value := s[key]; value != "" {
-			sb.Write([]byte(fmt.Sprintf(" -%s=%s", key, value)))
+			sb.Write(fmt.Appendf(nil, " -%s=%s", key, value))
 		} else {
-			sb.Write([]byte(fmt.Sprintf(" -%s", key)))
+			sb.Write(fmt.Appendf(nil, " -%s", key))
 		}
 	}
 	return sb.String()
@@ -1639,10 +1640,7 @@ func shardedClusterInClusterMemberCount(shardCount int, s *status.MongodbSharded
 		return 0
 	}
 	numOverridden := len(s.ShardOverridesInClusters)
-	numNonOverridden := shardCount - numOverridden
-	if numNonOverridden < 0 {
-		numNonOverridden = 0
-	}
+	numNonOverridden := max(shardCount-numOverridden, 0)
 	total := numNonOverridden * s.TotalShardMongodsInClusters()
 	for _, perCluster := range s.ShardOverridesInClusters {
 		total += sumClusterCounts(perCluster)
@@ -1674,10 +1672,8 @@ func (m *MongoDB) shardOverrideMembers(shardName string) (int, bool) {
 		if override.Members == nil {
 			continue
 		}
-		for _, name := range override.ShardNames {
-			if name == shardName {
-				return *override.Members, true
-			}
+		if slices.Contains(override.ShardNames, shardName) {
+			return *override.Members, true
 		}
 	}
 	return 0, false
@@ -1792,7 +1788,7 @@ func (m *MongoDB) AddWarningIfNotExists(warning status.Warning) {
 	m.Status.Warnings = status.Warnings(m.Status.Warnings).AddIfNotExists(warning)
 }
 
-func (m *MongoDB) GetStatus(...status.Option) interface{} {
+func (m *MongoDB) GetStatus(...status.Option) any {
 	return m.Status
 }
 

@@ -52,7 +52,7 @@ func CreateMongodProcessesWithLimitMulti(mongoDBImage string, forceEnterprise bo
 	for _, spec := range clusterSpecList {
 		agentHostNames := dns.GetMultiClusterProcessHostnames(mrs.Name, mrs.Namespace, mrs.ClusterNum(spec.ClusterName), spec.Members, mrs.Spec.GetClusterDomain(), mrs.Spec.GetExternalDomainForMemberCluster(spec.ClusterName))
 		hostnames = append(hostnames, agentHostNames...)
-		for i := 0; i < len(agentHostNames); i++ {
+		for i := range agentHostNames {
 			clusterNums = append(clusterNums, mrs.ClusterNum(spec.ClusterName))
 			podNum = append(podNum, i)
 		}

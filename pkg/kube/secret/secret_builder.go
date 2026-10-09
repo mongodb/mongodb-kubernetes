@@ -1,6 +1,8 @@
 package secret
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -42,18 +44,14 @@ func (b *builder) SetOwnerReferences(ownerReferences []metav1.OwnerReference) *b
 
 func (b *builder) SetLabels(labels map[string]string) *builder {
 	newLabels := make(map[string]string, len(labels))
-	for k, v := range labels {
-		newLabels[k] = v
-	}
+	maps.Copy(newLabels, labels)
 	b.labels = newLabels
 	return b
 }
 
 func (b *builder) SetByteData(stringData map[string][]byte) *builder {
 	newStringDataBytes := make(map[string][]byte, len(stringData))
-	for k, v := range stringData {
-		newStringDataBytes[k] = v
-	}
+	maps.Copy(newStringDataBytes, stringData)
 	b.data = newStringDataBytes
 	return b
 }

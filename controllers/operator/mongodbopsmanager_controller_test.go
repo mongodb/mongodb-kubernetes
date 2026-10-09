@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -336,7 +335,7 @@ func TestOpsManagerReconcilerPrepareOpsManagerWithTLS(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, _, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
-	initializer.expectedCaContent = ptr.To("abc")
+	initializer.expectedCaContent = new("abc")
 
 	addOmCACm(ctx, t, testOm, reconciler)
 
@@ -841,7 +840,7 @@ func TestOpsManagerBackupObjectLock(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().
 		SetVersion("8.0.19").
 		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
-		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: util.BooleanRef(true)}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: new(true)}).
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()

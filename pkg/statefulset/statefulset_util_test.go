@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "k8s.io/api/apps/v1"
@@ -325,7 +324,7 @@ func createStatefulSet(name, namespace string, generation int64, observedGenerat
 			Generation: generation,
 		},
 		Spec: v1.StatefulSetSpec{
-			Replicas: ptr.To(replicas),
+			Replicas: new(replicas),
 		},
 		Status: v1.StatefulSetStatus{
 			ObservedGeneration: observedGeneration,

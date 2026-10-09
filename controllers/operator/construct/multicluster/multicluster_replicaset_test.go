@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -75,7 +74,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 	t.Run("Override provided at clusterSpecList level only", func(t *testing.T) {
 		singleClusterOverride := &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{
 			Spec: appsv1.StatefulSetSpec{
-				Replicas: ptr.To(int32(4)),
+				Replicas: new(int32(4)),
 				Selector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{"foo": "bar"},
 				},
@@ -147,7 +146,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 			SpecWrapper: v1.StatefulSetSpecWrapper{
 				Spec: appsv1.StatefulSetSpec{
 					ServiceName: "clusteroverrideservice",
-					Replicas:    ptr.To(int32(4)),
+					Replicas:    new(int32(4)),
 				},
 			},
 		}

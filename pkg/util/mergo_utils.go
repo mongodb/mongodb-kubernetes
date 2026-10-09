@@ -16,22 +16,22 @@ const MergoDelete = "MERGO_DELETE"
 // Transformer allows us to override that behaviour and perform the merging as we expect.
 type AutomationConfigTransformer struct{}
 
-func isStringMap(elem interface{}) bool {
-	return reflect.TypeOf(elem) == reflect.TypeOf(make(map[string]interface{}))
+func isStringMap(elem any) bool {
+	return reflect.TypeOf(elem) == reflect.TypeFor[map[string]any]()
 }
 
 // withoutElementAtIndex returns the given slice without the element at the specified index
-func withoutElementAtIndex(slice []interface{}, index int) []interface{} {
+func withoutElementAtIndex(slice []any, index int) []any {
 	return append(slice[:index], slice[index+1:]...) // slice[i+1:] returns an empty slice if i >= len(slice)
 }
 
 // mergeBoth is called when both maps have a common field
-func mergeBoth(structAsMap map[string]interface{}, unmodifiedOriginalMap map[string]interface{}, key string, val interface{}) {
+func mergeBoth(structAsMap map[string]any, unmodifiedOriginalMap map[string]any, key string, val any) {
 	switch val.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		// we already know about the key, and it's a nested map so we can continue
 		merge(cast.ToStringMap(structAsMap[key]), cast.ToStringMap(unmodifiedOriginalMap[key]))
-	case []interface{}:
+	case []any:
 		i, j := 0, 0
 		for _, element := range cast.ToSlice(val) {
 			elementsFromStruct := cast.ToSlice(structAsMap[key])
@@ -63,7 +63,7 @@ func mergeBoth(structAsMap map[string]interface{}, unmodifiedOriginalMap map[str
 
 // merge takes a map dst (serialized from a struct) and a map src (the map from an unmodified deployment)
 // and merges them together based on a set of rules
-func merge(dstMap, srcMap map[string]interface{}) {
+func merge(dstMap, srcMap map[string]any) {
 	for key, srcVal := range srcMap {
 		dstVal, ok := dstMap[key]
 		// if the key exists, but the value is nil it means that this is done by intention to delete the value.
@@ -74,8 +74,8 @@ func merge(dstMap, srcMap map[string]interface{}) {
 		// if the value does not exist in the dst map we need to populate it with the value from the src map
 		if !ok {
 			switch srcVal.(type) {
-			case []interface{}:
-				dstMap[key] = make([]interface{}, 0)
+			case []any:
+				dstMap[key] = make([]any, 0)
 			default:
 				// if we don't know about this value, then we can just accept the value coming from the Automation Config
 				dstMap[key] = srcVal
@@ -105,12 +105,12 @@ func (t AutomationConfigTransformer) Transformer(reflect.Type) func(dst, src ref
 }
 
 // MergeWith takes a structToMerge, a source map src, and returns the result of the merging, and an error
-func MergeWith(structToMerge interface{}, src map[string]interface{}, transformers mergo.Transformers) (map[string]interface{}, error) {
+func MergeWith(structToMerge any, src map[string]any, transformers mergo.Transformers) (map[string]any, error) {
 	bytes, err := json.Marshal(structToMerge)
 	if err != nil {
 		return nil, err
 	}
-	dst := make(map[string]interface{})
+	dst := make(map[string]any)
 	err = json.Unmarshal(bytes, &dst)
 	if err != nil {
 		return nil, err

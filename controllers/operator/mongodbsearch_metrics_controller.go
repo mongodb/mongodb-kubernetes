@@ -19,7 +19,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -444,10 +443,10 @@ func normalizeTopologyState(search *searchv1.MongoDBSearch, topologyState *searc
 		if entry.ClusterIndex != nil {
 			continue
 		}
-		if index, ok := specIndexByName[name]; ok {
-			entry.ClusterIndex = ptr.To(index)
+		if index, ok := specIndexByName[name]; ok { //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
+			entry.ClusterIndex = new(index)
 		} else if name == "" {
-			entry.ClusterIndex = ptr.To(0)
+			entry.ClusterIndex = new(0)
 		} else {
 			continue // unresolvable legacy entry; kept as-is
 		}
@@ -943,7 +942,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) openTopologyStateStore(search 
 }
 
 func desiredClusterTopology(search *searchv1.MongoDBSearch, shardNames []string, w clusterWorkItem) (clusterTopologyState, error) {
-	current := clusterTopologyState{ClusterIndex: ptr.To(w.ClusterIndex)}
+	current := clusterTopologyState{ClusterIndex: new(w.ClusterIndex)}
 	if len(shardNames) > 0 {
 		current.ShardReplicas = make(map[string]int, len(shardNames))
 		for _, shardName := range shardNames {
@@ -1193,7 +1192,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedMongotPods(ctx c
 // sha1(groupID + "-" + namespace + "-" + podName). The groupID is folded in so the id is globally
 // unique across all projects.
 func mongotHostID(groupID, namespace, podName string) string {
-	sum := sha1.Sum([]byte(fmt.Sprintf("%s-%s-%s", groupID, namespace, podName))) //nolint //Used to derive a stable host identifier, not for security.
+	sum := sha1.Sum(fmt.Appendf(nil, "%s-%s-%s", groupID, namespace, podName)) //nolint //Used to derive a stable host identifier, not for security.
 	return hex.EncodeToString(sum[:])
 }
 
@@ -1239,7 +1238,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 		dep.Labels = labels
 
 		dep.Spec = appsv1.DeploymentSpec{
-			Replicas: ptr.To(int32(1)),
+			Replicas: new(int32(1)),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: podLabels,
 			},

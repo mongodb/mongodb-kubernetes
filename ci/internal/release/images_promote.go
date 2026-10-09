@@ -113,8 +113,8 @@ func PromoteImages(images []ReleaseImage, commit, latestMarker string, force, dr
 
 // splitHostRepo splits "host/path/to/repo" into ("host", "path/to/repo").
 func splitHostRepo(repo string) (host, path string) {
-	if i := strings.Index(repo, "/"); i >= 0 {
-		return repo[:i], repo[i+1:]
+	if before, after, ok := strings.Cut(repo, "/"); ok {
+		return before, after
 	}
 	return "", repo
 }

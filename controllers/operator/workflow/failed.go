@@ -19,7 +19,7 @@ type failedStatus struct {
 	err error
 }
 
-func Failed(err error, params ...interface{}) *failedStatus {
+func Failed(err error, params ...any) *failedStatus {
 	return &failedStatus{commonStatus: newCommonStatus(err.Error(), params...), err: err, retryInSeconds: 10}
 }
 

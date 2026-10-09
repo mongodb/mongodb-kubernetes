@@ -56,23 +56,31 @@ func FindLeftDifference(left, right []string) []string {
 }
 
 // Int32Ref is required to return a *int32, which can't be declared as a literal.
+//
+//go:fix inline
 func Int32Ref(i int32) *int32 {
-	return &i
+	return new(i)
 }
 
 // Int64Ref is required to return a *int64, which can't be declared as a literal.
+//
+//go:fix inline
 func Int64Ref(i int64) *int64 {
-	return &i
+	return new(i)
 }
 
 // Float64Ref is required to return a *float64, which can't be declared as a literal.
+//
+//go:fix inline
 func Float64Ref(i float64) *float64 {
-	return &i
+	return new(i)
 }
 
 // BooleanRef is required to return a *bool, which can't be declared as a literal.
+//
+//go:fix inline
 func BooleanRef(b bool) *bool {
-	return &b
+	return new(b)
 }
 
 func StripEnt(version string) string {
@@ -91,7 +99,7 @@ func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval
 func DoAndRetryWithContext(ctx context.Context, f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
 	var ok bool
 	var msg string
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			if msg == "" {
 				msg = ctxErr.Error()
@@ -121,8 +129,8 @@ func DoAndRetryWithContext(ctx context.Context, f func() (string, bool), log *za
 // deserialization mechanisms so will always be slower than any manual copy
 // https://rosettacode.org/wiki/Deepcopy#Go
 // TODO move to maputil
-func MapDeepCopy(m map[string]interface{}) (map[string]interface{}, error) {
-	gob.Register(map[string]interface{}{})
+func MapDeepCopy(m map[string]any) (map[string]any, error) {
+	gob.Register(map[string]any{})
 
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
@@ -131,7 +139,7 @@ func MapDeepCopy(m map[string]interface{}) (map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	var copy map[string]interface{}
+	var copy map[string]any
 	err = dec.Decode(&copy)
 	if err != nil {
 		return nil, err
@@ -139,11 +147,11 @@ func MapDeepCopy(m map[string]interface{}) (map[string]interface{}, error) {
 	return copy, nil
 }
 
-func ReadOrCreateMap(m map[string]interface{}, key string) map[string]interface{} {
+func ReadOrCreateMap(m map[string]any, key string) map[string]any {
 	if _, ok := m[key]; !ok {
-		m[key] = make(map[string]interface{})
+		m[key] = make(map[string]any)
 	}
-	return m[key].(map[string]interface{})
+	return m[key].(map[string]any)
 }
 
 func CompareVersions(version1, version2 string) (int, error) {
@@ -196,7 +204,7 @@ func RedactMongoURI(uri string) string {
 	return re.ReplaceAllString(uri, "$1<redacted>$3")
 }
 
-func Redact(toRedact interface{}) string {
+func Redact(toRedact any) string {
 	if toRedact == nil {
 		return "nil"
 	}
@@ -213,7 +221,7 @@ func Redact(toRedact interface{}) string {
 //	 })
 func Transform[T any, U any](objs []T, f func(obj T) U) []U {
 	result := make([]U, len(objs))
-	for i := 0; i < len(objs); i++ {
+	for i := range objs {
 		result[i] = f(objs[i])
 	}
 	return result
@@ -222,7 +230,7 @@ func Transform[T any, U any](objs []T, f func(obj T) U) []U {
 // TransformToMap converts a slice of objects to a map with key values returned from f.
 func TransformToMap[T any, K comparable, V any](objs []T, f func(obj T, idx int) (K, V)) map[K]V {
 	result := make(map[K]V, len(objs))
-	for i := 0; i < len(objs); i++ {
+	for i := range objs {
 		k, v := f(objs[i], i)
 		result[k] = v
 	}

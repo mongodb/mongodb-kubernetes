@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -666,7 +665,7 @@ func TestTryConfigureMonitoringInOpsManagerWithExternalDomains(t *testing.T) {
 	ctx := context.Background()
 	opsManager := DefaultOpsManagerBuilder().
 		SetAppDbExternalAccess(mdbv1.ExternalAccessConfiguration{
-			ExternalDomain: ptr.To("custom.domain"),
+			ExternalDomain: new("custom.domain"),
 		}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	appdbScaler := scalers.GetAppDBScaler(opsManager, multicluster.LegacyCentralClusterName, 0, nil)
@@ -990,7 +989,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 		"external domain configured for single pod in first cluster": {
 			members: 1,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
-				ExternalDomain: ptr.To("some.domain"),
+				ExternalDomain: new("some.domain"),
 			},
 			result: map[int]corev1.Service{
 				0: {
@@ -1207,7 +1206,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 		"service with annotations with placeholders and external domain": {
 			members: 2,
 			externalAccess: &mdbv1.ExternalAccessConfiguration{
-				ExternalDomain: ptr.To("custom.domain"),
+				ExternalDomain: new("custom.domain"),
 				ExternalService: mdbv1.ExternalServiceConfiguration{
 					Annotations: map[string]string{
 						create.PlaceholderPodIndex:            "{podIndex}",
@@ -1353,7 +1352,7 @@ func TestAppDBServiceCreation_WithExternalName(t *testing.T) {
 }
 
 func findVolumeByName(volumes []corev1.Volume, name string) *corev1.Volume {
-	for i := 0; i < len(volumes); i++ {
+	for i := range volumes {
 		if volumes[i].Name == name {
 			return &volumes[i]
 		}
@@ -2033,7 +2032,7 @@ func TestAppDB_PVCStatusClearedAfterSuccessfulResize(t *testing.T) {
 		newStorage := resource.MustParse("50G")
 
 		var pvcs []corev1.PersistentVolumeClaim
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			p := corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      fmt.Sprintf("data-%s-%d", stsName, i),

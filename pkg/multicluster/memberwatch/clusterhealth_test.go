@@ -372,7 +372,7 @@ func TestAllMDBMultiResourcesCleared(t *testing.T) {
 		go checker.WatchMemberClusterHealth(ctx, zap.S(), watchChannel, central, nil)
 
 		var evtNames []string
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			select {
 			case evt := <-watchChannel:
 				evtNames = append(evtNames, evt.Object.GetName())
