@@ -11,9 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -23,6 +25,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
@@ -73,6 +76,93 @@ func TestOpsManagerReconciler_watchedResources(t *testing.T) {
 	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources(), key)
 	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[key], mock.ObjectKeyFromApiObject(testOm))
 	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[key], mock.ObjectKeyFromApiObject(otherTestOm))
+}
+
+func TestOpsManagerReconciler_ExternalAppDBRefMongoDBMultiClusterWatchesReferencedResource(t *testing.T) {
+	ctx := context.Background()
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: "external-appdb",
+		Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	reconciler.configureWatchersForDynamicResources(ctx, testOm, zap.S())
+
+	key := watch.Object{
+		ResourceType: watch.MongoDBMultiCluster,
+		Resource: types.NamespacedName{
+			Name:      testOm.Spec.ExternalAppDBRef.Name,
+			Namespace: testOm.Namespace,
+		},
+	}
+
+	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources(), key)
+	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[key], mock.ObjectKeyFromApiObject(testOm))
+}
+
+func TestOpsManagerReconciler_ExternalAppDBRefMongoDBMultiClusterEventHandlerRoutesOnlyWatchedObjects(t *testing.T) {
+	ctx := context.Background()
+	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: "external-appdb",
+		Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+	})
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	reconciler.configureWatchersForDynamicResources(ctx, testOm, zap.S())
+	handler := watch.ResourcesHandler{ResourceType: watch.MongoDBMultiCluster, ResourceWatcher: reconciler.resourceWatcher}
+
+	tests := []struct {
+		name      string
+		objectOld *mdbmulti.MongoDBMultiCluster
+		objectNew *mdbmulti.MongoDBMultiCluster
+		watched   bool
+	}{
+		{
+			name: "referenced MongoDBMultiCluster spec change enqueues OM",
+			objectOld: &mdbmulti.MongoDBMultiCluster{ObjectMeta: metav1.ObjectMeta{
+				Name:      testOm.Spec.ExternalAppDBRef.Name,
+				Namespace: testOm.Namespace,
+			}},
+			objectNew: &mdbmulti.MongoDBMultiCluster{ObjectMeta: metav1.ObjectMeta{
+				Name:      testOm.Spec.ExternalAppDBRef.Name,
+				Namespace: testOm.Namespace,
+			}, Spec: mdbmulti.MongoDBMultiSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.1"}}},
+			watched: true,
+		},
+		{
+			name: "unrelated MongoDBMultiCluster does not enqueue OM",
+			objectOld: &mdbmulti.MongoDBMultiCluster{ObjectMeta: metav1.ObjectMeta{
+				Name:      "other",
+				Namespace: testOm.Namespace,
+			}},
+			objectNew: &mdbmulti.MongoDBMultiCluster{ObjectMeta: metav1.ObjectMeta{
+				Name:      "other",
+				Namespace: testOm.Namespace,
+			}, Spec: mdbmulti.MongoDBMultiSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.1"}}},
+			watched: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer queue.ShutDown()
+
+			handler.Update(ctx, event.TypedUpdateEvent[client.Object]{ObjectOld: tt.objectOld, ObjectNew: tt.objectNew}, queue)
+			if !tt.watched {
+				assert.Zero(t, queue.Len())
+				return
+			}
+
+			req, shutdown := queue.Get()
+			require.False(t, shutdown)
+			assert.Equal(t, mock.ObjectKeyFromApiObject(testOm), req.NamespacedName)
+			queue.Done(req)
+			assert.Zero(t, queue.Len())
+		})
+	}
 }
 
 // TestOMTLSResourcesAreWatchedAndUnwatched verifies that TLS config map and secret are added to the internal
