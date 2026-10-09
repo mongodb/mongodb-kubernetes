@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -1644,7 +1643,7 @@ func TestReconcile_ShardedSource_ConfigMapUsesClusterIndex(t *testing.T) {
 					},
 				},
 			},
-			Clusters: []searchv1.ClusterSpec{{Name: "", Index: ptr.To(int32(clusterIndex))}},
+			Clusters: []searchv1.ClusterSpec{{Name: "", Index: new(int32(clusterIndex))}},
 		},
 		Status: searchv1.MongoDBSearchStatus{Version: "1.0.0"},
 	}

@@ -13,7 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -670,7 +669,7 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 		// Outlive mongot's grace by 10s so in-flight mongod→Envoy→mongot cursor
 		// streams (drained gracefully by the preStop hook) finish before SIGKILL
 		// during a rolling restart.
-		TerminationGracePeriodSeconds: ptr.To(searchv1.EnvoyTerminationGracePeriodSeconds),
+		TerminationGracePeriodSeconds: new(searchv1.EnvoyTerminationGracePeriodSeconds),
 		Affinity: &corev1.Affinity{
 			PodAntiAffinity: &corev1.PodAntiAffinity{
 				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
