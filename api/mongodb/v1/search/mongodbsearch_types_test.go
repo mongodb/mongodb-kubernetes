@@ -1,6 +1,7 @@
 package search
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -594,6 +595,117 @@ func TestResolveSizingForClusterShard_StatefulSetDeepMerge(t *testing.T) {
 		// the result must not alias the spec's override object.
 		assert.NotSame(t, overrideSTS, got.StatefulSetConfiguration)
 	})
+}
+
+func TestResolveSizingForClusterShard_ServiceMetadata(t *testing.T) {
+	config := func(labels, annotations map[string]string) *v1.ServiceConfiguration {
+		return &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{Labels: labels, Annotations: annotations}}
+	}
+	base := config(map[string]string{"team": "cluster", "keep": "yes"}, map[string]string{"note": "cluster", "keep": "yes"})
+	override := config(map[string]string{"team": "shard", "extra": "yes"}, map[string]string{"note": "shard", "extra": "yes"})
+	tests := []struct {
+		name     string
+		base     *v1.ServiceConfiguration
+		override *v1.ServiceConfiguration
+		want     *v1.ServiceConfiguration
+	}{
+		{"nil", nil, nil, nil},
+		{"cluster only", base, nil, base},
+		{"shard only", nil, override, override},
+		{"empty override inherits", base, &v1.ServiceConfiguration{}, base},
+		{"empty maps inherit", base, config(map[string]string{}, map[string]string{}), base},
+		{"empty base", &v1.ServiceConfiguration{}, override, override},
+		{"merge with shard precedence", base, override, config(
+			map[string]string{"team": "shard", "keep": "yes", "extra": "yes"},
+			map[string]string{"note": "shard", "keep": "yes", "extra": "yes"},
+		)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{
+				{Name: "east", Service: tc.base, ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}, Service: tc.override}}},
+				{Name: "west", Service: base},
+			}}}
+			before := s.DeepCopy()
+			got, err := s.ResolveSizingForClusterShard("east", "shard-0")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.Service)
+			assert.Empty(t, got.ShardOverrides)
+			for _, shard := range []string{"", "shard-1"} {
+				other, err := s.ResolveSizingForClusterShard("east", shard)
+				require.NoError(t, err)
+				assert.Equal(t, tc.base, other.Service)
+			}
+			west, err := s.ResolveSizingForClusterShard("west", "shard-0")
+			require.NoError(t, err)
+			assert.Equal(t, base, west.Service)
+			_, err = s.ResolveSizingForClusterShard("missing", "shard-0")
+			require.ErrorContains(t, err, `cluster "missing" not found`)
+			if tc.override != nil && got.Service != nil {
+				if got.Service.MetadataWrapper.Labels != nil {
+					got.Service.MetadataWrapper.Labels["mutation"] = "no-alias"
+				}
+				if got.Service.MetadataWrapper.Annotations != nil {
+					got.Service.MetadataWrapper.Annotations["mutation"] = "no-alias"
+				}
+				assert.Equal(t, before, s, "merged maps must not alias either input")
+			}
+			merged := mergeServiceConfiguration(tc.base, tc.override)
+			assert.Equal(t, tc.want, merged)
+		})
+	}
+}
+
+func TestServiceMetadataJSONAndDeepCopy(t *testing.T) {
+	for _, payload := range []string{
+		`{}`,
+		`{"service":{}}`,
+		`{"service":{"metadata":{"labels":{},"annotations":{}}}}`,
+		`{"service":{"metadata":{"labels":{"app.kubernetes.io/component":"search"},"annotations":{"example.com/note":"configured"}}}}`,
+	} {
+		t.Run(payload, func(t *testing.T) {
+			var cluster ClusterSpec
+			require.NoError(t, json.Unmarshal([]byte(payload), &cluster))
+			var shard ShardOverride
+			require.NoError(t, json.Unmarshal([]byte(payload), &shard))
+			for _, tc := range []struct {
+				name          string
+				original      any
+				copy          any
+				service       *v1.ServiceConfiguration
+				copiedService *v1.ServiceConfiguration
+			}{
+				{"cluster", &cluster, cluster.DeepCopy(), cluster.Service, cluster.DeepCopy().Service},
+				{"shard", &shard, shard.DeepCopy(), shard.Service, shard.DeepCopy().Service},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					assert.Equal(t, tc.original, tc.copy)
+					encoded, err := json.Marshal(tc.original)
+					require.NoError(t, err)
+					var wire map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(encoded, &wire))
+					if tc.service == nil {
+						assert.NotContains(t, wire, "service")
+						assert.Nil(t, tc.copiedService)
+						return
+					}
+					var roundTrip v1.ServiceConfiguration
+					require.NoError(t, json.Unmarshal(wire["service"], &roundTrip))
+					assert.Equal(t, len(tc.service.MetadataWrapper.Labels), len(roundTrip.MetadataWrapper.Labels))
+					for k, v := range tc.service.MetadataWrapper.Labels {
+						assert.Equal(t, v, roundTrip.MetadataWrapper.Labels[k])
+						tc.copiedService.MetadataWrapper.Labels[k] = "changed"
+						assert.Equal(t, v, tc.service.MetadataWrapper.Labels[k])
+					}
+					for k, v := range tc.service.MetadataWrapper.Annotations {
+						assert.Equal(t, v, roundTrip.MetadataWrapper.Annotations[k])
+						tc.copiedService.MetadataWrapper.Annotations[k] = "changed"
+						assert.Equal(t, v, tc.service.MetadataWrapper.Annotations[k])
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestUpdateStatus_MetricsForwarderPath(t *testing.T) {

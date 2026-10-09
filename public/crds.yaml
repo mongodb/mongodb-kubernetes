@@ -5627,18 +5627,37 @@ spec:
                             More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                           type: object
                       type: object
+                    service:
+                      description: |-
+                        Service configures metadata on this cluster's Search Services.
+                        Operator-generated labels take precedence over user labels.
+                      properties:
+                        metadata:
+                          description: ServiceMetadataWrapper contains user-defined
+                            Service labels and annotations.
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                      type: object
                     shardOverrides:
                       description: |-
-                        ShardOverrides applies per-shard sizing exceptions within this cluster,
-                        for external sharded sources only. Each entry layers its set sizing fields
+                        ShardOverrides applies per-shard sizing and metadata exceptions within this cluster,
+                        for external sharded sources only. Each entry layers its set fields
                         onto this cluster's resolved values for the named shards.
                       items:
                         description: |-
-                          ShardOverride sizes specific shards within the enclosing cluster differently
+                          ShardOverride configures specific shards within the enclosing cluster differently
                           from the cluster default. Replicas, ResourceRequirements, Persistence,
                           JVMFlags and NodeAffinity replace the cluster value for the named shards when set;
-                          StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
-                          inherit the cluster value.
+                          StatefulSetConfiguration is deep-merged and Service metadata is merged per key.
+                          Unset fields inherit the cluster value.
                         properties:
                           jvmFlags:
                             description: JVMFlags replaces the cluster's jvmFlags
@@ -5960,6 +5979,25 @@ spec:
                                   If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
                                   otherwise to an implementation-defined value. Requests cannot exceed Limits.
                                   More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                type: object
+                            type: object
+                          service:
+                            description: |-
+                              Service metadata merges onto the cluster's Service metadata for these shards.
+                              Shard values win per key; operator-generated labels take precedence.
+                            properties:
+                              metadata:
+                                description: ServiceMetadataWrapper contains user-defined
+                                  Service labels and annotations.
+                                properties:
+                                  annotations:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
+                                  labels:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
                                 type: object
                             type: object
                           shardNames:

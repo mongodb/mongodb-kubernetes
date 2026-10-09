@@ -265,6 +265,10 @@ type ClusterSpec struct {
 	// reconcile loop, for customizations not exposed as first-class fields.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Service configures metadata on this cluster's Search Services.
+	// Operator-generated labels take precedence over user labels.
+	// +optional
+	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// +optional
 	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
 	// LoadBalancer configures how mongod/mongos connect to this cluster's mongot
@@ -275,8 +279,8 @@ type ClusterSpec struct {
 	// JVMFlags sets the `--jvm-flags` option for this cluster's mongot pods.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
-	// ShardOverrides applies per-shard sizing exceptions within this cluster,
-	// for external sharded sources only. Each entry layers its set sizing fields
+	// ShardOverrides applies per-shard sizing and metadata exceptions within this cluster,
+	// for external sharded sources only. Each entry layers its set fields
 	// onto this cluster's resolved values for the named shards.
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
@@ -297,11 +301,11 @@ func (c ClusterSpec) ResolveIndex() int {
 	return int(*c.Index)
 }
 
-// ShardOverride sizes specific shards within the enclosing cluster differently
+// ShardOverride configures specific shards within the enclosing cluster differently
 // from the cluster default. Replicas, ResourceRequirements, Persistence,
 // JVMFlags and NodeAffinity replace the cluster value for the named shards when set;
-// StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
-// inherit the cluster value.
+// StatefulSetConfiguration is deep-merged and Service metadata is merged per key.
+// Unset fields inherit the cluster value.
 type ShardOverride struct {
 	// ShardNames are the shards (within this cluster) this override applies to.
 	// Each must exist in spec.source.external.shardedCluster.shards[].
@@ -324,6 +328,10 @@ type ShardOverride struct {
 	// StatefulSetConfiguration is deep-merged onto the cluster's StatefulSet override for these shards.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Service metadata merges onto the cluster's Service metadata for these shards.
+	// Shard values win per key; operator-generated labels take precedence.
+	// +optional
+	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// JVMFlags replaces the cluster's jvmFlags for these shards when non-empty.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
@@ -1131,11 +1139,11 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 	return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
 }
 
-// ResolveSizingForClusterShard returns the effective sizing for one
+// ResolveSizingForClusterShard returns the effective sizing and metadata for one
 // (cluster, shard) cell: the named cluster's ClusterSpec with the matching
 // shardOverride (if any) layered on top. Replicas, ResourceRequirements,
 // Persistence, NodeAffinity and JVMFlags are replaced when the override sets them;
-// StatefulSetConfiguration is deep-merged onto the cluster value. An empty
+// StatefulSetConfiguration is deep-merged; Service metadata is merged per key. An empty
 // shardName (replica-set sources) or a cluster without a matching override
 // returns the cluster spec.
 func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName string) (ClusterSpec, error) {
@@ -1172,6 +1180,9 @@ func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName stri
 	if override.StatefulSetConfiguration != nil {
 		resolved.StatefulSetConfiguration = mergeStatefulSetConfiguration(resolved.StatefulSetConfiguration, override.StatefulSetConfiguration)
 	}
+	if override.Service != nil {
+		resolved.Service = mergeServiceConfiguration(resolved.Service, override.Service)
+	}
 	return resolved, nil
 }
 
@@ -1198,6 +1209,18 @@ func mergeStatefulSetConfiguration(base, override *v1.StatefulSetConfiguration) 
 	merged.SpecWrapper.Spec = merge.StatefulSetSpecs(merged.SpecWrapper.Spec, override.SpecWrapper.Spec)
 	merged.MetadataWrapper.Labels = merge.StringToStringMap(merged.MetadataWrapper.Labels, override.MetadataWrapper.Labels)
 	merged.MetadataWrapper.Annotations = merge.StringToStringMap(merged.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations)
+	return merged
+}
+
+func mergeServiceConfiguration(base, override *v1.ServiceConfiguration) *v1.ServiceConfiguration {
+	if base == nil {
+		return override.DeepCopy()
+	}
+	merged := base.DeepCopy()
+	if override != nil {
+		merged.MetadataWrapper.Labels = merge.StringToStringMap(merged.MetadataWrapper.Labels, override.MetadataWrapper.Labels)
+		merged.MetadataWrapper.Annotations = merge.StringToStringMap(merged.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations)
+	}
 	return merged
 }
 
