@@ -85,8 +85,8 @@ class TestSearchCDSHotReload:
     """Patch the envoy CDS ConfigMap mid-cursor; the reload must not break streams."""
 
     @fixture(scope="module")
-    def search_tools_pod(self, namespace: str) -> mongodb_tools_pod.ToolsPod:
-        return get_tools_pod(namespace)
+    def search_tools_pod(self, namespace: str, custom_mdb_version: str) -> mongodb_tools_pod.ToolsPod:
+        return get_tools_pod(namespace, custom_mdb_version)
 
     def test_cursor_survives_cds_hot_reload(
         self,

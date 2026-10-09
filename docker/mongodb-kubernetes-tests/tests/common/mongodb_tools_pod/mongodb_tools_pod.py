@@ -10,18 +10,27 @@ from tests import test_logger
 logger = test_logger.get_test_logger(__name__)
 
 TOOLS_POD_NAME = "mongodb-tools-pod"
-# pinning to specific hash as there was a regression in recently published images
-TOOLS_POD_IMAGE = (
-    "quay.io/mongodb/mongodb-community-server@sha256:4be3e7a6568e467a21c093f34ddedf0a7d35c244ead410d687e9eb50ac46be25"
-)
+
+# The registry the operator pulls database images from, the MONGODB_REPO_URL value of the e2e deployment.
+MDB_IMAGE_REPOSITORY = "quay.io/mongodb"
+
+
+def tools_pod_image(mdb_version: str) -> str:
+    """Builds the tools pod server image at the given version, enterprise versions end with
+    -ent, so 8.0.6-ent uses mongodb-enterprise-server:8.0.6-ubi9 and 8.3.4 uses
+    mongodb-community-server:8.3.4-ubi9. The e2e matrix runs MongoDB 6.0.5 and above, ubi9
+    images exist from 6.0.4."""
+    image_name = "mongodb-enterprise-server" if mdb_version.endswith("-ent") else "mongodb-community-server"
+    return f"{MDB_IMAGE_REPOSITORY}/{image_name}:{mdb_version.removesuffix('-ent')}-ubi9"
 
 
 class ToolsPod:
     """A pod running MongoDB tools for executing commands like mongorestore inside the cluster."""
 
-    def __init__(self, namespace: str, api_client: Optional[client.ApiClient] = None):
+    def __init__(self, namespace: str, mdb_version: str, api_client: Optional[client.ApiClient] = None):
         self.namespace = namespace
         self.pod_name = TOOLS_POD_NAME
+        self.image = tools_pod_image(mdb_version)
         self.api_client = api_client
         self.core_v1 = client.CoreV1Api(api_client=api_client)
 
@@ -103,9 +112,11 @@ class ToolsPod:
                 containers=[
                     client.V1Container(
                         name="mongodb-tools",
-                        image=TOOLS_POD_IMAGE,
+                        image=self.image,
                         command=["/bin/bash", "-c"],
                         args=["sleep infinity"],
+                        # mongosh writes its config under HOME, which is not writable by the pod user in some server images, and the warning lands in command output.
+                        env=[client.V1EnvVar(name="HOME", value="/tmp")],
                         security_context=client.V1SecurityContext(
                             allow_privilege_escalation=False,
                             capabilities=client.V1Capabilities(drop=["ALL"]),
@@ -136,8 +147,9 @@ class ToolsPod:
         logger.info(f"{self.pod_name} is ready")
 
 
-def get_tools_pod(namespace: str, api_client: Optional[client.ApiClient] = None) -> ToolsPod:
-    """Create and return a ready tools pod in the given namespace."""
-    tools_pod = ToolsPod(namespace, api_client=api_client)
+def get_tools_pod(namespace: str, mdb_version: str, api_client: Optional[client.ApiClient] = None) -> ToolsPod:
+    """Create and return a ready tools pod in the given namespace, the image matches the
+    given MongoDB version."""
+    tools_pod = ToolsPod(namespace, mdb_version, api_client=api_client)
     tools_pod.run_pod_and_wait()
     return tools_pod

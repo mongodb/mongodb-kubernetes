@@ -158,6 +158,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
+	log.Warn(mdbv1.StandaloneDeprecationMessage)
+
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
 	}
