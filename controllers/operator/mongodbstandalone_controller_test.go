@@ -189,7 +189,7 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
-	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature()
+	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 2)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -217,7 +217,7 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
 	mockedConn := omConnectionFactory.GetConnection()
-	cf, _ := mockedConn.GetControlledFeature()
+	cf, _ := mockedConn.GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 3)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)

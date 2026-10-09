@@ -36,7 +36,7 @@ func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReader
 
 	desiredConfig := getMongoDBBackupConfig(mdb.GetBackupSpec(), projectId)
 
-	configs, err := configReadUpdater.ReadBackupConfigs()
+	configs, err := configReadUpdater.ReadBackupConfigs(ctx)
 	if err != nil {
 		return workflow.Failed(err), nil
 	}
@@ -52,7 +52,7 @@ func EnsureBackupConfigurationInOpsManager(ctx context.Context, mdb ConfigReader
 		return workflow.Failed(err), nil
 	}
 
-	return ensureBackupConfigStatuses(mdb, projectConfigs, desiredConfig, log, configReadUpdater, backupEnableDelay)
+	return ensureBackupConfigStatuses(ctx, mdb, projectConfigs, desiredConfig, log, configReadUpdater, backupEnableDelay)
 }
 
 func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsReader secrets.SecretClient, reader GroupConfigReader, updater GroupConfigUpdater) error {
@@ -63,7 +63,7 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 	assignmentLabels := mdb.GetBackupSpec().AssignmentLabels
 	kmip := mdb.GetBackupSpec().GetKmip()
 
-	config, err := reader.ReadGroupBackupConfig()
+	config, err := reader.ReadGroupBackupConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -101,19 +101,19 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 	}
 
 	if requiresUpdate {
-		_, err = updater.UpdateGroupBackupConfig(config)
+		_, err = updater.UpdateGroupBackupConfig(ctx, config)
 	}
 	return err
 }
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
-func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
+func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
 	for _, config := range projectConfigs {
 		var result workflow.Status = workflow.OK()
 
 		desiredConfig.ClusterId = config.ClusterId
 
-		cluster, err := configReadUpdater.ReadHostCluster(config.ClusterId)
+		cluster, err := configReadUpdater.ReadHostCluster(ctx, config.ClusterId)
 		if err != nil {
 			return workflow.Failed(err), nil
 		}
@@ -164,7 +164,7 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		// so the first run will be skipped. Update will be executed again at the end of this method when the backup reaches valid status.
 		// When the backup is already configured (not in INACTIVE state) and it is not changing its status, then this execution will update snapshot schedule.
 		// When both status and snapshot schedule is changing (e.g. backup starting from stopped), then this method will update snapshot schedule twice, which is harmless.
-		if err := updateSnapshotSchedule(mdb.GetBackupSpec().SnapshotSchedule, configReadUpdater, config, log); err != nil {
+		if err := updateSnapshotSchedule(ctx, mdb.GetBackupSpec().SnapshotSchedule, configReadUpdater, config, log); err != nil {
 			return workflow.Failed(err), nil
 		}
 
@@ -183,16 +183,16 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 			}
 		}
 
-		updatedConfig, err := configReadUpdater.UpdateBackupConfig(desiredConfig)
+		updatedConfig, err := configReadUpdater.UpdateBackupConfig(ctx, desiredConfig)
 		if err != nil {
 			return workflow.Failed(err), nil
 		}
 
 		log.Debugw("Project Backup Configuration", "desiredConfig", desiredConfig, "updatedConfig", updatedConfig)
 
-		if ok, msg := waitUntilBackupReachesStatus(configReadUpdater, updatedConfig, desiredConfig.Status, log); !ok {
+		if ok, msg := waitUntilBackupReachesStatus(ctx, configReadUpdater, updatedConfig, desiredConfig.Status, log); !ok {
 			log.Debugf("wait error message: %s", msg)
-			statusOpts, err := getCurrentBackupStatusOption(configReadUpdater, config.ClusterId)
+			statusOpts, err := getCurrentBackupStatusOption(ctx, configReadUpdater, config.ClusterId)
 			if err != nil {
 				return workflow.Failed(err), nil
 			}
@@ -202,11 +202,11 @@ func ensureBackupConfigStatuses(mdb ConfigReaderUpdater, projectConfigs []*Confi
 		log.Debugf("Backup has reached the desired state of %s", desiredConfig.Status)
 
 		// second run for cases when backup was inactive (see comment above)
-		if err := updateSnapshotSchedule(mdb.GetBackupSpec().SnapshotSchedule, configReadUpdater, desiredConfig, log); err != nil {
+		if err := updateSnapshotSchedule(ctx, mdb.GetBackupSpec().SnapshotSchedule, configReadUpdater, desiredConfig, log); err != nil {
 			return workflow.Failed(err), nil
 		}
 
-		backupOpts, err := getCurrentBackupStatusOption(configReadUpdater, desiredConfig.ClusterId)
+		backupOpts, err := getCurrentBackupStatusOption(ctx, configReadUpdater, desiredConfig.ClusterId)
 		if err != nil {
 			return workflow.Failed(err), nil
 		}
@@ -246,7 +246,7 @@ func applyShardedClusterBackupEnableDelay(mdb status.Reader, backupEnableDelay t
 	return workflow.Pending(BackupEnableDelayPendingMessage)
 }
 
-func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {
+func updateSnapshotSchedule(ctx context.Context, specSnapshotSchedule *mdbv1.SnapshotSchedule, configReadUpdater ConfigHostReadUpdater, config *Config, log *zap.SugaredLogger) error {
 	if specSnapshotSchedule == nil {
 		return nil
 	}
@@ -257,7 +257,7 @@ func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, config
 		return nil
 	}
 
-	omSnapshotSchedule, err := configReadUpdater.ReadSnapshotSchedule(config.ClusterId)
+	omSnapshotSchedule, err := configReadUpdater.ReadSnapshotSchedule(ctx, config.ClusterId)
 	if err != nil {
 		return xerrors.Errorf("failed to read snapshot schedule: %w", err)
 	}
@@ -266,7 +266,7 @@ func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, config
 
 	// we need to use DeepEqual in order to compare pointers' underlying values
 	if !reflect.DeepEqual(snapshotSchedule, *omSnapshotSchedule) {
-		if err := configReadUpdater.UpdateSnapshotSchedule(snapshotSchedule.ClusterID, &snapshotSchedule); err != nil {
+		if err := configReadUpdater.UpdateSnapshotSchedule(ctx, snapshotSchedule.ClusterID, &snapshotSchedule); err != nil {
 			return xerrors.Errorf("failed to update backup snapshot schedule for cluster %s: %w", config.ClusterId, err)
 		}
 		log.Debugf("Updated backup snapshot schedule with: %s", snapshotSchedule)
@@ -279,8 +279,8 @@ func updateSnapshotSchedule(specSnapshotSchedule *mdbv1.SnapshotSchedule, config
 
 // getCurrentBackupStatusOption fetches the latest information from the backup config
 // with the given cluster id and returns the relevant status Options.
-func getCurrentBackupStatusOption(configReader ConfigReader, clusterId string) ([]status.Option, error) {
-	config, err := configReader.ReadBackupConfig(clusterId)
+func getCurrentBackupStatusOption(ctx context.Context, configReader ConfigReader, clusterId string) ([]status.Option, error) {
+	config, err := configReader.ReadBackupConfig(ctx, clusterId)
 	if err != nil {
 		return nil, err
 	}

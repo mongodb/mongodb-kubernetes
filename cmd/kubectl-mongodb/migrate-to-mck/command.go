@@ -38,12 +38,12 @@ func init() {
 	MigrateCmd.AddCommand(UsersCmd)
 }
 
-func fetchAndValidate(conn om.Connection) (*om.AutomationConfig, *ProjectConfigs, *om.Process, error) {
-	ac, err := conn.ReadAutomationConfig()
+func fetchAndValidate(ctx context.Context, conn om.Connection) (*om.AutomationConfig, *ProjectConfigs, *om.Process, error) {
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to read automation config: %w", err)
 	}
-	projectConfigs, err := readProjectConfigs(conn)
+	projectConfigs, err := readProjectConfigs(ctx, conn)
 	if err != nil {
 		return nil, nil, nil, err
 	}

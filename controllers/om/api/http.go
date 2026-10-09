@@ -72,7 +72,7 @@ type Client struct {
 // https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis
 // The default client uses http.DefaultTransport and bounds every attempt with defaultRequestTimeout. Failed
 // requests are retried up to defaultRetryMax times, so an overall deadline can only be enforced by the context
-// passed to RequestWithContext.
+// passed to Request.
 func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 	client := &Client{
 		Client: newDefaultHTTPClient(),
@@ -164,13 +164,8 @@ func OptionCAValidate(ca string) func(client *Client) error {
 
 // Request executes an HTTP request, given a series of parameters, over this *Client object.
 // It handles Digest when needed and json marshaling of the `v` struct.
-// Use RequestWithContext to enforce an overall deadline.
-func (client *Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
-	return client.RequestWithContext(context.Background(), method, hostname, path, v)
-}
-
-// RequestWithContext is like Request, but aborts the whole exchange (including retries and backoff waits) as soon as ctx is done.
-func (client *Client) RequestWithContext(ctx context.Context, method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
+// The whole exchange, including retries and backoff waits, is aborted as soon as ctx is done.
+func (client *Client) Request(ctx context.Context, method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
 	url := hostname + path
 
 	req, err := createHTTPRequest(ctx, method, url, v)
@@ -194,10 +189,10 @@ func (client *Client) RequestWithContext(ctx context.Context, method, hostname, 
 // We use it for /group/v2/info and /group/v2/addPreferredHostname to manage preferred hostnames
 // We have created a ticket for the EA team to add a public or private endpoint
 // whilst maintaining the other 2 https://jira.mongodb.org/browse/CLOUDP-308115
-func (client *Client) RequestWithAgentAuth(method, hostname, path string, agentAuth string, v interface{}) ([]byte, http.Header, error) {
+func (client *Client) RequestWithAgentAuth(ctx context.Context, method, hostname, path string, agentAuth string, v interface{}) ([]byte, http.Header, error) {
 	url := hostname + path
 
-	req, err := createHTTPRequest(context.Background(), method, url, v)
+	req, err := createHTTPRequest(ctx, method, url, v)
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}

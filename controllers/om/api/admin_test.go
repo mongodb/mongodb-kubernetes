@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"testing"
@@ -15,13 +16,13 @@ import (
 // captureOMRequest runs invoke against a recording Ops Manager stub and returns the single request
 // the stub received. The admin's user and key are deliberately empty so that the digest challenge
 // round-trip in Client.Request is skipped and the stub need not reply 401.
-func captureOMRequest(t *testing.T, invoke func(admin OpsManagerAdmin) error) httprecorder.RequestInfo {
+func captureOMRequest(t *testing.T, invoke func(ctx context.Context, admin OpsManagerAdmin) error) httprecorder.RequestInfo {
 	t.Helper()
 
 	srv, rec := httprecorder.NewServer(http.StatusOK, []byte("{}"))
 	defer srv.Close()
 
-	require.NoError(t, invoke(NewOmAdmin(srv.URL, "", "", nil)))
+	require.NoError(t, invoke(t.Context(), NewOmAdmin(srv.URL, "", "", nil)))
 
 	return rec.Last()
 }
@@ -44,62 +45,62 @@ func TestBackupStoreConfigID_IsPathEscaped(t *testing.T) {
 	sinks := []struct {
 		name   string
 		prefix string
-		invoke func(admin OpsManagerAdmin, id string) error
+		invoke func(ctx context.Context, admin OpsManagerAdmin, id string) error
 	}{
 		{
 			name:   "UpdateOplogStoreConfig",
 			prefix: "/api/public/v1.0/admin/backup/oplog/mongoConfigs/",
-			invoke: func(admin OpsManagerAdmin, id string) error {
-				return admin.UpdateOplogStoreConfig(backup.DataStoreConfig{Id: id})
+			invoke: func(ctx context.Context, admin OpsManagerAdmin, id string) error {
+				return admin.UpdateOplogStoreConfig(ctx, backup.DataStoreConfig{Id: id})
 			},
 		},
 		{
 			name:   "DeleteOplogStoreConfig",
 			prefix: "/api/public/v1.0/admin/backup/oplog/mongoConfigs/",
-			invoke: func(admin OpsManagerAdmin, id string) error {
-				return admin.DeleteOplogStoreConfig(id)
+			invoke: func(ctx context.Context, admin OpsManagerAdmin, id string) error {
+				return admin.DeleteOplogStoreConfig(ctx, id)
 			},
 		},
 		{
 			name:   "UpdateS3OplogConfig",
 			prefix: "/api/public/v1.0/admin/backup/oplog/s3Configs/",
-			invoke: func(admin OpsManagerAdmin, id string) error {
-				return admin.UpdateS3OplogConfig(backup.S3Config{Id: id})
+			invoke: func(ctx context.Context, admin OpsManagerAdmin, id string) error {
+				return admin.UpdateS3OplogConfig(ctx, backup.S3Config{Id: id})
 			},
 		},
 		{
 			name:   "DeleteS3OplogStoreConfig",
 			prefix: "/api/public/v1.0/admin/backup/oplog/s3Configs/",
-			invoke: func(admin OpsManagerAdmin, id string) error {
-				return admin.DeleteS3OplogStoreConfig(id)
+			invoke: func(ctx context.Context, admin OpsManagerAdmin, id string) error {
+				return admin.DeleteS3OplogStoreConfig(ctx, id)
 			},
 		},
 		{
 			name:   "UpdateBlockStoreConfig",
 			prefix: "/api/public/v1.0/admin/backup/snapshot/mongoConfigs/",
-			invoke: func(admin OpsManagerAdmin, id string) error {
-				return admin.UpdateBlockStoreConfig(backup.DataStoreConfig{Id: id})
+			invoke: func(ctx context.Context, admin OpsManagerAdmin, id string) error {
+				return admin.UpdateBlockStoreConfig(ctx, backup.DataStoreConfig{Id: id})
 			},
 		},
 		{
 			name:   "DeleteBlockStoreConfig",
 			prefix: "/api/public/v1.0/admin/backup/snapshot/mongoConfigs/",
-			invoke: func(admin OpsManagerAdmin, id string) error {
-				return admin.DeleteBlockStoreConfig(id)
+			invoke: func(ctx context.Context, admin OpsManagerAdmin, id string) error {
+				return admin.DeleteBlockStoreConfig(ctx, id)
 			},
 		},
 		{
 			name:   "UpdateS3Config",
 			prefix: "/api/public/v1.0/admin/backup/snapshot/s3Configs/",
-			invoke: func(admin OpsManagerAdmin, id string) error {
-				return admin.UpdateS3Config(backup.S3Config{Id: id})
+			invoke: func(ctx context.Context, admin OpsManagerAdmin, id string) error {
+				return admin.UpdateS3Config(ctx, backup.S3Config{Id: id})
 			},
 		},
 		{
 			name:   "DeleteS3Config",
 			prefix: "/api/public/v1.0/admin/backup/snapshot/s3Configs/",
-			invoke: func(admin OpsManagerAdmin, id string) error {
-				return admin.DeleteS3Config(id)
+			invoke: func(ctx context.Context, admin OpsManagerAdmin, id string) error {
+				return admin.DeleteS3Config(ctx, id)
 			},
 		},
 	}
@@ -107,8 +108,8 @@ func TestBackupStoreConfigID_IsPathEscaped(t *testing.T) {
 	for _, sink := range sinks {
 		for _, payload := range backupStoreIDPayloads {
 			t.Run(sink.name+"/"+payload, func(t *testing.T) {
-				got := captureOMRequest(t, func(admin OpsManagerAdmin) error {
-					return sink.invoke(admin, payload)
+				got := captureOMRequest(t, func(ctx context.Context, admin OpsManagerAdmin) error {
+					return sink.invoke(ctx, admin, payload)
 				})
 				t.Logf("%s(%q) -> Ops Manager received: %s %s (RawQuery=%q)",
 					sink.name, payload, got.Method, got.RequestURI, got.RawQuery)
@@ -129,8 +130,8 @@ func TestBackupStoreConfigID_IsPathEscaped(t *testing.T) {
 func TestBackupStoreConfigID_PercentIsEscaped(t *testing.T) {
 	const payload = "a%2Fb"
 
-	got := captureOMRequest(t, func(admin OpsManagerAdmin) error {
-		return admin.DeleteOplogStoreConfig(payload)
+	got := captureOMRequest(t, func(ctx context.Context, admin OpsManagerAdmin) error {
+		return admin.DeleteOplogStoreConfig(ctx, payload)
 	})
 	assert.Equal(t, "/api/public/v1.0/admin/backup/oplog/mongoConfigs/a%252Fb", got.RequestURI)
 	assert.Equal(t, "/api/public/v1.0/admin/backup/oplog/mongoConfigs/"+payload, got.Path,
@@ -147,8 +148,8 @@ func TestDaemonConfigPathParams_AreEscaped(t *testing.T) {
 	)
 
 	t.Run("ReadDaemonConfig", func(t *testing.T) {
-		got := captureOMRequest(t, func(admin OpsManagerAdmin) error {
-			_, err := admin.ReadDaemonConfig(hostName, headDbDir)
+		got := captureOMRequest(t, func(ctx context.Context, admin OpsManagerAdmin) error {
+			_, err := admin.ReadDaemonConfig(ctx, hostName, headDbDir)
 			return err
 		})
 
@@ -158,8 +159,8 @@ func TestDaemonConfigPathParams_AreEscaped(t *testing.T) {
 	})
 
 	t.Run("UpdateDaemonConfig", func(t *testing.T) {
-		got := captureOMRequest(t, func(admin OpsManagerAdmin) error {
-			return admin.UpdateDaemonConfig(backup.NewDaemonConfig(hostName, headDbDir, nil))
+		got := captureOMRequest(t, func(ctx context.Context, admin OpsManagerAdmin) error {
+			return admin.UpdateDaemonConfig(ctx, backup.NewDaemonConfig(hostName, headDbDir, nil))
 		})
 
 		assert.Equal(t,
@@ -169,8 +170,8 @@ func TestDaemonConfigPathParams_AreEscaped(t *testing.T) {
 
 	t.Run("CreateDaemonConfig with traversal in the hostname", func(t *testing.T) {
 		const payload = "host/../../../groups"
-		got := captureOMRequest(t, func(admin OpsManagerAdmin) error {
-			return admin.CreateDaemonConfig(payload, headDbDir, nil)
+		got := captureOMRequest(t, func(ctx context.Context, admin OpsManagerAdmin) error {
+			return admin.CreateDaemonConfig(ctx, payload, headDbDir, nil)
 		})
 
 		assert.Equal(t,

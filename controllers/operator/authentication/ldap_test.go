@@ -17,6 +17,7 @@ import (
 var ldapPlainMechanism = getMechanismByName(LDAPPlain)
 
 func TestLdapDeploymentMechanism(t *testing.T) {
+	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 
 	opts := Options{
@@ -27,20 +28,20 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 		},
 	}
 
-	err := ldapPlainMechanism.EnableDeploymentAuthentication(conn, opts, zap.S())
+	err := ldapPlainMechanism.EnableDeploymentAuthentication(ctx, conn, opts, zap.S())
 	require.NoError(t, err)
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
 	assert.Equal(t, "BindQueryUser", ac.Ldap.BindQueryUser)
 	assert.Equal(t, "Servers", ac.Ldap.Servers)
 	assert.Equal(t, "BindMethod", ac.Ldap.BindMethod)
 
-	err = ldapPlainMechanism.DisableDeploymentAuthentication(conn, zap.S())
+	err = ldapPlainMechanism.DisableDeploymentAuthentication(ctx, conn, zap.S())
 	require.NoError(t, err)
 
-	ac, err = conn.ReadAutomationConfig()
+	ac, err = conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 
 	assert.NotContains(t, ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
@@ -66,7 +67,7 @@ func TestLdapEnableAgentAuthentication(t *testing.T) {
 	err := ldapPlainMechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
 	require.NoError(t, err)
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 
 	assert.Equal(t, ac.Auth.AutoUser, opts.AutomationSubject)

@@ -1353,7 +1353,7 @@ func TestReconcileForComplexMultiClusterYaml(t *testing.T) {
 	require.NoError(t, err)
 	normalizedExpectedReplicaSets, err := normalizeObjectToInterfaceMap(expectedReplicaSets)
 	require.NoError(t, err)
-	automationConfig, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	automationConfig, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	normalizedActualReplicaSets, err := normalizeObjectToInterfaceMap(map[string]any{"replicaSets": automationConfig.Deployment.GetReplicaSets()})
 	require.NoError(t, err)

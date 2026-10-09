@@ -57,7 +57,7 @@ duplicated groups/organizations creation. So if for example the standalone and t
 configMap are created in parallel - this function will be invoked sequentially and the second caller will see the group
 created on the first call
 */
-func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
+func ReadOrCreateProject(ctx context.Context, config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFactory om.ConnectionFactory, log *zap.SugaredLogger) (*om.Project, om.Connection, error) {
 	projectName := config.ProjectName
 	mutex := om.GetMutex(projectName, config.OrgID)
 	mutex.Lock()
@@ -85,21 +85,21 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 
 	conn := connectionFactory(&omContext)
 
-	org, err := FindOrganization(config.OrgID, projectName, conn, log)
+	org, err := FindOrganization(ctx, config.OrgID, projectName, conn, log)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	var project *om.Project
 	if org != nil {
-		project, err = findProject(projectName, org, conn, log)
+		project, err = findProject(ctx, projectName, org, conn, log)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
 	if project == nil {
-		project, err = tryCreateProject(org, projectName, config.OrgID, conn, log)
+		project, err = tryCreateProject(ctx, org, projectName, config.OrgID, conn, log)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -110,14 +110,14 @@ func ReadOrCreateProject(config mdbv1.ProjectConfig, credentials mdbv1.Credentia
 	return project, conn, nil
 }
 
-func FindOrganization(orgID string, projectName string, conn om.Connection, log *zap.SugaredLogger) (*om.Organization, error) {
+func FindOrganization(ctx context.Context, orgID string, projectName string, conn om.Connection, log *zap.SugaredLogger) (*om.Organization, error) {
 	if orgID == "" {
 		// Note: this org_id = "" has to be explicitly set by the customer.
 		// If org id is not specified - then the contract is that the organization for the project must have the same
 		// name as project has (as it was created automatically for the project), so we need to find relevant organization
 		log.Debugf("Organization id is not specified - trying to find the organization with name \"%s\"", projectName)
 		var err error
-		if orgID, err = findOrganizationByName(conn, projectName, log); err != nil {
+		if orgID, err = findOrganizationByName(ctx, conn, projectName, log); err != nil {
 			return nil, err
 		}
 		if orgID == "" {
@@ -126,7 +126,7 @@ func FindOrganization(orgID string, projectName string, conn om.Connection, log 
 		}
 	}
 
-	organization, err := conn.ReadOrganization(orgID)
+	organization, err := conn.ReadOrganization(ctx, orgID)
 	if err != nil {
 		return nil, xerrors.Errorf("organization with id %s not found: %w", orgID, err)
 	}
@@ -134,8 +134,8 @@ func FindOrganization(orgID string, projectName string, conn om.Connection, log 
 }
 
 // findProject tries to find if the group already exists.
-func findProject(projectName string, organization *om.Organization, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
-	project, err := FindProjectInsideOrganization(conn, projectName, organization, log)
+func findProject(ctx context.Context, projectName string, organization *om.Organization, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
+	project, err := FindProjectInsideOrganization(ctx, conn, projectName, organization, log)
 	if err != nil {
 		return nil, xerrors.Errorf("error finding project %s in organization with id %s: %w", projectName, organization, err)
 	}
@@ -149,8 +149,8 @@ func findProject(projectName string, organization *om.Organization, conn om.Conn
 // FindProjectInsideOrganization looks up a project by name inside an organization and returns the project if it was the only one found by that name.
 // If no project was found, the function returns a nil project to indicate that no such project exists.
 // In all other cases, a non nil error is returned.
-func FindProjectInsideOrganization(conn om.Connection, projectName string, organization *om.Organization, log *zap.SugaredLogger) (*om.Project, error) {
-	projects, err := conn.ReadProjectsInOrganizationByName(organization.ID, projectName)
+func FindProjectInsideOrganization(ctx context.Context, conn om.Connection, projectName string, organization *om.Organization, log *zap.SugaredLogger) (*om.Project, error) {
+	projects, err := conn.ReadProjectsInOrganizationByName(ctx, organization.ID, projectName)
 	if err != nil {
 		if v, ok := err.(*apierror.Error); ok {
 			// If the project was not found, return an empty project and no error.
@@ -188,9 +188,9 @@ func FindProjectInsideOrganization(conn om.Connection, projectName string, organ
 	return nil, nil
 }
 
-func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLogger) (string, error) {
+func findOrganizationByName(ctx context.Context, conn om.Connection, name string, log *zap.SugaredLogger) (string, error) {
 	// 1. We try to find the organization using 'name' filter parameter first
-	organizations, err := conn.ReadOrganizationsByName(name)
+	organizations, err := conn.ReadOrganizationsByName(ctx, name)
 	if err != nil {
 		// This code is Ops Manager < 7 variant. Once 6 is EOL, it can be removed.
 		if v, ok := err.(*apierror.Error); ok {
@@ -215,7 +215,7 @@ func findOrganizationByName(conn om.Connection, name string, log *zap.SugaredLog
 	return "", nil
 }
 
-func tryCreateProject(organization *om.Organization, projectName, orgId string, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
+func tryCreateProject(ctx context.Context, organization *om.Organization, projectName, orgId string, conn om.Connection, log *zap.SugaredLogger) (*om.Project, error) {
 	// We can face the following scenario: for the project "foo" with 'orgId=""' the organization "foo" already exists
 	// - so we need to reuse its orgId instead of creating the new Organization with the same name (OM API is quite
 	// poor here - it may create duplicates)
@@ -233,7 +233,7 @@ func tryCreateProject(organization *om.Organization, projectName, orgId string, 
 		OrgID: orgId,
 		Tags:  []string{}, // Project creation no longer applies the EXTERNALLY_MANAGED tag, this is added afterwards
 	}
-	ans, err := conn.CreateProject(group)
+	ans, err := conn.CreateProject(ctx, group)
 	if err != nil {
 		return nil, xerrors.Errorf("Error creating project \"%s\" in Ops Manager: %w", group, err)
 	}

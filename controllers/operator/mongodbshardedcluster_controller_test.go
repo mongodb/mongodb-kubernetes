@@ -548,7 +548,7 @@ func TestDeleteShardedClusterWithExternalMembers(t *testing.T) {
 
 	mockedOmConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 
-	hostsBefore, err := mockedOmConnection.GetHosts()
+	hostsBefore, err := mockedOmConnection.GetHosts(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, hostsBefore.Results, "precondition: the sharded cluster is monitored in OM")
 
@@ -557,13 +557,13 @@ func TestDeleteShardedClusterWithExternalMembers(t *testing.T) {
 	require.NoError(t, reconciler.OnDelete(ctx, sc, zap.S()))
 
 	// The sharded cluster and its processes must still be in the automation config.
-	d, err := mockedOmConnection.ReadDeployment()
+	d, err := mockedOmConnection.ReadDeployment(ctx)
 	require.NoError(t, err)
 	assert.NotEmpty(t, d.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName()),
 		"sharded cluster processes must stay in the automation config")
 
 	// Monitoring must be untouched.
-	hostsAfter, err := mockedOmConnection.GetHosts()
+	hostsAfter, err := mockedOmConnection.GetHosts(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, hostsBefore.Results, hostsAfter.Results, "monitored hosts must not be deregistered")
 
@@ -573,7 +573,7 @@ func TestDeleteShardedClusterWithExternalMembers(t *testing.T) {
 		reflect.ValueOf(mockedOmConnection.RemoveHost))
 
 	// Feature controls must have been cleared.
-	cf, err := mockedOmConnection.GetControlledFeature()
+	cf, err := mockedOmConnection.GetControlledFeature(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, util.OperatorName, cf.ManagementSystem.Name)
 	assert.NotNil(t, cf.Policies)
@@ -680,7 +680,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		// the initial deployment we create should have all processes
 		deployment := createDeploymentFromShardedCluster(t, sc)
-		if _, err := connection.UpdateDeployment(deployment); err != nil {
+		if _, err := connection.UpdateDeployment(ctx, deployment); err != nil {
 			panic(err)
 		}
 		connection.(*om.MockedOmConnection).AddHosts(deployment.GetAllHostnames())
@@ -689,7 +689,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 
 	// updateOmDeploymentShardedCluster checks an element from ac.Auth.DeploymentAuthMechanisms
 	// so we need to ensure it has a non-nil value. An empty list implies no authentication
-	_ = omConnectionFactory.GetConnection().ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	_ = omConnectionFactory.GetConnection().ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = []string{}
 		return nil
 	}, nil)
@@ -1022,7 +1022,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
-	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature()
+	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 2)
 
@@ -1087,7 +1087,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 		err = clusterClient.Get(ctx, sc.ObjectKey(), sc)
 		assert.NoError(t, err)
 
-		deployment, err = omConnectionFactory.GetConnection().ReadDeployment()
+		deployment, err = omConnectionFactory.GetConnection().ReadDeployment(ctx)
 		assert.NoError(t, err)
 	}
 
@@ -1223,7 +1223,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
-	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature()
+	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 3)
 
@@ -1358,10 +1358,11 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		clusterIds := []string{"1", "2", "3", "4"}
 		typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 		for i, clusterId := range clusterIds {
-			_, err := c.UpdateBackupConfig(&backup.Config{
+			_, err := c.UpdateBackupConfig(ctx, &backup.Config{
 				ClusterId: clusterId,
 				Status:    backup.Inactive,
 			})
+
 			require.NoError(t, err)
 
 			c.(*om.MockedOmConnection).BackupHostClusters[clusterId] = &backup.HostCluster{
@@ -1375,7 +1376,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 	assertAllOtherBackupConfigsRemainUntouched := func(t *testing.T) {
 		for _, configId := range []string{"2", "3", "4"} {
-			config, err := omConnectionFactory.GetConnection().ReadBackupConfig(configId)
+			config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, configId)
 			assert.NoError(t, err)
 			// backup status should remain INACTIVE for all non "SHARDED_REPLICA_SET" configs.
 			assert.Equal(t, backup.Inactive, config.Status)
@@ -1414,7 +1415,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after backup is configured")
 
-		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+		config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 		assert.NoError(t, err)
 		assert.Equal(t, backup.Started, config.Status)
 		assert.Equal(t, "1", config.ClusterId)
@@ -1431,7 +1432,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
-		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+		config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 		assert.NoError(t, err)
 		assert.Equal(t, backup.Stopped, config.Status)
 		assert.Equal(t, "1", config.ClusterId)
@@ -1446,7 +1447,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
-		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+		config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 		assert.NoError(t, err)
 		assert.Equal(t, backup.Terminating, config.Status)
 		assert.Equal(t, "1", config.ClusterId)
@@ -1471,10 +1472,11 @@ func TestBackupConfiguration_ShardedCluster_DelayStateResetWhenBackupDisabledDur
 		clusterIds := []string{"1", "2", "3", "4"}
 		typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 		for i, clusterId := range clusterIds {
-			_, err := c.UpdateBackupConfig(&backup.Config{
+			_, err := c.UpdateBackupConfig(ctx, &backup.Config{
 				ClusterId: clusterId,
 				Status:    backup.Inactive,
 			})
+
 			require.NoError(t, err)
 			c.(*om.MockedOmConnection).BackupHostClusters[clusterId] = &backup.HostCluster{
 				ClusterName: sc.Name,
@@ -1520,10 +1522,11 @@ func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
 		clusterIds := []string{"1", "2", "3", "4"}
 		typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 		for i, clusterId := range clusterIds {
-			_, err := c.UpdateBackupConfig(&backup.Config{
+			_, err := c.UpdateBackupConfig(ctx, &backup.Config{
 				ClusterId: clusterId,
 				Status:    backup.Inactive,
 			})
+
 			require.NoError(t, err)
 			c.(*om.MockedOmConnection).BackupHostClusters[clusterId] = &backup.HostCluster{
 				ClusterName: sc.Name,
@@ -1537,7 +1540,7 @@ func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
 	// With a negative delay, backup should be enabled immediately on the first reconcile with no requeue.
 	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
 
-	config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+	config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 	require.NoError(t, err)
 	assert.Equal(t, backup.Started, config.Status)
 }
@@ -1916,7 +1919,7 @@ func TestShardedMigration_ProceedsWhenVMProcessHasSearchConfig(t *testing.T) {
 	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
 	require.NoError(t, err)
 	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
-		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(vmShardProcessWithSearchSetParameters(t, sc, true))
+		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(ctx, vmShardProcessWithSearchSetParameters(t, sc, true))
 	})
 
 	// Search setParameters on the external (VM) shard process do not hold the migration back: the
@@ -2232,7 +2235,7 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 			"configServerReplica": sc.ConfigACRsName(),
 			"shards":              []om.Shard{{"_id": sc.ShardACShardId(0), "rs": sc.ShardACRsName(0)}},
 		}}
-		if _, err := conn.UpdateDeployment(d); err != nil {
+		if _, err := conn.UpdateDeployment(ctx, d); err != nil {
 			panic(err)
 		}
 	})

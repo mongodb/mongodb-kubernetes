@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,11 +24,11 @@ type mockConnWithReadFailure struct {
 	readErr error
 }
 
-func (m *mockConnWithReadFailure) ReadAutomationConfig() (*om.AutomationConfig, error) {
+func (m *mockConnWithReadFailure) ReadAutomationConfig(ctx context.Context) (*om.AutomationConfig, error) {
 	if m.readErr != nil {
 		return nil, m.readErr
 	}
-	return m.Connection.ReadAutomationConfig()
+	return m.Connection.ReadAutomationConfig(ctx)
 }
 
 func testProjectConfig() mdbv1.ProjectConfig {
@@ -82,6 +83,7 @@ func factoryFor(sourceConn om.Connection) om.ConnectionFactory {
 }
 
 func TestEnsureTargetAutomationConfigSeeded_NoOp(t *testing.T) {
+	ctx := t.Context()
 	tests := []struct {
 		name              string
 		sourceGroupID     string
@@ -117,29 +119,30 @@ func TestEnsureTargetAutomationConfigSeeded_NoOp(t *testing.T) {
 			targetConn := newMockConn(tc.targetGroupID, tc.targetDeploy)
 			sourceConn := newMockConn(sourceGroupID, sourceDeployment())
 
-			err := EnsureTargetAutomationConfigSeeded(
+			err := EnsureTargetAutomationConfigSeeded(ctx,
 				targetConn, tc.sourceGroupID, testProjectConfig(), testCredentials(),
-				factoryFor(sourceConn), zap.NewNop().Sugar(),
-			)
+				factoryFor(sourceConn), zap.NewNop().Sugar())
+
 			assert.NoError(t, err)
 
-			targetAC, _ := targetConn.ReadAutomationConfig()
+			targetAC, _ := targetConn.ReadAutomationConfig(ctx)
 			assert.Equal(t, tc.expectedProcesses, targetAC.Deployment.NumberOfProcesses(), "target processes should be unchanged")
 		})
 	}
 }
 
 func TestEnsureTargetAutomationConfigSeeded_CopiesSourceAC(t *testing.T) {
+	ctx := t.Context()
 	targetConn := newMockConn(targetGroupID, emptyTargetDeployment())
 	sourceConn := newMockConn(sourceGroupID, sourceDeployment())
 
-	err := EnsureTargetAutomationConfigSeeded(
+	err := EnsureTargetAutomationConfigSeeded(ctx,
 		targetConn, sourceGroupID, testProjectConfig(), testCredentials(),
-		factoryFor(sourceConn), zap.NewNop().Sugar(),
-	)
+		factoryFor(sourceConn), zap.NewNop().Sugar())
+
 	assert.NoError(t, err)
 
-	targetAC, _ := targetConn.ReadAutomationConfig()
+	targetAC, _ := targetConn.ReadAutomationConfig(ctx)
 
 	assert.Equal(t, 1, targetAC.Deployment.NumberOfProcesses(), "target should have source processes")
 
@@ -151,34 +154,36 @@ func TestEnsureTargetAutomationConfigSeeded_CopiesSourceAC(t *testing.T) {
 }
 
 func TestEnsureTargetAutomationConfigSeeded_SourceReadFailureStops(t *testing.T) {
+	ctx := t.Context()
 	targetConn := newMockConn(targetGroupID, emptyTargetDeployment())
 	failingSource := &mockConnWithReadFailure{
 		Connection: newMockConn(sourceGroupID, sourceDeployment()),
 		readErr:    xerrors.Errorf("simulated source read failure"),
 	}
 
-	err := EnsureTargetAutomationConfigSeeded(
+	err := EnsureTargetAutomationConfigSeeded(ctx,
 		targetConn, sourceGroupID, testProjectConfig(), testCredentials(),
-		factoryFor(failingSource), zap.NewNop().Sugar(),
-	)
+		factoryFor(failingSource), zap.NewNop().Sugar())
+
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read source project automation config")
 
-	targetAC, _ := targetConn.ReadAutomationConfig()
+	targetAC, _ := targetConn.ReadAutomationConfig(ctx)
 	assert.Equal(t, 0, targetAC.Deployment.NumberOfProcesses(), "target should be unchanged after source read failure")
 }
 
 func TestEnsureTargetAutomationConfigSeeded_TargetReadFailureStops(t *testing.T) {
+	ctx := t.Context()
 	failingTarget := &mockConnWithReadFailure{
 		Connection: newMockConn(targetGroupID, emptyTargetDeployment()),
 		readErr:    xerrors.Errorf("simulated target read failure"),
 	}
 	sourceConn := newMockConn(sourceGroupID, sourceDeployment())
 
-	err := EnsureTargetAutomationConfigSeeded(
+	err := EnsureTargetAutomationConfigSeeded(ctx,
 		failingTarget, sourceGroupID, testProjectConfig(), testCredentials(),
-		factoryFor(sourceConn), zap.NewNop().Sugar(),
-	)
+		factoryFor(sourceConn), zap.NewNop().Sugar())
+
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read target project automation config")
 }
