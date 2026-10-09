@@ -371,7 +371,10 @@ func (a *Auth) RemoveUser(username, db string) {
 // AgentSSL contains fields related to configuration Automation
 // Agent SSL & authentication.
 type AgentSSL struct {
-	CAFilePath            string `json:"CAFilePath,omitempty"`
+	CAFilePath string `json:"CAFilePath,omitempty"`
+	// clusterCAFile is used to validate the certs presented by clients.
+	// https://www.mongodb.com/docs/manual/reference/configuration-options/#mongodb-setting-net.tls.clusterCAFile
+	ClusterCAFilePath     string `json:"clusterCAFilePath,omitempty"`
 	AutoPEMKeyFilePath    string `json:"autoPEMKeyFilePath,omitempty"`
 	ClientCertificateMode string `json:"clientCertificateMode,omitempty"`
 }
