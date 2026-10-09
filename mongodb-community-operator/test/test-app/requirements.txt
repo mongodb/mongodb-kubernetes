@@ -1,2 +1,2 @@
-PyMongo==4.6.3
+PyMongo==4.18.2
 dnspython==2.6.1
