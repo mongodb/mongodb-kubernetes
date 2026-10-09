@@ -1,0 +1,130 @@
+name: Conditional review requirement
+
+# Enforces the "needs-extra-review" gate: when the label is set, the head
+# commit needs two distinct approvals from reviewers with write access.
+#
+# The result is a commit status on the head commit. Unlike a job-based check,
+# a status is unique per commit and context, so each evaluation overwrites the
+# previous value and no stale result can remain.
+#
+# Both triggers run from a trusted ref with a write token:
+#   - pull_request_target: label and content changes, including fork heads.
+#   - workflow_run: review events, including fork heads, through the no-op
+#     "Conditional review trigger" workflow.
+on:
+  pull_request_target:
+    branches: [master]
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+  workflow_run:
+    workflows: [Conditional review trigger]
+    types: [completed]
+
+permissions:
+  pull-requests: read
+  statuses: write
+
+jobs:
+  evaluate:
+    name: Evaluate review requirement
+    runs-on: ubuntu-latest
+    concurrency:
+      group: conditional-review-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+      cancel-in-progress: true
+    steps:
+      - name: Set pending status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+
+          # Fail closed: clear any earlier result before evaluating, so a
+          # crash cannot leave a stale success in effect.
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state=pending \
+            -f context='Conditional review requirement' \
+            -f description='Evaluating review requirement' \
+            -f target_url="${RUN_URL}"
+
+      - name: Resolve pull request number
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -Eeuo pipefail
+
+          number="${PR_NUMBER}"
+          if [ -z "${number}" ]; then
+            # workflow_run payloads often omit pull requests for fork heads;
+            # resolve the open pull request from the triggering run's head.
+            number="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
+              -f head="${HEAD_OWNER}:${HEAD_BRANCH}" -f state=open \
+              --jq ".[] | select(.head.sha == \"${HEAD_SHA}\") | .number" | head -n 1)"
+          fi
+          echo "number=${number}" >> "${GITHUB_OUTPUT}"
+
+      - name: Evaluate review requirement
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+
+          # shellcheck disable=SC2016 # GraphQL variables, not shell expansions
+          gh api graphql \
+            -f owner="${GITHUB_REPOSITORY%/*}" \
+            -f name="${GITHUB_REPOSITORY#*/}" \
+            -F number="${PR_NUMBER}" \
+            -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) {
+                    baseRefName
+                    labels(first: 100) { nodes { name } }
+                    latestReviews(first: 100) { nodes { state author { __typename login } } }
+                  }
+                }
+              }' > "${RUNNER_TEMP}/pull-request.json"
+
+          PR_JSON="${RUNNER_TEMP}/pull-request.json"
+          BASE_REF="$(jq -r '.data.repository.pullRequest.baseRefName' "${PR_JSON}")"
+          if [ "${BASE_REF}" != "master" ]; then
+            state=success
+            description="Not required for base branch ${BASE_REF}"
+          elif ! jq -e 'any(.data.repository.pullRequest.labels.nodes[]; .name == "needs-extra-review")' "${PR_JSON}" > /dev/null; then
+            state=success
+            description='needs-extra-review is not set'
+          else
+            approvals=0
+            while IFS= read -r login; do
+              permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${login}/permission" --jq '.permission' 2>/dev/null || true)"
+              case "${permission}" in
+                admin|write) approvals=$((approvals + 1)) ;;
+              esac
+            done < <(jq -r '.data.repository.pullRequest.latestReviews.nodes[]
+              | select(.state == "APPROVED")
+              | select(.author.__typename == "User")
+              | .author.login' "${PR_JSON}")
+
+            if [ "${approvals}" -ge 2 ]; then
+              state=success
+              description="2 of 2 required reviewer approvals"
+            else
+              state=failure
+              description="${approvals} of 2 required reviewer approvals (write access required)"
+            fi
+          fi
+
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state="${state}" \
+            -f context='Conditional review requirement' \
+            -f description="${description}" \
+            -f target_url="${RUN_URL}"
