@@ -401,7 +401,7 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 	}
 
 	if len(stsOptions.Labels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.Labels)
+		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, util.StripOwnerLabels(stsOptions.Labels))
 	}
 
 	if len(stsOptions.StsLabels) > 0 {

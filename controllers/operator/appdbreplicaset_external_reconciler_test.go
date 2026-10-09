@@ -184,7 +184,7 @@ func validExternalAppDBMongoDBMultiClusterWithTLS(tlsEnabled bool, caConfigMapNa
 		Build()
 }
 
-func TestEnsureAppDBStatefulSetOwnership_StripsOwnerReferencesAndAnnotates(t *testing.T) {
+func TestEnsureAppDBStatefulSetOwnership_StripsOwnershipAndAnnotates(t *testing.T) {
 	ctx := context.Background()
 
 	testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().SetName("test-om").Build(), validExternalAppDBRef())
@@ -195,6 +195,7 @@ func TestEnsureAppDBStatefulSetOwnership_StripsOwnerReferencesAndAnnotates(t *te
 			Name:            "test-om-db",
 			Namespace:       mock.TestNamespace,
 			OwnerReferences: kube.BaseOwnerReference(testOm),
+			Labels:          testOm.GetOwnerLabels(),
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: ptr.To(int32(3)),
@@ -212,6 +213,8 @@ func TestEnsureAppDBStatefulSetOwnership_StripsOwnerReferencesAndAnnotates(t *te
 	resultSts := appsv1.StatefulSet{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
 	assert.Empty(t, resultSts.OwnerReferences)
+	assert.Empty(t, resultSts.Labels[util.MongoDBOpsManagerResourceOwnerLabel])
+	assert.Equal(t, util.OperatorLabelValue, resultSts.Labels[util.OperatorLabelName])
 	assert.Equal(t, "true", resultSts.Annotations[util.AppDBMigrationReadyAnnotation])
 }
 
@@ -240,6 +243,7 @@ func TestEnsureAppDBStatefulSetOwnership_IsIdempotent(t *testing.T) {
 			Name:            "test-om-db",
 			Namespace:       mock.TestNamespace,
 			OwnerReferences: kube.BaseOwnerReference(testOm),
+			Labels:          testOm.GetOwnerLabels(),
 		},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas: ptr.To(int32(3)),
@@ -257,6 +261,7 @@ func TestEnsureAppDBStatefulSetOwnership_IsIdempotent(t *testing.T) {
 	resultSts := appsv1.StatefulSet{}
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db"), &resultSts))
 	assert.Empty(t, resultSts.OwnerReferences)
+	assert.Empty(t, resultSts.Labels[util.MongoDBOpsManagerResourceOwnerLabel])
 	assert.Equal(t, "true", resultSts.Annotations[util.AppDBMigrationReadyAnnotation])
 }
 
@@ -361,26 +366,71 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 }
 
 func TestEnsureAppDBStatefulSetOwnership_OnlyDetachesOMOwnedStatefulSet(t *testing.T) {
-	// real UIDs needed: the ownership check compares OwnerReference UIDs, and empty test UIDs
-	// ("" == "") would make every StatefulSet look OM-owned
+	// Ownership is decided by the resource-owner label, not by an ownerReference, so each row varies
+	// both to pin which one is authoritative. A legacy StatefulSet carrying only this Ops Manager's
+	// ownerReference is recognised by backfilling the label in memory. Real UIDs keep an
+	// ownerReference comparison from matching on the empty string.
 	const omUID = "om-uid-1111"
 	const crUID = "cr-uid-2222"
+	const otherUID = "other-om-uid"
 
 	tests := []struct {
 		name             string
+		stsLabels        func(testOm *omv1.MongoDBOpsManager) map[string]string
 		stsOwnerRefs     func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference
 		expectedDetached bool
 	}{
 		{
 			name: "OM-owned StatefulSet is stripped and annotated",
+			stsLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
+				return testOm.GetOwnerLabels()
+			},
 			stsOwnerRefs: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
 				return kube.BaseOwnerReference(testOm)
 			},
 			expectedDetached: true,
 		},
 		{
-			name: "CR-owned StatefulSet (fresh start) is untouched",
+			name: "OM ownerReference without the owner label is detached via in-memory backfill",
+			stsLabels: func(*omv1.MongoDBOpsManager) map[string]string {
+				return nil
+			},
 			stsOwnerRefs: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
+				return kube.BaseOwnerReference(testOm)
+			},
+			expectedDetached: true,
+		},
+		{
+			name: "ownerReference naming this Ops Manager but carrying a foreign UID is not backfilled",
+			stsLabels: func(*omv1.MongoDBOpsManager) map[string]string {
+				return nil
+			},
+			stsOwnerRefs: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
+				return []metav1.OwnerReference{{
+					APIVersion: "mongodb.com/v1",
+					Kind:       "MongoDBOpsManager",
+					Name:       testOm.GetName(),
+					UID:        otherUID,
+				}}
+			},
+			expectedDetached: false,
+		},
+		{
+			name: "owner label without an ownerReference is detached",
+			stsLabels: func(testOm *omv1.MongoDBOpsManager) map[string]string {
+				return testOm.GetOwnerLabels()
+			},
+			stsOwnerRefs: func(*omv1.MongoDBOpsManager) []metav1.OwnerReference {
+				return nil
+			},
+			expectedDetached: true,
+		},
+		{
+			name: "CR-owned StatefulSet (fresh start) is untouched",
+			stsLabels: func(*omv1.MongoDBOpsManager) map[string]string {
+				return map[string]string{util.MongoDBResourceOwnerLabel: "test-om-db"}
+			},
+			stsOwnerRefs: func(*omv1.MongoDBOpsManager) []metav1.OwnerReference {
 				return []metav1.OwnerReference{{
 					APIVersion: "mongodb.com/v1",
 					Kind:       "MongoDB",
@@ -391,8 +441,11 @@ func TestEnsureAppDBStatefulSetOwnership_OnlyDetachesOMOwnedStatefulSet(t *testi
 			expectedDetached: false,
 		},
 		{
-			name: "ownerRef-free StatefulSet (already detached and consumed) is not re-annotated",
-			stsOwnerRefs: func(testOm *omv1.MongoDBOpsManager) []metav1.OwnerReference {
+			name: "label-free StatefulSet (already detached and consumed) is not re-annotated",
+			stsLabels: func(*omv1.MongoDBOpsManager) map[string]string {
+				return nil
+			},
+			stsOwnerRefs: func(*omv1.MongoDBOpsManager) []metav1.OwnerReference {
 				return nil
 			},
 			expectedDetached: false,
@@ -412,6 +465,7 @@ func TestEnsureAppDBStatefulSetOwnership_OnlyDetachesOMOwnedStatefulSet(t *testi
 					Name:            "test-om-db",
 					Namespace:       mock.TestNamespace,
 					OwnerReferences: originalOwnerRefs,
+					Labels:          tt.stsLabels(testOm),
 				},
 				Spec: appsv1.StatefulSetSpec{
 					Replicas: ptr.To(int32(3)),
@@ -430,6 +484,7 @@ func TestEnsureAppDBStatefulSetOwnership_OnlyDetachesOMOwnedStatefulSet(t *testi
 
 			if tt.expectedDetached {
 				assert.Empty(t, resultSts.OwnerReferences)
+				assert.Empty(t, resultSts.Labels[util.MongoDBOpsManagerResourceOwnerLabel])
 				assert.Equal(t, "true", resultSts.Annotations[util.AppDBMigrationReadyAnnotation])
 			} else {
 				assert.Equal(t, originalOwnerRefs, resultSts.OwnerReferences)
