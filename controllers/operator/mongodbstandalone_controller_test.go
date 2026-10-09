@@ -73,6 +73,20 @@ func TestOnAddStandalone(t *testing.T) {
 	omConn.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
+func TestStandaloneReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
+	ctx := context.Background()
+	st := DefaultStandaloneBuilder().Build()
+	st.SetUID(types.UID("standalone-uid"))
+	omConnectionFactory := monitoringMappingConnectionFactory()
+	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, nil, "", "", omConnectionFactory.GetConnectionFunc, st, architectures.NonStatic)
+
+	// Ops Manager resolves standalones by hostname, so the mapping must match the automation config process.
+	runReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, st, "dublin-0.dublin-svc.my-namespace.svc.cluster.local")
+	processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
+	require.Len(t, processes, 1)
+	require.Equal(t, processes[0].HostName(), st.AutomationDeploymentName())
+}
+
 func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
