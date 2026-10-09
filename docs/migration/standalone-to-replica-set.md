@@ -4,7 +4,7 @@ This guide moves the data of a standalone to a new one member `ReplicaSet` in th
 
 ---
 
-## 📋 Prerequisites
+## Prerequisites
 
 - `kubectl` access to the namespace of the standalone, with permission to create `MongoDB`, `MongoDBUser`, `ConfigMap`, `Secret` and `Pod` objects.
 - Free disk for the dump archive.
@@ -13,7 +13,7 @@ The examples use the namespace `mongodb`, the standalone `my-standalone` and the
 
 ---
 
-## 🚀 Migration Steps
+## Migration Steps
 
 ### 1. Deploy the replica set
 
@@ -83,6 +83,6 @@ Once you no longer need the rollback option, delete the tools pod, the standalon
 
 ---
 
-## ⏪ Rollback
+## Rollback
 
 Until the applications run against the replica set the standalone is untouched, roll back by deleting the replica set resource and its PVC, then re-enable writes. After that, roll back by stopping application writes again and running the same dump and restore in reverse, from the replica set into the standalone. Keep the standalone and its PVC until you are sure.
