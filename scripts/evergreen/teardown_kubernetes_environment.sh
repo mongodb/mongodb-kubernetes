@@ -20,7 +20,7 @@ if [ "${KUBE_ENVIRONMENT_NAME}" = "minikube" ]; then
 
     # Best-effort cluster deletion; never block the rest of the cleanup.
     echo "Deleting minikube cluster"
-    "${PROJECT_DIR:-.}/bin/minikube" delete || true
+    sudo TMPDIR="/root/.minikube-tmp" "${PROJECT_DIR:-.}/bin/minikube" delete || true
 
     if sudo -n true 2>/dev/null; then
         sudo podman rm -f minikube 2>/dev/null || true
