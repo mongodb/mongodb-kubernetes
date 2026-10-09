@@ -36,10 +36,26 @@ def om_supports_object_retention(custom_version: Optional[str]) -> bool:
     return semver.VersionInfo.parse(custom_version) >= semver.VersionInfo.parse(OBJECT_RETENTION_MIN_OM_VERSION)
 
 
+# OM supports object lock on the OpLog S3 config endpoint only from 8.0.28 (snapshot
+# stores support it since 8.0.19 / retention since 8.0.27). Older versions reject
+# objectLockEnabled there with INVALID_ATTRIBUTE, and the operator validation rejects
+# the CR as well.
+OPLOG_OBJECT_LOCK_MIN_OM_VERSION = "8.0.28"
+
+
+def om_supports_oplog_object_lock(custom_version: Optional[str]) -> bool:
+    # None means no custom OM version was pinned; the Evergreen variants running this
+    # test always deploy a recent OM, so treat it as supported.
+    if custom_version is None:
+        return True
+    return semver.VersionInfo.parse(custom_version) >= semver.VersionInfo.parse(OPLOG_OBJECT_LOCK_MIN_OM_VERSION)
+
+
 def feature_detect_retention(expected_store: Dict, actual_store: Dict) -> Dict:
     """OM returns the retention fields only on versions exposing the S3 object-lock
-    retention API (8.0.27+). Adds the retention expectations only when the API actually
-    returns them, so the store comparison works on any OM version."""
+    retention API (8.0.27+ for snapshot stores, 8.0.28+ for oplog stores). Adds the
+    retention expectations only when the API actually returns them, so the store
+    comparison works on any OM version."""
     if "objectRetentionMode" in actual_store:
         expected_store["objectRetentionDays"] = OBJECT_RETENTION_DAYS
         expected_store["objectRetentionMode"] = OBJECT_RETENTION_MODE
@@ -108,8 +124,16 @@ def s3_bucket_retention(aws_secret, aws_s3_client: AwsS3Client) -> Iterator[str]
 
 
 @fixture(scope="module")
-def s3_buckets(s3_bucket_lock_only: str, s3_bucket_retention: str) -> Dict[str, str]:
-    return {"lock": s3_bucket_lock_only, "retention": s3_bucket_retention}
+def s3_bucket_oplog(aws_secret, aws_s3_client: AwsS3Client) -> Iterator[str]:
+    # Dedicated bucket for the S3 oplog store: OM's store validation requires the
+    # bucket default retention rule and the store settings to agree, so the oplog
+    # store must not share the snapshot stores' buckets.
+    yield from create_s3_bucket(aws_s3_client, "test-bucket-s3-oplog")
+
+
+@fixture(scope="module")
+def s3_buckets(s3_bucket_lock_only: str, s3_bucket_retention: str, s3_bucket_oplog: str) -> Dict[str, str]:
+    return {"lock": s3_bucket_lock_only, "retention": s3_bucket_retention, "oplog": s3_bucket_oplog}
 
 
 @fixture(scope="module")
@@ -175,7 +199,9 @@ class TestOpsManagerCreation:
         oplog_replica_set.update()
         oplog_replica_set.assert_reaches_phase(Phase.Running)
 
-    def test_add_oplog_config(self, ops_manager: MongoDBOpsManager):
+    def test_add_oplog_config(
+        self, ops_manager: MongoDBOpsManager, s3_buckets: Dict[str, str], custom_version: Optional[str]
+    ):
         # Keeping this assertion here speeds up the test by deploying the oplog MDB earlier
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Pending,
@@ -186,6 +212,23 @@ class TestOpsManagerCreation:
         ops_manager["spec"]["backup"]["opLogStores"] = [
             {"name": "oplog1", "mongodbResourceRef": {"name": "my-mongodb-oplog"}}
         ]
+        # OM supports object lock on oplog stores only from 8.0.28. On older versions
+        # the store omits objectLockEnabled entirely (the operator validation rejects
+        # a non-nil value there) and its bucket stays unlocked so store and bucket
+        # agree. When supported, the store sets the retention fields, matching the
+        # default retention rule test_enable_object_lock puts on its bucket.
+        s3_oplog_store = {
+            "name": "oplogS3Store1",
+            "s3SecretRef": {"name": S3_SECRET_NAME},
+            "pathStyleAccessEnabled": True,  # required by the CRD schema
+            "s3BucketEndpoint": s3_endpoint(AWS_REGION),
+            "s3BucketName": s3_buckets["oplog"],
+        }
+        if om_supports_oplog_object_lock(custom_version):
+            s3_oplog_store["objectLockEnabled"] = True
+            s3_oplog_store["objectRetentionDays"] = OBJECT_RETENTION_DAYS
+            s3_oplog_store["objectRetentionMode"] = OBJECT_RETENTION_MODE
+        ops_manager["spec"]["backup"]["s3OpLogStores"] = [s3_oplog_store]
         ops_manager.update()
 
     def test_s3_bucket_validation_fails(self, ops_manager: MongoDBOpsManager):
@@ -227,10 +270,21 @@ class TestOpsManagerCreation:
         else:
             aws_s3_client.put_object_lock(s3_buckets["retention"])
 
+        # The oplog store sets objectLockEnabled only on OM >= 8.0.28, so its bucket
+        # gets a matching default retention rule only then; on older versions it stays
+        # unlocked to agree with the lock-less store.
+        oplog_lock_supported = om_supports_oplog_object_lock(custom_version)
+        if oplog_lock_supported:
+            aws_s3_client.put_object_lock(
+                s3_buckets["oplog"], retention_days=OBJECT_RETENTION_DAYS, retention_mode=OBJECT_RETENTION_MODE
+            )
+
         expected_buckets = {
             s3_buckets["lock"]: None,
             s3_buckets["retention"]: OBJECT_RETENTION_DAYS if retention_supported else None,
         }
+        if oplog_lock_supported:
+            expected_buckets[s3_buckets["oplog"]] = OBJECT_RETENTION_DAYS
         for bucket, expected_days in expected_buckets.items():
             lock_config = aws_s3_client.get_object_lock(bucket)["ObjectLockConfiguration"]
             assert lock_config["ObjectLockEnabled"] == "Enabled"
@@ -272,7 +326,9 @@ class TestOpsManagerCreation:
             timeout=600,
         )
 
-    def test_om_object_lock_enabled(self, ops_manager: MongoDBOpsManager, s3_buckets: Dict[str, str]):
+    def test_om_object_lock_enabled(
+        self, ops_manager: MongoDBOpsManager, s3_buckets: Dict[str, str], custom_version: Optional[str]
+    ):
         om_tester = ops_manager.get_om_tester()
         appdb_replica_set = ops_manager.get_appdb_resource()
         appdb_password = KubernetesTester.read_secret(ops_manager.namespace, ops_manager.app_db_password_secret_name())[
@@ -305,3 +361,20 @@ class TestOpsManagerCreation:
         ]
 
         om_tester.assert_s3_stores(expected_stores)
+
+        oplog_store = new_om_s3_store(
+            appdb_replica_set,
+            "oplogS3Store1",
+            s3_buckets["oplog"],
+            user_name=DEFAULT_APPDB_USER_NAME,
+            password=appdb_password,
+            object_lock_enabled=om_supports_oplog_object_lock(custom_version),
+        )
+        actual_oplog_store = om_tester.get_oplog_s3_stores()["results"][0]
+        # OM's oplog s3Configs endpoint predates object lock support before 8.0.28 and
+        # may omit objectLockEnabled entirely there; drop it from the expectation only
+        # on those versions so the value is strictly asserted wherever supported.
+        if not om_supports_oplog_object_lock(custom_version) and "objectLockEnabled" not in actual_oplog_store:
+            del oplog_store["objectLockEnabled"]
+        oplog_store = feature_detect_retention(oplog_store, actual_oplog_store)
+        om_tester.assert_oplog_s3_stores([oplog_store])

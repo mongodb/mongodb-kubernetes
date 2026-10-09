@@ -229,45 +229,47 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	// Parse Ops Manager version for Immutable Backup validation
 	// We can ignore errors since they are already caught in validOmVersion validation
 	v, _ := versionutil.StringToSemverVersion(os.Version)
-	immutableBackupVersion := semver.MustParse(util.MinimumVersionImmutableBackup)
-	objectLockRetentionVersion := semver.MustParse(util.MinimumVersionS3ObjectLockRetention)
 
-	if len(backup.S3Configs) > 0 {
-		for _, config := range backup.S3Configs {
-			if config.IRSAEnabled {
-				if config.S3SecretRef != nil {
-					return v1.OpsManagerResourceValidationWarning("'s3SecretRef' must not be specified if using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
-				}
-			} else if config.S3SecretRef == nil || config.S3SecretRef.Name == "" {
-				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 Store: %s)", status.OpsManager, config.Name)
-			} else if config.ObjectLockEnabled != nil && v.LT(immutableBackupVersion) {
-				return v1.OpsManagerResourceValidationError("'objectLockEnabled' can be configured only for Ops Manager versions >= %s (S3 Store: %s)", status.OpsManager, util.MinimumVersionImmutableBackup, config.Name)
-			} else if hasObjectLockRetention(config) && v.LT(objectLockRetentionVersion) {
-				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= %s (S3 Store: %s)", status.OpsManager, util.MinimumVersionS3ObjectLockRetention, config.Name)
-			} else if hasObjectLockRetention(config) && (config.ObjectLockEnabled == nil || !*config.ObjectLockEnabled) {
-				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled (S3 Store: %s)", status.OpsManager, config.Name)
-			} else if hasPartialObjectLockRetention(config) {
-				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' must be specified together (S3 Store: %s)", status.OpsManager, config.Name)
-			}
+	// Snapshot and OpLog S3 stores enforce the same rules and differ only in the
+	// version floors and the label used for error messages: OpLog stores support
+	// object lock (and therefore retention) only since 8.0.28.
+	for _, config := range backup.S3Configs {
+		if res := validateS3StoreConfig(config, v, "S3 Store", util.MinimumVersionImmutableBackup, util.MinimumVersionS3ObjectLockRetention); res.Level != v1.SuccessLevel {
+			return res
 		}
 	}
 
-	if len(backup.S3OplogStoreConfigs) > 0 {
-		for _, oplogStoreConfig := range backup.S3OplogStoreConfigs {
-			if oplogStoreConfig.IRSAEnabled {
-				if oplogStoreConfig.S3SecretRef != nil {
-					return v1.OpsManagerResourceValidationWarning("'s3SecretRef' must not be specified if using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
-				}
-			} else if oplogStoreConfig.S3SecretRef == nil || oplogStoreConfig.S3SecretRef.Name == "" {
-				return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
-			} else if oplogStoreConfig.ObjectLockEnabled != nil {
-				return v1.OpsManagerResourceValidationError("'objectLockEnabled' cannot be configured for OpLog S3 Stores (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
-			} else if hasObjectLockRetention(oplogStoreConfig) {
-				return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' cannot be configured for OpLog S3 Stores (S3 OpLog Store: %s)", status.OpsManager, oplogStoreConfig.Name)
-			}
+	for _, oplogStoreConfig := range backup.S3OplogStoreConfigs {
+		if res := validateS3StoreConfig(oplogStoreConfig, v, "S3 OpLog Store", util.MinimumVersionS3OpLogObjectLock, util.MinimumVersionS3OpLogObjectLock); res.Level != v1.SuccessLevel {
+			return res
 		}
 	}
 
+	return v1.ValidationSuccess()
+}
+
+// validateS3StoreConfig validates a single S3 store config (snapshot or OpLog — both
+// enforce identical rules under different Ops Manager version floors). storeLabel is
+// used in error messages, e.g. "S3 Store" or "S3 OpLog Store".
+func validateS3StoreConfig(config S3Config, v semver.Version, storeLabel string, objectLockMinVersion string, retentionMinVersion string) v1.ValidationResult {
+	objectLockVersion := semver.MustParse(objectLockMinVersion)
+	objectLockRetentionVersion := semver.MustParse(retentionMinVersion)
+
+	if config.IRSAEnabled {
+		if config.S3SecretRef != nil {
+			return v1.OpsManagerResourceValidationWarning("'s3SecretRef' must not be specified if using IRSA (%s: %s)", status.OpsManager, storeLabel, config.Name)
+		}
+	} else if config.S3SecretRef == nil || config.S3SecretRef.Name == "" {
+		return v1.OpsManagerResourceValidationError("'s3SecretRef' must be specified if not using IRSA (%s: %s)", status.OpsManager, storeLabel, config.Name)
+	} else if config.ObjectLockEnabled != nil && v.LT(objectLockVersion) {
+		return v1.OpsManagerResourceValidationError("'objectLockEnabled' can be configured only for Ops Manager versions >= %s (%s: %s)", status.OpsManager, objectLockMinVersion, storeLabel, config.Name)
+	} else if hasObjectLockRetention(config) && v.LT(objectLockRetentionVersion) {
+		return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= %s (%s: %s)", status.OpsManager, retentionMinVersion, storeLabel, config.Name)
+	} else if hasObjectLockRetention(config) && (config.ObjectLockEnabled == nil || !*config.ObjectLockEnabled) {
+		return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled (%s: %s)", status.OpsManager, storeLabel, config.Name)
+	} else if hasPartialObjectLockRetention(config) {
+		return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' must be specified together (%s: %s)", status.OpsManager, storeLabel, config.Name)
+	}
 	return v1.ValidationSuccess()
 }
 
