@@ -22,7 +22,7 @@ Each Pull Request usually has a changelog file that describes the changes made i
 Changelog files are placed in the `changelog/` directory and used to generate the Release Notes for the
 upcoming release. Preview of the Release Notes is automatically added as comment to each Pull Request.
 The changelog file needs to follow the naming convention
-`YYYYMMDD-<change_kind>-<short-title>.md`. To create changelog file please use the
+`YYYYMMDD_<change_kind>_<short_title>.md`. To create changelog file please use the
 `scripts/release/create_changelog.py` script. Example usage:
 
 ```console
@@ -45,7 +45,7 @@ options:
   -c, --changelog-path
                         Path to the changelog directory relative to a current working directory. Default is 'changelog/'
   -d, --date            Date in 'YYYY-MM-DD' format to use for the changelog entry. Default is today's date
-  -e, --editor          Open the created changelog entry in the default editor (if set, otherwise uses 'vi'). Default is True
+  -e, --editor          Open the created changelog entry in the default editor (if set, otherwise uses 'vi'). Default is False
   -k, --kind            Kind of the changelog entry:
                           - 'prelude' for prelude entries
                           - 'breaking' for breaking change entries
