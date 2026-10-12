@@ -1006,15 +1006,7 @@ spec:
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
                           rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != '''')'
-                      enabled:
-                        default: false
-                        description: |-
-                          Enabled turns on operator-managed certificates for this resource. It must be true
-                          for any server/client/subjects setting to take effect; when true with no server or
-                          client configured, the operator signs both category of certs with its own self-signed CAs.
-                          Mutually exclusive with security.certsSecretPrefix.
-                        type: boolean
+                            != ”)'
                       server:
                         description: |-
                           Server configures signing and trust for the serverAuth certificates.
@@ -1114,7 +1106,7 @@ spec:
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
                           rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != '''')'
+                            != ”)'
                       subjects:
                         description: |-
                           Subjects overrides the operator-computed X509 subjects. It is configurable by
@@ -1214,8 +1206,6 @@ spec:
                                 type: array
                             type: object
                         type: object
-                    required:
-                    - enabled
                     type: object
                   roleRefs:
                     items:
@@ -1326,15 +1316,10 @@ spec:
                 - message: At most one of roles or roleRefs can be non-empty
                   rule: '!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size()
                     > 0 && self.roleRefs.size() > 0)'
-                - message: security.certsSecretPrefix and an enabled security.managedCertificate
+                - message: security.certsSecretPrefix and security.managedCertificate
                     are mutually exclusive
                   rule: '!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size()
-                    > 0 && has(self.managedCertificate) && self.managedCertificate.enabled)'
-                - message: security.managedCertificate.server/client/subjects require
-                    security.managedCertificate.enabled to be true
-                  rule: '!(has(self.managedCertificate) && !self.managedCertificate.enabled
-                    && (has(self.managedCertificate.server) || has(self.managedCertificate.client)
-                    || has(self.managedCertificate.subjects)))'
+                    > 0 && has(self.managedCertificate))'
               statefulSet:
                 description: |-
                   StatefulSetConfiguration provides the statefulset override for each of the cluster's statefulset

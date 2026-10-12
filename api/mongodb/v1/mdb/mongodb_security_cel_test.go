@@ -55,27 +55,27 @@ func TestMongoDBSecurityCELValidation(t *testing.T) {
 		},
 		{
 			name:     "managedCertificate with tls.enabled=true is accepted",
-			security: &mdb.Security{TLSConfig: tlsEnabled, ManagedCertificate: &mdb.ManagedCertificate{Enabled: true, Server: &mdb.CertificateConfig{IssuerRef: issuer}}},
+			security: &mdb.Security{TLSConfig: tlsEnabled, ManagedCertificate: &mdb.ManagedCertificate{Server: &mdb.CertificateConfig{IssuerRef: issuer}}},
 		},
 		{
 			name: "certsSecretPrefix and managedCertificate together are rejected",
 			security: &mdb.Security{
 				TLSConfig:                 tlsEnabled,
 				CertificatesSecretsPrefix: "my-prefix",
-				ManagedCertificate:        &mdb.ManagedCertificate{Enabled: true, Server: &mdb.CertificateConfig{IssuerRef: issuer}},
+				ManagedCertificate:        &mdb.ManagedCertificate{Server: &mdb.CertificateConfig{IssuerRef: issuer}},
 			},
-			errorContains: "security.certsSecretPrefix and an enabled security.managedCertificate are mutually exclusive",
+			errorContains: "security.certsSecretPrefix and security.managedCertificate are mutually exclusive",
 		},
 		{
 			// managedCertificate enables TLS on its own (IsTLSEnabled returns true when it is set)
 			name:     "managedCertificate without any tls block is accepted",
-			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{Enabled: true, Server: &mdb.CertificateConfig{IssuerRef: issuer}}},
+			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{Server: &mdb.CertificateConfig{IssuerRef: issuer}}},
 		},
 		{
 			name: "managedCertificate with tls.enabled=false is accepted",
 			security: &mdb.Security{
 				TLSConfig:          &mdb.TLSConfig{},
-				ManagedCertificate: &mdb.ManagedCertificate{Enabled: true, Server: &mdb.CertificateConfig{IssuerRef: issuer}},
+				ManagedCertificate: &mdb.ManagedCertificate{Server: &mdb.CertificateConfig{IssuerRef: issuer}},
 			},
 		},
 		{
@@ -83,7 +83,6 @@ func TestMongoDBSecurityCELValidation(t *testing.T) {
 			security: &mdb.Security{
 				TLSConfig: tlsEnabled,
 				ManagedCertificate: &mdb.ManagedCertificate{
-					Enabled: true,
 					Server: &mdb.CertificateConfig{
 						IssuerRef:            issuer,
 						AdditionalTrustedCAs: []mdb.CARef{{Name: "bad", Kind: "Pod", Key: "ca.crt"}},
@@ -93,28 +92,23 @@ func TestMongoDBSecurityCELValidation(t *testing.T) {
 			errorContains: "Unsupported value",
 		},
 		{
-			name:     "managedCertificate enabled with no blocks (zero-config, both self-signed) is accepted",
-			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{Enabled: true}},
+			name:     "managedCertificate with no blocks (zero-config, both self-signed) is accepted",
+			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{}},
 		},
 		{
-			name: "managedCertificate with a block but enabled=false is rejected",
-			security: &mdb.Security{
-				ManagedCertificate: &mdb.ManagedCertificate{Server: &mdb.CertificateConfig{IssuerRef: issuer}},
-			},
-			errorContains: "require security.managedCertificate.enabled",
+			name:     "managedCertificate with only a server block is accepted",
+			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{Server: &mdb.CertificateConfig{IssuerRef: issuer}}},
 		},
 		{
 			name: "ca together with issuerRef is accepted",
 			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
-				Enabled: true,
-				Server:  &mdb.CertificateConfig{IssuerRef: issuer, CA: ca},
+				Server: &mdb.CertificateConfig{IssuerRef: issuer, CA: ca},
 			}},
 		},
 		{
 			name: "ca without issuerRef is rejected",
 			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
-				Enabled: true,
-				Server:  &mdb.CertificateConfig{CA: ca},
+				Server: &mdb.CertificateConfig{CA: ca},
 			}},
 			errorContains: "ca is only used with issuerRef",
 		},
@@ -122,16 +116,14 @@ func TestMongoDBSecurityCELValidation(t *testing.T) {
 			// an empty issuer name is treated as no issuer, so ca would be ignored.
 			name: "ca with an empty issuer name is rejected",
 			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
-				Enabled: true,
-				Server:  &mdb.CertificateConfig{IssuerRef: &mdb.IssuerRef{}, CA: ca},
+				Server: &mdb.CertificateConfig{IssuerRef: &mdb.IssuerRef{}, CA: ca},
 			}},
 			errorContains: "ca is only used with issuerRef",
 		},
 		{
 			name: "client ca without a client issuerRef is rejected",
 			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
-				Enabled: true,
-				Client:  &mdb.CertificateConfig{CA: ca},
+				Client: &mdb.CertificateConfig{CA: ca},
 			}},
 			errorContains: "ca is only used with issuerRef",
 		},
