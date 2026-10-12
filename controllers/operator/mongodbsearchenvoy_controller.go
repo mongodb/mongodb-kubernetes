@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 
 	"go.uber.org/zap"
@@ -118,9 +115,13 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 
 	mdbSearch := &searchv1.MongoDBSearch{}
 	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
+		if apierrors.IsNotFound(err) {
+			r.watch.RemoveDependentWatchedResources(request.NamespacedName)
+		}
 		return result, err
 	}
 	if !mdbSearch.DeletionTimestamp.IsZero() {
+		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
 		log.Infof("MongoDBSearch %s/%s is deleting; skipping envoy reconcile", mdbSearch.Namespace, mdbSearch.Name)
 		return reconcile.Result{}, nil
 	}
@@ -145,6 +146,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		log.Warnf("Failed to clean up Envoy resources on removed member clusters: %v", err)
 	}
 	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
+		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
 		if err := deleteEnvoySearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
 			log.Warnf("Failed to clean up Envoy resources on removed cluster %q: %v", r.operatorClusterName, err)
 		}
@@ -154,6 +156,9 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	if r.prepareSearch.shouldSkipCluster(mdbSearch, log) {
 		return reconcile.Result{}, nil
 	}
+
+	// Rebuild dependencies so TLS, certificate-prefix and cluster changes retire stale watches.
+	r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
 
 	// TODO: can we find a better cleanup mechanism, and optimize the watching of the loadbalancer field by this controller ?
 	// Only act when lb.mode == Managed.
@@ -332,8 +337,8 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	if err := r.ensureConfigMap(ctx, search, bootstrapJSON, cdsJSON, ldsJSON, w, log); err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
-	// CDS/LDS are hot-reloaded via filesystem xDS; only bootstrap and cert changes roll pods.
-	if err := r.ensureDeployment(ctx, search, bootstrapJSON, w, managedLB, tlsCfg, log); err != nil {
+	// CDS/LDS are hot-reloaded via filesystem xDS; only bootstrap and cert changes restart pods.
+	if err := r.ensureDeployment(ctx, search, bootstrapJSON, w, managedLB, tlsEnabled, tlsCfg, log); err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
 	return workflow.OK()
@@ -538,23 +543,21 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 }
 
 // envoyConfigHash hashes whitespace-normalized JSON: protojson output formatting
-// is deliberately randomized per compiled binary, so hashing raw bytes would roll
+// is deliberately randomized per compiled binary, so hashing raw bytes would restart
 // the Deployment on every operator rebuild.
-func envoyConfigHash(configJSON string, extra ...[]byte) (string, error) {
+func envoyConfigHash(configJSON string, extra []byte) (string, error) {
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, []byte(configJSON)); err != nil {
 		return "", fmt.Errorf("failed to compact Envoy config for hashing: %w", err)
 	}
 	h := sha256.New()
 	h.Write(compact.Bytes())
-	for _, data := range extra {
-		h.Write(data)
-	}
+	h.Write(extra)
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func envoyLBCertSecretsData(ctx context.Context, c client.Client, search *searchv1.MongoDBSearch, clusterIndex int) ([]byte, error) {
-	var data []byte
+	data := map[string]map[string][]byte{}
 	for _, nsName := range []types.NamespacedName{search.LoadBalancerServerCert(clusterIndex), search.LoadBalancerClientCert(clusterIndex)} {
 		secret := &corev1.Secret{}
 		if err := c.Get(ctx, nsName, secret); err != nil {
@@ -563,26 +566,18 @@ func envoyLBCertSecretsData(ctx context.Context, c client.Client, search *search
 			}
 			return nil, fmt.Errorf("failed to read LB cert Secret %s: %w", nsName, err)
 		}
-		// Secret values are arbitrary bytes, so delimiters alone cannot frame them.
-		data = binary.AppendUvarint(data, uint64(len(nsName.Name)))
-		data = append(data, nsName.Name...)
-		keys := slices.Sorted(maps.Keys(secret.Data))
-		data = binary.AppendUvarint(data, uint64(len(keys)))
-		for _, key := range keys {
-			data = binary.AppendUvarint(data, uint64(len(key)))
-			data = append(data, key...)
-			data = binary.AppendUvarint(data, uint64(len(secret.Data[key])))
-			data = append(data, secret.Data[key]...)
-		}
+		data[nsName.Name] = secret.Data
 	}
-	return data, nil
+	if len(data) == 0 {
+		return nil, nil
+	}
+	return json.Marshal(data)
 }
 
 // ensureDeployment creates or updates the Envoy Deployment.
 // Bootstrap and LB cert data are hashed because static cert files require a restart;
 // CDS/LDS changes are hot-reloaded via filesystem xDS.
-func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, w clusterWorkItem, managedLB *searchv1.ManagedLBConfig, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
-	tlsEnabled := search.IsTLSConfigured()
+func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, w clusterWorkItem, managedLB *searchv1.ManagedLBConfig, tlsEnabled bool, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	var certData []byte
 	if tlsEnabled {
 		var err error
@@ -916,14 +911,13 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
 		return err
 	}
-	// Plain ResourcesHandler: only registered dependency ConfigMaps (e.g. CA bundles)
+	// Plain ResourcesHandler: only registered dependency ConfigMaps (the search state)
 	// route create/update events; the rendered LB ConfigMap is not registered, so
 	// manual edits to it never trigger a re-render (Envoy hot-reloads it in place).
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
-	// User cert Secrets have no owner labels. Watch registered names centrally,
-	// as mongot does; remote-only Secret updates do not enqueue a reconcile.
+	// Name-based: user cert Secrets carry no owner labels.
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
