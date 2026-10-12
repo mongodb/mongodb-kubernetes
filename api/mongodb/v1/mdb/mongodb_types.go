@@ -964,6 +964,9 @@ func (s *Security) MemberCertificateSecretName(defaultName string) string {
 	if s.CertificatesSecretsPrefix != "" {
 		return fmt.Sprintf("%s-%s-cert", s.CertificatesSecretsPrefix, defaultName)
 	}
+	if s.IsManagedCertificateEnabled() {
+		return fmt.Sprintf("%s-managed-cert", defaultName)
+	}
 
 	// The default behaviour is to use the `defaultname-cert` format
 	return fmt.Sprintf("%s-cert", defaultName)
@@ -1126,9 +1129,9 @@ func (s Security) AgentClientCertificateSecretName(resourceName string) string {
 		secretName = fmt.Sprintf("%s-%s-%s", s.CertificatesSecretsPrefix, resourceName, util.AgentSecretName)
 	} else if s.IsManagedCertificateEnabled() {
 		// In managed-certificate mode there is no certsSecretPrefix (the two are mutually
-		// exclusive), yet the operator owns the agent Certificate/secret. Prefix resource name in the secret name
-		// so two managed resources in the same namespace can't collide on a shared "agent-certs" secret name.
-		secretName = fmt.Sprintf("%s-%s", resourceName, util.AgentSecretName)
+		// exclusive), yet the operator owns the agent Certificate/secret. Use a managed-only name
+		// so it can't collide with a shared "agent-certs" secret.
+		secretName = fmt.Sprintf("%s-managed-%s", resourceName, util.AgentSecretName)
 	}
 	if s.ShouldUseClientCertificates() {
 		secretName = s.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name
@@ -1152,11 +1155,13 @@ func (s *Security) GetAgentAutoPEMKeyFilePath() string {
 }
 
 func (s Security) InternalClusterAuthSecretName(defaultName string) string {
-	secretName := fmt.Sprintf("%s-clusterfile", defaultName)
 	if s.CertificatesSecretsPrefix != "" {
-		secretName = fmt.Sprintf("%s-%s", s.CertificatesSecretsPrefix, secretName)
+		return fmt.Sprintf("%s-%s-clusterfile", s.CertificatesSecretsPrefix, defaultName)
 	}
-	return secretName
+	if s.IsManagedCertificateEnabled() {
+		return fmt.Sprintf("%s-managed-clusterfile", defaultName)
+	}
+	return fmt.Sprintf("%s-clusterfile", defaultName)
 }
 
 // RequiresClientTLSAuthentication checks if client TLS authentication is required, depending
