@@ -15,10 +15,12 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 import pymongo
 import pymongo.errors
 from kubernetes import client
-from kubetester import list_matching_pods, pod_is_ready
+from kubetester import create_or_update_secret, list_matching_pods, pod_is_ready, read_secret
+from kubetester.certs import create_tls_certs, rotate_cert
 from kubetester.kubetester import run_periodically
 from pymongo.read_preferences import Nearest
 from tests import test_logger
+from tests.common.search import search_resource_names
 from tests.common.search.search_tester import SearchTester
 
 if TYPE_CHECKING:
@@ -604,6 +606,115 @@ def wait_for_pods_by_label_replaced(
         sleep_time=3,
         msg=f"{want} new pods with {label_selector} Ready",
     )
+
+
+ENVOY_CONFIG_HASH_ANNOTATION = "mongodb.com/envoy-config-hash"
+
+
+def wait_for_envoy_restart(
+    namespace: str,
+    deployment_name: str,
+    previous_hash: str,
+    *,
+    api_client: Optional[client.ApiClient] = None,
+) -> None:
+    """Require a changed template hash and every replacement ready before the next certificate rotation."""
+    assert previous_hash, f"{deployment_name}: missing pre-rotation hash"
+    apps = client.AppsV1Api(api_client=api_client)
+
+    def check() -> tuple[bool, str]:
+        deployment = apps.read_namespaced_deployment(deployment_name, namespace)
+        current_hash = (deployment.spec.template.metadata.annotations or {}).get(ENVOY_CONFIG_HASH_ANNOTATION)
+        desired = deployment.spec.replicas
+        status = deployment.status
+        if not current_hash or current_hash == previous_hash:
+            return False, f"{deployment_name}: waiting for changed certificate hash"
+        if (
+            not desired
+            or status.observed_generation != deployment.metadata.generation
+            or status.replicas != desired
+            or status.updated_replicas != desired
+            or status.ready_replicas != desired
+        ):
+            return False, f"{deployment_name}: replacement not converged"
+        pods = list_matching_pods(namespace, label_selector=f"app={deployment_name}", api_client=api_client)
+        if len(pods) != desired or any(p.metadata.deletion_timestamp or not pod_is_ready(p) for p in pods):
+            return False, f"{deployment_name}: waiting for exactly {desired} ready nonterminating pods"
+        if any((p.metadata.annotations or {}).get(ENVOY_CONFIG_HASH_ANNOTATION) != current_hash for p in pods):
+            return False, f"{deployment_name}: waiting for all pods to carry the new hash"
+        return True, f"{deployment_name}: every replacement is ready with hash {current_hash}"
+
+    run_periodically(check, timeout=300, sleep_time=5, msg=f"{deployment_name}: Envoy certificate restart")
+
+
+def rotate_envoy_certificate(namespace: str, deployment_name: str, certificate_name: str) -> None:
+    before = client.AppsV1Api().read_namespaced_deployment(deployment_name, namespace)
+    previous_hash = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
+    previous_cert = read_secret(namespace, certificate_name)["tls.crt"]
+    rotate_cert(namespace, certificate_name)
+
+    def secret_changed() -> tuple[bool, str]:
+        changed = read_secret(namespace, certificate_name)["tls.crt"] != previous_cert
+        return changed, f"{certificate_name}: changed={changed}"
+
+    run_periodically(secret_changed, timeout=120, sleep_time=5, msg=f"{certificate_name}: certificate reissuance")
+    wait_for_envoy_restart(namespace, deployment_name, previous_hash)
+
+
+def rotate_member_envoy_certificates(
+    namespace: str,
+    search_name: str,
+    certs_prefix: str,
+    issuer: str,
+    members: list[MultiClusterClient],
+    central_api_client: client.ApiClient,
+) -> None:
+    """Finish each certificate phase across all members before changing the other certificate."""
+    server_domains = []
+    for member in members:
+        assert member.cluster_index is not None
+        server_domains.append(search_resource_names.mc_proxy_svc_fqdn(search_name, namespace, member.cluster_index))
+
+    for cert_name, domains in (
+        (search_resource_names.lb_server_cert_name, server_domains),
+        (search_resource_names.lb_client_cert_name, [f"*.{namespace}.svc.cluster.local"]),
+    ):
+        replacements = {}
+        for member in members:
+            assert member.cluster_index is not None
+            deployment_name = search_resource_names.lb_deployment_name(search_name, member.cluster_index)
+            secret_name = cert_name(search_name, certs_prefix, member.cluster_index)
+            scratch_name = f"{secret_name}-rotated"
+            create_tls_certs(
+                issuer=issuer,
+                namespace=namespace,
+                resource_name=deployment_name,
+                replicas=1,
+                service_name=deployment_name,
+                additional_domains=domains,
+                secret_name=scratch_name,
+                api_client=central_api_client,
+            )
+            data = read_secret(namespace, scratch_name, api_client=central_api_client)
+            assert data["tls.crt"] != read_secret(namespace, secret_name, api_client=member.api_client)["tls.crt"]
+            before = member.apps_v1_api().read_namespaced_deployment(deployment_name, namespace)
+            previous_hash = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
+            replacements[member.cluster_name] = (deployment_name, secret_name, data, previous_hash)
+
+        for member in members:
+            _, secret_name, data, _ = replacements[member.cluster_name]
+            create_or_update_secret(
+                namespace, secret_name, data, type="kubernetes.io/tls", api_client=member.api_client
+            )
+            assert read_secret(namespace, secret_name, api_client=member.api_client) == data
+        # Central-only watches must see the trigger after every member has the corresponding data.
+        for _, secret_name, data, _ in replacements.values():
+            create_or_update_secret(
+                namespace, secret_name, data, type="kubernetes.io/tls", api_client=central_api_client
+            )
+        for member in members:
+            deployment_name, _, _, previous_hash = replacements[member.cluster_name]
+            wait_for_envoy_restart(namespace, deployment_name, previous_hash, api_client=member.api_client)
 
 
 # MongoDBSearch reconcile + readiness-probe disruption helpers

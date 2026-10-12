@@ -26,7 +26,11 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_workload_ready_in_cluster
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import search_artifact_uids, wait_for_search_artifacts_deleted
+from tests.common.search.connectivity import (
+    rotate_member_envoy_certificates,
+    search_artifact_uids,
+    wait_for_search_artifacts_deleted,
+)
 from tests.common.search.mc_search_helper import (
     _assert_mongot_host_on_disk,
     assert_mongot_sync_source_hosts,
@@ -520,6 +524,32 @@ def test_per_cluster_search_query(
         # Deterministic compound query: the Hawaii/Alaska sample returns exactly 4 docs.
         movies.assert_search_query(retry_timeout=SEARCH_QUERY_RETRY_TIMEOUT)
         logger.info(f"cluster_index={cluster_index}: deterministic $search (==4) via local mongod OK")
+
+
+@mark.e2e_search_simulated_mc_rs
+def test_rotate_lb_certificates_restarts_local_envoy(
+    namespace: str,
+    multi_cluster_issuer: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    rotate_member_envoy_certificates(
+        namespace,
+        MDBS_RESOURCE_NAME,
+        MDBS_TLS_CERT_PREFIX,
+        multi_cluster_issuer,
+        member_cluster_clients[:2],
+        central_cluster_client,
+    )
+
+
+@mark.e2e_search_simulated_mc_rs
+def test_per_cluster_search_query_after_lb_certificate_rotation(
+    namespace: str,
+    mdb: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    test_per_cluster_search_query(namespace, mdb, member_cluster_clients)
 
 
 @mark.e2e_search_simulated_mc_rs
