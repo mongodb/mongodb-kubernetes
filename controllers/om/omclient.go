@@ -38,34 +38,34 @@ import (
 // '*Error' in fact, but it's error-prone to declare method as returning specific implementation of error
 // (see https://golang.org/doc/faq#nil_error)
 type Connection interface {
-	UpdateDeployment(deployment Deployment) ([]byte, error)
-	ReadDeployment() (Deployment, error)
+	UpdateDeployment(ctx context.Context, deployment Deployment) ([]byte, error)
+	ReadDeployment(ctx context.Context) (Deployment, error)
 
 	// ReadUpdateDeployment reads Deployment from Ops Manager, applies the update function to it and pushes it back
-	ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error
-	ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error
-	ReadProcessLogRotation() (*automationconfig.AcLogRotate, error)
-	ReadAuditLogRotation() (*automationconfig.AcLogRotate, error)
-	ReadAutomationStatus() (*AutomationStatus, error)
+	ReadUpdateDeployment(ctx context.Context, depFunc func(Deployment) error, log *zap.SugaredLogger) error
+	ReadUpdateAgentsLogRotation(ctx context.Context, logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error
+	ReadProcessLogRotation(ctx context.Context) (*automationconfig.AcLogRotate, error)
+	ReadAuditLogRotation(ctx context.Context) (*automationconfig.AcLogRotate, error)
+	ReadAutomationStatus(ctx context.Context) (*AutomationStatus, error)
 	// ReadAutomationAgents returns the automation agents registered in the project at the specified page
 	ReadAutomationAgents(ctx context.Context, page int) (Paginated, error)
-	MarkProjectAsBackingDatabase(databaseType BackingDatabaseType) error
+	MarkProjectAsBackingDatabase(ctx context.Context, databaseType BackingDatabaseType) error
 
-	ReadOrganizationsByName(name string) ([]*Organization, error)
+	ReadOrganizationsByName(ctx context.Context, name string) ([]*Organization, error)
 	// ReadOrganizations returns all organizations at specified page
 	ReadOrganizations(ctx context.Context, page int) (Paginated, error)
-	ReadOrganization(orgID string) (*Organization, error)
+	ReadOrganization(ctx context.Context, orgID string) (*Organization, error)
 
-	ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error)
+	ReadProjectsInOrganizationByName(ctx context.Context, orgID string, name string) ([]*Project, error)
 	// ReadProjectsInOrganization returns all projects in the organization at the specified page
 	ReadProjectsInOrganization(ctx context.Context, orgID string, page int) (Paginated, error)
-	CreateProject(project *Project) (*Project, error)
-	UpdateProject(project *Project) (*Project, error)
+	CreateProject(ctx context.Context, project *Project) (*Project, error)
+	UpdateProject(ctx context.Context, project *Project) (*Project, error)
 
-	ReadAgentVersion() (AgentsVersionsResponse, error)
+	ReadAgentVersion(ctx context.Context) (AgentsVersionsResponse, error)
 
-	GetPreferredHostnames(agentApiKey string) ([]PreferredHostname, error)
-	AddPreferredHostname(agentApiKey string, value string, isRegexp bool) error
+	GetPreferredHostnames(ctx context.Context, agentApiKey string) ([]PreferredHostname, error)
+	AddPreferredHostname(ctx context.Context, agentApiKey string, value string, isRegexp bool) error
 
 	backup.GroupConfigReader
 	backup.GroupConfigUpdater
@@ -103,23 +103,23 @@ type Connection interface {
 }
 
 type MonitoringConfigConnection interface {
-	ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error)
-	UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)
-	ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error
+	ReadMonitoringAgentConfig(ctx context.Context) (*MonitoringAgentConfig, error)
+	UpdateMonitoringAgentConfig(ctx context.Context, mat *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)
+	ReadUpdateMonitoringAgentConfig(ctx context.Context, matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error
 }
 
 type BackupConfigConnection interface {
-	ReadBackupAgentConfig() (*BackupAgentConfig, error)
-	UpdateBackupAgentConfig(mat *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error)
-	ReadUpdateBackupAgentConfig(matFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error
+	ReadBackupAgentConfig(ctx context.Context) (*BackupAgentConfig, error)
+	UpdateBackupAgentConfig(ctx context.Context, mat *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error)
+	ReadUpdateBackupAgentConfig(ctx context.Context, matFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error
 }
 
 type HasAgentAuthMode interface {
-	GetAgentAuthMode() (string, error)
+	GetAgentAuthMode(ctx context.Context) (string, error)
 }
 
 type AgentKeyGenerator interface {
-	GenerateAgentKey() (string, error)
+	GenerateAgentKey(ctx context.Context) (string, error)
 }
 
 // AutomationConfigConnection is an interface that only deals with reading/updating of the AutomationConfig
@@ -127,15 +127,15 @@ type AutomationConfigConnection interface {
 	// UpdateAutomationConfig updates the Automation Config in Ops Manager
 	// Note, that this method calls *the same* api endpoint as the `OmConnection.UpdateDeployment` - just uses a
 	// Deployment wrapper (AutomationConfig) as a parameter
-	UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error
-	ReadAutomationConfig() (*AutomationConfig, error)
+	UpdateAutomationConfig(ctx context.Context, ac *AutomationConfig, log *zap.SugaredLogger) error
+	ReadAutomationConfig(ctx context.Context) (*AutomationConfig, error)
 	// ReadAutomationConfig reads the Automation Config from Ops Manager
 	// Note, that this method calls *the same* api endpoint as the `OmConnection.ReadDeployment` - just wraps the answer
 	// to the different object
-	ReadUpdateAutomationConfig(acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error
+	ReadUpdateAutomationConfig(ctx context.Context, acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error
 
 	// Calls the API to update all the MongoDB Agents in the project to the latest. Returns the new version
-	UpgradeAgentsToLatest() (string, error)
+	UpgradeAgentsToLatest(ctx context.Context) (string, error)
 }
 
 // omMutexes is the synchronous map of mutexes that provide strict serializability for operations "read-modify-write"
@@ -188,14 +188,14 @@ type HTTPOmConnection struct {
 	clientOpts []func(*api.Client) error // Additional options for the HTTP client (e.g., for testing)
 }
 
-func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(ctx context.Context, logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
 	// We don't have to wait for each step for the agent to reach goal state as setting logrotation does not require order
 	if logRotateSetting.Mongod.LogRotate == nil && logRotateSetting.MonitoringAgent.LogRotate == nil &&
 		logRotateSetting.BackupAgent.LogRotate == nil && logRotateSetting.Mongod.AuditLogRotate == nil {
 		return nil
 	}
 
-	automationConfig, err := oc.ReadAutomationConfig()
+	automationConfig, err := oc.ReadAutomationConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -214,23 +214,23 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.A
 
 		// We only retrieve the first process, since logRotation is configured the same for all processes
 		process := automationConfig.Deployment.GetProcesses()[0]
-		if err = updateProcessLogRotateIfChanged(logRotateSetting.Mongod.LogRotate, process.GetLogRotate(), oc.UpdateProcessLogRotation); err != nil {
+		if err = updateProcessLogRotateIfChanged(ctx, logRotateSetting.Mongod.LogRotate, process.GetLogRotate(), oc.UpdateProcessLogRotation); err != nil {
 			return err
 		}
-		if err = updateProcessLogRotateIfChanged(logRotateSetting.Mongod.AuditLogRotate, process.GetAuditLogRotate(), oc.UpdateAuditLogRotation); err != nil {
+		if err = updateProcessLogRotateIfChanged(ctx, logRotateSetting.Mongod.AuditLogRotate, process.GetAuditLogRotate(), oc.UpdateAuditLogRotation); err != nil {
 			return err
 		}
 	}
 
 	if len(automationConfig.Deployment.getBackupVersions()) > 0 && logRotateSetting.BackupAgent.LogRotate != nil {
-		err = oc.ReadUpdateBackupAgentConfig(func(config *BackupAgentConfig) error {
+		err = oc.ReadUpdateBackupAgentConfig(ctx, func(config *BackupAgentConfig) error {
 			config.SetLogRotate(*logRotateSetting.BackupAgent.LogRotate)
 			return nil
 		}, log)
 	}
 
 	if len(automationConfig.Deployment.getMonitoringVersions()) > 0 && logRotateSetting.MonitoringAgent.LogRotate != nil {
-		err = oc.ReadUpdateMonitoringAgentConfig(func(config *MonitoringAgentConfig) error {
+		err = oc.ReadUpdateMonitoringAgentConfig(ctx, func(config *MonitoringAgentConfig) error {
 			config.SetLogRotate(*logRotateSetting.MonitoringAgent.LogRotate)
 			return nil
 		}, log)
@@ -239,7 +239,7 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.A
 	return err
 }
 
-func updateProcessLogRotateIfChanged(logRotateSettingFromCRD *automationconfig.CrdLogRotate, logRotationSettingFromWire map[string]any, updateLogRotationSetting func(logRotateSetting automationconfig.AcLogRotate) ([]byte, error)) error {
+func updateProcessLogRotateIfChanged(ctx context.Context, logRotateSettingFromCRD *automationconfig.CrdLogRotate, logRotationSettingFromWire map[string]any, updateLogRotationSetting func(ctx context.Context, logRotateSetting automationconfig.AcLogRotate) ([]byte, error)) error {
 	logRotationToSetInAC := automationconfig.ConvertCrdLogRotateToAC(logRotateSettingFromCRD)
 	if logRotationToSetInAC == nil {
 		return nil
@@ -254,19 +254,19 @@ func updateProcessLogRotateIfChanged(logRotateSettingFromCRD *automationconfig.C
 		return nil
 	}
 
-	_, err = updateLogRotationSetting(*logRotationToSetInAC)
+	_, err = updateLogRotationSetting(ctx, *logRotationToSetInAC)
 	return err
 }
 
-func (oc *HTTPOmConnection) UpdateProcessLogRotation(logRotateSetting automationconfig.AcLogRotate) ([]byte, error) {
-	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/systemLogRotateConfig", oc.GroupID()), logRotateSetting)
+func (oc *HTTPOmConnection) UpdateProcessLogRotation(ctx context.Context, logRotateSetting automationconfig.AcLogRotate) ([]byte, error) {
+	return oc.put(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/systemLogRotateConfig", oc.GroupID()), logRotateSetting)
 }
 
 // ReadProcessLogRotation reads process log rotation from the dedicated OM API endpoint.
 // Used during VM migration — the endpoint returns project-level config in a structured form
 // that maps directly to the CR's agent spec, unlike the per-process entries in the raw AC.
-func (oc *HTTPOmConnection) ReadProcessLogRotation() (*automationconfig.AcLogRotate, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/systemLogRotateConfig", oc.GroupID()))
+func (oc *HTTPOmConnection) ReadProcessLogRotation(ctx context.Context) (*automationconfig.AcLogRotate, error) {
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/systemLogRotateConfig", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
@@ -277,12 +277,12 @@ func (oc *HTTPOmConnection) ReadProcessLogRotation() (*automationconfig.AcLogRot
 	return &result, nil
 }
 
-func (oc *HTTPOmConnection) UpdateAuditLogRotation(logRotateSetting automationconfig.AcLogRotate) ([]byte, error) {
-	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/auditLogRotateConfig", oc.GroupID()), logRotateSetting)
+func (oc *HTTPOmConnection) UpdateAuditLogRotation(ctx context.Context, logRotateSetting automationconfig.AcLogRotate) ([]byte, error) {
+	return oc.put(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/auditLogRotateConfig", oc.GroupID()), logRotateSetting)
 }
 
-func (oc *HTTPOmConnection) ReadAuditLogRotation() (*automationconfig.AcLogRotate, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/auditLogRotateConfig", oc.GroupID()))
+func (oc *HTTPOmConnection) ReadAuditLogRotation(ctx context.Context) (*automationconfig.AcLogRotate, error) {
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/auditLogRotateConfig", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
@@ -293,8 +293,8 @@ func (oc *HTTPOmConnection) ReadAuditLogRotation() (*automationconfig.AcLogRotat
 	return &result, nil
 }
 
-func (oc *HTTPOmConnection) GetAgentAuthMode() (string, error) {
-	ac, err := oc.ReadAutomationConfig()
+func (oc *HTTPOmConnection) GetAgentAuthMode(ctx context.Context) (string, error) {
+	ac, err := oc.ReadAutomationConfig(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -323,8 +323,8 @@ func NewOpsManagerConnectionWithOptions(context *OMContext, clientOpts ...func(*
 	}
 }
 
-func (oc *HTTPOmConnection) ReadGroupBackupConfig() (backup.GroupBackupConfig, error) {
-	ans, apiErr := oc.get(fmt.Sprintf("/api/public/v1.0/admin/backup/groups/%s", oc.GroupID()))
+func (oc *HTTPOmConnection) ReadGroupBackupConfig(ctx context.Context) (backup.GroupBackupConfig, error) {
+	ans, apiErr := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/admin/backup/groups/%s", oc.GroupID()))
 
 	if apiErr != nil {
 		// This API provides very inconsistent way for obtaining values and authorization. In certain Ops Manager versions
@@ -349,8 +349,8 @@ func (oc *HTTPOmConnection) ReadGroupBackupConfig() (backup.GroupBackupConfig, e
 	return *groupBackupConfig, nil
 }
 
-func (oc *HTTPOmConnection) UpdateGroupBackupConfig(config backup.GroupBackupConfig) ([]byte, error) {
-	return oc.put(fmt.Sprintf("/api/public/v1.0/admin/backup/groups/%s", *config.Id), config)
+func (oc *HTTPOmConnection) UpdateGroupBackupConfig(ctx context.Context, config backup.GroupBackupConfig) ([]byte, error) {
+	return oc.put(ctx, fmt.Sprintf("/api/public/v1.0/admin/backup/groups/%s", *config.Id), config)
 }
 
 func (oc *HTTPOmConnection) ConfigureProject(project *Project) {
@@ -394,13 +394,13 @@ func (oc *HTTPOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion {
 }
 
 // UpdateDeployment updates a given deployment to the new deployment object passed as parameter.
-func (oc *HTTPOmConnection) UpdateDeployment(deployment Deployment) ([]byte, error) {
-	return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()), deployment)
+func (oc *HTTPOmConnection) UpdateDeployment(ctx context.Context, deployment Deployment) ([]byte, error) {
+	return oc.put(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()), deployment)
 }
 
 // ReadDeployment returns a Deployment object for this group
-func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
+func (oc *HTTPOmConnection) ReadDeployment(ctx context.Context) (Deployment, error) {
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
@@ -408,8 +408,8 @@ func (oc *HTTPOmConnection) ReadDeployment() (Deployment, error) {
 	return d, apierror.New(e)
 }
 
-func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
+func (oc *HTTPOmConnection) ReadAutomationConfig(ctx context.Context) (*AutomationConfig, error) {
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
@@ -422,11 +422,11 @@ func (oc *HTTPOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.
 // Note, that the mutex locks infinitely (there is no built-in support for timeouts for locks in Go) which seems to be
 // ok as OM endpoints are not supposed to hang for long
-func (oc *HTTPOmConnection) ReadUpdateDeployment(changeDeploymentFunc func(Deployment) error, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateDeployment(ctx context.Context, changeDeploymentFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	mutex := GetMutex(oc.GroupName(), oc.OrgID())
 	mutex.Lock()
 	defer mutex.Unlock()
-	deployment, err := oc.ReadDeployment()
+	deployment, err := oc.ReadDeployment(ctx)
 	if err != nil {
 		return err
 	}
@@ -440,9 +440,9 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(changeDeploymentFunc func(Deplo
 		return nil
 	}
 
-	_, err = oc.UpdateDeployment(deployment)
+	_, err = oc.UpdateDeployment(ctx, deployment)
 	if util.ShouldLogAutomationConfigDiff() {
-		originalDeployment, err := oc.ReadDeployment()
+		originalDeployment, err := oc.ReadDeployment(ctx)
 		if err != nil {
 			return apierror.New(err)
 		}
@@ -460,25 +460,25 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(changeDeploymentFunc func(Deplo
 	return nil
 }
 
-func (oc *HTTPOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) UpdateAutomationConfig(ctx context.Context, ac *AutomationConfig, log *zap.SugaredLogger) error {
 	err := ac.Apply()
 	if err != nil {
 		return err
 	}
 
-	_, err = oc.UpdateDeployment(ac.Deployment)
+	_, err = oc.UpdateDeployment(ctx, ac.Deployment)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(ctx context.Context, modifyACFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
 	mutex := GetMutex(oc.GroupName(), oc.OrgID())
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	ac, err := oc.ReadAutomationConfig()
+	ac, err := oc.ReadAutomationConfig(ctx)
 	if err != nil {
 		log.Errorf("error reading automation config. %s", err)
 		return err
@@ -504,7 +504,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *Aut
 	}
 
 	// we are using UpdateAutomationConfig since we need to apply our changes.
-	err = oc.UpdateAutomationConfig(ac, log)
+	err = oc.UpdateAutomationConfig(ctx, ac, log)
 	if util.ShouldLogAutomationConfigDiff() {
 		changelog, err := diff.Diff(original.Deployment, ac.Deployment, diff.AllowTypeMismatch(true))
 		if err != nil {
@@ -520,8 +520,8 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *Aut
 	return nil
 }
 
-func (oc *HTTPOmConnection) UpgradeAgentsToLatest() (string, error) {
-	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/updateAgentVersions", oc.GroupID()), nil)
+func (oc *HTTPOmConnection) UpgradeAgentsToLatest(ctx context.Context) (string, error) {
+	ans, err := oc.post(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/updateAgentVersions", oc.GroupID()), nil)
 	if err != nil {
 		return "", err
 	}
@@ -535,9 +535,9 @@ func (oc *HTTPOmConnection) UpgradeAgentsToLatest() (string, error) {
 	return response.AutomationAgentVersion, nil
 }
 
-func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
+func (oc *HTTPOmConnection) GenerateAgentKey(ctx context.Context) (string, error) {
 	data := map[string]string{"desc": "Agent key for Kubernetes"}
-	ans, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/agentapikeys", oc.GroupID()), data)
+	ans, err := oc.post(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/agentapikeys", oc.GroupID()), data)
 	if err != nil {
 		return "", err
 	}
@@ -553,7 +553,7 @@ func (oc *HTTPOmConnection) GenerateAgentKey() (string, error) {
 func (oc *HTTPOmConnection) ReadAutomationAgents(ctx context.Context, pageNum int) (Paginated, error) {
 	// TODO: Add proper testing to this pagination. In order to test it I just used `itemsPerPage=1`, which will make
 	// the endpoint to be called 3 times in a 3 member replica set. The default itemsPerPage is 100
-	ans, err := oc.getWithContext(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION?pageNum=%d", oc.GroupID(), pageNum))
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/agents/AUTOMATION?pageNum=%d", oc.GroupID(), pageNum))
 	if err != nil {
 		return nil, err
 	}
@@ -566,8 +566,8 @@ func (oc *HTTPOmConnection) ReadAutomationAgents(ctx context.Context, pageNum in
 
 // ReadAutomationStatus returns the state of the automation status, this includes if the agents
 // have reached goal state.
-func (oc *HTTPOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationStatus", oc.GroupID()))
+func (oc *HTTPOmConnection) ReadAutomationStatus(ctx context.Context) (*AutomationStatus, error) {
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationStatus", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
@@ -576,21 +576,21 @@ func (oc *HTTPOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
 }
 
 // AddHost adds the given host to the project
-func (oc *HTTPOmConnection) AddHost(host host.Host) error {
-	_, err := oc.post(fmt.Sprintf("/api/public/v1.0/groups/%s/hosts", oc.GroupID()), host)
+func (oc *HTTPOmConnection) AddHost(ctx context.Context, host host.Host) error {
+	_, err := oc.post(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/hosts", oc.GroupID()), host)
 	return err
 }
 
 // UpdateHost adds the given host.
-func (oc *HTTPOmConnection) UpdateHost(host host.Host) error {
-	_, err := oc.patch(fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/%s", oc.GroupID(), host.Id), host)
+func (oc *HTTPOmConnection) UpdateHost(ctx context.Context, host host.Host) error {
+	_, err := oc.patch(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/%s", oc.GroupID(), host.Id), host)
 	return err
 }
 
 // GetHosts return the hosts in this group
-func (oc *HTTPOmConnection) GetHosts() (*host.Result, error) {
+func (oc *HTTPOmConnection) GetHosts(ctx context.Context) (*host.Result, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/", oc.GroupID())
-	res, err := oc.get(mPath)
+	res, err := oc.get(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -604,16 +604,16 @@ func (oc *HTTPOmConnection) GetHosts() (*host.Result, error) {
 }
 
 // RemoveHost will remove host, identified by hostID from group
-func (oc *HTTPOmConnection) RemoveHost(hostID string) error {
+func (oc *HTTPOmConnection) RemoveHost(ctx context.Context, hostID string) error {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/hosts/%s", oc.GroupID(), hostID)
-	return oc.delete(mPath)
+	return oc.delete(ctx, mPath)
 }
 
 // ReadOrganizationsByName finds the organizations by name. It uses the same endpoint as the 'ReadOrganizations' but
 // 'name' and 'page' parameters are not supposed to be used together so having a separate endpoint allows
-func (oc *HTTPOmConnection) ReadOrganizationsByName(name string) ([]*Organization, error) {
+func (oc *HTTPOmConnection) ReadOrganizationsByName(ctx context.Context, name string) ([]*Organization, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/orgs?name=%s", url.QueryEscape(name))
-	res, err := oc.get(mPath)
+	res, err := oc.get(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -629,7 +629,7 @@ func (oc *HTTPOmConnection) ReadOrganizationsByName(name string) ([]*Organizatio
 // ReadOrganizations returns all organizations at the specified page.
 func (oc *HTTPOmConnection) ReadOrganizations(ctx context.Context, page int) (Paginated, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/orgs?itemsPerPage=500&pageNum=%d", page)
-	res, err := oc.getWithContext(ctx, mPath)
+	res, err := oc.get(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -642,8 +642,8 @@ func (oc *HTTPOmConnection) ReadOrganizations(ctx context.Context, page int) (Pa
 	return orgsResponse, nil
 }
 
-func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/orgs/%s", url.PathEscape(orgID)))
+func (oc *HTTPOmConnection) ReadOrganization(ctx context.Context, orgID string) (*Organization, error) {
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/orgs/%s", url.PathEscape(orgID)))
 	if err != nil {
 		return nil, err
 	}
@@ -655,8 +655,8 @@ func (oc *HTTPOmConnection) ReadOrganization(orgID string) (*Organization, error
 	return organization, nil
 }
 
-func (oc *HTTPOmConnection) MarkProjectAsBackingDatabase(backingType BackingDatabaseType) error {
-	_, err := oc.post(fmt.Sprintf("/api/private/v1.0/groups/%s/markAsBackingDatabase", oc.GroupID()), string(backingType))
+func (oc *HTTPOmConnection) MarkProjectAsBackingDatabase(ctx context.Context, backingType BackingDatabaseType) error {
+	_, err := oc.post(ctx, fmt.Sprintf("/api/private/v1.0/groups/%s/markAsBackingDatabase", oc.GroupID()), string(backingType))
 	if err != nil {
 		if apiErr, ok := errors.AsType[*apierror.Error](err); ok {
 			if apiErr.Status != nil && *apiErr.Status == 400 && strings.Contains(apiErr.Detail, "INVALID_DOCUMENT") {
@@ -668,9 +668,9 @@ func (oc *HTTPOmConnection) MarkProjectAsBackingDatabase(backingType BackingData
 	return nil
 }
 
-func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error) {
+func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(ctx context.Context, orgID string, name string) ([]*Project, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?name=%s", url.PathEscape(orgID), url.QueryEscape(name))
-	res, err := oc.get(mPath)
+	res, err := oc.get(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -686,7 +686,7 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganizationByName(orgID string, name 
 // ReadProjectsInOrganization returns all projects inside organization
 func (oc *HTTPOmConnection) ReadProjectsInOrganization(ctx context.Context, orgID string, page int) (Paginated, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/orgs/%s/groups?itemsPerPage=500&pageNum=%d", url.PathEscape(orgID), page)
-	res, err := oc.getWithContext(ctx, mPath)
+	res, err := oc.get(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -699,8 +699,8 @@ func (oc *HTTPOmConnection) ReadProjectsInOrganization(ctx context.Context, orgI
 	return projectsResponse, nil
 }
 
-func (oc *HTTPOmConnection) CreateProject(project *Project) (*Project, error) {
-	res, err := oc.post("/api/public/v1.0/groups", project)
+func (oc *HTTPOmConnection) CreateProject(ctx context.Context, project *Project) (*Project, error) {
+	res, err := oc.post(ctx, "/api/public/v1.0/groups", project)
 	if err != nil {
 		return nil, err
 	}
@@ -713,9 +713,9 @@ func (oc *HTTPOmConnection) CreateProject(project *Project) (*Project, error) {
 	return g, nil
 }
 
-func (oc *HTTPOmConnection) UpdateProject(project *Project) (*Project, error) {
+func (oc *HTTPOmConnection) UpdateProject(ctx context.Context, project *Project) (*Project, error) {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s", project.ID)
-	res, err := oc.patch(path, project)
+	res, err := oc.patch(ctx, path, project)
 	if err != nil {
 		return nil, err
 	}
@@ -728,9 +728,9 @@ func (oc *HTTPOmConnection) UpdateProject(project *Project) (*Project, error) {
 	return project, nil
 }
 
-func (oc *HTTPOmConnection) ReadBackupConfigs() (*backup.ConfigsResponse, error) {
+func (oc *HTTPOmConnection) ReadBackupConfigs(ctx context.Context) (*backup.ConfigsResponse, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs", oc.GroupID())
-	res, err := oc.get(mPath)
+	res, err := oc.get(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -743,9 +743,9 @@ func (oc *HTTPOmConnection) ReadBackupConfigs() (*backup.ConfigsResponse, error)
 	return response, nil
 }
 
-func (oc *HTTPOmConnection) ReadBackupConfig(clusterID string) (*backup.Config, error) {
+func (oc *HTTPOmConnection) ReadBackupConfig(ctx context.Context, clusterID string) (*backup.Config, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
-	res, err := oc.get(mPath)
+	res, err := oc.get(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -758,9 +758,9 @@ func (oc *HTTPOmConnection) ReadBackupConfig(clusterID string) (*backup.Config, 
 	return response, nil
 }
 
-func (oc *HTTPOmConnection) UpdateBackupConfig(config *backup.Config) (*backup.Config, error) {
+func (oc *HTTPOmConnection) UpdateBackupConfig(ctx context.Context, config *backup.Config) (*backup.Config, error) {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), config.ClusterId)
-	res, err := oc.patch(path, config)
+	res, err := oc.patch(ctx, path, config)
 	if err != nil {
 		return nil, err
 	}
@@ -772,9 +772,9 @@ func (oc *HTTPOmConnection) UpdateBackupConfig(config *backup.Config) (*backup.C
 	return response, nil
 }
 
-func (oc *HTTPOmConnection) ReadHostCluster(clusterID string) (*backup.HostCluster, error) {
+func (oc *HTTPOmConnection) ReadHostCluster(ctx context.Context, clusterID string) (*backup.HostCluster, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/clusters/%s", oc.GroupID(), clusterID)
-	res, err := oc.get(mPath)
+	res, err := oc.get(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -787,10 +787,10 @@ func (oc *HTTPOmConnection) ReadHostCluster(clusterID string) (*backup.HostClust
 	return cluster, nil
 }
 
-func (oc *HTTPOmConnection) UpdateBackupStatus(clusterID string, status backup.Status) error {
+func (oc *HTTPOmConnection) UpdateBackupStatus(ctx context.Context, clusterID string, status backup.Status) error {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
 
-	_, err := oc.patch(path, map[string]any{"statusName": status})
+	_, err := oc.patch(ctx, path, map[string]any{"statusName": status})
 	if err != nil {
 		return apierror.New(err)
 	}
@@ -798,8 +798,8 @@ func (oc *HTTPOmConnection) UpdateBackupStatus(clusterID string, status backup.S
 	return nil
 }
 
-func (oc *HTTPOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()))
+func (oc *HTTPOmConnection) ReadMonitoringAgentConfig(ctx context.Context) (*MonitoringAgentConfig, error) {
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
@@ -811,7 +811,7 @@ func (oc *HTTPOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig,
 	return mat, nil
 }
 
-func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(mat *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
+func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(ctx context.Context, mat *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
 	original, _ := util.MapDeepCopy(mat.BackingMap)
 
 	err := mat.Apply()
@@ -822,12 +822,12 @@ func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(mat *MonitoringAgentConf
 	if reflect.DeepEqual(original, mat.BackingMap) {
 		log.Debug("Monitoring Configuration has not changed, not pushing changes to Ops Manager")
 	} else {
-		return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()), mat.BackingMap)
+		return oc.put(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()), mat.BackingMap)
 	}
 	return nil, nil
 }
 
-func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(modifyMonitoringAgentFunction func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(ctx context.Context, modifyMonitoringAgentFunction func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
 	if log == nil {
 		log = zap.S()
 	}
@@ -835,7 +835,7 @@ func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(modifyMonitoringAgen
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	mat, err := oc.ReadMonitoringAgentConfig()
+	mat, err := oc.ReadMonitoringAgentConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -844,15 +844,15 @@ func (oc *HTTPOmConnection) ReadUpdateMonitoringAgentConfig(modifyMonitoringAgen
 		return err
 	}
 
-	if _, err := oc.UpdateMonitoringAgentConfig(mat, log); err != nil {
+	if _, err := oc.UpdateMonitoringAgentConfig(ctx, mat, log); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (oc *HTTPOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) {
-	ans, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/backupAgentConfig", oc.GroupID()))
+func (oc *HTTPOmConnection) ReadBackupAgentConfig(ctx context.Context) (*BackupAgentConfig, error) {
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/backupAgentConfig", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
@@ -865,7 +865,7 @@ func (oc *HTTPOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) 
 	return backupAgentConfig, nil
 }
 
-func (oc *HTTPOmConnection) UpdateBackupAgentConfig(backup *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
+func (oc *HTTPOmConnection) UpdateBackupAgentConfig(ctx context.Context, backup *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
 	original, _ := util.MapDeepCopy(backup.BackingMap)
 
 	err := backup.Apply()
@@ -876,13 +876,13 @@ func (oc *HTTPOmConnection) UpdateBackupAgentConfig(backup *BackupAgentConfig, l
 	if reflect.DeepEqual(original, backup.BackingMap) {
 		log.Debug("Backup Configuration has not changed, not pushing changes to Ops Manager")
 	} else {
-		return oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/backupAgentConfig", oc.GroupID()), backup.BackingMap)
+		return oc.put(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/backupAgentConfig", oc.GroupID()), backup.BackingMap)
 	}
 
 	return nil, nil
 }
 
-func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error {
+func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(ctx context.Context, backupFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error {
 	if log == nil {
 		log = zap.S()
 	}
@@ -890,7 +890,7 @@ func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupA
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	backupAgentConfig, err := oc.ReadBackupAgentConfig()
+	backupAgentConfig, err := oc.ReadBackupAgentConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -899,20 +899,20 @@ func (oc *HTTPOmConnection) ReadUpdateBackupAgentConfig(backupFunc func(*BackupA
 		return err
 	}
 
-	if _, err := oc.UpdateBackupAgentConfig(backupAgentConfig, log); err != nil {
+	if _, err := oc.UpdateBackupAgentConfig(ctx, backupAgentConfig, log); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (oc *HTTPOmConnection) UpdateControlledFeature(cf *controlledfeature.ControlledFeature) error {
-	_, err := oc.put(fmt.Sprintf("/api/public/v1.0/groups/%s/controlledFeature", oc.GroupID()), cf)
+func (oc *HTTPOmConnection) UpdateControlledFeature(ctx context.Context, cf *controlledfeature.ControlledFeature) error {
+	_, err := oc.put(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/controlledFeature", oc.GroupID()), cf)
 	return err
 }
 
-func (oc *HTTPOmConnection) GetControlledFeature() (*controlledfeature.ControlledFeature, error) {
-	res, err := oc.get(fmt.Sprintf("/api/public/v1.0/groups/%s/controlledFeature", oc.GroupID()))
+func (oc *HTTPOmConnection) GetControlledFeature(ctx context.Context) (*controlledfeature.ControlledFeature, error) {
+	res, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/controlledFeature", oc.GroupID()))
 	if err != nil {
 		return nil, err
 	}
@@ -923,9 +923,9 @@ func (oc *HTTPOmConnection) GetControlledFeature() (*controlledfeature.Controlle
 	return cf, nil
 }
 
-func (oc *HTTPOmConnection) ReadSnapshotSchedule(clusterID string) (*backup.SnapshotSchedule, error) {
+func (oc *HTTPOmConnection) ReadSnapshotSchedule(ctx context.Context, clusterID string) (*backup.SnapshotSchedule, error) {
 	mPath := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s/snapshotSchedule", oc.GroupID(), clusterID)
-	res, err := oc.get(mPath)
+	res, err := oc.get(ctx, mPath)
 	if err != nil {
 		return nil, err
 	}
@@ -943,9 +943,9 @@ func (oc *HTTPOmConnection) ReadSnapshotSchedule(clusterID string) (*backup.Snap
 	return response, nil
 }
 
-func (oc *HTTPOmConnection) UpdateSnapshotSchedule(clusterID string, snapshotSchedule *backup.SnapshotSchedule) error {
+func (oc *HTTPOmConnection) UpdateSnapshotSchedule(ctx context.Context, clusterID string, snapshotSchedule *backup.SnapshotSchedule) error {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s/snapshotSchedule", oc.GroupID(), clusterID)
-	res, err := oc.patch(path, snapshotSchedule)
+	res, err := oc.patch(ctx, path, snapshotSchedule)
 	if err != nil {
 		return err
 	}
@@ -962,8 +962,8 @@ type AgentsVersionsResponse struct {
 }
 
 // ReadAgentVersion reads the versions from OM API
-func (oc *HTTPOmConnection) ReadAgentVersion() (AgentsVersionsResponse, error) {
-	body, err := oc.get("/api/public/v1.0/softwareComponents/versions/")
+func (oc *HTTPOmConnection) ReadAgentVersion(ctx context.Context) (AgentsVersionsResponse, error) {
+	body, err := oc.get(ctx, "/api/public/v1.0/softwareComponents/versions/")
 	if err != nil {
 		return AgentsVersionsResponse{}, err
 	}
@@ -987,9 +987,9 @@ type GroupInfoResponse struct {
 
 // GetPreferredHostnames will call the info endpoint with the agent API key.
 // We extract only the preferred hostnames from the response.
-func (oc *HTTPOmConnection) GetPreferredHostnames(agentApiKey string) ([]PreferredHostname, error) {
+func (oc *HTTPOmConnection) GetPreferredHostnames(ctx context.Context, agentApiKey string) ([]PreferredHostname, error) {
 	infoPath := fmt.Sprintf("/group/v2/info/%s", oc.GroupID())
-	body, err := oc.getWithAgentAuth(infoPath, agentApiKey)
+	body, err := oc.getWithAgentAuth(ctx, infoPath, agentApiKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1007,18 +1007,18 @@ func (oc *HTTPOmConnection) GetPreferredHostnames(agentApiKey string) ([]Preferr
 // Here we also use the agent API key, so we need to configure basic auth.
 // isRegex is true if the preferred hostnames is a regex, and false if it is "endsWith".
 // We pass only "isRegex" to eliminate edge cases where both are set to the same value.
-func (oc *HTTPOmConnection) AddPreferredHostname(agentApiKey string, value string, isRegexp bool) error {
+func (oc *HTTPOmConnection) AddPreferredHostname(ctx context.Context, agentApiKey string, value string, isRegexp bool) error {
 	path := fmt.Sprintf("/group/v2/addPreferredHostname/%s?value=%s&isRegexp=%s&isEndsWith=%s",
 		oc.GroupID(), value, strconv.FormatBool(isRegexp), strconv.FormatBool(!isRegexp))
-	_, err := oc.getWithAgentAuth(path, agentApiKey)
+	_, err := oc.getWithAgentAuth(ctx, path, agentApiKey)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func GetReplicaSetMemberIds(conn Connection) (map[string]map[string]int, error) {
-	dep, err := conn.ReadDeployment()
+func GetReplicaSetMemberIds(ctx context.Context, conn Connection) (map[string]map[string]int, error) {
+	dep, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1034,32 +1034,27 @@ func GetReplicaSetMemberIds(conn Connection) (map[string]map[string]int, error) 
 
 //********************************** Private methods *******************************************************************
 
-// The verb helpers without a context are bounded only by the HTTP client's per-attempt timeout (see api.NewHTTPClient).
-// Calls that need an overall deadline, e.g. the paginated traversals, use getWithContext.
+// The verb helpers abort the whole exchange, including retries, as soon as ctx is done.
+// Each attempt is additionally bounded by the HTTP client's per-attempt timeout (see api.NewHTTPClient).
 
-func (oc *HTTPOmConnection) get(path string) ([]byte, error) {
-	return oc.getWithContext(context.Background(), path)
-}
-
-// getWithContext performs a GET request that is aborted as soon as ctx is done.
-func (oc *HTTPOmConnection) getWithContext(ctx context.Context, path string) ([]byte, error) {
+func (oc *HTTPOmConnection) get(ctx context.Context, path string) ([]byte, error) {
 	return oc.httpVerb(ctx, "GET", path, nil)
 }
 
-func (oc *HTTPOmConnection) post(path string, v any) ([]byte, error) {
-	return oc.httpVerb(context.Background(), "POST", path, v)
+func (oc *HTTPOmConnection) post(ctx context.Context, path string, v any) ([]byte, error) {
+	return oc.httpVerb(ctx, "POST", path, v)
 }
 
-func (oc *HTTPOmConnection) put(path string, v any) ([]byte, error) {
-	return oc.httpVerb(context.Background(), "PUT", path, v)
+func (oc *HTTPOmConnection) put(ctx context.Context, path string, v any) ([]byte, error) {
+	return oc.httpVerb(ctx, "PUT", path, v)
 }
 
-func (oc *HTTPOmConnection) patch(path string, v any) ([]byte, error) {
-	return oc.httpVerb(context.Background(), "PATCH", path, v)
+func (oc *HTTPOmConnection) patch(ctx context.Context, path string, v any) ([]byte, error) {
+	return oc.httpVerb(ctx, "PATCH", path, v)
 }
 
-func (oc *HTTPOmConnection) delete(path string) error {
-	_, err := oc.httpVerb(context.Background(), "DELETE", path, nil)
+func (oc *HTTPOmConnection) delete(ctx context.Context, path string) error {
+	_, err := oc.httpVerb(ctx, "DELETE", path, nil)
 	return err
 }
 
@@ -1069,19 +1064,19 @@ func (oc *HTTPOmConnection) httpVerb(ctx context.Context, method, path string, v
 		return nil, err
 	}
 
-	response, header, err := client.RequestWithContext(ctx, method, oc.BaseURL(), path, v)
+	response, header, err := client.Request(ctx, method, oc.BaseURL(), path, v)
 	oc.setVersionFromHeader(header)
 
 	return response, err
 }
 
-func (oc *HTTPOmConnection) getWithAgentAuth(path string, agentApiKey string) ([]byte, error) {
+func (oc *HTTPOmConnection) getWithAgentAuth(ctx context.Context, path string, agentApiKey string) ([]byte, error) {
 	client, err := oc.getHTTPClient()
 	if err != nil {
 		return nil, err
 	}
 
-	response, header, err := client.RequestWithAgentAuth("GET", oc.BaseURL(), path, oc.getAgentAuthorization(agentApiKey), nil)
+	response, header, err := client.RequestWithAgentAuth(ctx, "GET", oc.BaseURL(), path, oc.getAgentAuthorization(agentApiKey), nil)
 	oc.setVersionFromHeader(header)
 
 	return response, err

@@ -445,10 +445,10 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(ctx, hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
 		assert.NoError(t, err)
 
-		hosts, _ := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetHosts()
+		hosts, _ := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetHosts(ctx)
 		assert.Len(t, hosts.Results, 3)
 	})
 
@@ -457,10 +457,10 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(ctx, hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
 		assert.NoError(t, err)
 
-		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
+		hosts, _ := omConnectionFactory.GetConnection().GetHosts(ctx)
 		assert.Len(t, hosts.Results, 5)
 	})
 
@@ -469,11 +469,11 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(ctx, hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
 		assert.NoError(t, err)
 
 		// After scale-down, hosts should be removed from monitoring
-		hosts, _ := omConnectionFactory.GetConnection().GetHosts()
+		hosts, _ := omConnectionFactory.GetConnection().GetHosts(ctx)
 		assert.Len(t, hosts.Results, 3, "Expected 3 hosts after scaling down from 5 to 3 members")
 	})
 }

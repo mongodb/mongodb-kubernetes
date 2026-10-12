@@ -107,7 +107,7 @@ func runGenerateUsers(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	ac, _, _, err := fetchAndValidate(conn)
+	ac, _, _, err := fetchAndValidate(ctx, conn)
 	if err != nil {
 		return err
 	}

@@ -63,6 +63,11 @@ func TraversePages(ctx context.Context, reader PageReader, predicate PageItemPre
 	ctx, cancel := context.WithTimeout(ctx, traversePagesTimeout)
 	defer cancel()
 
+	// checked before the first read so an already-cancelled traversal fails even if the first page
+	// would have no next link and the reader ignores the context
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr
+	}
 	paginated, err := readPage(ctx, reader, 1)
 	if err != nil {
 		return false, err

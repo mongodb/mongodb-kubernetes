@@ -57,7 +57,7 @@ func prepareConnection(ctx context.Context, namespace, configMapName, secretName
 		return nil, nil, err
 	}
 
-	conn, err := resolveProjectReadOnly(config, credentials, log)
+	conn, err := resolveProjectReadOnly(ctx, config, credentials, log)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error resolving Ops Manager project: %w", err)
 	}
@@ -69,7 +69,7 @@ func prepareConnection(ctx context.Context, namespace, configMapName, secretName
 // that project, but never creates the organization or project if they are missing. The plugin only reads
 // from Ops Manager, so a missing project is an error rather than something to provision. The returned
 // connection is already bound to the project (ConfigureProject) and is ready for Read* calls.
-func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Credentials, log *zap.SugaredLogger) (om.Connection, error) {
+func resolveProjectReadOnly(ctx context.Context, config mdbv1.ProjectConfig, credentials mdbv1.Credentials, log *zap.SugaredLogger) (om.Connection, error) {
 	omContext := om.OMContext{
 		GroupName:                  config.ProjectName,
 		OrgID:                      config.OrgID,
@@ -81,7 +81,7 @@ func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Creden
 	}
 	conn := omConnectionFactory(&omContext)
 
-	org, err := project.FindOrganization(config.OrgID, config.ProjectName, conn, log)
+	org, err := project.FindOrganization(ctx, config.OrgID, config.ProjectName, conn, log)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func resolveProjectReadOnly(config mdbv1.ProjectConfig, credentials mdbv1.Creden
 		return nil, fmt.Errorf("organization not found for project name %q", config.ProjectName)
 	}
 
-	proj, err := project.FindProjectInsideOrganization(conn, config.ProjectName, org, log)
+	proj, err := project.FindProjectInsideOrganization(ctx, conn, config.ProjectName, org, log)
 	if err != nil {
 		return nil, err
 	}
@@ -113,20 +113,20 @@ func newKubeClient() (kubernetesClient.Client, error) {
 	return kubernetesClient.NewClient(cl), nil
 }
 
-func readProjectConfigs(conn om.Connection) (*ProjectConfigs, error) {
-	monitoringConfig, err := conn.ReadMonitoringAgentConfig()
+func readProjectConfigs(ctx context.Context, conn om.Connection) (*ProjectConfigs, error) {
+	monitoringConfig, err := conn.ReadMonitoringAgentConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error reading monitoring agent config: %w", err)
 	}
-	backupConfig, err := conn.ReadBackupAgentConfig()
+	backupConfig, err := conn.ReadBackupAgentConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error reading backup agent config: %w", err)
 	}
-	systemLogRotate, err := conn.ReadProcessLogRotation()
+	systemLogRotate, err := conn.ReadProcessLogRotation(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error reading system log rotate config: %w", err)
 	}
-	auditLogRotate, err := conn.ReadAuditLogRotation()
+	auditLogRotate, err := conn.ReadAuditLogRotation(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error reading audit log rotate config: %w", err)
 	}
