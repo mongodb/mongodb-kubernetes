@@ -36,6 +36,7 @@ import (
 	localruntime "runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	kubelog "sigs.k8s.io/controller-runtime/pkg/log"
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	crWebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -213,6 +214,9 @@ func run() error {
 			BindAddress: "127.0.0.1:8180",
 		}
 		managerOptions.HealthProbeBindAddress = "127.0.0.1:8181"
+	} else {
+		// Serves /healthz and /readyz for the liveness and readiness probes of the operator pod.
+		managerOptions.HealthProbeBindAddress = fmt.Sprintf(":%d", env.ReadIntOrDefault(util.OperatorHealthProbePortEnv, util.OperatorHealthProbeDefaultPort))
 	}
 
 	webhookOptions := setupWebhook(ctx, cfg, log, webhookSVCSelector, currentNamespace)
@@ -223,6 +227,16 @@ func run() error {
 		return err
 	}
 	log.Info("Registering Components.")
+
+	// The operator is alive while the manager serves the health endpoint, also as a standby replica
+	// waiting for leader election. It is ready once its webhook server accepts connections, so that
+	// the webhook Service only sends admission requests to pods that can answer them.
+	if err := mgr.AddHealthzCheck("ping", healthz.Ping); err != nil {
+		return err
+	}
+	if err := mgr.AddReadyzCheck("webhook", mgr.GetWebhookServer().StartedChecker()); err != nil {
+		return err
+	}
 
 	// The migration dry-run Job runs the connectivity-validator binary from the operator image.
 	if imageUrls[util.OperatorImageEnv] == "" {

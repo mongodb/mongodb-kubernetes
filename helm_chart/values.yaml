@@ -51,6 +51,22 @@ operator:
       cpu: 1100m
       memory: 1Gi
 
+  # The operator serves a health endpoint on this port: /healthz backs the liveness probe and /readyz
+  # the readiness probe. The operator is ready once its webhook server accepts connections.
+  # Set liveness or readiness to null to remove that probe.
+  probes:
+    port: 8081
+    liveness:
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 2000
