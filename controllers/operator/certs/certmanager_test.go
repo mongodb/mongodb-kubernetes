@@ -321,7 +321,7 @@ func TestAgentCertificate(t *testing.T) {
 		})
 		cert, ok := agentCertificate(owner)
 		require.True(t, ok)
-		assert.Equal(t, fmt.Sprintf("%s-agent-certs", resName), cert.certName)
+		assert.Equal(t, fmt.Sprintf("%s-managed-agent-certs", resName), cert.certName)
 		assert.Equal(t, clientAuthCertUsages, cert.spec.Usages)
 		require.NotNil(t, cert.spec.Subject)
 		assert.Equal(t, []string{fmt.Sprintf("%s-agent", resName)}, cert.spec.Subject.Organizations)
