@@ -2564,7 +2564,7 @@ spec:
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
                           rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != ”)'
+                            != '''')'
                       enabled:
                         default: false
                         description: |-
@@ -2672,7 +2672,7 @@ spec:
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
                           rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != ”)'
+                            != '''')'
                       subjects:
                         description: |-
                           Subjects overrides the operator-computed X509 subjects. It is configurable by
@@ -5126,7 +5126,7 @@ spec:
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
                           rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != ”)'
+                            != '''')'
                       enabled:
                         default: false
                         description: |-
@@ -5234,7 +5234,7 @@ spec:
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
                           rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != ”)'
+                            != '''')'
                       subjects:
                         description: |-
                           Subjects overrides the operator-computed X509 subjects. It is configurable by
@@ -8585,7 +8585,7 @@ spec:
                                 the issuer does not emit its CA in the issued secret's
                                 ca.crt. Set issuerRef, or remove ca
                               rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                                != ”)'
+                                != '''')'
                           enabled:
                             default: false
                             description: |-
@@ -8693,7 +8693,7 @@ spec:
                                 the issuer does not emit its CA in the issued secret's
                                 ca.crt. Set issuerRef, or remove ca
                               rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                                != ”)'
+                                != '''')'
                           subjects:
                             description: |-
                               Subjects overrides the operator-computed X509 subjects. It is configurable by
