@@ -921,8 +921,7 @@ type SharedConnectionSpec struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size() > 0 && self.roleRefs.size() > 0)",message="At most one of roles or roleRefs can be non-empty"
-// +kubebuilder:validation:XValidation:rule="!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size() > 0 && has(self.managedCertificate) && self.managedCertificate.enabled)",message="security.certsSecretPrefix and an enabled security.managedCertificate are mutually exclusive"
-// +kubebuilder:validation:XValidation:rule="!(has(self.managedCertificate) && !self.managedCertificate.enabled && (has(self.managedCertificate.server) || has(self.managedCertificate.client) || has(self.managedCertificate.subjects)))",message="security.managedCertificate.server/client/subjects require security.managedCertificate.enabled to be true"
+// +kubebuilder:validation:XValidation:rule="!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size() > 0 && has(self.managedCertificate))",message="security.certsSecretPrefix and security.managedCertificate are mutually exclusive"
 type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`
@@ -951,13 +950,13 @@ type Security struct {
 }
 
 // IsManagedCertificateEnabled reports whether the operator should create and own
-// the cert-manager Certificate(s) for this resource's certs (nil-safe). It requires
-// managedCertificate.enabled to be true, an issuer is still optional per category
-// (its absence means the operator signs that category's certs with its own self-signed CA), so
-// managedCertificate: {enabled: true} (no issuer at all) is valid and operator users self signed
-// CA for both categories.
+// the cert-manager Certificate(s) for this resource's certs (nil-safe). Writing the
+// security.managedCertificate block is what turns the feature on, so its presence is enough.
+// An issuer is still optional per category, when one is absent the operator signs that
+// category's certs with its own self-signed CA, so an empty managedCertificate: {} block is
+// valid and the operator uses a self-signed CA for both categories.
 func (s *Security) IsManagedCertificateEnabled() bool {
-	return s != nil && s.ManagedCertificate != nil && s.ManagedCertificate.Enabled
+	return s != nil && s.ManagedCertificate != nil
 }
 
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
@@ -1464,18 +1463,12 @@ func (t *TLSConfig) GetCAFilePath(defaultPath string) string {
 	return t.CAFilePath
 }
 
-// ManagedCertificate configures operator-managed TLS certificates via
-// cert-manager. The operator creates and owns a cert-manager Certificate
-// referencing the provided issuer; the operator computes the SANs, secret name
-// and usages.
+// ManagedCertificate configures operator-managed TLS certificates via cert-manager. Writing this
+// block turns the feature on, the operator creates and owns the cert-manager Certificates and
+// computes their SANs, secret names and usages. An empty block means the operator signs both
+// categories of certs with its own self-signed CAs. Mutually exclusive with
+// security.certsSecretPrefix.
 type ManagedCertificate struct {
-	// Enabled turns on operator-managed certificates for this resource. It must be true
-	// for any server/client/subjects setting to take effect; when true with no server or
-	// client configured, the operator signs both category of certs with its own self-signed CAs.
-	// Mutually exclusive with security.certsSecretPrefix.
-	// +kubebuilder:default=false
-	Enabled bool `json:"enabled"`
-
 	// Server configures signing and trust for the serverAuth certificates.
 	// Omit the block, or omit its issuerRef, to have the operator sign the server
 	// certs with its own self-signed CA.
@@ -1501,7 +1494,7 @@ type ManagedCertificate struct {
 
 // CertificateConfig configures one certificate category (server or client): who
 // signs it, its CA trust input, extra trusted CAs, and the leaf certs renewal cadence.
-// +kubebuilder:validation:XValidation:rule="!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name != '')",message="security.managedCertificate.*.ca is only used with issuerRef, it supplies the CA trust bundle when the issuer does not emit its CA in the issued secret's ca.crt. Set issuerRef, or remove ca"
+// +kubebuilder:validation:XValidation:rule="!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name != ”)",message="security.managedCertificate.*.ca is only used with issuerRef, it supplies the CA trust bundle when the issuer does not emit its CA in the issued secret's ca.crt. Set issuerRef, or remove ca"
 type CertificateConfig struct {
 	// IssuerRef is the cert-manager Issuer/ClusterIssuer that signs a category's
 	// certs. Omit to have the operator provision a self-signed CA and sign a
