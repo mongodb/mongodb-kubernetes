@@ -377,24 +377,24 @@ func (a *DefaultOmAdmin) ReadOpsManagerVersion(ctx context.Context) (versionutil
 
 //********************************** Private methods *******************************************************************
 
-func (a *DefaultOmAdmin) get(ctx context.Context, path string, params ...interface{}) ([]byte, http.Header, error) {
+func (a *DefaultOmAdmin) get(ctx context.Context, path string, params ...any) ([]byte, http.Header, error) {
 	return a.httpVerb(ctx, "GET", path, nil, params...)
 }
 
-func (a *DefaultOmAdmin) put(ctx context.Context, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
+func (a *DefaultOmAdmin) put(ctx context.Context, path string, v any, params ...any) ([]byte, http.Header, error) {
 	return a.httpVerb(ctx, "PUT", path, v, params...)
 }
 
-func (a *DefaultOmAdmin) post(ctx context.Context, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
+func (a *DefaultOmAdmin) post(ctx context.Context, path string, v any, params ...any) ([]byte, http.Header, error) {
 	return a.httpVerb(ctx, "POST", path, v, params...)
 }
 
-func (a *DefaultOmAdmin) delete(ctx context.Context, path string, params ...interface{}) error {
+func (a *DefaultOmAdmin) delete(ctx context.Context, path string, params ...any) error {
 	_, _, err := a.httpVerb(ctx, "DELETE", path, nil, params...)
 	return err
 }
 
-func (a *DefaultOmAdmin) httpVerb(ctx context.Context, method, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
+func (a *DefaultOmAdmin) httpVerb(ctx context.Context, method, path string, v any, params ...any) ([]byte, http.Header, error) {
 	client, err := CreateOMHttpClient(a.CA, &a.User, &a.PrivateAPIKey)
 	if err != nil {
 		return nil, nil, apierror.New(err)
@@ -403,7 +403,7 @@ func (a *DefaultOmAdmin) httpVerb(ctx context.Context, method, path string, v in
 	// Path parameters are caller-supplied (backup store ids originate in the OpsManager CR and in
 	// Ops Manager API responses) and must stay a single URL path segment: an unescaped '/', '..',
 	// '?' or '#' would retarget this global-owner-authenticated request to another OM endpoint.
-	escaped := make([]interface{}, len(params))
+	escaped := make([]any, len(params))
 	for i, p := range params {
 		escaped[i] = url.PathEscape(fmt.Sprint(p))
 	}

@@ -25,7 +25,7 @@ func (m *mockCommonStatusResource) GetCommonStatus(_ ...status.Option) *status.C
 	}
 }
 
-func (m *mockCommonStatusResource) GetStatus(_ ...status.Option) interface{} {
+func (m *mockCommonStatusResource) GetStatus(_ ...status.Option) any {
 	return m.GetCommonStatus()
 }
 

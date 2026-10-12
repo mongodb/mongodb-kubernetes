@@ -86,8 +86,8 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 
 	// This two functions modify the volumes to be optional (the absence of the referenced
 	// secret/configMap do not prevent the pods from starting)
-	optionalSecretFunc := func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
-	optionalConfigMapFunc := func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
+	optionalSecretFunc := func(v *corev1.Volume) { v.Secret.Optional = new(true) }
+	optionalConfigMapFunc := func(v *corev1.Volume) { v.ConfigMap.Optional = new(true) }
 
 	secretMountPath := util.TLSCertMountPath
 	volumeSecretName := fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)

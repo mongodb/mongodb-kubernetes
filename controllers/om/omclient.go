@@ -18,7 +18,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/utils/ptr"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
@@ -240,7 +239,7 @@ func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(ctx context.Context, log
 	return err
 }
 
-func updateProcessLogRotateIfChanged(ctx context.Context, logRotateSettingFromCRD *automationconfig.CrdLogRotate, logRotationSettingFromWire map[string]interface{}, updateLogRotationSetting func(ctx context.Context, logRotateSetting automationconfig.AcLogRotate) ([]byte, error)) error {
+func updateProcessLogRotateIfChanged(ctx context.Context, logRotateSettingFromCRD *automationconfig.CrdLogRotate, logRotationSettingFromWire map[string]any, updateLogRotationSetting func(ctx context.Context, logRotateSetting automationconfig.AcLogRotate) ([]byte, error)) error {
 	logRotationToSetInAC := automationconfig.ConvertCrdLogRotateToAC(logRotateSettingFromCRD)
 	if logRotationToSetInAC == nil {
 		return nil
@@ -337,7 +336,7 @@ func (oc *HTTPOmConnection) ReadGroupBackupConfig(ctx context.Context) (backup.G
 		ok := errors.As(apiErr, &err)
 		if ok {
 			return backup.GroupBackupConfig{
-				Id: ptr.To(oc.GroupID()),
+				Id: new(oc.GroupID()),
 			}, nil
 		}
 		return backup.GroupBackupConfig{}, apiErr
@@ -543,7 +542,7 @@ func (oc *HTTPOmConnection) GenerateAgentKey(ctx context.Context) (string, error
 		return "", err
 	}
 
-	var keyInfo map[string]interface{}
+	var keyInfo map[string]any
 	if err := json.Unmarshal(ans, &keyInfo); err != nil {
 		return "", apierror.New(err)
 	}
@@ -659,8 +658,7 @@ func (oc *HTTPOmConnection) ReadOrganization(ctx context.Context, orgID string) 
 func (oc *HTTPOmConnection) MarkProjectAsBackingDatabase(ctx context.Context, backingType BackingDatabaseType) error {
 	_, err := oc.post(ctx, fmt.Sprintf("/api/private/v1.0/groups/%s/markAsBackingDatabase", oc.GroupID()), string(backingType))
 	if err != nil {
-		var apiErr *apierror.Error
-		if errors.As(err, &apiErr) {
+		if apiErr, ok := errors.AsType[*apierror.Error](err); ok {
 			if apiErr.Status != nil && *apiErr.Status == 400 && strings.Contains(apiErr.Detail, "INVALID_DOCUMENT") {
 				return nil
 			}
@@ -792,7 +790,7 @@ func (oc *HTTPOmConnection) ReadHostCluster(ctx context.Context, clusterID strin
 func (oc *HTTPOmConnection) UpdateBackupStatus(ctx context.Context, clusterID string, status backup.Status) error {
 	path := fmt.Sprintf("/api/public/v1.0/groups/%s/backupConfigs/%s", oc.GroupID(), clusterID)
 
-	_, err := oc.patch(ctx, path, map[string]interface{}{"statusName": status})
+	_, err := oc.patch(ctx, path, map[string]any{"statusName": status})
 	if err != nil {
 		return apierror.New(err)
 	}
@@ -1043,15 +1041,15 @@ func (oc *HTTPOmConnection) get(ctx context.Context, path string) ([]byte, error
 	return oc.httpVerb(ctx, "GET", path, nil)
 }
 
-func (oc *HTTPOmConnection) post(ctx context.Context, path string, v interface{}) ([]byte, error) {
+func (oc *HTTPOmConnection) post(ctx context.Context, path string, v any) ([]byte, error) {
 	return oc.httpVerb(ctx, "POST", path, v)
 }
 
-func (oc *HTTPOmConnection) put(ctx context.Context, path string, v interface{}) ([]byte, error) {
+func (oc *HTTPOmConnection) put(ctx context.Context, path string, v any) ([]byte, error) {
 	return oc.httpVerb(ctx, "PUT", path, v)
 }
 
-func (oc *HTTPOmConnection) patch(ctx context.Context, path string, v interface{}) ([]byte, error) {
+func (oc *HTTPOmConnection) patch(ctx context.Context, path string, v any) ([]byte, error) {
 	return oc.httpVerb(ctx, "PATCH", path, v)
 }
 
@@ -1060,7 +1058,7 @@ func (oc *HTTPOmConnection) delete(ctx context.Context, path string) error {
 	return err
 }
 
-func (oc *HTTPOmConnection) httpVerb(ctx context.Context, method, path string, v interface{}) ([]byte, error) {
+func (oc *HTTPOmConnection) httpVerb(ctx context.Context, method, path string, v any) ([]byte, error) {
 	client, err := oc.getHTTPClient()
 	if err != nil {
 		return nil, err

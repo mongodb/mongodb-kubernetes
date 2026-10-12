@@ -854,7 +854,7 @@ func TestPrintingOutRolesServiceAccountsAndRoleBindings(t *testing.T) {
 	}
 }
 
-func marshalToYaml[T interface{}](t *testing.T, sb *strings.Builder, comment string, apiVersion string, kind string, items []T) *strings.Builder {
+func marshalToYaml[T any](t *testing.T, sb *strings.Builder, comment string, apiVersion string, kind string, items []T) *strings.Builder {
 	fmt.Fprintf(sb, "# %s\n", comment)
 	for _, cr := range items {
 		fmt.Fprintf(sb, "apiVersion: %s\n", apiVersion)
@@ -1156,7 +1156,7 @@ func newFakeClientset(ctx context.Context, clusterName string, resources []runti
 	informerFactory := informers.NewSharedInformerFactory(clientset, time.Second)
 	secretInformer := informerFactory.Core().V1().Secrets().Informer()
 	_, err := secretInformer.AddEventHandler(&cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			s := obj.(*corev1.Secret).DeepCopy()
 			// simulate populating the service account secret token data into the secret
 			// it's done automatically by k8s
@@ -1183,22 +1183,12 @@ func onSecretCreate(s *corev1.Secret, clusterName string, clientset *fake.Client
 		if s.Data == nil {
 			s.Data = map[string][]byte{}
 		}
-		s.Data["ca.crt"] = []byte(fmt.Sprintf("ca.crt: %s", clusterName))
-		s.Data["token"] = []byte(fmt.Sprintf("token: %s", clusterName))
+		s.Data["ca.crt"] = fmt.Appendf(nil, "ca.crt: %s", clusterName)
+		s.Data["token"] = fmt.Appendf(nil, "token: %s", clusterName)
 		if _, err := clientset.CoreV1().Secrets(s.Namespace).Update(ctx, s, metav1.UpdateOptions{}); err != nil {
 			panic(err)
 		}
 	}
-}
-
-// containsResourceType returns true if r is in resourceTypes, otherwise false.
-func containsResourceType(resourceTypes []resourceType, r resourceType) bool { // nolint:unused
-	for _, rt := range resourceTypes {
-		if rt == r {
-			return true
-		}
-	}
-	return false
 }
 
 // readSecretKey reads a key from a Secret in the given namespace with the given name.

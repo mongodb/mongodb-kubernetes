@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -724,7 +725,7 @@ func (oc *MockedOmConnection) GetProcesses() []Process {
 	return oc.deployment.GetProcesses()
 }
 
-func (oc *MockedOmConnection) GetTLS() map[string]interface{} {
+func (oc *MockedOmConnection) GetTLS() map[string]any {
 	return oc.deployment.getTLS()
 }
 
@@ -791,19 +792,19 @@ func (oc *MockedOmConnection) CleanHistory() {
 // CheckOrderOfOperations verifies the mocked client operations were called in specified order
 func (oc *MockedOmConnection) CheckOrderOfOperations(t *testing.T, value ...reflect.Value) {
 	j := 0
-	matched := ""
+	var matched strings.Builder
 	for _, h := range oc.history {
 		valueName := runtime.FuncForPC(value[j].Pointer()).Name()
 		zap.S().Infof("Comparing history func %s with %s (value[%d])", h.Name(), valueName, j)
 		if h.Name() == valueName {
-			matched += h.Name() + " "
+			matched.WriteString(h.Name() + " ")
 			j++
 		}
 		if j == len(value) {
 			break
 		}
 	}
-	assert.Equal(t, len(value), j, "Only %d of %d expected operations happened in expected order (%s)", j, len(value), matched)
+	assert.Equal(t, len(value), j, "Only %d of %d expected operations happened in expected order (%s)", j, len(value), matched.String())
 }
 
 func (oc *MockedOmConnection) CheckOperationsDidntHappen(t *testing.T, value ...reflect.Value) {

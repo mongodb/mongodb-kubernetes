@@ -144,23 +144,6 @@ func EnsureSecretWithKey(ctx context.Context, secretGetUpdateCreateDeleter GetUp
 	return string(existingSecret.Data[key]), nil
 }
 
-// CopySecret copies secret object(data) from one cluster client to another, the from and to cluster-client can belong to the same or different clusters
-func CopySecret(ctx context.Context, fromClient Getter, toClient GetUpdateCreator, sourceSecretNsName, destNsName types.NamespacedName) error {
-	s, err := fromClient.GetSecret(ctx, sourceSecretNsName)
-	if err != nil {
-		return err
-	}
-
-	secretCopy := Builder().
-		SetName(destNsName.Name).
-		SetNamespace(destNsName.Namespace).
-		SetByteData(s.Data).
-		SetDataType(s.Type).
-		Build()
-
-	return CreateOrUpdate(ctx, toClient, secretCopy)
-}
-
 // Exists return whether a secret with the given namespaced name exists
 func Exists(ctx context.Context, secretGetter Getter, nsName types.NamespacedName) (bool, error) {
 	_, err := secretGetter.GetSecret(ctx, nsName)

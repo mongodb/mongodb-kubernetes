@@ -57,12 +57,12 @@ import (
         ]
     }
 */
-type ShardedCluster map[string]interface{}
+type ShardedCluster map[string]any
 
-type Shard map[string]interface{}
+type Shard map[string]any
 
-func NewShardedClusterFromInterface(i interface{}) ShardedCluster {
-	return i.(map[string]interface{})
+func NewShardedClusterFromInterface(i any) ShardedCluster {
+	return i.(map[string]any)
 }
 
 // NewShardedCluster builds a shard configuration with shards by replicasets names.
@@ -155,10 +155,10 @@ func (s ShardedCluster) Shards() []Shard {
 	switch v := s["shards"].(type) {
 	case []Shard:
 		return v
-	case []interface{}:
+	case []any:
 		ans := make([]Shard, len(v))
 		for i, val := range v {
-			ans[i] = val.(map[string]interface{})
+			ans[i] = val.(map[string]any)
 		}
 		return ans
 	default:
@@ -190,7 +190,7 @@ func (s ShardedCluster) draining() []string {
 	// When go unmarhals an empty list from Json, it becomes
 	// []interface{} and not []string, so we must check for
 	// that particular case.
-	if obj, ok := s["draining"].([]interface{}); ok {
+	if obj, ok := s["draining"].([]any); ok {
 		var hostNames []string
 		for _, hn := range obj {
 			hostNames = append(hostNames, hn.(string))

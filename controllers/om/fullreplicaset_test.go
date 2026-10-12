@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	ac "github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
@@ -79,12 +78,12 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			},
 			memberOptions: []ac.MemberOptions{
 				{
-					Votes:    ptr.To(1),
-					Priority: ptr.To("1.3"),
+					Votes:    new(1),
+					Priority: new("1.3"),
 				},
 				{
-					Votes:    ptr.To(0),
-					Priority: ptr.To("0.7"),
+					Votes:    new(0),
+					Priority: new("0.7"),
 				},
 			},
 			expected: ReplicaSetWithProcesses{
@@ -96,8 +95,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 					"protocolVersion": "1",
 				},
 				Processes: []Process{
-					{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
-					{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					{"name": "p-0", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
+					{"name": "p-1", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
 				},
 			},
 		},
@@ -113,15 +112,15 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			},
 			memberOptions: []ac.MemberOptions{
 				{
-					Votes:    ptr.To(1),
-					Priority: ptr.To("1.3"),
+					Votes:    new(1),
+					Priority: new("1.3"),
 				},
 				{
-					Votes:    ptr.To(0),
-					Priority: ptr.To("0.7"),
+					Votes:    new(0),
+					Priority: new("0.7"),
 				},
 				{
-					Votes: ptr.To(1),
+					Votes: new(1),
 					Tags: map[string]string{
 						"env": "dev",
 					},
@@ -136,8 +135,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 					"protocolVersion": "1",
 				},
 				Processes: []Process{
-					{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
-					{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					{"name": "p-0", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
+					{"name": "p-1", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
 				},
 			},
 		},
@@ -153,8 +152,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			},
 			memberOptions: []ac.MemberOptions{
 				{
-					Votes:    ptr.To(1),
-					Priority: ptr.To("1.3"),
+					Votes:    new(1),
+					Priority: new("1.3"),
 				},
 			},
 			expected: ReplicaSetWithProcesses{
@@ -167,8 +166,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 					"protocolVersion": "1",
 				},
 				Processes: []Process{
-					{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
-					{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					{"name": "p-0", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
+					{"name": "p-1", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
 				},
 			},
 		},
@@ -194,8 +193,8 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 					"protocolVersion": "1",
 				},
 				Processes: []Process{
-					{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
-					{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					{"name": "p-0", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
+					{"name": "p-1", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
 				},
 			},
 		},
@@ -204,12 +203,12 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			processes: []Process{},
 			memberOptions: []ac.MemberOptions{
 				{
-					Votes:    ptr.To(1),
-					Priority: ptr.To("1.3"),
+					Votes:    new(1),
+					Priority: new("1.3"),
 				},
 				{
-					Votes:    ptr.To(0),
-					Priority: ptr.To("0.7"),
+					Votes:    new(0),
+					Priority: new("0.7"),
 				},
 			},
 			expected: ReplicaSetWithProcesses{
@@ -232,16 +231,16 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 			},
 			memberOptions: []ac.MemberOptions{
 				{
-					Votes:    ptr.To(1),
-					Priority: ptr.To("1.3"),
+					Votes:    new(1),
+					Priority: new("1.3"),
 				},
 				{
-					Votes:    ptr.To(0),
-					Priority: ptr.To("0.7"),
+					Votes:    new(0),
+					Priority: new("0.7"),
 				},
 				{
-					Votes:    ptr.To(1),
-					Priority: ptr.To("1.0"),
+					Votes:    new(1),
+					Priority: new("1.0"),
 				},
 			},
 			// simulates e.g. switching the OpsManager project: p-0 and p-1 already existed
@@ -261,9 +260,9 @@ func TestNewMultiClusterReplicaSetWithProcesses(t *testing.T) {
 					"protocolVersion": "1",
 				},
 				Processes: []Process{
-					{"name": "p-0", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
-					{"name": "p-1", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
-					{"name": "p-2", "args2_6": map[string]interface{}{"replication": map[string]interface{}{"replSetName": "mdb-multi"}}},
+					{"name": "p-0", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
+					{"name": "p-1", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
+					{"name": "p-2", "args2_6": map[string]any{"replication": map[string]any{"replSetName": "mdb-multi"}}},
 				},
 			},
 		},

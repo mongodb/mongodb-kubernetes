@@ -25,7 +25,7 @@ type Writer interface {
 type Reader interface {
 	// GetStatus returns the status of the object. The list of Options
 	// provided indicates which subresource will be returned. AppDB, OM or Backup
-	GetStatus(options ...Option) interface{}
+	GetStatus(options ...Option) any
 	GetCommonStatus(options ...Option) *Common
 }
 

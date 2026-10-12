@@ -26,18 +26,18 @@ func ValidationSuccess() ValidationResult {
 	return ValidationResult{Level: SuccessLevel}
 }
 
-func ValidationWarning(msg string, params ...interface{}) ValidationResult {
+func ValidationWarning(msg string, params ...any) ValidationResult {
 	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: WarningLevel}
 }
 
-func ValidationError(msg string, params ...interface{}) ValidationResult {
+func ValidationError(msg string, params ...any) ValidationResult {
 	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: ErrorLevel}
 }
 
-func OpsManagerResourceValidationWarning(msg string, part status.Part, params ...interface{}) ValidationResult {
+func OpsManagerResourceValidationWarning(msg string, part status.Part, params ...any) ValidationResult {
 	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: WarningLevel, OmStatusPart: part}
 }
 
-func OpsManagerResourceValidationError(msg string, part status.Part, params ...interface{}) ValidationResult {
+func OpsManagerResourceValidationError(msg string, part status.Part, params ...any) ValidationResult {
 	return ValidationResult{Msg: fmt.Sprintf(msg, params...), Level: ErrorLevel, OmStatusPart: part}
 }

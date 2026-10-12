@@ -7,7 +7,7 @@ import (
 // Identifiable is a simple interface wrapping any object which has some key field which can be used for later
 // aggregation operations (grouping, intersection, difference etc)
 type Identifiable interface {
-	Identifier() interface{}
+	Identifier() any
 }
 
 // SetDifference returns all 'Identifiable' elements that are in left slice and not in the right one
@@ -45,7 +45,7 @@ func SetIntersection(left, right []Identifiable) [][]Identifiable {
 // SetDifferenceGeneric is a convenience function solving lack of covariance in Go: it allows to pass the arrays declared
 // as some types implementing 'Identifiable' and find the difference between them
 // Important: the arrays past must declare types implementing 'Identifiable'!
-func SetDifferenceGeneric(left, right interface{}) []Identifiable {
+func SetDifferenceGeneric(left, right any) []Identifiable {
 	leftIdentifiers := toIdentifiableSlice(left)
 	rightIdentifiers := toIdentifiableSlice(right)
 
@@ -55,7 +55,7 @@ func SetDifferenceGeneric(left, right interface{}) []Identifiable {
 // SetIntersectionGeneric is a convenience function solving lack of covariance in Go: it allows to pass the arrays declared
 // as some types implementing 'Identifiable' and find the intersection between them
 // Important: the arrays past must declare types implementing 'Identifiable'!
-func SetIntersectionGeneric(left, right interface{}) [][]Identifiable {
+func SetIntersectionGeneric(left, right any) [][]Identifiable {
 	leftIdentifiers := toIdentifiableSlice(left)
 	rightIdentifiers := toIdentifiableSlice(right)
 
@@ -79,7 +79,7 @@ func SetIntersectionGeneric(left, right interface{}) [][]Identifiable {
 }
 
 // toIdentifiableSlice uses reflection to cast the array
-func toIdentifiableSlice(data interface{}) []Identifiable {
+func toIdentifiableSlice(data any) []Identifiable {
 	value := reflect.ValueOf(data)
 
 	result := make([]Identifiable, value.Len())

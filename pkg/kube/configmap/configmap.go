@@ -100,7 +100,7 @@ func CreateOrUpdate(ctx context.Context, getUpdateCreator GetUpdateCreator, cm c
 func filelikePropertiesToMap(s string) (map[string]string, error) {
 	keyValPairs := map[string]string{}
 	s = strings.TrimRight(s, lineSeparator)
-	for _, keyValPair := range strings.Split(s, lineSeparator) {
+	for keyValPair := range strings.SplitSeq(s, lineSeparator) {
 		splittedPair := strings.Split(keyValPair, keyValueSeparator)
 		if len(splittedPair) != 2 {
 			return nil, fmt.Errorf("%s is not a valid key-value pair", keyValPair)

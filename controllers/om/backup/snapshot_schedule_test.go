@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 )
@@ -13,29 +12,29 @@ func TestMergeExistingScheduleWithSpec(t *testing.T) {
 	existingSchedule := SnapshotSchedule{
 		GroupID:                        "a",
 		ClusterID:                      "b",
-		DailySnapshotRetentionDays:     ptr.To(2),
-		FullIncrementalDayOfWeek:       ptr.To("c"),
-		MonthlySnapshotRetentionMonths: ptr.To(3),
-		PointInTimeWindowHours:         ptr.To(4),
-		ReferenceHourOfDay:             ptr.To(5),
-		ReferenceMinuteOfHour:          ptr.To(6),
-		SnapshotIntervalHours:          ptr.To(8),
-		SnapshotRetentionDays:          ptr.To(9),
-		WeeklySnapshotRetentionWeeks:   ptr.To(10),
-		ClusterCheckpointIntervalMin:   ptr.To(11),
+		DailySnapshotRetentionDays:     new(2),
+		FullIncrementalDayOfWeek:       new("c"),
+		MonthlySnapshotRetentionMonths: new(3),
+		PointInTimeWindowHours:         new(4),
+		ReferenceHourOfDay:             new(5),
+		ReferenceMinuteOfHour:          new(6),
+		SnapshotIntervalHours:          new(8),
+		SnapshotRetentionDays:          new(9),
+		WeeklySnapshotRetentionWeeks:   new(10),
+		ClusterCheckpointIntervalMin:   new(11),
 	}
 
 	specSchedule := mdb.SnapshotSchedule{
-		SnapshotIntervalHours:          ptr.To(11),
-		SnapshotRetentionDays:          ptr.To(12),
-		DailySnapshotRetentionDays:     ptr.To(13),
-		WeeklySnapshotRetentionWeeks:   ptr.To(14),
-		MonthlySnapshotRetentionMonths: ptr.To(15),
-		PointInTimeWindowHours:         ptr.To(16),
-		ReferenceHourOfDay:             ptr.To(17),
-		ReferenceMinuteOfHour:          ptr.To(18),
-		FullIncrementalDayOfWeek:       ptr.To("cc"),
-		ClusterCheckpointIntervalMin:   ptr.To(11),
+		SnapshotIntervalHours:          new(11),
+		SnapshotRetentionDays:          new(12),
+		DailySnapshotRetentionDays:     new(13),
+		WeeklySnapshotRetentionWeeks:   new(14),
+		MonthlySnapshotRetentionMonths: new(15),
+		PointInTimeWindowHours:         new(16),
+		ReferenceHourOfDay:             new(17),
+		ReferenceMinuteOfHour:          new(18),
+		FullIncrementalDayOfWeek:       new("cc"),
+		ClusterCheckpointIntervalMin:   new(11),
 	}
 
 	merged := mergeExistingScheduleWithSpec(existingSchedule, specSchedule)

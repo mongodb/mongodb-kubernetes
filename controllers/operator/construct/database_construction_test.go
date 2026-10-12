@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-	"k8s.io/utils/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -101,8 +100,8 @@ func Test_buildDatabaseInitContainer(t *testing.T) {
 		Image:        "quay.io/mongodb/mongodb-kubernetes-init-database:latest",
 		VolumeMounts: expectedVolumeMounts,
 		SecurityContext: &corev1.SecurityContext{
-			ReadOnlyRootFilesystem:   ptr.To(true),
-			AllowPrivilegeEscalation: ptr.To(false),
+			ReadOnlyRootFilesystem:   new(true),
+			AllowPrivilegeEscalation: new(false),
 			Capabilities: &corev1.Capabilities{
 				Drop: []corev1.Capability{"ALL"},
 			},
@@ -298,7 +297,7 @@ func TestLogConfigurationToEnvVars(t *testing.T) {
 		"logFile": "/var/log/mongodb-mms-automation/log.file",
 	}
 	additionalMongodConfig := mdbv1.NewEmptyAdditionalMongodConfig()
-	additionalMongodConfig.AddOption("auditLog", map[string]interface{}{
+	additionalMongodConfig.AddOption("auditLog", map[string]any{
 		"destination": "file",
 		"format":      "JSON",
 		"path":        "/var/log/mongodb-mms-automation/audit.log",
@@ -532,8 +531,8 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 }
 
 func TestShardedOptionsResolveExternalAccessPerTier(t *testing.T) {
-	perTierConfigSrv := &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("config.example.com")}
-	topLevel := &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("top.example.com")}
+	perTierConfigSrv := &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("config.example.com")}
+	topLevel := &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("top.example.com")}
 
 	newShardedCluster := func(mutate func(spec *mdbv1.MongoDbSpec)) mdbv1.MongoDB {
 		sc := mdbv1.NewDefaultShardedClusterBuilder().
@@ -602,7 +601,7 @@ func TestShardedOptionsResolveExternalAccessPerTier(t *testing.T) {
 }
 
 func TestReplicaSetOptionsCarryTopLevelExternalAccess(t *testing.T) {
-	topLevel := &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("rs.example.com")}
+	topLevel := &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("rs.example.com")}
 	rs := mdbv1.NewReplicaSetBuilder().SetName("rs").SetNamespace("test-ns").SetMembers(3).Build()
 	rs.Spec.ExternalAccessConfiguration = topLevel
 
@@ -620,7 +619,7 @@ func TestReplicaSetOptionsCarryTopLevelExternalAccess(t *testing.T) {
 // DatabaseStatefulSetOptions.ExternalAccessConfiguration, so StandaloneOptions has to populate it.
 func TestStandaloneOptionsCarryTopLevelExternalAccess(t *testing.T) {
 	st := mdbv1.NewStandaloneBuilder().SetName("st").SetNamespace("test-ns").Build()
-	st.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("st.example.com")}
+	st.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("st.example.com")}
 
 	opts := StandaloneOptions()(*st)
 

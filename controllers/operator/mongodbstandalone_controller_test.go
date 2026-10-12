@@ -374,7 +374,7 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 	spec := mdbv1.MongoDbSpec{
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Version:    "4.0.0",
-			Persistent: util.BooleanRef(true),
+			Persistent: new(true),
 			ConnectionSpec: mdbv1.ConnectionSpec{
 				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
 					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
@@ -398,18 +398,8 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 	return &StandaloneBuilder{resource}
 }
 
-func (b *StandaloneBuilder) SetName(name string) *StandaloneBuilder {
-	b.Name = name
-	return b
-}
-
 func (b *StandaloneBuilder) SetVersion(version string) *StandaloneBuilder {
 	b.Spec.Version = version
-	return b
-}
-
-func (b *StandaloneBuilder) SetPersistent(p *bool) *StandaloneBuilder {
-	b.Spec.Persistent = p
 	return b
 }
 
