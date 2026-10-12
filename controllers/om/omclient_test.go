@@ -65,6 +65,34 @@ func TestGettingAutomationConfig(t *testing.T) {
 	assert.Equal(t, testAutomationConfig.Deployment, data.Deployment)
 }
 
+func TestGetAgentAuthMode(t *testing.T) {
+	testAutomationConfig := getTestAutomationConfig()
+	testAutomationConfig.Deployment["auth"] = map[string]any{"autoAuthMechanism": "SCRAM-SHA-256"}
+	handleFunc, _ := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
+	srv := serverMock(handleFunc)
+	defer srv.Close()
+
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	mode, err := connection.GetAgentAuthMode(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, "SCRAM-SHA-256", mode)
+}
+
+func TestGetAgentAuthMode_NoAuth(t *testing.T) {
+	testAutomationConfig := getTestAutomationConfig()
+	delete(testAutomationConfig.Deployment, "auth")
+	handleFunc, _ := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
+	srv := serverMock(handleFunc)
+	defer srv.Close()
+
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	mode, err := connection.GetAgentAuthMode(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, "", mode)
+}
+
 func TestNotSendingRequestOnNonModifiedAutomationConfig(t *testing.T) {
 	ctx := t.Context()
 	logger := zap.NewNop().Sugar()

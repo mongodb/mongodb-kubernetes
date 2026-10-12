@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -41,6 +42,9 @@ func init() {
 		registerClientMetrics()
 	}
 }
+
+// responseBuffers reuses buffers for reading response bodies, avoiding a per-request allocation.
+var responseBuffers = sync.Pool{New: func() any { return &bytes.Buffer{} }}
 
 // registerClientMetrics sets up the operator om client metrics.
 func registerClientMetrics() {
@@ -166,6 +170,17 @@ func OptionCAValidate(ca string) func(client *Client) error {
 // It handles Digest when needed and json marshaling of the `v` struct.
 // The whole exchange, including retries and backoff waits, is aborted as soon as ctx is done.
 func (client *Client) Request(ctx context.Context, method, hostname, path string, v any) ([]byte, http.Header, error) {
+	return client.requestWithContext(ctx, method, hostname, path, v, nil)
+}
+
+// RequestWithContextInto is like Request, but decodes a successful JSON response directly
+// into 'out' instead of returning the raw body, reusing pooled buffers for the response.
+func (client *Client) RequestWithContextInto(ctx context.Context, method, hostname, path string, v, out any) (http.Header, error) {
+	_, header, err := client.requestWithContext(ctx, method, hostname, path, v, out)
+	return header, err
+}
+
+func (client *Client) requestWithContext(ctx context.Context, method, hostname, path string, v, out any) ([]byte, http.Header, error) {
 	url := hostname + path
 
 	req, err := createHTTPRequest(ctx, method, url, v)
@@ -175,13 +190,12 @@ func (client *Client) Request(ctx context.Context, method, hostname, path string
 
 	if client.username != "" && client.password != "" {
 		// Only add Digest auth when needed.
-		err = client.authorizeRequest(ctx, method, hostname, path, req)
-		if err != nil {
+		if err := client.authorizeRequest(ctx, method, hostname, path, req); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	return client.sendRequest(method, url, path, req)
+	return client.sendRequest(method, url, path, req, out)
 }
 
 // RequestWithAgentAuth executes an HTTP request using Basic authorization with the agent API key
@@ -199,7 +213,7 @@ func (client *Client) RequestWithAgentAuth(ctx context.Context, method, hostname
 
 	req.Header.Set("Authorization", agentAuth)
 
-	return client.sendRequest(method, url, path, req)
+	return client.sendRequest(method, url, path, req, nil)
 }
 
 // authorizeRequest executes one request that's meant to be challenged by the
@@ -262,7 +276,60 @@ func createHTTPRequest(ctx context.Context, method string, url string, v any) (*
 	return req, nil
 }
 
-func (client *Client) sendRequest(method, url, path string, req *retryablehttp.Request) ([]byte, http.Header, error) {
+// sendRequest executes req and returns the raw response body when out is nil. When out is non-nil the
+// body is decoded into out directly, reusing a pooled buffer. Error responses are always read in full
+// so parseAPIError can include the server message.
+func (client *Client) sendRequest(method, url, path string, req *retryablehttp.Request, out any) ([]byte, http.Header, error) {
+	client.setLogHooks(method, url, path)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, nil, apierror.New(xerrors.Errorf("error sending %s request to %s: %w", method, url, err))
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	omClient.WithLabelValues(strconv.Itoa(resp.StatusCode), method, path).Inc()
+
+	// need to clear hooks, because otherwise they will be persisted for the subsequent calls
+	// resulting in logging authorizeRequest
+	client.RequestLogHook = nil
+	client.ResponseLogHook = nil
+
+	// It is required for the body to be read completely for the connection to be reused.
+	// https://stackoverflow.com/a/17953506/75928
+	if out == nil {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, nil, apierror.New(xerrors.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, nil, parseAPIError(resp.StatusCode, method, url, body)
+		}
+		return body, resp.Header, nil
+	}
+
+	buffer := responseBuffers.Get().(*bytes.Buffer)
+	defer func() {
+		buffer.Reset()
+		responseBuffers.Put(buffer)
+	}()
+
+	if _, err := buffer.ReadFrom(resp.Body); err != nil {
+		return nil, nil, apierror.New(xerrors.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, nil, parseAPIError(resp.StatusCode, method, url, buffer.Bytes())
+	}
+	if err := json.Unmarshal(buffer.Bytes(), out); err != nil {
+		return nil, nil, apierror.New(xerrors.Errorf("Error decoding response body from %s to %v status=%v: %w", method, url, resp.StatusCode, err))
+	}
+	return nil, resp.Header, nil
+}
+
+// setLogHooks installs the request/response debug log hooks. They are cleared after each request.
+func (client *Client) setLogHooks(method, url, path string) {
 	// we need to limit size of request/response dump, because automation config request can't have over 1MB size
 	const maxDumpSize = 10000 // 1 MB
 	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
@@ -286,33 +353,6 @@ func (client *Client) sendRequest(method, url, path string, req *retryablehttp.R
 			zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpResponse)
 		}
 	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, nil, apierror.New(xerrors.Errorf("error sending %s request to %s: %w", method, url, err))
-	}
-
-	omClient.WithLabelValues(strconv.Itoa(resp.StatusCode), method, path).Inc()
-
-	// need to clear hooks, because otherwise they will be persisted for the subsequent calls
-	// resulting in logging authorizeRequest
-	client.RequestLogHook = nil
-	client.ResponseLogHook = nil
-
-	// It is required for the body to be read completely for the connection to be reused.
-	// https://stackoverflow.com/a/17953506/75928
-	body, err := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if err != nil {
-		return nil, nil, apierror.New(xerrors.Errorf("Error reading response body from %s to %v status=%v", method, url, resp.StatusCode))
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		apiError := parseAPIError(resp.StatusCode, method, url, body)
-		return nil, nil, apiError
-	}
-
-	return body, resp.Header, nil
 }
 
 // serializeToBuffer takes any object and tries to serialize it to the buffer

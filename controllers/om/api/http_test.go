@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -89,4 +91,149 @@ func TestRequest_DeadlineAbortsHangingServer(t *testing.T) {
 			assert.Equal(t, int32(1), requests.Load(), tt.requestsMsg)
 		})
 	}
+}
+
+func TestRequestWithContextInto_DecodesResponseBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-MongoDB-Service-Version", "8.0.0")
+		_, _ = w.Write([]byte(`{"version":"1","processes":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := NewHTTPClient()
+	require.NoError(t, err)
+
+	var out map[string]any
+	header, err := client.RequestWithContextInto(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups", nil, &out)
+
+	require.NoError(t, err)
+	assert.Equal(t, "1", out["version"])
+	assert.Equal(t, "8.0.0", header.Get("X-MongoDB-Service-Version"))
+}
+
+func TestRequestWithContextInto_ReturnsAPIErrorWithBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"detail":"invalid automation config"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := NewHTTPClient()
+	require.NoError(t, err)
+
+	var out map[string]any
+	_, err = client.RequestWithContextInto(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups", nil, &out)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid automation config")
+}
+
+func TestRequestWithContextInto_EmptyBodyIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := NewHTTPClient()
+	require.NoError(t, err)
+
+	var out map[string]any
+	_, err = client.RequestWithContextInto(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups", nil, &out)
+
+	require.Error(t, err)
+}
+
+// benchmarkAutomationConfigPayload builds an Automation Config shaped response body,
+// comparable to what Ops Manager returns in e2e runs.
+func benchmarkAutomationConfigPayload(b *testing.B) []byte {
+	b.Helper()
+
+	processes := make([]map[string]any, 0, 3000)
+	for i := range 3000 {
+		processes = append(processes, map[string]any{
+			"name":        fmt.Sprintf("pod-%04d", i),
+			"hostname":    fmt.Sprintf("pod-%04d.example.mongodb.svc.cluster.local", i),
+			"processType": "mongod",
+			"version":     "8.0.0",
+			"args2_6": map[string]any{
+				"net":         map[string]any{"bindIp": "0.0.0.0", "port": 27017},
+				"storage":     map[string]any{"dbPath": "/data/db"},
+				"replication": map[string]any{"replSetName": "rs"},
+				"systemLog":   map[string]any{"destination": "file", "path": "/var/log/mongodb/mongodb.log", "logAppend": true},
+			},
+		})
+	}
+
+	payload := map[string]any{
+		"version":   "1",
+		"processes": processes,
+		"replicaSets": []map[string]any{{
+			"id":      "rs",
+			"members": []map[string]any{{"_id": 0, "host": "pod-0000:27017", "priority": 1, "votes": 1}},
+		}},
+		"auth":     map[string]any{"authoritativeSet": false, "autoAuthMechanism": "SCRAM-SHA-256"},
+		"tls":      map[string]any{"CAFilePath": "/etc/mongodb/tls/ca.crt"},
+		"mongoURI": "mongodb://pod-0000:27017/",
+	}
+
+	data, err := json.Marshal(payload)
+	require.NoError(b, err)
+	b.Logf("payload size: %d bytes", len(data))
+	return data
+}
+
+// authOnlyResponse mirrors the partial decode done by GetAgentAuthMode: only the top-level 'auth'
+// key is materialized, everything else is skipped.
+type authOnlyResponse struct {
+	Auth *struct {
+		AutoAuthMechanism string `json:"autoAuthMechanism"`
+	} `json:"auth"`
+}
+
+// BenchmarkOMResponseRead compares the old read path (raw body returned by io.ReadAll and decoded
+// by the caller) with the pooled direct-decode path used by RequestWithContextInto.
+func BenchmarkOMResponseRead(b *testing.B) {
+	payload := benchmarkAutomationConfigPayload(b)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	b.Cleanup(srv.Close)
+
+	client, err := NewHTTPClient()
+	require.NoError(b, err)
+
+	b.Run("ReadAll+Unmarshal", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(payload)))
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			body, _, err := client.Request(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups/g/automationConfig", nil)
+			require.NoError(b, err)
+			var out map[string]any
+			require.NoError(b, json.Unmarshal(body, &out))
+		}
+	})
+
+	b.Run("Pooled+Unmarshal", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(payload)))
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			var out map[string]any
+			_, err := client.RequestWithContextInto(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups/g/automationConfig", nil, &out)
+			require.NoError(b, err)
+		}
+	})
+
+	b.Run("Pooled+AuthOnly", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(payload)))
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			var out authOnlyResponse
+			_, err := client.RequestWithContextInto(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups/g/automationConfig", nil, &out)
+			require.NoError(b, err)
+		}
+	})
 }
