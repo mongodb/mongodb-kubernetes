@@ -1,7 +1,10 @@
 package om
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
+	"maps"
 	"testing"
 
 	"github.com/spf13/cast"
@@ -12,6 +15,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 var originalAutomationConfig = *getTestAutomationConfig()
@@ -1164,8 +1168,7 @@ func TestIsEqualNotWorkingWithTypeChanges(t *testing.T) {
 	t.Run("is not working", func(t *testing.T) {
 		overTheWire := getDeploymentWithRSOverTheWire(t)
 
-		original, err := util.MapDeepCopy(overTheWire)
-		assert.NoError(t, err)
+		original := maps.Clone(overTheWire)
 
 		_ = changeTypes(overTheWire)
 
@@ -1174,7 +1177,7 @@ func TestIsEqualNotWorkingWithTypeChanges(t *testing.T) {
 	})
 }
 
-func getDeploymentWithRSOverTheWire(t *testing.T) Deployment {
+func getDeploymentWithRSOverTheWire(t testing.TB) Deployment {
 	overTheWire := getTestAutomationConfig().Deployment
 	overTheWire.addReplicaSet(NewReplicaSet("rs-1", "3.2.0"))
 	overTheWire.addReplicaSet(NewReplicaSet("rs-2", "3.2.0"))
@@ -1205,4 +1208,59 @@ func TestAuthNewKeyRoundTrip(t *testing.T) {
 	authMap := ac.Deployment["auth"].(map[string]any)
 	assert.Equal(t, "current-key", authMap["key"])
 	assert.Equal(t, "rotation-key", authMap["newKey"])
+}
+
+// mapDeepCopyGob is the original gob-based deep copy, kept only as a benchmark baseline.
+func mapDeepCopyGob(m map[string]any) (map[string]any, error) {
+	gob.Register(map[string]any{})
+	gob.Register([]any{})
+
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(m); err != nil {
+		return nil, err
+	}
+	var cp map[string]any
+	if err := gob.NewDecoder(&buf).Decode(&cp); err != nil {
+		return nil, err
+	}
+	return cp, nil
+}
+
+// isEqualAfterModificationWithGobCopy is the original implementation, kept as a benchmark baseline.
+func isEqualAfterModificationWithGobCopy(changeDeploymentFunc func(Deployment) error, deployment Deployment) (bool, error) {
+	original, err := mapDeepCopyGob(deployment)
+	if err != nil {
+		return false, err
+	}
+	if err := changeDeploymentFunc(deployment); err != nil {
+		return false, err
+	}
+	deploymentWithoutTypes, err := maputil.StructToMap(deployment)
+	if err != nil {
+		return false, err
+	}
+	return equality.Semantic.DeepEqual(deploymentWithoutTypes, original), nil
+}
+
+func BenchmarkIsEqualAfterModification(b *testing.B) {
+	deployment := getDeploymentWithRSOverTheWire(b)
+	noop := func(Deployment) error { return nil }
+
+	b.Run("gob-copy", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, err := isEqualAfterModificationWithGobCopy(noop, deployment); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("json-snapshot", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			if _, err := isEqualAfterModification(noop, deployment); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }

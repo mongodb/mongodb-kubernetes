@@ -1,13 +1,14 @@
 package om
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/spf13/cast"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 // AutomationConfig maintains the raw map in the Deployment field
@@ -158,12 +158,12 @@ func (ac *AutomationConfig) EqualsWithoutDeployment(b AutomationConfig) bool {
 // we encode the map into its internal representation again. Doing that removes util.MergoDelete for proper comparison
 func getSerializedAC(original AutomationConfig) (AutomationConfig, error) {
 	empty := AutomationConfig{}
-	deepCopy, err := util.MapDeepCopy(original.Deployment)
-	if err != nil {
-		return empty, err
+	// applyInto only writes top-level keys, so a shallow copy is enough to protect the original.
+	deepCopy := maps.Clone(original.Deployment)
+	if deepCopy == nil {
+		deepCopy = Deployment{}
 	}
-	err = applyInto(original, (*Deployment)(&deepCopy))
-	if err != nil {
+	if err := applyInto(original, &deepCopy); err != nil {
 		return empty, err
 	}
 
@@ -174,27 +174,22 @@ func getSerializedAC(original AutomationConfig) (AutomationConfig, error) {
 	return *ac, nil
 }
 
-// isEqualAfterModification returns true if two Deployment objects are equal ignoring their underlying custom types.
-// depFunc might change the Deployment or might only change the types. In both cases it will fail the comparison
-// as long as we don't ignore the types.
+// isEqualAfterModification returns true if changeDeploymentFunc did not change the deployment.
+// The deployment is snapshotted as JSON before and after the call, so modifications that only
+// change the Go types (as most depFuncs do) compare equal.
 func isEqualAfterModification(changeDeploymentFunc func(Deployment) error, deployment Deployment) (bool, error) {
-	original, err := util.MapDeepCopy(deployment) // original over the wire does not contain any types
+	original, err := json.Marshal(deployment)
 	if err != nil {
 		return false, err
 	}
-	if err := changeDeploymentFunc(deployment); err != nil { // might change types as well
+	if err := changeDeploymentFunc(deployment); err != nil {
 		return false, err
 	}
-
-	deploymentWithoutTypes, err := maputil.StructToMap(deployment)
+	modified, err := json.Marshal(deployment)
 	if err != nil {
 		return false, err
 	}
-
-	if equality.Semantic.DeepEqual(deploymentWithoutTypes, original) {
-		return true, nil
-	}
-	return false, nil
+	return bytes.Equal(original, modified), nil
 }
 
 // NewAutomationConfig returns an AutomationConfig instance with all reference

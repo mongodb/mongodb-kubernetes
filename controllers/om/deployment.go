@@ -1,7 +1,6 @@
 package om
 
 import (
-	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -9,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/blang/semver"
+	"github.com/mitchellh/copystructure"
 	"github.com/spf13/cast"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -17,7 +17,6 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
-	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -36,35 +35,6 @@ const (
 	// Default listen address for Prometheus
 	ListenAddress = "0.0.0.0"
 )
-
-func init() {
-	// gob is used to implement a deep copy internally. If a data type is part of
-	// a deep copy performed using util.MapDeepCopy—which includes anything used
-	// as part of a "process" object embedded within a deployment—then it must be
-	// registered below as otherwise the operator will successfully compile and
-	// run but be completely broken.
-	// TODO should we move this to main.go?
-	gob.Register(map[string]any{})
-	gob.Register([]any{})
-	gob.Register(map[string]int{})
-	gob.Register(map[string]string{})
-	gob.Register([]any{})
-	gob.Register([]Process{})
-	gob.Register([]ReplicaSet{})
-	gob.Register([]ReplicaSetMember{})
-	gob.Register([]ShardedCluster{})
-	gob.Register([]MongoDbVersionConfig{})
-	gob.Register([]Shard{})
-	gob.Register(ProcessTypeMongos)
-	gob.Register(mdbv1.MongoDBHorizonConfig{})
-
-	gob.Register(tls.Require)
-	gob.Register(tls.Prefer)
-	gob.Register(tls.Allow)
-	gob.Register(tls.Disabled)
-	gob.Register([]mdbv1.MongoDBRole{})
-	gob.Register([]automationconfig.MemberOptions{})
-}
 
 // Deployment is a map representing the automation agent's cluster configuration.
 // For more information see the following documentation:
@@ -1333,11 +1303,5 @@ func (d Deployment) limitVotingMembers(rsName string, externalMembers []string) 
 }
 
 func (d Deployment) deepCopy() Deployment {
-	var depCopy Deployment
-
-	depCopy, err := util.MapDeepCopy(d)
-	if err != nil {
-		panic(err)
-	}
-	return depCopy
+	return copystructure.Must(copystructure.Copy(d)).(Deployment)
 }
