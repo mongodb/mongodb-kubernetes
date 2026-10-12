@@ -1097,6 +1097,25 @@ func TestApplyInto_RemovesLDAPBlockWhenLdapIsNil(t *testing.T) {
 	assert.False(t, ldapExists, "ldap block should be deleted from deployment when Ldap is nil")
 }
 
+// TestGetSerializedACDoesNotMutateInput pins the contract behind getSerializedAC's shallow clone:
+// every write applyInto performs through the copy is top-level, so the caller's deployment must
+// not change. A nested write through the copy would silently leak into the caller's AC.
+func TestGetSerializedACDoesNotMutateInput(t *testing.T) {
+	original, err := BuildAutomationConfigFromDeployment(getDeploymentWithRSOverTheWire(t))
+	require.NoError(t, err)
+
+	before, err := json.Marshal(original.Deployment)
+	require.NoError(t, err)
+
+	_, err = getSerializedAC(*original)
+	require.NoError(t, err)
+
+	after, err := json.Marshal(original.Deployment)
+	require.NoError(t, err)
+
+	assert.JSONEq(t, string(before), string(after), "getSerializedAC must not mutate the input deployment")
+}
+
 func TestApplyInto(t *testing.T) {
 	config := AutomationConfig{
 		Auth: NewAuth(),
