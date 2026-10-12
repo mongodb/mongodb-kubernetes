@@ -436,7 +436,7 @@ func TestMongoDB_IsSecurityTLSConfigEnabled(t *testing.T) {
 			// certsSecretPrefix, so it is the only TLS-on signal a managed user has).
 			name: "TLS is enabled when ManagedCertificate is set without tls.enabled",
 			security: &Security{
-				ManagedCertificate: &ManagedCertificate{Enabled: true, Server: &CertificateConfig{IssuerRef: &IssuerRef{Name: "my-issuer"}}},
+				ManagedCertificate: &ManagedCertificate{Server: &CertificateConfig{IssuerRef: &IssuerRef{Name: "my-issuer"}}},
 			},
 			expected: true,
 		},
