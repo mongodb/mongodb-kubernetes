@@ -14,7 +14,7 @@ SHARD_COUNT = 2
 @pytest.fixture(scope="module")
 def sc(namespace: str, issuer: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-tls-sc-managedcert.yaml"), name=MDB_RESOURCE, namespace=namespace)
-    resource["spec"]["security"]["managedCertificate"] = {"enabled": True}
+    resource["spec"]["security"]["managedCertificate"] = {}
     try_load(resource)
     return resource
 
@@ -42,13 +42,13 @@ def test_operator_created_component_certs(sc: MongoDB, namespace: str):
     components += [f"{MDB_RESOURCE}-{i}" for i in range(SHARD_COUNT)]
     for component in components:
         for suffix in ("cert", "clusterfile"):
-            secret_name = f"{component}-{suffix}"
+            secret_name = f"{component}-managed-{suffix}"
             secret = read_secret(namespace, secret_name)
             assert "tls.crt" in secret, f"{secret_name} missing tls.crt"
             assert "tls.key" in secret, f"{secret_name} missing tls.key"
 
-    agent_secret = read_secret(namespace, f"{MDB_RESOURCE}-agent-certs")
-    assert "tls.crt" in agent_secret, f"{MDB_RESOURCE}-agent-certs missing tls.crt"
+    agent_secret = read_secret(namespace, f"{MDB_RESOURCE}-managed-agent-certs")
+    assert "tls.crt" in agent_secret, f"{MDB_RESOURCE}-managed-agent-certs missing tls.crt"
 
 
 @pytest.mark.e2e_sharded_cluster_tls_managedcert
