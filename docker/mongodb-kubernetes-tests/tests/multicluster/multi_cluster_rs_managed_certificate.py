@@ -31,7 +31,7 @@ def mongodb_multi(
     # internal auth. No user-provided certs, no CA ConfigMap and no certsSecretPrefix anywhere.
     resource["spec"]["security"] = {
         "tls": {"enabled": True},
-        "managedCertificate": {"enabled": True},
+        "managedCertificate": {},
         "authentication": {
             "enabled": True,
             "modes": ["X509"],
@@ -75,9 +75,9 @@ def test_mongodb_multi_reaches_running(mongodb_multi: MongoDBMulti):
 def test_managed_leaf_and_ca_secrets_created_centrally(namespace: str):
     # The operator issues all leaf certs and the per-category (client/server) self-signed CAs in the central cluster.
     for name in (
-        f"{MDB_RESOURCE}-cert",
-        f"{MDB_RESOURCE}-clusterfile",
-        f"{MDB_RESOURCE}-agent-certs",
+        f"{MDB_RESOURCE}-managed-cert",
+        f"{MDB_RESOURCE}-managed-clusterfile",
+        f"{MDB_RESOURCE}-managed-agent-certs",
         f"{MDB_RESOURCE}-server-ca",
         f"{MDB_RESOURCE}-client-ca",
     ):
@@ -92,7 +92,7 @@ def test_member_cert_sans_cover_every_member_cluster(namespace: str):
     # member of every cluster, so a missing member or a stray SAN fails the test.
     # This is the cert from the initial deployment, before the scale test below grows it (the cert
     # never shrinks, so the SANs stay at the peak once that test has run).
-    member_crt = read_secret(namespace, f"{MDB_RESOURCE}-cert")["tls.crt"]
+    member_crt = read_secret(namespace, f"{MDB_RESOURCE}-managed-cert")["tls.crt"]
     sans = _dns_sans(member_crt)
     expected = sorted(
         f"{MDB_RESOURCE}-{cluster_index}-{pod_index}-svc.{namespace}.svc.cluster.local"
@@ -126,7 +126,7 @@ def test_leaf_pem_secrets_present_in_every_member_cluster(
 ):
     # The operator derives a <secret>-pem secret from each managed leaf cert and the pods mount that.
     # It must exist in every member cluster for the pods to start with TLS.
-    for base in (f"{MDB_RESOURCE}-cert", f"{MDB_RESOURCE}-clusterfile", f"{MDB_RESOURCE}-agent-certs"):
+    for base in (f"{MDB_RESOURCE}-managed-cert", f"{MDB_RESOURCE}-managed-clusterfile", f"{MDB_RESOURCE}-managed-agent-certs"):
         for cluster_client in member_cluster_clients:
             secret = cluster_client.core_v1_api().read_namespaced_secret(f"{base}-pem", namespace)
             assert secret.data, f"{base}-pem missing/empty in member cluster {cluster_client.cluster_name}"
@@ -146,7 +146,7 @@ def test_scale_up_and_down_members(
 
     # Get the member certificate revision so that we can later check that certificate is not reissued
     # 3 times for 3 member scale up.
-    member_cert = f"{MDB_RESOURCE}-cert"
+    member_cert = f"{MDB_RESOURCE}-managed-cert"
     revision_before = _cert_revision(central_cluster_client, namespace, member_cert)
     cert_before = read_secret(namespace, member_cert)["tls.crt"]
 
