@@ -11,7 +11,6 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 type MultiReplicaSetBuilder struct {
@@ -29,7 +28,7 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Connectivity: &mdbv1.MongoDBConnectivity{},
 			Version:      "7.0.0",
-			Persistent:   util.BooleanRef(false),
+			Persistent:   new(false),
 			ConnectionSpec: mdbv1.ConnectionSpec{
 				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
 					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
@@ -48,7 +47,7 @@ func DefaultMultiReplicaSetBuilder() *MultiReplicaSetBuilder {
 				},
 				Roles: []mdbv1.MongoDBRole{},
 			},
-			DuplicateServiceObjects: util.BooleanRef(false),
+			DuplicateServiceObjects: new(false),
 		},
 	}
 
@@ -78,14 +77,6 @@ func (m *MultiReplicaSetBuilder) SetRoles(roles []mdbv1.MongoDBRole) *MultiRepli
 		m.Spec.Security = &mdbv1.Security{}
 	}
 	m.Spec.Security.Roles = roles
-	return m
-}
-
-func (m *MultiReplicaSetBuilder) SetRoleRefs(roleRefs []mdbv1.MongoDBRoleRef) *MultiReplicaSetBuilder {
-	if m.Spec.Security == nil {
-		m.Spec.Security = &mdbv1.Security{}
-	}
-	m.Spec.Security.RoleRefs = roleRefs
 	return m
 }
 

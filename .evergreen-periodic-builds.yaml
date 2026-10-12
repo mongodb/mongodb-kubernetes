@@ -24,16 +24,26 @@ tasks:
 
   - name: periodic_gcp_cleanup
     commands:
-      - func: clone
-      - func: setup_gcloud_cli
+      # No task-level `clone`: it re-clones the workspace (git clean -fdx)
+      # and would wipe the venv and context files created by the group setup.
       - command: subprocess.exec
         params:
           working_dir: src/github.com/mongodb/mongodb-kubernetes
-          add_to_path:
-            - ${workdir}/google-cloud-sdk/bin
-          binary: scripts/evergreen/periodic-cleanup-gcp.sh
+          # The reaper uses the GCP client libraries, not the gcloud CLI, so
+          # it only needs the service-account credentials expansion.
+          include_expansions_in_env:
+            - GCP_SERVICE_ACCOUNT_JSON_FOR_SNIPPETS_TESTS
+          binary: scripts/dev/run_python.sh
+          args:
+            - scripts/evergreen/periodic_cleanup_gcp.py
           env:
             MDB_GKE_PROJECT: "scratch-kubernetes-team"
+            # Patches can dry-run the reaper with
+            #   --param gcp_cleanup_dry_run=true
+            # and/or exercise a different age threshold with
+            #   --param gcp_cleanup_age_threshold_hours=1
+            DRY_RUN: ${gcp_cleanup_dry_run|false}
+            AGE_THRESHOLD_HOURS: ${gcp_cleanup_age_threshold_hours|24}
 
 task_groups:
   - name: periodic_teardown_task_group

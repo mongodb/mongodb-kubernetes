@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -450,36 +449,36 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 		Privileges: []mdbv1.Privilege{
 			{
 				Resource: mdbv1.Resource{
-					Db:         ptr.To("config"),
-					Collection: ptr.To(""), // Explicit empty string
+					Db:         new("config"),
+					Collection: new(""), // Explicit empty string
 				},
 				Actions: []string{"find", "update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Db:         ptr.To("users"),
-					Collection: ptr.To("usersCollection"),
+					Db:         new("users"),
+					Collection: new("usersCollection"),
 				},
 				Actions: []string{"update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Db:         ptr.To(""), // Explicit empty string
-					Collection: ptr.To(""), // Explicit empty string
+					Db:         new(""), // Explicit empty string
+					Collection: new(""), // Explicit empty string
 				},
 				Actions: []string{"find"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Cluster: ptr.To(true),
+					Cluster: new(true),
 				},
 				Actions: []string{"find"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Cluster:    ptr.To(true),
-					Db:         ptr.To(""),
-					Collection: ptr.To(""),
+					Cluster:    new(true),
+					Db:         new(""),
+					Collection: new(""),
 				},
 				Actions: []string{"find"},
 			},
@@ -497,15 +496,15 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 		Privileges: []mdbv1.Privilege{
 			{
 				Resource: mdbv1.Resource{
-					Db: ptr.To("config"),
+					Db: new("config"),
 					// field not set, should pass ""
 				},
 				Actions: []string{"find", "update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Db:         ptr.To("users"),
-					Collection: ptr.To("usersCollection"),
+					Db:         new("users"),
+					Collection: new("usersCollection"),
 				},
 				Actions: []string{"update", "insert", "remove"},
 			},
@@ -517,7 +516,7 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 			},
 			{
 				Resource: mdbv1.Resource{
-					Cluster: ptr.To(true),
+					Cluster: new(true),
 				},
 				Actions: []string{"find"},
 			},
@@ -540,17 +539,17 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 	// we iterate over two created privileges because both should end with the same result
 	for i := range 2 {
 		assert.Nil(t, roles[i].Privileges[0].Resource.Cluster)
-		assert.Equal(t, ptr.To("config"), roles[i].Privileges[0].Resource.Db)
+		assert.Equal(t, new("config"), roles[i].Privileges[0].Resource.Db)
 		// even if the db or collection field is not passed it must result in empty string
-		assert.Equal(t, ptr.To(""), roles[i].Privileges[0].Resource.Collection)
+		assert.Equal(t, new(""), roles[i].Privileges[0].Resource.Collection)
 
 		assert.Nil(t, roles[i].Privileges[1].Resource.Cluster)
-		assert.Equal(t, ptr.To("users"), roles[i].Privileges[1].Resource.Db)
-		assert.Equal(t, ptr.To("usersCollection"), roles[i].Privileges[1].Resource.Collection)
+		assert.Equal(t, new("users"), roles[i].Privileges[1].Resource.Db)
+		assert.Equal(t, new("usersCollection"), roles[i].Privileges[1].Resource.Collection)
 
 		assert.Nil(t, roles[i].Privileges[2].Resource.Cluster)
-		assert.Equal(t, ptr.To(""), roles[i].Privileges[2].Resource.Db)
-		assert.Equal(t, ptr.To(""), roles[i].Privileges[2].Resource.Collection)
+		assert.Equal(t, new(""), roles[i].Privileges[2].Resource.Db)
+		assert.Equal(t, new(""), roles[i].Privileges[2].Resource.Collection)
 
 		require.NotNil(t, roles[i].Privileges[3].Resource.Cluster)
 		assert.True(t, *roles[i].Privileges[3].Resource.Cluster)
@@ -1042,8 +1041,7 @@ func testConcurrentReconciles(ctx context.Context, t *testing.T, client client.C
 
 	var wg sync.WaitGroup
 	for _, object := range objects {
-		wg.Add(1)
-		go func() {
+		wg.Go(func() {
 			result, err := reconciler.Reconcile(ctx, requestFromObject(object))
 			assert.NoError(t, err)
 
@@ -1058,9 +1056,7 @@ func testConcurrentReconciles(ctx context.Context, t *testing.T, client client.C
 			result, err = reconciler.Reconcile(ctx, requestFromObject(object))
 			assert.NoError(t, err)
 			assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
-
-			wg.Done()
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -1076,7 +1072,7 @@ func testFCVsCases(t *testing.T, verifyFCV func(version string, expectedFCV stri
 		{"5.0.0", "4.0", nil},
 		{"5.0.0", "4.0", nil},
 		{"6.0.0", "6.0", nil},
-		{"7.0.0", "7.0", ptr.To("AlwaysMatchVersion")},
+		{"7.0.0", "7.0", new("AlwaysMatchVersion")},
 		{"8.0.0", "8.0", nil},
 		{"7.0.0", "7.0", nil},
 	}
@@ -1141,7 +1137,7 @@ func buildRsByProcessesHelper(rsName string, processes []om.Process) om.ReplicaS
 
 func createRSProcessesHelper(rsName string, count int) []om.Process {
 	ps := make([]om.Process, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}}
 		ps[i] = om.NewMongodProcess(
 			fmt.Sprintf("%s-%d", rsName, i),
@@ -1214,7 +1210,7 @@ func TestValidateACForMigration_TLSModeSet(t *testing.T) {
 	d := om.NewDeployment()
 	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
-	d.GetProcesses()[0].EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "requireTLS"}
+	d.GetProcesses()[0].EnsureNetConfig()["tls"] = map[string]any{"mode": "requireTLS"}
 
 	conn := om.NewMockedOmConnection(d)
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 1, []mdbv1.ExternalMember{
@@ -1438,7 +1434,7 @@ func newMigrationACConnWithK8sVotes(t *testing.T, mdb *mdbv1.MongoDB, externalMe
 	// Build K8s processes with the prefixed names the validator computes.
 	rs := buildRsByProcessesHelper(rsName, createK8sProcessesForMigrationTest(rsName, mdb.Namespace, k8sCount))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
-	d.GetProcesses()[0].EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "requireTLS"}
+	d.GetProcesses()[0].EnsureNetConfig()["tls"] = map[string]any{"mode": "requireTLS"}
 
 	// Apply per-K8s voting state (default 1; tests may set 0 for non-voting).
 	acRS := d.GetReplicaSetByName(rsName)
@@ -1463,7 +1459,7 @@ func newMigrationACConnWithK8sVotes(t *testing.T, mdb *mdbv1.MongoDB, externalMe
 // the AC.
 func createK8sProcessesForMigrationTest(rsName, namespace string, count int) []om.Process {
 	ps := make([]om.Process, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}}
 		processName := process.PodNameToProcessName(dns.GetPodName(rsName, i), namespace)
 		ps[i] = om.NewMongodProcess(
@@ -1626,7 +1622,7 @@ func TestValidateACForMigration_ShardedCluster_TLSModeSet(t *testing.T) {
 
 	// Both process types have net.tls.mode set.
 	for _, p := range d.GetProcesses() {
-		p.EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "disabled"}
+		p.EnsureNetConfig()["tls"] = map[string]any{"mode": "disabled"}
 	}
 
 	conn := om.NewMockedOmConnection(d)
@@ -1767,7 +1763,7 @@ func buildShardedDeploymentForVotingTest(t *testing.T, sc *mdbv1.MongoDB, shardV
 	require.NoError(t, err)
 
 	for _, p := range d.GetProcesses() {
-		p.EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "requireTLS"}
+		p.EnsureNetConfig()["tls"] = map[string]any{"mode": "requireTLS"}
 	}
 	return d
 }

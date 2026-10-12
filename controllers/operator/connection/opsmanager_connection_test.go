@@ -58,7 +58,7 @@ func sourceDeployment() om.Deployment {
 		"version":  "7.0.0",
 		"hostname": "rs-0.example.com",
 	}}
-	d["auth"] = map[string]interface{}{
+	d["auth"] = map[string]any{
 		"key":      sourceKey,
 		"disabled": false,
 	}
@@ -143,7 +143,7 @@ func TestEnsureTargetAutomationConfigSeeded_CopiesSourceAC(t *testing.T) {
 
 	assert.Equal(t, 1, targetAC.Deployment.NumberOfProcesses(), "target should have source processes")
 
-	authMap, ok := targetAC.Deployment["auth"].(map[string]interface{})
+	authMap, ok := targetAC.Deployment["auth"].(map[string]any)
 	require.True(t, ok, "auth map should exist")
 	assert.Equal(t, sourceKey, authMap["key"], "target auth.key should equal source key")
 

@@ -1,5 +1,5 @@
 {{ $ns :=  include "mongodb-kubernetes-operator.namespace" .  -}}
-{{ $operatorImage := printf "%s/%s:%s%s" .Values.registry.operator .Values.operator.operator_image_name .Values.operator.version (.Values.operator.build | default "") -}}
+{{ $operatorImage := printf "%s/%s:%s%s" .Values.registry.operator .Values.operator.operator_image_name (.Values.operator.version | toString) (.Values.operator.build | default "" | toString) -}}
 
 ---
 apiVersion: apps/v1

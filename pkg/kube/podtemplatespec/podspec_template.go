@@ -1,6 +1,8 @@
 package podtemplatespec
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -62,19 +64,6 @@ func WithContainerByIndex(index int, funcs ...func(container *corev1.Container))
 		c := &podTemplateSpec.Spec.Containers[index]
 		for _, f := range funcs {
 			f(c)
-		}
-	}
-}
-
-// WithContainerByIndexIfExists applies the modifications to the container with the provided index
-// only if the container already exists. If the index is out of range, no changes are made.
-func WithContainerByIndexIfExists(index int, funcs ...func(container *corev1.Container)) func(podTemplateSpec *corev1.PodTemplateSpec) {
-	return func(podTemplateSpec *corev1.PodTemplateSpec) {
-		if index < len(podTemplateSpec.Spec.Containers) {
-			c := &podTemplateSpec.Spec.Containers[index]
-			for _, f := range funcs {
-				f(c)
-			}
 		}
 	}
 }
@@ -273,9 +262,7 @@ func WithAnnotations(annotations map[string]string) Modification {
 		if podTemplateSpec.Annotations == nil {
 			podTemplateSpec.Annotations = map[string]string{}
 		}
-		for k, v := range annotations {
-			podTemplateSpec.Annotations[k] = v
-		}
+		maps.Copy(podTemplateSpec.Annotations, annotations)
 	}
 }
 

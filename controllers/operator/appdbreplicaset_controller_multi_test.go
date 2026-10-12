@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -510,7 +509,7 @@ func reconcileAppDBForExpectedNumberOfTimes(ctx context.Context, t *testing.T, k
 
 	var reconciler *ReconcileAppDbReplicaSet
 	var err error
-	for i := 0; i < expectedReconciles; i++ {
+	for i := range expectedReconciles {
 		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, memberClusterMap, log, *omConnectionFactoryFunc)
 		require.NoError(t, err)
 		reconcileResult, err := reconciler.ReconcileAppDB(ctx, opsManager)
@@ -1170,7 +1169,7 @@ func TestAppDBMultiClusterMonitoringHostnames(t *testing.T) {
 	/* Default external domain */
 
 	opsManager.Spec.AppDB.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{
-		ExternalDomain: ptr.To("custom.domain"),
+		ExternalDomain: new("custom.domain"),
 	}
 
 	hostnames = reconciler.generateProcessHostnames(opsManager)
@@ -1190,10 +1189,10 @@ func TestAppDBMultiClusterMonitoringHostnames(t *testing.T) {
 	/* Per cluster external domain mixed with default domain */
 
 	opsManager.Spec.AppDB.ClusterSpecList[0].ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{
-		ExternalDomain: ptr.To("cluster0.domain"),
+		ExternalDomain: new("cluster0.domain"),
 	}
 	opsManager.Spec.AppDB.ClusterSpecList[2].ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{
-		ExternalDomain: ptr.To("cluster2.domain"),
+		ExternalDomain: new("cluster2.domain"),
 	}
 
 	hostnames = reconciler.generateProcessHostnames(opsManager)
@@ -1306,7 +1305,7 @@ func TestAppDBMultiClusterTryConfigureMonitoring(t *testing.T) {
 			},
 		}
 
-		opsManager.Spec.AppDB.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("custom.domain")}
+		opsManager.Spec.AppDB.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("custom.domain")}
 
 		expectedHostnames := []string{
 			"om-db-0-0.custom.domain",
@@ -1333,7 +1332,7 @@ func TestAppDBMultiClusterTryConfigureMonitoring(t *testing.T) {
 			{
 				ClusterName:                 memberClusterName2,
 				Members:                     3,
-				ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster-1.domain")},
+				ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("cluster-1.domain")},
 			},
 		}
 
@@ -1360,11 +1359,11 @@ func TestAppDBMultiClusterTryConfigureMonitoring(t *testing.T) {
 			{
 				ClusterName:                 memberClusterName2,
 				Members:                     3,
-				ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster-1.domain")},
+				ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("cluster-1.domain")},
 			},
 		}
 
-		opsManager.Spec.AppDB.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("custom.domain")}
+		opsManager.Spec.AppDB.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("custom.domain")}
 
 		expectedHostnames := []string{
 			"om-db-0-0.custom.domain",
@@ -1550,7 +1549,7 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 				{
 					ClusterName: memberClusterName1,
 					ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-						ExternalDomain: ptr.To("custom.domain"),
+						ExternalDomain: new("custom.domain"),
 					},
 					Members: 1,
 				},
@@ -1742,7 +1741,7 @@ func TestAppDBMultiClusterServiceCreation_WithExternalName(t *testing.T) {
 								},
 							},
 						},
-						ExternalDomain: ptr.To("custom.domain"),
+						ExternalDomain: new("custom.domain"),
 					},
 					Members: 2,
 				},
@@ -2069,7 +2068,7 @@ func TestAppDBMultiCluster_ScaleDown_HostsRemovedFromMonitoring(t *testing.T) {
 		},
 	}
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		reconciler, err = newAppDbMultiReconciler(ctx, kubeClient, opsManager, globalClusterMap, log, omConnectionFactory.GetConnectionFunc)
 		require.NoError(t, err)
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)

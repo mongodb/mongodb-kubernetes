@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"go.uber.org/zap"
-	"k8s.io/utils/ptr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -175,8 +174,8 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, l
 	secretName := appDb.GetSecurity().MemberCertificateSecretName(appDb.Name())
 
 	secretName += certs.OperatorGeneratedCertSuffix
-	optionalSecretFunc := func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
-	optionalConfigMapFunc := func(v *corev1.Volume) { v.ConfigMap.Optional = util.BooleanRef(true) }
+	optionalSecretFunc := func(v *corev1.Volume) { v.Secret.Optional = new(true) }
+	optionalConfigMapFunc := func(v *corev1.Volume) { v.ConfigMap.Optional = new(true) }
 
 	if !vault.IsVaultSecretBackend() {
 		secretVolume := statefulset.CreateVolumeFromSecret(util.SecretVolumeName, secretName, optionalSecretFunc)
@@ -450,7 +449,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, appdbMongodbAgentUtilitiesContainer(staticMounts, opts.InitAppDBImage))
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
 		}
 	}
 

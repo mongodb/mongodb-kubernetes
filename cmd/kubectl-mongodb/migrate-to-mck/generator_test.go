@@ -242,7 +242,7 @@ func TestGenerateMongoDBCR_ShardedMissingShardReplicaSet(t *testing.T) {
 func TestBuildDbCommonSpec_DownloadBase(t *testing.T) {
 	makeAC := func(downloadBase string) *om.AutomationConfig {
 		ac := baseValidReplicaSetAC()
-		options := ac.Deployment["options"].(map[string]interface{})
+		options := ac.Deployment["options"].(map[string]any)
 		options["downloadBase"] = downloadBase
 		ac.Deployment["options"] = options
 		return ac
@@ -272,17 +272,17 @@ func shardRSWithConfig(t *testing.T, processMap map[string]om.Process, rsName st
 	t.Helper()
 	host := rsName + "-0"
 	rs := om.NewReplicaSet(rsName, "7.0.12-ent")
-	rs["members"] = []interface{}{map[string]interface{}{"host": host, "_id": 0, "priority": 1, "votes": 1}}
+	rs["members"] = []any{map[string]any{"host": host, "_id": 0, "priority": 1, "votes": 1}}
 	if cacheSizeGB == nil {
 		processMap[host] = om.Process{"name": host}
 		return rs
 	}
 	processMap[host] = om.Process{
 		"name": host,
-		"args2_6": map[string]interface{}{
-			"storage": map[string]interface{}{
-				"wiredTiger": map[string]interface{}{
-					"engineConfig": map[string]interface{}{"cacheSizeGB": *cacheSizeGB},
+		"args2_6": map[string]any{
+			"storage": map[string]any{
+				"wiredTiger": map[string]any{
+					"engineConfig": map[string]any{"cacheSizeGB": *cacheSizeGB},
 				},
 			},
 		},
@@ -290,14 +290,12 @@ func shardRSWithConfig(t *testing.T, processMap map[string]om.Process, rsName st
 	return rs
 }
 
-func intPtr(i int) *int { return &i }
-
 func TestShardAdditionalMongodConfigs_ExtractsPerShard(t *testing.T) {
 	// Each shard's config comes from its own first member, not from shard 0's.
 	processMap := map[string]om.Process{}
 	shardRSes := []om.ReplicaSet{
-		shardRSWithConfig(t, processMap, "shard0", intPtr(4)),
-		shardRSWithConfig(t, processMap, "shard1", intPtr(8)),
+		shardRSWithConfig(t, processMap, "shard0", new(4)),
+		shardRSWithConfig(t, processMap, "shard1", new(8)),
 	}
 
 	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
@@ -314,7 +312,7 @@ func TestShardAdditionalMongodConfigs_ErrorWhenNoSourceProcess(t *testing.T) {
 	// producing a resource that silently omits them.
 	processMap := map[string]om.Process{}
 	orphan := om.NewReplicaSet("shard0", "7.0.12-ent")
-	orphan["members"] = []interface{}{map[string]interface{}{"host": "missing-host", "_id": 0, "priority": 1, "votes": 1}}
+	orphan["members"] = []any{map[string]any{"host": "missing-host", "_id": 0, "priority": 1, "votes": 1}}
 
 	_, err := shardAdditionalMongodConfigs(nil, processMap, []om.ReplicaSet{orphan})
 
@@ -328,19 +326,19 @@ func TestShardAdditionalMongodConfigs_FallsBackToLaterMember(t *testing.T) {
 	processMap := map[string]om.Process{
 		"shard0-1": {
 			"name": "shard0-1",
-			"args2_6": map[string]interface{}{
-				"storage": map[string]interface{}{
-					"wiredTiger": map[string]interface{}{
-						"engineConfig": map[string]interface{}{"cacheSizeGB": 7},
+			"args2_6": map[string]any{
+				"storage": map[string]any{
+					"wiredTiger": map[string]any{
+						"engineConfig": map[string]any{"cacheSizeGB": 7},
 					},
 				},
 			},
 		},
 	}
 	rs := om.NewReplicaSet("shard0", "7.0.12-ent")
-	rs["members"] = []interface{}{
-		map[string]interface{}{"host": "shard0-0", "_id": 0, "priority": 1, "votes": 1},
-		map[string]interface{}{"host": "shard0-1", "_id": 1, "priority": 1, "votes": 1},
+	rs["members"] = []any{
+		map[string]any{"host": "shard0-0", "_id": 0, "priority": 1, "votes": 1},
+		map[string]any{"host": "shard0-1", "_id": 1, "priority": 1, "votes": 1},
 	}
 
 	configs, err := shardAdditionalMongodConfigs(nil, processMap, []om.ReplicaSet{rs})
@@ -356,10 +354,10 @@ func TestShardAdditionalMongodConfigs_SkipsNonVotingMember(t *testing.T) {
 	mkProc := func(name string, cacheSizeGB int) om.Process {
 		return om.Process{
 			"name": name,
-			"args2_6": map[string]interface{}{
-				"storage": map[string]interface{}{
-					"wiredTiger": map[string]interface{}{
-						"engineConfig": map[string]interface{}{"cacheSizeGB": cacheSizeGB},
+			"args2_6": map[string]any{
+				"storage": map[string]any{
+					"wiredTiger": map[string]any{
+						"engineConfig": map[string]any{"cacheSizeGB": cacheSizeGB},
 					},
 				},
 			},
@@ -370,9 +368,9 @@ func TestShardAdditionalMongodConfigs_SkipsNonVotingMember(t *testing.T) {
 		"shard0-1": mkProc("shard0-1", 9),
 	}
 	rs := om.NewReplicaSet("shard0", "7.0.12-ent")
-	rs["members"] = []interface{}{
-		map[string]interface{}{"host": "shard0-0", "_id": 0, "priority": 0, "votes": 0},
-		map[string]interface{}{"host": "shard0-1", "_id": 1, "priority": 1, "votes": 1},
+	rs["members"] = []any{
+		map[string]any{"host": "shard0-0", "_id": 0, "priority": 0, "votes": 0},
+		map[string]any{"host": "shard0-1", "_id": 1, "priority": 1, "votes": 1},
 	}
 
 	configs, err := shardAdditionalMongodConfigs(nil, processMap, []om.ReplicaSet{rs})
@@ -402,7 +400,7 @@ func TestShardAdditionalMongodConfigs_ErrorForEmptyMembers(t *testing.T) {
 	// A shard replica set with no members has no source process either, so it is rejected
 	// for the same reason: nothing to read the shard's mongod settings from.
 	empty := om.NewReplicaSet("shard1", "7.0.12-ent")
-	empty["members"] = []interface{}{}
+	empty["members"] = []any{}
 
 	_, err := shardAdditionalMongodConfigs(nil, map[string]om.Process{}, []om.ReplicaSet{empty})
 
@@ -415,8 +413,8 @@ func TestCommonShardConfig_AllIdentical(t *testing.T) {
 	// comparison is on the marshalled map rather than pointer identity.
 	processMap := map[string]om.Process{}
 	shardRSes := []om.ReplicaSet{
-		shardRSWithConfig(t, processMap, "shard0", intPtr(4)),
-		shardRSWithConfig(t, processMap, "shard1", intPtr(4)),
+		shardRSWithConfig(t, processMap, "shard0", new(4)),
+		shardRSWithConfig(t, processMap, "shard1", new(4)),
 	}
 	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
 	require.NoError(t, err)
@@ -438,8 +436,8 @@ func TestCommonShardConfig_AllNil(t *testing.T) {
 func TestCommonShardConfig_Differing(t *testing.T) {
 	processMap := map[string]om.Process{}
 	shardRSes := []om.ReplicaSet{
-		shardRSWithConfig(t, processMap, "shard0", intPtr(4)),
-		shardRSWithConfig(t, processMap, "shard1", intPtr(8)),
+		shardRSWithConfig(t, processMap, "shard0", new(4)),
+		shardRSWithConfig(t, processMap, "shard1", new(8)),
 	}
 	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
 	require.NoError(t, err)
@@ -456,7 +454,7 @@ func TestCommonShardConfig_NilVersusSetIsNotUniform(t *testing.T) {
 	processMap := map[string]om.Process{}
 	shardRSes := []om.ReplicaSet{
 		shardRSWithConfig(t, processMap, "shard0", nil),
-		shardRSWithConfig(t, processMap, "shard1", intPtr(8)),
+		shardRSWithConfig(t, processMap, "shard1", new(8)),
 	}
 	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
 	require.NoError(t, err)
@@ -469,7 +467,7 @@ func TestCommonShardConfig_NilVersusSetIsNotUniform(t *testing.T) {
 func TestCommonShardConfig_SingleShard(t *testing.T) {
 	// A one-shard cluster is trivially uniform, so it keeps using spec.shard.
 	processMap := map[string]om.Process{}
-	shardRSes := []om.ReplicaSet{shardRSWithConfig(t, processMap, "shard0", intPtr(4))}
+	shardRSes := []om.ReplicaSet{shardRSWithConfig(t, processMap, "shard0", new(4))}
 	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
 	require.NoError(t, err)
 
@@ -484,9 +482,9 @@ func TestBuildShardOverrides_OneEntryPerShardInIndexOrder(t *testing.T) {
 	// shard index. Identical shards are not grouped: each line answers exactly one question.
 	processMap := map[string]om.Process{}
 	shardRSes := []om.ReplicaSet{
-		shardRSWithConfig(t, processMap, "shard0", intPtr(4)),
-		shardRSWithConfig(t, processMap, "shard1", intPtr(4)),
-		shardRSWithConfig(t, processMap, "shard2", intPtr(8)),
+		shardRSWithConfig(t, processMap, "shard0", new(4)),
+		shardRSWithConfig(t, processMap, "shard1", new(4)),
+		shardRSWithConfig(t, processMap, "shard2", new(8)),
 	}
 	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
 	require.NoError(t, err)
@@ -508,7 +506,7 @@ func TestBuildShardOverrides_SkipsShardsWithNilConfig(t *testing.T) {
 	processMap := map[string]om.Process{}
 	shardRSes := []om.ReplicaSet{
 		shardRSWithConfig(t, processMap, "shard0", nil),
-		shardRSWithConfig(t, processMap, "shard1", intPtr(8)),
+		shardRSWithConfig(t, processMap, "shard1", new(8)),
 	}
 	configs, err := shardAdditionalMongodConfigs(nil, processMap, shardRSes)
 	require.NoError(t, err)
@@ -594,9 +592,9 @@ func setProcessCacheSizeGB(t *testing.T, ac *om.AutomationConfig, processName st
 		if p.Name() != processName {
 			continue
 		}
-		args, ok := p["args2_6"].(map[string]interface{})
+		args, ok := p["args2_6"].(map[string]any)
 		if !ok {
-			args = map[string]interface{}{}
+			args = map[string]any{}
 			p["args2_6"] = args
 		}
 		maputil.SetMapValue(args, cacheSizeGB, "storage", "wiredTiger", "engineConfig", "cacheSizeGB")
@@ -671,12 +669,12 @@ func setSearchParameters(t *testing.T, ac *om.AutomationConfig, processName, mon
 		if p.Name() != processName {
 			continue
 		}
-		args, ok := p["args2_6"].(map[string]interface{})
+		args, ok := p["args2_6"].(map[string]any)
 		if !ok {
-			args = map[string]interface{}{}
+			args = map[string]any{}
 			p["args2_6"] = args
 		}
-		args["setParameter"] = map[string]interface{}{
+		args["setParameter"] = map[string]any{
 			"mongotHost":                                      mongotHost,
 			"searchIndexManagementHostAndPort":                mongotHost,
 			"skipAuthenticationToSearchIndexManagementServer": false,
@@ -690,10 +688,10 @@ func setSearchParameters(t *testing.T, ac *om.AutomationConfig, processName, mon
 }
 
 // readSetParameter pulls the setParameter submap out of an AdditionalMongodConfig.
-func readSetParameter(t *testing.T, cfg *mdbv1.AdditionalMongodConfig) map[string]interface{} {
+func readSetParameter(t *testing.T, cfg *mdbv1.AdditionalMongodConfig) map[string]any {
 	t.Helper()
 	require.NotNil(t, cfg)
-	sp, ok := cfg.ToMap()["setParameter"].(map[string]interface{})
+	sp, ok := cfg.ToMap()["setParameter"].(map[string]any)
 	require.True(t, ok, "expected a setParameter section, got %v", cfg.ToMap())
 	return sp
 }

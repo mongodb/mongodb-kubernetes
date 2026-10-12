@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -52,16 +51,16 @@ func testBackupScheduleIsUpdatedIfSpecifiedInSpec(ctx context.Context, mdb backu
 		insertDefaultBackupSchedule(t, omConnectionFactory, clusterID)
 
 		mdb.GetBackupSpec().SnapshotSchedule = &mdbv1.SnapshotSchedule{
-			SnapshotIntervalHours:          ptr.To(1),
-			SnapshotRetentionDays:          ptr.To(2),
-			DailySnapshotRetentionDays:     ptr.To(3),
-			WeeklySnapshotRetentionWeeks:   ptr.To(4),
-			MonthlySnapshotRetentionMonths: ptr.To(5),
-			PointInTimeWindowHours:         ptr.To(6),
-			ReferenceHourOfDay:             ptr.To(7),
-			ReferenceMinuteOfHour:          ptr.To(8),
-			FullIncrementalDayOfWeek:       ptr.To("Sunday"),
-			ClusterCheckpointIntervalMin:   ptr.To(9),
+			SnapshotIntervalHours:          new(1),
+			SnapshotRetentionDays:          new(2),
+			DailySnapshotRetentionDays:     new(3),
+			WeeklySnapshotRetentionWeeks:   new(4),
+			MonthlySnapshotRetentionMonths: new(5),
+			PointInTimeWindowHours:         new(6),
+			ReferenceHourOfDay:             new(7),
+			ReferenceMinuteOfHour:          new(8),
+			FullIncrementalDayOfWeek:       new("Sunday"),
+			ClusterCheckpointIntervalMin:   new(9),
 		}
 
 		err := client.Update(ctx, mdb)
@@ -82,16 +81,16 @@ func testBackupScheduleNotUpdatedIfNotChanged(ctx context.Context, mdb backup.Co
 		insertDefaultBackupSchedule(t, omConnectionFactory, clusterID)
 
 		snapshotSchedule := &mdbv1.SnapshotSchedule{
-			SnapshotIntervalHours:          ptr.To(11),
-			SnapshotRetentionDays:          ptr.To(12),
-			DailySnapshotRetentionDays:     ptr.To(13),
-			WeeklySnapshotRetentionWeeks:   ptr.To(14),
-			MonthlySnapshotRetentionMonths: ptr.To(15),
-			PointInTimeWindowHours:         ptr.To(16),
-			ReferenceHourOfDay:             ptr.To(17),
-			ReferenceMinuteOfHour:          ptr.To(18),
-			FullIncrementalDayOfWeek:       ptr.To("Thursday"),
-			ClusterCheckpointIntervalMin:   ptr.To(19),
+			SnapshotIntervalHours:          new(11),
+			SnapshotRetentionDays:          new(12),
+			DailySnapshotRetentionDays:     new(13),
+			WeeklySnapshotRetentionWeeks:   new(14),
+			MonthlySnapshotRetentionMonths: new(15),
+			PointInTimeWindowHours:         new(16),
+			ReferenceHourOfDay:             new(17),
+			ReferenceMinuteOfHour:          new(18),
+			FullIncrementalDayOfWeek:       new("Thursday"),
+			ClusterCheckpointIntervalMin:   new(19),
 		}
 
 		mdb.GetBackupSpec().SnapshotSchedule = snapshotSchedule
@@ -113,7 +112,7 @@ func testBackupScheduleNotUpdatedIfNotChanged(ctx context.Context, mdb backup.Co
 
 		omConnectionFactory.GetConnection().(*om.MockedOmConnection).CheckOperationsDidntHappen(t, reflect.ValueOf(omConnectionFactory.GetConnection().UpdateSnapshotSchedule))
 
-		mdb.GetBackupSpec().SnapshotSchedule.FullIncrementalDayOfWeek = ptr.To("Monday")
+		mdb.GetBackupSpec().SnapshotSchedule.FullIncrementalDayOfWeek = new("Monday")
 		err = kubeClient.Update(ctx, mdb)
 		require.NoError(t, err)
 

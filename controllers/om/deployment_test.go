@@ -144,10 +144,10 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 func TestConfigureSSL_Deployment(t *testing.T) {
 	d := Deployment{}
 	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}, util.CAFilePathInContainer)
-	expectedSSLConfig := map[string]interface{}{
+	expectedSSLConfig := map[string]any{
 		"CAFilePath": "/mongodb-automation/ca.pem",
 	}
-	assert.Equal(t, expectedSSLConfig, d["tls"].(map[string]interface{}))
+	assert.Equal(t, expectedSSLConfig, d["tls"].(map[string]any))
 
 	d.ConfigureTLS(&mdbv1.Security{}, util.CAFilePathInContainer)
 	assert.Equal(t, d["tls"], map[string]any{"clientCertificateMode": string(automationconfig.ClientCertificateModeOptional)})
@@ -519,10 +519,10 @@ func TestConfigureMonitoring(t *testing.T) {
 	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
 
-	expectedMonitoringVersions := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
+	expectedMonitoringVersions := []any{
+		map[string]any{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]any{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]any{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
 	}
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
@@ -543,10 +543,10 @@ func TestConfigureMonitoringTls(t *testing.T) {
 		"sslTrustedServerCertificates": util.CAFilePathInContainer,
 	}
 
-	expectedMonitoringVersions := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+	expectedMonitoringVersions := []any{
+		map[string]any{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]any{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]any{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
 	}
 	assert.Equal(t, expectedMonitoringVersions, d.getMonitoringVersions())
 
@@ -567,19 +567,19 @@ func TestConfigureMonitoringTLSDisable(t *testing.T) {
 		"useSslForAllConnections":      "true",
 		"sslTrustedServerCertificates": util.CAFilePathInContainer,
 	}
-	expectedMonitoringVersionsWithTls := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+	expectedMonitoringVersionsWithTls := []any{
+		map[string]any{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]any{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
+		map[string]any{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion, "additionalParams": expectedAdditionalParams},
 	}
 	assert.Equal(t, expectedMonitoringVersionsWithTls, d.getMonitoringVersions())
 
 	// disabling TLS should clear additionalParams (CLOUDP-351614)
 	d.ConfigureMonitoring(zap.S(), false, util.CAFilePathInContainer)
-	expectedMonitoringVersionsWithoutTls := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
+	expectedMonitoringVersionsWithoutTls := []any{
+		map[string]any{"hostname": "my-rs-0.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]any{"hostname": "my-rs-1.some.host", "name": MonitoringAgentDefaultVersion},
+		map[string]any{"hostname": "my-rs-2.some.host", "name": MonitoringAgentDefaultVersion},
 	}
 	assert.Equal(t, expectedMonitoringVersionsWithoutTls, d.getMonitoringVersions())
 }
@@ -591,10 +591,10 @@ func TestConfigureBackup(t *testing.T) {
 	d.MergeReplicaSet(rs0, nil, nil, nil, zap.S())
 	d.ConfigureBackup(zap.S())
 
-	expectedBackupVersions := []interface{}{
-		map[string]interface{}{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-1.some.host", "name": BackupAgentDefaultVersion},
-		map[string]interface{}{"hostname": "my-rs-2.some.host", "name": BackupAgentDefaultVersion},
+	expectedBackupVersions := []any{
+		map[string]any{"hostname": "my-rs-0.some.host", "name": BackupAgentDefaultVersion},
+		map[string]any{"hostname": "my-rs-1.some.host", "name": BackupAgentDefaultVersion},
+		map[string]any{"hostname": "my-rs-2.some.host", "name": BackupAgentDefaultVersion},
 	}
 	assert.Equal(t, expectedBackupVersions, d.getBackupVersions())
 
@@ -757,7 +757,7 @@ func createShardsSpecificNumberOfMongods(count int, name string) []ReplicaSetWit
 
 func createSpecificNumberOfShardsAndMongods(countShards, countMongods int, name string) []ReplicaSetWithProcesses {
 	shards := make([]ReplicaSetWithProcesses, countShards)
-	for i := 0; i < countShards; i++ {
+	for i := range countShards {
 		rsName := fmt.Sprintf("%s-%d", name, i)
 		options := make([]automationconfig.MemberOptions, countMongods)
 		shards[i] = NewReplicaSetWithProcesses(
@@ -787,7 +787,7 @@ func createStandalone() Process {
 func createMongosProcesses(num int, name, clusterName string) []Process {
 	mongosProcesses := make([]Process, num)
 
-	for i := 0; i < num; i++ {
+	for i := range num {
 		idx := strconv.Itoa(i)
 		mongosProcesses[i] = NewMongosProcess(name+idx, "mongoS"+idx+".some.host", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "", architectures.NonStatic)
 		if clusterName != "" {
@@ -804,7 +804,7 @@ func createReplicaSetProcesses(rsName string) []Process {
 func createReplicaSetProcessesCount(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3"), "", nil, "", architectures.NonStatic)
 		// Note that we don't specify the replicaset config for process
 	}
@@ -814,7 +814,7 @@ func createReplicaSetProcessesCount(count int, rsName string) []Process {
 func createReplicaSetProcessesCountEnt(count int, rsName string) []Process {
 	rsMembers := make([]Process, count)
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		rsMembers[i] = NewMongodProcess(fmt.Sprintf("%s-%d", rsName, i), fmt.Sprintf("%s-%d.some.host", rsName, i), "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, defaultMongoDBVersioned("3.6.3-ent"), "", nil, "", architectures.NonStatic)
 		// Note that we don't specify the replicaset config for process
 	}
@@ -1008,7 +1008,7 @@ func TestLimitVotingMembers_AppliesNormallyWhenNoExternalMembers(t *testing.T) {
 	got := d.getReplicaSetByName("my-rs").Members()
 	require.Len(t, got, 8)
 	// First 7 still voting, 8th zeroed by the legacy auto-adjust
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		assert.Equal(t, 1, got[i].Votes(), "member %d should still be voting", i)
 	}
 	assert.Equal(t, 0, got[7].Votes(), "8th member should be zeroed")

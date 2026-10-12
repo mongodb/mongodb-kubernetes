@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -341,7 +340,7 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 				Storage: "1Gi",
 			},
 		}
-		sc.Spec.Persistent = util.BooleanRef(true)
+		sc.Spec.Persistent = new(true)
 		sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
 		sc.Spec.ShardPodSpec.Persistence = &persistence
 		reconciler, _, c, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
@@ -1845,7 +1844,7 @@ func vmShardProcessWithSearchSetParameters(t *testing.T, sc *mdbv1.MongoDB, with
 	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "8.2.0"}}
 	additional := &mdbv1.AdditionalMongodConfig{}
 	if withSearch {
-		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]interface{}{
+		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]any{
 			"mongotHost":                       "sc-search-0-sc-0-0.sc-search-0-sc-0-svc.my-namespace.svc.cluster.local:27028",
 			"searchIndexManagementHostAndPort": "sc-search-0-sc-0-0.sc-search-0-sc-0-svc.my-namespace.svc.cluster.local:27028",
 		})
@@ -1933,7 +1932,7 @@ func computeSingleClusterShardOverridesFromDistribution(shardOverridesDistributi
 		// Construct the ShardOverride for that shard
 		shardOverride := mdbv1.ShardOverride{
 			ShardNames: []string{shardName},
-			Members:    ptr.To(memberCount),
+			Members:    new(memberCount),
 		}
 
 		// Append the constructed ShardOverride to the shardOverrides slice
@@ -2203,8 +2202,8 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 
 	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
 		d := om.NewDeployment()
-		netWithTLS := func(port int) map[string]interface{} {
-			return map[string]interface{}{"port": port, "tls": map[string]interface{}{"mode": "disabled"}}
+		netWithTLS := func(port int) map[string]any {
+			return map[string]any{"port": port, "tls": map[string]any{"mode": "disabled"}}
 		}
 		d["processes"] = []om.Process{
 			{
@@ -2212,7 +2211,7 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 				"hostname":    "vm-mongod.example.com",
 				"processType": om.ProcessTypeMongod,
 				"version":     sc.Spec.Version,
-				"args2_6":     map[string]interface{}{"net": netWithTLS(27018)},
+				"args2_6":     map[string]any{"net": netWithTLS(27018)},
 			},
 			{
 				"name":        "vm-mongos",
@@ -2220,7 +2219,7 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 				"processType": om.ProcessTypeMongos,
 				"version":     sc.Spec.Version,
 				"cluster":     sc.GetShardedClusterName(),
-				"args2_6":     map[string]interface{}{"net": netWithTLS(27017)},
+				"args2_6":     map[string]any{"net": netWithTLS(27017)},
 			},
 		}
 		shard0Rs := om.NewReplicaSet(sc.ShardACRsName(0), sc.Spec.Version)

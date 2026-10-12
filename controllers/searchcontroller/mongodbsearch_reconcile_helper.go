@@ -1327,9 +1327,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 			cm.Labels = map[string]string{}
 		}
 		cm.Labels[componentLabelKey] = mongotComponent
-		for k, v := range searchOwnerLabels(r.mdbSearch) {
-			cm.Labels[k] = v
-		}
+		maps.Copy(cm.Labels, searchOwnerLabels(r.mdbSearch))
 		cm.ResourceVersion = resourceVersion
 		cm.OwnerReferences = ownerReferences
 		return nil
@@ -1357,7 +1355,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 //	{stsName}-0:         "leader"
 //	{stsName}-1:         "follower"
 //	{stsName}-N:         "follower"
-func buildMongotConfigMapEntries(config mongot.Config, advancedConfigs map[string]interface{}, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
+func buildMongotConfigMapEntries(config mongot.Config, advancedConfigs map[string]any, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
 	if usePerPodConfig {
 		return buildPerPodConfigEntries(config, advancedConfigs, stsName, replicas)
 	}
@@ -1365,7 +1363,7 @@ func buildMongotConfigMapEntries(config mongot.Config, advancedConfigs map[strin
 }
 
 // buildPerPodConfigEntries creates leader (pod-0) and follower configs with pod-name role keys.
-func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]interface{}, stsName string, replicas int) (map[string][]byte, []string, error) {
+func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]any, stsName string, replicas int) (map[string][]byte, []string, error) {
 	leaderData, err := marshalMongotConfig(config, advancedConfigs)
 	if err != nil {
 		return nil, nil, err
@@ -1374,7 +1372,7 @@ func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]i
 	followerConfig := config
 	if config.Embedding != nil {
 		embeddingCopy := *config.Embedding
-		embeddingCopy.IsAutoEmbeddingViewWriter = ptr.To(false)
+		embeddingCopy.IsAutoEmbeddingViewWriter = new(false)
 		followerConfig.Embedding = &embeddingCopy
 	}
 	followerData, err := marshalMongotConfig(followerConfig, advancedConfigs)
@@ -1387,7 +1385,7 @@ func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]i
 		MongotConfigFollowerFilename: followerData,
 	}
 
-	for i := 0; i < replicas; i++ {
+	for i := range replicas {
 		podName := fmt.Sprintf("%s-%d", stsName, i)
 		if i == 0 {
 			entries[podName] = []byte("leader")
@@ -1403,7 +1401,7 @@ func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]i
 // marshalMongotConfig renders the mongot config YAML. The cluster's
 // advancedMongotConfigs is an opaque block placed verbatim under the
 // "advancedConfigs" key; operator-generated sections are never touched.
-func marshalMongotConfig(config mongot.Config, advancedConfigs map[string]interface{}) ([]byte, error) {
+func marshalMongotConfig(config mongot.Config, advancedConfigs map[string]any) ([]byte, error) {
 	if len(advancedConfigs) == 0 {
 		return yaml.Marshal(config)
 	}
@@ -1416,7 +1414,7 @@ func marshalMongotConfig(config mongot.Config, advancedConfigs map[string]interf
 	return yaml.Marshal(merged)
 }
 
-func buildSingleConfigEntry(config mongot.Config, advancedConfigs map[string]interface{}, stsName string, replicas int) (map[string][]byte, []string, error) {
+func buildSingleConfigEntry(config mongot.Config, advancedConfigs map[string]any, stsName string, replicas int) (map[string][]byte, []string, error) {
 	data, err := marshalMongotConfig(config, advancedConfigs)
 	if err != nil {
 		return nil, nil, err
@@ -1424,7 +1422,7 @@ func buildSingleConfigEntry(config mongot.Config, advancedConfigs map[string]int
 
 	entries := map[string][]byte{MongotConfigFilename: data}
 	keysToRemove := []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename}
-	for i := 0; i < replicas; i++ {
+	for i := range replicas {
 		keysToRemove = append(keysToRemove, fmt.Sprintf("%s-%d", stsName, i))
 	}
 	return entries, keysToRemove, nil
@@ -1506,12 +1504,8 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 		appLabelKey:       unit.headlessSvc.Name,
 		componentLabelKey: mongotComponent,
 	}
-	for k, v := range unit.additionalSvcLabels {
-		svcLabels[k] = v
-	}
-	for k, v := range searchOwnerLabels(search) {
-		svcLabels[k] = v
-	}
+	maps.Copy(svcLabels, unit.additionalSvcLabels)
+	maps.Copy(svcLabels, searchOwnerLabels(search))
 
 	serviceBuilder := service.Builder().
 		SetName(unit.headlessSvc.Name).
@@ -1550,12 +1544,8 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 		appLabelKey:       unit.proxySvc.Name,
 		componentLabelKey: proxyServiceComponent,
 	}
-	for k, v := range unit.additionalSvcLabels {
-		labels[k] = v
-	}
-	for k, v := range searchOwnerLabels(search) {
-		labels[k] = v
-	}
+	maps.Copy(labels, unit.additionalSvcLabels)
+	maps.Copy(labels, searchOwnerLabels(search))
 
 	targetPort := search.GetEffectiveMongotPort()
 
@@ -1596,9 +1586,7 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 		appLabelKey:       res.svcName.Name,
 		componentLabelKey: proxyServiceComponent,
 	}
-	for k, v := range searchOwnerLabels(search) {
-		labels[k] = v
-	}
+	maps.Copy(labels, searchOwnerLabels(search))
 
 	targetPort := search.GetEffectiveMongotPort()
 
@@ -1822,15 +1810,15 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	}
 
 	mongotModification := func(config *mongot.Config) {
-		certPath := tls.OperatorSecretMountPath + certFileName
+		certPath := tls.OperatorSecretMountPath + certFileName //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
 		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
-		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
+		config.Server.Grpc.TLS.CertificateKeyFile = new(certPath)
 		if hasKeyPassword {
-			config.Server.Grpc.TLS.CertificateKeyFilePasswordFile = ptr.To(TempGrpcKeyPasswordPath)
+			config.Server.Grpc.TLS.CertificateKeyFilePasswordFile = new(TempGrpcKeyPasswordPath)
 		}
 		if config.Server.Wireproto != nil {
 			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
-			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
+			config.Server.Wireproto.TLS.CertificateKeyFile = new(certPath)
 		}
 	}
 
@@ -1898,7 +1886,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		return nil, nil, err
 	}
 
-	certPath := X509ClientCertOperatorMountPath + certFileName
+	certPath := X509ClientCertOperatorMountPath + certFileName //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
 
 	// The x509 client key may be password-encrypted; the password lives in a dedicated secret
 	// (spec.source.x509.keyFilePasswordSecretRef), key "keyFilePassword".
@@ -1914,21 +1902,21 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	mongotModification := func(config *mongot.Config) {
 		config.SyncSource.ReplicaSet.ScramAuth = nil
 		config.SyncSource.ReplicaSet.X509 = &mongot.ConfigX509{
-			TLSCertificateKeyFile:    ptr.To(certPath),
-			CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+			TLSCertificateKeyFile:    new(certPath),
+			CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
 		}
 		if hasKeyPassword {
-			config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile = ptr.To(TempX509KeyPasswordPath)
+			config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
 		}
 
 		if config.SyncSource.Router != nil {
 			config.SyncSource.Router.ScramAuth = nil
 			config.SyncSource.Router.X509 = &mongot.ConfigX509{
-				TLSCertificateKeyFile:    ptr.To(certPath),
-				CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+				TLSCertificateKeyFile:    new(certPath),
+				CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
 			}
 			if hasKeyPassword {
-				config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile = ptr.To(TempX509KeyPasswordPath)
+				config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
 			}
 		}
 	}
@@ -2021,12 +2009,12 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	mongotModification := func(config *mongot.Config) {
 		scramTLS := &mongot.ScramAuthTLS{
 			Enabled:                  true,
-			CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+			CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
 		}
 		if scramCertPath != "" {
-			scramTLS.TLSCertificateKeyFile = ptr.To(scramCertPath)
+			scramTLS.TLSCertificateKeyFile = new(scramCertPath)
 			if hasScramKeyPassword {
-				scramTLS.TLSCertificateKeyFilePasswordFile = ptr.To(TempScramKeyPasswordPath)
+				scramTLS.TLSCertificateKeyFilePasswordFile = new(TempScramKeyPasswordPath)
 			}
 		}
 
@@ -2036,12 +2024,12 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		if config.SyncSource.Router != nil && config.SyncSource.Router.ScramAuth != nil {
 			routerScramTLS := &mongot.ScramAuthTLS{
 				Enabled:                  true,
-				CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+				CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
 			}
 			if scramCertPath != "" {
-				routerScramTLS.TLSCertificateKeyFile = ptr.To(scramCertPath)
+				routerScramTLS.TLSCertificateKeyFile = new(scramCertPath)
 				if hasScramKeyPassword {
-					routerScramTLS.TLSCertificateKeyFilePasswordFile = ptr.To(TempScramKeyPasswordPath)
+					routerScramTLS.TLSCertificateKeyFilePasswordFile = new(TempScramKeyPasswordPath)
 				}
 			}
 			config.SyncSource.Router.ScramAuth.TLS = routerScramTLS
@@ -2050,7 +2038,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
 			config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeMTLS
-			config.Server.Grpc.TLS.CertificateAuthorityFile = ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName)
+			config.Server.Grpc.TLS.CertificateAuthorityFile = new(tls.CAMountPath + tlsSourceConfig.CAFileName)
 		}
 	}
 
@@ -2158,11 +2146,11 @@ func baseMongotConfig(search *searchv1.MongoDBSearch, hostAndPorts []string) mon
 					TLS: &mongot.ScramAuthTLS{
 						Enabled: false,
 					},
-					AuthSource: ptr.To("admin"),
+					AuthSource: new("admin"),
 				},
 			},
 			ReplicationReader: &mongot.ConfigReplicationReader{
-				ReadPreference: ptr.To("secondaryPreferred"),
+				ReadPreference: new("secondaryPreferred"),
 			},
 		}
 		config.Storage = mongot.ConfigStorage{

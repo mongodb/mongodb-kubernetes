@@ -10,7 +10,7 @@ import (
 
 type MonitoringAgentConfig struct {
 	MonitoringAgentTemplate *MonitoringAgentTemplate
-	BackingMap              map[string]interface{}
+	BackingMap              map[string]any
 }
 
 type MonitoringAgentTemplate struct {
@@ -18,7 +18,7 @@ type MonitoringAgentTemplate struct {
 	Password      string                                `json:"password,omitempty"`
 	SSLPemKeyFile string                                `json:"sslPEMKeyFile,omitempty"`
 	LdapGroupDN   string                                `json:"ldapGroupDN,omitempty"`
-	LogRotate     mdbv1.LogRotateForBackupAndMonitoring `json:"logRotate,omitempty"`
+	LogRotate     mdbv1.LogRotateForBackupAndMonitoring `json:"logRotate"`
 }
 
 func (m *MonitoringAgentConfig) Apply() error {
@@ -100,7 +100,7 @@ func LogRotateForAgentsFromAc(ac *automationconfig.AcLogRotate) *mdbv1.LogRotate
 }
 
 func BuildMonitoringAgentConfigFromBytes(jsonBytes []byte) (*MonitoringAgentConfig, error) {
-	fullMap := make(map[string]interface{})
+	fullMap := make(map[string]any)
 	if err := json.Unmarshal(jsonBytes, &fullMap); err != nil {
 		return nil, err
 	}

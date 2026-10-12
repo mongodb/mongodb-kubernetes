@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -114,7 +113,7 @@ func mcShardedTLSSearch(t *testing.T, name, ns string, shardNames ...string) *se
 func pinClusters(s *searchv1.MongoDBSearch, indexByCluster map[string]int32) {
 	clusters := make([]searchv1.ClusterSpec, 0, len(indexByCluster))
 	for name, idx := range indexByCluster {
-		clusters = append(clusters, searchv1.ClusterSpec{Name: name, Index: ptr.To(idx)})
+		clusters = append(clusters, searchv1.ClusterSpec{Name: name, Index: new(idx)})
 	}
 	s.Spec.Clusters = clusters
 }
@@ -221,7 +220,7 @@ func TestCheckSecretsPresence_SingleClusterSharded_CentralIncludesPerShardCerts(
 func TestCheckSecretsPresence_OperatorPerCluster_UsesPinnedIndex(t *testing.T) {
 	newPinnedSearch := func() *searchv1.MongoDBSearch {
 		s := mcShardedTLSSearch(t, "s", "ns", "shard-0")
-		s.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}}
+		s.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-b", Index: new(int32(7))}}
 		return s
 	}
 

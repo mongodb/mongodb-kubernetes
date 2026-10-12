@@ -274,7 +274,7 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 	}
 }
 
-func (r *MongoDBUserReconciler) delete(ctx context.Context, obj interface{}, log *zap.SugaredLogger) error {
+func (r *MongoDBUserReconciler) delete(ctx context.Context, obj any, log *zap.SugaredLogger) error {
 	user := obj.(*userv1.MongoDBUser)
 
 	mdb, err := r.getMongoDB(ctx, *user)

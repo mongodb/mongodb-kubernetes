@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -283,7 +282,7 @@ func TestExposedExternallyReplicaSet(t *testing.T) {
 	err := client.Get(ctx, types.NamespacedName{Name: rs.Name + "-svc-external", Namespace: rs.Namespace}, externalService)
 	assert.Error(t, err)
 
-	for podNum := 0; podNum < 3; podNum++ {
+	for podNum := range 3 {
 		err := client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%d-svc-external", rs.Name, podNum), Namespace: rs.Namespace}, externalService)
 		assert.NoError(t, err)
 
@@ -308,7 +307,7 @@ func TestExposedExternallyReplicaSetExternalDomainInHostnames(t *testing.T) {
 	memberCount := 3
 	replicaSetName := "rs"
 	var expectedHostnames []string
-	for i := 0; i < memberCount; i++ {
+	for i := range memberCount {
 		expectedHostnames = append(expectedHostnames, fmt.Sprintf("%s-%d.%s", replicaSetName, i, externalDomain))
 	}
 
@@ -358,7 +357,7 @@ func TestExposedExternallyReplicaSetWithNodePort(t *testing.T) {
 	}
 
 	// then
-	for podNum := 0; podNum < 3; podNum++ {
+	for podNum := range 3 {
 		err := client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%d-svc-external", rs.Name, podNum), Namespace: rs.Namespace}, externalService)
 		assert.NoError(t, err)
 
@@ -885,7 +884,7 @@ func TestHandlePVCResize(t *testing.T) {
 				Namespace: "default",
 			},
 			Spec: appsv1.StatefulSetSpec{
-				Replicas: ptr.To(int32(3)),
+				Replicas: new(int32(3)),
 				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -946,7 +945,7 @@ func TestReplicaSetReconciler_PVCStatusClearedAfterSuccessfulResize(t *testing.T
 		podSpec := newDefaultPodSpec()
 		podSpec.Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1Gi"}}
 		rs := DefaultReplicaSetBuilder().
-			SetPersistent(util.BooleanRef(true)).
+			SetPersistent(new(true)).
 			SetPodSpec(&podSpec).
 			Build()
 
@@ -1292,7 +1291,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	spec := mdbv1.MongoDbSpec{
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Version:    "4.0.0",
-			Persistent: util.BooleanRef(false),
+			Persistent: new(false),
 			ConnectionSpec: mdbv1.ConnectionSpec{
 				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
 					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
@@ -1472,21 +1471,6 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 	return b
 }
 
-func (b *ReplicaSetBuilder) SetExternalMembers(members []mdbv1.ExternalMember) *ReplicaSetBuilder {
-	b.Spec.ExternalMembers = members
-	return b
-}
-
-func (b *ReplicaSetBuilder) SetFinalizers(finalizers []string) *ReplicaSetBuilder {
-	b.Finalizers = finalizers
-	return b
-}
-
-func (b *ReplicaSetBuilder) SetDeletionTimestamp(t metav1.Time) *ReplicaSetBuilder {
-	b.DeletionTimestamp = &t
-	return b
-}
-
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.DeepCopy()
@@ -1501,7 +1485,7 @@ func baseTestStatefulSet(name string, replicas int32) *appsv1.StatefulSet {
 			Namespace: mock.TestNamespace,
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: ptr.To(replicas),
+			Replicas: new(replicas),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -1724,7 +1708,7 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 		return &searchv1.MongoDBSearch{
 			ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
 			Spec: searchv1.MongoDBSearchSpec{
-				Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(7))}},
+				Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(7))}},
 				Source:   &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"}},
 			},
 		}
@@ -1797,7 +1781,7 @@ func vmProcessWithSearchSetParameters(t *testing.T, withSearch bool) om.Deployme
 	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "8.2.0"}}
 	additional := &mdbv1.AdditionalMongodConfig{}
 	if withSearch {
-		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]interface{}{
+		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]any{
 			"mongotHost":                       "mdb-search-0.mdb-search-svc.my-namespace.svc.cluster.local:27028",
 			"searchIndexManagementHostAndPort": "mdb-search-0.mdb-search-svc.my-namespace.svc.cluster.local:27028",
 		})
@@ -1973,7 +1957,7 @@ func someOtherOwnerReference() []metav1.OwnerReference {
 			Kind:       "MongoDBOpsManager",
 			Name:       "some-other-owner",
 			UID:        types.UID(uuid.New().String()),
-			Controller: ptr.To(true),
+			Controller: new(true),
 		},
 	}
 }
@@ -1988,7 +1972,7 @@ func DefaultStatefulSetBuilder() *StatefulSetBuilder {
 		ObjectMeta: metav1.ObjectMeta{Namespace: mock.TestNamespace},
 		// Spec.Replicas must be non-nil: the fake client's Get interceptor
 		// (mock.markStatefulSetsReady) unconditionally dereferences it.
-		Spec: appsv1.StatefulSetSpec{Replicas: ptr.To(int32(3))},
+		Spec: appsv1.StatefulSetSpec{Replicas: new(int32(3))},
 	}}
 }
 
@@ -2008,7 +1992,7 @@ func (b *StatefulSetBuilder) SetAnnotations(annotations map[string]string) *Stat
 }
 
 func (b *StatefulSetBuilder) SetReplicas(replicas int32) *StatefulSetBuilder {
-	b.sts.Spec.Replicas = ptr.To(replicas)
+	b.sts.Spec.Replicas = new(replicas)
 	return b
 }
 
@@ -2142,13 +2126,13 @@ func TestConsumeAdoptionSignal(t *testing.T) {
 	}{
 		{
 			name: "keeps migration-ready annotation during adoption for reshape",
-			sts: ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").
+			sts: new(DefaultStatefulSetBuilder().SetName("my-om-db").
 				SetOwnerReferences(nil).
 				SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true", "other": "kept"}).Build()),
 		},
 		{
 			name: "no-op when annotation absent",
-			sts:  ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").SetOwnerReferences(nil).Build()),
+			sts:  new(DefaultStatefulSetBuilder().SetName("my-om-db").SetOwnerReferences(nil).Build()),
 		},
 		{
 			name: "no-op when StatefulSet does not exist",

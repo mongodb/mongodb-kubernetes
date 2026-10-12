@@ -28,27 +28,27 @@ func loadTestAutomationConfig(t *testing.T, filename string) *om.AutomationConfi
 // so the mutation is the only thing that can trip the validation.
 func baseValidReplicaSetAC() *om.AutomationConfig {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"options": map[string]interface{}{"downloadBase": util.DefaultPvcMmsMountPath},
-		"processes": []interface{}{
-			map[string]interface{}{
+		"options": map[string]any{"downloadBase": util.DefaultPvcMmsMountPath},
+		"processes": []any{
+			map[string]any{
 				"name": "my-rs-0", "processType": string(om.ProcessTypeMongod),
 				"version": "7.0.12-ent", "authSchemaVersion": 5,
-				"args2_6": map[string]interface{}{
-					"net":         map[string]interface{}{"port": 27017, "tls": map[string]interface{}{"mode": "requireSSL"}},
-					"storage":     map[string]interface{}{"dbPath": "/data/db"},
-					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				"args2_6": map[string]any{
+					"net":         map[string]any{"port": 27017, "tls": map[string]any{"mode": "requireSSL"}},
+					"storage":     map[string]any{"dbPath": "/data/db"},
+					"replication": map[string]any{"replSetName": "my-rs"},
 				},
 			},
 		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
+		"replicaSets": []any{
+			map[string]any{
 				"_id": "my-rs", "protocolVersion": "1",
-				"members": []interface{}{
-					map[string]interface{}{"_id": 0, "host": "my-rs-0", "votes": 1, "priority": 1, "buildIndexes": true, "tags": map[string]string{}},
+				"members": []any{
+					map[string]any{"_id": 0, "host": "my-rs-0", "votes": 1, "priority": 1, "buildIndexes": true, "tags": map[string]string{}},
 				},
 			},
 		},
-		"sharding": []interface{}{},
+		"sharding": []any{},
 	})
 	ac.Auth = &om.Auth{
 		Disabled:          false,
@@ -74,18 +74,18 @@ func TestValidation_OneDeploymentPerProject_SingleRS(t *testing.T) {
 
 func TestValidation_Standalone_Error(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{
+		"processes": []any{
+			map[string]any{
 				"name": "standalone-0", "processType": string(om.ProcessTypeMongod),
 				"version": "7.0.12-ent", "authSchemaVersion": 5,
-				"args2_6": map[string]interface{}{
-					"net":     map[string]interface{}{"port": 27017},
-					"storage": map[string]interface{}{"dbPath": "/data/db"},
+				"args2_6": map[string]any{
+					"net":     map[string]any{"port": 27017},
+					"storage": map[string]any{"dbPath": "/data/db"},
 				},
 			},
 		},
-		"replicaSets": []interface{}{},
-		"sharding":    []interface{}{},
+		"replicaSets": []any{},
+		"sharding":    []any{},
 	})
 
 	results := validateNoStandalones(ac.Deployment)
@@ -96,13 +96,13 @@ func TestValidation_Standalone_Error(t *testing.T) {
 
 func TestValidation_StandaloneAlongsideReplicaSet_Error(t *testing.T) {
 	ac := baseValidReplicaSetAC()
-	processes := ac.Deployment["processes"].([]interface{})
-	ac.Deployment["processes"] = append(processes, map[string]interface{}{
+	processes := ac.Deployment["processes"].([]any)
+	ac.Deployment["processes"] = append(processes, map[string]any{
 		"name": "standalone-0", "processType": string(om.ProcessTypeMongod),
 		"version": "7.0.12-ent", "authSchemaVersion": 5,
-		"args2_6": map[string]interface{}{
-			"net":     map[string]interface{}{"port": 27017, "tls": map[string]interface{}{"mode": "requireSSL"}},
-			"storage": map[string]interface{}{"dbPath": "/data/db"},
+		"args2_6": map[string]any{
+			"net":     map[string]any{"port": 27017, "tls": map[string]any{"mode": "requireSSL"}},
+			"storage": map[string]any{"dbPath": "/data/db"},
 		},
 	})
 
@@ -119,15 +119,15 @@ func TestValidation_StandaloneAlongsideReplicaSet_Error(t *testing.T) {
 
 func TestValidation_MongosNotTreatedAsStandalone(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{
+		"processes": []any{
+			map[string]any{
 				"name": "mongos-0", "processType": string(om.ProcessTypeMongos),
 				"version": "7.0.12-ent",
-				"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
+				"args2_6": map[string]any{"net": map[string]any{"port": 27017}},
 			},
 		},
-		"replicaSets": []interface{}{},
-		"sharding":    []interface{}{},
+		"replicaSets": []any{},
+		"sharding":    []any{},
 	})
 
 	assert.Empty(t, validateNoStandalones(ac.Deployment))
@@ -135,12 +135,12 @@ func TestValidation_MongosNotTreatedAsStandalone(t *testing.T) {
 
 func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{},
-		"replicaSets": []interface{}{
-			map[string]interface{}{"_id": "rs-alpha", "members": []interface{}{}},
-			map[string]interface{}{"_id": "rs-beta", "members": []interface{}{}},
+		"processes": []any{},
+		"replicaSets": []any{
+			map[string]any{"_id": "rs-alpha", "members": []any{}},
+			map[string]any{"_id": "rs-beta", "members": []any{}},
 		},
-		"sharding": []interface{}{},
+		"sharding": []any{},
 	})
 
 	results := validateOneDeploymentPerProject(ac.Deployment)
@@ -151,17 +151,17 @@ func TestValidation_OneDeploymentPerProject_MultipleRS(t *testing.T) {
 
 func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{},
-		"replicaSets": []interface{}{
-			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
-			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+		"processes": []any{},
+		"replicaSets": []any{
+			map[string]any{"_id": "shard-rs", "members": []any{}},
+			map[string]any{"_id": "config-rs", "members": []any{}},
 		},
-		"sharding": []interface{}{
-			map[string]interface{}{
+		"sharding": []any{
+			map[string]any{
 				"name":                "my-sharded-cluster",
 				"configServerReplica": "config-rs",
-				"shards": []interface{}{
-					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				"shards": []any{
+					map[string]any{"_id": "shard0", "rs": "shard-rs"},
 				},
 			},
 		},
@@ -173,18 +173,18 @@ func TestValidation_OneDeploymentPerProject_SingleSharded(t *testing.T) {
 
 func TestValidation_OneDeploymentPerProject_ShardedWithExtraReplicaSet(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{},
-		"replicaSets": []interface{}{
-			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
-			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
-			map[string]interface{}{"_id": "stray-rs", "members": []interface{}{}},
+		"processes": []any{},
+		"replicaSets": []any{
+			map[string]any{"_id": "shard-rs", "members": []any{}},
+			map[string]any{"_id": "config-rs", "members": []any{}},
+			map[string]any{"_id": "stray-rs", "members": []any{}},
 		},
-		"sharding": []interface{}{
-			map[string]interface{}{
+		"sharding": []any{
+			map[string]any{
 				"name":                "my-sharded-cluster",
 				"configServerReplica": "config-rs",
-				"shards": []interface{}{
-					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				"shards": []any{
+					map[string]any{"_id": "shard0", "rs": "shard-rs"},
 				},
 			},
 		},
@@ -198,18 +198,18 @@ func TestValidation_OneDeploymentPerProject_ShardedWithExtraReplicaSet(t *testin
 
 func TestValidation_OneDeploymentPerProject_MultipleSharded(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes":   []interface{}{},
-		"replicaSets": []interface{}{},
-		"sharding": []interface{}{
-			map[string]interface{}{
+		"processes":   []any{},
+		"replicaSets": []any{},
+		"sharding": []any{
+			map[string]any{
 				"name":                "sc-a",
 				"configServerReplica": "config-a",
-				"shards":              []interface{}{},
+				"shards":              []any{},
 			},
-			map[string]interface{}{
+			map[string]any{
 				"name":                "sc-b",
 				"configServerReplica": "config-b",
-				"shards":              []interface{}{},
+				"shards":              []any{},
 			},
 		},
 	})
@@ -222,15 +222,15 @@ func TestValidation_OneDeploymentPerProject_MultipleSharded(t *testing.T) {
 
 func TestValidation_EmbeddedConfigServer(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes":   []interface{}{},
-		"replicaSets": []interface{}{},
-		"sharding": []interface{}{
-			map[string]interface{}{
+		"processes":   []any{},
+		"replicaSets": []any{},
+		"sharding": []any{
+			map[string]any{
 				"name":                "my-sharded-cluster",
 				"configServerReplica": "shard-rs",
-				"shards": []interface{}{
-					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
-					map[string]interface{}{"_id": "shard1", "rs": "shard-rs-1"},
+				"shards": []any{
+					map[string]any{"_id": "shard0", "rs": "shard-rs"},
+					map[string]any{"_id": "shard1", "rs": "shard-rs-1"},
 				},
 			},
 		},
@@ -246,17 +246,17 @@ func TestValidation_EmbeddedConfigServer(t *testing.T) {
 
 func TestValidation_DedicatedConfigServer_NoError(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{},
-		"replicaSets": []interface{}{
-			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
-			map[string]interface{}{"_id": "config-rs", "members": []interface{}{}},
+		"processes": []any{},
+		"replicaSets": []any{
+			map[string]any{"_id": "shard-rs", "members": []any{}},
+			map[string]any{"_id": "config-rs", "members": []any{}},
 		},
-		"sharding": []interface{}{
-			map[string]interface{}{
+		"sharding": []any{
+			map[string]any{
 				"name":                "my-sharded-cluster",
 				"configServerReplica": "config-rs",
-				"shards": []interface{}{
-					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				"shards": []any{
+					map[string]any{"_id": "shard0", "rs": "shard-rs"},
 				},
 			},
 		},
@@ -271,26 +271,26 @@ func TestValidation_EmbeddedConfigServer_ViaProcessClusterRole(t *testing.T) {
 	// (configServerReplica = csrs) but a shard process declares
 	// sharding.clusterRole = configsvr. The cross-check must still flag this.
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{
+		"processes": []any{
+			map[string]any{
 				"name":     "shard0-0",
 				"hostname": "shard0-0.example.com",
-				"args2_6": map[string]interface{}{
-					"replication": map[string]interface{}{"replSetName": "shard-rs"},
-					"sharding":    map[string]interface{}{"clusterRole": "configsvr"},
+				"args2_6": map[string]any{
+					"replication": map[string]any{"replSetName": "shard-rs"},
+					"sharding":    map[string]any{"clusterRole": "configsvr"},
 				},
 			},
 		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{"_id": "shard-rs", "members": []interface{}{}},
-			map[string]interface{}{"_id": "csrs", "members": []interface{}{}},
+		"replicaSets": []any{
+			map[string]any{"_id": "shard-rs", "members": []any{}},
+			map[string]any{"_id": "csrs", "members": []any{}},
 		},
-		"sharding": []interface{}{
-			map[string]interface{}{
+		"sharding": []any{
+			map[string]any{
 				"name":                "my-sharded-cluster",
 				"configServerReplica": "csrs",
-				"shards": []interface{}{
-					map[string]interface{}{"_id": "shard0", "rs": "shard-rs"},
+				"shards": []any{
+					map[string]any{"_id": "shard0", "rs": "shard-rs"},
 				},
 			},
 		},
@@ -306,9 +306,9 @@ func TestValidation_EmbeddedConfigServer_ViaProcessClusterRole(t *testing.T) {
 
 func TestValidation_NoReplicaSets(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"processes":   []interface{}{},
-		"replicaSets": []interface{}{},
-		"sharding":    []interface{}{},
+		"processes":   []any{},
+		"replicaSets": []any{},
+		"sharding":    []any{},
 	})
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
@@ -350,7 +350,7 @@ func TestValidation_NonDefaultCAFilePath(t *testing.T) {
 
 func TestValidation_NonDefaultDownloadBase(t *testing.T) {
 	ac := baseValidReplicaSetAC()
-	options := ac.Deployment["options"].(map[string]interface{})
+	options := ac.Deployment["options"].(map[string]any)
 	options["downloadBase"] = "/opt/mongodb/automation"
 	ac.Deployment["options"] = options
 	// keyFile tracks downloadBase, so keep it consistent to isolate the downloadBase check.
@@ -378,7 +378,7 @@ func TestValidation_NonDefaultDownloadBase(t *testing.T) {
 func TestValidation_KeyFileRelativeToDownloadBase(t *testing.T) {
 	t.Run("keyFile under non-default downloadBase is accepted", func(t *testing.T) {
 		ac := baseValidReplicaSetAC()
-		options := ac.Deployment["options"].(map[string]interface{})
+		options := ac.Deployment["options"].(map[string]any)
 		options["downloadBase"] = "/opt/mongodb/automation"
 		ac.Deployment["options"] = options
 		ac.Auth.KeyFile = "/opt/mongodb/automation/keyfile"
@@ -394,7 +394,7 @@ func TestValidation_KeyFileRelativeToDownloadBase(t *testing.T) {
 
 	t.Run("default keyFile with non-default downloadBase is rejected", func(t *testing.T) {
 		ac := baseValidReplicaSetAC()
-		options := ac.Deployment["options"].(map[string]interface{})
+		options := ac.Deployment["options"].(map[string]any)
 		options["downloadBase"] = "/opt/mongodb/automation"
 		ac.Deployment["options"] = options
 		// keyFile left at the default path -- now a mismatch against the download base.
@@ -444,7 +444,7 @@ func TestValidation_NonDefaultAuthSchemaVersion(t *testing.T) {
 func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
 	ac := baseValidReplicaSetAC()
 	monitoringConfig := &om.MonitoringAgentConfig{
-		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/monitoring.log"},
+		BackingMap: map[string]any{"logPath": "/var/log/mongodb/monitoring.log"},
 	}
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), &ProjectConfigs{MonitoringConfig: monitoringConfig})
@@ -461,7 +461,7 @@ func TestValidation_NonDefaultMonitoringAgentLogPath(t *testing.T) {
 func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 	ac := baseValidReplicaSetAC()
 	backupConfig := &om.BackupAgentConfig{
-		BackingMap: map[string]interface{}{"logPath": "/var/log/mongodb/backup.log"},
+		BackingMap: map[string]any{"logPath": "/var/log/mongodb/backup.log"},
 	}
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), &ProjectConfigs{BackupConfig: backupConfig})
@@ -478,7 +478,7 @@ func TestValidation_NonDefaultBackupAgentLogPath(t *testing.T) {
 func TestValidation_NonDefaultMongodSystemLogPath(t *testing.T) {
 	ac := baseValidReplicaSetAC()
 	proc := ac.Deployment.GetProcesses()[0]
-	proc.Args()["systemLog"] = map[string]interface{}{"destination": "file", "path": "/var/log/mongodb/mongod.log"}
+	proc.Args()["systemLog"] = map[string]any{"destination": "file", "path": "/var/log/mongodb/mongod.log"}
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	hasWarning := false
@@ -495,7 +495,7 @@ func TestValidation_NonDefaultMongodSystemLogPath(t *testing.T) {
 func TestValidation_DefaultMongodSystemLogPath_NoWarning(t *testing.T) {
 	ac := baseValidReplicaSetAC()
 	proc := ac.Deployment.GetProcesses()[0]
-	proc.Args()["systemLog"] = map[string]interface{}{"destination": "file", "path": defaultMongodLogPath}
+	proc.Args()["systemLog"] = map[string]any{"destination": "file", "path": defaultMongodLogPath}
 
 	results, _ := ValidateMigration(ac, ac.Deployment.ProcessMap(), nil)
 	for _, r := range results {
@@ -634,10 +634,10 @@ func sourceProcessFromDeployment(d om.Deployment) *om.Process {
 
 func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
 	d := om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{
+		"processes": []any{
+			map[string]any{
 				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
-				"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27017}},
+				"args2_6": map[string]any{"net": map[string]any{"port": 27017}},
 			},
 		},
 	}
@@ -650,13 +650,13 @@ func TestCheckTLS_NoTLSSection_Warning(t *testing.T) {
 
 func TestCheckTLS_ModeAlreadyDisabled_NoWarning(t *testing.T) {
 	d := om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{
+		"processes": []any{
+			map[string]any{
 				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{
+				"args2_6": map[string]any{
+					"net": map[string]any{
 						"port": 27017,
-						"tls":  map[string]interface{}{"mode": "disabled"},
+						"tls":  map[string]any{"mode": "disabled"},
 					},
 				},
 			},
@@ -667,13 +667,13 @@ func TestCheckTLS_ModeAlreadyDisabled_NoWarning(t *testing.T) {
 
 func TestCheckTLS_TLSEnabled_NoWarning(t *testing.T) {
 	d := om.Deployment{
-		"processes": []interface{}{
-			map[string]interface{}{
+		"processes": []any{
+			map[string]any{
 				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{
+				"args2_6": map[string]any{
+					"net": map[string]any{
 						"port": 27017,
-						"tls":  map[string]interface{}{"mode": "requireTLS"},
+						"tls":  map[string]any{"mode": "requireTLS"},
 					},
 				},
 			},
@@ -782,26 +782,26 @@ func TestValidateX509_ErrorWhenAutoPEMKeyFilePathMissing(t *testing.T) {
 
 func TestValidation_AgentConfigDrift_Warning(t *testing.T) {
 	ac := om.NewAutomationConfig(om.Deployment{
-		"options": map[string]interface{}{"downloadBase": "/var/lib/mongodb-mms-automation"},
-		"processes": []interface{}{
-			map[string]interface{}{
+		"options": map[string]any{"downloadBase": "/var/lib/mongodb-mms-automation"},
+		"processes": []any{
+			map[string]any{
 				"name": "rs-0", "processType": string(om.ProcessTypeMongod), "version": "7.0.0", "authSchemaVersion": 5,
-				"logRotate": map[string]interface{}{"sizeThresholdMB": 500, "timeThresholdHrs": 12},
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{"port": 27017}, "storage": map[string]interface{}{"dbPath": "/data"},
-					"replication": map[string]interface{}{"replSetName": "my-rs"},
+				"logRotate": map[string]any{"sizeThresholdMB": 500, "timeThresholdHrs": 12},
+				"args2_6": map[string]any{
+					"net": map[string]any{"port": 27017}, "storage": map[string]any{"dbPath": "/data"},
+					"replication": map[string]any{"replSetName": "my-rs"},
 				},
 			},
 		},
-		"replicaSets": []interface{}{
-			map[string]interface{}{
+		"replicaSets": []any{
+			map[string]any{
 				"_id": "my-rs", "protocolVersion": "1",
-				"members": []interface{}{
-					map[string]interface{}{"host": "rs-0", "votes": 1, "priority": 1, "tags": map[string]string{}},
+				"members": []any{
+					map[string]any{"host": "rs-0", "votes": 1, "priority": 1, "tags": map[string]string{}},
 				},
 			},
 		},
-		"sharding": []interface{}{},
+		"sharding": []any{},
 	})
 
 	projectProcessConfigs := &ProjectConfigs{
@@ -831,14 +831,14 @@ func TestValidateSourceProcessPerReplicaSet_ChecksEveryReplicaSet(t *testing.T) 
 	// problem in any replica set other than the first must still be caught by validation
 	// rather than surfacing later as a generation failure.
 	shard0 := om.NewReplicaSet("shard0", "7.0.12-ent")
-	shard0["members"] = []interface{}{map[string]interface{}{"host": "shard0-0", "_id": 0, "priority": 1, "votes": 1}}
+	shard0["members"] = []any{map[string]any{"host": "shard0-0", "_id": 0, "priority": 1, "votes": 1}}
 	shard1 := om.NewReplicaSet("shard1", "7.0.12-ent")
-	shard1["members"] = []interface{}{map[string]interface{}{"host": "shard1-0", "_id": 0, "priority": 1, "votes": 1}}
+	shard1["members"] = []any{map[string]any{"host": "shard1-0", "_id": 0, "priority": 1, "votes": 1}}
 	// Only shard0's member has a process, so shard1 has no source process.
 	processMap := map[string]om.Process{"shard0-0": {"name": "shard0-0"}}
 
 	results := validateSourceProcessPerReplicaSet(om.Deployment{
-		"replicaSets": []interface{}{map[string]interface{}(shard0), map[string]interface{}(shard1)},
+		"replicaSets": []any{map[string]any(shard0), map[string]any(shard1)},
 	}, processMap)
 
 	require.Len(t, results, 1)
@@ -849,11 +849,11 @@ func TestValidateSourceProcessPerReplicaSet_ChecksEveryReplicaSet(t *testing.T) 
 
 func TestValidateSourceProcessPerReplicaSet_NoErrorWhenAllResolve(t *testing.T) {
 	rs := om.NewReplicaSet("shard0", "7.0.12-ent")
-	rs["members"] = []interface{}{map[string]interface{}{"host": "shard0-0", "_id": 0, "priority": 1, "votes": 1}}
+	rs["members"] = []any{map[string]any{"host": "shard0-0", "_id": 0, "priority": 1, "votes": 1}}
 	processMap := map[string]om.Process{"shard0-0": {"name": "shard0-0"}}
 
 	results := validateSourceProcessPerReplicaSet(om.Deployment{
-		"replicaSets": []interface{}{map[string]interface{}(rs)},
+		"replicaSets": []any{map[string]any(rs)},
 	}, processMap)
 
 	assert.Empty(t, results)

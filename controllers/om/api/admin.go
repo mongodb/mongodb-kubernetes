@@ -375,24 +375,24 @@ func (a *DefaultOmAdmin) ReadOpsManagerVersion() (versionutil.OpsManagerVersion,
 
 //********************************** Private methods *******************************************************************
 
-func (a *DefaultOmAdmin) get(path string, params ...interface{}) ([]byte, http.Header, error) {
+func (a *DefaultOmAdmin) get(path string, params ...any) ([]byte, http.Header, error) {
 	return a.httpVerb("GET", path, nil, params...)
 }
 
-func (a *DefaultOmAdmin) put(path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
+func (a *DefaultOmAdmin) put(path string, v any, params ...any) ([]byte, http.Header, error) {
 	return a.httpVerb("PUT", path, v, params...)
 }
 
-func (a *DefaultOmAdmin) post(path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
+func (a *DefaultOmAdmin) post(path string, v any, params ...any) ([]byte, http.Header, error) {
 	return a.httpVerb("POST", path, v, params...)
 }
 
-func (a *DefaultOmAdmin) delete(path string, params ...interface{}) error {
+func (a *DefaultOmAdmin) delete(path string, params ...any) error {
 	_, _, err := a.httpVerb("DELETE", path, nil, params...)
 	return err
 }
 
-func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...interface{}) ([]byte, http.Header, error) {
+func (a *DefaultOmAdmin) httpVerb(method, path string, v any, params ...any) ([]byte, http.Header, error) {
 	client, err := CreateOMHttpClient(a.CA, &a.User, &a.PrivateAPIKey)
 	if err != nil {
 		return nil, nil, apierror.New(err)
@@ -401,7 +401,7 @@ func (a *DefaultOmAdmin) httpVerb(method, path string, v interface{}, params ...
 	// Path parameters are caller-supplied (backup store ids originate in the OpsManager CR and in
 	// Ops Manager API responses) and must stay a single URL path segment: an unescaped '/', '..',
 	// '?' or '#' would retarget this global-owner-authenticated request to another OM endpoint.
-	escaped := make([]interface{}, len(params))
+	escaped := make([]any, len(params))
 	for i, p := range params {
 		escaped[i] = url.PathEscape(fmt.Sprint(p))
 	}

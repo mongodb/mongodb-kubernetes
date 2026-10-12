@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -182,7 +181,7 @@ func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 								Name: "data",
 							},
 							Spec: corev1.PersistentVolumeClaimSpec{
-								StorageClassName: ptr.To("test"),
+								StorageClassName: new("test"),
 								Resources: corev1.VolumeResourceRequirements{
 									Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")},
 								},
@@ -361,8 +360,8 @@ func TestServiceCreation_WithExternalName(t *testing.T) {
 		SetClusterSpecList(clusters).
 		SetExternalAccess(
 			mdb.ExternalAccessConfiguration{
-				ExternalDomain: ptr.To("cluster-%d.testing"),
-			}, ptr.To("cluster-%d.testing")).
+				ExternalDomain: new("cluster-%d.testing"),
+			}, new("cluster-%d.testing")).
 		Build()
 	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
@@ -416,7 +415,7 @@ func TestServiceCreation_WithPlaceholders(t *testing.T) {
 				},
 			}, nil).
 		Build()
-	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(false)
+	mrs.Spec.DuplicateServiceObjects = new(false)
 	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
@@ -494,7 +493,7 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
 		SetClusterSpecList(clusters).
 		Build()
-	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(true)
+	mrs.Spec.DuplicateServiceObjects = new(true)
 
 	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
@@ -564,8 +563,8 @@ func TestResourceDeletion(t *testing.T) {
 				return mdbmulti.DefaultMultiReplicaSetBuilder().
 					SetClusterSpecList(clusters).
 					SetExternalAccess(
-						mdb.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster-%d.testing")},
-						ptr.To("cluster-%d.testing"),
+						mdb.ExternalAccessConfiguration{ExternalDomain: new("cluster-%d.testing")},
+						new("cluster-%d.testing"),
 					).
 					Build()
 			},

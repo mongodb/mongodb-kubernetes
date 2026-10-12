@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -29,7 +28,7 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 			AuthNamePrefix:        "okta",
 			Audience:              "aud",
 			IssuerUri:             "https://okta.mongodb.com",
-			ClientId:              ptr.To("client1"),
+			ClientId:              new("client1"),
 			RequestedScopes:       []string{"openid", "profile"},
 			UserClaim:             "sub",
 			SupportsHumanFlows:    true,
@@ -39,9 +38,9 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 			AuthNamePrefix:        "congito",
 			Audience:              "aud",
 			IssuerUri:             "https://congito.mongodb.com",
-			ClientId:              ptr.To("client2"),
+			ClientId:              new("client2"),
 			UserClaim:             "sub",
-			GroupsClaim:           ptr.To("groups"),
+			GroupsClaim:           new("groups"),
 			SupportsHumanFlows:    false,
 			UseAuthorizationClaim: true,
 		},

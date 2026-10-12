@@ -3,6 +3,7 @@ package multicluster
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -224,9 +225,7 @@ func GetLegacyCentralMemberCluster(replicas int, index int, client kubernetesCli
 // It maintains previously existing mappings and assigns new indexes for new cluster names.
 func AssignIndexesForMemberClusterNames(existingMapping map[string]int, memberClusterNames []string) map[string]int {
 	newMapping := map[string]int{}
-	for k, v := range existingMapping {
-		newMapping[k] = v
-	}
+	maps.Copy(newMapping, existingMapping)
 
 	for _, clusterName := range memberClusterNames {
 		if _, ok := newMapping[clusterName]; !ok {

@@ -94,11 +94,11 @@ func (r SecretClient) ReadBinarySecret(ctx context.Context, secretName types.Nam
 func (r SecretClient) PutSecret(ctx context.Context, s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
 		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
-		secretData := map[string]interface{}{}
+		secretData := map[string]any{}
 		for k, v := range s.Data {
 			secretData[k] = string(v)
 		}
-		data := map[string]interface{}{
+		data := map[string]any{
 			"data": secretData,
 		}
 		return r.VaultClient.PutSecret(secretPath, data)
@@ -111,11 +111,11 @@ func (r SecretClient) PutSecret(ctx context.Context, s corev1.Secret, basePath s
 func (r SecretClient) PutBinarySecret(ctx context.Context, s corev1.Secret, basePath string) error {
 	if vault.IsVaultSecretBackend() {
 		secretPath := namespacedNameToVaultPath(secretNamespacedName(s), basePath)
-		secretData := map[string]interface{}{}
+		secretData := map[string]any{}
 		for k, v := range s.Data {
 			secretData[k] = base64.StdEncoding.EncodeToString(v)
 		}
-		data := map[string]interface{}{
+		data := map[string]any{
 			"data": secretData,
 		}
 		return r.VaultClient.PutSecret(secretPath, data)

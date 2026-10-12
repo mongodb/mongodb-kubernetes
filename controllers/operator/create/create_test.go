@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,7 +40,7 @@ func init() {
 
 func TestBuildService(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
-	svc := BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, ptr.To("label"), nil, 2000, omv1.MongoDBOpsManagerServiceDefinition{
+	svc := BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, new("label"), nil, 2000, omv1.MongoDBOpsManagerServiceDefinition{
 		Type:           corev1.ServiceTypeClusterIP,
 		Port:           2000,
 		LoadBalancerIP: "loadbalancerip",
@@ -60,7 +59,7 @@ func TestBuildService(t *testing.T) {
 	assert.True(t, svc.Spec.PublishNotReadyAddresses)
 
 	// test podName label not nil
-	svc = BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, nil, ptr.To("podName"), 2000, omv1.MongoDBOpsManagerServiceDefinition{
+	svc = BuildService(kube.ObjectKey(mock.TestNamespace, "my-svc"), mdb, nil, new("podName"), 2000, omv1.MongoDBOpsManagerServiceDefinition{
 		Type:           corev1.ServiceTypeClusterIP,
 		Port:           2000,
 		LoadBalancerIP: "loadbalancerip",
@@ -83,7 +82,7 @@ func TestOpsManagerInKubernetes_InternalConnectivityOverride(t *testing.T) {
 		SetName("test-om").
 		SetInternalConnectivity(omv1.MongoDBOpsManagerServiceDefinition{
 			Type:      corev1.ServiceTypeClusterIP,
-			ClusterIP: ptr.To("0.0.12.0"),
+			ClusterIP: new("0.0.12.0"),
 			Port:      5000,
 		}).
 		SetAppDBPassword("my-secret", "password").SetBackup(omv1.MongoDBOpsManagerBackup{
@@ -596,7 +595,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithExternalDomainHaveAdditionalBa
 	service2.Name = "mdb-1-svc-external"
 	expectedServices := []corev1.Service{service1, service2}
 
-	testDatabaseInKubernetesExternalServices(ctx, t, mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("example.com")}, expectedServices)
+	testDatabaseInKubernetesExternalServices(ctx, t, mdbv1.ExternalAccessConfiguration{ExternalDomain: new("example.com")}, expectedServices)
 }
 
 func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testing.T) {
@@ -629,7 +628,7 @@ func TestDatabaseInKubernetes_ExternalServicesWithServiceSpecOverrides(t *testin
 	expectedServices := []corev1.Service{service1, service2}
 
 	externalAccessConfiguration := mdbv1.ExternalAccessConfiguration{
-		ExternalDomain: ptr.To("example.com"),
+		ExternalDomain: new("example.com"),
 		ExternalService: mdbv1.ExternalServiceConfiguration{
 			SpecWrapper: &v1.ServiceSpecWrapper{Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeNodePort,
@@ -916,7 +915,7 @@ func TestDatabaseInKubernetesExternalServicesShardedPerTier(t *testing.T) {
 		fakeClient, _ := mock.NewDefaultFakeClient()
 		mdb := newShardedCluster()
 		mdb.Spec.ShardSpec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{
-			ExternalDomain: ptr.To("shards.example.com"),
+			ExternalDomain: new("shards.example.com"),
 		}
 
 		createShard0Sts(t, mdb, fakeClient)
@@ -968,7 +967,7 @@ func TestDatabaseInKubernetesSkipsServicesForMultiClusterSharded(t *testing.T) {
 			ClusterName: "cluster-0",
 			Members:     1,
 			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{
-				ExternalDomain: ptr.To("cfg.example.com"),
+				ExternalDomain: new("cfg.example.com"),
 				ExternalService: mdbv1.ExternalServiceConfiguration{
 					Annotations: map[string]string{
 						"cluster": "{clusterName}-{clusterIndex}",
@@ -1131,7 +1130,7 @@ func createStatefulSet(name, namespace, size1, size2, size3 string) *appsv1.Stat
 			Namespace: namespace,
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: ptr.To(int32(3)),
+			Replicas: new(int32(3)),
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1695,7 +1694,7 @@ func TestCheckStatefulsetIsDeleted(t *testing.T) {
 			Name:      stsName,
 			Namespace: namespace,
 		},
-		Spec: appsv1.StatefulSetSpec{Replicas: ptr.To(int32(3))},
+		Spec: appsv1.StatefulSetSpec{Replicas: new(int32(3))},
 	}
 
 	t.Run("StatefulSet is deleted", func(t *testing.T) {
@@ -1753,7 +1752,7 @@ func TestPreserveExistingVolumeClaimTemplateMetadata(t *testing.T) {
 		return appsv1.StatefulSet{
 			ObjectMeta: metav1.ObjectMeta{Name: "om-db", Namespace: mock.TestNamespace},
 			Spec: appsv1.StatefulSetSpec{
-				Replicas: ptr.To(int32(1)),
+				Replicas: new(int32(1)),
 				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 					{ObjectMeta: metav1.ObjectMeta{Name: "data", Labels: claimLabels}},
 					{ObjectMeta: metav1.ObjectMeta{Name: "logs"}},

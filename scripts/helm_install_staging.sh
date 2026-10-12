@@ -156,17 +156,17 @@ run_cmd helm --kube-context "${kube_context}" upgrade --install mongodb-kubernet
   --set registry.versionUpgradeHook="${staging_registry}" \
   --set registry.readinessProbe="${staging_registry}" \
   --set community.registry.agent="${staging_registry}" \
-  --set operator.version="${OPERATOR_VERSION}" \
-  --set database.version="${OPERATOR_VERSION}" \
-  --set initDatabase.version="${OPERATOR_VERSION}" \
-  --set initOpsManager.version="${OPERATOR_VERSION}" \
-  --set agent.version="${OPERATOR_VERSION}" \
-  --set versionUpgradeHook.version="${OPERATOR_VERSION}" \
-  --set readinessProbe.version="${OPERATOR_VERSION}" \
-  --set community.agent.version="${OPERATOR_VERSION}" \
+  --set-string operator.version="${OPERATOR_VERSION}" \
+  --set-string database.version="${OPERATOR_VERSION}" \
+  --set-string initDatabase.version="${OPERATOR_VERSION}" \
+  --set-string initOpsManager.version="${OPERATOR_VERSION}" \
+  --set-string agent.version="${OPERATOR_VERSION}" \
+  --set-string versionUpgradeHook.version="${OPERATOR_VERSION}" \
+  --set-string readinessProbe.version="${OPERATOR_VERSION}" \
+  --set-string community.agent.version="${OPERATOR_VERSION}" \
   --set search.repo="${search_rapid_release_registry}/mongot-community" \
   --set search.name=rapid-releases \
-  --set search.version="${SEARCH_VERSION}" \
+  --set-string search.version="${SEARCH_VERSION}" \
   --set registry.imagePullSecrets="${IMAGE_PULL_SECRET}"
 
 echo ""

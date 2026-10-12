@@ -107,6 +107,13 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         help="Version to use when building kubectl-mongodb binary.",
     )
     parser.add_argument(
+        "--s3-version",
+        metavar="",
+        action="store",
+        type=str,
+        help="Version to use for S3 path. If not provided, the --version value is used.",
+    )
+    parser.add_argument(
         "-p",
         "--platform",
         metavar="",
@@ -121,11 +128,12 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
 
     platforms = get_platforms_from_arg(args.platform) or build_info.platforms
     version = args.version
+    s3_version = args.s3_version or version
     local_dir = "bin"
 
     build_kubectl_plugin(local_dir, platforms, version)
 
-    upload_artifacts_to_s3(local_dir, platforms, build_info.s3_store, version)
+    upload_artifacts_to_s3(local_dir, platforms, build_info.s3_store, s3_version)
 
 
 if __name__ == "__main__":

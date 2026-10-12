@@ -15,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -539,7 +538,7 @@ func TestBuildRoutesForCluster_SingleClusterPinnedIndex(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "test-ns"},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: []searchv1.ClusterSpec{{Index: ptr.To(int32(7))}},
+			Clusters: []searchv1.ClusterSpec{{Index: new(int32(7))}},
 		},
 	}
 
@@ -903,8 +902,8 @@ func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 	mcSearch := &searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
-				{Name: "a", Index: ptr.To(int32(0))},
-				{Name: "unknown", Index: ptr.To(int32(1))},
+				{Name: "a", Index: new(int32(0))},
+				{Name: "unknown", Index: new(int32(1))},
 			},
 		},
 	}
@@ -1061,8 +1060,8 @@ func TestBuildClusterWorkList_MultiCluster_OneItemPerSpecEntry(t *testing.T) {
 	search := &searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
-				{Name: "a", Index: ptr.To(int32(0))},
-				{Name: "b", Index: ptr.To(int32(1))},
+				{Name: "a", Index: new(int32(0))},
+				{Name: "b", Index: new(int32(1))},
 			},
 		},
 	}
@@ -1213,11 +1212,11 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 			expectedDeplReplicas: 1,
 		},
 		{
-			lbReplicas:           ptr.To(int32(3)),
+			lbReplicas:           new(int32(3)),
 			expectedDeplReplicas: 3,
 		},
 		{
-			lbReplicas:           ptr.To(int32(4)),
+			lbReplicas:           new(int32(4)),
 			expectedDeplReplicas: 4,
 		},
 	} {
@@ -1332,13 +1331,13 @@ func TestReconcile_NoStateCM_RendersFromPins(t *testing.T) {
 			},
 			Clusters: []searchv1.ClusterSpec{
 				{
-					Name: "cluster-a", Index: ptr.To(int32(0)),
+					Name: "cluster-a", Index: new(int32(0)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com"},
 					},
 				},
 				{
-					Name: "cluster-b", Index: ptr.To(int32(1)),
+					Name: "cluster-b", Index: new(int32(1)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com"},
 					},
@@ -1382,15 +1381,15 @@ func TestReconcile_UsesPinnedIndices(t *testing.T) {
 			},
 			Clusters: []searchv1.ClusterSpec{
 				{
-					Name: "cluster-a", Index: ptr.To(int32(5)),
+					Name: "cluster-a", Index: new(int32(5)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com", Replicas: ptr.To(int32(2))},
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com", Replicas: new(int32(2))},
 					},
 				},
 				{
-					Name: "cluster-b", Index: ptr.To(int32(7)),
+					Name: "cluster-b", Index: new(int32(7)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com", Replicas: ptr.To(int32(4))},
+						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com", Replicas: new(int32(4))},
 					},
 				},
 			},
@@ -1464,7 +1463,7 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 			}
 			// clusterIndex is required only for multi-cluster (len > 1) specs.
 			if len(clusterNames) > 1 {
-				cs.Index = ptr.To(int32(i))
+				cs.Index = new(int32(i))
 			}
 			clusters = append(clusters, cs)
 		}
@@ -1690,7 +1689,7 @@ func TestEnvoyReconcile_HubRemovedClusterCleansManagedMemberResources(t *testing
 				// validation runs first and reports on the LB status.
 				invalid := &searchv1.MongoDBSearch{}
 				require.NoError(t, central.Get(ctx, client.ObjectKeyFromObject(search), invalid))
-				invalid.Spec.Clusters = append(invalid.Spec.Clusters, searchv1.ClusterSpec{Index: ptr.To(int32(2))})
+				invalid.Spec.Clusters = append(invalid.Spec.Clusters, searchv1.ClusterSpec{Index: new(int32(2))})
 				require.NoError(t, central.Update(ctx, invalid))
 				_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(search)})
 				require.NoError(t, err)
@@ -1785,7 +1784,7 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 			},
 			Clusters: []searchv1.ClusterSpec{{
 				Name:         "cluster-a",
-				Index:        ptr.To(int32(0)),
+				Index:        new(int32(0)),
 				LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-{shardName}.example.com", RouterHostname: "mongot-router.example.com"}},
 			}},
 		},
@@ -1863,7 +1862,7 @@ func TestBuildClusterWorkList_OperatorPerCluster_UsesProjectedIndex(t *testing.T
 	search := &searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
-				{Name: "kind-e2e-cluster-2", Index: ptr.To(int32(1))},
+				{Name: "kind-e2e-cluster-2", Index: new(int32(1))},
 			},
 		},
 	}
@@ -1901,7 +1900,7 @@ func TestBuildRoutesForCluster_OperatorPerCluster_Sharded_PerShardSNIUsesProject
 			Clusters: []searchv1.ClusterSpec{
 				{
 					Name:  "kind-e2e-cluster-2",
-					Index: ptr.To(int32(1)),
+					Index: new(int32(1)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "c1-{shardName}.example.com",
@@ -1986,7 +1985,7 @@ func TestEnvoyReconcile_LBCleanup_DeletesAtPinnedIndex(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid", Generation: 1},
 		Spec: searchv1.MongoDBSearchSpec{
 			Source:   &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}}},
-			Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(3))}},
+			Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(3))}},
 		},
 		// LB previously managed → status present; spec no longer managed → cleanup branch.
 		Status: searchv1.MongoDBSearchStatus{LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}},
@@ -2272,11 +2271,11 @@ func TestReconcile_LBConfigSurvivesClusterRemoval(t *testing.T) {
 			Clusters: []searchv1.ClusterSpec{
 				{
 					Name:  "cluster-b",
-					Index: ptr.To(int32(1)),
+					Index: new(int32(1)),
 					LoadBalancer: &searchv1.LoadBalancerConfig{
 						Managed: &searchv1.ManagedLBConfig{
 							ExternalHostname: "mongot-b.example.com",
-							Replicas:         ptr.To(int32(3)),
+							Replicas:         new(int32(3)),
 						},
 					},
 				},
