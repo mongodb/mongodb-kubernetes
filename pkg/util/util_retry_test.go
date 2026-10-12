@@ -66,6 +66,23 @@ func TestDoAndRetry_NoAttemptWhenContextAlreadyDone(t *testing.T) {
 	assert.Equal(t, context.Canceled.Error(), msg)
 }
 
+func TestDoAndRetry_ZeroCountReturnsContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	calls := 0
+	f := func() (string, bool) {
+		calls++
+		return "should not run", false
+	}
+
+	ok, msg := DoAndRetry(ctx, f, zap.NewNop().Sugar(), 0, 0)
+
+	assert.False(t, ok)
+	assert.Equal(t, 0, calls, "f must not be invoked when the count is zero")
+	assert.Equal(t, context.Canceled.Error(), msg, "the context error must be reported even when no attempt is made")
+}
+
 func TestDoAndRetry_RetriesUntilSuccess(t *testing.T) {
 	calls := 0
 	f := func() (string, bool) {

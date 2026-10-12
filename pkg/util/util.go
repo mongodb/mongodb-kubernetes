@@ -67,6 +67,10 @@ func StripEnt(version string) string {
 func DoAndRetry(ctx context.Context, f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
 	var ok bool
 	var msg string
+	// count may be zero (retry counts come from unclamped env vars), in which case the loop is never entered
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr.Error()
+	}
 	for i := range count {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			if msg == "" {

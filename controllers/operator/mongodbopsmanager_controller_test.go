@@ -1319,7 +1319,7 @@ type MockedInitializer struct {
 	skipChecks        bool
 }
 
-func (o *MockedInitializer) TryCreateUser(omUrl string, _ string, user api.User, ca *string) (api.OpsManagerKeyPair, error) {
+func (o *MockedInitializer) TryCreateUser(_ context.Context, omUrl string, _ string, user api.User, ca *string) (api.OpsManagerKeyPair, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 

@@ -1365,7 +1365,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 	// user secret and reconciles OM resource and the new user (non admin one) is created overriding the previous API secret
 	_, err = r.ReadSecret(ctx, adminKeySecretName, operatorVaultPath)
 	if secret.SecretNotExist(err) {
-		apiKey, err := r.omInitializer.TryCreateUser(centralURL, opsManager.Spec.Version, newUser, ca)
+		apiKey, err := r.omInitializer.TryCreateUser(ctx, centralURL, opsManager.Spec.Version, newUser, ca)
 		if err != nil {
 			// Will wait more than usual (10 seconds) as most of all the problem needs to get fixed by the user
 			// by modifying the credentials secret
