@@ -58,7 +58,13 @@ from tests.common.search.movies_search_helper import (
     EmbeddedMoviesSearchHelper,
     SampleMoviesSearchHelper,
 )
-from tests.common.search.search_deployment_helper import MCSearchDeploymentHelper
+from tests.common.search.search_deployment_helper import (
+    RESIZE_INITIAL_STORAGE,
+    RESIZE_STORAGE_CLASS,
+    MCSearchDeploymentHelper,
+    SearchPVCResize,
+    run_search_pvc_resize,
+)
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca
 from tests.conftest import get_issuer_ca_filepath
@@ -318,11 +324,13 @@ def mongot_user(namespace: str, central_cluster_client: kubernetes.client.ApiCli
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_install_operator(multi_cluster_operator: Operator):
     multi_cluster_operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_install_source_tls_certificates(
     multi_cluster_issuer: str,
     mdb: MongoDBMulti,
@@ -345,6 +353,7 @@ def test_install_source_tls_certificates(
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_create_mdb_resource(mdb: MongoDBMulti):
     """Assert MongoDBMulti reaches Running."""
     mdb.update()
@@ -367,6 +376,7 @@ def _apply_user_password(
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_create_user_credentials(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -386,6 +396,7 @@ def test_create_user_credentials(
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_deploy_lb_certificates(
     namespace: str,
     multi_cluster_issuer: str,
@@ -431,6 +442,7 @@ def test_deploy_lb_certificates(
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_create_search_tls_certificate(
     namespace: str,
     multi_cluster_issuer: str,
@@ -459,6 +471,7 @@ def test_create_search_tls_certificate(
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_replicate_secrets_to_members(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -507,8 +520,15 @@ def test_replicate_secrets_to_members(
 
 
 @mark.e2e_search_q2_mc_rs_steady
-def test_create_search_resource(mdbs: MongoDBSearch):
+@mark.e2e_search_pvc_resize_workaround_mc
+def test_create_search_resource(mdbs: MongoDBSearch, request):
     """Assert MongoDBSearch reaches Running — all per-cluster resources must converge first."""
+    if "e2e_search_pvc_resize_workaround_mc" in request.config.option.markexpr:
+        mdbs["spec"]["clusters"].reverse()
+        for cluster in mdbs["spec"]["clusters"]:
+            cluster["persistence"] = {
+                "single": {"storage": RESIZE_INITIAL_STORAGE, "storageClass": RESIZE_STORAGE_CLASS}
+            }
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -879,6 +899,7 @@ def test_verify_per_cluster_status(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_patch_per_cluster_mongot_host(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -937,6 +958,7 @@ def test_patch_per_cluster_mongot_host(
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_per_cluster_mongot_host_observed(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -1037,6 +1059,7 @@ SEARCH_QUERY_RETRY_TIMEOUT = 60
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
     """mongorestore the sample_mflix.archive into the source RS."""
     tester = _search_tester_for_mdb(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
@@ -1048,6 +1071,7 @@ def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
 
 
 @mark.e2e_search_q2_mc_rs_steady
+@mark.e2e_search_pvc_resize_workaround_mc
 def test_create_search_index(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
@@ -1094,6 +1118,33 @@ def test_execute_text_search_query(
         timeout=SEARCH_QUERY_RETRY_TIMEOUT,
         sleep_time=5,
         msg="$search query to succeed",
+    )
+
+
+@mark.e2e_search_pvc_resize_workaround_mc
+def test_manual_resize_stops_and_resumes_central_operator(
+    mdbs: MongoDBSearch,
+    mdb: MongoDBMulti,
+    member_cluster_clients: List[MultiClusterClient],
+    multi_cluster_operator: Operator,
+):
+    assert multi_cluster_operator.name is not None
+    assert len(member_cluster_clients) == 2
+    assert any(_idx(mcc) != 0 for mcc in member_cluster_clients)
+    assert mdbs["spec"]["clusters"][0]["index"] != 0
+    units = [
+        SearchPVCResize(
+            mdbs,
+            _idx(mcc),
+            mcc.api_client,
+            SampleMoviesSearchHelper(_direct_search_tester_for_cluster(mdb, _idx(mcc), USER_NAME, USER_PASSWORD)),
+        )
+        for mcc in member_cluster_clients
+    ]
+    run_search_pvc_resize(
+        units,
+        [(multi_cluster_operator.api_client, multi_cluster_operator.name)],
+        SampleMoviesSearchHelper(_search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)),
     )
 
 
