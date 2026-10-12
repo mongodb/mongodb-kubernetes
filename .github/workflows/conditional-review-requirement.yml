@@ -12,6 +12,11 @@ name: Conditional review requirement
 #   - workflow_run: review events, including fork heads, through the no-op
 #     "Conditional review trigger" workflow.
 on:
+  # TEMPORARY live-test trigger: exercises labeled/unlabeled events on PR
+  # #1670. Removed in the next commit.
+  pull_request:
+    branches: [master]
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
   pull_request_target:
     branches: [master]
     types: [opened, reopened, synchronize, edited, labeled, unlabeled]
