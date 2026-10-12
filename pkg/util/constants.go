@@ -133,8 +133,9 @@ const (
 	LatestHashSecretKey   = "latestHash"
 	PreviousHashSecretKey = "previousHash"
 
-	RunAsUser = 2000
-	FsGroup   = 2000
+	RunAsUser  = 2000
+	RunAsGroup = 2000
+	FsGroup    = 2000
 
 	// Service accounts
 	OpsManagerServiceAccount = "mongodb-kubernetes-ops-manager"
