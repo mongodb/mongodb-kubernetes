@@ -40,7 +40,7 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
      describe pod <mongot-pod-name>
    ```
 
-   Record each exact claim name, UID, and PV binding. Do not select claims by a name prefix. Save a representative Search query and its expected results.
+   Record each exact claim name, UID, and PV binding. Do not select claims by a name prefix.
 
    ```sh
    kubectl --context <member-context> -n <namespace> get pvc <pvc-name> \
@@ -143,7 +143,7 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
      wait --for=condition=Ready pod/<mongot-pod-name> --timeout=600s
    ```
 
-   Wait for the replacement pod to exist before running the readiness command. Confirm that it mounts the same claim, the PVC reports expanded capacity, and the pending condition clears. Check the Search query before restarting another pod. Skip this step if expansion completes online.
+   Wait for the replacement pod to exist before running the readiness command. Confirm that it is Ready, it mounts the same claim, the PVC reports expanded capacity, and the pending condition clears before restarting another pod. Skip this step if expansion completes online.
 
    > **Note:** Direct pod deletion bypasses PodDisruptionBudgets. A single mongot replica cannot serve requests while it restarts. This procedure does not guarantee zero downtime.
 
@@ -151,7 +151,7 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
 
    Repeat the claim identity command from step 1 and compare the UID and PV binding. Require the same claims, `Bound`, no deletion timestamps, and requests and capacities at least as large as the new size. Verify usable filesystem capacity with your storage backend's tools.
 
-   Confirm that all expected mongot pods are Ready and each Search resource reaches `Running` after reconciliation. Run your representative Search query through each affected member's Search path and compare the results.
+   Confirm that all expected mongot pods are Ready and each Search resource reaches `Running` after reconciliation.
 
 ## Troubleshoot Expansion
 
