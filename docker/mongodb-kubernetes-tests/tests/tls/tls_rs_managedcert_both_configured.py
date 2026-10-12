@@ -17,7 +17,7 @@ def mdb(namespace: str, issuer: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-tls-rs-managedcert.yaml"), name=MDB_RESOURCE, namespace=namespace)
     issuer_ref = {"issuerRef": {"name": "ca-issuer", "kind": "Issuer"}}
     # Both categories are configured in the MDB resource (user configured), MCK will not setup any managed self signed CA
-    resource["spec"]["security"]["managedCertificate"] = {"enabled": True, "server": issuer_ref, "client": issuer_ref}
+    resource["spec"]["security"]["managedCertificate"] = {"server": issuer_ref, "client": issuer_ref}
     try_load(resource)
     return resource
 
@@ -38,9 +38,9 @@ def test_operator_created_certs_from_one_issuer(mdb: MongoDB, namespace: str):
     # All three (member, clusterfile, agent) leaf certs are issued as kubernetes.io/tls
     # secrets at the derived names, with no user-created secrets.
     for secret_name in (
-        f"{MDB_RESOURCE}-cert",
-        f"{MDB_RESOURCE}-clusterfile",
-        f"{MDB_RESOURCE}-agent-certs",
+        f"{MDB_RESOURCE}-managed-cert",
+        f"{MDB_RESOURCE}-managed-clusterfile",
+        f"{MDB_RESOURCE}-managed-agent-certs",
     ):
         cert_secret = read_secret(namespace, secret_name)
         assert "tls.crt" in cert_secret, f"{secret_name} missing tls.crt"
