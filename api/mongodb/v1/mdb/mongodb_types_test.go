@@ -459,6 +459,12 @@ func TestMemberCertificateSecretName(t *testing.T) {
 	// If the top-level prefix is specified, we use it
 	rs.Spec.Security.CertificatesSecretsPrefix = "top-level-prefix"
 	assert.Equal(t, fmt.Sprintf("top-level-prefix-%s-cert", rs.Name), rs.GetSecurity().MemberCertificateSecretName(rs.Name))
+
+	// Operator-managed certificates get their own name, so enabling the feature on a deployment
+	// that already has user-provided certs cannot conflict with user's cert secret.
+	rs.Spec.Security.CertificatesSecretsPrefix = ""
+	rs.Spec.Security.ManagedCertificate = &ManagedCertificate{}
+	assert.Equal(t, fmt.Sprintf("%s-managed-cert", rs.Name), rs.GetSecurity().MemberCertificateSecretName(rs.Name))
 }
 
 func TestAgentClientCertificateSecretName(t *testing.T) {
@@ -474,6 +480,13 @@ func TestAgentClientCertificateSecretName(t *testing.T) {
 	// If the name is provided (deprecated) we return it
 	rs.GetSecurity().Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = "foo"
 	assert.Equal(t, "foo", rs.GetSecurity().AgentClientCertificateSecretName(rs.Name))
+
+	// Operator-managed certificates get their own name, so enabling the feature on a deployment
+	// that already has user-provided certs cannot conflict with user's cert secret.
+	rs.GetSecurity().Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = ""
+	rs.Spec.Security.CertificatesSecretsPrefix = ""
+	rs.Spec.Security.ManagedCertificate = &ManagedCertificate{}
+	assert.Equal(t, fmt.Sprintf("%s-managed-%s", rs.Name, util.AgentSecretName), rs.GetSecurity().AgentClientCertificateSecretName(rs.Name))
 }
 
 func TestInternalClusterAuthSecretName(t *testing.T) {
@@ -485,6 +498,12 @@ func TestInternalClusterAuthSecretName(t *testing.T) {
 	// IF there is a prefix, use it
 	rs.Spec.Security.CertificatesSecretsPrefix = "prefix"
 	assert.Equal(t, fmt.Sprintf("prefix-%s-clusterfile", rs.Name), rs.GetSecurity().InternalClusterAuthSecretName(rs.Name))
+
+	// Operator-managed certificates get their own name, so enabling the feature on a deployment
+	// that already has user-provided certs cannot conflict with user's cert secret.
+	rs.Spec.Security.CertificatesSecretsPrefix = ""
+	rs.Spec.Security.ManagedCertificate = &ManagedCertificate{}
+	assert.Equal(t, fmt.Sprintf("%s-managed-clusterfile", rs.Name), rs.GetSecurity().InternalClusterAuthSecretName(rs.Name))
 }
 
 func TestGetTransportSecurity(t *testing.T) {

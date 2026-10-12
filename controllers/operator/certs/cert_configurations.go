@@ -1,8 +1,6 @@
 package certs
 
 import (
-	"fmt"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -157,7 +155,7 @@ type Options struct {
 func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
 		ResourceName:                 mdb.Name,
-		CertSecretName:               GetCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
+		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.Name),
 		Namespace:                    mdb.Namespace,
 		ServiceName:                  mdb.ServiceName(),
 		Replicas:                     1,
@@ -306,12 +304,3 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interface
 	}
 }
 
-// GetCertNameWithPrefixOrDefault returns the name of the cert that will store certificates for the given resource.
-// this takes into account the tlsConfig.prefix option.
-func GetCertNameWithPrefixOrDefault(ms mdbv1.Security, defaultName string) string {
-	if ms.CertificatesSecretsPrefix != "" {
-		return fmt.Sprintf("%s-%s-cert", ms.CertificatesSecretsPrefix, defaultName)
-	}
-
-	return defaultName + "-cert"
-}
