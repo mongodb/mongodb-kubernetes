@@ -721,7 +721,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 			// In case there is a backup daemon running still, while backup is not enabled, we check whether it is still configured in OM.
 			// We're keeping the `Running` status if still configured and marking it as `Disabled` otherwise.
 			backupStatus = workflow.OK()
-			_, err := omAdmin.ReadDaemonConfig(fqdn.hostname, util.PvcMountPathHeadDb)
+			_, err := omAdmin.ReadDaemonConfig(ctx, fqdn.hostname, util.PvcMountPathHeadDb)
 			if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() || errors.Is(err, syscall.ECONNREFUSED) {
 				backupStatus = workflow.Disabled()
 				break
@@ -1365,7 +1365,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 	// user secret and reconciles OM resource and the new user (non admin one) is created overriding the previous API secret
 	_, err = r.ReadSecret(ctx, adminKeySecretName, operatorVaultPath)
 	if secret.SecretNotExist(err) {
-		apiKey, err := r.omInitializer.TryCreateUser(centralURL, opsManager.Spec.Version, newUser, ca)
+		apiKey, err := r.omInitializer.TryCreateUser(ctx, centralURL, opsManager.Spec.Version, newUser, ca)
 		if err != nil {
 			// Will wait more than usual (10 seconds) as most of all the problem needs to get fixed by the user
 			// by modifying the credentials secret
@@ -1409,7 +1409,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 		}
 		return "", true
 	}
-	if found, msg := util.DoAndRetry(readAdminKeySecretFunc, log, 10, 5); !found {
+	if found, msg := util.DoAndRetry(ctx, readAdminKeySecretFunc, log, 10, 5); !found {
 		return workflow.Failed(xerrors.Errorf("admin API key secret for Ops Manager doesn't exist - was it removed accidentally? %s. The error: %s",
 			detailedAPIErrorMsg(adminKeySecretName), msg)).WithRetry(30), nil
 	}
@@ -1438,11 +1438,11 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(ctx context.Context, re
 	// 1. Enabling Daemon Config if necessary
 	backupFQDNs := reconcileHelper.BackupDaemonHeadlessFQDNs()
 	for _, fqdn := range backupFQDNs {
-		dc, err := omAdmin.ReadDaemonConfig(fqdn.hostname, util.PvcMountPathHeadDb)
+		dc, err := omAdmin.ReadDaemonConfig(ctx, fqdn.hostname, util.PvcMountPathHeadDb)
 		if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() {
 			log.Infow("Backup Daemon is not configured, enabling it", "hostname", fqdn.hostname, "headDB", util.PvcMountPathHeadDb)
 
-			err = omAdmin.CreateDaemonConfig(fqdn.hostname, util.PvcMountPathHeadDb, opsManager.GetMemberClusterBackupAssignmentLabels(fqdn.memberClusterName))
+			err = omAdmin.CreateDaemonConfig(ctx, fqdn.hostname, util.PvcMountPathHeadDb, opsManager.GetMemberClusterBackupAssignmentLabels(fqdn.memberClusterName))
 			if apierror.NewNonNil(err).ErrorBackupDaemonConfigIsNotFound() {
 				// Unfortunately by this time backup daemon may not have been started yet, and we don't have proper
 				// mechanism to ensure this using readiness probe, so we just retry
@@ -1459,7 +1459,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(ctx context.Context, re
 			assignmentLabels := opsManager.GetMemberClusterBackupAssignmentLabels(fqdn.memberClusterName)
 			if !reflect.DeepEqual(assignmentLabels, dc.Labels) {
 				dc.Labels = assignmentLabels
-				err = omAdmin.UpdateDaemonConfig(dc)
+				err = omAdmin.UpdateDaemonConfig(ctx, dc)
 				if err != nil {
 					return workflow.Failed(xerrors.New(err.Error()))
 				}
@@ -1480,7 +1480,7 @@ func (r *OpsManagerReconciler) prepareBackupInOpsManager(ctx context.Context, re
 	status = status.Merge(r.ensureBlockStoresInOpsManager(ctx, opsManager, omAdmin, log))
 
 	// 6. FileSystem store configs
-	status = status.Merge(r.ensureFileSystemStoreConfigurationInOpsManager(opsManager, omAdmin))
+	status = status.Merge(r.ensureFileSystemStoreConfigurationInOpsManager(ctx, opsManager, omAdmin))
 	if len(opsManager.Spec.Backup.S3Configs) == 0 && len(opsManager.Spec.Backup.BlockStoreConfigs) == 0 && len(opsManager.Spec.Backup.FileSystemStoreConfigs) == 0 {
 		return status.Merge(workflow.Invalid("Either S3 or Blockstore or FileSystem Snapshot configuration is required for backup").WithTargetPhase(mdbstatus.PhasePending))
 	}
@@ -1497,7 +1497,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 		return workflow.OK()
 	}
 
-	opsManagerOplogConfigs, err := omAdmin.ReadOplogStoreConfigs()
+	opsManagerOplogConfigs, err := omAdmin.ReadOplogStoreConfigs(ctx)
 	if err != nil {
 		return workflow.Failed(xerrors.New(err.Error()))
 	}
@@ -1511,7 +1511,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 			return status
 		}
 		log.Debugw("Creating Oplog Store in Ops Manager", "id", omConfig.Id, "ssl", omConfig.UseSSL)
-		if err = omAdmin.CreateOplogStoreConfig(omConfig); err != nil {
+		if err = omAdmin.CreateOplogStoreConfig(ctx, omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1531,7 +1531,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Debugw("Updating Oplog Store in Ops Manager", "id", configToUpdate.Id, "ssl", configToUpdate.UseSSL)
-		if err = omAdmin.UpdateOplogStoreConfig(configToUpdate); err != nil {
+		if err = omAdmin.UpdateOplogStoreConfig(ctx, configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1540,7 +1540,7 @@ func (r *OpsManagerReconciler) ensureOplogStoresInOpsManager(ctx context.Context
 	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerOplogConfigs, opsManager.Spec.Backup.OplogStoreConfigs)
 	for _, v := range configsToRemove {
 		log.Debugf("Removing Oplog Store %s from Ops Manager", v.Identifier())
-		if err = omAdmin.DeleteOplogStoreConfig(v.Identifier().(string)); err != nil {
+		if err = omAdmin.DeleteOplogStoreConfig(ctx, v.Identifier().(string)); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1557,7 +1557,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 		return workflow.OK()
 	}
 
-	opsManagerS3OpLogConfigs, err := s3OplogAdmin.ReadS3OplogStoreConfigs()
+	opsManagerS3OpLogConfigs, err := s3OplogAdmin.ReadS3OplogStoreConfigs(ctx)
 	if err != nil {
 		return workflow.Failed(xerrors.New(err.Error()))
 	}
@@ -1571,7 +1571,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 			return status
 		}
 		log.Infow("Creating S3 Oplog Store in Ops Manager", "id", omConfig.Id)
-		if err = s3OplogAdmin.CreateS3OplogStoreConfig(omConfig); err != nil {
+		if err = s3OplogAdmin.CreateS3OplogStoreConfig(ctx, omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1591,7 +1591,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Infow("Updating S3 Oplog Store in Ops Manager", "id", configToUpdate.Id)
-		if err = s3OplogAdmin.UpdateS3OplogConfig(configToUpdate); err != nil {
+		if err = s3OplogAdmin.UpdateS3OplogConfig(ctx, configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1600,7 +1600,7 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerS3OpLogConfigs, opsManager.Spec.Backup.S3OplogStoreConfigs)
 	for _, v := range configsToRemove {
 		log.Infof("Removing Oplog Store %s from Ops Manager", v.Identifier())
-		if err = s3OplogAdmin.DeleteS3OplogStoreConfig(v.Identifier().(string)); err != nil {
+		if err = s3OplogAdmin.DeleteS3OplogStoreConfig(ctx, v.Identifier().(string)); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1621,7 +1621,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 		return workflow.OK()
 	}
 
-	opsManagerBlockStoreConfigs, err := omAdmin.ReadBlockStoreConfigs()
+	opsManagerBlockStoreConfigs, err := omAdmin.ReadBlockStoreConfigs(ctx)
 	if err != nil {
 		return workflow.Failed(xerrors.New(err.Error()))
 	}
@@ -1635,7 +1635,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 			return status
 		}
 		log.Debugw("Creating Block Store in Ops Manager", "id", omConfig.Id, "ssl", omConfig.UseSSL)
-		if err = omAdmin.CreateBlockStoreConfig(omConfig); err != nil {
+		if err = omAdmin.CreateBlockStoreConfig(ctx, omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1655,7 +1655,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Debugw("Updating Block Store in Ops Manager", "id", configToUpdate.Id, "ssl", configToUpdate.UseSSL)
-		if err = omAdmin.UpdateBlockStoreConfig(configToUpdate); err != nil {
+		if err = omAdmin.UpdateBlockStoreConfig(ctx, configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1664,7 +1664,7 @@ func (r *OpsManagerReconciler) ensureBlockStoresInOpsManager(ctx context.Context
 	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerBlockStoreConfigs, opsManager.Spec.Backup.BlockStoreConfigs)
 	for _, v := range configsToRemove {
 		log.Debugf("Removing Block Store %s from Ops Manager", v.Identifier())
-		if err = omAdmin.DeleteBlockStoreConfig(v.Identifier().(string)); err != nil {
+		if err = omAdmin.DeleteBlockStoreConfig(ctx, v.Identifier().(string)); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1676,7 +1676,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 		return workflow.OK()
 	}
 
-	opsManagerS3Configs, err := omAdmin.ReadS3Configs()
+	opsManagerS3Configs, err := omAdmin.ReadS3Configs(ctx)
 	if err != nil {
 		return workflow.Failed(xerrors.New(err.Error()))
 	}
@@ -1690,7 +1690,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 		}
 
 		log.Infow("Creating S3Config in Ops Manager", "id", omConfig.Id)
-		if err := omAdmin.CreateS3Config(omConfig); err != nil {
+		if err := omAdmin.CreateS3Config(ctx, omConfig); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1710,7 +1710,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 		// "owns"
 		configToUpdate := operatorView.MergeIntoOpsManagerConfig(omConfig)
 		log.Infow("Updating S3Config in Ops Manager", "id", configToUpdate.Id)
-		if err = omAdmin.UpdateS3Config(configToUpdate); err != nil {
+		if err = omAdmin.UpdateS3Config(ctx, configToUpdate); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1718,7 +1718,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 	configsToRemove := identifiable.SetDifferenceGeneric(opsManagerS3Configs, operatorS3Configs)
 	for _, config := range configsToRemove {
 		log.Infof("Removing S3Config %s from Ops Manager", config.Identifier())
-		if err := omAdmin.DeleteS3Config(config.Identifier().(string)); err != nil {
+		if err := omAdmin.DeleteS3Config(ctx, config.Identifier().(string)); err != nil {
 			return workflow.Failed(xerrors.New(err.Error()))
 		}
 	}
@@ -1757,8 +1757,8 @@ func (r *OpsManagerReconciler) readS3Credentials(ctx context.Context, s3SecretNa
 
 // ensureFileSystemStoreConfigurationInOpsManage makes sure that the FileSystem snapshot stores specified in the
 // MongoDB CR are configured correctly in OpsManager.
-func (r *OpsManagerReconciler) ensureFileSystemStoreConfigurationInOpsManager(opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin) workflow.Status {
-	opsManagerFSStoreConfigs, err := omAdmin.ReadFileSystemStoreConfigs()
+func (r *OpsManagerReconciler) ensureFileSystemStoreConfigurationInOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin) workflow.Status {
+	opsManagerFSStoreConfigs, err := omAdmin.ReadFileSystemStoreConfigs(ctx)
 	if err != nil {
 		return workflow.Failed(xerrors.New(err.Error()))
 	}

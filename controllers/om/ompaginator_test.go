@@ -147,6 +147,26 @@ func TestPagination_CancelledParentContextStopsBeforeNextPage(t *testing.T) {
 	assert.Equal(t, 1, pagesRead)
 }
 
+func TestPagination_AlreadyCancelledContextFailsBeforeFirstPage(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	pagesRead := 0
+	// The reader ignores the context and returns a page with no next link, which would
+	// otherwise make the traversal report success.
+	reader := func(_ context.Context, _ int) (Paginated, error) {
+		pagesRead++
+		return singleOrganizationsPage(context.Background(), 1)
+	}
+
+	found, err := TraversePages(ctx, reader, func(any) bool { return false })
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.False(t, found)
+	assert.Equal(t, 0, pagesRead, "no page may be read when the context is already cancelled")
+}
+
 func TestPagination_DeadlineBetweenPages(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()

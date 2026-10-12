@@ -61,7 +61,7 @@ func TestUserIsAdded_ToAutomationConfig_OnSuccessfulReconciliation(t *testing.T)
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	// the automation config should have been updated during reconciliation
 	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
@@ -113,7 +113,7 @@ func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, okReconcileResult, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	// since underlying implmentation of ReadAutomationConfig just has reference to automation config
 	// it's better to deep copy this version of AC so that it can be used to compare later.
 	originalAC, err := DeepCopy(ac)
@@ -133,7 +133,7 @@ func TestNoChange_InAC_After_Same_User_Reconciliation(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, okReconcileResult, reconcileResult)
 
-	acAfterSecondReconcile, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	acAfterSecondReconcile, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	// verify that the automation cnofig has not been changed because we ran reconciliation second time with the same user
 	assert.True(t, acAfterSecondReconcile.EqualsWithoutDeployment(*originalAC), "Automation config before the second reconciliation and after the second reconciliation should be same")
 }
@@ -213,7 +213,7 @@ func TestUserIsUpdated_IfNonIdentifierFieldIsUpdated_OnSuccessfulReconciliation(
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	assert.Len(t, ac.Auth.Users, 1, "we should still have a single MongoDBUser, no users should have been deleted")
 	_, updatedUser := ac.Auth.GetUser("my-user", "admin")
@@ -248,7 +248,7 @@ func TestUserIsReplaced_IfIdentifierFieldsAreChanged_OnSuccessfulReconciliation(
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	assert.Len(t, ac.Auth.Users, 2, "we should have a new user with the updated fields and a nil value for the deleted user")
 	assert.False(t, ac.Auth.HasUser("my-user", "admin"), "the deleted user should no longer be present")
@@ -283,7 +283,7 @@ func TestRetriesReconciliation_IfNoPasswordSecretExists(t *testing.T) {
 	assert.Equal(t, expected, actual, "the reconciliation should be retried as there is no password")
 
 	connection := omConnectionFactory.GetConnection()
-	ac, _ := connection.ReadAutomationConfig()
+	ac, _ := connection.ReadAutomationConfig(ctx)
 
 	assert.Len(t, ac.Auth.Users, 0, "the MongoDBUser should not have been added to the AutomationConfig")
 }
@@ -307,7 +307,7 @@ func TestRetriesReconciliation_IfPasswordSecretExists_ButHasNoPassword(t *testin
 	assert.Equal(t, expected, actual, "the reconciliation should be retried as there is a secret, but the key contains no password")
 
 	connection := omConnectionFactory.GetConnection()
-	ac, _ := connection.ReadAutomationConfig()
+	ac, _ := connection.ReadAutomationConfig(ctx)
 
 	assert.Len(t, ac.Auth.Users, 0, "the MongoDBUser should not have been added to the AutomationConfig")
 }
@@ -373,7 +373,7 @@ func TestScramShaUserReconciliation_CreatesAgentUsers(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 
 	assert.Len(t, ac.Auth.Users, 1, "users list should contain 1 user just added")
@@ -463,7 +463,7 @@ func TestFinalizerIsAdded_WhenUserIsCreated(t *testing.T) {
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	// the automation config should have been updated during reconciliation
 	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
@@ -678,7 +678,7 @@ func TestFinalizerIsRemoved_WhenUserIsDeleted(t *testing.T) {
 	assert.Nil(t, err, "there should be no error on successful reconciliation")
 	assert.Equal(t, expected, actual, "there should be a successful reconciliation if the password is a valid reference")
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	// the automation config should have been updated during reconciliation
 	assert.Len(t, ac.Auth.Users, 1, "the MongoDBUser should have been added to the AutomationConfig")
@@ -751,7 +751,7 @@ func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, aut
 
 	reconciler, client, omConnectionFactory := defaultUserReconciler(ctx, user)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		_ = connection.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		_ = connection.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, automationConfigOption)
 			return nil
 		}, nil)
@@ -768,7 +768,7 @@ func BuildAuthenticationEnabledReplicaSet(ctx context.Context, t *testing.T, aut
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: kube.ObjectKey(user.Namespace, user.Name)})
 	assert.NoError(t, err)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 
 	return ac
@@ -828,9 +828,9 @@ func userReconcilerWithAuthMode(ctx context.Context, user *userv1.MongoDBUser, a
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
 	reconciler := newMongoDBUserReconciler(ctx, kubeClient, omConnectionFactory.GetConnectionFunc, memberClusterMap, testBackupEnableDelay)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		_ = connection.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		_ = connection.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, authMode)
-			// Enabling auth as it's required to be enabled for the user controller to proceed
+
 			ac.Auth.Disabled = false
 			return nil
 		}, nil)
