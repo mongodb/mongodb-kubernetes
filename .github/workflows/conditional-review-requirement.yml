@@ -3,9 +3,9 @@ name: Conditional review requirement
 # Enforces the "needs-extra-review" gate: when the label is set, the head
 # commit needs two distinct approvals from reviewers with write access.
 #
-# The result is a commit status on the head commit. Unlike a job-based check,
-# a status is unique per commit and context, so each evaluation overwrites the
-# previous value and no stale result can remain.
+# The result is a commit status on the pull request's synthetic merge commit,
+# keeping evaluations for different pull requests separate even when they share
+# a head commit.
 #
 # Both triggers run from a trusted ref with a write token:
 #   - pull_request_target: label and content changes, including fork heads.
@@ -28,30 +28,14 @@ jobs:
     name: Evaluate review requirement
     runs-on: ubuntu-latest
     concurrency:
-      group: conditional-review-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+      group: conditional-review-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}
       cancel-in-progress: true
     steps:
-      - name: Set pending status
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -Eeuo pipefail
-
-          # Fail closed: clear any earlier result before evaluating, so a
-          # crash cannot leave a stale success in effect.
-          gh api "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
-            -f state=pending \
-            -f context='Conditional review requirement' \
-            -f description='Evaluating review requirement' \
-            -f target_url="${RUN_URL}"
-
       - name: Resolve pull request number
         id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
@@ -68,12 +52,45 @@ jobs:
           fi
           echo "number=${number}" >> "${GITHUB_OUTPUT}"
 
-      - name: Evaluate review requirement
+      - name: Resolve pull request merge commit
+        id: merge
         if: steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+        run: |
+          set -Eeuo pipefail
+
+          merge_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.merge_commit_sha // empty')"
+          if [ -z "${merge_sha}" ]; then
+            echo "Could not resolve the pull request's synthetic merge commit" >&2
+            exit 1
+          fi
+          echo "sha=${merge_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set pending status
+        if: steps.merge.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATUS_SHA: ${{ steps.merge.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+
+          # Fail closed: clear any earlier result before evaluating, so a
+          # crash cannot leave a stale success in effect.
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${STATUS_SHA}" \
+            -f state=pending \
+            -f context='Conditional review requirement' \
+            -f description='Evaluating review requirement' \
+            -f target_url="${RUN_URL}"
+
+      - name: Evaluate review requirement
+        if: steps.pr.outputs.number != '' && steps.merge.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          STATUS_SHA: ${{ steps.merge.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -Eeuo pipefail
@@ -123,7 +140,7 @@ jobs:
             fi
           fi
 
-          gh api "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${STATUS_SHA}" \
             -f state="${state}" \
             -f context='Conditional review requirement' \
             -f description="${description}" \
