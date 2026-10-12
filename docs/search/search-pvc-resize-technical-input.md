@@ -11,7 +11,7 @@ For other MongoDB resources, see [Increase Storage for Persistent Volumes](https
 - Schedule a maintenance window without concurrent scaling, upgrades, or GitOps changes. Stopping an operator pauses reconciliation for all resources it manages.
 - Obtain permission to patch PVCs, edit MongoDBSearch resources, scale operator deployments, and delete StatefulSets and pods.
 
-> **Important:** Increase storage only. Search StatefulSets use `whenDeleted: Delete` and `whenScaled: Delete` PVC retention policies beginning with Kubernetes Operator 1.9. Stopping the operator does **not** stop Kubernetes garbage collection. Keep the Search resource, PVCs, and mongot replica counts unchanged. Delete only the StatefulSet, with `--cascade=orphan`. A PV reclaim policy of `Retain` does not prevent PVC deletion.
+> **Important:** Increase storage only. Search StatefulSets use `whenDeleted: Delete` and `whenScaled: Delete` PVC retention policies beginning with Kubernetes Operator 1.9. Stopping the operator does **not** stop Kubernetes garbage collection. Keep the existing Search resource and PVCs. Do not change mongot replica counts. Delete only the StatefulSet, with `--cascade=orphan`. A PV reclaim policy of `Retain` does not prevent PVC deletion.
 
 ### Multi-Cluster Deployments
 
