@@ -993,9 +993,9 @@ spec:
                                 type: array
                               ca:
                                 description: |-
-                                  CA supplies a category's (client/server) CA trust anchor, used only when issuerRef
+                                  CA supplies a category's (client/server) CA trust bundle, used only when issuerRef
                                   is set but the issuer does not emit its CA in the issued secret's ca.crt (e.g. a public/ACME
-                                  server issuer). Ignored when the operator's self-signed CA signs the certs.
+                                  server issuer).
                                 properties:
                                   key:
                                     description: |-
@@ -1049,6 +1049,13 @@ spec:
                                   certificates. When unset, defaults to 1/3 of duration.
                                 type: string
                             type: object
+                            x-kubernetes-validations:
+                            - message: security.managedCertificate.*.ca is only used
+                                with issuerRef, it supplies the CA trust bundle when
+                                the issuer does not emit its CA in the issued secret's
+                                ca.crt. Set issuerRef, or remove ca
+                              rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
+                                != ”)'
                           enabled:
                             default: false
                             description: |-
@@ -1094,9 +1101,9 @@ spec:
                                 type: array
                               ca:
                                 description: |-
-                                  CA supplies a category's (client/server) CA trust anchor, used only when issuerRef
+                                  CA supplies a category's (client/server) CA trust bundle, used only when issuerRef
                                   is set but the issuer does not emit its CA in the issued secret's ca.crt (e.g. a public/ACME
-                                  server issuer). Ignored when the operator's self-signed CA signs the certs.
+                                  server issuer).
                                 properties:
                                   key:
                                     description: |-
@@ -1150,6 +1157,13 @@ spec:
                                   certificates. When unset, defaults to 1/3 of duration.
                                 type: string
                             type: object
+                            x-kubernetes-validations:
+                            - message: security.managedCertificate.*.ca is only used
+                                with issuerRef, it supplies the CA trust bundle when
+                                the issuer does not emit its CA in the issued secret's
+                                ca.crt. Set issuerRef, or remove ca
+                              rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
+                                != ”)'
                           subjects:
                             description: |-
                               Subjects overrides the operator-computed X509 subjects. It is configurable by

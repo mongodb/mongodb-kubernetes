@@ -1496,6 +1496,7 @@ type ManagedCertificate struct {
 
 // CertificateConfig configures one certificate category (server or client): who
 // signs it, its CA trust input, extra trusted CAs, and the leaf certs renewal cadence.
+// +kubebuilder:validation:XValidation:rule="!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name != ”)",message="security.managedCertificate.*.ca is only used with issuerRef, it supplies the CA trust bundle when the issuer does not emit its CA in the issued secret's ca.crt. Set issuerRef, or remove ca"
 type CertificateConfig struct {
 	// IssuerRef is the cert-manager Issuer/ClusterIssuer that signs a category's
 	// certs. Omit to have the operator provision a self-signed CA and sign a
@@ -1503,9 +1504,9 @@ type CertificateConfig struct {
 	// +optional
 	IssuerRef *IssuerRef `json:"issuerRef,omitempty"`
 
-	// CA supplies a category's (client/server) CA trust anchor, used only when issuerRef
+	// CA supplies a category's (client/server) CA trust bundle, used only when issuerRef
 	// is set but the issuer does not emit its CA in the issued secret's ca.crt (e.g. a public/ACME
-	// server issuer). Ignored when the operator's self-signed CA signs the certs.
+	// server issuer).
 	// +optional
 	CA *CARef `json:"ca,omitempty"`
 
