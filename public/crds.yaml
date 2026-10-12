@@ -2563,8 +2563,8 @@ spec:
                             issuerRef, it supplies the CA trust bundle when the issuer
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
-                          rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != '''')'
+                          rule: '!has(self.ca) || (has(self.issuerRef) && size(self.issuerRef.name)
+                            > 0)'
                       server:
                         description: |-
                           Server configures signing and trust for the serverAuth certificates.
@@ -2663,8 +2663,8 @@ spec:
                             issuerRef, it supplies the CA trust bundle when the issuer
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
-                          rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != '''')'
+                          rule: '!has(self.ca) || (has(self.issuerRef) && size(self.issuerRef.name)
+                            > 0)'
                       subjects:
                         description: |-
                           Subjects overrides the operator-computed X509 subjects. It is configurable by
@@ -5106,8 +5106,8 @@ spec:
                             issuerRef, it supplies the CA trust bundle when the issuer
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
-                          rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != '''')'
+                          rule: '!has(self.ca) || (has(self.issuerRef) && size(self.issuerRef.name)
+                            > 0)'
                       server:
                         description: |-
                           Server configures signing and trust for the serverAuth certificates.
@@ -5206,8 +5206,8 @@ spec:
                             issuerRef, it supplies the CA trust bundle when the issuer
                             does not emit its CA in the issued secret's ca.crt. Set
                             issuerRef, or remove ca
-                          rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                            != '''')'
+                          rule: '!has(self.ca) || (has(self.issuerRef) && size(self.issuerRef.name)
+                            > 0)'
                       subjects:
                         description: |-
                           Subjects overrides the operator-computed X509 subjects. It is configurable by
@@ -8548,8 +8548,8 @@ spec:
                                 with issuerRef, it supplies the CA trust bundle when
                                 the issuer does not emit its CA in the issued secret's
                                 ca.crt. Set issuerRef, or remove ca
-                              rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                                != '''')'
+                              rule: '!has(self.ca) || (has(self.issuerRef) && size(self.issuerRef.name)
+                                > 0)'
                           server:
                             description: |-
                               Server configures signing and trust for the serverAuth certificates.
@@ -8648,8 +8648,8 @@ spec:
                                 with issuerRef, it supplies the CA trust bundle when
                                 the issuer does not emit its CA in the issued secret's
                                 ca.crt. Set issuerRef, or remove ca
-                              rule: '!has(self.ca) || (has(self.issuerRef) && self.issuerRef.name
-                                != '''')'
+                              rule: '!has(self.ca) || (has(self.issuerRef) && size(self.issuerRef.name)
+                                > 0)'
                           subjects:
                             description: |-
                               Subjects overrides the operator-computed X509 subjects. It is configurable by
