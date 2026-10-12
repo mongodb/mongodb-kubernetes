@@ -19,7 +19,6 @@ def mdb(namespace: str, issuer: str) -> MongoDB:
     # Issuer for client certs is configured by user issuer (ca-issuer); the server category has no issuer,
     # so the operator self-signs the server CA.
     resource["spec"]["security"]["managedCertificate"] = {
-        "enabled": True,
         "client": {"issuerRef": {"name": "ca-issuer", "kind": "Issuer"}},
     }
     try_load(resource)
@@ -40,9 +39,9 @@ def test_replica_set_running(mdb: MongoDB):
 @pytest.mark.e2e_replica_set_tls_managedcert_server
 def test_operator_created_certs_and_split_cas(mdb: MongoDB, namespace: str):
     for secret_name in (
-        f"{MDB_RESOURCE}-cert",
-        f"{MDB_RESOURCE}-clusterfile",
-        f"{MDB_RESOURCE}-agent-certs",
+        f"{MDB_RESOURCE}-managed-cert",
+        f"{MDB_RESOURCE}-managed-clusterfile",
+        f"{MDB_RESOURCE}-managed-agent-certs",
     ):
         cert_secret = read_secret(namespace, secret_name)
         assert "tls.crt" in cert_secret, f"{secret_name} missing tls.crt"
@@ -61,9 +60,9 @@ def test_operator_created_certs_and_split_cas(mdb: MongoDB, namespace: str):
     )
 
     # verify that per category leaf certs are signed by respective CA
-    member_crt = read_secret(namespace, f"{MDB_RESOURCE}-cert")["tls.crt"]
-    clusterfile_crt = read_secret(namespace, f"{MDB_RESOURCE}-clusterfile")["tls.crt"]
-    agent_crt = read_secret(namespace, f"{MDB_RESOURCE}-agent-certs")["tls.crt"]
+    member_crt = read_secret(namespace, f"{MDB_RESOURCE}-managed-cert")["tls.crt"]
+    clusterfile_crt = read_secret(namespace, f"{MDB_RESOURCE}-managed-clusterfile")["tls.crt"]
+    agent_crt = read_secret(namespace, f"{MDB_RESOURCE}-managed-agent-certs")["tls.crt"]
     server_ca = server_ca_cm["ca-pem"]
     client_ca = client_ca_cm["clusterca-pem"]
 

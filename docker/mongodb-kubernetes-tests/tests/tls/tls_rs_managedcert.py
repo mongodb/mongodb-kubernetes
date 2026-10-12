@@ -15,7 +15,7 @@ MDB_RESOURCE = "test-tls-rs-managedcert"
 def mdb(namespace: str, issuer: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-tls-rs-managedcert.yaml"), name=MDB_RESOURCE, namespace=namespace)
     # No issuer for either category: the operator self-signs both the server and the client CAs.
-    resource["spec"]["security"]["managedCertificate"] = {"enabled": True}
+    resource["spec"]["security"]["managedCertificate"] = {}
     try_load(resource)
     return resource
 
@@ -38,9 +38,9 @@ def test_replica_set_running(mdb: MongoDB):
 @pytest.mark.e2e_replica_set_tls_managedcert
 def test_operator_created_certs_and_both_self_signed_cas(mdb: MongoDB, namespace: str):
     for secret_name in (
-        f"{MDB_RESOURCE}-cert",
-        f"{MDB_RESOURCE}-clusterfile",
-        f"{MDB_RESOURCE}-agent-certs",
+        f"{MDB_RESOURCE}-managed-cert",
+        f"{MDB_RESOURCE}-managed-clusterfile",
+        f"{MDB_RESOURCE}-managed-agent-certs",
     ):
         cert_secret = read_secret(namespace, secret_name)
         assert "tls.crt" in cert_secret, f"{secret_name} missing tls.crt"
@@ -91,7 +91,7 @@ def test_scale_down_needs_no_new_certs(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_managedcert
 def test_scale_up_within_peak_does_not_reissue(mdb: MongoDB, namespace: str):
-    cert_before = read_secret(namespace, f"{MDB_RESOURCE}-cert")["tls.crt"]
+    cert_before = read_secret(namespace, f"{MDB_RESOURCE}-managed-cert")["tls.crt"]
 
     mdb["spec"]["members"] = 4
     mdb.update()
@@ -101,5 +101,5 @@ def test_scale_up_within_peak_does_not_reissue(mdb: MongoDB, namespace: str):
     # shrink the member cert SANs on scale-down, so it still covers members 0-4. Scaling back
     # up to 4 reuses a name already in the cert, so the cert must not be reissued: its content
     # is byte-for-byte the same. No reissue means no trigger to restart or roll the members.
-    cert_after = read_secret(namespace, f"{MDB_RESOURCE}-cert")["tls.crt"]
+    cert_after = read_secret(namespace, f"{MDB_RESOURCE}-managed-cert")["tls.crt"]
     assert cert_after == cert_before, "member cert must not be reissued on a scale-up within the SAN peak"
