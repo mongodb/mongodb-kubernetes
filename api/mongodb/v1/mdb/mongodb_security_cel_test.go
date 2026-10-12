@@ -36,6 +36,7 @@ func TestMongoDBSecurityCELValidation(t *testing.T) {
 
 	tlsEnabled := &mdb.TLSConfig{Enabled: true}
 	issuer := &mdb.IssuerRef{Name: "my-issuer", Kind: "Issuer"}
+	ca := &mdb.CARef{Name: "my-ca", Kind: "ConfigMap", Key: "ca.crt"}
 
 	tests := []struct {
 		name     string
@@ -101,6 +102,38 @@ func TestMongoDBSecurityCELValidation(t *testing.T) {
 				ManagedCertificate: &mdb.ManagedCertificate{Server: &mdb.CertificateConfig{IssuerRef: issuer}},
 			},
 			errorContains: "require security.managedCertificate.enabled",
+		},
+		{
+			name: "ca together with issuerRef is accepted",
+			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
+				Enabled: true,
+				Server:  &mdb.CertificateConfig{IssuerRef: issuer, CA: ca},
+			}},
+		},
+		{
+			name: "ca without issuerRef is rejected",
+			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
+				Enabled: true,
+				Server:  &mdb.CertificateConfig{CA: ca},
+			}},
+			errorContains: "ca is only used with issuerRef",
+		},
+		{
+			// an empty issuer name is treated as no issuer, so ca would be ignored.
+			name: "ca with an empty issuer name is rejected",
+			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
+				Enabled: true,
+				Server:  &mdb.CertificateConfig{IssuerRef: &mdb.IssuerRef{}, CA: ca},
+			}},
+			errorContains: "ca is only used with issuerRef",
+		},
+		{
+			name: "client ca without a client issuerRef is rejected",
+			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
+				Enabled: true,
+				Client:  &mdb.CertificateConfig{CA: ca},
+			}},
+			errorContains: "ca is only used with issuerRef",
 		},
 	}
 
