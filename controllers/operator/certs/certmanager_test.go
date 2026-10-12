@@ -99,31 +99,31 @@ func TestSignerIssuerRef(t *testing.T) {
 	}{
 		{
 			name:           "server with a user issuer passes it through",
-			mc:             &mdbv1.ManagedCertificate{Enabled: true, Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "my-issuer", Kind: "ClusterIssuer"}}},
+			mc:             &mdbv1.ManagedCertificate{Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "my-issuer", Kind: "ClusterIssuer"}}},
 			category:       categoryServer,
 			categoryIssuer: cmmeta.ObjectReference{Name: "my-issuer", Kind: "ClusterIssuer"},
 		},
 		{
 			name:           "server without an issuer uses the self-signed CA issuer",
-			mc:             &mdbv1.ManagedCertificate{Enabled: true},
+			mc:             &mdbv1.ManagedCertificate{},
 			category:       categoryServer,
 			categoryIssuer: cmmeta.ObjectReference{Name: fmt.Sprintf("%s-server-ca-issuer", resName), Kind: certmanagerv1.IssuerKind},
 		},
 		{
 			name:           "client with a user issuer passes it through",
-			mc:             &mdbv1.ManagedCertificate{Enabled: true, Client: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "client-issuer", Kind: "Issuer"}}},
+			mc:             &mdbv1.ManagedCertificate{Client: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "client-issuer", Kind: "Issuer"}}},
 			category:       categoryClient,
 			categoryIssuer: cmmeta.ObjectReference{Name: "client-issuer", Kind: "Issuer"},
 		},
 		{
 			name:           "client without an issuer uses the self-signed CA issuer",
-			mc:             &mdbv1.ManagedCertificate{Enabled: true},
+			mc:             &mdbv1.ManagedCertificate{},
 			category:       categoryClient,
 			categoryIssuer: cmmeta.ObjectReference{Name: fmt.Sprintf("%s-client-ca-issuer", resName), Kind: certmanagerv1.IssuerKind},
 		},
 		{
 			name:           "an empty issuer name is treated as no issuer (self-signed)",
-			mc:             &mdbv1.ManagedCertificate{Enabled: true, Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: ""}}},
+			mc:             &mdbv1.ManagedCertificate{Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: ""}}},
 			category:       categoryServer,
 			categoryIssuer: cmmeta.ObjectReference{Name: fmt.Sprintf("%s-server-ca-issuer", resName), Kind: certmanagerv1.IssuerKind},
 		},
@@ -185,7 +185,7 @@ func TestVerifyAgentSubjectDistinct(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
 				m.Spec.Security.Authentication = tc.auth
-				m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Enabled: true, Subjects: tc.subs}
+				m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Subjects: tc.subs}
 			})
 			assert.Equal(t, tc.expOK, verifyAgentSubjectDistinct(owner).IsOK())
 		})
@@ -209,7 +209,7 @@ func TestComponentCertificates(t *testing.T) {
 
 	t.Run("keyfile internal auth: only the member (serverAuth) cert, SAN-only subject", func(t *testing.T) {
 		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
-			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Enabled: true}
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
 		})
 		got := componentCertificates(ctx, fakeClient, owner, baseOpts)
 		require.Len(t, got, 1)
@@ -222,7 +222,7 @@ func TestComponentCertificates(t *testing.T) {
 		opts := baseOpts
 		opts.InternalClusterSecretName = fmt.Sprintf("%s-clusterfile", resName)
 		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
-			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Enabled: true}
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
 			m.Spec.Security.Authentication = &mdbv1.Authentication{InternalCluster: util.X509}
 		})
 		got := componentCertificates(ctx, fakeClient, owner, opts)
@@ -250,7 +250,7 @@ func TestComponentCertificates(t *testing.T) {
 		opts.Replicas = 3
 		opts.MembersToCover = 5
 		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
-			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Enabled: true}
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
 		})
 		got := componentCertificates(ctx, fakeClient, owner, opts)
 		require.Len(t, got, 1)
@@ -316,7 +316,7 @@ func TestResolveMembersToCover(t *testing.T) {
 func TestAgentCertificate(t *testing.T) {
 	t.Run("agent auth x509: issued with clientAuth and the agent subject", func(t *testing.T) {
 		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
-			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Enabled: true}
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
 			m.Spec.Security.Authentication = &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{mdbv1.AuthMode(util.X509)}}
 		})
 		cert, ok := agentCertificate(owner)
@@ -329,7 +329,7 @@ func TestAgentCertificate(t *testing.T) {
 
 	t.Run("agent auth not x509: no agent cert", func(t *testing.T) {
 		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
-			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Enabled: true}
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
 		})
 		_, ok := agentCertificate(owner)
 		assert.False(t, ok)
@@ -401,8 +401,7 @@ func TestResolveUserCA(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
 				m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{
-					Enabled: true,
-					Server:  &mdbv1.CertificateConfig{CA: tc.userConfiguredCA},
+					Server: &mdbv1.CertificateConfig{CA: tc.userConfiguredCA},
 				}
 			})
 			fakeClient, _ := mock.NewDefaultFakeClient(tc.objects...)
