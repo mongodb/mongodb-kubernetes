@@ -891,6 +891,12 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 		return err
 	}
 
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbmulti.MongoDBMultiCluster{},
+		&watch.ResourcesHandler{ResourceType: watch.MongoDBMultiCluster, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
 	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
 	if vault.IsVaultSecretBackend() {
 		eventChannel := make(chan event.GenericEvent)
@@ -992,7 +998,12 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 	} else {
 		r.resourceWatcher.RemoveDependentWatchedResources(opsManager.ObjectKey())
 
-		r.resourceWatcher.AddWatchedResourceIfNotAdded(opsManager.Spec.ExternalAppDBRef.Name, opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(opsManager))
+		watchedType := watch.MongoDB
+		if opsManager.Spec.ExternalAppDBRef.Kind == omv1.ExternalAppDBRefKindMongoDBMultiCluster {
+			watchedType = watch.MongoDBMultiCluster
+		}
+
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(opsManager.Spec.ExternalAppDBRef.Name, opsManager.Namespace, watchedType, kube.ObjectKeyFromApiObject(opsManager))
 	}
 
 	if opsManager.IsTLSEnabled() {
