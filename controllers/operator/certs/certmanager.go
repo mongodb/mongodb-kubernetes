@@ -89,10 +89,11 @@ type certToEnsure struct {
 	annotations map[string]string
 }
 
-// coveredMembersAnnotation stored how many members' SANs are currently baked
-// into the operator-managed member/server certificate. It lets a later reconcile hold the
-// SAN list steady while the scale fo deployment is in progress so the shared cert is not
-// reissued at every one-at-a-time step.
+// coveredMembersAnnotation stores how many members' SANs the operator-managed member/server
+// certificate currently covers. It is what keeps the certificate from shrinking on scale down. The
+// operator recomputes the cert's SANs on every reconcile, and without this count the SAN list would
+// lose one member on every reconcile during a scale down, so the cert would be reissued each time which
+// we want to avoid.
 const coveredMembersAnnotation = "mongodb.com/covered-members"
 
 func selfSignedIssuerName(res CertificateOwner, cat certCategory) string {
