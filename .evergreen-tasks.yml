@@ -264,6 +264,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_container_image_type
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replication_state_awareness
     tags: [ "patch-run" ]
     commands:

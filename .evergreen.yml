@@ -1149,6 +1149,12 @@ task_groups:
       - e2e_replica_set_pv
       - e2e_sharded_cluster_pv
 
+  - name: e2e_mdb_container_image_type_task_group
+    max_hosts: 1
+    <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
+    tasks:
+      - e2e_replica_set_container_image_type
+
   - name: e2e_mdb_openshift_search_ubi_cloudqa_task_group
     max_hosts: 1
     <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
@@ -1690,6 +1696,7 @@ buildvariants:
       - ubuntu2404-medium
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
+      - name: e2e_mdb_container_image_type_task_group
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
@@ -1764,6 +1771,7 @@ buildvariants:
       - ubuntu2404-small
     tasks:
       - name: e2e_mdb_openshift_ubi_cloudqa_task_group
+      - name: e2e_mdb_container_image_type_task_group
 
   - name: e2e_mdb_openshift_search_ubi_cloudqa
     display_name: e2e_mdb_openshift_search_ubi_cloudqa
