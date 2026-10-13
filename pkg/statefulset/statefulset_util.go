@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -28,56 +29,56 @@ const PVCSizeAnnotation = "mongodb.com/storageSize"
 
 // isVolumeClaimEqualOnForbiddenFields takes two sts PVCs
 // and returns whether we are allowed to update the first one to the second one.
-func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolumeClaim) bool {
+func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolumeClaim) (bool, string) {
 	oldSpec := existing.Spec
 	newSpec := desired.Spec
 
 	// The whole volumeClaimTemplates field is immutable, metadata included, so a label or
 	// annotation change is rejected by the API server just like a spec change (CLOUDP-208587).
 	if !gocmp.Equal(existing.Labels, desired.Labels, cmpopts.EquateEmpty()) {
-		return false
+		return false, "metadata.labels"
 	}
 
 	if !gocmp.Equal(existing.Annotations, desired.Annotations, cmpopts.EquateEmpty()) {
-		return false
+		return false, "metadata.annotations"
 	}
 
 	if !gocmp.Equal(oldSpec.AccessModes, newSpec.AccessModes, cmpopts.EquateEmpty()) {
-		return false
+		return false, "spec.accessModes"
 	}
 
 	if newSpec.Selector != nil && !gocmp.Equal(oldSpec.Selector, newSpec.Selector, cmpopts.EquateEmpty()) {
-		return false
+		return false, "spec.selector"
 	}
 
 	// using api-machinery here for semantic equality
 	if !apiEquality.Semantic.DeepEqual(oldSpec.Resources, newSpec.Resources) {
-		return false
+		return false, "spec.resources"
 	}
 
 	if newSpec.VolumeName != "" && newSpec.VolumeName != oldSpec.VolumeName {
-		return false
+		return false, "spec.volumeName"
 	}
 
 	if newSpec.StorageClassName != nil && !reflect.DeepEqual(oldSpec.StorageClassName, newSpec.StorageClassName) {
-		return false
+		return false, "spec.storageClassName"
 	}
 
 	if newSpec.VolumeMode != nil && !reflect.DeepEqual(newSpec.VolumeMode, oldSpec.VolumeMode) {
-		return false
+		return false, "spec.volumeMode"
 	}
 
 	if newSpec.DataSource != nil && !reflect.DeepEqual(newSpec.DataSource, oldSpec.DataSource) {
-		return false
+		return false, "spec.dataSource"
 	}
 
-	return true
+	return true, ""
 }
 
 // isStatefulSetEqualOnForbiddenFields takes two statefulsets
 // and returns whether we are allowed to update the first one to the second one.
 // This is decided on equality on forbidden fields.
-func isStatefulSetEqualOnForbiddenFields(existing, desired appsv1.StatefulSet) bool {
+func isStatefulSetEqualOnForbiddenFields(existing, desired appsv1.StatefulSet) (bool, string) {
 	// We are using cmp equal on purpose to enforce equality between nil and []
 	selectorsEqual := desired.Spec.Selector == nil || gocmp.Equal(existing.Spec.Selector, desired.Spec.Selector, cmpopts.EquateEmpty())
 	serviceNamesEqual := existing.Spec.ServiceName == desired.Spec.ServiceName
@@ -85,17 +86,28 @@ func isStatefulSetEqualOnForbiddenFields(existing, desired appsv1.StatefulSet) b
 	revHistoryLimitEqual := desired.Spec.RevisionHistoryLimit == nil || reflect.DeepEqual(desired.Spec.RevisionHistoryLimit, existing.Spec.RevisionHistoryLimit)
 
 	if len(existing.Spec.VolumeClaimTemplates) != len(desired.Spec.VolumeClaimTemplates) {
-		return false
+		return false, "spec.volumeClaimTemplates count"
 	}
 
 	// VolumeClaimTemplates must be checked one-by-one, to deal with empty string, nil pointers
 	for index, existingClaim := range existing.Spec.VolumeClaimTemplates {
-		if !isVolumeClaimEqualOnForbiddenFields(existingClaim, desired.Spec.VolumeClaimTemplates[index]) {
-			return false
+		if ok, reason := isVolumeClaimEqualOnForbiddenFields(existingClaim, desired.Spec.VolumeClaimTemplates[index]); !ok {
+			return false, fmt.Sprintf("spec.volumeClaimTemplates[%d].%s", index, reason)
 		}
 	}
 
-	return selectorsEqual && serviceNamesEqual && podMgmtEqual && revHistoryLimitEqual
+	switch {
+	case !selectorsEqual:
+		return false, "spec.selector"
+	case !serviceNamesEqual:
+		return false, "spec.serviceName"
+	case !podMgmtEqual:
+		return false, "spec.podManagementPolicy"
+	case !revHistoryLimitEqual:
+		return false, "spec.revisionHistoryLimit"
+	}
+
+	return true, ""
 }
 
 // StatefulSetCantBeUpdatedError is returned when we are trying to update immutable fields on a sts.
@@ -139,11 +151,11 @@ func CreateOrUpdateStatefulset(ctx context.Context, getUpdateCreator kubernetesC
 	}
 
 	log.Debug("Checking if we can update the current statefulset")
-	if !isStatefulSetEqualOnForbiddenFields(existingStatefulSet, *statefulSetToCreate) {
+	if ok, reason := isStatefulSetEqualOnForbiddenFields(existingStatefulSet, *statefulSetToCreate); !ok {
 		// Running into this code means we have updated sts fields which are not allowed to be changed.
 		log.Debug("Can't update the stateful set")
 		return nil, StatefulSetCantBeUpdatedError{
-			msg: "can't execute update on forbidden fields",
+			msg: fmt.Sprintf("can't execute update on forbidden fields: %s", reason),
 		}
 	}
 
