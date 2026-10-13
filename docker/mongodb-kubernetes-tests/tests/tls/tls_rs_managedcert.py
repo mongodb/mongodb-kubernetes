@@ -1,23 +1,25 @@
-#!/usr/bin/env python3
-
 import pytest
-from kubetester import read_configmap, read_secret, try_load
-from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
+from tests.tls.managedcert_helper import (
+    assert_leaf_certs_signed_by_its_category_ca,
+    assert_leaf_secrets_created,
+    assert_self_signed_ca_created,
+    managed_cert_replica_set,
+    member_cert_issuance,
+    read_ca_bundles,
+    scale_and_wait_for_running,
+)
 
 MDB_RESOURCE = "test-tls-rs-managedcert"
 
 
 @pytest.fixture(scope="module")
-def mdb(namespace: str, issuer: str) -> MongoDB:
-    resource = MongoDB.from_yaml(load_fixture("test-tls-rs-managedcert.yaml"), name=MDB_RESOURCE, namespace=namespace)
+def mdb(namespace: str, issuer: str, custom_mdb_version: str) -> MongoDB:
     # No issuer for either category: the operator self-signs both the server and the client CAs.
-    resource["spec"]["security"]["managedCertificate"] = {}
-    try_load(resource)
-    return resource
+    return managed_cert_replica_set(MDB_RESOURCE, namespace, custom_mdb_version, {})
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert
@@ -37,36 +39,16 @@ def test_replica_set_running(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_managedcert
 def test_operator_created_certs_and_both_self_signed_cas(mdb: MongoDB, namespace: str):
-    for secret_name in (
-        f"{MDB_RESOURCE}-managed-cert",
-        f"{MDB_RESOURCE}-managed-clusterfile",
-        f"{MDB_RESOURCE}-managed-agent-certs",
-    ):
-        cert_secret = read_secret(namespace, secret_name)
-        assert "tls.crt" in cert_secret, f"{secret_name} missing tls.crt"
-        assert "tls.key" in cert_secret, f"{secret_name} missing tls.key"
+    assert_leaf_secrets_created(MDB_RESOURCE, namespace)
 
-    # Because no issuer is configured, the operator provisioned both per-category
-    # self-signed root CAs (server signs the member cert, client signs clusterfile/agent).
-    for ca_secret_name in (
-        f"{MDB_RESOURCE}-server-ca",
-        f"{MDB_RESOURCE}-client-ca",
-    ):
-        ca_secret = read_secret(namespace, ca_secret_name)
-        assert "tls.crt" in ca_secret, f"{ca_secret_name} missing tls.crt"
+    # Because no issuer is configured, the operator provisioned both per-category self-signed
+    # root CAs (server signs the member cert, client signs clusterfile/agent).
+    assert_self_signed_ca_created(MDB_RESOURCE, namespace, "server")
+    assert_self_signed_ca_created(MDB_RESOURCE, namespace, "client")
 
-    # The two operator-owned per-category CA bundle ConfigMaps carry the two trust stores:
-    #   <name>-managed-server-ca-bundle, key ca-pem (server self-signed CA that is configured as net.tls.CAFile)
-    #   <name>-managed-client-ca-bundle, key clusterca-pem (client self-signed CA that is configured as
-    #     net.tls.clusterCAFile)
-    # They must be present, non-empty, and distinct.
-    server_ca_cm = read_configmap(namespace, f"{MDB_RESOURCE}-managed-server-ca-bundle")
-    assert server_ca_cm.get("ca-pem", "").strip() != "", "ca-pem (server CA) missing/empty"
-    client_ca_cm = read_configmap(namespace, f"{MDB_RESOURCE}-managed-client-ca-bundle")
-    assert client_ca_cm.get("clusterca-pem", "").strip() != "", "clusterca-pem (client CA) missing/empty"
-    assert server_ca_cm["ca-pem"].strip() != client_ca_cm["clusterca-pem"].strip(), (
-        "server and client self-signed CAs should be distinct roots"
-    )
+    server_ca, client_ca = read_ca_bundles(MDB_RESOURCE, namespace)
+    assert server_ca != client_ca, "server and client self-signed CAs should be distinct roots"
+    assert_leaf_certs_signed_by_its_category_ca(MDB_RESOURCE, namespace, server_ca, client_ca)
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert
@@ -76,30 +58,40 @@ def test_mdb_is_not_reachable_without_ssl(mdb: MongoDB):
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert
-def test_scale_up(mdb: MongoDB):
-    mdb["spec"]["members"] = 5
-    mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=900)
+def test_scale_up_issues_the_cert_once(mdb: MongoDB, namespace: str):
+    revision_before, cert_before = member_cert_issuance(MDB_RESOURCE, namespace)
+
+    scale_and_wait_for_running(mdb, 5)
+
+    # The operator adds members one at a time, but the cert covers the target (5) from the first
+    # step, so the whole scale up issues it exactly once instead of once per member.
+    revision_after, cert_after = member_cert_issuance(MDB_RESOURCE, namespace)
+    assert revision_after == revision_before + 1, "member cert must be issued once for the whole scale up"
+    assert cert_after != cert_before, "member cert must be reissued to cover the new members"
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert
-def test_scale_down_needs_no_new_certs(mdb: MongoDB):
-    mdb["spec"]["members"] = 3
-    mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=900)
+def test_scale_down_needs_no_new_certs(mdb: MongoDB, namespace: str):
+    revision_before, cert_before = member_cert_issuance(MDB_RESOURCE, namespace)
+
+    scale_and_wait_for_running(mdb, 3)
+
+    # The operator never shrinks the member cert SANs, so a scale down must not issue the cert
+    # again: cert-manager's revision is unchanged and the content is byte-for-byte the same.
+    revision_after, cert_after = member_cert_issuance(MDB_RESOURCE, namespace)
+    assert revision_after == revision_before, "member cert must not be reissued on scale down"
+    assert cert_after == cert_before, "member cert must not change on scale down"
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert
 def test_scale_up_within_peak_does_not_reissue(mdb: MongoDB, namespace: str):
-    cert_before = read_secret(namespace, f"{MDB_RESOURCE}-managed-cert")["tls.crt"]
+    revision_before, cert_before = member_cert_issuance(MDB_RESOURCE, namespace)
 
-    mdb["spec"]["members"] = 4
-    mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=900)
+    scale_and_wait_for_running(mdb, 4)
 
-    # The cluster peaked at 5 members earlier, then scaled down to 3. The operator does not
-    # shrink the member cert SANs on scale-down, so it still covers members 0-4. Scaling back
-    # up to 4 reuses a name already in the cert, so the cert must not be reissued: its content
-    # is byte-for-byte the same. No reissue means no trigger to restart or roll the members.
-    cert_after = read_secret(namespace, f"{MDB_RESOURCE}-managed-cert")["tls.crt"]
-    assert cert_after == cert_before, "member cert must not be reissued on a scale-up within the SAN peak"
+    # The cluster peaked at 5 members earlier, then scaled down to 3. The cert still covers members
+    # 0-4, so scaling back up to 4 reuses a name already in the cert and must not reissue it. No
+    # reissue means no trigger to restart or roll the members.
+    revision_after, cert_after = member_cert_issuance(MDB_RESOURCE, namespace)
+    assert revision_after == revision_before, "member cert must not be reissued on a scale up within the SAN peak"
+    assert cert_after == cert_before, "member cert must not change on a scale up within the SAN peak"
