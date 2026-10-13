@@ -48,18 +48,15 @@ func (r *ReplicaSetReconciler) cleanupScramSecrets(ctx context.Context, currentM
 	}
 }
 
-// cleanupConnectionStringSecrets cleans up old scram secrets based on the last successful applied mongodb spec.
-func (r *ReplicaSetReconciler) cleanupConnectionStringSecrets(ctx context.Context, currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec, namespace string, resourceName string) {
-	secretsToDelete := getConnectionStringSecretsToDelete(currentMDBSpec, lastAppliedMDBSpec, resourceName)
+// cleanupConnectionStringSecrets cleans up old connection string secrets based on the last successful applied MongoDB spec.
+func (r *ReplicaSetReconciler) cleanupConnectionStringSecrets(ctx context.Context, currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec, resourceNamespace string, resourceName string) {
+	secretsToDelete := getConnectionStringSecretsToDelete(currentMDBSpec, lastAppliedMDBSpec, resourceNamespace, resourceName)
 
 	for _, s := range secretsToDelete {
-		if err := r.client.DeleteSecret(ctx, types.NamespacedName{
-			Name:      s,
-			Namespace: namespace,
-		}); err != nil {
-			r.log.Warnf("Could not cleanup old secret %s: %s", s, err)
+		if err := r.client.DeleteSecret(ctx, s); err != nil {
+			r.log.Warnf("Could not cleanup old secret %s/%s: %s", s.Namespace, s.Name, err)
 		} else {
-			r.log.Debugf("Sucessfully cleaned up secret: %s", s)
+			r.log.Debugf("Sucessfully cleaned up secret: %s/%s", s.Namespace, s.Name)
 		}
 	}
 }
@@ -93,31 +90,44 @@ func getScramSecretsToDelete(currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppl
 	return secretsToDelete
 }
 
-func getConnectionStringSecretsToDelete(currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec, resourceName string) []string {
+func getConnectionStringSecretsToDelete(currentMDBSpec mdbv1.MongoDBCommunitySpec, lastAppliedMDBSpec mdbv1.MongoDBCommunitySpec, resourceNamespace string, resourceName string) []types.NamespacedName {
 	type user struct {
 		db   string
 		name string
 	}
-	m := map[user]string{}
-	var secretsToDelete []string
+	type connectionStringSecret struct {
+		name      string
+		namespace string
+	}
+
+	currentSecrets := map[user]connectionStringSecret{}
+	var secretsToDelete []types.NamespacedName
 
 	for _, mongoDBUser := range currentMDBSpec.Users {
 		if mongoDBUser.DB == constants.ExternalDB {
 			continue
 		}
-		m[user{db: mongoDBUser.DB, name: mongoDBUser.Name}] = mongoDBUser.GetConnectionStringSecretName(resourceName)
+		currentSecrets[user{db: mongoDBUser.DB, name: mongoDBUser.Name}] = connectionStringSecret{
+			name:      mongoDBUser.GetConnectionStringSecretName(resourceName),
+			namespace: mongoDBUser.GetConnectionStringSecretNamespace(resourceNamespace),
+		}
 	}
 
 	for _, mongoDBUser := range lastAppliedMDBSpec.Users {
 		if mongoDBUser.DB == constants.ExternalDB {
 			continue
 		}
-		currentConnectionStringSecretName, ok := m[user{db: mongoDBUser.DB, name: mongoDBUser.Name}]
+
+		lastAppliedSecret := connectionStringSecret{
+			name:      mongoDBUser.GetConnectionStringSecretName(resourceName),
+			namespace: mongoDBUser.GetConnectionStringSecretNamespace(resourceNamespace),
+		}
+		currentSecret, ok := currentSecrets[user{db: mongoDBUser.DB, name: mongoDBUser.Name}]
 		if !ok { // user was removed
-			secretsToDelete = append(secretsToDelete, mongoDBUser.GetConnectionStringSecretName(resourceName))
-		} else if currentConnectionStringSecretName != mongoDBUser.GetConnectionStringSecretName(resourceName) {
-			// this happens when a new ConnectionStringSecretName was set for the old user
-			secretsToDelete = append(secretsToDelete, mongoDBUser.GetConnectionStringSecretName(resourceName))
+			secretsToDelete = append(secretsToDelete, types.NamespacedName{Name: lastAppliedSecret.name, Namespace: lastAppliedSecret.namespace})
+		} else if currentSecret != lastAppliedSecret {
+			// this happens when a new ConnectionStringSecretName or ConnectionStringSecretNamespace was set for the old user
+			secretsToDelete = append(secretsToDelete, types.NamespacedName{Name: lastAppliedSecret.name, Namespace: lastAppliedSecret.namespace})
 		}
 	}
 	return secretsToDelete
