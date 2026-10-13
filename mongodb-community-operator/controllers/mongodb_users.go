@@ -73,7 +73,7 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 				if apiErrors.IsNotFound(err) {
 					// users may delete the password secret once the resource is running, in
 					// which case the existing connection string secret is left untouched
-					r.log.Debugf("Skipping connection string secret %s: password secret %s not found", secretName, user.PasswordSecretName)
+					r.log.Debugf("Skipping connection string secret %s: required password secret not found", secretName)
 					continue
 				}
 				return err
