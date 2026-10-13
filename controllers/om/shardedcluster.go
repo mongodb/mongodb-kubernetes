@@ -129,6 +129,7 @@ func (s ShardedCluster) mergeFrom(operatorCluster ShardedCluster) []string {
 			removedMembers = append(removedMembers, shard.Rs())
 		}
 	}
+	sort.Strings(removedMembers)
 
 	// update cluster shards back
 	shards := make([]Shard, len(operatorMap))
