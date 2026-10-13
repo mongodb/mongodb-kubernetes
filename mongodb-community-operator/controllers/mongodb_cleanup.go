@@ -7,6 +7,7 @@ import (
 
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sClient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -71,8 +72,16 @@ func (r *ReplicaSetReconciler) cleanupConnectionStringSecrets(ctx context.Contex
 			continue
 		}
 
-		if err := r.client.DeleteSecret(ctx, secretName); err != nil {
-			r.log.Warnf("Could not cleanup old secret %s: %s", s, err)
+		// The UID precondition ensures only the object whose owner was checked is deleted: a
+		// secret replaced under the same name after our read conflicts and is left alone.
+		if err := r.client.Delete(ctx, &existing, k8sClient.Preconditions{UID: &existing.UID}); err != nil {
+			if apiErrors.IsNotFound(err) {
+				r.log.Debugf("Secret %s was already deleted", s)
+			} else if apiErrors.IsConflict(err) {
+				r.log.Warnf("Skipping cleanup of secret %s: it changed after the owner check", s)
+			} else {
+				r.log.Warnf("Could not cleanup old secret %s: %s", s, err)
+			}
 		} else {
 			r.log.Debugf("Sucessfully cleaned up secret: %s", s)
 		}

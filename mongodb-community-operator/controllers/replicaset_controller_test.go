@@ -784,6 +784,80 @@ func TestConnectionStringSecret_ForeignSecretFailsReconcileAndIsNotDeleted(t *te
 	})
 }
 
+func TestConnectionStringSecret_ForeignSecretForOneUserPreventsWritesForAllUsers(t *testing.T) {
+	ctx := context.Background()
+	const firstUserSecretName = "first-user-connection-string"
+	const victimSecretName = "victim-app-secret"
+
+	newUser := func(name, connectionStringSecretName string) mdbv1.MongoDBUser {
+		return mdbv1.MongoDBUser{
+			Name: name,
+			PasswordSecretRef: v1.SecretKeyReference{
+				Name: "password-secret-name",
+			},
+			ScramCredentialsSecretName: name + "-scram-credentials",
+			ConnectionStringSecretName: connectionStringSecretName,
+		}
+	}
+	mdb := newScramReplicaSet(newUser("first-user", firstUserSecretName), newUser("second-user", victimSecretName))
+	mdb.UID = "mdb-uid"
+
+	mgr := client.NewManager(ctx, &mdb)
+	require.NoError(t, createUserPasswordSecret(ctx, mgr.Client, mdb, "password-secret-name", "pass"))
+
+	// the second user's target belongs to someone else
+	victim := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: victimSecretName, Namespace: mdb.Namespace},
+		Data:       map[string][]byte{"original-data": []byte("do-not-touch")},
+	}
+	require.NoError(t, mgr.Client.Create(ctx, &victim))
+
+	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+
+	err := r.updateConnectionStringSecrets(ctx, mdb)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not managed by the operator")
+
+	// the reconcile failure skips secret cleanup, so the first user's secret must never
+	// have been written: it would be orphaned if the spec is reverted
+	_, err = mgr.Client.GetSecret(ctx, types.NamespacedName{Name: firstUserSecretName, Namespace: mdb.Namespace})
+	assert.True(t, apiErrors.IsNotFound(err), "no secret should be written when any user's target is a foreign secret")
+}
+
+func TestConnectionStringSecret_DeletedPasswordSecretSkipsUserWithoutFailing(t *testing.T) {
+	ctx := context.Background()
+
+	newUser := func(name, connectionStringSecretName string) mdbv1.MongoDBUser {
+		return mdbv1.MongoDBUser{
+			Name: name,
+			PasswordSecretRef: v1.SecretKeyReference{
+				Name: name + "-password-secret",
+			},
+			ScramCredentialsSecretName: name + "-scram-credentials",
+			ConnectionStringSecretName: connectionStringSecretName,
+		}
+	}
+	mdb := newScramReplicaSet(newUser("first-user", "first-user-connection-string"), newUser("second-user", "second-user-connection-string"))
+	mdb.UID = "mdb-uid"
+
+	mgr := client.NewManager(ctx, &mdb)
+	// only the first user's password secret exists. users are told they can delete the
+	// password secret once the resource is running (docs/mongodbcommunity/users.md)
+	require.NoError(t, createUserPasswordSecret(ctx, mgr.Client, mdb, "first-user-password-secret", "pass"))
+
+	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+
+	// master only logged this error, so the resource must not go Failed over a deleted password secret
+	require.NoError(t, r.updateConnectionStringSecrets(ctx, mdb))
+
+	s, err := mgr.Client.GetSecret(ctx, types.NamespacedName{Name: "first-user-connection-string", Namespace: mdb.Namespace})
+	require.NoError(t, err, "users with a readable password secret must still be written")
+	assert.Equal(t, "pass", string(s.Data["password"]))
+
+	_, err = mgr.Client.GetSecret(ctx, types.NamespacedName{Name: "second-user-connection-string", Namespace: mdb.Namespace})
+	assert.True(t, apiErrors.IsNotFound(err), "the user with a deleted password secret must be skipped")
+}
+
 func assertConnectionStringSecretAnnotations(ctx context.Context, t *testing.T, c k8sClient.Client, mdb mdbv1.MongoDBCommunity, expectedAnnotations map[string]string) {
 	connectionStringSecret := corev1.Secret{}
 	scramUsers := mdb.GetAuthUsers()
