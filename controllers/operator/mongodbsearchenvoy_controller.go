@@ -584,8 +584,6 @@ func envoyLBCertSecretsData(ctx context.Context, c client.Reader, search *search
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, w clusterWorkItem, managedLB *searchv1.ManagedLBConfig, tlsEnabled bool, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	var certData []byte
 	if tlsEnabled {
-		// Intentionally use the cluster cache: with central-only Secret watches,
-		// member cache lag can defer rotation until a later reconciliation.
 		var err error
 		if certData, err = envoyLBCertSecretsData(ctx, w.Client, search, w.ClusterIndex); err != nil {
 			return err

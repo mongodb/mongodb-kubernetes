@@ -1122,53 +1122,85 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 func TestReconcile_RegistersSearchStateConfigMapWatch(t *testing.T) {
 	ctx := context.Background()
 	scheme := envoyTestScheme(t)
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
-		Spec: searchv1.MongoDBSearchSpec{
-			Source: &searchv1.MongoDBSource{
-				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
-					HostAndPorts: []string{"mongo-0:27017"},
+	for _, failure := range []string{"none", "source", "state"} {
+		t.Run(failure, func(t *testing.T) {
+			search := &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+							HostAndPorts: []string{"mongo-0:27017"},
+						},
+					},
+					Clusters: []searchv1.ClusterSpec{{
+						LoadBalancer: &searchv1.LoadBalancerConfig{
+							Managed: &searchv1.ManagedLBConfig{ExternalHostname: "lb.example.com"},
+						},
+					}},
 				},
-			},
-			Clusters: []searchv1.ClusterSpec{{
-				LoadBalancer: &searchv1.LoadBalancerConfig{
-					Managed: &searchv1.ManagedLBConfig{ExternalHostname: "lb.example.com"},
-				},
-			}},
-		},
-	}
-	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
-
-	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
-	require.NoError(t, err)
-
-	stateCMKey := watch.Object{
-		ResourceType: watch.ConfigMap,
-		Resource: types.NamespacedName{
-			Name:      searchcontroller.SearchStateCMName(search),
-			Namespace: search.Namespace,
-		},
-	}
-	expected := map[watch.Object][]types.NamespacedName{stateCMKey: {search.NamespacedName()}}
-	assert.Equal(t, expected, r.watch.GetWatchedResources())
-
-	for _, prefix := range []string{"certs", "replacement", ""} {
-		require.NoError(t, central.Get(ctx, search.NamespacedName(), search))
-		search.Spec.Security.TLS = nil
-		expected = map[watch.Object][]types.NamespacedName{stateCMKey: {search.NamespacedName()}}
-		if prefix != "" {
-			search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: prefix}
-			for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(0), search.LoadBalancerClientCert(0)} {
-				expected[watch.Object{ResourceType: watch.Secret, Resource: name}] = []types.NamespacedName{search.NamespacedName()}
 			}
-		}
-		require.NoError(t, central.Update(ctx, search))
-		for range 2 {
-			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
+			stateCMKey := watch.Object{
+				ResourceType: watch.ConfigMap,
+				Resource: types.NamespacedName{
+					Name:      searchcontroller.SearchStateCMName(search),
+					Namespace: search.Namespace,
+				},
+			}
+			expected := map[watch.Object][]types.NamespacedName{stateCMKey: {search.NamespacedName()}}
+			if failure != "none" {
+				search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
+				for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(0), search.LoadBalancerClientCert(0)} {
+					expected[watch.Object{ResourceType: watch.Secret, Resource: name}] = []types.NamespacedName{search.NamespacedName()}
+				}
+			}
+			if failure == "source" {
+				search.Spec.Source = nil
+				expected[watch.Object{ResourceType: watch.MongoDB, Resource: search.NamespacedName()}] = []types.NamespacedName{search.NamespacedName()}
+			}
+			central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(search).WithObjects(search).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						_, isSource := obj.(*mdbv1.MongoDB)
+						if (failure == "source" && isSource) || (failure == "state" && key == stateCMKey.Resource) {
+							return apierrors.NewServiceUnavailable("injected read failure")
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				}).Build()
+			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+			if failure == "source" {
+				r.watch.AddWatchedResourceIfNotAdded(search.Name, search.Namespace, watch.MongoDB, search.NamespacedName())
+			}
+
+			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
 			require.NoError(t, err)
 			assert.Equal(t, expected, r.watch.GetWatchedResources())
-		}
+			if failure != "none" {
+				assert.NotZero(t, result.RequeueAfter)
+				require.NoError(t, central.Get(ctx, search.NamespacedName(), search))
+				require.NotNil(t, search.Status.LoadBalancer)
+				assert.Equal(t, status.PhasePending, search.Status.LoadBalancer.Phase)
+				return
+			}
+
+			for _, prefix := range []string{"certs", "replacement", ""} {
+				require.NoError(t, central.Get(ctx, search.NamespacedName(), search))
+				search.Spec.Security.TLS = nil
+				expected = map[watch.Object][]types.NamespacedName{stateCMKey: {search.NamespacedName()}}
+				if prefix != "" {
+					search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: prefix}
+					for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(0), search.LoadBalancerClientCert(0)} {
+						expected[watch.Object{ResourceType: watch.Secret, Resource: name}] = []types.NamespacedName{search.NamespacedName()}
+					}
+				}
+				require.NoError(t, central.Update(ctx, search))
+				for range 2 {
+					_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
+					require.NoError(t, err)
+					assert.Equal(t, expected, r.watch.GetWatchedResources())
+				}
+			}
+		})
 	}
 }
 
@@ -1208,9 +1240,18 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 }
 
 func TestEnsureDeployment_Replicas(t *testing.T) {
+	ctx := context.Background()
 	scheme := envoyTestScheme(t)
-	central := fake.NewClientBuilder().WithScheme(scheme).Build()
-	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+	noSecretReads := interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*corev1.Secret); ok {
+				t.Fatalf("unexpected Secret read with TLS disabled: %s", key)
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}
+	central := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(noSecretReads).Build()
+	memberA := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(noSecretReads).Build()
 
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
 
@@ -1242,19 +1283,27 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 	} {
 		search.Spec.Clusters[0].LoadBalancer.Managed.Replicas = tc.lbReplicas
 		// cluster "a" is at index 0.
-		require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, r.memberClients, r.operatorClusterName), search.GetManagedLBForCluster("a"), false, nil, zap.S()))
+		work := newClusterWorkItem(search, "a", 0, r.kubeClient, r.memberClients, r.operatorClusterName)
+		require.NoError(t, r.ensureDeployment(ctx, search, `{"x":1}`, work, search.GetManagedLBForCluster("a"), false, nil, zap.S()))
 
 		dep := &appsv1.Deployment{}
-		require.NoError(t, memberA.Get(context.Background(),
+		require.NoError(t, memberA.Get(ctx,
 			types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, dep))
 		require.NotNil(t, dep.Spec.Replicas)
 		assert.Equal(t, tc.expectedDeplReplicas, *dep.Spec.Replicas, "envoy replicas must be set to the same value configured in search resource")
 		assert.Empty(t, dep.OwnerReferences)
+		originalHash := dep.Spec.Template.Annotations[envoyConfigHashAnnotation]
+		assert.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(`{"x":1}`))), originalHash,
+			"TLS-disabled hash must remain byte-identical to the compact-bootstrap hash")
 
-		memberA.Delete(context.Background(), &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
-			Name:      dep.Name,
-			Namespace: dep.Namespace,
-		}})
+		const restartedAtKey = "kubectl.kubernetes.io/restartedAt"
+		dep.Spec.Template.Annotations[restartedAtKey] = "2026-07-14T13:53:28Z"
+		require.NoError(t, memberA.Update(ctx, dep))
+		require.NoError(t, r.ensureDeployment(ctx, search, `{ "x": 1 }`, work, search.GetManagedLBForCluster("a"), false, nil, zap.S()))
+		require.NoError(t, memberA.Get(ctx, client.ObjectKeyFromObject(dep), dep))
+		assert.Equal(t, "2026-07-14T13:53:28Z", dep.Spec.Template.Annotations[restartedAtKey])
+		assert.Equal(t, originalHash, dep.Spec.Template.Annotations[envoyConfigHashAnnotation])
+		require.NoError(t, memberA.Delete(ctx, dep))
 	}
 }
 
@@ -1405,142 +1454,188 @@ func TestReconcile_NoStateCM_RendersFromPins(t *testing.T) {
 // TestReconcile_UsesPinnedIndices asserts that Envoy resources are named with
 // the spec.clusters[].clusterIndex pins, not the cluster names.
 func TestReconcile_UsesPinnedIndices(t *testing.T) {
-	ctx := context.Background()
-	scheme := envoyTestScheme(t)
-	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
-	memberB := fake.NewClientBuilder().WithScheme(scheme).Build()
+	for _, sourceKind := range []string{"replica set", "sharded"} {
+		t.Run(sourceKind, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := envoyTestScheme(t)
+			memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
+			memberB := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
-		Spec: searchv1.MongoDBSearchSpec{
-			Source: &searchv1.MongoDBSource{
-				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
-					HostAndPorts: []string{"mongo-0:27017"},
-				},
-			},
-			Clusters: []searchv1.ClusterSpec{
-				{
-					Name: "cluster-a", Index: new(int32(5)),
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com", Replicas: new(int32(2))},
+			search := &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
+				Spec: searchv1.MongoDBSearchSpec{
+					Source: &searchv1.MongoDBSource{
+						ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+							HostAndPorts: []string{"mongo-0:27017"},
+						},
+					},
+					Clusters: []searchv1.ClusterSpec{
+						{
+							Name: "cluster-a", Index: new(int32(5)),
+							LoadBalancer: &searchv1.LoadBalancerConfig{
+								Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-a.example.com", Replicas: new(int32(2))},
+							},
+						},
+						{
+							Name: "cluster-b", Index: new(int32(7)),
+							LoadBalancer: &searchv1.LoadBalancerConfig{
+								Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com", Replicas: new(int32(4))},
+							},
+						},
 					},
 				},
-				{
-					Name: "cluster-b", Index: new(int32(7)),
-					LoadBalancer: &searchv1.LoadBalancerConfig{
-						Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-cluster-b.example.com", Replicas: new(int32(4))},
-					},
-				},
-			},
-		},
-	}
+			}
 
-	search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
-	search.Spec.Source.ExternalMongoDBSource.TLS = &searchv1.ExternalMongodTLS{CA: &corev1.LocalObjectReference{Name: "source-ca"}}
-	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	for _, c := range []client.Client{central, memberA, memberB} {
-		for _, index := range []int{5, 7} {
-			for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(index), search.LoadBalancerClientCert(index)} {
-				require.NoError(t, c.Create(ctx, &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
-					Data:       map[string][]byte{"tls.crt": []byte("cert"), "tls.key": []byte("key")},
+			if sourceKind == "sharded" {
+				search.Spec.Source.ExternalMongoDBSource = &searchv1.ExternalMongoDBSource{
+					ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+						Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+						Shards: []searchv1.ExternalShardConfig{
+							{ShardName: "sh-0", Hosts: []string{"sh-0.example:27017"}},
+							{ShardName: "sh-1", Hosts: []string{"sh-1.example:27017"}},
+						},
+					},
+				}
+				for i := range search.Spec.Clusters {
+					cluster := &search.Spec.Clusters[i]
+					cluster.LoadBalancer.Managed.ExternalHostname = fmt.Sprintf("mongot-{shardName}-%s.example.com", cluster.Name)
+					cluster.LoadBalancer.Managed.RouterHostname = fmt.Sprintf("mongot-router-%s.example.com", cluster.Name)
+				}
+			}
+			search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
+			search.Spec.Source.ExternalMongoDBSource.TLS = &searchv1.ExternalMongodTLS{CA: &corev1.LocalObjectReference{Name: "source-ca"}}
+			central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+			for _, c := range []client.Client{central, memberA, memberB} {
+				require.NoError(t, c.Create(ctx, &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: "source-ca", Namespace: search.Namespace},
+					Data:       map[string]string{"ca.crt": "source-ca"},
 				}))
+				for _, index := range []int{5, 7} {
+					for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(index), search.LoadBalancerClientCert(index)} {
+						require.NoError(t, c.Create(ctx, &corev1.Secret{
+							ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
+							Data:       map[string][]byte{"tls.crt": []byte("cert"), "tls.key": []byte("key")},
+						}))
+					}
+				}
 			}
-		}
-	}
-
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
-		"cluster-a": memberA,
-		"cluster-b": memberB,
-	}, "")
-
-	_, err := r.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"},
-	})
-	require.NoError(t, err)
-
-	// cluster-a (index 5) — resources must use index 5, config must be cluster-a's.
-	depA := &appsv1.Deployment{}
-	require.NoError(t, memberA.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(5), Namespace: "ns"}, depA),
-		"Envoy Deployment for cluster-a must use index 5")
-	require.NotNil(t, depA.Spec.Replicas)
-	assert.Equal(t, int32(2), *depA.Spec.Replicas, "cluster-a's Deployment must carry cluster-a's LB replicas")
-	require.NoError(t, memberA.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(5), Namespace: "ns"}, &corev1.ConfigMap{}),
-		"Envoy ConfigMap for cluster-a must use index 5")
-
-	// cluster-b (index 7) — resources must use index 7, config must be cluster-b's.
-	depB := &appsv1.Deployment{}
-	require.NoError(t, memberB.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(7), Namespace: "ns"}, depB),
-		"Envoy Deployment for cluster-b must use index 7")
-	require.NotNil(t, depB.Spec.Replicas)
-	assert.Equal(t, int32(4), *depB.Spec.Replicas, "cluster-b's Deployment must carry cluster-b's LB replicas")
-	require.NoError(t, memberB.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(7), Namespace: "ns"}, &corev1.ConfigMap{}),
-		"Envoy ConfigMap for cluster-b must use index 7")
-
-	// Cluster names must not appear in any resource name.
-	for _, name := range []string{
-		search.LoadBalancerDeploymentNameForCluster(5),
-		search.LoadBalancerDeploymentNameForCluster(7),
-		search.LoadBalancerConfigMapNameForCluster(5),
-		search.LoadBalancerConfigMapNameForCluster(7),
-	} {
-		assert.NotContains(t, name, "cluster-a", "resource names must not encode cluster names")
-		assert.NotContains(t, name, "cluster-b", "resource names must not encode cluster names")
-	}
-
-	previousHash := depA.Spec.Template.Annotations[envoyConfigHashAnnotation]
-	memberBHash := depB.Spec.Template.Annotations[envoyConfigHashAnnotation]
-	require.NotEmpty(t, previousHash)
-	require.NotEmpty(t, memberBHash)
-	reconcileHash := func(t *testing.T) string {
-		t.Helper()
-		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
-		require.NoError(t, err)
-		patched := &searchv1.MongoDBSearch{}
-		require.NoError(t, central.Get(ctx, search.NamespacedName(), patched))
-		require.NotNil(t, patched.Status.LoadBalancer)
-		require.Equal(t, status.PhaseRunning, patched.Status.LoadBalancer.Phase, patched.Status.LoadBalancer.Message)
-		require.NoError(t, memberA.Get(ctx, client.ObjectKeyFromObject(depA), depA))
-		require.NoError(t, memberB.Get(ctx, client.ObjectKeyFromObject(depB), depB))
-		assert.Equal(t, memberBHash, depB.Spec.Template.Annotations[envoyConfigHashAnnotation], "another cluster's certificate must not restart member B")
-		hash := depA.Spec.Template.Annotations[envoyConfigHashAnnotation]
-		require.NotEmpty(t, hash)
-		return hash
-	}
-	serverName, clientName := search.LoadBalancerServerCert(5), search.LoadBalancerClientCert(5)
-	for _, tc := range []struct {
-		name    string
-		client  client.Client
-		secret  types.NamespacedName
-		mutate  func(*corev1.Secret)
-		changed bool
-	}{
-		{"metadata only", memberA, serverName, func(s *corev1.Secret) {
-			s.Labels = map[string]string{"managed-by": "cert-manager"}
-			s.Annotations = map[string]string{"cert-manager.io/alt-names": "mongot.example.com"}
-		}, false},
-		{"server rotation", memberA, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("server-v2") }, true},
-		{"client rotation", memberA, clientName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("client-v2") }, true},
-		{"central decoy ignored", central, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("central-v2") }, false},
-		{"other member decoy ignored", memberB, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("other-member-v2") }, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			secret := &corev1.Secret{}
-			require.NoError(t, tc.client.Get(ctx, tc.secret, secret))
-			tc.mutate(secret)
-			require.NoError(t, tc.client.Update(ctx, secret))
-			current := reconcileHash(t)
-			if tc.changed {
-				assert.NotEqual(t, previousHash, current)
-			} else {
-				assert.Equal(t, previousHash, current)
+			if sourceKind == "sharded" {
+				seedSearchStateCM(t, ctx, central, search.Name, search.Namespace, []string{"sh-0", "sh-1"})
 			}
-			assert.Equal(t, current, reconcileHash(t), "unchanged data must produce a stable hash")
-			previousHash = current
+
+			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+				"cluster-a": memberA,
+				"cluster-b": memberB,
+			}, "")
+
+			_, err := r.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"},
+			})
+			require.NoError(t, err)
+
+			// cluster-a (index 5) — resources must use index 5, config must be cluster-a's.
+			depA := &appsv1.Deployment{}
+			require.NoError(t, memberA.Get(ctx,
+				types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(5), Namespace: "ns"}, depA),
+				"Envoy Deployment for cluster-a must use index 5")
+			require.NotNil(t, depA.Spec.Replicas)
+			assert.Equal(t, int32(2), *depA.Spec.Replicas, "cluster-a's Deployment must carry cluster-a's LB replicas")
+			cmA := &corev1.ConfigMap{}
+			require.NoError(t, memberA.Get(ctx,
+				types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(5), Namespace: "ns"}, cmA),
+				"Envoy ConfigMap for cluster-a must use index 5")
+
+			// cluster-b (index 7) — resources must use index 7, config must be cluster-b's.
+			depB := &appsv1.Deployment{}
+			require.NoError(t, memberB.Get(ctx,
+				types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(7), Namespace: "ns"}, depB),
+				"Envoy Deployment for cluster-b must use index 7")
+			require.NotNil(t, depB.Spec.Replicas)
+			assert.Equal(t, int32(4), *depB.Spec.Replicas, "cluster-b's Deployment must carry cluster-b's LB replicas")
+			require.NoError(t, memberB.Get(ctx,
+				types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(7), Namespace: "ns"}, &corev1.ConfigMap{}),
+				"Envoy ConfigMap for cluster-b must use index 7")
+
+			// Cluster names must not appear in any resource name.
+			for _, name := range []string{
+				search.LoadBalancerDeploymentNameForCluster(5),
+				search.LoadBalancerDeploymentNameForCluster(7),
+				search.LoadBalancerConfigMapNameForCluster(5),
+				search.LoadBalancerConfigMapNameForCluster(7),
+			} {
+				assert.NotContains(t, name, "cluster-a", "resource names must not encode cluster names")
+				assert.NotContains(t, name, "cluster-b", "resource names must not encode cluster names")
+			}
+
+			previousHash := depA.Spec.Template.Annotations[envoyConfigHashAnnotation]
+			memberBHash := depB.Spec.Template.Annotations[envoyConfigHashAnnotation]
+			require.NotEmpty(t, previousHash)
+			require.NotEmpty(t, memberBHash)
+			serverName, clientName := search.LoadBalancerServerCert(5), search.LoadBalancerClientCert(5)
+			volumes := map[string]corev1.Volume{}
+			for _, volume := range depA.Spec.Template.Spec.Volumes {
+				volumes[volume.Name] = volume
+			}
+			require.NotNil(t, volumes["envoy-server-cert"].Secret)
+			assert.Equal(t, serverName.Name, volumes["envoy-server-cert"].Secret.SecretName)
+			require.NotNil(t, volumes["envoy-client-cert"].Secret)
+			assert.Equal(t, clientName.Name, volumes["envoy-client-cert"].Secret.SecretName)
+			if sourceKind == "sharded" {
+				var lds bytes.Buffer
+				require.NoError(t, json.Compact(&lds, []byte(cmA.Data["lds.json"])))
+				for _, route := range []string{"mongot_sh_0_cluster", "mongot_sh_1_cluster", "mongot_cluster_level_cluster"} {
+					assert.Contains(t, lds.String(), fmt.Sprintf(`"cluster":%q`, route))
+				}
+			}
+			initialConfig := maps.Clone(cmA.Data)
+			reconcileHash := func(t *testing.T) string {
+				t.Helper()
+				_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
+				require.NoError(t, err)
+				patched := &searchv1.MongoDBSearch{}
+				require.NoError(t, central.Get(ctx, search.NamespacedName(), patched))
+				require.NotNil(t, patched.Status.LoadBalancer)
+				require.Equal(t, status.PhaseRunning, patched.Status.LoadBalancer.Phase, patched.Status.LoadBalancer.Message)
+				require.NoError(t, memberA.Get(ctx, client.ObjectKeyFromObject(depA), depA))
+				require.NoError(t, memberB.Get(ctx, client.ObjectKeyFromObject(depB), depB))
+				assert.Equal(t, memberBHash, depB.Spec.Template.Annotations[envoyConfigHashAnnotation], "another cluster's certificate must not restart member B")
+				require.NoError(t, memberA.Get(ctx, client.ObjectKeyFromObject(cmA), cmA))
+				assert.Equal(t, initialConfig, cmA.Data, "certificate-only rotation must leave bootstrap and routes unchanged")
+				hash := depA.Spec.Template.Annotations[envoyConfigHashAnnotation]
+				require.NotEmpty(t, hash)
+				return hash
+			}
+			for _, tc := range []struct {
+				name    string
+				client  client.Client
+				secret  types.NamespacedName
+				mutate  func(*corev1.Secret)
+				changed bool
+			}{
+				{"metadata only", memberA, serverName, func(s *corev1.Secret) {
+					s.Labels = map[string]string{"managed-by": "cert-manager"}
+					s.Annotations = map[string]string{"cert-manager.io/alt-names": "mongot.example.com"}
+				}, false},
+				{"server rotation", memberA, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("server-v2") }, true},
+				{"client rotation", memberA, clientName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("client-v2") }, true},
+				{"central decoy ignored", central, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("central-v2") }, false},
+				{"other member decoy ignored", memberB, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("other-member-v2") }, false},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					secret := &corev1.Secret{}
+					require.NoError(t, tc.client.Get(ctx, tc.secret, secret))
+					tc.mutate(secret)
+					require.NoError(t, tc.client.Update(ctx, secret))
+					current := reconcileHash(t)
+					if tc.changed {
+						assert.NotEqual(t, previousHash, current)
+					} else {
+						assert.Equal(t, previousHash, current)
+					}
+					assert.Equal(t, current, reconcileHash(t), "unchanged data must produce a stable hash")
+					previousHash = current
+				})
+			}
 		})
 	}
 }
@@ -2081,41 +2176,71 @@ func TestEnqueueMemberClusterObjectToSearch(t *testing.T) {
 }
 
 func TestEnvoyReconcile_LBCleanup_DeletesAtPinnedIndex(t *testing.T) {
-	ctx := context.Background()
-	scheme := envoyTestScheme(t)
+	for _, removal := range []string{"LB disabled", "operator cluster removed", "deleted", "deleting"} {
+		t.Run(removal, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := envoyTestScheme(t)
 
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid", Generation: 1},
-		Spec: searchv1.MongoDBSearchSpec{
-			Source:   &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mongo-0:27017"}}},
-			Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(3))}},
-		},
-		// LB previously managed → status present; spec no longer managed → cleanup branch.
-		Status: searchv1.MongoDBSearchStatus{LoadBalancer: &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}},
+			search := newMCEnvoySearch("mdb-search", "ns", "search-uid", pinnedCluster("cluster-a", 3))
+			search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
+			search.Status.LoadBalancer = &searchv1.LoadBalancerStatus{Phase: status.PhaseRunning}
+			dependency := search.LoadBalancerServerCert(3)
+			switch removal {
+			case "LB disabled":
+				search.Spec.Clusters[0].LoadBalancer = nil
+			case "operator cluster removed":
+				search.Spec.Clusters[0].Name = "cluster-b"
+				search.Spec.Clusters[0].Index = new(int32(4))
+			case "deleting":
+				search.DeletionTimestamp = new(metav1.Now())
+				search.Finalizers = []string{"test-finalizer"}
+			}
+			central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
+			// Pre-seed the Envoy resources at the pinned index 3.
+			labels := envoyLabelsForCluster(search, 3)
+			require.NoError(t, central.Create(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+				Name: search.LoadBalancerDeploymentNameForCluster(3), Namespace: "ns", Labels: labels,
+			}}))
+			require.NoError(t, central.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+				Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns", Labels: maps.Clone(labels),
+			}}))
+
+			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
+			otherSearch := types.NamespacedName{Name: "other-search", Namespace: search.Namespace}
+			for _, owner := range []types.NamespacedName{search.NamespacedName(), otherSearch} {
+				r.watch.AddWatchedResourceIfNotAdded(dependency.Name, dependency.Namespace, watch.Secret, owner)
+			}
+			r.watch.AddWatchedResourceIfNotAdded(searchcontroller.SearchStateCMName(search), search.Namespace, watch.ConfigMap, search.NamespacedName())
+			if removal == "deleted" {
+				require.NoError(t, central.Delete(ctx, search))
+			}
+
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
+			if removal == "deleted" {
+				assert.True(t, apierrors.IsNotFound(err))
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, map[watch.Object][]types.NamespacedName{
+				{ResourceType: watch.Secret, Resource: dependency}: {otherSearch},
+			}, r.watch.GetWatchedResources())
+			if removal == "deleted" || removal == "deleting" {
+				return
+			}
+
+			assert.True(t, apierrors.IsNotFound(central.Get(ctx,
+				types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(3), Namespace: "ns"}, &appsv1.Deployment{})),
+				"Envoy Deployment at the pinned index 3 must be deleted")
+			assert.True(t, apierrors.IsNotFound(central.Get(ctx,
+				types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns"}, &corev1.ConfigMap{})),
+				"Envoy ConfigMap at the pinned index 3 must be deleted")
+			if removal == "LB disabled" {
+				patched := &searchv1.MongoDBSearch{}
+				require.NoError(t, central.Get(ctx, search.NamespacedName(), patched))
+				assert.Nil(t, patched.Status.LoadBalancer)
+			}
+		})
 	}
-	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	// Pre-seed the Envoy resources at the pinned index 3.
-	require.NoError(t, central.Create(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
-		Name: search.LoadBalancerDeploymentNameForCluster(3), Namespace: "ns", Labels: envoyLabelsForCluster(search, 3),
-	}}))
-	require.NoError(t, central.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
-		Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns", Labels: envoyLabelsForCluster(search, 3),
-	}}))
-
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
-
-	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
-	require.NoError(t, err)
-
-	assert.True(t, apierrors.IsNotFound(central.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(3), Namespace: "ns"}, &appsv1.Deployment{})),
-		"Envoy Deployment at the pinned index 3 must be deleted")
-	assert.True(t, apierrors.IsNotFound(central.Get(ctx,
-		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns"}, &corev1.ConfigMap{})),
-		"Envoy ConfigMap at the pinned index 3 must be deleted")
-	patched := &searchv1.MongoDBSearch{}
-	require.NoError(t, central.Get(ctx, search.NamespacedName(), patched))
-	assert.Nil(t, patched.Status.LoadBalancer)
 }
 
 func TestEnvoyReconcile_MultiCluster_FailedFirstThenOK_AggregatesFailed(t *testing.T) {
@@ -2449,253 +2574,4 @@ func TestReconcile_LBConfigSurvivesClusterRemoval(t *testing.T) {
 	require.NotNil(t, dep.Spec.Replicas)
 	assert.Equal(t, int32(3), *dep.Spec.Replicas,
 		"cluster-b's Envoy must keep its configured replica count after cluster-a is removed")
-}
-
-// TestEnsureDeployment_PreservesRestartAnnotation guards against a
-// regression where re-applying the Envoy Deployment wiped a foreign pod-template
-// annotation (kubectl.kubernetes.io/restartedAt).
-func TestEnsureDeployment_PreservesRestartAnnotation(t *testing.T) {
-	const restartedAtKey = "kubectl.kubernetes.io/restartedAt"
-
-	ctx := context.Background()
-	scheme := envoyTestScheme(t)
-	central := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*corev1.Secret); ok {
-				t.Fatalf("unexpected Secret read with TLS disabled: %s", key)
-			}
-			return c.Get(ctx, key, obj, opts...)
-		},
-	}).Build()
-
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
-
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
-	}
-	search.Spec.Clusters = []searchv1.ClusterSpec{{
-		LoadBalancer: &searchv1.LoadBalancerConfig{
-			Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot.example.com"},
-		},
-	}}
-	managedLB := search.GetManagedLBForCluster("")
-	depName := types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}
-
-	// First apply: operator creates the Deployment with its config-hash annotation.
-	require.NoError(t, r.ensureDeployment(ctx, search, `{ "bootstrap": 1 }`, r.buildClusterWorkList(search)[0], managedLB, false, nil, zap.S()))
-
-	dep := &appsv1.Deployment{}
-	require.NoError(t, central.Get(ctx, depName, dep))
-	originalHash := dep.Spec.Template.Annotations[envoyConfigHashAnnotation]
-	assert.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte(`{"bootstrap":1}`))), originalHash,
-		"TLS-disabled hash must remain byte-identical to the compact-bootstrap hash")
-
-	// Simulate `kubectl rollout restart`: stamp restartedAt onto the live pod template.
-	dep.Spec.Template.Annotations[restartedAtKey] = "2026-07-14T13:53:28Z"
-	require.NoError(t, central.Update(ctx, dep))
-
-	// Re-apply during pod replacement.
-	require.NoError(t, r.ensureDeployment(ctx, search, `{"bootstrap":1}`, r.buildClusterWorkList(search)[0], managedLB, false, nil, zap.S()))
-
-	require.NoError(t, central.Get(ctx, depName, dep))
-	assert.Equal(t, "2026-07-14T13:53:28Z", dep.Spec.Template.Annotations[restartedAtKey],
-		"restartedAt must survive re-apply so the restart is not reverted")
-	assert.Equal(t, originalHash, dep.Spec.Template.Annotations[envoyConfigHashAnnotation],
-		"operator-owned config-hash annotation must remain present and authoritative")
-}
-
-func TestReconcile_ShardedLBCertificateRotation(t *testing.T) {
-	ctx := context.Background()
-	scheme := envoyTestScheme(t)
-	const clusterIndex = 7
-	search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "search-uid", Generation: 1},
-		Spec: searchv1.MongoDBSearchSpec{
-			Source: &searchv1.MongoDBSource{
-				ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
-					ShardedCluster: &searchv1.ExternalShardedClusterConfig{
-						Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
-						Shards: []searchv1.ExternalShardConfig{
-							{ShardName: "sh-0", Hosts: []string{"sh-0.example:27017"}},
-							{ShardName: "sh-1", Hosts: []string{"sh-1.example:27017"}},
-						},
-					},
-					TLS: &searchv1.ExternalMongodTLS{CA: &corev1.LocalObjectReference{Name: "source-ca"}},
-				},
-			},
-			Security: searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}},
-			Clusters: []searchv1.ClusterSpec{{
-				Name:  "cluster-a",
-				Index: new(int32(clusterIndex)),
-				LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{
-					ExternalHostname: "mongot-{shardName}.example.com",
-					RouterHostname:   "mongot-router.example.com",
-				}},
-			}},
-		},
-	}
-	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	member := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "source-ca", Namespace: search.Namespace},
-		Data:       map[string]string{"ca.crt": "source-ca"},
-	}).Build()
-	serverName := search.LoadBalancerServerCert(clusterIndex)
-	clientName := search.LoadBalancerClientCert(clusterIndex)
-	for _, name := range []types.NamespacedName{serverName, clientName} {
-		require.NoError(t, member.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
-			Type:       corev1.SecretTypeTLS,
-			Data:       map[string][]byte{"tls.crt": []byte(name.Name + "-v1"), "tls.key": []byte("key")},
-		}))
-	}
-	seedSearchStateCM(t, ctx, central, search.Name, search.Namespace, []string{"sh-0", "sh-1"})
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"cluster-a": member}, "")
-	deploymentName := types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(clusterIndex), Namespace: search.Namespace}
-	var initialConfig map[string]string
-	reconcileAndHash := func(t *testing.T) string {
-		t.Helper()
-		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
-		require.NoError(t, err)
-		patched := &searchv1.MongoDBSearch{}
-		require.NoError(t, central.Get(ctx, search.NamespacedName(), patched))
-		require.NotNil(t, patched.Status.LoadBalancer)
-		require.Equal(t, status.PhaseRunning, patched.Status.LoadBalancer.Phase, patched.Status.LoadBalancer.Message)
-
-		dep := &appsv1.Deployment{}
-		require.NoError(t, member.Get(ctx, deploymentName, dep))
-		cm := &corev1.ConfigMap{}
-		require.NoError(t, member.Get(ctx, types.NamespacedName{
-			Name: search.LoadBalancerConfigMapNameForCluster(clusterIndex), Namespace: search.Namespace,
-		}, cm))
-		if initialConfig == nil {
-			volumes := map[string]corev1.Volume{}
-			for _, volume := range dep.Spec.Template.Spec.Volumes {
-				volumes[volume.Name] = volume
-			}
-			require.NotNil(t, volumes["envoy-server-cert"].Secret)
-			assert.Equal(t, serverName.Name, volumes["envoy-server-cert"].Secret.SecretName)
-			require.NotNil(t, volumes["envoy-client-cert"].Secret)
-			assert.Equal(t, clientName.Name, volumes["envoy-client-cert"].Secret.SecretName)
-			var lds bytes.Buffer
-			require.NoError(t, json.Compact(&lds, []byte(cm.Data["lds.json"])))
-			for _, route := range []string{"mongot_sh_0_cluster", "mongot_sh_1_cluster", "mongot_cluster_level_cluster"} {
-				assert.Contains(t, lds.String(), fmt.Sprintf(`"cluster":%q`, route))
-			}
-			initialConfig = cm.Data
-		} else {
-			assert.Equal(t, initialConfig, cm.Data, "certificate-only rotation must leave bootstrap and sharded routes unchanged")
-		}
-		hash := dep.Spec.Template.Annotations[envoyConfigHashAnnotation]
-		require.NotEmpty(t, hash)
-		return hash
-	}
-
-	previous := reconcileAndHash(t)
-	for _, tc := range []struct {
-		name   string
-		secret types.NamespacedName
-	}{
-		{"server rotation", serverName},
-		{"client rotation", clientName},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			secret := &corev1.Secret{}
-			require.NoError(t, member.Get(ctx, tc.secret, secret))
-			secret.Data["tls.crt"] = []byte(tc.secret.Name + "-v2")
-			require.NoError(t, member.Update(ctx, secret))
-			current := reconcileAndHash(t)
-			assert.NotEqual(t, previous, current)
-			assert.Equal(t, current, reconcileAndHash(t), "unchanged Secret data must converge")
-			previous = current
-		})
-	}
-}
-
-func TestReconcile_WatchesSurviveReadFailures(t *testing.T) {
-	ctx := context.Background()
-	for _, stage := range []string{"source", "state"} {
-		t.Run(stage, func(t *testing.T) {
-			search := newMCEnvoySearch("search", "ns", "uid", pinnedCluster("", 0))
-			search.Spec.Clusters[0].LoadBalancer.Managed.ExternalHostname = "mongot.example.com"
-			search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
-			stateName := types.NamespacedName{Name: searchcontroller.SearchStateCMName(search), Namespace: search.Namespace}
-			if stage == "source" {
-				search.Spec.Source = nil
-			}
-			c := fake.NewClientBuilder().WithScheme(envoyTestScheme(t)).WithStatusSubresource(search).WithObjects(search).
-				WithInterceptorFuncs(interceptor.Funcs{
-					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-						_, isSource := obj.(*mdbv1.MongoDB)
-						if (stage == "source" && isSource) || (stage == "state" && key == stateName) {
-							return apierrors.NewServiceUnavailable(stage + " read failed")
-						}
-						return c.Get(ctx, key, obj, opts...)
-					},
-				}).Build()
-			r := newMongoDBSearchEnvoyReconciler(c, "envoy:latest", nil, "")
-			expected := map[watch.Object][]types.NamespacedName{
-				{ResourceType: watch.ConfigMap, Resource: stateName}: {search.NamespacedName()},
-			}
-			for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(0), search.LoadBalancerClientCert(0)} {
-				expected[watch.Object{ResourceType: watch.Secret, Resource: name}] = []types.NamespacedName{search.NamespacedName()}
-			}
-			if stage == "source" {
-				r.watch.AddWatchedResourceIfNotAdded(search.Name, search.Namespace, watch.MongoDB, search.NamespacedName())
-				expected[watch.Object{ResourceType: watch.MongoDB, Resource: search.NamespacedName()}] = []types.NamespacedName{search.NamespacedName()}
-			}
-			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
-			require.NoError(t, err)
-			assert.NotZero(t, result.RequeueAfter)
-			require.NoError(t, c.Get(ctx, search.NamespacedName(), search))
-			require.NotNil(t, search.Status.LoadBalancer)
-			assert.Contains(t, search.Status.LoadBalancer.Message, stage+" read failed")
-			assert.Equal(t, expected, r.watch.GetWatchedResources())
-		})
-	}
-}
-
-func TestReconcile_ClearsStaleWatches(t *testing.T) {
-	ctx := context.Background()
-	for _, tc := range []struct {
-		name   string
-		mutate func(*searchv1.MongoDBSearch)
-	}{
-		{"deleted", func(s *searchv1.MongoDBSearch) {}},
-		{"deleting", func(s *searchv1.MongoDBSearch) {
-			s.DeletionTimestamp = new(metav1.Now())
-			s.Finalizers = []string{"test-finalizer"}
-		}},
-		{"operator cluster removed", func(s *searchv1.MongoDBSearch) { s.Spec.Clusters = s.Spec.Clusters[:1] }},
-		{"LB disabled", func(s *searchv1.MongoDBSearch) {
-			s.Spec.Clusters = s.Spec.Clusters[1:]
-			s.Spec.Clusters[0].LoadBalancer = nil
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			search := newOperatorPerClusterEnvoySearch("mdb-search", "ns", 7)
-			search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
-			dependency := search.LoadBalancerServerCert(7)
-			tc.mutate(search)
-			c := fake.NewClientBuilder().WithScheme(envoyTestScheme(t)).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-			r := newMongoDBSearchEnvoyReconciler(c, "envoy:latest", nil, "cluster-b")
-			otherSearch := types.NamespacedName{Name: "other-search", Namespace: search.Namespace}
-			for _, owner := range []types.NamespacedName{search.NamespacedName(), otherSearch} {
-				r.watch.AddWatchedResourceIfNotAdded(dependency.Name, dependency.Namespace, watch.Secret, owner)
-			}
-
-			r.watch.AddWatchedResourceIfNotAdded(searchcontroller.SearchStateCMName(search), search.Namespace, watch.ConfigMap, search.NamespacedName())
-			if tc.name == "deleted" {
-				require.NoError(t, c.Delete(ctx, search))
-			}
-			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
-			if tc.name == "deleted" {
-				assert.True(t, apierrors.IsNotFound(err))
-			} else {
-				require.NoError(t, err)
-			}
-			assert.Equal(t, map[watch.Object][]types.NamespacedName{
-				{ResourceType: watch.Secret, Resource: dependency}: {otherSearch},
-			}, r.watch.GetWatchedResources())
-		})
-	}
 }
