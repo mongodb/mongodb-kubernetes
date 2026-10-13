@@ -7,7 +7,7 @@ script_dir=$(dirname "${script_name}")
 
 # shellcheck disable=SC1091
 source "${script_dir}/root-context"
+# shellcheck disable=SC1091
+source "${script_dir}/variables/mongodb_latest"
 
 export ops_manager_version="cloud_qa"
-
-export CUSTOM_MDB_VERSION=6.0.5

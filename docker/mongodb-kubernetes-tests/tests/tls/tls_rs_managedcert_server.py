@@ -1,28 +1,26 @@
-#!/usr/bin/env python3
-
 import pytest
-from kubetester import read_configmap, read_secret, try_load
-from kubetester.crypto import cert_signed_by_bundle
-from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
+from tests.tls.managedcert_helper import (
+    CA_ISSUER_REF,
+    assert_leaf_certs_signed_by_its_category_ca,
+    assert_leaf_secrets_created,
+    assert_self_signed_ca_created,
+    managed_cert_replica_set,
+    read_ca_bundles,
+    scale_and_wait_for_running,
+)
 
 MDB_RESOURCE = "test-tls-rs-managedcert-server"
 
 
 @pytest.fixture(scope="module")
-def mdb(namespace: str, issuer: str) -> MongoDB:
-    # `issuer` fixture installs cert-manager and creates a CA-type Issuer named "ca-issuer".
-    resource = MongoDB.from_yaml(load_fixture("test-tls-rs-managedcert.yaml"), name=MDB_RESOURCE, namespace=namespace)
-    # Issuer for client certs is configured by user issuer (ca-issuer); the server category has no issuer,
-    # so the operator self-signs the server CA.
-    resource["spec"]["security"]["managedCertificate"] = {
-        "client": {"issuerRef": {"name": "ca-issuer", "kind": "Issuer"}},
-    }
-    try_load(resource)
-    return resource
+def mdb(namespace: str, issuer: str, custom_mdb_version: str) -> MongoDB:
+    # The client category uses the user configured issuer (ca-issuer). The server category has no
+    # issuer, so the operator self-signs the server CA.
+    return managed_cert_replica_set(MDB_RESOURCE, namespace, custom_mdb_version, {"client": CA_ISSUER_REF})
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_server
@@ -38,41 +36,16 @@ def test_replica_set_running(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_managedcert_server
 def test_operator_created_certs_and_split_cas(mdb: MongoDB, namespace: str):
-    for secret_name in (
-        f"{MDB_RESOURCE}-managed-cert",
-        f"{MDB_RESOURCE}-managed-clusterfile",
-        f"{MDB_RESOURCE}-managed-agent-certs",
-    ):
-        cert_secret = read_secret(namespace, secret_name)
-        assert "tls.crt" in cert_secret, f"{secret_name} missing tls.crt"
-        assert "tls.key" in cert_secret, f"{secret_name} missing tls.key"
+    assert_leaf_secrets_created(MDB_RESOURCE, namespace)
 
-    
-    server_ca_secret = read_secret(namespace, f"{MDB_RESOURCE}-server-ca")
-    assert "tls.crt" in server_ca_secret, f"{MDB_RESOURCE}-server-ca missing tls.crt"
+    # Only the server category has no issuer, so only the server root CA is the operator's own.
+    assert_self_signed_ca_created(MDB_RESOURCE, namespace, "server")
 
-    server_ca_cm = read_configmap(namespace, f"{MDB_RESOURCE}-managed-server-ca-bundle")
-    assert server_ca_cm.get("ca-pem", "").strip() != "", "ca-pem (server CA) missing/empty"
-    client_ca_cm = read_configmap(namespace, f"{MDB_RESOURCE}-managed-client-ca-bundle")
-    assert client_ca_cm.get("clusterca-pem", "").strip() != "", "clusterca-pem (client CA) missing/empty"
-    assert server_ca_cm["ca-pem"].strip() != client_ca_cm["clusterca-pem"].strip(), (
-        "server CA (self-signed) and client CA (ca-issuer) should differ"
-    )
-
-    # verify that per category leaf certs are signed by respective CA
-    member_crt = read_secret(namespace, f"{MDB_RESOURCE}-managed-cert")["tls.crt"]
-    clusterfile_crt = read_secret(namespace, f"{MDB_RESOURCE}-managed-clusterfile")["tls.crt"]
-    agent_crt = read_secret(namespace, f"{MDB_RESOURCE}-managed-agent-certs")["tls.crt"]
-    server_ca = server_ca_cm["ca-pem"]
-    client_ca = client_ca_cm["clusterca-pem"]
-
-    # Server (member) cert: signed by the operator's self-signed server CA, not the client issuer CA.
-    assert cert_signed_by_bundle(member_crt, server_ca), "member (server) cert must be signed by the server CA"
-    assert not cert_signed_by_bundle(member_crt, client_ca), "member cert must not be signed by the client CA"
-    # Client (clusterfile + agent) certs: signed by the user issuer's client CA, not the server CA.
-    assert cert_signed_by_bundle(clusterfile_crt, client_ca), "clusterfile cert must be signed by the client CA"
-    assert cert_signed_by_bundle(agent_crt, client_ca), "agent cert must be signed by the client CA"
-    assert not cert_signed_by_bundle(clusterfile_crt, server_ca), "clusterfile cert must not be signed by the server CA"
+    # The server CA is self-signed by the operator, the client CA comes from the user configured
+    # issuer, so they differ and each leaf cert must be signed by its own category's CA.
+    server_ca, client_ca = read_ca_bundles(MDB_RESOURCE, namespace)
+    assert server_ca != client_ca, "server CA (self-signed) and client CA (ca-issuer) should differ"
+    assert_leaf_certs_signed_by_its_category_ca(MDB_RESOURCE, namespace, server_ca, client_ca)
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_server
@@ -83,13 +56,9 @@ def test_mdb_is_not_reachable_without_ssl(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_managedcert_server
 def test_scale_up(mdb: MongoDB):
-    mdb["spec"]["members"] = 5
-    mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=900)
+    scale_and_wait_for_running(mdb, 5)
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_server
 def test_scale_down(mdb: MongoDB):
-    mdb["spec"]["members"] = 3
-    mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=900)
+    scale_and_wait_for_running(mdb, 3)
