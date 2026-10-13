@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"reflect"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/spf13/cast"
@@ -194,7 +195,19 @@ func isEqualAfterModification(changeDeploymentFunc func(Deployment) error, deplo
 	if err != nil {
 		return false, err
 	}
-	return bytes.Equal(original, modified), nil
+	if bytes.Equal(original, modified) {
+		return true, nil
+	}
+
+	// Maps sort JSON keys; structs use field order. Compare values when the bytes differ.
+	var originalValue, modifiedValue any
+	if err := json.Unmarshal(original, &originalValue); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(modified, &modifiedValue); err != nil {
+		return false, err
+	}
+	return reflect.DeepEqual(originalValue, modifiedValue), nil
 }
 
 // NewAutomationConfig returns an AutomationConfig instance with all reference

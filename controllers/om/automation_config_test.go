@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/equality"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -1181,6 +1182,27 @@ func TestIsEqual(t *testing.T) {
 	}
 }
 
+func TestIsEqualAfterModification_RoleStructs(t *testing.T) {
+	for _, inheritedRole := range []string{"read", "readWrite"} {
+		t.Run(inheritedRole, func(t *testing.T) {
+			role := mdbv1.MongoDBRole{
+				Role: "inherited", Db: "admin", Privileges: []mdbv1.Privilege{},
+				Roles: []mdbv1.InheritedRole{{Role: "read", Db: "admin"}},
+			}
+			deployment, err := maputil.StructToMap(Deployment{"roles": []mdbv1.MongoDBRole{role}})
+			require.NoError(t, err)
+
+			equal, err := isEqualAfterModification(func(d Deployment) error {
+				role.Roles[0].Role = inheritedRole
+				d.SetRoles([]mdbv1.MongoDBRole{role})
+				return nil
+			}, deployment)
+			require.NoError(t, err)
+			assert.Equal(t, inheritedRole == "read", equal, "object-key order must not hide or invent a change")
+		})
+	}
+}
+
 // TestIsEqualNotWorkingWithTypeChanges is a test that shows that deep equality does not work if our depFunc changes
 // the underlying types as we mostly do.
 func TestIsEqualNotWorkingWithTypeChanges(t *testing.T) {
@@ -1280,6 +1302,33 @@ func BenchmarkIsEqualAfterModification(b *testing.B) {
 			if _, err := isEqualAfterModification(noop, deployment); err != nil {
 				b.Fatal(err)
 			}
+		}
+	})
+
+	b.Run("map-to-struct", func(b *testing.B) {
+		role := mdbv1.MongoDBRole{
+			Role: "inherited", Db: "admin", Privileges: []mdbv1.Privilege{},
+			Roles: []mdbv1.InheritedRole{{Role: "read", Db: "admin"}},
+		}
+		wireRoles, err := maputil.StructToMap(Deployment{"roles": []mdbv1.MongoDBRole{role}})
+		require.NoError(b, err)
+		setRoles := func(d Deployment) error {
+			d.SetRoles([]mdbv1.MongoDBRole{role})
+			return nil
+		}
+		for name, compare := range map[string]func(func(Deployment) error, Deployment) (bool, error){
+			"gob-copy": isEqualAfterModificationWithGobCopy, "json-snapshot": isEqualAfterModification,
+		} {
+			b.Run(name, func(b *testing.B) {
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					// Restore the wire representation so every iteration crosses the type boundary.
+					deployment["roles"] = wireRoles["roles"]
+					equal, err := compare(setRoles, deployment)
+					require.NoError(b, err)
+					require.True(b, equal)
+				}
+			})
 		}
 	})
 }
