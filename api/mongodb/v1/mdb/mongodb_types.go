@@ -67,7 +67,7 @@ const (
 	OIDCAuthorizationMethodWorkforceIdentityFederation = "WorkforceIdentityFederation"
 	OIDCAuthorizationMethodWorkloadIdentityFederation  = "WorkloadIdentityFederation"
 
-	LabelResourceOwner = "mongodb.com/v1.mongodbResourceOwner"
+	LabelResourceOwner = util.MongoDBResourceOwnerLabel
 )
 
 // MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
