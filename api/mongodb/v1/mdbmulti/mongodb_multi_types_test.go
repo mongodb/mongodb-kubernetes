@@ -1,10 +1,12 @@
 package mdbmulti
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
@@ -335,4 +337,87 @@ func TestMongoDBMultiCluster_IsRoleAppDB(t *testing.T) {
 			assert.Equal(t, tt.want, mrs.IsRoleAppDB())
 		})
 	}
+}
+
+func TestInitDefaults_AppDBAuthDefaults(t *testing.T) {
+	tests := []struct {
+		name            string
+		role            string
+		security        *mdb.Security
+		expectedEnabled bool
+		expectedModes   []mdb.AuthMode
+		expectedIgnore  bool
+		expectedCA      string
+	}{
+		{
+			name:            "appdb role enables SCRAM authentication",
+			role:            mdb.RoleAppDB,
+			expectedEnabled: true,
+			expectedModes:   []mdb.AuthMode{util.SCRAM},
+			expectedIgnore:  true,
+		},
+		{
+			name: "appdb role overwrites configured modes and preserves TLS",
+			role: mdb.RoleAppDB,
+			security: &mdb.Security{
+				TLSConfig: &mdb.TLSConfig{CA: "my-ca"},
+				Authentication: &mdb.Authentication{
+					Enabled:            true,
+					Modes:              []mdb.AuthMode{mdb.AuthMode("X509")},
+					IgnoreUnknownUsers: false,
+				},
+			},
+			expectedEnabled: true,
+			expectedModes:   []mdb.AuthMode{util.SCRAM},
+			expectedIgnore:  true,
+			expectedCA:      "my-ca",
+		},
+		{
+			name: "authentication is not set for non-AppDB role",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			builder := DefaultMultiReplicaSetBuilder().SetRole(tt.role)
+			if tt.security != nil {
+				builder = builder.SetSecurity(tt.security)
+			}
+			mrs := builder.Build()
+
+			if tt.expectedModes == nil {
+				assert.False(t, mrs.Spec.Security.Authentication.Enabled, "authentication must not be force-enabled for non-AppDB role")
+				assert.Empty(t, mrs.Spec.Security.Authentication.Modes)
+				return
+			}
+
+			assert.True(t, mrs.Spec.Security.Authentication.Enabled)
+			assert.Equal(t, tt.expectedModes, mrs.Spec.Security.Authentication.Modes)
+			assert.Equal(t, tt.expectedIgnore, mrs.Spec.Security.Authentication.IgnoreUnknownUsers)
+			assert.Equal(t, tt.expectedCA, mrs.Spec.Security.TLSConfig.CA)
+		})
+	}
+}
+
+func TestMongoDBMultiCluster_UnmarshalDefaultsAppDBAuth(t *testing.T) {
+	raw := []byte(`{
+		"apiVersion": "mongodb.com/v1",
+		"kind": "MongoDBMultiCluster",
+		"metadata": {"name": "x", "namespace": "ns"},
+		"spec": {
+			"version": "8.0.0",
+			"type": "ReplicaSet",
+			"role": "AppDB",
+			"clusterSpecList": [{"clusterName": "cluster-1", "members": 3}]
+		}
+	}`)
+
+	var mrs MongoDBMultiCluster
+	require.NoError(t, json.Unmarshal(raw, &mrs))
+
+	require.NotNil(t, mrs.Spec.Security)
+	require.NotNil(t, mrs.Spec.Security.Authentication, "AppDB role must default authentication when decoded from the API")
+	assert.True(t, mrs.Spec.Security.Authentication.Enabled)
+	assert.Equal(t, []mdb.AuthMode{util.SCRAM}, mrs.Spec.Security.Authentication.Modes)
+	assert.True(t, mrs.Spec.Security.Authentication.IgnoreUnknownUsers)
 }
