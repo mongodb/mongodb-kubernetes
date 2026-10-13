@@ -167,7 +167,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// Only act when lb.mode == Managed.
 	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
-		r.watch.SyncDependentWatchedResources(mdbSearch.NamespacedName(), nil)
+		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
 		if mdbSearch.Status.LoadBalancer != nil {
 			if err := r.deleteEnvoyResources(ctx, mdbSearch, r.buildClusterWorkList(mdbSearch), log); err != nil {
 				return reconcile.Result{}, err
@@ -183,7 +183,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	}
 
 	// Resolve the source database (shared with the main search controller).
-	// Collect the source dependency locally so the shared watch set changes atomically.
+	// Resolve before clearing dependencies so failed reads retain the last known source watch.
 	sourceWatch := watch.NewResourceWatcher()
 	searchSource, err := getSearchSource(ctx, r.kubeClient, sourceWatch, mdbSearch, log)
 	workList := r.buildClusterWorkList(mdbSearch)
@@ -201,14 +201,17 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 			}
 		}
 	}
+	if err == nil {
+		// TODO: Refactor common watch setup to synchronize dependencies without
+		// removing and re-adding unchanged registrations on every reconcile.
+		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
+	}
+	for _, obj := range desiredWatches {
+		r.watch.AddWatchedResourceIfNotAdded(obj.Resource.Name, obj.Resource.Namespace, obj.ResourceType, mdbSearch.NamespacedName())
+	}
 	if err != nil {
-		// A failed source lookup must not retire its last known wake-up dependency.
-		for _, obj := range desiredWatches {
-			r.watch.AddWatchedResourceIfNotAdded(obj.Resource.Name, obj.Resource.Namespace, obj.ResourceType, mdbSearch.NamespacedName())
-		}
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
-	r.watch.SyncDependentWatchedResources(mdbSearch.NamespacedName(), desiredWatches)
 
 	// Load the per-CR state for the routing-readiness switch.
 	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)

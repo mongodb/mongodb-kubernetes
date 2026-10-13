@@ -1,7 +1,6 @@
 package watch
 
 import (
-	"slices"
 	"sync"
 
 	"go.uber.org/zap"
@@ -78,38 +77,6 @@ func (r *ResourceWatcher) RegisterWatchedTLSResources(mongodbResourceNsName type
 // RemoveDependentWatchedResources stops watching resources related to the input resource
 func (r *ResourceWatcher) RemoveDependentWatchedResources(resourceNsName types.NamespacedName) {
 	r.RemoveAllDependentWatchedResources(resourceNsName.Namespace, resourceNsName)
-}
-
-// SyncDependentWatchedResources atomically replaces one dependent's watches without disturbing shared owners.
-func (r *ResourceWatcher) SyncDependentWatchedResources(dependent types.NamespacedName, desired []Object) {
-	wanted := make(map[Object]struct{}, len(desired))
-	for _, obj := range desired {
-		wanted[obj] = struct{}{}
-	}
-	r.mapLock.Lock()
-	defer r.mapLock.Unlock()
-
-	for obj, owners := range r.watchedResources {
-		index := slices.Index(owners, dependent)
-		if index == -1 {
-			continue
-		}
-		if _, keep := wanted[obj]; keep {
-			delete(wanted, obj)
-			continue
-		}
-		owners = slices.Delete(owners, index, index+1)
-		if len(owners) == 0 {
-			delete(r.watchedResources, obj)
-		} else {
-			r.watchedResources[obj] = owners
-		}
-		zap.S().Debugf("Removing %s from resources dependent on %s", dependent, obj)
-	}
-	for obj := range wanted {
-		r.watchedResources[obj] = append(r.watchedResources[obj], dependent)
-		zap.S().Debugf("Watching %s to trigger reconciliation for %s", obj, dependent)
-	}
 }
 
 // AddWatchedResourceIfNotAdded adds the given resource to the list of watched
