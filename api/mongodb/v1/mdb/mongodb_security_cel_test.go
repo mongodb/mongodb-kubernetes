@@ -67,6 +67,21 @@ func TestMongoDBSecurityCELValidation(t *testing.T) {
 			errorContains: "security.certsSecretPrefix and security.managedCertificate are mutually exclusive",
 		},
 		{
+			// tls.ca is the legacy trust ConfigMap and the operator ignores it in managed mode,
+			// so the combination is rejected instead of being silently ignored.
+			name: "tls.ca and managedCertificate together are rejected",
+			security: &mdb.Security{
+				TLSConfig:          &mdb.TLSConfig{Enabled: true, CA: "my-ca"},
+				ManagedCertificate: &mdb.ManagedCertificate{},
+			},
+			errorContains: "security.tls.ca and security.managedCertificate are mutually exclusive",
+		},
+		{
+			// The legacy path keeps working: a user-provided CA with no managed certificates.
+			name:     "tls.ca without managedCertificate is accepted",
+			security: &mdb.Security{TLSConfig: &mdb.TLSConfig{Enabled: true, CA: "my-ca"}},
+		},
+		{
 			// managedCertificate enables TLS on its own (IsTLSEnabled returns true when it is set)
 			name:     "managedCertificate without any tls block is accepted",
 			security: &mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{Server: &mdb.CertificateConfig{IssuerRef: issuer}}},
