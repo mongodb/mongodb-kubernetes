@@ -2184,7 +2184,7 @@ func TestEnvoyReconcile_OperatorPerCluster_Match_RendersAtPinnedIndex(t *testing
 	var bootstrap bytes.Buffer
 	require.NoError(t, json.Compact(&bootstrap, []byte(cm.Data["bootstrap.json"])))
 	assert.Equal(t, fmt.Sprintf("%x", sha256.Sum256(bootstrap.Bytes())), previousHash, "missing certificate Secrets must be omitted")
-	initialConfig := cm.Data
+	initialConfig := maps.Clone(cm.Data)
 	reconcileHash := func(t *testing.T) string {
 		t.Helper()
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
