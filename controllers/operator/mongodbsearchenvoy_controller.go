@@ -85,15 +85,20 @@ type MongoDBSearchEnvoyReconciler struct {
 	defaultEnvoyImage   string
 	operatorClusterName string
 	memberClients       map[string]kubernetesClient.Client
+	certReaders         map[string]client.Reader
 
 	prepareSearch prepareSearchFuncs
 }
 
 func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
+	certReaders := map[string]client.Reader{}
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
+		certReaders[k] = v
 	}
+	certReaders[""] = c
+	certReaders[operatorClusterName] = c
 
 	central := kubernetesClient.NewClient(c)
 	return &MongoDBSearchEnvoyReconciler{
@@ -102,6 +107,7 @@ func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, 
 		defaultEnvoyImage:   defaultEnvoyImage,
 		operatorClusterName: operatorClusterName,
 		memberClients:       clientsMap,
+		certReaders:         certReaders,
 		prepareSearch:       newPrepareSearch(operatorClusterName),
 	}
 }
@@ -157,13 +163,11 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return reconcile.Result{}, nil
 	}
 
-	// Rebuild dependencies so TLS, certificate-prefix and cluster changes retire stale watches.
-	r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
-
 	// TODO: can we find a better cleanup mechanism, and optimize the watching of the loadbalancer field by this controller ?
 	// Only act when lb.mode == Managed.
 	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
+		r.watch.SyncDependentWatchedResources(mdbSearch.NamespacedName(), nil)
 		if mdbSearch.Status.LoadBalancer != nil {
 			if err := r.deleteEnvoyResources(ctx, mdbSearch, r.buildClusterWorkList(mdbSearch), log); err != nil {
 				return reconcile.Result{}, err
@@ -179,16 +183,32 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	}
 
 	// Resolve the source database (shared with the main search controller).
-	searchSource, err := getSearchSource(ctx, r.kubeClient, r.watch, mdbSearch, log)
+	// Collect the source dependency locally so the shared watch set changes atomically.
+	sourceWatch := watch.NewResourceWatcher()
+	searchSource, err := getSearchSource(ctx, r.kubeClient, sourceWatch, mdbSearch, log)
+	workList := r.buildClusterWorkList(mdbSearch)
+	desiredWatches := []watch.Object{{
+		ResourceType: watch.ConfigMap,
+		Resource:     types.NamespacedName{Name: searchcontroller.SearchStateCMName(mdbSearch), Namespace: mdbSearch.Namespace},
+	}}
+	for obj := range sourceWatch.GetWatchedResources() {
+		desiredWatches = append(desiredWatches, obj)
+	}
+	if mdbSearch.IsTLSConfigured() {
+		for _, w := range workList {
+			for _, name := range []types.NamespacedName{mdbSearch.LoadBalancerServerCert(w.ClusterIndex), mdbSearch.LoadBalancerClientCert(w.ClusterIndex)} {
+				desiredWatches = append(desiredWatches, watch.Object{ResourceType: watch.Secret, Resource: name})
+			}
+		}
+	}
 	if err != nil {
+		// A failed source lookup must not retire its last known wake-up dependency.
+		for _, obj := range desiredWatches {
+			r.watch.AddWatchedResourceIfNotAdded(obj.Resource.Name, obj.Resource.Namespace, obj.ResourceType, mdbSearch.NamespacedName())
+		}
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
-	r.watch.AddWatchedResourceIfNotAdded(
-		searchcontroller.SearchStateCMName(mdbSearch),
-		mdbSearch.Namespace,
-		watch.ConfigMap,
-		mdbSearch.NamespacedName(),
-	)
+	r.watch.SyncDependentWatchedResources(mdbSearch.NamespacedName(), desiredWatches)
 
 	// Load the per-CR state for the routing-readiness switch.
 	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
@@ -199,8 +219,6 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	tlsCfg := searchSource.TLSConfig()
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
-	workList := r.buildClusterWorkList(mdbSearch)
-	r.registerLBCertSecretWatches(mdbSearch, workList)
 	var reconcileErrs error
 	var worstPhase status.Phase
 	var missingClusters []string
@@ -241,34 +259,27 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 // clusterWorkItem is one per-cluster unit. OwnerReferences carries the local
 // Search GC backstop and is nil for cross-cluster member resources.
 type clusterWorkItem struct {
-	ClusterName     string
-	ClusterIndex    int
-	Client          kubernetesClient.Client
-	OwnerReferences []metav1.OwnerReference
+	ClusterName       string
+	ClusterIndex      int
+	Client            kubernetesClient.Client
+	CertificateReader client.Reader
+	OwnerReferences   []metav1.OwnerReference
 }
 
 // spec.clusters is validated non-empty, so the empty-clusters branch is a
 // defensive backstop only.
 func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch) []clusterWorkItem {
-	if len(search.Spec.Clusters) == 0 {
-		return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName)}
-	}
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
+	if len(search.Spec.Clusters) == 0 {
+		work = append(work, newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName))
+	}
 	for _, c := range search.Spec.Clusters {
 		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, r.memberClients, r.operatorClusterName))
 	}
+	for i := range work {
+		work[i].CertificateReader = r.certReaders[work[i].ClusterName]
+	}
 	return work
-}
-
-func (r *MongoDBSearchEnvoyReconciler) registerLBCertSecretWatches(search *searchv1.MongoDBSearch, workList []clusterWorkItem) {
-	if !search.IsTLSConfigured() {
-		return
-	}
-	for _, w := range workList {
-		for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(w.ClusterIndex), search.LoadBalancerClientCert(w.ClusterIndex)} {
-			r.watch.AddWatchedResourceIfNotAdded(name.Name, name.Namespace, watch.Secret, search.NamespacedName())
-		}
-	}
 }
 
 // newClusterWorkItem builds one per-cluster work unit. Local clusters — the
@@ -556,7 +567,7 @@ func envoyConfigHash(configJSON string, extra []byte) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-func envoyLBCertSecretsData(ctx context.Context, c client.Client, search *searchv1.MongoDBSearch, clusterIndex int) ([]byte, error) {
+func envoyLBCertSecretsData(ctx context.Context, c client.Reader, search *searchv1.MongoDBSearch, clusterIndex int) ([]byte, error) {
 	data := map[string]map[string][]byte{}
 	for _, nsName := range []types.NamespacedName{search.LoadBalancerServerCert(clusterIndex), search.LoadBalancerClientCert(clusterIndex)} {
 		secret := &corev1.Secret{}
@@ -580,8 +591,11 @@ func envoyLBCertSecretsData(ctx context.Context, c client.Client, search *search
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, w clusterWorkItem, managedLB *searchv1.ManagedLBConfig, tlsEnabled bool, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	var certData []byte
 	if tlsEnabled {
+		if w.CertificateReader == nil {
+			return fmt.Errorf("missing LB certificate reader for cluster %q", w.ClusterName)
+		}
 		var err error
-		if certData, err = envoyLBCertSecretsData(ctx, w.Client, search, w.ClusterIndex); err != nil {
+		if certData, err = envoyLBCertSecretsData(ctx, w.CertificateReader, search, w.ClusterIndex); err != nil {
 			return err
 		}
 	}
@@ -888,6 +902,12 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// by AddMongoDBSearchController. Do not register it again here.
 
 	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), operatorClusterName)
+	// A central Secret event can precede member cache observation of the earlier member write.
+	for name, member := range memberClusterObjectsMap {
+		r.certReaders[name] = member.GetAPIReader()
+	}
+	r.certReaders[""] = mgr.GetAPIReader()
+	r.certReaders[operatorClusterName] = mgr.GetAPIReader()
 
 	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
 		Reconciler:              r,
