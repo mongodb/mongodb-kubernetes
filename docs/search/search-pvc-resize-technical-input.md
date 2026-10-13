@@ -1,6 +1,6 @@
 # Manually Expand MongoDB Search Index Storage
 
-You can increase mongot index storage by expanding its persistent volume claims (PVCs). This procedure stops the Kubernetes Operator while you replace the StatefulSet definition, then resumes the operator with the existing pods and claims.
+The Kubernetes Operator does not automatically expand MongoDB Search storage. For Kubernetes Operator 1.9 or later, expand the mongot persistent volume claims (PVCs) manually using this procedure. Stop the operator while you replace the StatefulSet definitions, then resume it with the existing pods and claims.
 
 For other MongoDB resources, see [Increase Storage for Persistent Volumes](https://www.mongodb.com/docs/kubernetes/current/tutorial/resize-pv-storage/).
 
@@ -8,10 +8,10 @@ For other MongoDB resources, see [Increase Storage for Persistent Volumes](https
 
 - Use a StorageClass with `allowVolumeExpansion: true` and a CSI driver that supports expansion while the volume remains attached. Confirm that the filesystem supports expansion. This procedure does not cover backends that require detaching the volume for controller expansion.
 - Start with a healthy source database and Search deployment, and prepare a backup or recovery plan.
-- Schedule a maintenance window without concurrent scaling, upgrades, or GitOps changes. Stopping an operator pauses reconciliation for all resources it manages.
+- Schedule a maintenance window without concurrent scaling or upgrades. Pause automation, such as GitOps sync, that can restore operator replicas or revert the Search storage setting. If you manage the Search resource in Git, commit the new size before resuming sync. Stopping an operator pauses reconciliation for all resources it manages.
 - Obtain permission to patch PVCs, edit MongoDBSearch resources, scale operator deployments, and delete StatefulSets and pods.
 
-> **Important:** Increase storage only. Search StatefulSets use `whenDeleted: Delete` and `whenScaled: Delete` PVC retention policies beginning with Kubernetes Operator 1.9. Stopping the operator does **not** stop Kubernetes garbage collection. Keep the existing Search resource and PVCs. Do not change mongot replica counts. Delete only the StatefulSet, with `--cascade=orphan`. A PV reclaim policy of `Retain` does not prevent PVC deletion.
+> **Important:** Increase storage only. Keep the existing Search resource and PVCs, and do not scale mongot down. Delete only StatefulSet definitions with `--cascade=orphan`: their PVC retention policy remains active while the operator is stopped.
 
 ### Multi-Cluster Deployments
 
@@ -31,21 +31,16 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
 
 > **Note:** A matching `shardOverrides[].persistence` replaces cluster persistence. Custom `statefulSet.spec.volumeClaimTemplates` can override the generated storage size. If you use either setting, identify and update the effective storage field for each affected StatefulSet instead of applying this example unchanged.
 
-1. **Identify the data claims.**
+1. **Identify the StatefulSets and data claims.**
 
-   Inspect each mongot pod to identify the PVC mounted by its `data` volume:
+   List the mongot StatefulSets for the Search resource:
 
    ```sh
    kubectl --context <member-context> -n <namespace> \
-     describe pod <mongot-pod-name>
+     get sts -l mongodb.com/search-name=<search-name>
    ```
 
-   Record each exact claim name, UID, and PV binding. Do not select claims by a name prefix.
-
-   ```sh
-   kubectl --context <member-context> -n <namespace> get pvc <pvc-name> \
-     -o jsonpath='{.metadata.uid} {.spec.volumeName}{"\n"}'
-   ```
+   With the default `data` claim template, each replica uses `data-<statefulset-name>-<ordinal>`. For sharded sources, each cluster has one StatefulSet per shard. For customized templates or mounts, check the claim mounted by each pod instead.
 
 2. **Expand each data claim.**
 
@@ -57,16 +52,13 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
      -p '{"spec":{"resources":{"requests":{"storage":"2Gi"}}}}'
    ```
 
-   Inspect the claim and its bound PV:
+   Wait until each claim reports at least the requested size in `status.capacity.storage` or the `FileSystemResizePending=True` condition:
 
    ```sh
    kubectl --context <member-context> -n <namespace> get pvc <pvc-name> -o yaml
-   kubectl --context <member-context> get pv <pv-name> -o yaml
    ```
 
-   Wait for the PV capacity to reach the requested size. The PVC must either report that capacity or report `FileSystemResizePending=True` after controller expansion. Online expansion can complete without that condition. Compare quantities numerically: `2Gi` equals `2048Mi`.
-
-   Keep the claim `Bound` with no deletion timestamp. If expansion exceeds your storage backend's documented timeout, investigate CSI events before proceeding.
+   If expansion exceeds your storage backend's documented timeout, investigate CSI events before proceeding.
 
 3. **Stop the responsible operator deployments.**
 
@@ -77,18 +69,17 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
      get deployment <operator-name> -o jsonpath='{.spec.replicas}{"\n"}'
    ```
 
-   Scale the operator, **not mongot**, to zero. Use the deployment's pod selector to wait for its pods to stop:
+   Scale the operator, **not mongot**, to zero, and wait for its pods to stop:
 
    ```sh
    kubectl --context <operator-context> -n <operator-namespace> \
      scale deployment <operator-name> --replicas=0
    kubectl --context <operator-context> -n <operator-namespace> \
-     wait --for=delete pod -l <operator-pod-selector> --timeout=300s
-   kubectl --context <operator-context> -n <operator-namespace> \
-     get pods -l <operator-pod-selector>
+     wait --for=delete pod --timeout=300s \
+     -l app.kubernetes.io/name=<operator-name>
    ```
 
-   Confirm that no operator pods remain, including terminating pods. Stop all responsible operators before continuing. Stopping a separate source-database operator does not pause member Search operators.
+   For customized installations, use the Deployment's actual pod selector instead of the Helm chart label shown here. Stop all responsible operator pods, including terminating pods, before continuing. Stopping a separate source-database operator does not pause member Search operators.
 
 4. **Remove only the StatefulSet definitions.**
 
@@ -112,10 +103,9 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
    persistence:
      single:
        storage: 2Gi
-       storageClass: <existing-storage-class>
    ```
 
-   Keep the existing storage class, cluster entries, indexes, replicas, and other settings. Do not replace the `clusters` array with a partial JSON merge patch: removing an entry can trigger deletion of that cluster's Search resources and claims.
+   Keep the existing storage class, cluster entries, indexes, replicas, and other settings. Removing a cluster entry can delete that cluster's Search resources and claims.
 
    Read the Search resources back to confirm that the new effective sizes persisted. The targeted StatefulSets must remain absent until you resume the operators.
 
@@ -130,7 +120,7 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
      rollout status deployment/<operator-name> --timeout=600s
    ```
 
-   Wait for each StatefulSet to reappear with a new UID, its original replica count, and the expanded template named `data`. Confirm that it adopts the existing pods and claims before proceeding. Do not treat a stale Search `Running` status from the paused period as completion.
+   Wait for each StatefulSet to reappear with the expanded `data` claim template. The new StatefulSet adopts the existing pods and claims.
 
 7. **Restart pods only if filesystem expansion requires it.**
 
@@ -143,15 +133,13 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
      wait --for=condition=Ready pod/<mongot-pod-name> --timeout=600s
    ```
 
-   Wait for the replacement pod to exist before running the readiness command. Confirm that it is Ready, it mounts the same claim, the PVC reports expanded capacity, and the pending condition clears before restarting another pod. Skip this step if expansion completes online.
+   Wait for the replacement pod to exist before running the readiness command. Restart the next pod only after the replacement is Ready and the pending condition clears. Skip this step if expansion completes online.
 
    > **Note:** Direct pod deletion bypasses PodDisruptionBudgets. A single mongot replica cannot serve requests while it restarts. This procedure does not guarantee zero downtime.
 
 8. **Verify storage and Search readiness.**
 
-   Repeat the claim identity command from step 1 and compare the UID and PV binding. Require the same claims, `Bound`, no deletion timestamps, and requests and capacities at least as large as the new size. Verify usable filesystem capacity with your storage backend's tools.
-
-   Confirm that all expected mongot pods are Ready and each Search resource reaches `Running` after reconciliation.
+   Confirm that each PVC reports at least the requested capacity, all expected mongot pods are Ready, and each Search resource reaches `Running` after reconciliation.
 
 ## Troubleshoot Expansion
 
