@@ -922,6 +922,7 @@ type SharedConnectionSpec struct {
 
 // +kubebuilder:validation:XValidation:rule="!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size() > 0 && self.roleRefs.size() > 0)",message="At most one of roles or roleRefs can be non-empty"
 // +kubebuilder:validation:XValidation:rule="!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size() > 0 && has(self.managedCertificate))",message="security.certsSecretPrefix and security.managedCertificate are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.tls) && has(self.tls.ca) && self.tls.ca.size() > 0 && has(self.managedCertificate))",message="security.tls.ca and security.managedCertificate are mutually exclusive: with operator-managed certificates the operator supplies the CA bundle."
 type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`
