@@ -1369,6 +1369,12 @@ spec:
                         are mutually exclusive
                       rule: '!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size()
                         > 0 && has(self.managedCertificate))'
+                    - message: 'security.tls.ca and security.managedCertificate are
+                        mutually exclusive: with operator-managed certificates the
+                        operator supplies the CA bundle. Use security.managedCertificate.*.additionalTrustedCAs
+                        to trust extra CAs'
+                      rule: '!(has(self.tls) && has(self.tls.ca) && self.tls.ca.size()
+                        > 0 && has(self.managedCertificate))'
                   service:
                     description: this is an optional service, it will get the name
                       "<rsName>-svc" in case not provided
