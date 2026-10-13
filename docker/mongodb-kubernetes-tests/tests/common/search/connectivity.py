@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -679,8 +680,8 @@ def rotate_member_envoy_certificates(
         (search_resource_names.lb_server_cert_name, server_domains),
         (search_resource_names.lb_client_cert_name, [f"*.{namespace}.svc.cluster.local"]),
     ):
-        replacements = {}
-        for member in members:
+
+        def prepare_certificate(member: MultiClusterClient) -> tuple[str, str, dict[str, str], str]:
             assert member.cluster_index is not None
             deployment_name = search_resource_names.lb_deployment_name(search_name, member.cluster_index)
             secret_name = cert_name(search_name, certs_prefix, member.cluster_index)
@@ -694,12 +695,17 @@ def rotate_member_envoy_certificates(
                 additional_domains=domains,
                 secret_name=scratch_name,
                 api_client=central_api_client,
+                ready_timeout=120,
             )
             data = read_secret(namespace, scratch_name, api_client=central_api_client)
             assert data["tls.crt"] != read_secret(namespace, secret_name, api_client=member.api_client)["tls.crt"]
             before = member.apps_v1_api().read_namespaced_deployment(deployment_name, namespace)
             previous_hash = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
-            replacements[member.cluster_name] = (deployment_name, secret_name, data, previous_hash)
+            return deployment_name, secret_name, data, previous_hash
+
+        with ThreadPoolExecutor(max_workers=min(4, max(1, len(members)))) as executor:
+            futures = {member.cluster_name: executor.submit(prepare_certificate, member) for member in members}
+            replacements = {name: future.result() for name, future in futures.items()}
 
         for member in members:
             _, secret_name, data, _ = replacements[member.cluster_name]
@@ -715,6 +721,15 @@ def rotate_member_envoy_certificates(
         for member in members:
             deployment_name, _, _, previous_hash = replacements[member.cluster_name]
             wait_for_envoy_restart(namespace, deployment_name, previous_hash, api_client=member.api_client)
+
+
+def rotate_envoy_certificates(namespace: str, search_name: str, certs_prefix: str) -> None:
+    deployment_name = search_resource_names.lb_deployment_name(search_name)
+    for certificate_name in (
+        search_resource_names.lb_server_cert_name(search_name, certs_prefix),
+        search_resource_names.lb_client_cert_name(search_name, certs_prefix),
+    ):
+        rotate_envoy_certificate(namespace, deployment_name, certificate_name)
 
 
 # MongoDBSearch reconcile + readiness-probe disruption helpers

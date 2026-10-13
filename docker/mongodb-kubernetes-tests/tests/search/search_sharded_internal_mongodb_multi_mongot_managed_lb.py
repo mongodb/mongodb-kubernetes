@@ -30,7 +30,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import rotate_envoy_certificate
+from tests.common.search.connectivity import rotate_envoy_certificates
 from tests.common.search.movies_search_helper import EMBEDDING_QUERY_KEY_ENV_VAR, EmbeddedMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import *
@@ -326,12 +326,7 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
 
 @mark.e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
 def test_rotate_lb_certificates_restarts_envoy(namespace: str):
-    deployment_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
-    for certificate_name in (
-        search_resource_names.lb_server_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-        search_resource_names.lb_client_cert_name(MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX),
-    ):
-        rotate_envoy_certificate(namespace, deployment_name, certificate_name)
+    rotate_envoy_certificates(namespace, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
 
 
 @mark.e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
