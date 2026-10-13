@@ -69,42 +69,57 @@ func TestGettingAutomationConfig(t *testing.T) {
 }
 
 func TestGetAgentAuthMode(t *testing.T) {
-	testAutomationConfig := getTestAutomationConfig()
-	testAutomationConfig.Deployment["auth"] = map[string]any{"autoAuthMechanism": "SCRAM-SHA-256"}
-	handleFunc, _ := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
-	srv := serverMock(handleFunc)
-	defer srv.Close()
-
-	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
-	mode, err := connection.GetAgentAuthMode(t.Context())
-
-	require.NoError(t, err)
-	assert.Equal(t, "SCRAM-SHA-256", mode)
+	for _, tt := range []struct {
+		name, body, mode, errorText string
+		status                      int
+	}{
+		{"SCRAM", `{"auth":{"autoAuthMechanism":"SCRAM-SHA-256"}}`, "SCRAM-SHA-256", "", http.StatusOK},
+		{"X509", `{"auth":{"autoAuthMechanism":"MONGODB-X509"}}`, "MONGODB-X509", "", http.StatusOK},
+		{"missing auth", `{}`, "", "", http.StatusOK},
+		{"null auth", `{"auth":null}`, "", "", http.StatusOK},
+		{"missing mechanism", `{"auth":{}}`, "", "", http.StatusOK},
+		{"null mechanism", `{"auth":{"autoAuthMechanism":null}}`, "", "", http.StatusOK},
+		{"invalid auth", `{"auth":42}`, "", "cannot unmarshal number", http.StatusOK},
+		{"invalid mechanism", `{"auth":{"autoAuthMechanism":42}}`, "", "cannot unmarshal number", http.StatusOK},
+		{"malformed JSON", `{"auth":`, "", "unexpected end of JSON input", http.StatusOK},
+		{"empty body", "", "", "unexpected end of JSON input", http.StatusOK},
+		{"unrelated users", `{"auth":{"autoAuthMechanism":"SCRAM-SHA-256","usersWanted":[{"user":42}]}}`, "SCRAM-SHA-256", "", http.StatusOK},
+		{"unrelated config", `{"auth":{"autoAuthMechanism":"MONGODB-X509"},"tls":{"CAFilePath":42},"ldap":42,"oidcProviderConfigs":42}`, "MONGODB-X509", "", http.StatusOK},
+		{"API error", `{"detail":"invalid automation config"}`, "", "invalid automation config", http.StatusBadRequest},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, "/api/public/v1.0/groups/1/automationConfig", r.URL.Path)
+				w.Header().Set("X-MongoDB-Service-Version", "versionString=8.0.0")
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			t.Cleanup(srv.Close)
+			connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+			mode, err := connection.GetAgentAuthMode(t.Context())
+			if tt.errorText != "" {
+				require.ErrorContains(t, err, tt.errorText)
+				var apiErr *apierror.Error
+				require.ErrorAs(t, err, &apiErr)
+				assert.Empty(t, mode)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.mode, mode)
+			assert.Equal(t, "8.0.0", connection.OpsManagerVersion().VersionString)
+		})
+	}
 }
 
-func TestGetAgentAuthMode_NoAuth(t *testing.T) {
-	testAutomationConfig := getTestAutomationConfig()
-	delete(testAutomationConfig.Deployment, "auth")
-	handleFunc, _ := automationConfig("1", automationConfigResponse{config: testAutomationConfig})
-	srv := serverMock(handleFunc)
-	defer srv.Close()
-
-	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
-	mode, err := connection.GetAgentAuthMode(t.Context())
-
-	require.NoError(t, err)
-	assert.Equal(t, "", mode)
-}
-
-func TestGetAgentAuthMode_IgnoresOtherAuthFields(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"auth":{"autoAuthMechanism":"SCRAM-SHA-256","usersWanted":[{"user":42}]}}`))
-	}))
-	t.Cleanup(srv.Close)
-	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
-	mode, err := connection.GetAgentAuthMode(t.Context())
-	require.NoError(t, err, "auth mode lookup must not decode unrelated user fields")
-	assert.Equal(t, "SCRAM-SHA-256", mode)
+func TestGetAgentAuthMode_CanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: "http://127.0.0.1:1", GroupID: "1"})
+	mode, err := connection.GetAgentAuthMode(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), context.Canceled.Error())
+	assert.Empty(t, mode)
 }
 
 func TestReadAutomationConfig_WrapsBuilderError(t *testing.T) {
