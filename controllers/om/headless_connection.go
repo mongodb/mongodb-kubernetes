@@ -21,6 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 )
 
@@ -352,6 +353,22 @@ func podOwnedByStatefulSet(pod corev1.Pod, name string) bool {
 	for _, ref := range pod.OwnerReferences {
 		if ref.Kind == "StatefulSet" && ref.Name == name {
 			return true
+		}
+	}
+	return false
+}
+
+// IsHeadlessAgentPod reports whether the pod's agent container runs the automation agent in
+// headless mode (against the mounted automation config file instead of Ops Manager).
+func IsHeadlessAgentPod(pod corev1.Pod) bool {
+	for _, container := range pod.Spec.Containers {
+		if container.Name != util.AgentContainerName {
+			continue
+		}
+		for _, envVar := range container.Env {
+			if envVar.Name == util.HeadlessAgentEnv && envVar.Value == "true" {
+				return true
+			}
 		}
 	}
 	return false

@@ -11,13 +11,16 @@ from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import create_or_update_configmap, read_configmap
 from kubetester.kubetester import (
+    PROJECT_MODE_HEADLESS,
+    PROJECT_MODE_OPS_MANAGER,
     KubernetesTester,
     build_host_fqdn,
     ensure_ent_version,
     ensure_nested_objects,
+    get_project_mode,
     is_default_architecture_static,
 )
-from kubetester.omtester import OMContext, OMTester
+from kubetester.omtester import OMContext, OMTester, get_om_tester
 from opentelemetry import trace
 from tests import test_logger
 
@@ -252,10 +255,33 @@ class MongoDB(CustomObject, MongoDBCommon):
         project_name: str,
         api_client: Optional[client.ApiClient] = None,
     ) -> Self:
+        mode = get_project_mode()
+        if mode == PROJECT_MODE_HEADLESS:
+            return self.configure_headless()
+
         if om is not None:
             return self.configure_ops_manager(om, project_name, api_client=api_client)
-        else:
-            return self.configure_cloud_qa(project_name, api_client=api_client)
+
+        if mode == PROJECT_MODE_OPS_MANAGER:
+            raise RuntimeError(
+                "MDB_E2E_PROJECT_MODE=ops_manager requires a MongoDBOpsManager; use "
+                "tests.common.ops_manager.om_deployment.get_ops_manager(namespace) to obtain one"
+            )
+
+        return self.configure_cloud_qa(project_name, api_client=api_client)
+
+    def configure_headless(self) -> Self:
+        """Makes the resource fully self-contained: no Ops Manager, no credentials, static architecture.
+
+        The in-cluster (headless) operator stores the automation config in the <name>-config Secret
+        and the agents run from it. Headless is only supported on the static architecture.
+        """
+        for field in ("opsManager", "cloudManager", "project", "credentials"):
+            self["spec"].pop(field, None)
+
+        annotations = self["metadata"].setdefault("annotations", {})
+        annotations["mongodb.com/v1.architecture"] = "static"
+        return self
 
     def configure_ops_manager(
         self,
@@ -287,6 +313,11 @@ class MongoDB(CustomObject, MongoDBCommon):
         src_project_config_map_name = "my-project"
         if "cloudManager" in self["spec"]:
             src_project_config_map_name = self["spec"]["cloudManager"]["configMapRef"]["name"]
+
+        # Cloud Manager uses the credentials secret created by the CI/local context; make sure the
+        # resource references it even if the source fixture only carried it under spec.opsManager.
+        if "credentials" not in self["spec"]:
+            self["spec"]["credentials"] = "my-credentials"
 
         src_cm = read_configmap(self.namespace, src_project_config_map_name, api_client=api_client)
 
@@ -481,10 +512,17 @@ class MongoDB(CustomObject, MongoDBCommon):
             return None
 
     def get_om_tester(self) -> OMTester:
-        """Returns the OMTester instance based on MongoDB connectivity parameters"""
+        """Returns the OMTester instance based on MongoDB connectivity parameters.
+
+        Mode-aware: in headless mode the tester reads the automation config from the
+        <name>-config Secret (there are no Ops Manager credentials to read).
+        """
+        if get_project_mode() == PROJECT_MODE_HEADLESS:
+            return get_om_tester(OMContext.build_headless(self.namespace, self.name))
+
         config_map = self.read_configmap()
         secret = KubernetesTester.read_secret(self.namespace, self["spec"]["credentials"])
-        return OMTester(OMContext.build_from_config_map_and_secret(config_map, secret))
+        return get_om_tester(OMContext.build_from_config_map_and_secret(config_map, secret))
 
     def get_automation_config_tester(self, **kwargs):
         """This is just a shortcut for getting automation config tester for replica set"""

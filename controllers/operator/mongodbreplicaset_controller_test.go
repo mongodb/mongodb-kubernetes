@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -35,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
@@ -43,6 +45,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -1507,7 +1510,7 @@ func TestPublishAutomationConfigFirst(t *testing.T) {
 			expectedPublishACFirst: false,
 		},
 		{
-			name:        "New StatefulSet without Ops Manager (headless)",
+			name:        "New StatefulSet without Ops Manager (headless bootstrap)",
 			existingSts: nil,
 			mdb: func() mdbv1.MongoDB {
 				m := baseTestMongoDB("test-rs", 3)
@@ -1517,8 +1520,43 @@ func TestPublishAutomationConfigFirst(t *testing.T) {
 				m.Spec.Security = nil
 				return m
 			}(),
-			// The headless readiness probe depends on the automation config Secret, so it must
-			// always be published before the StatefulSet.
+			// Without the automation config Secret the headless readiness probe can never pass,
+			// so the config must be published before the StatefulSet.
+			expectedPublishACFirst: true,
+		},
+		{
+			name:        "Headless steady state keeps the standard ordering",
+			existingSts: baseTestStatefulSet("test-rs", 3),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Spec.OpsManagerConfig = nil
+				m.Spec.CloudManagerConfig = nil
+				m.Spec.Credentials = ""
+				return m
+			}(),
+			extraObjects: []client.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-rs-config", Namespace: mock.TestNamespace},
+					Data:       map[string][]byte{"cluster-config.json": []byte(`{"version": 1}`)},
+				},
+			},
+			expectedPublishACFirst: false,
+		},
+		{
+			name:        "Headless to Ops Manager migration in progress",
+			existingSts: baseTestStatefulSet("test-rs", 3),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Annotations = map[string]string{util.HeadlessMigrationAnnotation: util.HeadlessMigrationInProgress}
+				return m
+			}(),
+			extraObjects: []client.Object{
+				&corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "test-rs-config", Namespace: mock.TestNamespace},
+					Data:       map[string][]byte{"cluster-config.json": []byte(`{"version": 1}`)},
+				},
+			},
+			// The target automation config must be in Ops Manager before the pod template flips.
 			expectedPublishACFirst: true,
 		},
 		{
@@ -1643,6 +1681,17 @@ func TestPublishAutomationConfigFirst(t *testing.T) {
 				return m
 			}(),
 			expectedPublishACFirst: false,
+		},
+		{
+			name:        "Headless-to-Ops-Manager migration in progress",
+			existingSts: baseTestStatefulSet("test-rs", 3),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-rs", 3)
+				m.Annotations = map[string]string{util.HeadlessMigrationAnnotation: util.HeadlessMigrationInProgress}
+				return m
+			}(),
+			// The target automation config must be published before the StatefulSet is flipped.
+			expectedPublishACFirst: true,
 		},
 	}
 
@@ -1981,6 +2030,21 @@ func TestAdoptionGate_NoGateWhenNoExistingStatefulSet(t *testing.T) {
 
 	ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
 	assert.True(t, ownershipStatus.IsOK(), "Fresh Start: no StatefulSet exists yet, adoption succeeds")
+}
+
+func TestOnDelete_HeadlessSkipsOpsManagerCleanup(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("headless-delete").Build()
+	rs.Spec.OpsManagerConfig = nil
+	rs.Spec.CloudManagerConfig = nil
+	rs.Spec.Credentials = ""
+
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.Static, om.NewConnection)
+
+	// A headless CR has no project ConfigMap or credentials Secret; OnDelete must not try to read
+	// them, otherwise the deletion fails and the dependent-resource watcher cleanup is skipped.
+	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
 }
 
 func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
@@ -2403,4 +2467,202 @@ func TestHeadlessReplicaSetReconcile(t *testing.T) {
 	assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "automation-config", MountPath: "/var/lib/mongodb-automation", ReadOnly: true})
 	require.NotNil(t, agent.ReadinessProbe)
 	assert.Equal(t, []string{"/opt/scripts/readinessprobe"}, agent.ReadinessProbe.Exec.Command)
+}
+
+func TestHeadlessReplicaSetCustomServiceAccountGetsRoleBinding(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("headless-sa").Build()
+	// No Ops Manager and no Cloud Manager: the resource is managed headlessly. A missing
+	// authentication block must still produce agent credentials (E1).
+	rs.Spec.OpsManagerConfig = nil
+	rs.Spec.CloudManagerConfig = nil
+	rs.Spec.Credentials = ""
+	rs.Spec.Security.Authentication = nil
+	rs.Spec.PodSpec.PodTemplateWrapper.PodTemplate = &corev1.PodTemplateSpec{}
+	rs.Spec.PodSpec.PodTemplateWrapper.PodTemplate.Spec.ServiceAccountName = "custom-pod-sa"
+
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	imageUrls := images.ImageUrls{util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent-ubi:108.0.30.7791-1"}
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, imageUrls, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.Static, om.NewConnection)
+
+	require.NoError(t, kubeClient.Update(ctx, rs))
+
+	result, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
+
+	binding := &rbacv1.RoleBinding{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name+headlessDatabasePodsRoleBindingSuffix), binding))
+	assert.Equal(t, rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: util.MongoDBServiceAccount}, binding.RoleRef)
+	require.Len(t, binding.Subjects, 1)
+	assert.Equal(t, rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: "custom-pod-sa", Namespace: rs.Namespace}, binding.Subjects[0])
+	require.Len(t, binding.OwnerReferences, 1)
+	assert.Equal(t, rs.Name, binding.OwnerReferences[0].Name)
+	assert.True(t, *binding.OwnerReferences[0].Controller)
+
+	// E1: the headless automation config must carry keyfile and agent credentials even though
+	// the resource does not configure an authentication block.
+	acSecret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, types.NamespacedName{Name: rs.Name + om.HeadlessAutomationConfigSecretSuffix, Namespace: rs.Namespace}, acSecret))
+	storedDeployment, err := om.BuildDeploymentFromBytes(acSecret.Data["cluster-config.json"])
+	require.NoError(t, err)
+	authMap, ok := storedDeployment["auth"].(map[string]interface{})
+	require.True(t, ok, "automation config must carry an auth section")
+	assert.NotEmpty(t, authMap["key"], "keyfile contents must be present for headless resources without an auth block")
+	assert.NotEmpty(t, authMap["autoPwd"], "agent password must be present for headless resources without an auth block")
+}
+
+func TestHeadlessReplicaSetDefaultServiceAccountDeletesStaleRoleBinding(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("headless-default-sa").Build()
+	rs.Spec.OpsManagerConfig = nil
+	rs.Spec.CloudManagerConfig = nil
+	rs.Spec.Credentials = ""
+
+	bindingName := rs.Name + headlessDatabasePodsRoleBindingSuffix
+	staleBinding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: bindingName, Namespace: rs.Namespace},
+		RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: util.MongoDBServiceAccount},
+		Subjects:   []rbacv1.Subject{{Kind: rbacv1.ServiceAccountKind, Name: "old-sa", Namespace: rs.Namespace}},
+	}
+
+	kubeClient, _ := mock.NewDefaultFakeClient(rs, staleBinding)
+	imageUrls := images.ImageUrls{util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent-ubi:108.0.30.7791-1"}
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, imageUrls, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.Static, om.NewConnection)
+
+	require.NoError(t, kubeClient.Update(ctx, rs))
+
+	result, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
+
+	err = kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, bindingName), &rbacv1.RoleBinding{})
+	assert.True(t, apiErrors.IsNotFound(err), "stale RoleBinding must be removed when the default service account is used, got %v", err)
+}
+
+func migrationTestAgentPod(name, stsName, namespace string, headless bool, achievedVersion string) *corev1.Pod {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				{APIVersion: "apps/v1", Kind: "StatefulSet", Name: stsName},
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: util.AgentContainerName}},
+		},
+	}
+	if headless {
+		pod.Spec.Containers[0].Env = []corev1.EnvVar{{Name: util.HeadlessAgentEnv, Value: "true"}}
+	}
+	if achievedVersion != "" {
+		pod.Annotations = map[string]string{om.HeadlessAgentVersionAnnotation: achievedVersion}
+	}
+	return pod
+}
+
+func statefulSetHasHeadlessAgent(sts appsv1.StatefulSet) bool {
+	for _, container := range sts.Spec.Template.Spec.Containers {
+		if container.Name != util.AgentContainerName {
+			continue
+		}
+		for _, envVar := range container.Env {
+			if envVar.Name == util.HeadlessAgentEnv && envVar.Value == "true" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestHeadlessToOpsManagerMigrationReconcile(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("migrating-rs").Build()
+	rs.Spec.OpsManagerConfig = nil
+	rs.Spec.CloudManagerConfig = nil
+	rs.Spec.Credentials = ""
+
+	// The resource is currently running headless: the previous-spec annotation records the
+	// headless spec and the pods carry the headless agent wiring.
+	lastSpecBytes, err := json.Marshal(rs.Spec)
+	require.NoError(t, err)
+	rs.Annotations = map[string]string{
+		util.LastAchievedSpec:                string(lastSpecBytes),
+		architectures.ArchitectureAnnotation: string(architectures.Static),
+	}
+	rs.Status.Members = 3
+	rs.Status.Phase = status.PhaseRunning
+	rs.Status.ProjectId = rs.Name
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).SetAgentVersion("107.0.30.7791-1", "")
+	})
+	imageUrls := images.ImageUrls{util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent-ubi:107.0.30.7791-1"}
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, imageUrls, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.Static, omConnectionFactory.GetConnectionFunc)
+
+	_, podNames := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), rs.Spec.Members, nil)
+
+	// Headless automation config Secret at version 7 and three headless pods at that version.
+	// The deployment is built through the same path the headless reconcile used to write it.
+	headlessReplicaSet := replicaset.BuildFromMongoDBWithReplicas("", false, rs, rs.Spec.Members, rs.CalculateFeatureCompatibilityVersion(), "", architectures.Static)
+	deployment := om.NewDeployment()
+	deployment["version"] = int64(7)
+	deployment.MergeReplicaSet(headlessReplicaSet, nil, nil, zap.S())
+	rawDeployment, err := deployment.Serialize()
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: rs.Name + om.HeadlessAutomationConfigSecretSuffix, Namespace: rs.Namespace},
+		Data:       map[string][]byte{"cluster-config.json": rawDeployment},
+	}))
+	for _, name := range podNames {
+		require.NoError(t, kubeClient.Create(ctx, migrationTestAgentPod(name, rs.Name, rs.Namespace, true, "7")))
+	}
+
+	// Flip the resource to Ops Manager: only the connection fields change.
+	rs.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{ConfigMapRef: mdbv1.ConfigMapRef{Name: mock.TestProjectConfigMapName}}
+	rs.Spec.Credentials = mock.TestCredentialsSecretName
+	require.NoError(t, kubeClient.Update(ctx, rs))
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	assert.Equal(t, util.HeadlessMigrationInProgress, rs.Annotations[util.HeadlessMigrationAnnotation],
+		"the migration marker must be set before any mutation")
+	assert.Equal(t, status.PhasePending, rs.Status.Phase, "the migration is not complete while headless pods still run")
+
+	// The target project was seeded before the StatefulSet template was flipped.
+	targetConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	targetDeployment, err := targetConn.ReadDeployment()
+	require.NoError(t, err)
+	assert.Equal(t, 3, targetDeployment.NumberOfProcesses(), "the headless automation config was seeded into the target project")
+
+	sts, err := kubeClient.GetStatefulSet(ctx, rs.ObjectKey())
+	require.NoError(t, err)
+	assert.False(t, statefulSetHasHeadlessAgent(sts), "the StatefulSet template must be flipped to the online agent")
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		assert.NotEqual(t, "automation-config", volume.Name, "the headless automation config volume is unmounted")
+	}
+
+	// The roll completes: every pod is recreated online.
+	for _, name := range podNames {
+		require.NoError(t, kubeClient.Delete(ctx, migrationTestAgentPod(name, rs.Name, rs.Namespace, true, "7")))
+		require.NoError(t, kubeClient.Create(ctx, migrationTestAgentPod(name, rs.Name, rs.Namespace, false, "")))
+	}
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	assert.NotContains(t, rs.Annotations, util.HeadlessMigrationAnnotation, "the marker is cleared when the migration completes")
+	assert.Equal(t, status.PhaseRunning, rs.Status.Phase)
+	assert.Equal(t, om.TestGroupID, rs.Status.ProjectId)
+	assert.NotEmpty(t, rs.Status.Link)
+
+	lastSpec, err := rs.GetLastSpec()
+	require.NoError(t, err)
+	require.NotNil(t, lastSpec)
+	assert.False(t, lastSpec.IsHeadless(), "after completion the online spec is the last achieved spec")
 }

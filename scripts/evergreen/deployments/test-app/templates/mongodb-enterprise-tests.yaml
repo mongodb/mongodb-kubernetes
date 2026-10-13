@@ -181,6 +181,8 @@ spec:
     {{ end }}
     - name: MDB_DEFAULT_ARCHITECTURE
       value: "{{ .Values.mdbDefaultArchitecture }}"
+    - name: MDB_E2E_PROJECT_MODE
+      value: "{{ .Values.mdbProjectMode }}"
     - name: CLUSTER_DOMAIN
       value: "{{ .Values.clusterDomain }}"
     {{ if .Values.omDebugHttp }}

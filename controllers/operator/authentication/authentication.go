@@ -23,6 +23,11 @@ type AuthResource interface {
 	IsLDAPEnabled() bool
 	IsOIDCEnabled() bool
 	GetLDAP(password, caContents string) *ldap.Ldap
+
+	// IsHeadless reports whether the resource is managed without Ops Manager or Cloud Manager.
+	// Headless resources need a valid automation config even when no authentication block is set,
+	// so the caller treats a missing block as authentication disabled for them.
+	IsHeadless() bool
 }
 
 // Options contains all the required values that are required to configure authentication

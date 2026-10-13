@@ -332,6 +332,21 @@ const (
 	// onward the OwnerReference is the authoritative state.
 	AppDBReverseMigrationReadyAnnotation = "mongodb.com/appdb-reverse-migration-ready"
 
+	// HeadlessMigrationAnnotation marks a MongoDB resource that is being handed over from
+	// headless mode (no Ops Manager) to Ops Manager management. While the annotation carries
+	// HeadlessMigrationInProgress the migration ordering is enforced: the automation config is
+	// seeded into Ops Manager before the StatefulSet is flipped and only the connection fields
+	// may change.
+	HeadlessMigrationAnnotation = "mongodb.com/v1.headless-migration"
+
+	// HeadlessMigrationInProgress is the value of HeadlessMigrationAnnotation while a migration
+	// from headless mode to Ops Manager is running.
+	HeadlessMigrationInProgress = "in-progress"
+
+	// HeadlessAgentEnv is set to "true" on the agent container of pods that run the automation
+	// agent against the mounted automation config Secret instead of Ops Manager.
+	HeadlessAgentEnv = "HEADLESS_AGENT"
+
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 

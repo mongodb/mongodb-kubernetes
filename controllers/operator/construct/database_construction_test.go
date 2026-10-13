@@ -401,7 +401,7 @@ func TestHeadlessStaticArchitectureAgentWiring(t *testing.T) {
 	require.NotEqual(t, -1, agentContainerIdx)
 	agent := sts.Spec.Template.Spec.Containers[agentContainerIdx]
 
-	assert.Contains(t, agent.Env, corev1.EnvVar{Name: headlessAgentEnv, Value: "true"})
+	assert.Contains(t, agent.Env, corev1.EnvVar{Name: util.HeadlessAgentEnv, Value: "true"})
 	assert.Contains(t, agent.Env, corev1.EnvVar{Name: automationConfigMapEnv, Value: secretName})
 	assert.Contains(t, agent.Env, corev1.EnvVar{
 		Name: podNamespaceEnv,
@@ -430,6 +430,6 @@ func TestNonHeadlessStaticArchitectureHasNoAutomationConfigWiring(t *testing.T) 
 		assert.NotEqual(t, headlessAutomationConfigVolumeName, volume.Name)
 	}
 	for _, container := range sts.Spec.Template.Spec.Containers {
-		assert.NotContains(t, container.Env, corev1.EnvVar{Name: headlessAgentEnv, Value: "true"})
+		assert.NotContains(t, container.Env, corev1.EnvVar{Name: util.HeadlessAgentEnv, Value: "true"})
 	}
 }

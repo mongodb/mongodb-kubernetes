@@ -6,6 +6,12 @@ source scripts/funcs/printing
 
 [[ "${MODE-}" = "dev" ]] && return
 
+# Headless deployments have no Ops Manager to fetch connection details from.
+if [[ "${MDB_E2E_PROJECT_MODE:-}" = "headless" ]]; then
+    echo "Skipping Ops Manager connection configuration as the current test is headless (no Ops Manager)"
+    return
+fi
+
 if [[ "${TEST_MODE:-}" = "opsmanager" ]]; then
     echo "Skipping Ops Manager connection configuration as current test is for Ops Manager"
     return

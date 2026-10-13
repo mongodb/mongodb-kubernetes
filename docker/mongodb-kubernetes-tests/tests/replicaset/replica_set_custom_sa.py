@@ -14,13 +14,14 @@ def create_custom_sa(namespace: str) -> str:
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str, create_custom_sa: str) -> Iterator[MongoDB]:
+def replica_set(namespace: str, custom_mdb_version: str, create_custom_sa: str, ops_manager) -> Iterator[MongoDB]:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
 
     resource["spec"]["podSpec"] = {"podTemplate": {"spec": {"serviceAccountName": "test-sa"}}}
     resource["spec"]["statefulSet"] = {"spec": {"serviceName": "rs-svc"}}
     resource.set_version(custom_mdb_version)
     try_load(resource)
+    resource.configure(om=ops_manager, project_name=resource.name)
     yield resource
     # teardown, delete the custom service-account
     delete_service_account(namespace=namespace, name="test-sa")

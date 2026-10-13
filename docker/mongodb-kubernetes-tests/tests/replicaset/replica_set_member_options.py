@@ -2,6 +2,7 @@ import pytest
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
+from kubetester.omtester import skip_if_headless
 from kubetester.phase import Phase
 from pytest import fixture
 
@@ -9,7 +10,7 @@ RESOURCE_NAME = "my-replica-set"
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version: str, ops_manager) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), RESOURCE_NAME, namespace)
     resource.set_version(custom_mdb_version)
     resource["spec"]["memberConfig"] = [
@@ -38,6 +39,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
             },
         },
     ]
+    resource.configure(om=ops_manager, project_name=resource.name)
     resource.update()
 
     return resource
@@ -120,6 +122,7 @@ def test_replica_set_member_votes_to_0(replica_set: MongoDB):
 
 
 @pytest.mark.e2e_replica_set_member_options
+@skip_if_headless
 def test_replica_set_invalid_votes_and_priority(replica_set: MongoDB):
     replica_set.load()
     # A member with 0 votes must also have priority 0.0
@@ -144,6 +147,7 @@ def test_replica_set_recover_valid_member_options(replica_set: MongoDB):
 
 
 @pytest.mark.e2e_replica_set_member_options
+@skip_if_headless
 def test_replica_set_only_one_vote_per_member(replica_set: MongoDB):
     replica_set.load()
     # A single voting member can only have 1 vote

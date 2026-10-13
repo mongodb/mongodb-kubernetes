@@ -19,7 +19,7 @@ from kubetester.kubetester import KubernetesTester, build_list_of_hosts, get_pod
 from kubetester.mongodb_common import MongoDBCommon
 from kubetester.mongodb_utils_state import in_desired_state
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSetTester
-from kubetester.omtester import OMContext, OMTester
+from kubetester.omtester import OMContext, OMTester, get_om_tester
 from kubetester.phase import Phase
 from opentelemetry import trace
 from requests.auth import HTTPDigestAuth
@@ -740,7 +740,7 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
                 project_name=project_name,
                 agent_api_key=agent_api_key,
             )
-        return OMTester(om_context)
+        return get_om_tester(om_context)
 
     def get_appdb_service_names_in_multi_cluster(self) -> list[str]:
         cluster_indexes_with_members = self.get_appdb_member_cluster_indexes_with_member_count()

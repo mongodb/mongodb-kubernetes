@@ -10,13 +10,14 @@ from tests.common.placeholders import placeholders
 
 
 @fixture(scope="module")
-def replica_set(namespace: str) -> MongoDB:
+def replica_set(namespace: str, ops_manager) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-externally-exposed.yaml"),
         "my-replica-set-externally-exposed",
         namespace,
     )
     try_load(resource)
+    resource.configure(om=ops_manager, project_name=resource.name)
     return resource
 
 

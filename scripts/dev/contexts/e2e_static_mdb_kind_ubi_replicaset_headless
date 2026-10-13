@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+
+# "headless" is not a real Ops Manager version: it only keeps is_cloud_qa() false.
+export ops_manager_version="headless"
+export MDB_E2E_PROJECT_MODE=headless
+export MDB_DEFAULT_ARCHITECTURE=static
+
+export CUSTOM_MDB_PREV_VERSION=6.0.16
+export CUSTOM_MDB_VERSION=7.0.5

@@ -15,3 +15,4 @@ export TEST_MODE=opsmanager
 export OPS_MANAGER_REGISTRY="${REGISTRY}"
 
 export ops_manager_version="${CUSTOM_OM_VERSION}"
+export MDB_E2E_PROJECT_MODE=ops_manager

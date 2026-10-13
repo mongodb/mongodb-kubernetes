@@ -28,7 +28,9 @@ def server_certs(issuer: str, namespace: str):
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str, server_certs: str, issuer_ca_configmap: str) -> MongoDB:
+def replica_set(
+    namespace: str, custom_mdb_version: str, server_certs: str, issuer_ca_configmap: str, ops_manager
+) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-pv-resize.yaml"),
         namespace=namespace,
@@ -42,6 +44,7 @@ def replica_set(namespace: str, custom_mdb_version: str, server_certs: str, issu
 
     resource.set_version(custom_mdb_version)
     try_load(resource)
+    resource.configure(om=ops_manager, project_name=resource.name)
     return resource
 
 

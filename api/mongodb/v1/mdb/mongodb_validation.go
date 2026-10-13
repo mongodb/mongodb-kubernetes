@@ -1,9 +1,14 @@
 package mdb
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -437,6 +442,172 @@ func headlessModeDoesNotSupportBackup(d DbCommonSpec) v1.ValidationResult {
 	return v1.ValidationError("spec.backup is not supported for MongoDB resources without spec.opsManager or spec.cloudManager")
 }
 
+// headlessToOpsManagerOnlyConnectionChanges allows a headless resource to be handed over to Ops
+// Manager but rejects any other spec change in the same update. The automation config is seeded
+// into Ops Manager from the currently running headless deployment, so the configuration itself
+// must stay identical until the migration completes.
+func headlessToOpsManagerOnlyConnectionChanges(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if !oldObj.IsHeadless() || newObj.IsHeadless() {
+		return v1.ValidationSuccess()
+	}
+
+	if paths := HeadlessMigrationSpecChanges(oldObj, newObj); len(paths) > 0 {
+		return v1.ValidationError("only spec.opsManager, spec.cloudManager and spec.credentials may change when migrating a headless MongoDB resource to Ops Manager: %s", strings.Join(paths, ", "))
+	}
+	return v1.ValidationSuccess()
+}
+
+// noOpsManagerToHeadless blocks the reverse direction: an Ops Manager-managed resource cannot be
+// switched back to headless mode.
+func noOpsManagerToHeadless(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	if oldObj.IsHeadless() || !newObj.IsHeadless() {
+		return v1.ValidationSuccess()
+	}
+	return v1.ValidationError("switching an Ops Manager-managed MongoDB resource to headless mode is not supported")
+}
+
+// noChangesDuringHeadlessMigration rejects spec changes while the headless-to-Ops-Manager
+// migration marker is present on either object, except for the connection fields. It needs the
+// full objects (not just the specs) because the marker lives in the metadata.
+func noChangesDuringHeadlessMigration(newObj, oldObj *MongoDB) v1.ValidationResult {
+	inProgress := newObj.Annotations[util.HeadlessMigrationAnnotation] == util.HeadlessMigrationInProgress ||
+		oldObj.Annotations[util.HeadlessMigrationAnnotation] == util.HeadlessMigrationInProgress
+	if !inProgress {
+		return v1.ValidationSuccess()
+	}
+
+	if paths := HeadlessMigrationSpecChanges(oldObj.Spec, newObj.Spec); len(paths) > 0 {
+		return v1.ValidationError("cannot change MongoDB configuration during headless-to-Ops-Manager migration: %s", strings.Join(paths, ", "))
+	}
+	return v1.ValidationSuccess()
+}
+
+// HeadlessMigrationSpecChanges returns the spec paths that changed between oldSpec and newSpec
+// beyond the connection fields a headless-to-Ops-Manager migration is allowed to modify
+// (spec.opsManager, spec.cloudManager and spec.credentials). It returns nil when those are the
+// only differences.
+func HeadlessMigrationSpecChanges(oldSpec, newSpec MongoDbSpec) []string {
+	candidate := normalizeConnectionSpec(oldSpec)
+	candidate.OpsManagerConfig = newSpec.OpsManagerConfig
+	candidate.CloudManagerConfig = newSpec.CloudManagerConfig
+	candidate.Credentials = newSpec.Credentials
+	candidate = normalizeConnectionSpec(candidate)
+
+	if specsEqual(candidate, normalizeConnectionSpec(newSpec)) {
+		return nil
+	}
+
+	// Only the paths that differ beyond the allowed connection fields are violations. The
+	// candidate already carries the new connection fields, so diffing it against the new spec
+	// reports exactly the disallowed changes.
+	return specChangePaths(normalizeConnectionSpec(candidate), normalizeConnectionSpec(newSpec))
+}
+
+// normalizeConnectionSpec replaces nil connection pointers with empty configs. A headless
+// resource may carry nil pointers (they were never set) while a decoded object has them
+// default-initialized to empty structs; that difference is not a spec change.
+func normalizeConnectionSpec(spec MongoDbSpec) MongoDbSpec {
+	if spec.OpsManagerConfig == nil {
+		spec.OpsManagerConfig = &PrivateCloudConfig{}
+	}
+	if spec.CloudManagerConfig == nil {
+		spec.CloudManagerConfig = &PrivateCloudConfig{}
+	}
+	return spec
+}
+
+// specsEqual compares the serialized forms of the specs. The serialized form deliberately ignores
+// transient fields such as spec.projectName (json:"-"), which is defaulted from the resource name
+// when an object is read from the API and must not count as a configuration change.
+func specsEqual(a, b MongoDbSpec) bool {
+	aBytes, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+	bBytes, err := json.Marshal(b)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(aBytes, bBytes)
+}
+
+// specChangePaths returns the spec JSON paths whose values differ between oldSpec and newSpec,
+// prefixed with "spec".
+func specChangePaths(oldSpec, newSpec MongoDbSpec) []string {
+	oldMap, err := specToMap(oldSpec)
+	if err != nil {
+		return []string{"<unknown>"}
+	}
+	newMap, err := specToMap(newSpec)
+	if err != nil {
+		return []string{"<unknown>"}
+	}
+
+	paths := make([]string, 0)
+	collectChangedPaths("spec", oldMap, newMap, &paths)
+	if len(paths) == 0 {
+		// The specs compare unequal but serialize identically; fall back to a generic marker.
+		return []string{"<internal state>"}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func specToMap(spec MongoDbSpec) (map[string]interface{}, error) {
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	result := map[string]interface{}{}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func collectChangedPaths(prefix string, oldValue, newValue interface{}, paths *[]string) {
+	switch oldTyped := oldValue.(type) {
+	case map[string]interface{}:
+		newTyped, ok := newValue.(map[string]interface{})
+		if !ok {
+			*paths = append(*paths, prefix)
+			return
+		}
+
+		keys := make(map[string]struct{}, len(oldTyped)+len(newTyped))
+		for key := range oldTyped {
+			keys[key] = struct{}{}
+		}
+		for key := range newTyped {
+			keys[key] = struct{}{}
+		}
+		for key := range keys {
+			oldChild, oldOK := oldTyped[key]
+			newChild, newOK := newTyped[key]
+			switch {
+			case !oldOK || !newOK:
+				*paths = append(*paths, prefix+"."+key)
+			default:
+				collectChangedPaths(prefix+"."+key, oldChild, newChild, paths)
+			}
+		}
+	case []interface{}:
+		newTyped, ok := newValue.([]interface{})
+		if !ok || len(oldTyped) != len(newTyped) {
+			*paths = append(*paths, prefix)
+			return
+		}
+		for i := range oldTyped {
+			collectChangedPaths(fmt.Sprintf("%s[%d]", prefix, i), oldTyped[i], newTyped[i], paths)
+		}
+	default:
+		if !reflect.DeepEqual(oldValue, newValue) {
+			*paths = append(*paths, prefix)
+		}
+	}
+}
+
 func CommonValidators(db DbCommonSpec) []func(d DbCommonSpec) v1.ValidationResult {
 	validators := []func(d DbCommonSpec) v1.ValidationResult{
 		replicaSetHorizonsRequireTLS,
@@ -497,6 +668,8 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		resourceTypeImmutable,
 		noTopologyMigration,
 		noSimultaneousTLSDisablingAndScaling,
+		noOpsManagerToHeadless,
+		headlessToOpsManagerOnlyConnectionChanges,
 	}
 
 	var validationResults []v1.ValidationResult
@@ -550,6 +723,12 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		if res.Level > 0 {
 			validationResults = append(validationResults, res)
 		}
+	}
+
+	// The migration lock reads the marker from the object metadata, so it cannot live in the
+	// spec-only updateValidators list.
+	if res := noChangesDuringHeadlessMigration(m, old); res.Level > 0 {
+		validationResults = append(validationResults, res)
 	}
 
 	return validationResults

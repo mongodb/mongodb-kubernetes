@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -87,10 +88,22 @@ type ReconcileMongoDbReplicaSet struct {
 	defaultArchitecture architectures.DefaultArchitecture
 }
 
+// headlessMigrationState captures whether the resource is being handed over from headless mode
+// (no Ops Manager) to Ops Manager management.
+type headlessMigrationState struct {
+	// InProgress is true from the moment the transition is detected until every pod has been
+	// rolled to the online agent and the marker annotation is cleared.
+	InProgress bool
+	// BaselineACVersion is the version of the <name>-config Secret at seed time; headless agents
+	// that reached it are considered at goal for the target Ops Manager project.
+	BaselineACVersion int64
+}
+
 type replicaSetDeploymentState struct {
 	LastAchievedSpec         *mdbv1.MongoDbSpec
 	LastReconcileMemberCount int
 	LastConfiguredRoles      []string
+	Migration                *headlessMigrationState
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbReplicaSet{}
@@ -116,7 +129,7 @@ func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
 		log:        log,
 	}
 
-	if err := helper.initialize(); err != nil {
+	if err := helper.initialize(ctx); err != nil {
 		return nil, err
 	}
 
@@ -124,7 +137,7 @@ func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
 }
 
 // readState abstract reading the state of the resource that we store on the cluster between reconciliations.
-func (r *ReplicaSetReconcilerHelper) readState() (*replicaSetDeploymentState, error) {
+func (r *ReplicaSetReconcilerHelper) readState(ctx context.Context) (*replicaSetDeploymentState, error) {
 	// Try to get the last achieved spec from annotations and store it in state
 	lastAchievedSpec, err := r.resource.GetLastSpec()
 	if err != nil {
@@ -140,11 +153,76 @@ func (r *ReplicaSetReconcilerHelper) readState() (*replicaSetDeploymentState, er
 		return nil, err
 	}
 
+	migration, err := r.readHeadlessMigrationState(ctx, lastAchievedSpec)
+	if err != nil {
+		return nil, err
+	}
+
 	return &replicaSetDeploymentState{
 		LastAchievedSpec:         lastAchievedSpec,
 		LastReconcileMemberCount: lastReconcileMemberCount,
 		LastConfiguredRoles:      lastConfiguredRoles,
+		Migration:                migration,
 	}, nil
+}
+
+// readHeadlessMigrationState decides whether the resource is being handed over from headless mode
+// to Ops Manager. The explicit marker annotation wins; otherwise a headless last achieved spec
+// together with an online desired spec is the transition. As a safety net for a lost marker (e.g.
+// the user flipped the spec before the first fully successful headless reconcile), running
+// headless agent pods also mark a migration in progress.
+func (r *ReplicaSetReconcilerHelper) readHeadlessMigrationState(ctx context.Context, lastAchievedSpec *mdbv1.MongoDbSpec) (*headlessMigrationState, error) {
+	migration := &headlessMigrationState{}
+
+	if annotations.GetAnnotation(r.resource, util.HeadlessMigrationAnnotation) == util.HeadlessMigrationInProgress {
+		migration.InProgress = true
+		return migration, nil
+	}
+
+	if r.resource.IsHeadless() {
+		return migration, nil
+	}
+
+	if lastAchievedSpec != nil && lastAchievedSpec.IsHeadless() {
+		migration.InProgress = true
+		return migration, nil
+	}
+
+	if lastAchievedSpec == nil {
+		headlessPods, err := r.countHeadlessAgentPods(ctx)
+		if err != nil {
+			return nil, err
+		}
+		migration.InProgress = headlessPods > 0
+	}
+
+	return migration, nil
+}
+
+// countHeadlessAgentPods returns the number of pods owned by this resource's StatefulSet that
+// still run the headless agent.
+func (r *ReplicaSetReconcilerHelper) countHeadlessAgentPods(ctx context.Context) (int, error) {
+	pods := &corev1.PodList{}
+	if err := r.reconciler.client.List(ctx, pods, client.InNamespace(r.resource.Namespace)); err != nil {
+		return 0, xerrors.Errorf("failed to list agent pods: %w", err)
+	}
+
+	count := 0
+	for i := range pods.Items {
+		if podOwnedByStatefulSet(pods.Items[i], r.resource.Name) && om.IsHeadlessAgentPod(pods.Items[i]) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func podOwnedByStatefulSet(pod corev1.Pod, name string) bool {
+	for _, ref := range pod.OwnerReferences {
+		if ref.Kind == "StatefulSet" && ref.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // getVaultAnnotations gets vault secret version annotations to write to the CR.
@@ -169,8 +247,8 @@ func (r *ReplicaSetReconcilerHelper) getVaultAnnotations() map[string]string {
 	return vaultMap
 }
 
-func (r *ReplicaSetReconcilerHelper) initialize() error {
-	state, err := r.readState()
+func (r *ReplicaSetReconcilerHelper) initialize(ctx context.Context) error {
+	state, err := r.readState(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to initialize replica set state: %w", err)
 	}
@@ -206,6 +284,15 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
 
+	// The validating webhook runs with failurePolicy: Ignore, so the migration lock must be
+	// enforced again here: while the resource is being handed over from headless mode, only the
+	// connection fields may change.
+	if r.deploymentState.Migration.InProgress && r.deploymentState.LastAchievedSpec != nil {
+		if res := mdbv1.HeadlessMigrationSpecChanges(*r.deploymentState.LastAchievedSpec, rs.Spec); len(res) > 0 {
+			return r.updateStatus(ctx, workflow.Invalid("cannot change MongoDB configuration during headless-to-Ops-Manager migration: %s", strings.Join(res, ", ")))
+		}
+	}
+
 	var automationAgentVersion string
 	if rs.IsHeadless() && !rs.IsAgentImageOverridden() {
 		automationAgentVersion = agentVersionFromImageUrls(reconciler.imageUrls)
@@ -228,7 +315,30 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if err != nil {
 			return r.updateStatus(ctx, workflow.Failed(err))
 		}
+
+		migratingFromHeadless := r.deploymentState.Migration.InProgress
+		if migratingFromHeadless {
+			// The marker makes the migration state explicit and survives operator restarts. It is
+			// written before any Ops Manager project or StatefulSet mutation so that an aborted
+			// reconcile still re-enters the migration path.
+			if err := annotations.SetAnnotations(ctx, rs, map[string]string{util.HeadlessMigrationAnnotation: util.HeadlessMigrationInProgress}, reconciler.client); err != nil {
+				return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to mark the resource as migrating from headless mode: %w", err)))
+			}
+			log.Infof("MongoDB resource %s/%s is migrating from headless mode to Ops Manager", rs.Namespace, rs.Name)
+		}
+
 		conn, _, err = connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
+		if err == nil && migratingFromHeadless {
+			// Seed the target project with the headless automation config before the StatefulSet
+			// is flipped: agents that switch to Ops Manager must find the same topology and
+			// auth.key already in place.
+			var baselineVersion int64
+			baselineVersion, err = connection.SeedOpsManagerAutomationConfigFromHeadless(conn, reconciler.client, rs, log)
+			if err == nil {
+				r.deploymentState.Migration.BaselineACVersion = baselineVersion
+				conn = connection.PrepareHeadlessMigrationConnection(conn, reconciler.client, rs, baselineVersion)
+			}
+		}
 	}
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
@@ -264,8 +374,14 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, status)
 	}
 
-	if err := connection.EnsureTargetAutomationConfigSeeded(conn, rs.Status.ProjectId, projectConfig, credsConfig, reconciler.omConnectionFactory, log); err != nil {
-		return r.updateStatus(ctx, workflow.Failed(err))
+	// During a headless-to-Ops-Manager migration the target project was already seeded from the
+	// headless automation config above. The generic seed step must be skipped: rs.Status.ProjectId
+	// still carries the CR name (the headless pseudo project), and using it as a source would
+	// create an HTTP connection against the new Ops Manager group.
+	if !r.deploymentState.Migration.InProgress {
+		if err := connection.EnsureTargetAutomationConfigSeeded(conn, rs.Status.ProjectId, projectConfig, credsConfig, reconciler.omConnectionFactory, log); err != nil {
+			return r.updateStatus(ctx, workflow.Failed(err))
+		}
 	}
 
 	if architectures.IsRunningStaticArchitecture(rs.Annotations, r.reconciler.defaultArchitecture) {
@@ -361,6 +477,25 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// === 6. Final steps
 	if scale.IsStillScaling(rs) {
 		return r.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), mdbstatus.MembersOption(rs))
+	}
+
+	// A headless-to-Ops-Manager migration is only complete once every pod has been rolled to the
+	// online agent. Until then the marker stays on the resource, the online spec is not persisted
+	// as the last achieved spec, and the reconcile keeps the migration ordering on retries.
+	if r.deploymentState.Migration.InProgress {
+		headlessPods, err := r.countHeadlessAgentPods(ctx)
+		if err != nil {
+			return r.updateStatus(ctx, workflow.Failed(err))
+		}
+		if headlessPods > 0 {
+			log.Infof("Headless-to-Ops-Manager migration in progress: %d pod(s) still run the headless agent", headlessPods)
+			return r.updateStatus(ctx, workflow.Pending("Waiting for all MongoDB pods to run the Ops Manager-managed agent during headless migration"))
+		}
+
+		if err := annotations.RemoveAnnotation(ctx, r.resource, util.HeadlessMigrationAnnotation, reconciler.client); err != nil {
+			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to clear the headless migration marker: %w", err)))
+		}
+		log.Info("Headless-to-Ops-Manager migration completed: all pods run the Ops Manager-managed agent")
 	}
 
 	// Get lastspec, vault annotations when needed and write them to the resource.
@@ -540,6 +675,15 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	// Build the replica set config
 	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+
+	// The headless readiness probe needs secrets/get and pods/patch. The chart binds the Role
+	// carrying those permissions only to the default pod service account, so a custom
+	// spec.podSpec.serviceAccountName must get its own binding.
+	if rs.IsHeadless() {
+		if err := ensureHeadlessDatabasePodsRoleBinding(ctx, reconciler.client, rs, sts.Spec.Template.Spec.ServiceAccountName, log); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to ensure headless pod service account RBAC: %w", err))
+		}
+	}
 
 	// Handle PVC resize if needed
 	if workflowStatus := r.handlePVCResize(ctx, &sts); !workflowStatus.IsOK() {
@@ -1068,7 +1212,9 @@ func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.O
 
 	// AppDB-role CR deletion is a reverse-migration handover, not a deprovision: the project
 	// is left stale and the user is responsible for cleaning it up after migration.
-	if !rs.IsRoleAppDB() {
+	// Headless CRs have no Ops Manager project, config map or credentials to clean up; reading
+	// them would fail and would also skip the dependent-resource watcher cleanup below.
+	if !rs.IsRoleAppDB() && !rs.IsHeadless() {
 		if err := r.cleanOpsManagerState(ctx, rs, log); err != nil {
 			return err
 		}

@@ -857,6 +857,10 @@ task_groups:
       - e2e_vault_setup_tls
       # this test will either migrate from static to non-static or the other way around
       - e2e_replica_set_migration
+      # headless (no Ops Manager) replica set handed over to Ops Manager
+      - e2e_mdb_headless_to_om
+      # headless (no Ops Manager) replica set, automation config in a Secret
+      - e2e_mdb_headless_replica_set
       - e2e_replica_set_pv_resize
       - e2e_sharded_cluster_pv_resize
       - e2e_community_and_meko_replicaset_scale
@@ -866,6 +870,55 @@ task_groups:
       - e2e_replica_set_oidc_workforce
       - e2e_sharded_cluster_oidc_m2m_group
       - e2e_sharded_cluster_oidc_m2m_user
+
+  # Replicaset-only subset of e2e_mdb_kind_cloudqa_task_group (external Cloud Manager project).
+  - name: e2e_mdb_kind_replicaset_cloudqa_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa, *teardown_group]
+    tasks:
+      - e2e_replica_set
+      - e2e_replica_set_agent_flags_and_readinessProbe
+      - e2e_replica_set_config_map
+      - e2e_replica_set_custom_podspec
+      - e2e_replica_set_custom_sa
+      - e2e_replica_set_exposed_externally
+      - e2e_replica_set_liveness_probe
+      - e2e_replica_set_member_options
+      - e2e_replica_set_migration
+      - e2e_replica_set_mongod_options
+      - e2e_replica_set_process_hostnames
+      - e2e_replica_set_pv
+      - e2e_replica_set_pv_multiple
+      - e2e_replica_set_pv_resize
+      - e2e_replica_set_readiness_probe
+      - e2e_replica_set_recovery
+      - e2e_replica_set_report_pending_pods
+      - e2e_replica_set_schema_validation
+      - e2e_replica_set_statefulset_status
+      - e2e_replica_set_update_delete_parallel
+      - e2e_replica_set_upgrade_downgrade
+
+  # Headless (no Ops Manager) replicaset tests. Every task here runs with MDB_E2E_PROJECT_MODE=headless
+  # and must not make Ops Manager API calls: resources are configured through
+  # MongoDB.configure(om=None) and assertions read the automation config Secret / agent pod
+  # annotations through HeadlessOMTester.
+  - name: e2e_mdb_kind_replicaset_headless_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
+    tasks:
+      - e2e_replica_set_custom_sa
+      - e2e_replica_set_exposed_externally
+      - e2e_replica_set_member_options
+      - e2e_replica_set_mongod_options
+      - e2e_replica_set_process_hostnames
+      - e2e_replica_set_pv
+      - e2e_replica_set_pv_multiple
+      - e2e_replica_set_pv_resize
+      - e2e_replica_set_readiness_probe
+      - e2e_replica_set_report_pending_pods
+      - e2e_replica_set_schema_validation
+      - e2e_replica_set_statefulset_status
+      - e2e_replica_set_update_delete_parallel
 
   # All MongoDBSearch tests that fit on large instances (mongot requires 2 CPU).
   # Added to cloudqa-large variants.
@@ -1492,6 +1545,26 @@ buildvariants:
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
 
+  # Replicaset-only Cloud Manager variant; not enabled for PR patches while it is being validated.
+  - name: e2e_mdb_kind_ubi_replicaset_cloudqa
+    display_name: e2e_mdb_kind_ubi_replicaset_cloudqa
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
+    run_on:
+      - ubuntu2404-medium
+    tasks:
+      - name: e2e_mdb_kind_replicaset_cloudqa_task_group
+
+  # Headless (no Ops Manager) replica set variant, static architecture only.
+  - name: e2e_static_mdb_kind_ubi_replicaset_headless
+    display_name: e2e_static_mdb_kind_ubi_replicaset_headless
+    tags: [ "staging", "e2e_test_suite", "static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
+    run_on:
+      - ubuntu2404-medium
+    tasks:
+      - name: e2e_mdb_kind_replicaset_headless_task_group
+
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
@@ -1649,6 +1722,17 @@ buildvariants:
       - name: e2e_static_ops_manager_kind_only_task_group
       - name: e2e_static_ops_manager_kind_6_0_only_task_group
       - name: e2e_ops_manager_upgrade_only_task_group
+
+  # Replicaset-only in-cluster Ops Manager proof: every portable test deploys its own OM CR.
+  # Expensive, staging-only, not enabled for PR patches.
+  - name: e2e_static_mdb_kind_ubi_replicaset_om
+    display_name: e2e_static_mdb_kind_ubi_replicaset_om
+    tags: [ "staging", "e2e_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: e2e_mdb_kind_replicaset_headless_task_group
 
   - name: e2e_om80_kind_ubi_large
     display_name: e2e_om80_kind_ubi_large

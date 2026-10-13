@@ -39,6 +39,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -523,9 +524,23 @@ func getSubjectFromCertificate(cert string) (string, error) {
 // an additional reconciliation needs to be queued up to fully make the authentication changes is returned.
 // Note: updateOmAuthentication needs to be called before reconciling other auth related settings.
 func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, conn om.Connection, processNames []string, ar authentication.AuthResource, agentCertPath, caFilepath, clusterFilePath string, isRecovering bool, log *zap.SugaredLogger) (status workflow.Status, multiStageReconciliation bool) {
-	// don't touch authentication settings if resource has not been configured with them
-	if ar.GetSecurity() == nil || ar.GetSecurity().Authentication == nil {
-		return workflow.OK(), false
+	security := ar.GetSecurity()
+	if security == nil || security.Authentication == nil {
+		// don't touch authentication settings if resource has not been configured with them
+		if !ar.IsHeadless() {
+			return workflow.OK(), false
+		}
+
+		// Headless resources have no Ops Manager to disable authentication against, but the
+		// automation config consumed by the agents still needs keyfile and agent credentials
+		// to let mongod start. Treat a missing authentication block as authentication disabled
+		// so the disable path below still fills them in.
+		effective := &mdbv1.Security{Authentication: &mdbv1.Authentication{Enabled: false}}
+		if security != nil {
+			effective = security.DeepCopy()
+			effective.Authentication = &mdbv1.Authentication{Enabled: false}
+		}
+		security = effective
 	}
 
 	ac, err := conn.ReadAutomationConfig()
@@ -534,7 +549,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 	}
 
 	// if we have changed the internal cluster auth, we need to update the ac first
-	authenticationMode := ar.GetSecurity().GetInternalClusterAuthenticationMode()
+	authenticationMode := security.GetInternalClusterAuthenticationMode()
 	err = r.setupInternalClusterAuthIfItHasChanged(conn, processNames, authenticationMode, clusterFilePath, isRecovering)
 	if err != nil {
 		return workflow.Failed(err), false
@@ -546,7 +561,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 	}
 
 	clientCerts := util.OptionalClientCertficates
-	if ar.GetSecurity().RequiresClientTLSAuthentication() {
+	if security.RequiresClientTLSAuthentication() {
 		clientCerts = util.RequireClientCertificates
 	}
 
@@ -557,13 +572,13 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 	}
 
 	authOpts := authentication.Options{
-		Mechanisms:         mdbv1.ConvertAuthModesToStrings(ar.GetSecurity().Authentication.Modes),
+		Mechanisms:         mdbv1.ConvertAuthModesToStrings(security.Authentication.Modes),
 		ProcessNames:       processNames,
-		AuthoritativeSet:   !ar.GetSecurity().Authentication.IgnoreUnknownUsers,
-		AgentMechanism:     ar.GetSecurity().GetAgentMechanism(ac.Auth.AutoAuthMechanism),
+		AuthoritativeSet:   !security.Authentication.IgnoreUnknownUsers,
+		AgentMechanism:     security.GetAgentMechanism(ac.Auth.AutoAuthMechanism),
 		ClientCertificates: clientCerts,
 		AutoUser:           scramAgentUserName,
-		AutoLdapGroupDN:    ar.GetSecurity().Authentication.Agents.AutomationLdapGroupDN,
+		AutoLdapGroupDN:    security.Authentication.Agents.AutomationLdapGroupDN,
 		CAFilePath:         caFilepath,
 		MongoDBResource:    types.NamespacedName{Namespace: ar.GetNamespace(), Name: ar.GetName()},
 	}
@@ -572,13 +587,13 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
 	}
 	if ar.IsLDAPEnabled() {
-		bindUserPassword, err := r.ReadSecretKey(ctx, kube.ObjectKey(ar.GetNamespace(), ar.GetSecurity().Authentication.Ldap.BindQuerySecretRef.Name), databaseSecretPath, "password")
+		bindUserPassword, err := r.ReadSecretKey(ctx, kube.ObjectKey(ar.GetNamespace(), security.Authentication.Ldap.BindQuerySecretRef.Name), databaseSecretPath, "password")
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("error reading bind user password: %w", err)), false
 		}
 
 		caContents := ""
-		ca := ar.GetSecurity().Authentication.Ldap.CAConfigMapRef
+		ca := security.Authentication.Ldap.CAConfigMapRef
 		if ca != nil {
 			log.Debugf("Sending CA file to Pods via AutomationConfig: %s/%s/%s", ar.GetNamespace(), ca.Name, ca.Key)
 			caContents, err = configmap.ReadKey(ctx, r.client, ca.Key, types.NamespacedName{Name: ca.Name, Namespace: ar.GetNamespace()})
@@ -591,31 +606,31 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 	}
 
 	if ar.IsOIDCEnabled() {
-		authOpts.OIDCProviderConfigs = authentication.MapOIDCProviderConfigs(ar.GetSecurity().Authentication.OIDCProviderConfigs)
+		authOpts.OIDCProviderConfigs = authentication.MapOIDCProviderConfigs(security.Authentication.OIDCProviderConfigs)
 	}
 
 	log.Debugf("Using authentication options %+v", authentication.Redact(authOpts))
 
-	agentCertSecretName := ar.GetSecurity().AgentClientCertificateSecretName(ar.GetName())
+	agentCertSecretName := security.AgentClientCertificateSecretName(ar.GetName())
 	agentCertSecretSelector := corev1.SecretKeySelector{
 		LocalObjectReference: corev1.LocalObjectReference{Name: agentCertSecretName},
 		Key:                  corev1.TLSCertKey,
 	}
 
-	wantToEnableAuthentication := ar.GetSecurity().Authentication.Enabled
-	if wantToEnableAuthentication && canConfigureAuthentication(ac, ar.GetSecurity().Authentication.GetModes(), log) {
+	wantToEnableAuthentication := security.Authentication.Enabled
+	if wantToEnableAuthentication && canConfigureAuthentication(ac, security.Authentication.GetModes(), log) {
 		log.Info("Configuring authentication for MongoDB resource")
 
-		if ar.GetSecurity().ShouldUseX509(ac.Auth.AutoAuthMechanism) || ar.GetSecurity().ShouldUseClientCertificates() {
+		if security.ShouldUseX509(ac.Auth.AutoAuthMechanism) || security.ShouldUseClientCertificates() {
 			authOpts, err = r.configureAgentSubjects(ctx, ar.GetNamespace(), agentCertSecretSelector, authOpts, log)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("error configuring agent subjects: %w", err)), false
 			}
-			authOpts.AgentsShouldUseClientAuthentication = ar.GetSecurity().ShouldUseClientCertificates()
+			authOpts.AgentsShouldUseClientAuthentication = security.ShouldUseClientCertificates()
 			authOpts.AutoPEMKeyFilePath = agentCertPath
 		}
-		if ar.GetSecurity().ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
-			secretRef := ar.GetSecurity().Authentication.Agents.AutomationPasswordSecretRef
+		if security.ShouldUseLDAP(ac.Auth.AutoAuthMechanism) {
+			secretRef := security.Authentication.Agents.AutomationPasswordSecretRef
 			autoConfigPassword, err := r.ReadSecretKey(ctx, kube.ObjectKey(ar.GetNamespace(), secretRef.Name), databaseSecretPath, secretRef.Key)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("error reading automation agent password: %w", err)), false
@@ -623,7 +638,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 
 			authOpts.AutoPwd = autoConfigPassword
 			userOpts := authentication.UserOptions{}
-			agentName := ar.GetSecurity().Authentication.Agents.AutomationUserName
+			agentName := security.Authentication.Agents.AutomationUserName
 			userOpts.AutomationSubject = agentName
 			authOpts.UserOptions = userOpts
 		}
@@ -1052,11 +1067,20 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	opts := configFunc(mdb)
 
-	if mdb.IsHeadless() {
-		// The headless readiness probe reads the automation config Secret, so the Secret must
-		// exist before the StatefulSet pods can become ready. Publishing first also avoids the
-		// cycle where the StatefulSet is pending because the config has not been written yet.
+	if mdb.GetAnnotations()[util.HeadlessMigrationAnnotation] == util.HeadlessMigrationInProgress {
+		// Migration: the target automation config must be fully published into Ops Manager before
+		// the StatefulSet template is flipped, so that the first online agent finds its config.
 		return true
+	}
+
+	if mdb.IsHeadless() {
+		// Bootstrap: the headless readiness probe reads the automation config Secret; until it
+		// exists the pods cannot become Ready and the StatefulSet would stay pending forever.
+		// Steady-state headless resources follow the standard ordering rules below.
+		automationConfigSecret := &corev1.Secret{}
+		if err := getter.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name+om.HeadlessAutomationConfigSecretSuffix), automationConfigSecret); err != nil || len(automationConfigSecret.Data[automationconfig.ConfigKey]) == 0 {
+			return true
+		}
 	}
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())

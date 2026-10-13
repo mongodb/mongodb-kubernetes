@@ -42,6 +42,17 @@ rules:
       - delete
       - update
   - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - rolebindings
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - delete
+  - apiGroups:
       - ''
     resources:
       - pods
@@ -49,6 +60,7 @@ rules:
       - get
       - list
       - watch
+      - patch
       - delete
       - deletecollection
   - apiGroups:

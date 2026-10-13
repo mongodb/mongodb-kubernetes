@@ -61,7 +61,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import load_proxy_config, running_locally
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -85,10 +85,10 @@ from tests.constants import (
 )
 from tests.multicluster import prepare_multi_cluster_namespaces
 
-try:
-    kubernetes.config.load_kube_config()
-except Exception:
-    kubernetes.config.load_incluster_config()
+# Merge kubeconfig and honor per-cluster proxy-url (e.g. gost-proxy in the devcontainer).
+# KubernetesTester also falls back to incluster config. Delegated so the merge/proxy
+# semantics have a single implementation.
+KubernetesTester.load_configuration()
 
 from urllib3.util.retry import Retry
 
@@ -1227,11 +1227,12 @@ def _get_client_for_cluster(
         raise ValueError(f"No token found for cluster {cluster_name}")
 
     configuration = kubernetes.client.Configuration()
-    kubernetes.config.load_kube_config(
-        context=cluster_name,
-        config_file=os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH),
-        client_configuration=configuration,
+    merger = kubernetes.config.kube_config.KubeConfigMerger(os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH))
+    load_proxy_config(merger.config, configuration, cluster_name)
+    kubernetes.config.load_kube_config_from_dict(
+        merger.config, context=cluster_name, client_configuration=configuration
     )
+
     configuration.host = CLUSTER_HOST_MAPPING.get(cluster_name, configuration.host)
 
     configuration.verify_ssl = False

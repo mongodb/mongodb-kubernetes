@@ -746,3 +746,122 @@ func TestOIDCProviderConfigUniqueIssuerURIValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestHeadlessToOpsManagerMigrationValidation(t *testing.T) {
+	// NewReplicaSetBuilder leaves both connection configs empty, which is headless mode.
+	headlessResource := func() *MongoDB {
+		return NewReplicaSetBuilder().Build()
+	}
+	connectResource := func(rs *MongoDB) {
+		rs.Spec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "my-project"}}
+		rs.Spec.Credentials = "my-credentials"
+	}
+
+	t.Run("transition allows only opsManager/cloudManager/credentials changes", func(t *testing.T) {
+		oldRs := headlessResource()
+		newRs := headlessResource()
+		connectResource(newRs)
+
+		_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+		assert.NoError(t, err)
+	})
+
+	t.Run("transition rejects member changes", func(t *testing.T) {
+		oldRs := headlessResource()
+		newRs := headlessResource()
+		connectResource(newRs)
+		newRs.Spec.Members = 5
+
+		_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+		require.Error(t, err)
+		assert.Equal(t,
+			"only spec.opsManager, spec.cloudManager and spec.credentials may change when migrating a headless MongoDB resource to Ops Manager: spec.members",
+			err.Error())
+	})
+
+	t.Run("transition rejects TLS changes", func(t *testing.T) {
+		oldRs := headlessResource()
+		newRs := headlessResource()
+		connectResource(newRs)
+		newRs.Spec.Security.TLSConfig.Enabled = true
+
+		_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "only spec.opsManager, spec.cloudManager and spec.credentials may change")
+		assert.Contains(t, err.Error(), "spec.security.tls.enabled")
+	})
+
+	t.Run("reverse direction is rejected", func(t *testing.T) {
+		oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		newRs := headlessResource()
+
+		_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+		require.Error(t, err)
+		assert.Equal(t,
+			"switching an Ops Manager-managed MongoDB resource to headless mode is not supported",
+			err.Error())
+	})
+
+	t.Run("marker locks spec changes during migration", func(t *testing.T) {
+		oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		oldRs.Annotations = map[string]string{util.HeadlessMigrationAnnotation: util.HeadlessMigrationInProgress}
+		newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		newRs.Annotations = map[string]string{util.HeadlessMigrationAnnotation: util.HeadlessMigrationInProgress}
+		newRs.Spec.Members = 5
+
+		_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+		require.Error(t, err)
+		assert.Equal(t,
+			"cannot change MongoDB configuration during headless-to-Ops-Manager migration: spec.members",
+			err.Error())
+	})
+
+	t.Run("marker allows connection changes", func(t *testing.T) {
+		oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		oldRs.Annotations = map[string]string{util.HeadlessMigrationAnnotation: util.HeadlessMigrationInProgress}
+		newRs := NewReplicaSetBuilder().Build()
+		newRs.Annotations = map[string]string{util.HeadlessMigrationAnnotation: util.HeadlessMigrationInProgress}
+		connectResource(newRs)
+
+		_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+		assert.NoError(t, err)
+	})
+
+	t.Run("marker on the new object also locks", func(t *testing.T) {
+		oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+		newRs.Annotations = map[string]string{util.HeadlessMigrationAnnotation: util.HeadlessMigrationInProgress}
+		newRs.Spec.Members = 5
+
+		_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot change MongoDB configuration during headless-to-Ops-Manager migration: spec.members")
+	})
+}
+
+func TestHeadlessMigrationSpecChanges(t *testing.T) {
+	// NewReplicaSetBuilder leaves both connection configs empty, which is headless mode.
+	baseSpec := func() MongoDbSpec {
+		return NewReplicaSetBuilder().Build().Spec
+	}
+
+	t.Run("connection fields only", func(t *testing.T) {
+		oldSpec := baseSpec()
+		newSpec := oldSpec
+		newSpec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "my-project"}}
+		newSpec.Credentials = "my-credentials"
+
+		assert.Empty(t, HeadlessMigrationSpecChanges(oldSpec, newSpec))
+	})
+
+	t.Run("changed paths are reported and sorted", func(t *testing.T) {
+		oldSpec := baseSpec()
+		newSpec := oldSpec
+		newSpec.OpsManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "my-project"}}
+		newSpec.Credentials = "my-credentials"
+		newSpec.Members = 5
+		newSpec.Version = "5.0.0"
+
+		assert.Equal(t, []string{"spec.members", "spec.version"}, HeadlessMigrationSpecChanges(oldSpec, newSpec))
+	})
+}

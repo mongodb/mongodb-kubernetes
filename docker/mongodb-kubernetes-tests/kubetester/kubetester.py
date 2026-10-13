@@ -29,6 +29,7 @@ from kubetester.crypto import wait_for_certs_to_be_issued
 from opentelemetry import trace
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 from tests import test_logger
+from tests.common.ops_manager.cloud_manager import is_cloud_qa
 
 TRACER = trace.get_tracer("evergreen-agent")
 logger = test_logger.get_test_logger(__name__)
@@ -81,6 +82,37 @@ def is_default_architecture_static() -> bool:
     return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
 
 
+PROJECT_MODE_OPS_MANAGER = "ops_manager"
+PROJECT_MODE_CLOUD_MANAGER = "cloud_manager"
+PROJECT_MODE_HEADLESS = "headless"
+PROJECT_MODES = (
+    PROJECT_MODE_OPS_MANAGER,
+    PROJECT_MODE_CLOUD_MANAGER,
+    PROJECT_MODE_HEADLESS,
+)
+
+
+def get_project_mode() -> str:
+    """Returns the project sourcing mode of the current test run.
+
+    Selected explicitly with MDB_E2E_PROJECT_MODE (set in the dev context files and propagated to
+    the test pod by the test-app Helm chart). When unset, falls back to the legacy inference used
+    before the variable existed: cloud-QA when ops_manager_version=cloud_qa, otherwise an
+    in-cluster Ops Manager. Headless cannot be inferred from the environment, so its variant must
+    set the variable explicitly.
+    """
+    mode = os.getenv("MDB_E2E_PROJECT_MODE", "").strip()
+    if not mode:
+        return PROJECT_MODE_CLOUD_MANAGER if is_cloud_qa() else PROJECT_MODE_OPS_MANAGER
+    if mode not in PROJECT_MODES:
+        raise ValueError(
+            f"Unknown MDB_E2E_PROJECT_MODE={mode!r}, expected one of {', '.join(PROJECT_MODES)}; "
+            "set it in scripts/dev/contexts/<variant> for local runs, or leave it unset to keep "
+            "the legacy ops_manager_version-based inference"
+        )
+    return mode
+
+
 def assert_container_count_with_static(current_container_count: int, expected_counter_without_static: int):
     if is_default_architecture_static():
         assert current_container_count == expected_counter_without_static + 1
@@ -123,6 +155,38 @@ skip_if_single_cluster = pytest.mark.skipif(not is_multi_cluster(), reason="Only
 SLEEP_TIME = 2
 # no timeout (loop forever)
 INFINITY = -1
+
+
+def load_proxy_config(
+    kube_config: config.kube_config.ConfigNode,
+    configuration: kubernetes.client.Configuration,
+    context_name: Optional[str] = None,
+):
+    """
+    Loads proxy configuration from kubeconfig if it exists for the current context and sets it in the provided configuration object.
+    Returns True if proxy configuration was found and set, False otherwise.
+    """
+    context_name = context_name or (str(kube_config["current-context"]) if "current-context" in kube_config else None)
+    context_entry = (
+        next((c for c in kube_config["contexts"] if c["name"] == context_name), None)
+        if "contexts" in kube_config
+        else None
+    )
+    cluster_name = context_entry["context"]["cluster"] if context_entry else None
+    cluster_entry = (
+        next((c for c in kube_config["clusters"] if c["name"] == cluster_name), None)
+        if "clusters" in kube_config
+        else None
+    )
+    proxy_url = (
+        cluster_entry["cluster"]["proxy-url"] if cluster_entry and "proxy-url" in cluster_entry["cluster"] else None
+    )
+
+    if isinstance(proxy_url, str) and len(proxy_url) > 0:
+        configuration.proxy = proxy_url
+        return True
+
+    return False
 
 
 class KubernetesTester(object):
@@ -381,7 +445,11 @@ class KubernetesTester(object):
     def load_configuration():
         "Loads kubernetes client configuration from kubectl config or incluster."
         try:
-            config.load_kube_config()
+            merger = config.kube_config.KubeConfigMerger(config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION)
+            configuration = kubernetes.client.Configuration()
+            config.load_kube_config_from_dict(merger.config, client_configuration=configuration)
+            load_proxy_config(merger.config, configuration)
+            client.Configuration.set_default(configuration)
         except Exception:
             config.load_incluster_config()
 
@@ -1101,6 +1169,10 @@ class KubernetesTester(object):
 
     @staticmethod
     def is_om_state_cleaned():
+        if get_project_mode() == PROJECT_MODE_HEADLESS:
+            # Headless resources are not registered in Ops Manager, so there is no project
+            # state to clean up.
+            return True
         try:
             config = KubernetesTester.get_automation_config()
             hosts = KubernetesTester.get_hosts()

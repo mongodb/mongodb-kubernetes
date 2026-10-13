@@ -1,22 +1,29 @@
 import kubernetes.client.rest
 import pytest
 from kubernetes import client
-from kubetester.kubetester import KubernetesTester, fcv_from_version
+from kubetester import try_load
+from kubetester.kubetester import PROJECT_MODE_HEADLESS, KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.kubetester import run_periodically
+from kubetester.kubetester import get_project_mode, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 
 
+@pytest.fixture(scope="module")
+def replica_set(namespace: str, custom_mdb_version: str, ops_manager) -> MongoDB:
+    resource = MongoDB.from_yaml(load_fixture("replica-set-pv.yaml"), namespace=namespace)
+    resource.set_version(custom_mdb_version)
+    try_load(resource)
+    resource.configure(om=ops_manager, project_name=resource.name)
+    return resource
+
+
 @pytest.mark.e2e_replica_set_pv
 class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
-    def test_create_replicaset(self, custom_mdb_version: str):
-        resource = MongoDB.from_yaml(load_fixture("replica-set-pv.yaml"), namespace=self.namespace)
-        resource.set_version(custom_mdb_version)
-        resource.update()
-
-        resource.assert_reaches_phase(Phase.Running)
+    def test_create_replicaset(self, replica_set: MongoDB):
+        replica_set.update()
+        replica_set.assert_reaches_phase(Phase.Running)
 
     def test_replica_set_sts_exists(self):
         sts = self.appsv1.read_namespaced_stateful_set("rs001-pv", self.namespace)
@@ -70,8 +77,9 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
             pvc_status = self.corev1.read_namespaced_persistent_volume_claim_status(pvc_name, self.namespace)
             assert pvc_status.status.phase == "Bound"
 
-    def test_om_processes(self, custom_mdb_version: str):
-        config = self.get_automation_config()
+    def test_om_processes(self, replica_set: MongoDB, custom_mdb_version: str):
+        # Mode-aware read: Ops Manager API in ops_manager mode, the <name>-config Secret headless.
+        config = replica_set.get_automation_config_tester().automation_config
         processes = config["processes"]
         for idx, p in enumerate(processes):
             assert custom_mdb_version in p["version"]
@@ -85,8 +93,11 @@ class TestReplicaSetPersistentVolumeCreation(KubernetesTester):
             assert p["args2_6"]["storage"]["dbPath"] == "/data"
             assert p["args2_6"]["systemLog"]["destination"] == "file"
             assert p["args2_6"]["systemLog"]["path"] == "/var/log/mongodb-mms-automation/mongodb.log"
-            assert p["logRotate"]["sizeThresholdMB"] == 1000
-            assert p["logRotate"]["timeThresholdHrs"] == 24
+            if get_project_mode() != PROJECT_MODE_HEADLESS:
+                # Ops Manager fills in its default log rotation. Headless deployments rely on the
+                # automation agent defaults (ReadUpdateAgentsLogRotation is a no-op headless).
+                assert p["logRotate"]["sizeThresholdMB"] == 1000
+                assert p["logRotate"]["timeThresholdHrs"] == 24
 
     def test_replica_set_was_configured(self):
         "Should connect to one of the mongods and check the replica set was correctly configured."

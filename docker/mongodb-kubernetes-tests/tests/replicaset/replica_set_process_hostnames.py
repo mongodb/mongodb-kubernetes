@@ -11,6 +11,7 @@ import pytest
 from kubernetes import client
 from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture
@@ -34,6 +35,7 @@ def replica_set(
     replica_set_name: str,
     replica_set_members: int,
     custom_mdb_version: str,
+    ops_manager,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), replica_set_name, namespace)
     try_load(resource)
@@ -42,6 +44,7 @@ def replica_set(
     resource["spec"]["externalAccess"] = {}
     resource["spec"]["externalAccess"]["externalDomain"] = default_external_domain()
     resource.set_version(custom_mdb_version)
+    resource.configure(om=ops_manager, project_name=resource.name)
 
     return resource
 
@@ -99,6 +102,10 @@ def test_placeholders_in_external_services(namespace: str, replica_set: MongoDB)
 
 
 @pytest.mark.e2e_replica_set_process_hostnames
+@skip_if_local()
 def test_connectivity(replica_set: MongoDB):
+    # The replica set advertises the external-domain FQDNs, which only resolve through the
+    # in-cluster CoreDNS setup. In CI the test runner is a pod and can reach them; a local
+    # --operator run cannot.
     tester = replica_set.tester()
     tester.assert_connectivity()

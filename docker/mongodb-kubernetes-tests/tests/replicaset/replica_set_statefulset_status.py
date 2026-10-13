@@ -6,13 +6,14 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def replica_set(namespace: str) -> MongoDB:
+def replica_set(namespace: str, ops_manager) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-double.yaml"),
         namespace=namespace,
         name="replica-set-status",
     )
     try_load(resource)
+    resource.configure(om=ops_manager, project_name=resource.name)
     return resource
 
 

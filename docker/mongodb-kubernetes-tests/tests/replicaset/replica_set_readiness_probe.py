@@ -11,11 +11,22 @@ from kubetester.phase import Phase
 RESOURCE_NAME = "my-replica-set-double"
 
 
+def get_automation_config(resource: MongoDB):
+    """Mode-aware automation config read.
+
+    In ops_manager mode this queries the Ops Manager API; in headless mode it reads the
+    <name>-config Secret. Tests must go through the resource tester so no direct Ops Manager
+    calls are made headless.
+    """
+    return resource.get_automation_config_tester().automation_config
+
+
 @pytest.fixture(scope="module")
-def replica_set(namespace: str) -> MongoDB:
+def replica_set(namespace: str, ops_manager) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-double.yaml"), RESOURCE_NAME, namespace)
     resource.set_architecture_annotation()
     try_load(resource)
+    resource.configure(om=ops_manager, project_name=resource.name)
     return resource
 
 
@@ -41,13 +52,13 @@ class TestReplicaSetNoAgentDeadlock(KubernetesTester):
     def test_mdb_created(self, replica_set: MongoDB, config_version):
         replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running)
-        config_version.version = self.get_automation_config()["version"]
+        config_version.version = get_automation_config(replica_set)["version"]
 
     @skip_if_local()
     def test_db_connectable(self, replica_set: MongoDB):
         replica_set.assert_connectivity()
 
-    def test_remove_pods_and_wait_for_recovery(self, config_version):
+    def test_remove_pods_and_wait_for_recovery(self, replica_set: MongoDB, config_version):
         pods = get_pods(RESOURCE_NAME + "-{}", 2)
         for podname in pods:
             self.corev1.delete_namespaced_pod(podname, self.namespace)
@@ -59,7 +70,7 @@ class TestReplicaSetNoAgentDeadlock(KubernetesTester):
 
         # waiting until the pods recover and init the replica set again
         KubernetesTester.wait_until(TestReplicaSetNoAgentDeadlock.pods_are_ready, 120)
-        assert self.get_automation_config()["version"] == config_version.version
+        assert get_automation_config(replica_set)["version"] == config_version.version
 
     @skip_if_local()
     def test_db_connectable_after_recovery(self, replica_set: MongoDB):
@@ -67,7 +78,7 @@ class TestReplicaSetNoAgentDeadlock(KubernetesTester):
 
     def test_replica_set_recovered(self, replica_set: MongoDB, config_version):
         replica_set.assert_reaches_phase(Phase.Running)
-        assert self.get_automation_config()["version"] == config_version.version
+        assert get_automation_config(replica_set)["version"] == config_version.version
 
     @staticmethod
     def pods_are_ready():

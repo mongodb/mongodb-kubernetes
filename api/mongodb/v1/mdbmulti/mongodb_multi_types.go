@@ -109,6 +109,12 @@ func (m *MongoDBMultiCluster) GetSecurity() *mdbv1.Security {
 	return m.Spec.Security
 }
 
+// IsHeadless returns true when neither spec.opsManager nor spec.cloudManager is configured.
+// MongoDBMultiCluster always requires an Ops Manager connection, so this is normally false.
+func (m *MongoDBMultiCluster) IsHeadless() bool {
+	return m.Spec.IsHeadless()
+}
+
 func (m *MongoDBMultiCluster) GetConnectionSpec() *mdbv1.ConnectionSpec {
 	return &m.Spec.ConnectionSpec
 }

@@ -1,7 +1,7 @@
 from operator import attrgetter
 
 import pytest
-from kubetester import get_default_storage_class
+from kubetester import get_default_storage_class, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -14,9 +14,11 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
     RESOURCE_NAME = "rs001-pv-multiple"
     custom_labels = {"label1": "val1", "label2": "val2"}
 
-    def test_create_replicaset(self, custom_mdb_version: str):
+    def test_create_replicaset(self, custom_mdb_version: str, ops_manager):
         resource = MongoDB.from_yaml(load_fixture("replica-set-pv-multiple.yaml"), namespace=self.namespace)
         resource.set_version(custom_mdb_version)
+        try_load(resource)
+        resource.configure(om=ops_manager, project_name=resource.name)
         resource.update()
 
         resource.assert_reaches_phase(Phase.Running)

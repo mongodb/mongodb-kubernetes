@@ -152,6 +152,40 @@ func TestUpdateOmAuthentication_AuthenticationIsNotConfigured_IfAuthIsNotSet(t *
 	assert.Equal(t, "MONGODB-CR", ac.Auth.AutoAuthMechanism)
 }
 
+func TestUpdateOmAuthentication_HeadlessWithoutAuthenticationBlock_ConfiguresCredentials(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).SetAuthentication(nil).Build()
+	rs.Spec.OpsManagerConfig = nil
+	rs.Spec.CloudManagerConfig = nil
+	rs.Spec.Credentials = ""
+	require.True(t, rs.IsHeadless(), "the resource must be recognized as headless")
+
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+
+	status, multiStage := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
+
+	assert.True(t, status.IsOK(), "a headless resource without an auth block must reconcile successfully")
+	assert.False(t, multiStage)
+
+	ac, err := conn.ReadAutomationConfig()
+	require.NoError(t, err)
+	assert.True(t, ac.Auth.Disabled)
+	assert.NotEmpty(t, ac.Auth.Key, "headless automation config requires keyfile contents so mongod can start")
+	assert.NotEmpty(t, ac.Auth.AutoPwd, "headless automation config requires an automation agent password")
+	assert.Equal(t, util.AutomationAgentKeyFilePathInContainer, ac.Auth.KeyFile)
+	assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
+
+	// The agent password secret is written so the agents can authenticate.
+	agentAuthSecret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, types.NamespacedName{Name: om.AuthSecretName(rs.Name), Namespace: rs.Namespace}, agentAuthSecret))
+	assert.NotEmpty(t, agentAuthSecret.Data, "the automation agent password secret must be created")
+
+	// The synthetic disabled authentication must not be persisted on the resource.
+	assert.Nil(t, rs.Spec.Security.Authentication, "the CR spec must not be mutated")
+}
+
 func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().

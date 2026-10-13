@@ -15,7 +15,15 @@ import pytest
 import requests
 import semver
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, build_agent_auth, build_auth, run_periodically
+from kubetester.kubetester import (
+    PROJECT_MODE_HEADLESS,
+    PROJECT_MODE_OPS_MANAGER,
+    KubernetesTester,
+    build_agent_auth,
+    build_auth,
+    get_project_mode,
+    run_periodically,
+)
 from kubetester.mongotester import BackgroundHealthChecker
 from kubetester.om_queryable_backups import OMQueryableBackup
 from opentelemetry import trace
@@ -24,6 +32,29 @@ from tests import test_logger
 from tests.common.ops_manager.cloud_manager import is_cloud_qa
 
 skip_if_cloud_manager = pytest.mark.skipif(is_cloud_qa(), reason="Do not run in Cloud Manager")
+skip_if_headless = pytest.mark.skipif(
+    get_project_mode() == PROJECT_MODE_HEADLESS, reason="Do not run without Ops Manager"
+)
+skip_if_ops_manager = pytest.mark.skipif(
+    get_project_mode() == PROJECT_MODE_OPS_MANAGER, reason="Do not run against an in-cluster Ops Manager"
+)
+
+
+def get_om_tester(om_context: OMContext) -> OMTester:
+    """Returns the tester matching the current project mode.
+
+    In headless mode the automation config lives in the <name>-config Secret and the goal state is
+    derived from the agent pod annotations, so a HeadlessOMTester is returned instead of the
+    HTTP-backed OMTester. ops_manager and cloud_manager modes keep using the regular OMTester.
+    """
+    if get_project_mode() == PROJECT_MODE_HEADLESS:
+        # Imported locally to keep kubetester.headless_omtester (which imports OMTester) acyclic.
+        from kubetester.headless_omtester import HeadlessOMTester
+
+        return HeadlessOMTester(om_context)
+
+    return OMTester(om_context)
+
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -47,6 +78,7 @@ class OMContext(object):
         project_id=None,
         org_id=None,
         agent_api_key=None,
+        namespace=None,
     ):
         self.base_url = base_url
         self.project_id = project_id
@@ -55,6 +87,26 @@ class OMContext(object):
         self.public_key = public_key
         self.org_id = org_id
         self.agent_api_key = agent_api_key
+        # Only used by HeadlessOMTester, which reads the automation config Secret and the agent
+        # pods from this namespace.
+        self.namespace = namespace
+
+    @staticmethod
+    def build_headless(namespace: str, name: str) -> OMContext:
+        """Builds the context for a resource managed without Ops Manager.
+
+        Mirrors the operator: the resource name is both the group id and name, and the namespace
+        carries the automation config Secret (<name>-config).
+        """
+        return OMContext(
+            base_url="",
+            user="",
+            public_key="",
+            project_name=name,
+            project_id=name,
+            org_id=namespace,
+            namespace=namespace,
+        )
 
     @staticmethod
     def build_from_config_map_and_secret(

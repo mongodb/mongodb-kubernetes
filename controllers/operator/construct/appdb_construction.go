@@ -37,7 +37,6 @@ const (
 	// AppDB environment variable names
 	podNamespaceEnv              = "POD_NAMESPACE"
 	automationConfigMapEnv       = "AUTOMATION_CONFIG_MAP"
-	headlessAgentEnv             = "HEADLESS_AGENT"
 	clusterDomainEnv             = "CLUSTER_DOMAIN"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
 )
@@ -556,7 +555,7 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, customAgentURL string) []corev1.E
 			Value: appDbSpec.Name() + "-config",
 		},
 		{
-			Name:  headlessAgentEnv,
+			Name:  util.HeadlessAgentEnv,
 			Value: "true",
 		},
 		{

@@ -7,9 +7,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
 
 const (
@@ -181,4 +186,55 @@ func TestEnsureTargetAutomationConfigSeeded_TargetReadFailureStops(t *testing.T)
 	)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read target project automation config")
+}
+
+func TestSeedOpsManagerAutomationConfigFromHeadless_StripsMongoDbVersions(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+
+	headlessDeployment := om.NewDeployment()
+	headlessDeployment["version"] = int64(7)
+	headlessDeployment["processes"] = []om.Process{{
+		"name":     "headless-rs-0",
+		"hostname": "headless-rs-0.example.com",
+		"version":  "8.0.6",
+	}}
+	headlessDeployment["mongoDbVersions"] = []map[string]interface{}{{
+		"name": "8.0.6",
+		"builds": []map[string]interface{}{{
+			"platform":     "linux",
+			"architecture": "amd64",
+			"flavor":       "rhel",
+			"url":          "",
+			"gitVersion":   "",
+			"modules":      []string{},
+		}},
+	}}
+	headlessDeployment["options"] = map[string]interface{}{"downloadBase": "/var/lib/mongodb-mms-automation"}
+
+	raw, err := headlessDeployment.Serialize()
+	require.NoError(t, err)
+
+	mdb := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "headless-rs", Namespace: "test-namespace"}}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "headless-rs" + om.HeadlessAutomationConfigSecretSuffix,
+			Namespace: "test-namespace",
+		},
+		Data: map[string][]byte{automationconfig.ConfigKey: raw},
+	}).Build()
+
+	targetConn := newMockConn(targetGroupID, emptyTargetDeployment())
+
+	baselineVersion, err := SeedOpsManagerAutomationConfigFromHeadless(targetConn, kubeClient, mdb, zap.NewNop().Sugar())
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), baselineVersion, "the baseline must be the version of the headless automation config")
+
+	targetAC, err := targetConn.ReadAutomationConfig()
+	require.NoError(t, err)
+
+	_, hasMongoDbVersions := targetAC.Deployment["mongoDbVersions"]
+	assert.False(t, hasMongoDbVersions, "the seeded payload must not contain the headless-only mongoDbVersions")
+	assert.Equal(t, 1, targetAC.Deployment.NumberOfProcesses(), "the seeded payload must keep the processes")
+	assert.Equal(t, int64(7), targetAC.Deployment.Version(), "the seeded payload must keep the headless automation config version")
 }

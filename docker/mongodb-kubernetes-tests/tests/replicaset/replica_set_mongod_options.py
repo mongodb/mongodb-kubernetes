@@ -1,19 +1,21 @@
 from kubetester import try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.omtester import skip_if_headless
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.constants import OPERATOR_NAME
 
 
 @fixture(scope="module")
-def replica_set(namespace: str) -> MongoDB:
+def replica_set(namespace: str, ops_manager) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-mongod-options.yaml"),
         namespace=namespace,
     )
     resource["spec"]["persistent"] = True
     try_load(resource)
+    resource.configure(om=ops_manager, project_name=resource.name)
     return resource
 
 
@@ -34,6 +36,7 @@ def test_replica_set_mongodb_options(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_mongod_options
+@skip_if_headless
 def test_replica_set_feature_controls(replica_set: MongoDB):
     fc = replica_set.get_om_tester().get_feature_controls()
     assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
@@ -80,6 +83,7 @@ def test_replica_set_mongodb_options_were_updated(replica_set: MongoDB):
 
 
 @mark.e2e_replica_set_mongod_options
+@skip_if_headless
 def test_replica_set_feature_controls_were_updated(replica_set: MongoDB):
     fc = replica_set.get_om_tester().get_feature_controls()
     assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME

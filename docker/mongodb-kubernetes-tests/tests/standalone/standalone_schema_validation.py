@@ -84,7 +84,7 @@ class TestStandaloneInvalidWithProjectAndCloudManager(KubernetesTester):
                     "value": {"configMapRef": {"name": "something"}},
                 },
             ],
-            "exception": "either spec.cloudManager or spec.opsManager can be set",
+            "exception": "only one of spec.cloudManager or spec.opsManager can be set",
         },
     }
 
@@ -109,7 +109,7 @@ class TestStandaloneInvalidWithCloudAndOpsManagerAndProject(KubernetesTester):
                     "value": {"configMapRef": {"name": "something"}},
                 },
             ],
-            "exception": "either spec.cloudManager or spec.opsManager can be set",
+            "exception": "only one of spec.cloudManager or spec.opsManager can be set",
         },
     }
 

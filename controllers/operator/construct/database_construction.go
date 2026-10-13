@@ -737,7 +737,7 @@ func headlessAutomationConfigVolumeMount() corev1.VolumeMount {
 // headless mode and for the readiness probe to verify the applied automation config version.
 func headlessAgentEnvVars(secretName string) []corev1.EnvVar {
 	return []corev1.EnvVar{
-		{Name: headlessAgentEnv, Value: "true"},
+		{Name: util.HeadlessAgentEnv, Value: "true"},
 		{
 			Name: podNamespaceEnv,
 			ValueFrom: &corev1.EnvVarSource{
