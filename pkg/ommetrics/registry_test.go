@@ -67,7 +67,7 @@ func globalScopeMetrics() []metricdata.ScopeMetrics {
 // membership, and release removes unconditionally.
 func TestEnsureIdempotentAndRelease(t *testing.T) {
 	reg := newRegistry(NewConfig())
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mustEnsure(t, reg, Project{BaseURL: "https://om.example.com", GroupID: "g1"}, "k", TLSOptions{})
 	}
 	if n := len(reg.snapshot()); n != 1 {
