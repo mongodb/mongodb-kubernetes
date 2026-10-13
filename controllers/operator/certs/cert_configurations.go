@@ -133,10 +133,11 @@ type Options struct {
 	// Replicas is the number of replicas.
 	Replicas int
 	// MembersToCover is how many members the member/server cert's SANs should cover this reconcile and
-	// is max(current, desired). On a scale-up this is the target size, so we generate the SANs for all
-	// target members at once and issue the cert a single time, instead of recomputing the SANs (and reissuing
-	// the cert) at every reconcile. On a scale-down it equals current, there the SANs are held steady by the
-	// count recorded in the Certificate annotation, not by this field.
+	// is max(current, desired). On a scale-up this is the target size, so the SANs cover all target
+	// members at once and the cert is issued a single time, instead of growing the SANs (and reissuing
+	// the cert) at every one-member step. On a scale-down it equals the current member count, which
+	// decreases one by one. The SANs are then held steady by the count recorded in the Certificate
+	// annotation, not by this field.
 	MembersToCover int
 	// Namespace is the namespace the resource is in.
 	Namespace string
