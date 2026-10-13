@@ -648,20 +648,6 @@ def wait_for_envoy_restart(
     run_periodically(check, timeout=300, sleep_time=5, msg=f"{deployment_name}: Envoy certificate restart")
 
 
-def rotate_envoy_certificate(namespace: str, deployment_name: str, certificate_name: str) -> None:
-    before = client.AppsV1Api().read_namespaced_deployment(deployment_name, namespace)
-    previous_hash = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
-    previous_cert = read_secret(namespace, certificate_name)["tls.crt"]
-    rotate_cert(namespace, certificate_name)
-
-    def secret_changed() -> tuple[bool, str]:
-        changed = read_secret(namespace, certificate_name)["tls.crt"] != previous_cert
-        return changed, f"{certificate_name}: changed={changed}"
-
-    run_periodically(secret_changed, timeout=120, sleep_time=5, msg=f"{certificate_name}: certificate reissuance")
-    wait_for_envoy_restart(namespace, deployment_name, previous_hash)
-
-
 def rotate_member_envoy_certificates(
     namespace: str,
     search_name: str,
@@ -681,7 +667,9 @@ def rotate_member_envoy_certificates(
         (search_resource_names.lb_client_cert_name, [f"*.{namespace}.svc.cluster.local"]),
     ):
 
-        def prepare_certificate(member: MultiClusterClient) -> tuple[str, str, dict[str, str], str]:
+        def prepare_certificate(
+            member: MultiClusterClient,
+        ) -> tuple[MultiClusterClient, str, str, dict[str, str], str]:
             assert member.cluster_index is not None
             deployment_name = search_resource_names.lb_deployment_name(search_name, member.cluster_index)
             secret_name = cert_name(search_name, certs_prefix, member.cluster_index)
@@ -701,35 +689,43 @@ def rotate_member_envoy_certificates(
             assert data["tls.crt"] != read_secret(namespace, secret_name, api_client=member.api_client)["tls.crt"]
             before = member.apps_v1_api().read_namespaced_deployment(deployment_name, namespace)
             previous_hash = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
-            return deployment_name, secret_name, data, previous_hash
+            return member, deployment_name, secret_name, data, previous_hash
 
-        with ThreadPoolExecutor(max_workers=min(4, max(1, len(members)))) as executor:
-            futures = {member.cluster_name: executor.submit(prepare_certificate, member) for member in members}
-            replacements = {name: future.result() for name, future in futures.items()}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            replacements = list(executor.map(prepare_certificate, members))
 
-        for member in members:
-            _, secret_name, data, _ = replacements[member.cluster_name]
+        for member, _, secret_name, data, _ in replacements:
             create_or_update_secret(
                 namespace, secret_name, data, type="kubernetes.io/tls", api_client=member.api_client
             )
             assert read_secret(namespace, secret_name, api_client=member.api_client) == data
         # Central-only watches must see the trigger after every member has the corresponding data.
-        for _, secret_name, data, _ in replacements.values():
+        for _, _, secret_name, data, _ in replacements:
             create_or_update_secret(
                 namespace, secret_name, data, type="kubernetes.io/tls", api_client=central_api_client
             )
-        for member in members:
-            deployment_name, _, _, previous_hash = replacements[member.cluster_name]
+        for member, deployment_name, _, _, previous_hash in replacements:
             wait_for_envoy_restart(namespace, deployment_name, previous_hash, api_client=member.api_client)
 
 
 def rotate_envoy_certificates(namespace: str, search_name: str, certs_prefix: str) -> None:
     deployment_name = search_resource_names.lb_deployment_name(search_name)
+    apps = client.AppsV1Api()
     for certificate_name in (
         search_resource_names.lb_server_cert_name(search_name, certs_prefix),
         search_resource_names.lb_client_cert_name(search_name, certs_prefix),
     ):
-        rotate_envoy_certificate(namespace, deployment_name, certificate_name)
+        before = apps.read_namespaced_deployment(deployment_name, namespace)
+        previous_hash = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
+        previous_cert = read_secret(namespace, certificate_name)["tls.crt"]
+        rotate_cert(namespace, certificate_name)
+
+        def secret_changed() -> tuple[bool, str]:
+            changed = read_secret(namespace, certificate_name)["tls.crt"] != previous_cert
+            return changed, f"{certificate_name}: changed={changed}"
+
+        run_periodically(secret_changed, timeout=120, sleep_time=5, msg=f"{certificate_name}: certificate reissuance")
+        wait_for_envoy_restart(namespace, deployment_name, previous_hash)
 
 
 # MongoDBSearch reconcile + readiness-probe disruption helpers
