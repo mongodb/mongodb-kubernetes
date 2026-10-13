@@ -85,20 +85,15 @@ type MongoDBSearchEnvoyReconciler struct {
 	defaultEnvoyImage   string
 	operatorClusterName string
 	memberClients       map[string]kubernetesClient.Client
-	certReaders         map[string]client.Reader
 
 	prepareSearch prepareSearchFuncs
 }
 
 func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
-	certReaders := map[string]client.Reader{}
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
-		certReaders[k] = v
 	}
-	certReaders[""] = c
-	certReaders[operatorClusterName] = c
 
 	central := kubernetesClient.NewClient(c)
 	return &MongoDBSearchEnvoyReconciler{
@@ -107,7 +102,6 @@ func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, 
 		defaultEnvoyImage:   defaultEnvoyImage,
 		operatorClusterName: operatorClusterName,
 		memberClients:       clientsMap,
-		certReaders:         certReaders,
 		prepareSearch:       newPrepareSearch(operatorClusterName),
 	}
 }
@@ -262,11 +256,10 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 // clusterWorkItem is one per-cluster unit. OwnerReferences carries the local
 // Search GC backstop and is nil for cross-cluster member resources.
 type clusterWorkItem struct {
-	ClusterName       string
-	ClusterIndex      int
-	Client            kubernetesClient.Client
-	CertificateReader client.Reader
-	OwnerReferences   []metav1.OwnerReference
+	ClusterName     string
+	ClusterIndex    int
+	Client          kubernetesClient.Client
+	OwnerReferences []metav1.OwnerReference
 }
 
 // spec.clusters is validated non-empty, so the empty-clusters branch is a
@@ -278,9 +271,6 @@ func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.Mon
 	}
 	for _, c := range search.Spec.Clusters {
 		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, r.memberClients, r.operatorClusterName))
-	}
-	for i := range work {
-		work[i].CertificateReader = r.certReaders[work[i].ClusterName]
 	}
 	return work
 }
@@ -594,11 +584,10 @@ func envoyLBCertSecretsData(ctx context.Context, c client.Reader, search *search
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, w clusterWorkItem, managedLB *searchv1.ManagedLBConfig, tlsEnabled bool, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
 	var certData []byte
 	if tlsEnabled {
-		if w.CertificateReader == nil {
-			return fmt.Errorf("missing LB certificate reader for cluster %q", w.ClusterName)
-		}
+		// Intentionally use the cluster cache: with central-only Secret watches,
+		// member cache lag can defer rotation until a later reconciliation.
 		var err error
-		if certData, err = envoyLBCertSecretsData(ctx, w.CertificateReader, search, w.ClusterIndex); err != nil {
+		if certData, err = envoyLBCertSecretsData(ctx, w.Client, search, w.ClusterIndex); err != nil {
 			return err
 		}
 	}
@@ -905,12 +894,6 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// by AddMongoDBSearchController. Do not register it again here.
 
 	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), operatorClusterName)
-	// A central Secret event can precede member cache observation of the earlier member write.
-	for name, member := range memberClusterObjectsMap {
-		r.certReaders[name] = member.GetAPIReader()
-	}
-	r.certReaders[""] = mgr.GetAPIReader()
-	r.certReaders[operatorClusterName] = mgr.GetAPIReader()
 
 	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
 		Reconciler:              r,

@@ -1179,8 +1179,6 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
-	apiReader := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r.certReaders["a"] = apiReader
 
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
@@ -1197,7 +1195,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	}
 
 	serverName, clientName := search.LoadBalancerServerCert(clusterIndex), search.LoadBalancerClientCert(clusterIndex)
-	for _, c := range []client.Client{central, memberA, apiReader} {
+	for _, c := range []client.Client{central, memberA} {
 		for _, name := range []types.NamespacedName{serverName, clientName} {
 			require.NoError(t, c.Create(ctx, &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
@@ -1222,13 +1220,12 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 		mutate  func(*corev1.Secret)
 		changed bool
 	}{
-		{"metadata only", apiReader, serverName, func(s *corev1.Secret) {
+		{"metadata only", memberA, serverName, func(s *corev1.Secret) {
 			s.Labels = map[string]string{"managed-by": "cert-manager"}
 			s.Annotations = map[string]string{"cert-manager.io/alt-names": "mongot.example.com"}
 		}, false},
-		{"server rotation before cache observation", apiReader, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("server-v2") }, true},
-		{"client rotation before cache observation", apiReader, clientName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("client-v2") }, true},
-		{"stale cache ignored", memberA, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("stale-cache") }, false},
+		{"server rotation", memberA, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("server-v2") }, true},
+		{"client rotation", memberA, clientName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("client-v2") }, true},
 		{"central decoy ignored", central, serverName, func(s *corev1.Secret) { s.Data["tls.crt"] = []byte("central-v2") }, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
