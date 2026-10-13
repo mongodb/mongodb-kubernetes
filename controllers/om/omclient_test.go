@@ -3,10 +3,12 @@ package om
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test/httprecorder"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -91,6 +94,63 @@ func TestGetAgentAuthMode_NoAuth(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "", mode)
+}
+
+func TestGetAgentAuthMode_IgnoresOtherAuthFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"auth":{"autoAuthMechanism":"SCRAM-SHA-256","usersWanted":[{"user":42}]}}`))
+	}))
+	t.Cleanup(srv.Close)
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	mode, err := connection.GetAgentAuthMode(t.Context())
+	require.NoError(t, err, "auth mode lookup must not decode unrelated user fields")
+	assert.Equal(t, "SCRAM-SHA-256", mode)
+}
+
+func TestReadAutomationConfig_WrapsBuilderError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"tls":{"CAFilePath":42}}`))
+	}))
+	t.Cleanup(srv.Close)
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	_, err := connection.ReadAutomationConfig(t.Context())
+	require.Error(t, err)
+	var apiErr *apierror.Error
+	require.True(t, errors.As(err, &apiErr))
+	assert.Contains(t, apiErr.Detail, "CAFilePath")
+}
+
+func BenchmarkGetAgentAuthMode(b *testing.B) {
+	for _, count := range []int{0, 1000} {
+		b.Run(fmt.Sprintf("users=%d", count), func(b *testing.B) {
+			users := make([]*MongoDBUser, count)
+			for i := range users {
+				users[i] = &MongoDBUser{
+					Username: fmt.Sprintf("user-%04d", i), Database: "admin",
+					Mechanisms: []string{"SCRAM-SHA-256"}, Roles: []*Role{{Role: "readWrite", Database: "app"}},
+					ScramSha256Creds: &ScramShaCreds{
+						IterationCount: 15000, Salt: strings.Repeat("s", 24),
+						ServerKey: strings.Repeat("k", 44), StoredKey: strings.Repeat("x", 44),
+					},
+				}
+			}
+			payload, err := json.Marshal(map[string]any{"auth": &Auth{AutoAuthMechanism: "SCRAM-SHA-256", Users: users}})
+			require.NoError(b, err)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write(payload)
+			}))
+			b.Cleanup(srv.Close)
+			connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+			b.ReportAllocs()
+			b.SetBytes(int64(len(payload)))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				mode, err := connection.GetAgentAuthMode(b.Context())
+				require.NoError(b, err)
+				require.Equal(b, "SCRAM-SHA-256", mode)
+			}
+		})
+	}
 }
 
 func TestNotSendingRequestOnNonModifiedAutomationConfig(t *testing.T) {

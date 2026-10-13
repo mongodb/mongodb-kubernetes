@@ -293,11 +293,12 @@ func (oc *HTTPOmConnection) ReadAuditLogRotation(ctx context.Context) (*automati
 	return &result, nil
 }
 
-// GetAgentAuthMode returns the autoAuthMechanism of the group's automation config. Only the 'auth'
-// key is decoded, avoiding materializing the whole automation config.
+// GetAgentAuthMode decodes only auth.autoAuthMechanism from the group's automation config.
 func (oc *HTTPOmConnection) GetAgentAuthMode(ctx context.Context) (string, error) {
 	var partial struct {
-		Auth *Auth `json:"auth"`
+		Auth *struct {
+			AutoAuthMechanism string `json:"autoAuthMechanism"`
+		} `json:"auth"`
 	}
 	err := oc.getInto(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()), &partial)
 	if err != nil {
@@ -418,7 +419,8 @@ func (oc *HTTPOmConnection) ReadAutomationConfig(ctx context.Context) (*Automati
 	if err != nil {
 		return nil, err
 	}
-	return BuildAutomationConfigFromDeployment(d)
+	ac, err := BuildAutomationConfigFromDeployment(d)
+	return ac, apierror.New(err)
 }
 
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.

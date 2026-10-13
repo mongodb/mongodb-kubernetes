@@ -280,7 +280,29 @@ func createHTTPRequest(ctx context.Context, method string, url string, v any) (*
 // body is decoded into out directly, reusing a pooled buffer. Error responses are always read in full
 // so parseAPIError can include the server message.
 func (client *Client) sendRequest(method, url, path string, req *retryablehttp.Request, out any) ([]byte, http.Header, error) {
-	client.setLogHooks(method, url, path)
+	// we need to limit size of request/response dump, because automation config request can't have over 1MB size
+	const maxDumpSize = 10000 // 1 MB
+	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
+		if client.debug {
+			dumpRequest, _ := httputil.DumpRequest(request, true)
+			if len(dumpRequest) > maxDumpSize {
+				dumpRequest = dumpRequest[:maxDumpSize]
+			}
+			zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", i, method, path, dumpRequest)
+		} else {
+			zap.S().Debugf("Ops Manager request: %s %s", method, url)
+		}
+	}
+
+	client.ResponseLogHook = func(logger retryablehttp.Logger, response *http.Response) {
+		if client.debug {
+			dumpResponse, _ := httputil.DumpResponse(response, true)
+			if len(dumpResponse) > maxDumpSize {
+				dumpResponse = dumpResponse[:maxDumpSize]
+			}
+			zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpResponse)
+		}
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -312,7 +334,12 @@ func (client *Client) sendRequest(method, url, path string, req *retryablehttp.R
 
 	buffer := responseBuffers.Get().(*bytes.Buffer)
 	defer func() {
-		buffer.Reset()
+		// Do not retain oversized response storage for later small requests.
+		if buffer.Cap() > 2<<20 {
+			*buffer = bytes.Buffer{}
+		} else {
+			buffer.Reset()
+		}
 		responseBuffers.Put(buffer)
 	}()
 
@@ -326,33 +353,6 @@ func (client *Client) sendRequest(method, url, path string, req *retryablehttp.R
 		return nil, nil, apierror.New(xerrors.Errorf("Error decoding response body from %s to %v status=%v: %w", method, url, resp.StatusCode, err))
 	}
 	return nil, resp.Header, nil
-}
-
-// setLogHooks installs the request/response debug log hooks. They are cleared after each request.
-func (client *Client) setLogHooks(method, url, path string) {
-	// we need to limit size of request/response dump, because automation config request can't have over 1MB size
-	const maxDumpSize = 10000 // 1 MB
-	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
-		if client.debug {
-			dumpRequest, _ := httputil.DumpRequest(request, true)
-			if len(dumpRequest) > maxDumpSize {
-				dumpRequest = dumpRequest[:maxDumpSize]
-			}
-			zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", i, method, path, dumpRequest)
-		} else {
-			zap.S().Debugf("Ops Manager request: %s %s", method, url)
-		}
-	}
-
-	client.ResponseLogHook = func(logger retryablehttp.Logger, response *http.Response) {
-		if client.debug {
-			dumpResponse, _ := httputil.DumpResponse(response, true)
-			if len(dumpResponse) > maxDumpSize {
-				dumpResponse = dumpResponse[:maxDumpSize]
-			}
-			zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpResponse)
-		}
-	}
 }
 
 // serializeToBuffer takes any object and tries to serialize it to the buffer

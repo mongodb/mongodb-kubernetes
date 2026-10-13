@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -143,6 +146,30 @@ func TestRequestWithContextInto_EmptyBodyIsAnError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestRequestWithContextInto_DropsOversizedBufferStorage(t *testing.T) {
+	var buffers []*bytes.Buffer
+	responseBuffers = sync.Pool{New: func() any {
+		buffer := &bytes.Buffer{}
+		buffers = append(buffers, buffer)
+		return buffer
+	}}
+	t.Cleanup(func() { responseBuffers = sync.Pool{New: func() any { return &bytes.Buffer{} }} })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"ignored":%q}`, strings.Repeat("x", 4<<20))
+	}))
+	t.Cleanup(srv.Close)
+	client, err := NewHTTPClient()
+	require.NoError(t, err)
+	var out struct{}
+	_, err = client.RequestWithContextInto(t.Context(), "GET", srv.URL, "/", nil, &out)
+	require.NoError(t, err, "large responses must still be accepted")
+	require.NotEmpty(t, buffers)
+	for _, buffer := range buffers {
+		assert.LessOrEqual(t, buffer.Cap(), 2<<20, "a large response must not retain its backing storage")
+	}
+}
+
 // benchmarkAutomationConfigPayload builds an Automation Config shaped response body,
 // comparable to what Ops Manager returns in e2e runs.
 func benchmarkAutomationConfigPayload(b *testing.B) []byte {
@@ -182,14 +209,6 @@ func benchmarkAutomationConfigPayload(b *testing.B) []byte {
 	return data
 }
 
-// authOnlyResponse mirrors the partial decode done by GetAgentAuthMode: only the top-level 'auth'
-// key is materialized, everything else is skipped.
-type authOnlyResponse struct {
-	Auth *struct {
-		AutoAuthMechanism string `json:"autoAuthMechanism"`
-	} `json:"auth"`
-}
-
 // BenchmarkOMResponseRead compares the old read path (raw body returned by io.ReadAll and decoded
 // by the caller) with the pooled direct-decode path used by RequestWithContextInto.
 func BenchmarkOMResponseRead(b *testing.B) {
@@ -221,17 +240,6 @@ func BenchmarkOMResponseRead(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			var out map[string]any
-			_, err := client.RequestWithContextInto(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups/g/automationConfig", nil, &out)
-			require.NoError(b, err)
-		}
-	})
-
-	b.Run("Pooled+AuthOnly", func(b *testing.B) {
-		b.ReportAllocs()
-		b.SetBytes(int64(len(payload)))
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			var out authOnlyResponse
 			_, err := client.RequestWithContextInto(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups/g/automationConfig", nil, &out)
 			require.NoError(b, err)
 		}
