@@ -1265,7 +1265,6 @@ task_groups:
       - e2e_tls_sc_additional_certs
       - e2e_tls_x509_configure_all_options_sc
       - e2e_tls_x509_sc
-      - e2e_meko_mck_upgrade
       - e2e_mongodb_custom_roles
       - e2e_sharded_cluster_oidc_m2m_group
       - e2e_sharded_cluster_oidc_m2m_user
@@ -1277,6 +1276,12 @@ task_groups:
       - e2e_search_simulated_mc_rs
       - e2e_search_simulated_mc_sharded
 
+
+  - name: e2e_multi_cluster_kind_meko_upgrade_task_group
+    max_hosts: -1
+    <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
+    tasks:
+      - e2e_meko_mck_upgrade
 
   - name: e2e_multi_cluster_2_clusters_task_group
     max_hosts: -1
@@ -1394,13 +1399,18 @@ task_groups:
       - e2e_om_ops_manager_backup_sharded_cluster
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_scale
-      - e2e_om_ops_manager_upgrade
       # disabled against the OM 9.0 RC for the same reason as
       # e2e_appdb_tls_operator_upgrade_v1_32_to_mck above
       #    - e2e_multi_cluster_appdb_upgrade_downgrade_v1_27_to_mck
       - e2e_om_update_before_reconciliation
       - e2e_om_feature_controls
       - e2e_multi_cluster_sharded_disaster_recovery
+
+  - name: e2e_static_multi_cluster_om_appdb_ops_manager_upgrade_task_group
+    max_hosts: -1
+    <<: [ *setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group ]
+    tasks:
+      - e2e_om_ops_manager_upgrade
 
   # Multi-cluster MongoDBSearch tests that need a self-hosted Ops Manager:
   # the metrics forwarder requires OM >= 8.0.25, so these cannot run on the
@@ -2053,6 +2063,7 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: e2e_multi_cluster_kind_task_group
+      - name: e2e_multi_cluster_kind_meko_upgrade_task_group
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
@@ -2062,6 +2073,7 @@ buildvariants:
     <<: *base_om8_dependency
     tasks:
       - name: e2e_multi_cluster_kind_task_group
+      - name: e2e_multi_cluster_kind_meko_upgrade_task_group
 
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
@@ -2099,6 +2111,7 @@ buildvariants:
     <<: *base_om9_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
+      - name: e2e_static_multi_cluster_om_appdb_ops_manager_upgrade_task_group
 
   # The multi-cluster AppDB operator upgrade/downgrade test cannot run against
   # OM 8.x/9.x (it starts from the released v1.27 operator whose baked
