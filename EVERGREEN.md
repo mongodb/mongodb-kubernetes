@@ -111,7 +111,9 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
-| `evergreen:e2e-all`        | `e2e_test_suite`     | Main e2e set (excludes smoke and OpenShift suites)                                                             |
+| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1000 tasks, complete e2e set (excludes multi-arch smoke tests)                                                |
+| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~250 tasks tagged `e2e_medium`: subset of e2e-all across static/non-static, OM 7/8/9, multi-cluster, OpenShift |
+| `evergreen:e2e-light`      | `e2e_test_suite`     | ~125 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
 | `evergreen:e2e-static`     | `static`             | Static-container e2e variants + shared init/build (`init_test_run`, `init_tests_with_olm`, `build_om*_images`) |
 | `evergreen:e2e-non-static` | `non_static`         | Non-static e2e variants + shared init/build                                                                    |
 | `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (including OpenShift)                                                                        |
