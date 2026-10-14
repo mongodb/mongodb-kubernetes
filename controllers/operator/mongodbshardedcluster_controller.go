@@ -1204,7 +1204,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), log)
+	reconcileResult := checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval, log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}
