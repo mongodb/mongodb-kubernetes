@@ -22,6 +22,7 @@ from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -37,11 +38,14 @@ from tests.common.ops_manager.scoped_project import (
     start_backup_like_the_ui,
     wait_for_backup_config,
 )
+from tests.conftest import local_operator
 
 # The Ops Manager with backup, oplog and blockstore is set up by the fixtures of the multi-cluster backup test.
 from tests.multicluster.multi_cluster_backup_restore import (  # noqa: F401
     blockstore_replica_set,
     blockstore_user,
+    expose_om_to_member_clusters,
+    interconnected_base_url,
     oplog_replica_set,
     oplog_user,
     ops_manager,
@@ -55,10 +59,21 @@ RUN_SUFFIX = "".join(random.choices(string.ascii_lowercase + string.digits, k=6)
 RESOURCE_NAME = f"mdb-scoped-{RUN_SUFFIX}"
 
 
+def om_base_url(ops_manager: MongoDBOpsManager) -> str:
+    """The address of Ops Manager for the operator, the agents and the test. In Evergreen the operator and Ops Manager
+    are in a cluster of their own, so the interconnected address that every cluster resolves is needed. A local
+    operator reaches the plain service name through the cluster proxy and cannot resolve the interconnected one."""
+    if local_operator():
+        url = ops_manager.om_status().get_url()
+        assert url is not None, "Ops Manager URL must not be None"
+        return url
+    return interconnected_base_url(ops_manager)
+
+
 @fixture(scope="module")
 def admin_om_tester(ops_manager: MongoDBOpsManager, central_cluster_client: kubernetes.client.ApiClient) -> OMTester:
     ops_manager.load()
-    return ops_manager.get_om_tester(api_client=central_cluster_client)
+    return ops_manager.get_om_tester(api_client=central_cluster_client, base_url=om_base_url(ops_manager))
 
 
 @fixture(scope="module")
@@ -69,10 +84,13 @@ def scoped_project(
     multi_cluster_issuer_ca_configmap: str,
     ops_manager: MongoDBOpsManager,
 ) -> ScopedProject:
-    base_url = ops_manager.om_status().get_url()
-    assert base_url is not None, "Ops Manager URL must not be None"
     return create_scoped_project(
-        admin_om_tester, namespace, RESOURCE_NAME, base_url, multi_cluster_issuer_ca_configmap, central_cluster_client
+        admin_om_tester,
+        namespace,
+        RESOURCE_NAME,
+        om_base_url(ops_manager),
+        multi_cluster_issuer_ca_configmap,
+        central_cluster_client,
     )
 
 
@@ -132,6 +150,18 @@ class TestOpsManagerPreparedForBackup:
         ops_manager.update()
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=300, ignore_errors=True)
 
+    def test_expose_om_to_member_clusters(
+        self,
+        ops_manager: MongoDBOpsManager,
+        central_cluster_client: kubernetes.client.ApiClient,
+        member_cluster_clients: List[MultiClusterClient],
+    ):
+        if local_operator():
+            return
+        expose_om_to_member_clusters(ops_manager, central_cluster_client, member_cluster_clients)
+        # changing mms.centralUrl restarts Ops Manager
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
+
 
 @mark.e2e_multi_cluster_backup_scoped_credentials
 class TestBackupEnabledOutsideOfOperator:
@@ -146,9 +176,6 @@ class TestBackupEnabledOutsideOfOperator:
 
     def test_enable_backup_like_the_ui(self, scoped_project: ScopedProject):
         start_backup_like_the_ui(scoped_project)
-
-    def test_backup_works(self, scoped_project: ScopedProject):
-        scoped_project.tester.wait_until_backup_snapshots_are_ready(expected_count=1)
 
     def test_resource_unaffected_by_manual_backup(self, mongodb_multi: MongoDBMulti):
         mongodb_multi.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=300)

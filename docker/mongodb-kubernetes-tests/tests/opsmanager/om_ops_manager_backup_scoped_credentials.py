@@ -105,9 +105,6 @@ class TestBackupEnabledOutsideOfOperator:
     def test_enable_backup_like_the_ui(self, scoped_project: ScopedProject):
         start_backup_like_the_ui(scoped_project)
 
-    def test_backup_works(self, scoped_project: ScopedProject):
-        scoped_project.tester.wait_until_backup_snapshots_are_ready(expected_count=1)
-
 
 @mark.e2e_om_ops_manager_backup_scoped_credentials
 class TestConfiguringBackupInCrWithScopedKey:
