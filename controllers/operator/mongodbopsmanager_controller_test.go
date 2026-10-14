@@ -892,7 +892,7 @@ func TestOpsManagerBackupObjectLockRetentionFields(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().
 		SetVersion("8.0.27").
 		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
-		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: util.BooleanRef(true), ObjectRetentionDays: ptr.To(30), ObjectRetentionMode: ptr.To("COMPLIANCE")}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("COMPLIANCE")}).
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
