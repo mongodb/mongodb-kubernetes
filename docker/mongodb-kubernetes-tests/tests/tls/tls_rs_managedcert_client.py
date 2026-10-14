@@ -9,7 +9,7 @@ from tests.tls.managedcert_helper import (
     assert_leaf_secrets_created,
     managed_cert_replica_set,
     read_ca_bundles,
-    scale_and_wait_for_running,
+    scale_and_assert_member_cert_issuance,
 )
 
 MDB_RESOURCE = "test-tls-rs-managedcert-client"
@@ -57,8 +57,8 @@ def test_mdb_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_client
-def test_scale_up(mdb: MongoDB):
-    scale_and_wait_for_running(mdb, 5)
+def test_scale_up(mdb: MongoDB, namespace: str):
+    scale_and_assert_member_cert_issuance(mdb, MDB_RESOURCE, namespace, 5, reissued=True)
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_client
@@ -68,5 +68,5 @@ def test_reachable_with_ssl_after_scale_up(mdb: MongoDB, ca_path: str):
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_client
-def test_scale_down(mdb: MongoDB):
-    scale_and_wait_for_running(mdb, 3)
+def test_scale_down(mdb: MongoDB, namespace: str):
+    scale_and_assert_member_cert_issuance(mdb, MDB_RESOURCE, namespace, 3, reissued=False)

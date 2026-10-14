@@ -95,3 +95,27 @@ def scale_and_wait_for_running(mdb: MongoDB, members: int, timeout: int = 900):
     mdb["spec"]["members"] = members
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=timeout)
+
+
+def scale_and_assert_member_cert_issuance(mdb: MongoDB, name: str, namespace: str, members: int, *, reissued: bool):
+    """Scales the replica set, then checks how many times the member cert was issued.
+
+    reissued=True is for a scale up past the largest size reached so far: the operator adds members one
+    at a time, but the cert covers the target from the first step, so it is issued exactly once for the
+    whole scale up, not once per member.
+
+    reissued=False is for a scale down, or a scale up that stays within the largest size reached so far:
+    the operator never shrinks the member cert SANs, so the cert already covers every member and must not
+    be issued again. cert-manager's revision is unchanged and the content is byte-for-byte the same.
+    """
+    revision_before, cert_before = member_cert_issuance(name, namespace)
+
+    scale_and_wait_for_running(mdb, members)
+
+    revision_after, cert_after = member_cert_issuance(name, namespace)
+    if reissued:
+        assert revision_after == revision_before + 1, "member cert must be issued once for the whole scale up"
+        assert cert_after != cert_before, "member cert must be reissued to cover the new members"
+    else:
+        assert revision_after == revision_before, "member cert must not be reissued"
+        assert cert_after == cert_before, "member cert must not change"
