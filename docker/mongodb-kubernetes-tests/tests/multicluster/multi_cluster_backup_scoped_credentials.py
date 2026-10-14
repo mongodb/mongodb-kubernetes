@@ -170,6 +170,12 @@ class TestBackupEnabledOutsideOfOperator:
         mongodb_multi.update()
         mongodb_multi.assert_reaches_phase(Phase.Running, ignore_errors=True, timeout=1200)
 
+    def test_link_to_ops_manager_is_reported_in_status(
+        self, mongodb_multi: MongoDBMulti, ops_manager: MongoDBOpsManager, scoped_project: ScopedProject
+    ):
+        mongodb_multi.load()
+        assert mongodb_multi["status"]["link"] == f"{om_base_url(ops_manager)}/v2/{scoped_project.group_id}"
+
     def test_backup_is_not_started_yet(self, scoped_project: ScopedProject):
         wait_for_backup_config(scoped_project)
         assert backup_config_status(scoped_project) == "INACTIVE"
