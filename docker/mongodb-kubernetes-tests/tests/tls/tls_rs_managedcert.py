@@ -8,9 +8,8 @@ from tests.tls.managedcert_helper import (
     assert_leaf_secrets_created,
     assert_self_signed_ca_created,
     managed_cert_replica_set,
-    member_cert_issuance,
     read_ca_bundles,
-    scale_and_wait_for_running,
+    scale_and_assert_member_cert_issuance,
 )
 
 MDB_RESOURCE = "test-tls-rs-managedcert"
@@ -59,39 +58,17 @@ def test_mdb_is_not_reachable_without_ssl(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_managedcert
 def test_scale_up_issues_the_cert_once(mdb: MongoDB, namespace: str):
-    revision_before, cert_before = member_cert_issuance(MDB_RESOURCE, namespace)
-
-    scale_and_wait_for_running(mdb, 5)
-
-    # The operator adds members one at a time, but the cert covers the target (5) from the first
-    # step, so the whole scale up issues it exactly once instead of once per member.
-    revision_after, cert_after = member_cert_issuance(MDB_RESOURCE, namespace)
-    assert revision_after == revision_before + 1, "member cert must be issued once for the whole scale up"
-    assert cert_after != cert_before, "member cert must be reissued to cover the new members"
+    scale_and_assert_member_cert_issuance(mdb, MDB_RESOURCE, namespace, 5, reissued=True)
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert
 def test_scale_down_needs_no_new_certs(mdb: MongoDB, namespace: str):
-    revision_before, cert_before = member_cert_issuance(MDB_RESOURCE, namespace)
-
-    scale_and_wait_for_running(mdb, 3)
-
-    # The operator never shrinks the member cert SANs, so a scale down must not issue the cert
-    # again: cert-manager's revision is unchanged and the content is byte-for-byte the same.
-    revision_after, cert_after = member_cert_issuance(MDB_RESOURCE, namespace)
-    assert revision_after == revision_before, "member cert must not be reissued on scale down"
-    assert cert_after == cert_before, "member cert must not change on scale down"
+    scale_and_assert_member_cert_issuance(mdb, MDB_RESOURCE, namespace, 3, reissued=False)
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert
 def test_scale_up_within_peak_does_not_reissue(mdb: MongoDB, namespace: str):
-    revision_before, cert_before = member_cert_issuance(MDB_RESOURCE, namespace)
-
-    scale_and_wait_for_running(mdb, 4)
-
     # The cluster peaked at 5 members earlier, then scaled down to 3. The cert still covers members
     # 0-4, so scaling back up to 4 reuses a name already in the cert and must not reissue it. No
     # reissue means no trigger to restart or roll the members.
-    revision_after, cert_after = member_cert_issuance(MDB_RESOURCE, namespace)
-    assert revision_after == revision_before, "member cert must not be reissued on a scale up within the SAN peak"
-    assert cert_after == cert_before, "member cert must not change on a scale up within the SAN peak"
+    scale_and_assert_member_cert_issuance(mdb, MDB_RESOURCE, namespace, 4, reissued=False)
