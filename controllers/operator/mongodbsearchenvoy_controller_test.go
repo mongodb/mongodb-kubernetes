@@ -1284,7 +1284,7 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 		search.Spec.Clusters[0].LoadBalancer.Managed.Replicas = tc.lbReplicas
 		// cluster "a" is at index 0.
 		work := newClusterWorkItem(search, "a", 0, r.kubeClient, r.memberClients, r.operatorClusterName)
-		require.NoError(t, r.ensureDeployment(ctx, search, `{"x":1}`, work, search.GetManagedLBForCluster("a"), false, nil, zap.S()))
+		require.NoError(t, r.ensureDeployment(ctx, search, `{"x":1}`, work, search.GetManagedLBForCluster("a"), nil, zap.S()))
 
 		dep := &appsv1.Deployment{}
 		require.NoError(t, memberA.Get(ctx,
@@ -1299,7 +1299,7 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 		const restartedAtKey = "kubectl.kubernetes.io/restartedAt"
 		dep.Spec.Template.Annotations[restartedAtKey] = "2026-07-14T13:53:28Z"
 		require.NoError(t, memberA.Update(ctx, dep))
-		require.NoError(t, r.ensureDeployment(ctx, search, `{ "x": 1 }`, work, search.GetManagedLBForCluster("a"), false, nil, zap.S()))
+		require.NoError(t, r.ensureDeployment(ctx, search, `{ "x": 1 }`, work, search.GetManagedLBForCluster("a"), nil, zap.S()))
 		require.NoError(t, memberA.Get(ctx, client.ObjectKeyFromObject(dep), dep))
 		assert.Equal(t, "2026-07-14T13:53:28Z", dep.Spec.Template.Annotations[restartedAtKey])
 		assert.Equal(t, originalHash, dep.Spec.Template.Annotations[envoyConfigHashAnnotation])

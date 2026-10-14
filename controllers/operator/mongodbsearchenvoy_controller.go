@@ -342,7 +342,7 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
 	// CDS/LDS are hot-reloaded via filesystem xDS; only bootstrap and cert changes restart pods.
-	if err := r.ensureDeployment(ctx, search, bootstrapJSON, w, managedLB, tlsEnabled, tlsCfg, log); err != nil {
+	if err := r.ensureDeployment(ctx, search, bootstrapJSON, w, managedLB, tlsCfg, log); err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
 	return workflow.OK()
@@ -560,33 +560,29 @@ func envoyConfigHash(configJSON string, extra []byte) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-func envoyLBCertSecretsData(ctx context.Context, c client.Reader, search *searchv1.MongoDBSearch, clusterIndex int) ([]byte, error) {
-	data := map[string]map[string][]byte{}
-	for _, nsName := range []types.NamespacedName{search.LoadBalancerServerCert(clusterIndex), search.LoadBalancerClientCert(clusterIndex)} {
-		secret := &corev1.Secret{}
-		if err := c.Get(ctx, nsName, secret); err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			return nil, fmt.Errorf("failed to read LB cert Secret %s: %w", nsName, err)
-		}
-		data[nsName.Name] = secret.Data
-	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	return json.Marshal(data)
-}
-
 // ensureDeployment creates or updates the Envoy Deployment.
 // Bootstrap and LB cert data are hashed because static cert files require a restart;
 // CDS/LDS changes are hot-reloaded via filesystem xDS.
-func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, w clusterWorkItem, managedLB *searchv1.ManagedLBConfig, tlsEnabled bool, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, w clusterWorkItem, managedLB *searchv1.ManagedLBConfig, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
+	tlsEnabled := search.IsTLSConfigured()
 	var certData []byte
 	if tlsEnabled {
-		var err error
-		if certData, err = envoyLBCertSecretsData(ctx, w.Client, search, w.ClusterIndex); err != nil {
-			return err
+		data := map[string]map[string][]byte{}
+		for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(w.ClusterIndex), search.LoadBalancerClientCert(w.ClusterIndex)} {
+			secret := &corev1.Secret{}
+			if err := w.Client.Get(ctx, name, secret); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return fmt.Errorf("failed to read LB cert Secret %s: %w", name, err)
+			}
+			data[name.Name] = secret.Data
+		}
+		if len(data) > 0 {
+			var err error
+			if certData, err = json.Marshal(data); err != nil {
+				return err
+			}
 		}
 	}
 	configHash, err := envoyConfigHash(bootstrapJSON, certData)
