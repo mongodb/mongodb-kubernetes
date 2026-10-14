@@ -325,12 +325,8 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
 
 
 @mark.e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
-def test_rotate_lb_certificates_restarts_envoy(namespace: str):
+def test_rotate_lb_certificates_restarts_envoy(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     rotate_envoy_certificates(namespace, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
-
-
-@mark.e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
-def test_search_all_shards_after_lb_certificate_rotation(mdb: MongoDB, mdbs: MongoDBSearch):
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
     mdbs.assert_lb_status()
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)

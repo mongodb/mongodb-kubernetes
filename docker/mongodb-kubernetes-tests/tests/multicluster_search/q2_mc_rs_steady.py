@@ -1197,6 +1197,8 @@ def test_rotate_lb_certificates_restarts_per_cluster_envoy(
     central_cluster_client: kubernetes.client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     mdbs: MongoDBSearch,
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
 ):
     """Write members first, central last: only central Secret names are watched,
     while each Envoy hashes its member's data. No test-only reconcile nudge is used.
@@ -1211,14 +1213,6 @@ def test_rotate_lb_certificates_restarts_per_cluster_envoy(
     )
 
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
-
-
-@mark.e2e_search_q2_mc_rs_steady
-def test_per_cluster_search_query_after_lb_certificate_rotation(
-    mdb: MongoDBMulti,
-    helper: MCSearchDeploymentHelper,
-    member_cluster_clients: List[MultiClusterClient],
-):
     test_per_cluster_search_query(mdb, helper, member_cluster_clients)
 
 
