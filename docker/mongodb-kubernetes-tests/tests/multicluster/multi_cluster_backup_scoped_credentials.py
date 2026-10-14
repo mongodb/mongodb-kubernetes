@@ -17,10 +17,7 @@ from typing import List
 
 import kubernetes
 import kubernetes.client
-from kubetester import (
-    get_default_storage_class,
-    try_load,
-)
+from kubetester import get_default_storage_class, try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
