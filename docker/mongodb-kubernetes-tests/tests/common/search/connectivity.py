@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
@@ -667,9 +666,8 @@ def rotate_member_envoy_certificates(
         (search_resource_names.lb_client_cert_name, [f"*.{namespace}.svc.cluster.local"]),
     ):
 
-        def prepare_certificate(
-            member: MultiClusterClient,
-        ) -> tuple[MultiClusterClient, str, str, dict[str, str], str]:
+        replacements: list[tuple[MultiClusterClient, str, str, dict[str, str], str]] = []
+        for member in members:
             assert member.cluster_index is not None
             deployment_name = search_resource_names.lb_deployment_name(search_name, member.cluster_index)
             secret_name = cert_name(search_name, certs_prefix, member.cluster_index)
@@ -689,10 +687,7 @@ def rotate_member_envoy_certificates(
             assert data["tls.crt"] != read_secret(namespace, secret_name, api_client=member.api_client)["tls.crt"]
             before = member.apps_v1_api().read_namespaced_deployment(deployment_name, namespace)
             previous_hash = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
-            return member, deployment_name, secret_name, data, previous_hash
-
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            replacements = list(executor.map(prepare_certificate, members))
+            replacements.append((member, deployment_name, secret_name, data, previous_hash))
 
         for member, _, secret_name, data, _ in replacements:
             create_or_update_secret(

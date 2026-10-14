@@ -121,7 +121,6 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		return result, err
 	}
 	if !mdbSearch.DeletionTimestamp.IsZero() {
-		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
 		log.Infof("MongoDBSearch %s/%s is deleting; skipping envoy reconcile", mdbSearch.Namespace, mdbSearch.Name)
 		return reconcile.Result{}, nil
 	}
@@ -177,35 +176,16 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	}
 
 	// Resolve the source database (shared with the main search controller).
-	// Resolve before clearing dependencies so failed reads retain the last known source watch.
-	sourceWatch := watch.NewResourceWatcher()
-	searchSource, err := getSearchSource(ctx, r.kubeClient, sourceWatch, mdbSearch, log)
-	workList := r.buildClusterWorkList(mdbSearch)
-	desiredWatches := []watch.Object{{
-		ResourceType: watch.ConfigMap,
-		Resource:     types.NamespacedName{Name: searchcontroller.SearchStateCMName(mdbSearch), Namespace: mdbSearch.Namespace},
-	}}
-	for obj := range sourceWatch.GetWatchedResources() {
-		desiredWatches = append(desiredWatches, obj)
-	}
-	if mdbSearch.IsTLSConfigured() {
-		for _, w := range workList {
-			for _, name := range []types.NamespacedName{mdbSearch.LoadBalancerServerCert(w.ClusterIndex), mdbSearch.LoadBalancerClientCert(w.ClusterIndex)} {
-				desiredWatches = append(desiredWatches, watch.Object{ResourceType: watch.Secret, Resource: name})
-			}
-		}
-	}
-	if err == nil {
-		// TODO: Refactor common watch setup to synchronize dependencies without
-		// removing and re-adding unchanged registrations on every reconcile.
-		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
-	}
-	for _, obj := range desiredWatches {
-		r.watch.AddWatchedResourceIfNotAdded(obj.Resource.Name, obj.Resource.Namespace, obj.ResourceType, mdbSearch.NamespacedName())
-	}
+	searchSource, err := getSearchSource(ctx, r.kubeClient, r.watch, mdbSearch, log)
 	if err != nil {
 		return r.updateLBStatus(ctx, mdbSearch, workflow.Pending("Waiting for search source: %s", err), log)
 	}
+	r.watch.AddWatchedResourceIfNotAdded(
+		searchcontroller.SearchStateCMName(mdbSearch),
+		mdbSearch.Namespace,
+		watch.ConfigMap,
+		mdbSearch.NamespacedName(),
+	)
 
 	// Load the per-CR state for the routing-readiness switch.
 	state, err := searchcontroller.ReadSearchState(ctx, r.kubeClient, mdbSearch)
@@ -216,6 +196,14 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	tlsCfg := searchSource.TLSConfig()
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
+	workList := r.buildClusterWorkList(mdbSearch)
+	if tlsEnabled {
+		for _, w := range workList {
+			for _, name := range []types.NamespacedName{mdbSearch.LoadBalancerServerCert(w.ClusterIndex), mdbSearch.LoadBalancerClientCert(w.ClusterIndex)} {
+				r.watch.AddWatchedResourceIfNotAdded(name.Name, name.Namespace, watch.Secret, mdbSearch.NamespacedName())
+			}
+		}
+	}
 	var reconcileErrs error
 	var worstPhase status.Phase
 	var missingClusters []string
@@ -265,10 +253,10 @@ type clusterWorkItem struct {
 // spec.clusters is validated non-empty, so the empty-clusters branch is a
 // defensive backstop only.
 func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch) []clusterWorkItem {
-	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	if len(search.Spec.Clusters) == 0 {
-		work = append(work, newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName))
+		return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, r.memberClients, r.operatorClusterName)}
 	}
+	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	for _, c := range search.Spec.Clusters {
 		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, r.memberClients, r.operatorClusterName))
 	}
@@ -547,7 +535,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 }
 
 // envoyConfigHash hashes whitespace-normalized JSON: protojson output formatting
-// is deliberately randomized per compiled binary, so hashing raw bytes would restart
+// is deliberately randomized per compiled binary, so hashing raw bytes would roll
 // the Deployment on every operator rebuild.
 func envoyConfigHash(configJSON string, extra []byte) (string, error) {
 	var compact bytes.Buffer
@@ -911,7 +899,7 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &appsv1.Deployment{}, mapper, searchOwnerPredicate)); err != nil {
 		return err
 	}
-	// Plain ResourcesHandler: only registered dependency ConfigMaps (the search state)
+	// Plain ResourcesHandler: only registered dependency ConfigMaps (e.g. CA bundles)
 	// route create/update events; the rendered LB ConfigMap is not registered, so
 	// manual edits to it never trigger a re-render (Envoy hot-reloads it in place).
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
