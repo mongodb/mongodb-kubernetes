@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/e2e_static_multi_cluster_2_clusters"
+
+export MDB_DEFAULT_IMAGE_TYPE=ubi9-slim
+# counterpart pins 6.0.5 and uses the 5.0.1 prev default; 5.0 has no ubi9-slim builds
+export CUSTOM_MDB_VERSION=6.0.29
+export CUSTOM_MDB_PREV_VERSION=6.0.27

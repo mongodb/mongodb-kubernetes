@@ -1698,6 +1698,16 @@ buildvariants:
       - name: e2e_mdb_kind_cloudqa_task_group
       - name: e2e_mdb_container_image_type_task_group
 
+  - name: e2e_static_mdb_kind_ubi9_slim_cloudqa
+    display_name: e2e_static_mdb_kind_ubi9_slim_cloudqa
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
+    <<: [ *production_code_paths, *base_no_om_image_dependency ]
+    run_on:
+      - ubuntu2404-medium
+    tasks:
+      - name: e2e_mdb_kind_cloudqa_task_group
+      - name: e2e_mdb_container_image_type_task_group
+
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
@@ -1760,6 +1770,22 @@ buildvariants:
   - name: e2e_static_openshift_mdb_ubi_cloudqa
     display_name: e2e_static_openshift_mdb_ubi_cloudqa
     tags: [ "staging", "cloudqa", "e2e_openshift_test_suite", "e2e_test_suite", "static" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: e2e_mdb_openshift_ubi_cloudqa_task_group
+      - name: e2e_mdb_container_image_type_task_group
+
+  - name: e2e_static_openshift_mdb_ubi9_slim_cloudqa
+    display_name: e2e_static_openshift_mdb_ubi9_slim_cloudqa
+    tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "static" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1914,6 +1940,15 @@ buildvariants:
       - name: e2e_ops_manager_upgrade_only_task_group
       - name: e2e_operator_upgrade_only_task_group
 
+  - name: e2e_static_om80_kind_ubi9_slim
+    display_name: e2e_static_om80_kind_ubi9_slim
+    tags: [ "staging", "e2e_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: e2e_static_ops_manager_kind_only_task_group
+
   - name: e2e_om80_kind_ubi_large
     display_name: e2e_om80_kind_ubi_large
     tags: [ "staging", "e2e_test_suite", "non_static" ]
@@ -1985,6 +2020,27 @@ buildvariants:
     tasks:
       - name: e2e_smoke_ibm_task_group
 
+  - name: e2e_static_smoke_ibm_power_ubi9_slim
+    display_name: e2e_static_smoke_ibm_power_ubi9_slim
+    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    run_on:
+      - rhel9-power-small
+      - rhel9-power-large
+    allowed_requesters: [ "patch", "commit" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm_power
+        variant: init_test_run_ibm_power
+      - name: publish_helm_chart
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
   - name: e2e_smoke_ibm_z
     display_name: e2e_smoke_ibm_z
     tags: [ "staging", "e2e_smoke_test_suite" ]
@@ -2008,6 +2064,25 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_z
     display_name: e2e_static_smoke_ibm_z
+    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    run_on:
+      - rhel9-zseries-small
+      - rhel9-zseries-large
+    allowed_requesters: [ "patch", "commit" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_ibm_z
+        variant: init_test_run_ibm_z
+      - name: publish_helm_chart
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_ibm_task_group
+
+  - name: e2e_static_smoke_ibm_z_ubi9_slim
+    display_name: e2e_static_smoke_ibm_z_ubi9_slim
     tags: [ "staging", "e2e_smoke_test_suite", "static" ]
     run_on:
       - rhel9-zseries-small
@@ -2063,6 +2138,24 @@ buildvariants:
     tasks:
       - name: e2e_smoke_arm_task_group
 
+  - name: e2e_static_smoke_arm_ubi9_slim
+    display_name: e2e_static_smoke_arm_ubi9_slim
+    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-arm64-large
+    allowed_requesters: [ "patch", "commit" ]
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_test_image_arm
+        variant: init_test_run_arm
+      - name: publish_helm_chart
+        variant: init_test_run
+    tasks:
+      - name: e2e_smoke_arm_task_group
+
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
     tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
@@ -2083,6 +2176,15 @@ buildvariants:
       - name: e2e_multi_cluster_kind_task_group
       - name: e2e_multi_cluster_kind_meko_upgrade_task_group
 
+  - name: e2e_static_multi_cluster_kind_ubi9_slim
+    display_name: e2e_static_multi_cluster_kind_ubi9_slim
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
+    run_on:
+      - ubuntu2404-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: e2e_multi_cluster_kind_task_group
+
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
     tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
@@ -2098,6 +2200,15 @@ buildvariants:
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
+    tasks:
+      - name: e2e_multi_cluster_2_clusters_task_group
+
+  - name: e2e_static_multi_cluster_2_clusters_ubi9_slim
+    display_name: e2e_static_multi_cluster_2_clusters_ubi9_slim
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
+    run_on:
+      - ubuntu2404-large
+    <<: *base_om8_dependency
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
@@ -2142,6 +2253,15 @@ buildvariants:
     <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_om70_appdb_upgrade_task_group
+
+  - name: e2e_static_multi_cluster_om_appdb_ubi9_slim
+    display_name: e2e_static_multi_cluster_om_appdb_ubi9_slim
+    tags: [ "staging", "e2e_test_suite", "static" ]
+    run_on:
+      - ubuntu2404-large
+    <<: *base_om8_dependency
+    tasks:
+      - name: e2e_static_multi_cluster_om_appdb_task_group
 
   - name: e2e_multi_cluster_om80_search
     display_name: e2e_multi_cluster_om80_search
