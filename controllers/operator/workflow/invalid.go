@@ -14,7 +14,7 @@ type invalidStatus struct {
 	targetPhase status.Phase
 }
 
-func Invalid(msg string, params ...interface{}) *invalidStatus {
+func Invalid(msg string, params ...any) *invalidStatus {
 	return &invalidStatus{commonStatus: newCommonStatus(msg, params...), targetPhase: status.PhaseFailed}
 }
 

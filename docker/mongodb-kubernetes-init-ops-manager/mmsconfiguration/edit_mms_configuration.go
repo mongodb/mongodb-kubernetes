@@ -218,7 +218,7 @@ func updateMmsProperties(lines []string, newProperties map[string]string) []stri
 			continue
 		}
 
-		key := strings.Split(line, "=")[0]
+		key, _, _ := strings.Cut(line, "=")
 		if newVal, ok := newProperties[key]; ok {
 			lines[i] = fmt.Sprintf("%s=%s", key, newVal)
 			seenProperties[key] = true

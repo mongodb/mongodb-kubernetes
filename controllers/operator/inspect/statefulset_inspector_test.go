@@ -9,13 +9,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func TestStatefulSetInspector(t *testing.T) {
 	statefulSet := appsv1.StatefulSet{
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: util.Int32Ref(3),
+			Replicas: new(int32(3)),
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "sts",
@@ -49,7 +48,7 @@ func TestStatefulSetInspector(t *testing.T) {
 
 	// We "scale" the StatefulSet
 	// Even though every other properties are the same, we need Spec.Replicas to be equal to Status.Replicas to be ready
-	statefulSet.Spec.Replicas = util.Int32Ref(5)
+	statefulSet.Spec.Replicas = new(int32(5))
 	statefulSet.Generation = 2
 
 	state = StatefulSet(statefulSet, 2)

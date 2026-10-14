@@ -1,6 +1,7 @@
 package om
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -41,7 +42,7 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 }
 
 // WaitForReadyState waits until the agents for relevant processes reach their state
-func WaitForReadyState(oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
+func WaitForReadyState(ctx context.Context, oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
 	if len(processNames) == 0 {
 		log.Infow("Not waiting for MongoDB agents to reach READY state (no expected processes to wait for)")
 		return nil
@@ -49,7 +50,7 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 
 	log.Infow("Waiting for MongoDB agents to reach READY state...", "processes", processNames)
 	reachStateFunc := func() (string, bool) {
-		as, lastErr := oc.ReadAutomationStatus()
+		as, lastErr := oc.ReadAutomationStatus(ctx)
 		if lastErr != nil {
 			return fmt.Sprintf("Error reading Automation Agents status: %s", lastErr), false
 		}
@@ -60,7 +61,7 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 			return fmt.Sprintf("MongoDB agents haven't reached READY state; %s", msg), false
 		}
 	}
-	ok, msg := util.DoAndRetry(reachStateFunc, log, 30, 3)
+	ok, msg := util.DoAndRetry(ctx, reachStateFunc, log, 30, 3)
 	if !ok {
 		if supressErrors {
 			log.Warnf("automation agents haven't reached READY state but the error is supressed")
@@ -155,15 +156,13 @@ func areAnyAgentsInKubeUpgradeMode(as *AutomationStatus, relevantProcesses []str
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
 		}
-		for _, move := range p.Plan {
-			// This means the following:
-			// - the cluster is in static architecture
-			// - the agents are in a dedicated upgrade process, waiting for their binaries to be replaced by kubernetes
-			// - this can only happen if the statefulset is ready, therefore we are returning ready here
-			if move == automationAgentKubeUpgradeMove {
-				log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
-				return true
-			}
+		// This means the following:
+		// - the cluster is in static architecture
+		// - the agents are in a dedicated upgrade process, waiting for their binaries to be replaced by kubernetes
+		// - this can only happen if the statefulset is ready, therefore we are returning ready here
+		if slices.Contains(p.Plan, automationAgentKubeUpgradeMove) {
+			log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
+			return true
 		}
 	}
 	return false

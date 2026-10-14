@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -283,7 +282,7 @@ func TestExposedExternallyReplicaSet(t *testing.T) {
 	err := client.Get(ctx, types.NamespacedName{Name: rs.Name + "-svc-external", Namespace: rs.Namespace}, externalService)
 	assert.Error(t, err)
 
-	for podNum := 0; podNum < 3; podNum++ {
+	for podNum := range 3 {
 		err := client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%d-svc-external", rs.Name, podNum), Namespace: rs.Namespace}, externalService)
 		assert.NoError(t, err)
 
@@ -308,7 +307,7 @@ func TestExposedExternallyReplicaSetExternalDomainInHostnames(t *testing.T) {
 	memberCount := 3
 	replicaSetName := "rs"
 	var expectedHostnames []string
-	for i := 0; i < memberCount; i++ {
+	for i := range memberCount {
 		expectedHostnames = append(expectedHostnames, fmt.Sprintf("%s-%d.%s", replicaSetName, i, externalDomain))
 	}
 
@@ -358,7 +357,7 @@ func TestExposedExternallyReplicaSetWithNodePort(t *testing.T) {
 	}
 
 	// then
-	for podNum := 0; podNum < 3; podNum++ {
+	for podNum := range 3 {
 		err := client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%d-svc-external", rs.Name, podNum), Namespace: rs.Namespace}, externalService)
 		assert.NoError(t, err)
 
@@ -458,7 +457,7 @@ func TestDeleteReplicaSetWithExternalMembers(t *testing.T) {
 
 	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 
-	hostsBefore, err := mockedOmConn.GetHosts()
+	hostsBefore, err := mockedOmConn.GetHosts(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, hostsBefore.Results, "precondition: the replica set is monitored in OM")
 
@@ -467,13 +466,13 @@ func TestDeleteReplicaSetWithExternalMembers(t *testing.T) {
 	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
 
 	// The replica set and its processes must still be in the automation config.
-	d, err := mockedOmConn.ReadDeployment()
+	d, err := mockedOmConn.ReadDeployment(ctx)
 	require.NoError(t, err)
 	assert.NotEmpty(t, d.GetReplicaSets(), "replica set must stay in the automation config")
 	assert.NotEmpty(t, d.GetProcessNames(om.ReplicaSet{}, rs.Name), "processes must stay in the automation config")
 
 	// Monitoring must be untouched.
-	hostsAfter, err := mockedOmConn.GetHosts()
+	hostsAfter, err := mockedOmConn.GetHosts(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, hostsBefore.Results, hostsAfter.Results, "monitored hosts must not be deregistered")
 
@@ -483,7 +482,7 @@ func TestDeleteReplicaSetWithExternalMembers(t *testing.T) {
 		reflect.ValueOf(mockedOmConn.RemoveHost))
 
 	// Feature controls must have been cleared.
-	cf, err := mockedOmConn.GetControlledFeature()
+	cf, err := mockedOmConn.GetControlledFeature(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, util.OperatorName, cf.ManagementSystem.Name)
 	assert.NotNil(t, cf.Policies)
@@ -498,7 +497,7 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(authentication.ScramSha256))
 
 	// downgrade to version that will not use SCRAM-SHA-256
@@ -615,7 +614,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
 	mockedConn := omConnectionFactory.GetConnection()
-	cf, _ := mockedConn.GetControlledFeature()
+	cf, _ := mockedConn.GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 3)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -639,7 +638,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
 	mockedConn := omConnectionFactory.GetConnection()
-	cf, _ := mockedConn.GetControlledFeature()
+	cf, _ := mockedConn.GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 2)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -783,10 +782,11 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 	uuidStr := uuid.New().String()
 	// configure backup for this project in Ops Manager in the mocked connection
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		_, err := connection.UpdateBackupConfig(&backup.Config{
+		_, err := connection.UpdateBackupConfig(ctx, &backup.Config{
 			ClusterId: uuidStr,
 			Status:    backup.Inactive,
 		})
+
 		assert.NoError(t, err)
 
 		// add corresponding host cluster.
@@ -800,7 +800,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 	t.Run("Backup can be started", func(t *testing.T) {
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -819,7 +819,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -836,7 +836,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -885,7 +885,7 @@ func TestHandlePVCResize(t *testing.T) {
 				Namespace: "default",
 			},
 			Spec: appsv1.StatefulSetSpec{
-				Replicas: ptr.To(int32(3)),
+				Replicas: new(int32(3)),
 				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -946,7 +946,7 @@ func TestReplicaSetReconciler_PVCStatusClearedAfterSuccessfulResize(t *testing.T
 		podSpec := newDefaultPodSpec()
 		podSpec.Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1Gi"}}
 		rs := DefaultReplicaSetBuilder().
-			SetPersistent(util.BooleanRef(true)).
+			SetPersistent(new(true)).
 			SetPodSpec(&podSpec).
 			Build()
 
@@ -1247,7 +1247,7 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 	err := client.Get(ctx, mdb.ObjectKey(), mdb)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, mdb.Status.Members, msg)
-	dep, err := omConnection.ReadDeployment()
+	dep, err := omConnection.ReadDeployment(ctx)
 	assert.NoError(t, err)
 	assert.Len(t, dep.ProcessesCopy(), expected)
 }
@@ -1292,7 +1292,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	spec := mdbv1.MongoDbSpec{
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Version:    "4.0.0",
-			Persistent: util.BooleanRef(false),
+			Persistent: new(false),
 			ConnectionSpec: mdbv1.ConnectionSpec{
 				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
 					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
@@ -1472,21 +1472,6 @@ func (b *ReplicaSetBuilder) ExposedExternally(specOverride *corev1.ServiceSpec, 
 	return b
 }
 
-func (b *ReplicaSetBuilder) SetExternalMembers(members []mdbv1.ExternalMember) *ReplicaSetBuilder {
-	b.Spec.ExternalMembers = members
-	return b
-}
-
-func (b *ReplicaSetBuilder) SetFinalizers(finalizers []string) *ReplicaSetBuilder {
-	b.Finalizers = finalizers
-	return b
-}
-
-func (b *ReplicaSetBuilder) SetDeletionTimestamp(t metav1.Time) *ReplicaSetBuilder {
-	b.DeletionTimestamp = &t
-	return b
-}
-
 func (b *ReplicaSetBuilder) Build() *mdbv1.MongoDB {
 	b.InitDefaults()
 	return b.DeepCopy()
@@ -1501,7 +1486,7 @@ func baseTestStatefulSet(name string, replicas int32) *appsv1.StatefulSet {
 			Namespace: mock.TestNamespace,
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: ptr.To(replicas),
+			Replicas: new(replicas),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -1724,7 +1709,7 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 		return &searchv1.MongoDBSearch{
 			ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
 			Spec: searchv1.MongoDBSearchSpec{
-				Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(7))}},
+				Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(7))}},
 				Source:   &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"}},
 			},
 		}
@@ -1766,7 +1751,7 @@ func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
 		)
 		d := om.NewDeployment()
 		d.MergeReplicaSet(buildRsByProcessesHelper("conn-str-rs", []om.Process{vmProcess}), nil, nil, nil, zap.S())
-		_, _ = mocked.UpdateDeployment(d)
+		_, _ = mocked.UpdateDeployment(ctx, d)
 	})
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
@@ -1797,7 +1782,7 @@ func vmProcessWithSearchSetParameters(t *testing.T, withSearch bool) om.Deployme
 	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "8.2.0"}}
 	additional := &mdbv1.AdditionalMongodConfig{}
 	if withSearch {
-		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]interface{}{
+		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]any{
 			"mongotHost":                       "mdb-search-0.mdb-search-svc.my-namespace.svc.cluster.local:27028",
 			"searchIndexManagementHostAndPort": "mdb-search-0.mdb-search-svc.my-namespace.svc.cluster.local:27028",
 		})
@@ -1832,7 +1817,7 @@ func TestReplicaSetMigration_ProceedsWhenVMProcessHasSearchConfig(t *testing.T) 
 
 	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
 	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
-		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(vmProcessWithSearchSetParameters(t, true))
+		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(ctx, vmProcessWithSearchSetParameters(t, true))
 	})
 
 	// Search setParameters on the external (VM) process do not hold the migration back: the
@@ -1863,7 +1848,7 @@ func TestEnsureAppDBRoleKeyfile(t *testing.T) {
 			conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
 
 			if tt.projectKey != "" {
-				require.NoError(t, conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+				require.NoError(t, conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 					ac.Auth.Key = tt.projectKey
 					return nil
 				}, zap.S()))
@@ -1882,7 +1867,7 @@ func TestEnsureAppDBRoleKeyfile(t *testing.T) {
 			// second call must be stable: same key in the AC and the secret (determinism)
 			require.NoError(t, helper.ensureAppDBRoleKeyfile(ctx, mdb, conn))
 
-			ac, err := conn.ReadAutomationConfig()
+			ac, err := conn.ReadAutomationConfig(ctx)
 			require.NoError(t, err)
 			sec := corev1.Secret{}
 			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, keyfileSecretName), &sec))
@@ -1916,7 +1901,7 @@ func TestEnsureAppDBRoleUser_CreatesSharedPasswordSecret(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, sec.Data[util.OpsManagerPasswordKey])
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
 	require.NotNil(t, createdUser)
@@ -1945,7 +1930,7 @@ func TestEnsureAppDBRoleUser_ReusesExistingPassword(t *testing.T) {
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, omv1.OpsManagerUserPasswordSecretName("my-om-db")), &result))
 	assert.Equal(t, "pre-existing-password", string(result.Data[util.OpsManagerPasswordKey]))
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
 	require.NotNil(t, createdUser)
@@ -1973,7 +1958,7 @@ func someOtherOwnerReference() []metav1.OwnerReference {
 			Kind:       "MongoDBOpsManager",
 			Name:       "some-other-owner",
 			UID:        types.UID(uuid.New().String()),
-			Controller: ptr.To(true),
+			Controller: new(true),
 		},
 	}
 }
@@ -1988,7 +1973,7 @@ func DefaultStatefulSetBuilder() *StatefulSetBuilder {
 		ObjectMeta: metav1.ObjectMeta{Namespace: mock.TestNamespace},
 		// Spec.Replicas must be non-nil: the fake client's Get interceptor
 		// (mock.markStatefulSetsReady) unconditionally dereferences it.
-		Spec: appsv1.StatefulSetSpec{Replicas: ptr.To(int32(3))},
+		Spec: appsv1.StatefulSetSpec{Replicas: new(int32(3))},
 	}}
 }
 
@@ -2008,7 +1993,7 @@ func (b *StatefulSetBuilder) SetAnnotations(annotations map[string]string) *Stat
 }
 
 func (b *StatefulSetBuilder) SetReplicas(replicas int32) *StatefulSetBuilder {
-	b.sts.Spec.Replicas = ptr.To(replicas)
+	b.sts.Spec.Replicas = new(replicas)
 	return b
 }
 
@@ -2142,13 +2127,13 @@ func TestConsumeAdoptionSignal(t *testing.T) {
 	}{
 		{
 			name: "keeps migration-ready annotation during adoption for reshape",
-			sts: ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").
+			sts: new(DefaultStatefulSetBuilder().SetName("my-om-db").
 				SetOwnerReferences(nil).
 				SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true", "other": "kept"}).Build()),
 		},
 		{
 			name: "no-op when annotation absent",
-			sts:  ptr.To(DefaultStatefulSetBuilder().SetName("my-om-db").SetOwnerReferences(nil).Build()),
+			sts:  new(DefaultStatefulSetBuilder().SetName("my-om-db").SetOwnerReferences(nil).Build()),
 		},
 		{
 			name: "no-op when StatefulSet does not exist",

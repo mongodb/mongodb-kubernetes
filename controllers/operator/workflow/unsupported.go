@@ -9,7 +9,7 @@ type unsupportedStatus struct {
 	*okStatus
 }
 
-func Unsupported(msg string, params ...interface{}) *unsupportedStatus {
+func Unsupported(msg string, params ...any) *unsupportedStatus {
 	return &unsupportedStatus{okStatus: &okStatus{commonStatus: newCommonStatus(msg, params...)}}
 }
 

@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -59,11 +58,11 @@ func TestEnsureTagAdded(t *testing.T) {
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	// normal tag
-	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "myTag", zap.S())
+	err := connection.EnsureTagAdded(ctx, mockOm, mockOm.FindGroup(om.TestGroupName), "myTag", zap.S())
 	assert.NoError(t, err)
 
 	// long tag
-	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "LOOKATTHISTRINGTHATISTOOLONGFORTHEFIELD", zap.S())
+	err = connection.EnsureTagAdded(ctx, mockOm, mockOm.FindGroup(om.TestGroupName), "LOOKATTHISTRINGTHATISTOOLONGFORTHEFIELD", zap.S())
 	assert.NoError(t, err)
 
 	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG", "LOOKATTHISTRINGTHATISTOOLONGFORT"}
@@ -76,11 +75,11 @@ func TestEnsureTagAddedDuplicates(t *testing.T) {
 	opsManagerController := NewReconcileCommonController(ctx, kubeClient)
 
 	mockOm, _ := prepareConnection(ctx, opsManagerController, omConnectionFactory.GetConnectionFunc, t)
-	err := connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
+	err := connection.EnsureTagAdded(ctx, mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
 	assert.NoError(t, err)
-	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
+	err = connection.EnsureTagAdded(ctx, mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
 	assert.NoError(t, err)
-	err = connection.EnsureTagAdded(mockOm, mockOm.FindGroup(om.TestGroupName), "MYOTHERTAG", zap.S())
+	err = connection.EnsureTagAdded(ctx, mockOm, mockOm.FindGroup(om.TestGroupName), "MYOTHERTAG", zap.S())
 	assert.NoError(t, err)
 	expected := []string{"EXTERNALLY_MANAGED_BY_KUBERNETES", "MY-NAMESPACE", "MYTAG", "MYOTHERTAG"}
 	assert.Equal(t, expected, mockOm.FindGroup(om.TestGroupName).Tags)
@@ -325,7 +324,7 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
-	ac, err := mockOm.ReadAutomationConfig()
+	ac, err := mockOm.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.False(t, ok)
@@ -351,7 +350,7 @@ func TestRoleRefsAreAdded(t *testing.T) {
 
 	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 
-	ac, err := mockOm.ReadAutomationConfig()
+	ac, err := mockOm.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.True(t, ok)
@@ -380,7 +379,7 @@ func TestErrorWhenRoleRefIsWrong(t *testing.T) {
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
-	ac, err := mockOm.ReadAutomationConfig()
+	ac, err := mockOm.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.False(t, ok)
@@ -406,7 +405,7 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
-	ac, err := mockOm.ReadAutomationConfig()
+	ac, err := mockOm.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.False(t, ok)
@@ -430,7 +429,7 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
-	ac, err := mockOm.ReadAutomationConfig()
+	ac, err := mockOm.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.True(t, ok)
@@ -450,36 +449,36 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 		Privileges: []mdbv1.Privilege{
 			{
 				Resource: mdbv1.Resource{
-					Db:         ptr.To("config"),
-					Collection: ptr.To(""), // Explicit empty string
+					Db:         new("config"),
+					Collection: new(""), // Explicit empty string
 				},
 				Actions: []string{"find", "update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Db:         ptr.To("users"),
-					Collection: ptr.To("usersCollection"),
+					Db:         new("users"),
+					Collection: new("usersCollection"),
 				},
 				Actions: []string{"update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Db:         ptr.To(""), // Explicit empty string
-					Collection: ptr.To(""), // Explicit empty string
+					Db:         new(""), // Explicit empty string
+					Collection: new(""), // Explicit empty string
 				},
 				Actions: []string{"find"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Cluster: ptr.To(true),
+					Cluster: new(true),
 				},
 				Actions: []string{"find"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Cluster:    ptr.To(true),
-					Db:         ptr.To(""),
-					Collection: ptr.To(""),
+					Cluster:    new(true),
+					Db:         new(""),
+					Collection: new(""),
 				},
 				Actions: []string{"find"},
 			},
@@ -497,15 +496,15 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 		Privileges: []mdbv1.Privilege{
 			{
 				Resource: mdbv1.Resource{
-					Db: ptr.To("config"),
+					Db: new("config"),
 					// field not set, should pass ""
 				},
 				Actions: []string{"find", "update", "insert", "remove"},
 			},
 			{
 				Resource: mdbv1.Resource{
-					Db:         ptr.To("users"),
-					Collection: ptr.To("usersCollection"),
+					Db:         new("users"),
+					Collection: new("usersCollection"),
 				},
 				Actions: []string{"update", "insert", "remove"},
 			},
@@ -517,7 +516,7 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 			},
 			{
 				Resource: mdbv1.Resource{
-					Cluster: ptr.To(true),
+					Cluster: new(true),
 				},
 				Actions: []string{"find"},
 			},
@@ -531,7 +530,7 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 
 	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 
-	ac, err := mockOm.ReadAutomationConfig()
+	ac, err := mockOm.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.True(t, ok)
@@ -540,17 +539,17 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 	// we iterate over two created privileges because both should end with the same result
 	for i := range 2 {
 		assert.Nil(t, roles[i].Privileges[0].Resource.Cluster)
-		assert.Equal(t, ptr.To("config"), roles[i].Privileges[0].Resource.Db)
+		assert.Equal(t, new("config"), roles[i].Privileges[0].Resource.Db)
 		// even if the db or collection field is not passed it must result in empty string
-		assert.Equal(t, ptr.To(""), roles[i].Privileges[0].Resource.Collection)
+		assert.Equal(t, new(""), roles[i].Privileges[0].Resource.Collection)
 
 		assert.Nil(t, roles[i].Privileges[1].Resource.Cluster)
-		assert.Equal(t, ptr.To("users"), roles[i].Privileges[1].Resource.Db)
-		assert.Equal(t, ptr.To("usersCollection"), roles[i].Privileges[1].Resource.Collection)
+		assert.Equal(t, new("users"), roles[i].Privileges[1].Resource.Db)
+		assert.Equal(t, new("usersCollection"), roles[i].Privileges[1].Resource.Collection)
 
 		assert.Nil(t, roles[i].Privileges[2].Resource.Cluster)
-		assert.Equal(t, ptr.To(""), roles[i].Privileges[2].Resource.Db)
-		assert.Equal(t, ptr.To(""), roles[i].Privileges[2].Resource.Collection)
+		assert.Equal(t, new(""), roles[i].Privileges[2].Resource.Db)
+		assert.Equal(t, new(""), roles[i].Privileges[2].Resource.Collection)
 
 		require.NotNil(t, roles[i].Privileges[3].Resource.Cluster)
 		assert.True(t, *roles[i].Privileges[3].Resource.Cluster)
@@ -1042,8 +1041,7 @@ func testConcurrentReconciles(ctx context.Context, t *testing.T, client client.C
 
 	var wg sync.WaitGroup
 	for _, object := range objects {
-		wg.Add(1)
-		go func() {
+		wg.Go(func() {
 			result, err := reconciler.Reconcile(ctx, requestFromObject(object))
 			assert.NoError(t, err)
 
@@ -1058,9 +1056,7 @@ func testConcurrentReconciles(ctx context.Context, t *testing.T, client client.C
 			result, err = reconciler.Reconcile(ctx, requestFromObject(object))
 			assert.NoError(t, err)
 			assert.Equal(t, reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}, result)
-
-			wg.Done()
-		}()
+		})
 	}
 	wg.Wait()
 }
@@ -1076,7 +1072,7 @@ func testFCVsCases(t *testing.T, verifyFCV func(version string, expectedFCV stri
 		{"5.0.0", "4.0", nil},
 		{"5.0.0", "4.0", nil},
 		{"6.0.0", "6.0", nil},
-		{"7.0.0", "7.0", ptr.To("AlwaysMatchVersion")},
+		{"7.0.0", "7.0", new("AlwaysMatchVersion")},
 		{"8.0.0", "8.0", nil},
 		{"7.0.0", "7.0", nil},
 	}
@@ -1141,7 +1137,7 @@ func buildRsByProcessesHelper(rsName string, processes []om.Process) om.ReplicaS
 
 func createRSProcessesHelper(rsName string, count int) []om.Process {
 	ps := make([]om.Process, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}}
 		ps[i] = om.NewMongodProcess(
 			fmt.Sprintf("%s-%d", rsName, i),
@@ -1158,26 +1154,29 @@ type failingOMConn struct {
 	om.Connection
 }
 
-func (f failingOMConn) ReadDeployment() (om.Deployment, error) {
+func (f failingOMConn) ReadDeployment(ctx context.Context) (om.Deployment, error) {
 	return om.NewDeployment(), fmt.Errorf("forced error")
 }
 
 func TestCheckExternalMembersDrift_EmptyList(t *testing.T) {
+	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())
-	status := checkExternalMembersDrift(conn, nil)
+	status := checkExternalMembersDrift(ctx, conn, nil)
 	assert.True(t, status.IsOK())
 }
 
 func TestCheckExternalMembersDrift_MissingProcessInAC(t *testing.T) {
+	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	externalMembers := []mdbv1.ExternalMember{
 		{ProcessName: "not-in-ac", Hostname: "not-in-ac:27017", Type: "mongod"},
 	}
-	status := checkExternalMembersDrift(conn, externalMembers)
+	status := checkExternalMembersDrift(ctx, conn, externalMembers)
 	assert.False(t, status.IsOK())
 }
 
 func TestCheckExternalMembersDrift_MatchingProcess(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
@@ -1186,11 +1185,12 @@ func TestCheckExternalMembersDrift_MatchingProcess(t *testing.T) {
 	externalMembers := []mdbv1.ExternalMember{
 		{ProcessName: "my-rs-0", Hostname: "my-rs-0.some.host:27017", Type: "mongod", ReplicaSetName: "my-rs"},
 	}
-	status := checkExternalMembersDrift(conn, externalMembers)
+	status := checkExternalMembersDrift(ctx, conn, externalMembers)
 	assert.True(t, status.IsOK())
 }
 
 func TestCheckExternalMembersDrift_HostnameMismatch(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
@@ -1199,32 +1199,35 @@ func TestCheckExternalMembersDrift_HostnameMismatch(t *testing.T) {
 	externalMembers := []mdbv1.ExternalMember{
 		{ProcessName: "my-rs-0", Hostname: "wrong-host:27017", Type: "mongod", ReplicaSetName: "my-rs"},
 	}
-	status := checkExternalMembersDrift(conn, externalMembers)
+	status := checkExternalMembersDrift(ctx, conn, externalMembers)
 	assert.False(t, status.IsOK())
 }
 
 func TestValidateACForMigration_EmptyList(t *testing.T) {
+	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 0, nil)
-	status := validateACForMigration(conn, mdb)
+	status := validateACForMigration(ctx, conn, mdb)
 	assert.True(t, status.IsOK())
 }
 
 func TestValidateACForMigration_TLSModeSet(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
-	d.GetProcesses()[0].EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "requireTLS"}
+	d.GetProcesses()[0].EnsureNetConfig()["tls"] = map[string]any{"mode": "requireTLS"}
 
 	conn := om.NewMockedOmConnection(d)
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 1, []mdbv1.ExternalMember{
 		{ProcessName: "my-rs-0", Hostname: "my-rs-0.some.host:27017", Type: "mongod"},
 	})
-	status := validateACForMigration(conn, mdb)
+	status := validateACForMigration(ctx, conn, mdb)
 	assert.True(t, status.IsOK())
 }
 
 func TestValidateACForMigration_TLSModeNotSet(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
@@ -1236,16 +1239,17 @@ func TestValidateACForMigration_TLSModeNotSet(t *testing.T) {
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 1, []mdbv1.ExternalMember{
 		{ProcessName: "my-rs-0", Hostname: "my-rs-0.some.host:27017", Type: "mongod"},
 	})
-	status := validateACForMigration(conn, mdb)
+	status := validateACForMigration(ctx, conn, mdb)
 	assert.False(t, status.IsOK())
 }
 
 func TestValidateACForMigration_ReadDeploymentError(t *testing.T) {
+	ctx := t.Context()
 	conn := failingOMConn{om.NewMockedOmConnection(om.NewDeployment())}
 	mdb := mongoDBForMigrationTest("some-rs", "my-ns", 1, []mdbv1.ExternalMember{
 		{ProcessName: "some-proc", Hostname: "some-proc:27017", Type: "mongod"},
 	})
-	status := validateACForMigration(conn, mdb)
+	status := validateACForMigration(ctx, conn, mdb)
 	assert.False(t, status.IsOK())
 }
 
@@ -1259,21 +1263,23 @@ func statusMsg(st workflow.Status) string {
 }
 
 func TestValidateACForMigration_BoundarySeven_OK(t *testing.T) {
+	ctx := t.Context()
 	// 3 K8s voting + 4 voting external = 7, at boundary, should pass
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 3, fourExternalMembers())
 	conn := newMigrationACConn(t, mdb, fourVotingExternals(), 3)
 
-	st := validateACForMigration(conn, mdb)
+	st := validateACForMigration(ctx, conn, mdb)
 	assert.True(t, st.IsOK(), "expected OK, got: %+v", st)
 }
 
 func TestValidateACForMigration_ScaleUpExceedsLimit(t *testing.T) {
+	ctx := t.Context()
 	// AC has 3 K8s voting + 4 voting external = 7 (at the limit). User scales spec.Members
 	// from 3 to 4 → position 3 defaults to votes=1, pushing the total to 8. Newly voting = [3].
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 4, fourExternalMembers())
 	conn := newMigrationACConn(t, mdb, fourVotingExternals(), 3)
 
-	st := validateACForMigration(conn, mdb)
+	st := validateACForMigration(ctx, conn, mdb)
 	require.False(t, st.IsOK())
 
 	// Lock the whole error message: format, ordering, leading whitespace, all of it.
@@ -1294,12 +1300,13 @@ If you wish to make more of the kubernetes members voting, make sure to remove o
 }
 
 func TestValidateACForMigration_TwoNewVotingPositionsExceedLimit(t *testing.T) {
+	ctx := t.Context()
 	// AC has 3 K8s voting + 4 voting external = 7. User scales to 5 K8s → newly voting [3, 4].
 	// Post-reconcile = 9, excess = 2.
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 5, fourExternalMembers())
 	conn := newMigrationACConn(t, mdb, fourVotingExternals(), 3)
 
-	st := validateACForMigration(conn, mdb)
+	st := validateACForMigration(ctx, conn, mdb)
 	require.False(t, st.IsOK())
 
 	expectedMsg := `"my-rs": this reconcile would result in 9 voting members (max: 7).
@@ -1320,6 +1327,7 @@ If you wish to make more of the kubernetes members voting, make sure to remove o
 }
 
 func TestValidateACForMigration_MemberConfigFlipExceedsLimit(t *testing.T) {
+	ctx := t.Context()
 	// AC has 5 K8s voting (positions 0..4) + 2 voting external = 7. AC also has K8s position 5
 	// existing but non-voting. User sets spec.MemberConfig[5].votes=1. Post-reconcile = 6 K8s +
 	// 2 ext = 8. Newly voting = [5]; excess = 1.
@@ -1342,7 +1350,7 @@ func TestValidateACForMigration_MemberConfigFlipExceedsLimit(t *testing.T) {
 	}
 	conn := newMigrationACConnWithK8sVotes(t, mdb, externals, 6, []int{1, 1, 1, 1, 1, 0})
 
-	st := validateACForMigration(conn, mdb)
+	st := validateACForMigration(ctx, conn, mdb)
 	require.False(t, st.IsOK())
 
 	// Non-voting externals (ext-2, ext-3) and non-voting K8s (position 5) are absent from the
@@ -1364,6 +1372,7 @@ If you wish to make more of the kubernetes members voting, make sure to remove o
 }
 
 func TestValidateACForMigration_NonVotingExternals_DoNotCount(t *testing.T) {
+	ctx := t.Context()
 	// 5 K8s voting + 3 non-voting externals = 5 voting → OK
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 5, []mdbv1.ExternalMember{
 		{ProcessName: "ext-0", Hostname: "ext-0:27017", Type: "mongod"},
@@ -1374,11 +1383,12 @@ func TestValidateACForMigration_NonVotingExternals_DoNotCount(t *testing.T) {
 		externalRSMember("ext-0", 0), externalRSMember("ext-1", 0), externalRSMember("ext-2", 0),
 	}, 5)
 
-	st := validateACForMigration(conn, mdb)
+	st := validateACForMigration(ctx, conn, mdb)
 	assert.True(t, st.IsOK(), "expected OK, got: %+v", st)
 }
 
 func TestValidateACForMigration_NonVotingK8sMembersViaConfig_NotCounted(t *testing.T) {
+	ctx := t.Context()
 	// 3 voting K8s (positions 0-2 via MemberConfig) + 2 non-voting K8s (positions 3-4)
 	// + 4 voting external = 7 → OK
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 5, fourExternalMembers())
@@ -1395,7 +1405,7 @@ func TestValidateACForMigration_NonVotingK8sMembersViaConfig_NotCounted(t *testi
 	}
 	conn := newMigrationACConn(t, mdb, fourVotingExternals(), 5)
 
-	st := validateACForMigration(conn, mdb)
+	st := validateACForMigration(ctx, conn, mdb)
 	assert.True(t, st.IsOK(), "expected OK, got: %+v", st)
 }
 
@@ -1438,7 +1448,7 @@ func newMigrationACConnWithK8sVotes(t *testing.T, mdb *mdbv1.MongoDB, externalMe
 	// Build K8s processes with the prefixed names the validator computes.
 	rs := buildRsByProcessesHelper(rsName, createK8sProcessesForMigrationTest(rsName, mdb.Namespace, k8sCount))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
-	d.GetProcesses()[0].EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "requireTLS"}
+	d.GetProcesses()[0].EnsureNetConfig()["tls"] = map[string]any{"mode": "requireTLS"}
 
 	// Apply per-K8s voting state (default 1; tests may set 0 for non-voting).
 	acRS := d.GetReplicaSetByName(rsName)
@@ -1463,7 +1473,7 @@ func newMigrationACConnWithK8sVotes(t *testing.T, mdb *mdbv1.MongoDB, externalMe
 // the AC.
 func createK8sProcessesForMigrationTest(rsName, namespace string, count int) []om.Process {
 	ps := make([]om.Process, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}}
 		processName := process.PodNameToProcessName(dns.GetPodName(rsName, i), namespace)
 		ps[i] = om.NewMongodProcess(
@@ -1523,6 +1533,7 @@ func fourVotingExternals() []om.ReplicaSetMember {
 }
 
 func TestCheckExternalMembersDrift_ShardedMongosProcess(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	configRs := om.NewReplicaSetWithProcesses(
 		om.NewReplicaSet("myCluster-config", "6.0.0"),
@@ -1549,11 +1560,12 @@ func TestCheckExternalMembersDrift_ShardedMongosProcess(t *testing.T) {
 	externalMembers := []mdbv1.ExternalMember{
 		{ProcessName: "myCluster-mongos-0", Hostname: "myCluster-mongos-0.some.host:27017", Type: "mongos"},
 	}
-	status := checkExternalMembersDrift(conn, externalMembers)
+	status := checkExternalMembersDrift(ctx, conn, externalMembers)
 	assert.True(t, status.IsOK())
 }
 
 func TestCheckExternalMembersDrift_ShardedMongodWithReplicaSetName(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	configRs := om.NewReplicaSetWithProcesses(
 		om.NewReplicaSet("myCluster-config", "6.0.0"),
@@ -1573,11 +1585,12 @@ func TestCheckExternalMembersDrift_ShardedMongodWithReplicaSetName(t *testing.T)
 	externalMembers := []mdbv1.ExternalMember{
 		{ProcessName: "myCluster-config-0", Hostname: "myCluster-config-0.some.host:27017", Type: "mongod", ReplicaSetName: "myCluster-config"},
 	}
-	status := checkExternalMembersDrift(conn, externalMembers)
+	status := checkExternalMembersDrift(ctx, conn, externalMembers)
 	assert.True(t, status.IsOK())
 }
 
 func TestCheckExternalMembersDrift_ShardedMongodWrongReplicaSetName(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	configRs := om.NewReplicaSetWithProcesses(
 		om.NewReplicaSet("myCluster-config", "6.0.0"),
@@ -1597,11 +1610,12 @@ func TestCheckExternalMembersDrift_ShardedMongodWrongReplicaSetName(t *testing.T
 	externalMembers := []mdbv1.ExternalMember{
 		{ProcessName: "myCluster-config-0", Hostname: "myCluster-config-0.some.host:27017", Type: "mongod", ReplicaSetName: "wrong-rs"},
 	}
-	status := checkExternalMembersDrift(conn, externalMembers)
+	status := checkExternalMembersDrift(ctx, conn, externalMembers)
 	assert.False(t, status.IsOK())
 }
 
 func TestValidateACForMigration_ShardedCluster_TLSModeSet(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	configRs := om.NewReplicaSetWithProcesses(
 		om.NewReplicaSet("myCluster-config", "6.0.0"),
@@ -1626,7 +1640,7 @@ func TestValidateACForMigration_ShardedCluster_TLSModeSet(t *testing.T) {
 
 	// Both process types have net.tls.mode set.
 	for _, p := range d.GetProcesses() {
-		p.EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "disabled"}
+		p.EnsureNetConfig()["tls"] = map[string]any{"mode": "disabled"}
 	}
 
 	conn := om.NewMockedOmConnection(d)
@@ -1640,7 +1654,7 @@ func TestValidateACForMigration_ShardedCluster_TLSModeSet(t *testing.T) {
 			},
 		},
 	}
-	status := validateACForMigration(conn, mdb)
+	status := validateACForMigration(ctx, conn, mdb)
 	assert.True(t, status.IsOK())
 }
 
@@ -1767,28 +1781,31 @@ func buildShardedDeploymentForVotingTest(t *testing.T, sc *mdbv1.MongoDB, shardV
 	require.NoError(t, err)
 
 	for _, p := range d.GetProcesses() {
-		p.EnsureNetConfig()["tls"] = map[string]interface{}{"mode": "requireTLS"}
+		p.EnsureNetConfig()["tls"] = map[string]any{"mode": "requireTLS"}
 	}
 	return d
 }
 
 func TestCheckIfHasExcessProcesses_ReadDeploymentError(t *testing.T) {
+	ctx := t.Context()
 	conn := failingOMConn{om.NewMockedOmConnection(om.NewDeployment())}
-	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
+	status := checkIfHasExcessProcesses(ctx, conn, "my-rs", nil, zap.S())
 	assert.False(t, status.IsOK())
 }
 
 func TestCheckIfHasExcessProcesses_SingleResource(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	rs := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 2))
 	d.MergeReplicaSet(rs, nil, nil, nil, zap.S())
 
 	conn := om.NewMockedOmConnection(d)
-	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
+	status := checkIfHasExcessProcesses(ctx, conn, "my-rs", nil, zap.S())
 	assert.True(t, status.IsOK())
 }
 
 func TestCheckIfHasExcessProcesses_MultipleResources(t *testing.T) {
+	ctx := t.Context()
 	d := om.NewDeployment()
 	rs1 := buildRsByProcessesHelper("my-rs", createRSProcessesHelper("my-rs", 1))
 	rs2 := buildRsByProcessesHelper("other-rs", createRSProcessesHelper("other-rs", 1))
@@ -1796,7 +1813,7 @@ func TestCheckIfHasExcessProcesses_MultipleResources(t *testing.T) {
 	d.MergeReplicaSet(rs2, nil, nil, nil, zap.S())
 
 	conn := om.NewMockedOmConnection(d)
-	status := checkIfHasExcessProcesses(conn, "my-rs", nil, zap.S())
+	status := checkIfHasExcessProcesses(ctx, conn, "my-rs", nil, zap.S())
 	assert.False(t, status.IsOK())
 }
 
@@ -1954,9 +1971,10 @@ func TestValidateRSACIdentity(t *testing.T) {
 
 // TestValidateVotingLimitRS exercises the voting limit check directly with the looked up replica set.
 func TestValidateVotingLimitRS(t *testing.T) {
+	ctx := t.Context()
 	mdb := mongoDBForMigrationTest("my-rs", "my-ns", 3, fourExternalMembers())
 	conn := newMigrationACConn(t, mdb, fourVotingExternals(), 3)
-	deployment, err := conn.ReadDeployment()
+	deployment, err := conn.ReadDeployment(ctx)
 	require.NoError(t, err)
 	rs := deployment.GetReplicaSetByName(mdb.GetReplicaSetName())
 	require.NotNil(t, rs)

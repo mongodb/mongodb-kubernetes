@@ -460,9 +460,10 @@ func setupMongoDBSearchCRD(
 	operatorClusterName string,
 ) error {
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
-		SearchRepo:    env.ReadOrPanic(util.SearchRepoURLEnv),
-		SearchName:    env.ReadOrPanic(util.SearchNameEnv),
-		SearchVersion: env.ReadOrPanic(util.SearchVersionEnv),
+		SearchRepo:      env.ReadOrPanic(util.SearchRepoURLEnv),
+		SearchName:      env.ReadOrPanic(util.SearchNameEnv),
+		SearchVersion:   env.ReadOrPanic(util.SearchVersionEnv),
+		ImagePullPolicy: corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv)),
 	}, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}

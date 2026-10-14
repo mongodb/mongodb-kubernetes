@@ -38,6 +38,7 @@ func mdbv1Credentials(pub, priv string) mdbv1.Credentials {
 }
 
 func TestResolveProjectReadOnly(t *testing.T) {
+	ctx := t.Context()
 	org := &om.Organization{ID: "org-1", Name: "my-org"}
 	proj := &om.Project{ID: "proj-1", Name: "my-project", OrgID: "org-1"}
 
@@ -73,11 +74,10 @@ func TestResolveProjectReadOnly(t *testing.T) {
 			t.Cleanup(func() { omConnectionFactory = origFactory })
 			omConnectionFactory = func(_ *om.OMContext) om.Connection { return mockConn }
 
-			conn, err := resolveProjectReadOnly(
+			conn, err := resolveProjectReadOnly(ctx,
 				mdbv1ProjectConfig("http://localhost:8080", tc.orgID, tc.projectName),
 				mdbv1Credentials("pub", "priv"),
-				testLogger(),
-			)
+				testLogger())
 
 			if tc.expectedErr != "" {
 				require.Error(t, err)

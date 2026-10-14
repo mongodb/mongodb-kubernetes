@@ -33,26 +33,6 @@ func DefaultClusterMongoDBRoleBuilder() *ClusterMongoDBRoleBuilder {
 	}
 }
 
-func (b *ClusterMongoDBRoleBuilder) SetName(name string) *ClusterMongoDBRoleBuilder {
-	b.name = name
-	return b
-}
-
-func (b *ClusterMongoDBRoleBuilder) AddFinalizer(finalizer string) *ClusterMongoDBRoleBuilder {
-	b.finalizers = append(b.finalizers, finalizer)
-	return b
-}
-
-func (b *ClusterMongoDBRoleBuilder) SetMongoDBRole(role mdb.MongoDBRole) *ClusterMongoDBRoleBuilder {
-	b.mongoDBRole = role
-	return b
-}
-
-func (b *ClusterMongoDBRoleBuilder) AddAnnotation(key, value string) *ClusterMongoDBRoleBuilder {
-	b.annotations[key] = value
-	return b
-}
-
 func (b *ClusterMongoDBRoleBuilder) Build() *ClusterMongoDBRole {
 	return &ClusterMongoDBRole{
 		ObjectMeta: metav1.ObjectMeta{

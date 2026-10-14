@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -47,8 +46,8 @@ func Test_buildOpsManagerAndBackupInitContainer(t *testing.T) {
 		Image:        "test-registry:latest",
 		VolumeMounts: expectedVolumeMounts,
 		SecurityContext: &corev1.SecurityContext{
-			ReadOnlyRootFilesystem:   ptr.To(true),
-			AllowPrivilegeEscalation: ptr.To(false),
+			ReadOnlyRootFilesystem:   new(true),
+			AllowPrivilegeEscalation: new(false),
 			Capabilities: &corev1.Capabilities{
 				Drop: []corev1.Capability{"ALL"},
 			},
@@ -317,7 +316,7 @@ func TestOpsManagerPodTemplate_MergePodTemplate(t *testing.T) {
 	// Some validation that the Operator-made config hasn't suffered
 	assert.Equal(t, originalLabels, template.Labels)
 	assert.NotNil(t, template.Spec.SecurityContext)
-	assert.Equal(t, util.Int64Ref(util.FsGroup), template.Spec.SecurityContext.FSGroup)
+	assert.Equal(t, new(int64(util.FsGroup)), template.Spec.SecurityContext.FSGroup)
 	assert.Equal(t, util.OpsManagerContainerName, template.Spec.Containers[0].Name)
 }
 
@@ -390,7 +389,7 @@ func TestOpsManagerPodTemplate_SecurityContext(t *testing.T) {
 	assert.Len(t, spec.InitContainers, 1)
 	assert.Equal(t, spec.InitContainers[0].Name, "mongodb-kubernetes-init-ops-manager")
 	assert.NotNil(t, spec.SecurityContext)
-	assert.Equal(t, util.Int64Ref(util.FsGroup), spec.SecurityContext.FSGroup)
+	assert.Equal(t, new(int64(util.FsGroup)), spec.SecurityContext.FSGroup)
 
 	t.Setenv(util.ManagedSecurityContextEnv, "true")
 

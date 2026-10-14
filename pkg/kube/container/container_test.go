@@ -20,8 +20,8 @@ func TestContainer(t *testing.T) {
 		WithImagePullPolicy(corev1.PullAlways),
 		WithPorts([]corev1.ContainerPort{{Name: "port-1", ContainerPort: int32(1000)}}),
 		WithSecurityContext(corev1.SecurityContext{
-			RunAsGroup:   int64Ref(100),
-			RunAsNonRoot: boolRef(true),
+			RunAsGroup:   new(int64(100)),
+			RunAsNonRoot: new(true),
 		}),
 		WithLifecycle(lifecycle.Apply(
 			lifecycle.WithPrestopCommand([]string{"pre-stop-command"}),
@@ -64,8 +64,8 @@ func TestContainer(t *testing.T) {
 	assert.Equal(t, "port-1", c.Ports[0].Name)
 
 	securityContext := c.SecurityContext
-	assert.Equal(t, int64Ref(100), securityContext.RunAsGroup)
-	assert.Equal(t, boolRef(true), securityContext.RunAsNonRoot)
+	assert.Equal(t, new(int64(100)), securityContext.RunAsGroup)
+	assert.Equal(t, new(true), securityContext.RunAsNonRoot)
 
 	readinessProbe := c.ReadinessProbe
 	assert.Equal(t, int32(10), readinessProbe.FailureThreshold)
@@ -147,12 +147,4 @@ func TestWithVolumeMounts(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("mount-path-%d", i), v.MountPath, "Volumes should be sorted but were not!")
 		assert.Equal(t, fmt.Sprintf("sub-path-%d", i), v.SubPath, "Volumes should be sorted but were not!")
 	}
-}
-
-func boolRef(b bool) *bool {
-	return &b
-}
-
-func int64Ref(i int64) *int64 {
-	return &i
 }

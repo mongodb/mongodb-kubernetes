@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"maps"
 	"sort"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,9 +14,7 @@ func EphemeralContainers(defaultContainers, overrideContainers []corev1.Ephemera
 	originalMap := createEphemeralContainerMap(defaultContainers)
 	overrideMap := createEphemeralContainerMap(overrideContainers)
 
-	for k, v := range originalMap {
-		mergedContainerMap[k] = v
-	}
+	maps.Copy(mergedContainerMap, originalMap)
 
 	for k, v := range overrideMap {
 		if orig, ok := originalMap[k]; ok {

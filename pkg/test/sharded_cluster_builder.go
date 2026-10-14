@@ -31,7 +31,7 @@ func DefaultClusterBuilder() *ClusterBuilder {
 
 	spec := mdb.MongoDbSpec{
 		DbCommonSpec: mdb.DbCommonSpec{
-			Persistent: util.BooleanRef(false),
+			Persistent: new(false),
 			ConnectionSpec: mdb.ConnectionSpec{
 				SharedConnectionSpec: mdb.SharedConnectionSpec{
 					OpsManagerConfig: &mdb.PrivateCloudConfig{
@@ -181,11 +181,6 @@ func (b *ClusterBuilder) EnableAuth() *ClusterBuilder {
 	return b
 }
 
-func (b *ClusterBuilder) SetAuthModes(modes []mdb.AuthMode) *ClusterBuilder {
-	b.Spec.Security.Authentication.Modes = modes
-	return b
-}
-
 func (b *ClusterBuilder) EnableX509InternalClusterAuth() *ClusterBuilder {
 	b.Spec.Security.Authentication.InternalCluster = util.X509
 	return b
@@ -269,11 +264,6 @@ func (b *ClusterBuilder) SetShardNameOverrides(overrides []mdb.ShardNameOverride
 
 func (b *ClusterBuilder) SetOpsManagerConfigMapName(configMapName string) *ClusterBuilder {
 	b.Spec.OpsManagerConfig.ConfigMapRef.Name = configMapName
-	return b
-}
-
-func (b *ClusterBuilder) SetExternalMembers(members []mdb.ExternalMember) *ClusterBuilder {
-	b.Spec.ExternalMembers = members
 	return b
 }
 

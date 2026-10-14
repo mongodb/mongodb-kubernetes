@@ -3,6 +3,7 @@ package release
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -20,12 +21,7 @@ type ImagesPublishResult struct {
 // isFailOnStomp returns true if name is in the failOnStomp list. An empty list
 // means no images fail on stomp (callers should default it before calling in).
 func isFailOnStomp(name string, failOnStomp []string) bool {
-	for _, n := range failOnStomp {
-		if name == n {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(failOnStomp, name)
 }
 
 // overrideRepoPrefix replaces everything in originalRepo up to and including
