@@ -95,6 +95,9 @@ def load_build_info(scenario: BuildScenario) -> BuildInfo:
     # For "development" builds, we use the "patch" scenario to get the build info
     if scenario == BuildScenario.DEVELOPMENT:
         build_info_scenario = BuildScenario.PATCH
+    # Dryrun-release reuses "release" build info; REGISTRY override redirects the registry
+    if scenario == BuildScenario.DRYRUN_RELEASE:
+        build_info_scenario = BuildScenario.RELEASE
 
     images = {}
     for name, data in build_info["images"].items():

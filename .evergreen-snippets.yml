@@ -233,6 +233,7 @@ tasks:
             GH_APP_INSTALLATION_ID: ${docs_gh_app_installation_id}
             GH_APP_PEM_B64: ${docs_gh_app_pem_b64}
             version_id: ${version_id}
+            BUILD_SCENARIO: ${BUILD_SCENARIO|release}
           script: |
             source .generated/context.export.env
             scripts/dev/update_docs_snippets.sh
@@ -301,18 +302,25 @@ buildvariants:
     tasks:
       - name: kind_code_snippets_task_group
 
+  # Opens the docs PR with generated snippets; runs in manual and release flows.
   - name: update_docs_repo
     display_name: update_docs_repo
-    tags: [ "public_docs_snippets" ]
+    tags: [ "public_docs_snippets", "release-publish" ]
     run_on:
       - ubuntu2404-small
-    allowed_requesters: [ "patch" ]
+    allowed_requesters: [ "patch", "github_tag" ]
     depends_on:
       - name: "*"
         variant: public_gke_code_snippets
         patch_optional: true
       - name: "*"
         variant: public_kind_code_snippets
+        patch_optional: true
+      - name: "*"
+        variant: release_gke_code_snippets
+        patch_optional: true
+      - name: "*"
+        variant: release_kind_code_snippets
         patch_optional: true
     tasks:
       - name: update_docs_snippets

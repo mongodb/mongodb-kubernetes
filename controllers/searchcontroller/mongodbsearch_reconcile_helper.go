@@ -79,9 +79,10 @@ const (
 )
 
 type OperatorSearchConfig struct {
-	SearchRepo    string
-	SearchName    string
-	SearchVersion string
+	SearchRepo      string
+	SearchName      string
+	SearchVersion   string
+	ImagePullPolicy corev1.PullPolicy
 }
 
 type MongoDBSearchReconcileHelper struct {
@@ -783,7 +784,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		},
 	))
 
-	stsFunc := CreateSearchStatefulSetFunc(r.mdbSearch, unit.sizing, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
+	stsFunc := CreateSearchStatefulSetFunc(r.mdbSearch, unit.sizing, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, r.operatorSearchConfig.ImagePullPolicy, mods.usePerPodConfig)
 	stsOverride := StatefulSetOverrideModification(unit.sizing.StatefulSetConfiguration)
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
