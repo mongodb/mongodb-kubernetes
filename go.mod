@@ -18,7 +18,6 @@ require (
 	github.com/mitchellh/copystructure v1.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.24.1
-	github.com/r3labs/diff/v3 v3.0.2
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/objx v0.5.3
@@ -45,6 +44,13 @@ require (
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 	sigs.k8s.io/controller-runtime v0.21.0
 	sigs.k8s.io/yaml v1.6.0
+)
+
+require (
+	github.com/viant/parsly v0.1.0 // indirect
+	github.com/viant/structology v0.1.0 // indirect
+	github.com/viant/xreflect v0.0.0-20230303201326-f50afb0feb0d // indirect
+	github.com/viant/xunsafe v0.8.4 // indirect
 )
 
 // force pin, until we update the direct dependencies
@@ -146,8 +152,7 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
-	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
-	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	github.com/viant/godiff v0.4.3
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
