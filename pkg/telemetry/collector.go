@@ -66,7 +66,7 @@ func (l *LeaderRunnable) NeedLeaderElection() bool {
 }
 
 func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, currentNamespace, mongodbImage, databaseNonStaticImage, installerMethod string, operatorEnv util.OperatorEnvironment, defaultArchitecture architectures.DefaultArchitecture) (*LeaderRunnable, error) {
-	atlasClient, err := NewClient(nil)
+	atlasClient, err := NewClient()
 	if err != nil {
 		return nil, xerrors.Errorf("Failed creating atlas telemetry client: %w", err)
 	}

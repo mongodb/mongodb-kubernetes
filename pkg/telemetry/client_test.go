@@ -7,8 +7,9 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/mongodb/mongodb-kubernetes/internal/retry"
 )
 
 const (
@@ -89,11 +90,10 @@ func TestSendEventWithRetry(t *testing.T) {
 
 			server := httptest.NewServer(handler)
 			defer server.Close()
-			retryableClient := retryablehttp.NewClient()
-			retryableClient.RetryWaitMin = 0
-			retryableClient.RetryWaitMax = 0
-
-			client, err := NewClient(retryableClient)
+			client, err := NewClient(func(cfg *retry.Config) {
+				cfg.MinDelay = 0
+				cfg.MaxDelay = 0
+			})
 			assert.NoError(t, err)
 			u, _ := url.Parse(server.URL + baseURLPath + "/")
 			client.atlasClient.BaseURL = u

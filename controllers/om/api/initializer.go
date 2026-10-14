@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 
 	"github.com/blang/semver"
-	"github.com/hashicorp/go-retryablehttp"
 	"golang.org/x/xerrors"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
@@ -78,7 +78,7 @@ func (o *DefaultInitializer) TryCreateUser(ctx context.Context, omUrl string, om
 	// dev note: we are doing many similar things that 'http.go' does - though we cannot reuse that now as current
 	// request is not a digest one
 	endpoint := buildOMUnauthEndpoint(omUrl)
-	req, err := retryablehttp.NewRequestWithContext(ctx, "POST", endpoint, buffer)
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, buffer)
 	if err != nil {
 		return OpsManagerKeyPair{}, xerrors.Errorf("Error creating POST request to %s: %w", endpoint, err)
 	}
