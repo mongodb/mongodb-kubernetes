@@ -2653,3 +2653,71 @@ func TestShardedClusterHostnameOverrideConfigMap_SingleClusterPerTierExternalDom
 		})
 	}
 }
+
+func TestShardedClusterDeploymentState_ShardsInRemovalBackwardCompatibility(t *testing.T) {
+	var legacy ShardedClusterDeploymentState
+	require.NoError(t, json.Unmarshal([]byte(`{"lastAchievedSpec":null,"lastConfiguredRoles":[],"status":{}}`), &legacy))
+	assert.Empty(t, legacy.ShardsInRemoval)
+
+	raw, err := json.Marshal(NewShardedClusterDeploymentState())
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "shardsInRemoval")
+}
+
+func TestShardedClusterReconcileHelper_TrackShardsInRemoval(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+	_, helper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	log := zap.S()
+
+	persisted := func() []string {
+		state, err := helper.stateStore.ReadState(ctx)
+		require.NoError(t, err)
+		return state.ShardsInRemoval
+	}
+
+	require.NoError(t, helper.trackShardsInRemoval(ctx, false, []string{"sc-2", "sc-1"}, log))
+	assert.Equal(t, []string{"sc-1", "sc-2"}, helper.deploymentState.ShardsInRemoval)
+	assert.Equal(t, []string{"sc-1", "sc-2"}, persisted(), "the record must be persisted right away")
+
+	require.NoError(t, helper.trackShardsInRemoval(ctx, false, []string{"sc-1"}, log))
+	assert.Equal(t, []string{"sc-1", "sc-2"}, persisted(), "a later pass must not drop shards that are still being removed")
+
+	require.NoError(t, helper.trackShardsInRemoval(ctx, false, nil, log))
+	assert.Equal(t, []string{"sc-1", "sc-2"}, persisted(), "an empty draining array must not clear the record")
+
+	require.NoError(t, helper.trackShardsInRemoval(ctx, true, nil, log))
+	assert.Empty(t, helper.deploymentState.ShardsInRemoval)
+	assert.Empty(t, persisted(), "the finalizing pass clears the record")
+}
+
+func TestShardedClusterReconcile_ShardRemovalCleansUpOpsManagerAndClearsRecord(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+	reconciler, helper, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	removedShardRs := sc.ShardACRsName(1)
+	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	require.NotNil(t, mockedConn.GetDeployment().GetReplicaSetByName(removedShardRs))
+
+	sc.Spec.ShardCount = 1
+	require.NoError(t, kubeClient.Update(ctx, sc))
+	for range 5 {
+		_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, sc.ObjectKey(), sc))
+		if sc.Status.Phase == status.PhaseRunning && sc.Status.ShardCount == 1 {
+			break
+		}
+	}
+	require.Equal(t, status.PhaseRunning, sc.Status.Phase, sc.Status.Message)
+
+	assert.Nil(t, mockedConn.GetDeployment().GetReplicaSetByName(removedShardRs))
+	assert.Equal(t, 0, mockedConn.GetDeployment().GetNumberOfExcessProcesses(sc.GetShardedClusterName(), nil))
+	state, err := helper.stateStore.ReadState(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, state.ShardsInRemoval)
+}

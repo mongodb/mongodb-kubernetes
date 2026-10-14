@@ -277,6 +277,8 @@ type DeploymentShardedClusterMergeOptions struct {
 	MongosAdditionalOptionsPrev          map[string]any
 	ShardAdditionalOptionsPrev           map[string]any
 	ExternalCluster                      ExternalShardedCluster
+	// ShardsInRemoval are the replica sets of shards whose removal is in progress; empty once it completes.
+	ShardsInRemoval []string
 }
 
 // MergeShardedCluster merges "operator" sharded cluster into "OM" deployment ("d"). Mongos, config servers and all shards
@@ -632,6 +634,12 @@ func (d Deployment) ProcessBelongsToResource(processName, resourceName string) b
 
 // GetNumberOfExcessProcesses calculates how many processes do not belong to this resource.
 func (d Deployment) GetNumberOfExcessProcesses(resourceName string, externalMembers []string) int {
+	return d.GetNumberOfExcessProcessesWithShardsInRemoval(resourceName, externalMembers, nil)
+}
+
+// GetNumberOfExcessProcessesWithShardsInRemoval is GetNumberOfExcessProcesses that also counts the processes of
+// shardsInRemoval as belonging to the resource.
+func (d Deployment) GetNumberOfExcessProcessesWithShardsInRemoval(resourceName string, externalMembers []string, shardsInRemoval []string) int {
 	processNames := d.GetAllProcessNames()
 	excessProcesses := len(processNames)
 	externalMembersSet := stringutil.ToSet(externalMembers)
@@ -645,7 +653,7 @@ func (d Deployment) GetNumberOfExcessProcesses(resourceName string, externalMemb
 	// Edge case: for sharded cluster it's ok to have junk replica sets during scale down - we consider them as
 	// belonging to sharded cluster
 	if d.getShardedClusterByName(resourceName) != nil {
-		for _, r := range d.findReplicaSetsRemovedFromShardedCluster(resourceName) {
+		for _, r := range d.findReplicaSetsRemovedFromShardedCluster(resourceName, shardsInRemoval) {
 			excessProcesses -= len(d.GetProcessNames(ReplicaSet{}, r))
 		}
 	}
@@ -904,7 +912,7 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 			removedShardRsNames := s.mergeFrom(cluster)
 			log.Debug("Merged sharded cluster into existing one")
 
-			return d.handleShardsRemoval(opts.Finalizing, s, removedShardRsNames, log)
+			return d.handleShardsRemoval(opts.Finalizing, s, removedShardRsNames, opts.ShardsInRemoval, log)
 		}
 	}
 	// Adding the new sharded cluster
@@ -924,11 +932,11 @@ func (d Deployment) mergeShards(opts DeploymentShardedClusterMergeOptions, log *
 // - if 'finalizing' == true - this means that this is the 2nd phase of the process - when the shards were removed
 // from the sharded cluster and their data was rebalanced to the rest of the shards. Now we can remove the replica sets
 // and their processes and clean the 'draining' array.
-func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, removedShardRsNames []string, log *zap.SugaredLogger) bool {
+func (d Deployment) handleShardsRemoval(finalizing bool, s ShardedCluster, removedShardRsNames []string, shardsInRemoval []string, log *zap.SugaredLogger) bool {
 	// Removed shard lifecycle (mergeFrom reports it once, draining carries it between reconciles):
 	//   phase 1 (!finalizing): mergeFrom -> seeding loop -> junkReplicaSets -> addToDraining
-	//   phase 2 (finalizing):  draining  -> findReplicaSetsRemovedFromShardedCluster -> removeReplicaSets
-	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name())
+	//   phase 2 (finalizing):  draining or the operator's own record -> findReplicaSetsRemovedFromShardedCluster -> removeReplicaSets
+	junkReplicaSets := d.findReplicaSetsRemovedFromShardedCluster(s.Name(), shardsInRemoval)
 
 	// findReplicaSetsRemovedFromShardedCluster only returns shards already recorded in the draining list.
 	// Shards removed by this merge are not there yet, so seed them when their replica set still exists,
@@ -1153,23 +1161,32 @@ func (d Deployment) getTLS() map[string]any {
 	return util.ReadOrCreateMap(d, "tls")
 }
 
-// findReplicaSetsRemovedFromShardedCluster returns the replica sets recorded in the draining array of the
-// sharded cluster which still exist in the deployment. The draining array is the authoritative record of
-// shards scheduled for removal. It is written by handleShardsRemoval when shards leave the sharding section
-// and cleared once the replica sets and their processes are physically removed. Replica sets are matched by
-// exact name only, ownership is never guessed from name patterns.
-func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string) []string {
+// findReplicaSetsRemovedFromShardedCluster returns the existing replica sets being removed from the sharded cluster:
+// those in its draining array or in shardsInRemoval (Ops Manager may clear draining early). Matched by exact name.
+func (d Deployment) findReplicaSetsRemovedFromShardedCluster(clusterName string, shardsInRemoval []string) []string {
 	shardedCluster := d.getShardedClusterByName(clusterName)
 	clusterReplicaSets := shardedCluster.getAllReplicaSets()
 	draining := shardedCluster.draining()
 	var ans []string
 
 	for _, v := range d.GetReplicaSets() {
-		if !stringutil.Contains(clusterReplicaSets, v.Name()) && stringutil.Contains(draining, v.Name()) {
+		if stringutil.Contains(clusterReplicaSets, v.Name()) {
+			continue
+		}
+		if stringutil.Contains(draining, v.Name()) || stringutil.Contains(shardsInRemoval, v.Name()) {
 			ans = append(ans, v.Name())
 		}
 	}
 	return ans
+}
+
+// GetDrainingShards returns the replica sets listed in the draining array of the sharded cluster.
+func (d Deployment) GetDrainingShards(clusterName string) []string {
+	shardedCluster := d.getShardedClusterByName(clusterName)
+	if shardedCluster == nil {
+		return nil
+	}
+	return shardedCluster.draining()
 }
 
 // removeMonitoring removes the monitoring agent configuration that match any of processes hosts 'processNames' parameter
