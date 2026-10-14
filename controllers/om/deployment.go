@@ -700,26 +700,6 @@ func (d Deployment) ProcessesCopy() []Process {
 	return d.deepCopy().GetProcesses()
 }
 
-// ReplicaSetsCopy returns the COPY of replicasets in the deployment.
-func (d Deployment) ReplicaSetsCopy() []ReplicaSet {
-	return d.deepCopy().GetReplicaSets()
-}
-
-// ShardedClustersCopy returns the COPY of sharded clusters in the deployment.
-func (d Deployment) ShardedClustersCopy() []ShardedCluster {
-	return d.deepCopy().getShardedClusters()
-}
-
-// MonitoringVersionsCopy returns the COPY of monitoring versions in the deployment.
-func (d Deployment) MonitoringVersionsCopy() []any {
-	return d.deepCopy().getMonitoringVersions()
-}
-
-// BackupVersionsCopy returns the COPY of backup versions in the deployment.
-func (d Deployment) BackupVersionsCopy() []any {
-	return d.deepCopy().getBackupVersions()
-}
-
 // ***************************************** Private methods ***********************************************************
 
 func (d Deployment) getReplicaSetProcessNames(name string) []string {
