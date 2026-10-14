@@ -1229,6 +1229,7 @@ task_groups:
       - e2e_multi_cluster_tls_with_scram
       - e2e_multi_cluster_upgrade_downgrade
       - e2e_multi_cluster_backup_restore
+      - e2e_multi_cluster_backup_scoped_credentials
       - e2e_multi_cluster_backup_restore_no_mesh
       - e2e_multi_cluster_disaster_recovery
       - e2e_multi_cluster_multi_disaster_recovery
@@ -1460,6 +1461,7 @@ task_groups:
       - e2e_om_weak_password
       - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
       - e2e_om_ops_manager_backup_light
+      - e2e_om_ops_manager_backup_scoped_credentials
       - e2e_om_ops_manager_backup_tls
       - e2e_om_ops_manager_backup_s3_tls
       - e2e_om_ops_manager_backup_restore_rustfs

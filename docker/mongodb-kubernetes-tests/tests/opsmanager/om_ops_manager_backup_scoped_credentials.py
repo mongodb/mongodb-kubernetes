@@ -1,18 +1,17 @@
 """
-Single-cluster MongoDB replica set counterpart of multi_cluster_backup_scoped_credentials.py: backup is enabled
-outside of the operator with a project-scoped (GROUP_OWNER) Ops Manager API key, then snapshotSchedule and
-assignmentLabels are set in the CR (the reconcile fails), the labels are removed and status.backup is checked.
+Backup that is enabled outside of the operator for a MongoDB replica set whose credentials are a project-scoped
+(GROUP_OWNER) Ops Manager API key. Single-cluster counterpart of
+tests/multicluster/multi_cluster_backup_scoped_credentials.py.
 
-It re-uses the Ops Manager that the multi-cluster test (or multi_cluster_backup_restore) has already deployed
-in the test namespace and does not install or restart anything: the operator must already be running.
+Flow: the replica set is deployed without spec.backup, backup is started the way the Ops Manager UI does it,
+snapshotSchedule and assignmentLabels are then set in the CR (the reconcile fails because the key has no global role),
+the labels are removed again and status.backup is expected to report the running backup.
 """
 
 import random
 import string
 
-import kubernetes
-import kubernetes.client
-from kubetester import try_load
+from kubetester import get_default_storage_class, try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -32,45 +31,41 @@ from tests.common.ops_manager.scoped_project import (
 
 logger = test_logger.get_test_logger(__name__)
 
+# Unique per run so that leftovers of a previous run in the same Ops Manager don't collide.
 RUN_SUFFIX = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
 RESOURCE_NAME = f"rs-scoped-{RUN_SUFFIX}"
+BACKUP_STORE_NAME = "backup-store"
 
 
 @fixture(scope="module")
-def ops_manager(namespace: str, central_cluster_client: kubernetes.client.ApiClient) -> MongoDBOpsManager:
-    """The already deployed Ops Manager, it is only loaded."""
+def ops_manager(namespace: str, custom_version: str, custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(yaml_fixture("om_ops_manager_backup.yaml"), namespace=namespace)
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
-    assert try_load(resource), "Ops Manager has to be deployed in the namespace already"
+    resource.set_version(custom_version)
+    resource.set_appdb_version(custom_appdb_version)
+    backup = resource["spec"]["backup"]
+    del backup["s3Stores"]
+    backup["members"] = 1
+    backup["headDB"]["storageClass"] = get_default_storage_class()
+    for store_type in ("opLogStores", "blockStores"):
+        backup[store_type][0]["mongodbResourceRef"]["name"] = BACKUP_STORE_NAME
+    try_load(resource)
     return resource
 
 
 @fixture(scope="module")
-def scoped_project(
-    namespace: str,
-    ops_manager: MongoDBOpsManager,
-    central_cluster_client: kubernetes.client.ApiClient,
-    multi_cluster_issuer_ca_configmap: str,
-) -> ScopedProject:
+def scoped_project(namespace: str, ops_manager: MongoDBOpsManager) -> ScopedProject:
     return create_scoped_project(
-        ops_manager.get_om_tester(api_client=central_cluster_client),
-        namespace,
-        RESOURCE_NAME,
-        ops_manager.om_status().get_url(),
-        multi_cluster_issuer_ca_configmap,
-        central_cluster_client,
+        ops_manager.get_om_tester(), namespace, RESOURCE_NAME, ops_manager.om_status().get_url()
     )
 
 
 @fixture(scope="module")
 def replica_set(
     namespace: str,
-    central_cluster_client: kubernetes.client.ApiClient,
     custom_mdb_version: str,
     scoped_project: ScopedProject,
 ) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-for-om.yaml"), namespace=namespace, name=RESOURCE_NAME)
-    resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["members"] = 1
     resource["spec"]["opsManager"]["configMapRef"]["name"] = scoped_project.config_name
@@ -79,7 +74,24 @@ def replica_set(
     return resource
 
 
-@mark.e2e_backup_scoped_credentials_single_cluster_rs
+@mark.e2e_om_ops_manager_backup_scoped_credentials
+class TestOpsManagerPreparedForBackup:
+    def test_create_ops_manager(self, ops_manager: MongoDBOpsManager):
+        ops_manager.update()
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
+
+    def test_create_backup_store(self, ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str):
+        store = MongoDB.from_yaml(
+            yaml_fixture("replica-set-for-om.yaml"), namespace=namespace, name=BACKUP_STORE_NAME
+        ).configure(ops_manager, "backup-infrastructure")
+        store["spec"]["members"] = 1
+        store.set_version(ensure_ent_version(custom_mdb_version))
+        store.update()
+        store.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+        ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+
+
+@mark.e2e_om_ops_manager_backup_scoped_credentials
 class TestBackupEnabledOutsideOfOperator:
     def test_deploy_replica_set_without_backup(self, replica_set: MongoDB):
         assert "backup" not in replica_set["spec"]
@@ -97,7 +109,7 @@ class TestBackupEnabledOutsideOfOperator:
         scoped_project.tester.wait_until_backup_snapshots_are_ready(expected_count=1)
 
 
-@mark.e2e_backup_scoped_credentials_single_cluster_rs
+@mark.e2e_om_ops_manager_backup_scoped_credentials
 class TestConfiguringBackupInCrWithScopedKey:
     def test_snapshot_schedule_and_labels_in_cr_fail(self, replica_set: MongoDB):
         replica_set.load()
