@@ -117,25 +117,11 @@ fi
 echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
 export BUILD_SCENARIO="${BUILD_SCENARIO}"
 
-if [ -z "${preflight_submit:-}" ]; then
-  if [ "${BUILD_SCENARIO}" == "${BUILD_SCENARIO_DRYRUN_RELEASE}" ]; then
-    preflight_submit="false"
-  else
-    preflight_submit="true"
-  fi
-fi
-export preflight_submit
-export RELEASE_VERSION="${RELEASE_VERSION:-$(jq -r '.mongodbOperator' "${PROJECT_DIR}/release.json")}"
+# Select Quay credentials: staging and dryrun-release use staging creds, everything else uses prod creds.
+source "${script_dir:-scripts/dev/contexts}/select_quay_credentials.sh"
+select_quay_credentials "${BUILD_SCENARIO}"
 
-# Select Quay credentials based on build scenario: staging credentials only for
-# dryrun-release (images go to the staging org), production credentials otherwise.
-if [ "${BUILD_SCENARIO}" == "${BUILD_SCENARIO_DRYRUN_RELEASE}" ]; then
-  export quay_username="${quay_staging_username:-}"
-  export quay_password="${quay_staging_robot_token:-}"
-else
-  export quay_username="${quay_prod_username:-}"
-  export quay_password="${quay_prod_robot_token:-}"
-fi
+export RELEASE_VERSION="${RELEASE_VERSION:-$(jq -r '.mongodbOperator' "${PROJECT_DIR}/release.json")}"
 
 # Set REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION based on build scenario
 # REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION can be overridden externally if needed
