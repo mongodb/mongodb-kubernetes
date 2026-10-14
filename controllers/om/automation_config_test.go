@@ -1099,19 +1099,27 @@ func TestApplyInto_RemovesLDAPBlockWhenLdapIsNil(t *testing.T) {
 // TestGetSerializedACDoesNotMutateInput guards getSerializedAC's shallow clone: a nested write
 // would leak into the caller's deployment.
 func TestGetSerializedACDoesNotMutateInput(t *testing.T) {
-	original, err := BuildAutomationConfigFromDeployment(getDeploymentWithRSOverTheWire(t))
-	require.NoError(t, err)
+	withOIDC := getDeploymentWithRSOverTheWire(t)
+	withOIDC["oidcProviderConfigs"] = []any{map[string]any{"authNamePrefix": "p", "clientId": "x"}}
 
-	before, err := json.Marshal(original.Deployment)
-	require.NoError(t, err)
+	for name, deployment := range map[string]Deployment{"replica sets": getDeploymentWithRSOverTheWire(t), "oidc": withOIDC} {
+		t.Run(name, func(t *testing.T) {
+			original, err := BuildAutomationConfigFromDeployment(deployment)
+			require.NoError(t, err)
+			original.OIDCProviderConfigs = []oidc.ProviderConfig{{AuthNamePrefix: "p"}}
 
-	_, err = getSerializedAC(*original)
-	require.NoError(t, err)
+			before, err := json.Marshal(original.Deployment)
+			require.NoError(t, err)
 
-	after, err := json.Marshal(original.Deployment)
-	require.NoError(t, err)
+			_, err = getSerializedAC(*original)
+			require.NoError(t, err)
 
-	assert.JSONEq(t, string(before), string(after), "getSerializedAC must not mutate the input deployment")
+			after, err := json.Marshal(original.Deployment)
+			require.NoError(t, err)
+
+			assert.JSONEq(t, string(before), string(after), "getSerializedAC must not mutate the input deployment")
+		})
+	}
 }
 
 func TestApplyInto(t *testing.T) {

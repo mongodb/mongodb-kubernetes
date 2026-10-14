@@ -86,7 +86,8 @@ func updateOIDCProviderConfigs(a AutomationConfig, into *Deployment) {
 	if configs, ok := a.Deployment["oidcProviderConfigs"]; ok {
 		configsSliceAny := cast.ToSlice(configs)
 		for _, configAny := range configsSliceAny {
-			config := configAny.(map[string]any)
+			// clone so the writes below do not leak into a.Deployment
+			config := maps.Clone(configAny.(map[string]any))
 			configName := config["authNamePrefix"].(string)
 			deploymentConfigs[configName] = config
 		}
