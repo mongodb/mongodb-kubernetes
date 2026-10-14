@@ -195,7 +195,7 @@ func TestOpsManagerValidation(t *testing.T) {
 		"Invalid S3 OpLog Store config - objectLock enabled for version older than 8.0.28": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.27").
-				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: util.BooleanRef(true)}).
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true)}).
 				Build(),
 			expectedErrorMessage: "'objectLockEnabled' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
@@ -203,7 +203,7 @@ func TestOpsManagerValidation(t *testing.T) {
 		"Invalid S3 OpLog Store config - objectLockEnabled explicitly disabled for version older than 8.0.28": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.27").
-				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: util.BooleanRef(false)}).
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(false)}).
 				Build(),
 			expectedErrorMessage: "'objectLockEnabled' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
@@ -226,7 +226,7 @@ func TestOpsManagerValidation(t *testing.T) {
 		"Invalid S3 OpLog Store config - object lock retention fields for version older than 8.0.28": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.27").
-				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectRetentionDays: ptr.To(30)}).
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectRetentionDays: new(30)}).
 				Build(),
 			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
@@ -234,7 +234,7 @@ func TestOpsManagerValidation(t *testing.T) {
 		"Valid S3 OpLog Store config - object lock retention fields with objectLockEnabled": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.28").
-				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: util.BooleanRef(true), ObjectRetentionDays: ptr.To(30), ObjectRetentionMode: ptr.To("GOVERNANCE")}).
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}).
 				Build(),
 			expectedPart: status.None,
 		},
