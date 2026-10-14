@@ -69,13 +69,10 @@ def scoped_project(
     multi_cluster_issuer_ca_configmap: str,
     ops_manager: MongoDBOpsManager,
 ) -> ScopedProject:
+    base_url = ops_manager.om_status().get_url()
+    assert base_url is not None, "Ops Manager URL must not be None"
     return create_scoped_project(
-        admin_om_tester,
-        namespace,
-        RESOURCE_NAME,
-        ops_manager.om_status().get_url(),
-        multi_cluster_issuer_ca_configmap,
-        central_cluster_client,
+        admin_om_tester, namespace, RESOURCE_NAME, base_url, multi_cluster_issuer_ca_configmap, central_cluster_client
     )
 
 
@@ -169,6 +166,7 @@ class TestConfiguringBackupInCrWithScopedKey:
         # GET/PUT /admin/backup/groups/{id} need GLOBAL_READ_ONLY / GLOBAL_BACKUP_ADMIN, a GROUP_OWNER key has neither
         mongodb_multi.assert_reaches_phase(Phase.Failed, timeout=300)
         message = mongodb_multi.get_status_message()
+        assert message is not None
         logger.info(f"CR failed with: {message}")
         # the reason returned by Ops Manager must not be swallowed
         assert "Failed to configure backup" in message

@@ -54,9 +54,9 @@ def ops_manager(namespace: str, custom_version: str, custom_appdb_version: str) 
 
 @fixture(scope="module")
 def scoped_project(namespace: str, ops_manager: MongoDBOpsManager) -> ScopedProject:
-    return create_scoped_project(
-        ops_manager.get_om_tester(), namespace, RESOURCE_NAME, ops_manager.om_status().get_url()
-    )
+    base_url = ops_manager.om_status().get_url()
+    assert base_url is not None, "Ops Manager URL must not be None"
+    return create_scoped_project(ops_manager.get_om_tester(), namespace, RESOURCE_NAME, base_url)
 
 
 @fixture(scope="module")
