@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -131,11 +132,11 @@ type fakeBackupClient struct {
 	updated      []*Config
 }
 
-func (f *fakeBackupClient) ReadBackupConfigs() (*ConfigsResponse, error) {
+func (f *fakeBackupClient) ReadBackupConfigs(_ context.Context) (*ConfigsResponse, error) {
 	return &ConfigsResponse{Configs: f.configs}, nil
 }
 
-func (f *fakeBackupClient) ReadBackupConfig(clusterID string) (*Config, error) {
+func (f *fakeBackupClient) ReadBackupConfig(_ context.Context, clusterID string) (*Config, error) {
 	for _, c := range f.configs {
 		if c.ClusterId == clusterID {
 			return c, nil
@@ -144,20 +145,22 @@ func (f *fakeBackupClient) ReadBackupConfig(clusterID string) (*Config, error) {
 	return nil, xerrors.Errorf("no backup config for cluster %s", clusterID)
 }
 
-func (f *fakeBackupClient) ReadSnapshotSchedule(clusterID string) (*SnapshotSchedule, error) {
+func (f *fakeBackupClient) ReadSnapshotSchedule(_ context.Context, clusterID string) (*SnapshotSchedule, error) {
 	return &SnapshotSchedule{ClusterID: clusterID}, nil
 }
 
-func (f *fakeBackupClient) UpdateBackupConfig(config *Config) (*Config, error) {
+func (f *fakeBackupClient) UpdateBackupConfig(_ context.Context, config *Config) (*Config, error) {
 	f.updated = append(f.updated, config)
 	return config, nil
 }
 
-func (f *fakeBackupClient) UpdateBackupStatus(string, Status) error { return nil }
+func (f *fakeBackupClient) UpdateBackupStatus(context.Context, string, Status) error { return nil }
 
-func (f *fakeBackupClient) UpdateSnapshotSchedule(string, *SnapshotSchedule) error { return nil }
+func (f *fakeBackupClient) UpdateSnapshotSchedule(context.Context, string, *SnapshotSchedule) error {
+	return nil
+}
 
-func (f *fakeBackupClient) ReadHostCluster(clusterID string) (*HostCluster, error) {
+func (f *fakeBackupClient) ReadHostCluster(_ context.Context, clusterID string) (*HostCluster, error) {
 	return f.hostClusters[clusterID], nil
 }
 
@@ -194,7 +197,7 @@ func TestEnsureBackupConfigStatuses_ReportsStatusWhenOpsManagerAlreadyInDesiredS
 				hostClusters: map[string]*HostCluster{"cluster-1": {ClusterName: "my-rs", TypeName: "REPLICA_SET"}},
 			}
 
-			result, opts := ensureBackupConfigStatuses(rs, client.configs, getMongoDBBackupConfig(rs.GetBackupSpec(), "project-id"), zap.S(), client, 0)
+			result, opts := ensureBackupConfigStatuses(t.Context(), rs, client.configs, getMongoDBBackupConfig(rs.GetBackupSpec(), "project-id"), zap.S(), client, 0)
 
 			assert.True(t, result.IsOK())
 			statusName, exists := backupStatusOf(opts)
@@ -212,7 +215,7 @@ func TestEnsureBackupConfigStatuses_DoesNotReportStatusOfOtherDeployments(t *tes
 		hostClusters: map[string]*HostCluster{"cluster-1": {ClusterName: "another-rs", TypeName: "REPLICA_SET"}},
 	}
 
-	result, opts := ensureBackupConfigStatuses(rs, client.configs, getMongoDBBackupConfig(rs.GetBackupSpec(), "project-id"), zap.S(), client, 0)
+	result, opts := ensureBackupConfigStatuses(t.Context(), rs, client.configs, getMongoDBBackupConfig(rs.GetBackupSpec(), "project-id"), zap.S(), client, 0)
 
 	assert.True(t, result.IsOK())
 	_, exists := backupStatusOf(opts)
