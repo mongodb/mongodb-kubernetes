@@ -871,6 +871,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_ops_manager_backup_scoped_credentials
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_om_ops_manager_backup_sharded_cluster
     tags: [ "patch-run" ]
     run_on:
@@ -1092,6 +1097,11 @@ tasks:
 
   - name: e2e_multi_cluster_backup_restore
     tags: [ "patch-run", "e2e_medium" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_multi_cluster_backup_scoped_credentials
+    tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 

@@ -39,8 +39,8 @@ def create_scoped_project(
     namespace: str,
     name: str,
     base_url: str,
-    ca_configmap: str,
-    api_client: kubernetes.client.ApiClient,
+    ca_configmap: Optional[str] = None,
+    api_client: Optional[kubernetes.client.ApiClient] = None,
 ) -> ScopedProject:
     """Creates an organization and a project and a GROUP_OWNER key for that project only, using the admin tester."""
     org = admin.om_request("post", "/orgs", json_object={"name": name}).json()
@@ -64,12 +64,10 @@ def create_scoped_project(
         api_client=api_client,
     )
     config_name = f"{name}-config"
-    create_or_update_configmap(
-        namespace,
-        config_name,
-        {"baseUrl": base_url, "projectName": name, "orgId": org["id"], "sslMMSCAConfigMap": ca_configmap},
-        api_client=api_client,
-    )
+    config = {"baseUrl": base_url, "projectName": name, "orgId": org["id"]}
+    if ca_configmap:
+        config["sslMMSCAConfigMap"] = ca_configmap
+    create_or_update_configmap(namespace, config_name, config, api_client=api_client)
 
     return ScopedProject(
         name=name,
