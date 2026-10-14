@@ -300,8 +300,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		// doing anything related to cert-manager resources.
 		if !r.reconciler.certManagerReady {
 			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf(
-				"security.managedCertificate requires cert-manager and respective RBAC set up, but it looks like the operator doesn't have authz for cert-manager resources. Install "+
-					"the operator with the managed-certificate RBAC (helm value security.managedCertificate.enabled)")))
+				"It looks like the operator doesn't have authz to manage cert-manager resources, it's required for managedCertificate feature to work.")))
 		}
 
 		status, certsCondition := certs.EnsureCertificatesAndCA(
@@ -699,10 +698,22 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture) error {
+func AddReplicaSetController(
+	ctx context.Context,
+	mgr manager.Manager,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise,
+	enableClusterMongoDBRoles,
+	agentDebug bool,
+	agentDebugImage string,
+	defaultArchitecture architectures.DefaultArchitecture,
+	managedCertificatesEnabled bool,
+) error {
 	// make sure cert-manager resources are registered and operator has authz to access them, before actually registering
 	// watches or doing anything with cert-manager resources.
-	certManagerReady := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+	certManagerReady := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace(), managedCertificatesEnabled)
 
 	// Create a new controller
 	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, certManagerReady)

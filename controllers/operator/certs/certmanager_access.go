@@ -2,8 +2,6 @@ package certs
 
 import (
 	"context"
-	"os"
-	"strconv"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
@@ -11,7 +9,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 // CertManagerReady reports whether this operator can use cert-manager to manage the certificates.
@@ -22,21 +19,14 @@ import (
 // never reaches cert-manager.
 // watchedNamespaces are the namespaces the operator watches, as returned by GetWatchedNamespace:
 // []string{""} when it watches the whole cluster, otherwise the list of namespaces.
-func CertManagerReady(ctx context.Context, c kubernetesClient.Client, restMapper apimeta.RESTMapper, watchedNamespaces []string) bool {
+func CertManagerReady(ctx context.Context, c kubernetesClient.Client, restMapper apimeta.RESTMapper, watchedNamespaces []string, managedCertificatesEnabled bool) bool {
 	if !CertManagerCRDsInstalled(restMapper) {
 		return false
 	}
-	if !ManagedCertificateRBACEnabled() {
+	if !managedCertificatesEnabled {
 		return false
 	}
 	return certManagerAccessAllowed(ctx, c, watchedNamespaces)
-}
-
-// ManagedCertificateRBACEnabled reports whether the chart installed the cert-manager related RBAC.
-// helm installs RBACs when security.managedCertificate.enabled helm field is set to true.
-func ManagedCertificateRBACEnabled() bool {
-	enabled, err := strconv.ParseBool(os.Getenv(util.ManagedCertificateEnv))
-	return err == nil && enabled
 }
 
 func CertManagerCRDsInstalled(restMapper apimeta.RESTMapper) bool {
