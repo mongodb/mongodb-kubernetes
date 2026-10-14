@@ -907,7 +907,7 @@ func TestOpsManagerBackupObjectLockRetentionFields(t *testing.T) {
 
 	// when
 	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
-	s3Configs, _ := mockedAdmin.ReadS3Configs()
+	s3Configs, _ := mockedAdmin.ReadS3Configs(ctx)
 	// then
 	require.Len(t, s3Configs, 1)
 	assert.Equal(t, true, *s3Configs[0].ObjectLockEnabled)
