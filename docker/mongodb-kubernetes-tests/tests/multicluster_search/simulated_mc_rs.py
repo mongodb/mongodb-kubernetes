@@ -26,10 +26,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_workload_ready_in_cluster
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import (
-    search_artifact_uids,
-    wait_for_search_artifacts_deleted,
-)
+from tests.common.search.connectivity import search_artifact_uids, wait_for_search_artifacts_deleted
 from tests.common.search.mc_search_helper import (
     _assert_mongot_host_on_disk,
     assert_mongot_sync_source_hosts,
