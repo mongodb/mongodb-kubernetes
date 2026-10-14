@@ -44,6 +44,8 @@
 #   GH_APP_PEM_B64      Base64-encoded GitHub App PEM private key.
 #   NO_PUSH             Set to 1 to skip git push.
 #   DRY_RUN             Set to 1 to skip push and PR creation.
+#   BUILD_SCENARIO      Build scenario (release, dryrun-release, ...). When set
+#                         to dryrun-release, PR creation is skipped.
 
 set -eou pipefail
 
@@ -161,6 +163,11 @@ function prepare_docs_pr() {
 }
 
 function create_docs_pr() {
+  if [[ "${BUILD_SCENARIO:-release}" == "dryrun-release" ]]; then
+    echo "BUILD_SCENARIO=dryrun-release; skipping PR creation (branch push is unaffected)."
+    return 0
+  fi
+
   if [[ -z "${GITHUB_TOKEN:-}" ]]; then
     echo "GITHUB_TOKEN not set; skipping PR creation."
     return 0
