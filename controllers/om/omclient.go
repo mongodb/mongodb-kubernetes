@@ -294,14 +294,19 @@ func (oc *HTTPOmConnection) ReadAuditLogRotation(ctx context.Context) (*automati
 }
 
 func (oc *HTTPOmConnection) GetAgentAuthMode(ctx context.Context) (string, error) {
-	ac, err := oc.ReadAutomationConfig(ctx)
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
 	if err != nil {
 		return "", err
 	}
-	if ac.Auth == nil {
-		return "", nil
+	var partial struct {
+		Auth struct {
+			AutoAuthMechanism string `json:"autoAuthMechanism"`
+		} `json:"auth"`
 	}
-	return ac.Auth.AutoAuthMechanism, nil
+	if err := json.Unmarshal(ans, &partial); err != nil {
+		return "", apierror.New(err)
+	}
+	return partial.Auth.AutoAuthMechanism, nil
 }
 
 var _ Connection = &HTTPOmConnection{}
