@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -42,17 +43,19 @@ func TestNewHTTPClient_SetsRequestTimeout(t *testing.T) {
 }
 
 // hangingServer never answers; the handler returns only once the client has gone away so that srv.Close() completes.
+// The server only notices the client going away once the request body has been consumed (see hangingAutomationConfig).
 func hangingServer(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
 		<-r.Context().Done()
 	}))
 	t.Cleanup(srv.Close)
 	return srv, &requests
 }
 
-func TestRequestWithContext_DeadlineAbortsHangingServer(t *testing.T) {
+func TestRequest_DeadlineAbortsHangingServer(t *testing.T) {
 	tests := []struct {
 		name    string
 		options []func(*Client) error
@@ -79,7 +82,7 @@ func TestRequestWithContext_DeadlineAbortsHangingServer(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
-			_, _, err = client.RequestWithContext(ctx, "GET", srv.URL, "/api/public/v1.0/groups", nil)
+			_, _, err = client.Request(ctx, "GET", srv.URL, "/api/public/v1.0/groups", nil)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), context.DeadlineExceeded.Error())

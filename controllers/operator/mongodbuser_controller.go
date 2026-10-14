@@ -452,7 +452,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 
 	shouldRetry := false
 	needsFollowUp := false
-	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	err := conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		if ac.Auth.Disabled ||
 			(!stringutil.ContainsAny(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigScramSha256Option, util.AutomationConfigScramSha1Option)) {
 			shouldRetry = true
@@ -465,7 +465,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 		}
 
 		auth := ac.Auth
-		if user.ChangedIdentifier() { // we've changed username or database, we need to remove the old user before adding new
+		if user.ChangedIdentifier() {
 			auth.RemoveUser(user.Status.Username, user.Status.Database)
 		}
 
@@ -495,7 +495,7 @@ func (r *MongoDBUserReconciler) handleScramShaUser(ctx context.Context, user *us
 	// Before we update the MongoDBUser's status to Updated,
 	// we need to wait for the cluster to be in a ready state
 	// to ensure that the user has been created successfully and is usable.
-	if err := waitForReadyState(conn, log); err != nil {
+	if err := waitForReadyState(ctx, conn, log); err != nil {
 		return r.updateStatus(ctx, user, workflow.Pending("error waiting for ready state: %s", err.Error()).WithRetry(10), log)
 	}
 
@@ -534,7 +534,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 		return nil
 	}
 
-	err := conn.ReadUpdateAutomationConfig(updateFunction, log)
+	err := conn.ReadUpdateAutomationConfig(ctx, updateFunction, log)
 	if err != nil {
 		if shouldRetry {
 			return r.updateStatus(ctx, user, workflow.Pending("%s", err.Error()).WithRetry(10), log)
@@ -545,7 +545,7 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 	// Before we update the MongoDBUser's status to Updated,
 	// we need to wait for the cluster to be in a ready state
 	// to ensure that the user has been created successfully and is usable.
-	if err := waitForReadyState(conn, log); err != nil {
+	if err := waitForReadyState(ctx, conn, log); err != nil {
 		return r.updateStatus(ctx, user, workflow.Pending("error waiting for ready state: %s", err.Error()).WithRetry(10), log)
 	}
 
@@ -562,14 +562,14 @@ func (r *MongoDBUserReconciler) handleExternalAuthUser(ctx context.Context, user
 	return r.updateStatus(ctx, user, workflow.OK(), log, mdbstatus.NewProjectIdOption(conn.GroupID()))
 }
 
-func waitForReadyState(conn om.Connection, log *zap.SugaredLogger) error {
-	automationConfig, err := conn.ReadAutomationConfig()
+func waitForReadyState(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error {
+	automationConfig, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		return err
 	}
 
 	processes := automationConfig.Deployment.GetAllProcessNames()
-	return om.WaitForReadyState(conn, processes, false, log)
+	return om.WaitForReadyState(ctx, conn, processes, false, log)
 }
 
 func externalAuthMechanismsAvailable(mechanisms []string) bool {
@@ -593,7 +593,7 @@ func getAnnotationsForUserResource(user *userv1.MongoDBUser) (map[string]string,
 func (r *MongoDBUserReconciler) preDeletionCleanup(ctx context.Context, user *userv1.MongoDBUser, conn om.Connection, log *zap.SugaredLogger) (reconcile.Result, error) {
 	log.Info("Performing pre deletion cleanup before deleting MongoDBUser")
 
-	err := conn.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	err := conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.EnsureUserRemoved(user.Spec.Username, user.Spec.Database)
 		return nil
 	}, log)

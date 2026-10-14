@@ -1,5 +1,7 @@
 package host
 
+import "context"
+
 type Host struct {
 	Password          string `json:"password"`
 	Username          string `json:"username"`
@@ -14,19 +16,19 @@ type Result struct {
 }
 
 type Getter interface {
-	GetHosts() (*Result, error)
+	GetHosts(ctx context.Context) (*Result, error)
 }
 
 type Adder interface {
-	AddHost(host Host) error
+	AddHost(ctx context.Context, host Host) error
 }
 
 type Updater interface {
-	UpdateHost(host Host) error
+	UpdateHost(ctx context.Context, host Host) error
 }
 
 type Remover interface {
-	RemoveHost(hostID string) error
+	RemoveHost(ctx context.Context, hostID string) error
 }
 
 type GetRemover interface {
