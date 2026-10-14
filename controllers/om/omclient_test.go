@@ -3,6 +3,7 @@ package om
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test/httprecorder"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -63,6 +65,73 @@ func TestGettingAutomationConfig(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, testAutomationConfig.Deployment, data.Deployment)
+}
+
+func TestGetAgentAuthMode(t *testing.T) {
+	for _, tt := range []struct {
+		name, body, mode, errorText string
+		status                      int
+	}{
+		{"SCRAM", `{"auth":{"autoAuthMechanism":"SCRAM-SHA-256"}}`, "SCRAM-SHA-256", "", http.StatusOK},
+		{"X509", `{"auth":{"autoAuthMechanism":"MONGODB-X509"}}`, "MONGODB-X509", "", http.StatusOK},
+		{"missing auth", `{}`, "", "", http.StatusOK},
+		{"null auth", `{"auth":null}`, "", "", http.StatusOK},
+		{"missing mechanism", `{"auth":{}}`, "", "", http.StatusOK},
+		{"null mechanism", `{"auth":{"autoAuthMechanism":null}}`, "", "", http.StatusOK},
+		{"invalid auth", `{"auth":42}`, "", "cannot unmarshal number", http.StatusOK},
+		{"invalid mechanism", `{"auth":{"autoAuthMechanism":42}}`, "", "cannot unmarshal number", http.StatusOK},
+		{"malformed JSON", `{"auth":`, "", "unexpected end of JSON input", http.StatusOK},
+		{"empty body", "", "", "unexpected end of JSON input", http.StatusOK},
+		{"unrelated users", `{"auth":{"autoAuthMechanism":"SCRAM-SHA-256","usersWanted":[{"user":42}]}}`, "SCRAM-SHA-256", "", http.StatusOK},
+		{"unrelated config", `{"auth":{"autoAuthMechanism":"MONGODB-X509"},"tls":{"CAFilePath":42},"ldap":42,"oidcProviderConfigs":42}`, "MONGODB-X509", "", http.StatusOK},
+		{"API error", `{"detail":"invalid automation config"}`, "", "invalid automation config", http.StatusBadRequest},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, "/api/public/v1.0/groups/1/automationConfig", r.URL.Path)
+				w.Header().Set("X-MongoDB-Service-Version", "versionString=8.0.0")
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			t.Cleanup(srv.Close)
+			connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+			mode, err := connection.GetAgentAuthMode(t.Context())
+			if tt.errorText != "" {
+				require.ErrorContains(t, err, tt.errorText)
+				var apiErr *apierror.Error
+				require.ErrorAs(t, err, &apiErr)
+				assert.Empty(t, mode)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.mode, mode)
+			assert.Equal(t, "8.0.0", connection.OpsManagerVersion().VersionString)
+		})
+	}
+}
+
+func TestGetAgentAuthMode_CanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: "http://127.0.0.1:1", GroupID: "1"})
+	mode, err := connection.GetAgentAuthMode(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), context.Canceled.Error())
+	assert.Empty(t, mode)
+}
+
+func TestReadAutomationConfig_WrapsBuilderError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"tls":{"CAFilePath":42}}`))
+	}))
+	t.Cleanup(srv.Close)
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	_, err := connection.ReadAutomationConfig(t.Context())
+	require.Error(t, err)
+	var apiErr *apierror.Error
+	require.True(t, errors.As(err, &apiErr))
+	assert.Contains(t, apiErr.Detail, "CAFilePath")
 }
 
 func TestNotSendingRequestOnNonModifiedAutomationConfig(t *testing.T) {
