@@ -40,11 +40,8 @@ func (ac *AutomationConfig) Apply() error {
 	return applyInto(*ac, &ac.Deployment)
 }
 
-// applyInto is a helper method that does not mutate AutomationConfig "a", but only Deployment "deployment"
-//
-// Every write through "into" is a top-level key; values reachable from "into" are never written.
-// Callers that need to protect the original deployment can therefore pass a shallow clone
-// (see getSerializedAC). TestGetSerializedACDoesNotMutateInput pins this contract.
+// applyInto is a helper method that does not mutate AutomationConfig "a", but only Deployment "deployment".
+// It writes only top-level keys of "into", so a shallow clone protects the original (see getSerializedAC).
 func applyInto(a AutomationConfig, into *Deployment) error {
 	// applies all changes made to the Auth struct and merges with the corresponding map[string]interface{}
 	// inside the Deployment
@@ -159,21 +156,19 @@ func (ac *AutomationConfig) EqualsWithoutDeployment(b AutomationConfig) bool {
 	return cmp.Equal(acA, acB, deploymentsComparer)
 }
 
-// getSerializedAC calls apply on a deepCopy which decodes the internal struct into the Deployment map. After decoding,
+// getSerializedAC calls apply on a shallow clone which decodes the internal struct into the Deployment map. After decoding,
 // we encode the map into its internal representation again. Doing that removes util.MergoDelete for proper comparison
 func getSerializedAC(original AutomationConfig) (AutomationConfig, error) {
 	empty := AutomationConfig{}
-	// applyInto only writes top-level keys through the copy, so a shallow clone is enough to protect
-	// the original. TestGetSerializedACDoesNotMutateInput pins this contract.
-	deepCopy := maps.Clone(original.Deployment)
-	if deepCopy == nil {
-		deepCopy = Deployment{}
+	clone := maps.Clone(original.Deployment)
+	if clone == nil {
+		clone = Deployment{}
 	}
-	if err := applyInto(original, &deepCopy); err != nil {
+	if err := applyInto(original, &clone); err != nil {
 		return empty, err
 	}
 
-	ac, err := BuildAutomationConfigFromDeployment(deepCopy)
+	ac, err := BuildAutomationConfigFromDeployment(clone)
 	if err != nil {
 		return empty, err
 	}

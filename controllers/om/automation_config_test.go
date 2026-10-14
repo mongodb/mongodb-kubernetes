@@ -1,8 +1,6 @@
 package om
 
 import (
-	"bytes"
-	"encoding/gob"
 	"encoding/json"
 	"maps"
 	"testing"
@@ -1098,9 +1096,8 @@ func TestApplyInto_RemovesLDAPBlockWhenLdapIsNil(t *testing.T) {
 	assert.False(t, ldapExists, "ldap block should be deleted from deployment when Ldap is nil")
 }
 
-// TestGetSerializedACDoesNotMutateInput pins the contract behind getSerializedAC's shallow clone:
-// every write applyInto performs through the copy is top-level, so the caller's deployment must
-// not change. A nested write through the copy would silently leak into the caller's AC.
+// TestGetSerializedACDoesNotMutateInput guards getSerializedAC's shallow clone: a nested write
+// would leak into the caller's deployment.
 func TestGetSerializedACDoesNotMutateInput(t *testing.T) {
 	original, err := BuildAutomationConfigFromDeployment(getDeploymentWithRSOverTheWire(t))
 	require.NoError(t, err)
@@ -1218,7 +1215,7 @@ func TestIsEqualNotWorkingWithTypeChanges(t *testing.T) {
 	})
 }
 
-func getDeploymentWithRSOverTheWire(t testing.TB) Deployment {
+func getDeploymentWithRSOverTheWire(t *testing.T) Deployment {
 	overTheWire := getTestAutomationConfig().Deployment
 	overTheWire.addReplicaSet(NewReplicaSet("rs-1", "3.2.0"))
 	overTheWire.addReplicaSet(NewReplicaSet("rs-2", "3.2.0"))
@@ -1249,86 +1246,4 @@ func TestAuthNewKeyRoundTrip(t *testing.T) {
 	authMap := ac.Deployment["auth"].(map[string]any)
 	assert.Equal(t, "current-key", authMap["key"])
 	assert.Equal(t, "rotation-key", authMap["newKey"])
-}
-
-// mapDeepCopyGob is the original gob-based deep copy, kept only as a benchmark baseline.
-func mapDeepCopyGob(m map[string]any) (map[string]any, error) {
-	gob.Register(map[string]any{})
-	gob.Register([]any{})
-
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(m); err != nil {
-		return nil, err
-	}
-	var cp map[string]any
-	if err := gob.NewDecoder(&buf).Decode(&cp); err != nil {
-		return nil, err
-	}
-	return cp, nil
-}
-
-// isEqualAfterModificationWithGobCopy is the original implementation, kept as a benchmark baseline.
-func isEqualAfterModificationWithGobCopy(changeDeploymentFunc func(Deployment) error, deployment Deployment) (bool, error) {
-	original, err := mapDeepCopyGob(deployment)
-	if err != nil {
-		return false, err
-	}
-	if err := changeDeploymentFunc(deployment); err != nil {
-		return false, err
-	}
-	deploymentWithoutTypes, err := maputil.StructToMap(deployment)
-	if err != nil {
-		return false, err
-	}
-	return equality.Semantic.DeepEqual(deploymentWithoutTypes, original), nil
-}
-
-func BenchmarkIsEqualAfterModification(b *testing.B) {
-	deployment := getDeploymentWithRSOverTheWire(b)
-	noop := func(Deployment) error { return nil }
-
-	b.Run("gob-copy", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			if _, err := isEqualAfterModificationWithGobCopy(noop, deployment); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
-
-	b.Run("json-snapshot", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			if _, err := isEqualAfterModification(noop, deployment); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
-
-	b.Run("map-to-struct", func(b *testing.B) {
-		role := mdbv1.MongoDBRole{
-			Role: "inherited", Db: "admin", Privileges: []mdbv1.Privilege{},
-			Roles: []mdbv1.InheritedRole{{Role: "read", Db: "admin"}},
-		}
-		wireRoles, err := maputil.StructToMap(Deployment{"roles": []mdbv1.MongoDBRole{role}})
-		require.NoError(b, err)
-		setRoles := func(d Deployment) error {
-			d.SetRoles([]mdbv1.MongoDBRole{role})
-			return nil
-		}
-		for name, compare := range map[string]func(func(Deployment) error, Deployment) (bool, error){
-			"gob-copy": isEqualAfterModificationWithGobCopy, "json-snapshot": isEqualAfterModification,
-		} {
-			b.Run(name, func(b *testing.B) {
-				b.ReportAllocs()
-				for i := 0; i < b.N; i++ {
-					// Restore the wire representation so every iteration crosses the type boundary.
-					deployment["roles"] = wireRoles["roles"]
-					equal, err := compare(setRoles, deployment)
-					require.NoError(b, err)
-					require.True(b, equal)
-				}
-			})
-		}
-	})
 }
