@@ -282,6 +282,10 @@ func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...
 		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
 	}
 
+	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
+		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
+	}
+
 	if phase == status.PhaseRunning {
 		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
 	}
