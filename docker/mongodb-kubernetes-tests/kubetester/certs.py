@@ -14,7 +14,7 @@ from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import create_secret, delete_secret, kubetester, random_k8s_name, read_secret
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.phase import Phase
 from opentelemetry import trace
 from tests import test_logger
@@ -100,7 +100,10 @@ def generate_cert(
     dns_list: Optional[List[str]] = None,
     common_name: Optional[str] = None,
     clusterwide: bool = False,
+    ready_timeout: Optional[int] = None,
 ) -> str:
+    if ready_timeout is not None and ready_timeout <= 0:
+        raise ValueError("Certificate readiness timeout must be positive")
     if spec is None:
         spec = dict()
 
@@ -149,7 +152,12 @@ def generate_cert(
     cert.api = kubernetes.client.CustomObjectsApi(api_client=api_client)
     cert.update()
     print(f"Waiting for certificate to become ready: {cert}")
-    cert.block_until_ready()
+    if ready_timeout is None:
+        cert.block_until_ready()
+    else:
+        run_periodically(
+            lambda: bool(cert.is_ready()), timeout=ready_timeout, sleep_time=2, msg=f"certificate {secret_name}"
+        )
 
     if secret_backend == "Vault":
         path = "secret/mongodbenterprise/"
@@ -190,6 +198,7 @@ def create_tls_certs(
     process_hostnames: Optional[List[str]] = None,
     clusterwide: bool = False,
     api_client: Optional[kubernetes.client.ApiClient] = None,
+    ready_timeout: Optional[int] = None,
 ) -> str:
     """
     :param process_hostnames: set for TLS certificate to contain only given domains
@@ -233,6 +242,7 @@ def create_tls_certs(
         common_name=common_name,
         clusterwide=clusterwide,
         api_client=api_client,
+        ready_timeout=ready_timeout,
     )
     return cert_secret_name
 
