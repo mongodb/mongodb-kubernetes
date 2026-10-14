@@ -292,7 +292,9 @@ class TestConfiguringBackupInCrWithScopedKey:
         mongodb_multi.assert_reaches_phase(Phase.Failed, timeout=300)
         message = mongodb_multi.get_status_message()
         logger.info(f"CR failed with: {message}")
-        assert "Failed to configure backup" in message or "401" in message
+        # the reason returned by Ops Manager must not be swallowed
+        assert "Failed to configure backup" in message
+        assert "401" in message
 
     def test_backup_still_running_in_om(self, scoped_credentials: Dict):
         assert backup_config_status(scoped_credentials["tester"]) == "STARTED"
