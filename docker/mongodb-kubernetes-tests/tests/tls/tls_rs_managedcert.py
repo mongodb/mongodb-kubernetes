@@ -8,11 +8,19 @@ from tests.tls.managedcert_helper import (
     assert_leaf_secrets_created,
     assert_self_signed_ca_created,
     managed_cert_replica_set,
+    managed_certificate_operator,
     read_ca_bundles,
     scale_and_assert_member_cert_issuance,
 )
 
 MDB_RESOURCE = "test-tls-rs-managedcert"
+
+
+@pytest.fixture(scope="module")
+def operator(cert_manager: str, namespace: str) -> Operator:
+    # cert_manager is a dependency, not used here: cert-manager has to be installed before the
+    # operator starts, because the operator decides once, at startup, whether it may use cert-manager.
+    return managed_certificate_operator(namespace)
 
 
 @pytest.fixture(scope="module")
