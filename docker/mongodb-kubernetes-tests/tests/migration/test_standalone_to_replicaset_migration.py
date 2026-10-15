@@ -178,7 +178,6 @@ def standalone(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource["spec"]["persistent"] = True
     resource["spec"]["security"] = {"authentication": dict(AUTHENTICATION)}
 
-    try_load(resource)
     return resource
 
 
@@ -297,11 +296,7 @@ class TestStandaloneToReplicaSetMigration:
 
     def test_create_standalone(self, standalone: MongoDB):
         """The create webhook returns the deprecation warning as well."""
-        if standalone.bound:
-            # A rerun finds the Standalone already created, there is no create response to inspect.
-            standalone.update()
-        else:
-            assert DEPRECATION_MESSAGE in create_standalone_and_read_warnings(standalone)
+        assert DEPRECATION_MESSAGE in create_standalone_and_read_warnings(standalone)
         standalone.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_tools_pod_ships_cli_tools(self, tools_pod: ToolsPod):
