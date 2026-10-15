@@ -31,7 +31,6 @@ logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")
 
 # Status messages of transient Failed phases the operator recovers from on a later reconcile.
-# in_desired_state skips a Failed whose message contains one of these instead of failing fast.
 INTERMEDIATE_EVENTS = (
     "haven't reached READY",
     "Some agents failed to register",
