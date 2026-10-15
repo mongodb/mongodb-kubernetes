@@ -151,8 +151,8 @@ def wait_resource_gone(name: str, namespace: str, timeout: int = 300):
 
 
 def create_standalone_and_read_warnings(resource: MongoDB) -> str:
-    """Creates the Standalone, loads it back and returns the Warning response header, where the
-    API server relays the warnings the admission webhooks return."""
+    """Creates the Standalone and returns the Warning header the API server relays from the
+    admission webhooks."""
     _, _, headers = client.CustomObjectsApi().create_namespaced_custom_object_with_http_info(
         "mongodb.com", "v1", resource.namespace, "mongodb", resource.backing_obj, field_validation="Strict"
     )
@@ -161,8 +161,8 @@ def create_standalone_and_read_warnings(resource: MongoDB) -> str:
 
 
 def patch_standalone_and_read_warnings(namespace: str, name: str, body: dict) -> str:
-    """Applies a merge patch to the Standalone and returns the Warning response header, where
-    the API server relays the warnings the admission webhooks return."""
+    """Applies a merge patch to the Standalone and returns the Warning header the API server
+    relays from the admission webhooks."""
     _, _, headers = client.CustomObjectsApi().patch_namespaced_custom_object_with_http_info(
         "mongodb.com", "v1", namespace, "mongodb", name, body
     )
@@ -292,17 +292,13 @@ class TestStandaloneToReplicaSetMigration:
     def test_install_operator(self, namespace: str, operator: Operator):
         """The operator built from this branch, installed from the local chart."""
         operator.wait_for_operator_ready()
-        # The deprecation warning assertions need the admission webhook serving, the
-        # operator registers it during startup.
         operator.wait_for_operator_webhook_ready()
         log_deployments_info(namespace)
 
     def test_create_standalone(self, standalone: MongoDB):
-        """The create webhook returns the deprecation warning as well, the API server relays it
-        to clients in the Warning response header."""
+        """The create webhook returns the deprecation warning as well."""
         if standalone.bound:
-            # A rerun in the same namespace finds the Standalone already created, with no
-            # create response to inspect.
+            # A rerun finds the Standalone already created, there is no create response to inspect.
             standalone.update()
         else:
             assert DEPRECATION_MESSAGE in create_standalone_and_read_warnings(standalone)
@@ -346,8 +342,7 @@ class TestStandaloneToReplicaSetMigration:
         assert DEPRECATION_MESSAGE in logs
 
     def test_standalone_update_returns_deprecation_warning(self, namespace: str):
-        """The validation webhook returns the deprecation warning for the Standalone on update,
-        the API server relays it to clients in the Warning response header."""
+        """The validation webhook returns the deprecation warning for the Standalone on update."""
         warnings = patch_standalone_and_read_warnings(
             namespace, STANDALONE_NAME, {"metadata": {"labels": {"webhook-check": "true"}}}
         )
