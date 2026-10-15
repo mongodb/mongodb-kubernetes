@@ -29,7 +29,7 @@ Complete each step for all affected StatefulSets before continuing. With an oper
 
 This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each StatefulSet to its cluster entry's `name` and explicit `index`, not the entry's array position.
 
-> **Note:** A matching `shardOverrides[].persistence` replaces cluster persistence. Custom `statefulSet.spec.volumeClaimTemplates` can override the generated storage size. If you use either setting, identify and update the effective storage field for each affected StatefulSet instead of applying this example unchanged.
+> **Note:** If a matching `shardOverrides[].persistence` sets the size, change the size there. If you override `volumeClaimTemplates` in `spec.clusters[].statefulSet` or `shardOverrides[].statefulSet`, change the size there; the override takes precedence over `persistence`.
 
 1. **Identify the StatefulSets and data claims.**
 
@@ -40,7 +40,7 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
      get sts -l mongodb.com/search-name=<search-name>
    ```
 
-   With the default `data` claim template, each replica uses `data-<statefulset-name>-<ordinal>`. For sharded sources, each cluster has one StatefulSet per shard. For customized templates or mounts, check the claim mounted by each pod instead.
+   With the default `data` claim template, each replica uses `data-<statefulset-name>-<ordinal>`. For sharded sources, each cluster has one StatefulSet per shard, named `<search-name>-search-<index>-<shard-name>`. For customized templates or mounts, check the claim mounted by each pod instead.
 
 2. **Expand each data claim.**
 
@@ -97,7 +97,7 @@ This example expands replica-set Search storage from `1Gi` to `2Gi`. Match each 
      edit mongodbsearch <search-name>
    ```
 
-   Change the affected cluster entry's `persistence.single.storage` value:
+   Change each affected cluster entry's `persistence.single.storage` value:
 
    ```yaml
    persistence:

@@ -19,7 +19,7 @@ from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
 from tests import test_logger
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import wait_for_resource_deleted
+from tests.common.search.connectivity import SEARCH_OWNER_NAME_LABEL, wait_for_resource_deleted
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.search.om_deployment import get_ops_manager
 
@@ -33,7 +33,11 @@ RESIZE_TARGET_STORAGE = "2Gi"
 
 
 class SearchPVCResize:
-    """One replica-set Search workload, with its member client and explicit cluster index."""
+    """One mongot StatefulSet (replica set, or one shard when shard_name is set) in one member cluster.
+
+    storage returns the mapping in the MongoDBSearch spec whose "storage" key sizes this StatefulSet;
+    it defaults to the cluster entry's persistence.
+    """
 
     def __init__(
         self,
@@ -41,6 +45,8 @@ class SearchPVCResize:
         cluster_index: int,
         api_client: Optional[kubernetes.client.ApiClient],
         movies: SampleMoviesSearchHelper,
+        shard_name: Optional[str] = None,
+        storage: Optional[Callable[[dict], dict]] = None,
     ):
         self.search = search
         self.cluster_index = cluster_index
@@ -48,7 +54,16 @@ class SearchPVCResize:
         self.core = kubernetes.client.CoreV1Api(api_client)
         self.apps = kubernetes.client.AppsV1Api(api_client)
         self.namespace = search.namespace
-        self.name = search_resource_names.mongot_statefulset_name_for_cluster(search.name, cluster_index)
+        if shard_name is None:
+            self.name = search_resource_names.mongot_statefulset_name_for_cluster(search.name, cluster_index)
+        else:
+            self.name = search_resource_names.shard_statefulset_name(search.name, shard_name, cluster_index)
+
+        def cluster_persistence(spec: dict) -> dict:
+            entry = next(c for c in spec["clusters"] if c.get("index", 0) == cluster_index)
+            return entry["persistence"]["single"]
+
+        self.storage = storage or cluster_persistence
         self.movies = movies
         self.marker_path = "/mongot/data/pvc-resize-marker"
         self.pods: dict[str, kubernetes.client.V1Pod] = {}
@@ -106,6 +121,7 @@ class SearchPVCResize:
             assert storage_class.allow_volume_expansion is True
             self.exec(pod.metadata.name, ["sh", "-c", f"printf %s {pod.metadata.uid} > {self.marker_path}"])
             self.assert_marker(pod.metadata.name)
+        assert set(self.claims) == {f"data-{self.name}-{ordinal}" for ordinal in range(self.sts.spec.replicas)}
         self.assert_claims()
 
     def assert_claims(self, expanded: bool = False) -> None:
@@ -259,8 +275,19 @@ def run_search_pvc_resize(
 ) -> None:
     assert units and operators
     namespace = units[0].namespace
+
+    def assert_label_lookup():
+        by_cluster: dict[int, list[SearchPVCResize]] = {}
+        for unit in units:
+            by_cluster.setdefault(id(unit.api_client), []).append(unit)
+        for group in by_cluster.values():
+            selector = f"{SEARCH_OWNER_NAME_LABEL}={group[0].search.name}"
+            found = group[0].apps.list_namespaced_stateful_set(namespace, label_selector=selector).items
+            assert sorted(sts.metadata.name for sts in found) == sorted(unit.name for unit in group)
+
     for unit in units:
         unit.record()
+    assert_label_lookup()
     deployments = []
     for api_client, name in operators:
         apps = kubernetes.client.AppsV1Api(api_client)
@@ -324,26 +351,25 @@ def run_search_pvc_resize(
             )
             wait_for_resource_deleted(unit.read_sts, unit.name)
             unit.assert_absent()
-        for unit in units:
-            search = unit.search
+        # Every copy gets every unit's edit: with an operator per member, each local copy stays consistent.
+        for search in {id(unit.search): unit.search for unit in units}.values():
             search.load()
             assert search["metadata"].get("deletionTimestamp") is None
             original_uid = search["metadata"]["uid"]
-            clusters = deepcopy(search["spec"]["clusters"])
-            for cluster in clusters:
-                assert not cluster.get("shardOverrides"), "sharded overrides are not covered by this RS test"
-                assert not cluster.get("statefulSet", {}).get("spec", {}).get("volumeClaimTemplates")
-                cluster["persistence"]["single"]["storage"] = RESIZE_TARGET_STORAGE
-            search["spec"]["clusters"] = clusters
+            spec = deepcopy(search["spec"])
+            for unit in units:
+                unit.storage(spec)["storage"] = RESIZE_TARGET_STORAGE
+            search["spec"]["clusters"] = spec["clusters"]
             search.update()
             search.load()
             assert search["metadata"]["uid"] == original_uid
-            assert search["spec"]["clusters"] == clusters
+            assert search["spec"]["clusters"] == spec["clusters"]
         time.sleep(10)
         for unit in units:
             unit.assert_absent()
     for unit in units:
         unit.wait_for_adoption()
+    assert_label_lookup()
     for unit in units:
         unit.restart_serially(filesystem_only=True)
         unit.wait_for_capacity()
