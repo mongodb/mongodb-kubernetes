@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"go.uber.org/zap"
+
 	appsv1 "k8s.io/api/apps/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
