@@ -10,11 +10,26 @@ from kubetester.certs import Certificate
 from kubetester.crypto import cert_signed_by_bundle
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.operator import Operator
 from kubetester.phase import Phase
+from tests.conftest import get_default_operator, get_operator_installation_config
 
 # The user configured issuer the `issuer` fixture creates. It is a CA-type Issuer, so it writes its
 # CA into each issued secret's ca.crt.
 CA_ISSUER_REF = {"issuerRef": {"name": "ca-issuer", "kind": "Issuer"}}
+
+
+def managed_certificate_operator(namespace: str) -> Operator:
+    """Installs the operator with operator-managed certificates enabled.
+
+    The chart grants the operator the cert-manager RBAC from this same value, and the operator reads
+    it to know whether it may use cert-manager at all. The operator works that out once, at startup,
+    so the value has to be set when it is installed, and cert-manager has to be installed before it:
+    the test modules that use this install the operator from a fixture that depends on cert_manager.
+    """
+    operator_installation_config = get_operator_installation_config(namespace)
+    operator_installation_config["security.managedCertificate.enabled"] = "true"
+    return get_default_operator(namespace, operator_installation_config)
 
 
 def managed_cert_replica_set(name: str, namespace: str, mdb_version: str, managed_certificate: dict) -> MongoDB:

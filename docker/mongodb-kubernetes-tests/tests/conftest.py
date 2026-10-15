@@ -279,27 +279,6 @@ def cert_manager() -> str:
 
 
 @fixture(scope="module")
-def cert_manager_before_operator() -> str:
-    """Installs cert-manager before the operator, for runs that enable operator-managed certificates.
-
-    The operator decides once, at startup, whether it may use cert-manager: the cert-manager CRDs
-    have to be registered and it has to have the RBAC. So for a run that enables
-    security.managedCertificate (MDB_MANAGED_CERTIFICATE_ENABLED=true), cert-manager has to be in
-    place before the operator is installed, otherwise the operator never notices it. For every
-    other run this does nothing.
-    """
-    if os.environ.get("MDB_MANAGED_CERTIFICATE_ENABLED") != "true":
-        return ""
-
-    result = install_cert_manager(
-        cluster_client=get_central_cluster_client(),
-        cluster_name=get_central_cluster_name(),
-    )
-    wait_for_cert_manager_ready(cluster_client=get_central_cluster_client())
-    return result
-
-
-@fixture(scope="module")
 def issuer(cert_manager: str, namespace: str) -> str:
     return create_issuer(namespace=namespace, api_client=get_central_cluster_client())
 
