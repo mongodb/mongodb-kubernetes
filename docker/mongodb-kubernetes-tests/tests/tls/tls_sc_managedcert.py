@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import pytest
 from kubetester import read_configmap, read_secret, try_load
 from kubetester.kubetester import fixture as load_fixture
@@ -65,9 +63,9 @@ def test_single_shared_ca_bundle_for_the_whole_cluster(sc: MongoDB, namespace: s
     assert server_ca_cm.get("ca-pem", "").strip() != "", "ca-pem (server CA) missing/empty"
     client_ca_cm = read_configmap(namespace, f"{MDB_RESOURCE}-managed-client-ca-bundle")
     assert client_ca_cm.get("clusterca-pem", "").strip() != "", "clusterca-pem (client CA) missing/empty"
-    assert server_ca_cm["ca-pem"].strip() != client_ca_cm["clusterca-pem"].strip(), (
-        "server and client self-signed CAs should be distinct roots"
-    )
+    assert (
+        server_ca_cm["ca-pem"].strip() != client_ca_cm["clusterca-pem"].strip()
+    ), "server and client self-signed CAs should be distinct roots"
 
 
 @pytest.mark.e2e_sharded_cluster_tls_managedcert
