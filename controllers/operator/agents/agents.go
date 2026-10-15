@@ -54,7 +54,7 @@ func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.Secret
 		if agentKey == "" {
 			log.Info("Generating agent key as current project doesn't have it")
 
-			agentKey, err = agentKeyGenerator.GenerateAgentKey()
+			agentKey, err = agentKeyGenerator.GenerateAgentKey(ctx)
 			if err != nil {
 				return "", xerrors.Errorf("failed to generate agent key in OM: %w", err)
 			}
@@ -176,7 +176,7 @@ func GetMongoDBClusterState(ctx context.Context, omConnection om.Connection) (Mo
 	_, err := om.TraversePages(
 		ctx,
 		omConnection.ReadAutomationAgents,
-		func(aa interface{}) bool {
+		func(aa any) bool {
 			agentStatuses = append(agentStatuses, aa.(om.AgentStatus))
 			return false
 		},
@@ -185,7 +185,7 @@ func GetMongoDBClusterState(ctx context.Context, omConnection om.Connection) (Mo
 		return MongoDBClusterStateInOM{}, xerrors.Errorf("error when reading automation agent pages: %v", err)
 	}
 
-	automationStatus, err := omConnection.ReadAutomationStatus()
+	automationStatus, err := omConnection.ReadAutomationStatus(ctx)
 	if err != nil {
 		return MongoDBClusterStateInOM{}, xerrors.Errorf("error reading automation status: %v", err)
 	}
@@ -199,14 +199,6 @@ func GetMongoDBClusterState(ctx context.Context, omConnection om.Connection) (Mo
 		GoalVersion:     automationStatus.GoalVersion,
 		ProcessStateMap: processStateMap,
 	}, nil
-}
-
-func (c *MongoDBClusterStateInOM) GetProcessState(hostname string) ProcessState {
-	if processState, ok := c.ProcessStateMap[hostname]; ok {
-		return processState
-	}
-
-	return NewProcessState(hostname)
 }
 
 func (c *MongoDBClusterStateInOM) GetProcesses() []ProcessState {
@@ -263,7 +255,7 @@ func calculateProcessStateMap(processStatuses []om.ProcessStatus, agentStatuses 
 
 func agentCheck(ctx context.Context, omConnection om.Connection, agentHostnames []string, log *zap.SugaredLogger) (string, bool) {
 	registeredHostnamesSet := map[string]struct{}{}
-	predicateFunc := func(aa interface{}) bool {
+	predicateFunc := func(aa any) bool {
 		automationAgent := aa.(om.Status)
 		for _, hostname := range agentHostnames {
 			if automationAgent.IsRegistered(hostname, log) {
@@ -320,6 +312,7 @@ func waitUntilRegistered(ctx context.Context, omConnection om.Connection, log *z
 	waitSeconds := env.ReadIntOrDefault(util.PodWaitSecondsEnv, r.waitSeconds) // nolint:forbidigo
 	retrials := env.ReadIntOrDefault(util.PodWaitRetriesEnv, r.retrials)       // nolint:forbidigo
 
+	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, agentRegistrationTimeout)
 	defer cancel()
 
@@ -327,8 +320,9 @@ func waitUntilRegistered(ctx context.Context, omConnection om.Connection, log *z
 		return agentCheck(ctx, omConnection, agentHostnames, log)
 	}
 
-	ok, msg := util.DoAndRetryWithContext(ctx, agentsCheckFunc, log, retrials, waitSeconds)
-	if !ok && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	ok, msg := util.DoAndRetry(ctx, agentsCheckFunc, log, retrials, waitSeconds)
+	// a caller's own expired deadline is not the registration timeout
+	if !ok && errors.Is(ctx.Err(), context.DeadlineExceeded) && parentCtx.Err() == nil {
 		msg = fmt.Sprintf("%s (timed out after %s waiting for agents to register)", msg, agentRegistrationTimeout)
 	}
 	return ok, msg

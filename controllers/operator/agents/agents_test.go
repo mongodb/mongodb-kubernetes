@@ -31,6 +31,27 @@ func TestWaitUntilRegistered_BoundedByOverallTimeout(t *testing.T) {
 	assert.Contains(t, msg, "timed out after")
 }
 
+func TestWaitUntilRegistered_EarlierParentDeadlineNotReportedAsRegistrationTimeout(t *testing.T) {
+	original := agentRegistrationTimeout
+	agentRegistrationTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { agentRegistrationTimeout = original })
+
+	conn := om.NewMockedOmConnection(om.NewDeployment())
+	conn.ReadAutomationAgentsFunc = func(_ int) (om.Paginated, error) {
+		return om.AutomationAgentStatusResponse{}, nil
+	}
+
+	// the caller's deadline is what ends the wait, so the message must not blame the registration timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	ok, msg := waitUntilRegistered(ctx, conn, zap.NewNop().Sugar(),
+		retryParams{retrials: 100, waitSeconds: 1}, "host-that-never-registers")
+
+	assert.False(t, ok)
+	assert.NotContains(t, msg, "timed out after")
+}
+
 func TestCalculateProcessStateMap(t *testing.T) {
 	sampleTimeStamp := "2023-06-03T10:00:00Z"
 	testCases := []struct {

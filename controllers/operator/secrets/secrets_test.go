@@ -57,8 +57,8 @@ func newFakeVault(t *testing.T, data map[string]map[string]string) *fakeVault {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]interface{}{
-			"data": map[string]interface{}{"data": secretData},
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"data": secretData},
 		}))
 	})
 

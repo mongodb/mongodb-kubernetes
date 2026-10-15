@@ -316,7 +316,7 @@ func GetMapForObject(m client.Client, obj apiruntime.Object) map[client.ObjectKe
 	}
 }
 
-func ObjectKeyFromApiObject(obj interface{}) client.ObjectKey {
+func ObjectKeyFromApiObject(obj any) client.ObjectKey {
 	ns := reflect.ValueOf(obj).Elem().FieldByName("Namespace").String()
 	name := reflect.ValueOf(obj).Elem().FieldByName("Name").String()
 

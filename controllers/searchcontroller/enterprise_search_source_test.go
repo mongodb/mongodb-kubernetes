@@ -5,7 +5,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -170,7 +169,7 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			topology:       mdbv1.ClusterTopologySingleCluster,
 			resourceType:   mdbv1.ReplicaSet,
 			authModes:      []string{},
-			externalDomain: ptr.To("example.com"),
+			externalDomain: new("example.com"),
 			expectError:    true,
 			expectedErrMsg: errExternalDomainNotSupported.Error(),
 		},
@@ -339,7 +338,7 @@ func newShardedUnmanagedLBSearch(name, namespace, mdbName string, endpointTempla
 			Namespace: namespace,
 		},
 		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: []searchv1.ClusterSpec{{Replicas: ptr.To(int32(1)), LoadBalancer: lb}},
+			Clusters: []searchv1.ClusterSpec{{Replicas: new(int32(1)), LoadBalancer: lb}},
 			Source: &searchv1.MongoDBSource{
 				MongoDBResourceRef: &userv1.MongoDBResourceRef{
 					Name: mdbName,
@@ -483,7 +482,7 @@ func TestShardedInternalSearchSource_Validate(t *testing.T) {
 		},
 		{
 			name:           "SingleCluster with externalDomain",
-			externalDomain: ptr.To("example.com"),
+			externalDomain: new("example.com"),
 			expectError:    true,
 		},
 	}

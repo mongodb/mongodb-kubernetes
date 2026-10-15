@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -341,7 +340,7 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 				Storage: "1Gi",
 			},
 		}
-		sc.Spec.Persistent = util.BooleanRef(true)
+		sc.Spec.Persistent = new(true)
 		sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
 		sc.Spec.ShardPodSpec.Persistence = &persistence
 		reconciler, _, c, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
@@ -548,7 +547,7 @@ func TestDeleteShardedClusterWithExternalMembers(t *testing.T) {
 
 	mockedOmConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 
-	hostsBefore, err := mockedOmConnection.GetHosts()
+	hostsBefore, err := mockedOmConnection.GetHosts(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, hostsBefore.Results, "precondition: the sharded cluster is monitored in OM")
 
@@ -557,13 +556,13 @@ func TestDeleteShardedClusterWithExternalMembers(t *testing.T) {
 	require.NoError(t, reconciler.OnDelete(ctx, sc, zap.S()))
 
 	// The sharded cluster and its processes must still be in the automation config.
-	d, err := mockedOmConnection.ReadDeployment()
+	d, err := mockedOmConnection.ReadDeployment(ctx)
 	require.NoError(t, err)
 	assert.NotEmpty(t, d.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName()),
 		"sharded cluster processes must stay in the automation config")
 
 	// Monitoring must be untouched.
-	hostsAfter, err := mockedOmConnection.GetHosts()
+	hostsAfter, err := mockedOmConnection.GetHosts(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, hostsBefore.Results, hostsAfter.Results, "monitored hosts must not be deregistered")
 
@@ -573,7 +572,7 @@ func TestDeleteShardedClusterWithExternalMembers(t *testing.T) {
 		reflect.ValueOf(mockedOmConnection.RemoveHost))
 
 	// Feature controls must have been cleared.
-	cf, err := mockedOmConnection.GetControlledFeature()
+	cf, err := mockedOmConnection.GetControlledFeature(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, util.OperatorName, cf.ManagementSystem.Name)
 	assert.NotNil(t, cf.Policies)
@@ -680,7 +679,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		// the initial deployment we create should have all processes
 		deployment := createDeploymentFromShardedCluster(t, sc)
-		if _, err := connection.UpdateDeployment(deployment); err != nil {
+		if _, err := connection.UpdateDeployment(ctx, deployment); err != nil {
 			panic(err)
 		}
 		connection.(*om.MockedOmConnection).AddHosts(deployment.GetAllHostnames())
@@ -689,7 +688,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 
 	// updateOmDeploymentShardedCluster checks an element from ac.Auth.DeploymentAuthMechanisms
 	// so we need to ensure it has a non-nil value. An empty list implies no authentication
-	_ = omConnectionFactory.GetConnection().ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	_ = omConnectionFactory.GetConnection().ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = []string{}
 		return nil
 	}, nil)
@@ -707,6 +706,70 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 		firstConfig + fmt.Sprintf(".%s-cs.mongodb.svc.cluster.local", scScaledDown.Name),
 		firstMongos + fmt.Sprintf(".%s-svc.mongodb.svc.cluster.local", scScaledDown.Name),
 	})
+}
+
+func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoringOnShardRemoval(t *testing.T) {
+	ctx := context.Background()
+
+	initialState := MultiClusterShardedScalingStep{
+		shardCount: 3,
+		shardDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 3,
+		},
+		mongosDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 1,
+		},
+		configServerDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 3,
+		},
+	}
+
+	sc := test.DefaultClusterBuilder().
+		SetShardCountSpec(3).
+		SetMongodsPerShardCountSpec(3).
+		SetConfigServerCountSpec(3).
+		SetMongosCountSpec(1).
+		Build()
+
+	scScaledDown := test.DefaultClusterBuilder().
+		SetShardCountSpec(2).
+		SetMongodsPerShardCountSpec(3).
+		SetConfigServerCountSpec(3).
+		SetMongosCountSpec(1).
+		Build()
+
+	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, sc)))
+	kubeClient, _ := mock.NewDefaultFakeClient(scScaledDown)
+	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scScaledDown.Name, initialState))
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", scScaledDown, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	assert.NoError(t, err)
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		deployment := createDeploymentFromShardedCluster(t, sc)
+		if _, err := connection.UpdateDeployment(ctx, deployment); err != nil {
+			panic(err)
+		}
+		connection.(*om.MockedOmConnection).AddHosts(deployment.GetAllHostnames())
+		connection.(*om.MockedOmConnection).CleanHistory()
+	})
+
+	_ = omConnectionFactory.GetConnection().ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
+		ac.Auth.DeploymentAuthMechanisms = []string{}
+		return nil
+	}, nil)
+
+	mockOm := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
+
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
+
+	removedShardStsName := sc.ShardName(2)
+	removedShardHostnames := make([]string, 3)
+	for i := range 3 {
+		removedShardHostnames[i] = fmt.Sprintf("%s-%d.%s-sh.%s.svc.cluster.local", removedShardStsName, i, scScaledDown.ShardServiceName(), mock.TestNamespace)
+	}
+
+	mockOm.CheckMonitoredHostsRemoved(t, removedShardHostnames)
 }
 
 // CLOUDP-32765: checks that pod anti affinity rule spreads mongods inside one shard, not inside all shards
@@ -1022,7 +1085,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
-	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature()
+	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 2)
 
@@ -1087,7 +1150,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 		err = clusterClient.Get(ctx, sc.ObjectKey(), sc)
 		assert.NoError(t, err)
 
-		deployment, err = omConnectionFactory.GetConnection().ReadDeployment()
+		deployment, err = omConnectionFactory.GetConnection().ReadDeployment(ctx)
 		assert.NoError(t, err)
 	}
 
@@ -1223,7 +1286,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
-	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature()
+	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 3)
 
@@ -1358,10 +1421,11 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		clusterIds := []string{"1", "2", "3", "4"}
 		typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 		for i, clusterId := range clusterIds {
-			_, err := c.UpdateBackupConfig(&backup.Config{
+			_, err := c.UpdateBackupConfig(ctx, &backup.Config{
 				ClusterId: clusterId,
 				Status:    backup.Inactive,
 			})
+
 			require.NoError(t, err)
 
 			c.(*om.MockedOmConnection).BackupHostClusters[clusterId] = &backup.HostCluster{
@@ -1375,7 +1439,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 	assertAllOtherBackupConfigsRemainUntouched := func(t *testing.T) {
 		for _, configId := range []string{"2", "3", "4"} {
-			config, err := omConnectionFactory.GetConnection().ReadBackupConfig(configId)
+			config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, configId)
 			assert.NoError(t, err)
 			// backup status should remain INACTIVE for all non "SHARDED_REPLICA_SET" configs.
 			assert.Equal(t, backup.Inactive, config.Status)
@@ -1414,7 +1478,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after backup is configured")
 
-		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+		config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 		assert.NoError(t, err)
 		assert.Equal(t, backup.Started, config.Status)
 		assert.Equal(t, "1", config.ClusterId)
@@ -1431,7 +1495,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
-		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+		config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 		assert.NoError(t, err)
 		assert.Equal(t, backup.Stopped, config.Status)
 		assert.Equal(t, "1", config.ClusterId)
@@ -1446,7 +1510,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
-		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+		config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 		assert.NoError(t, err)
 		assert.Equal(t, backup.Terminating, config.Status)
 		assert.Equal(t, "1", config.ClusterId)
@@ -1471,10 +1535,11 @@ func TestBackupConfiguration_ShardedCluster_DelayStateResetWhenBackupDisabledDur
 		clusterIds := []string{"1", "2", "3", "4"}
 		typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 		for i, clusterId := range clusterIds {
-			_, err := c.UpdateBackupConfig(&backup.Config{
+			_, err := c.UpdateBackupConfig(ctx, &backup.Config{
 				ClusterId: clusterId,
 				Status:    backup.Inactive,
 			})
+
 			require.NoError(t, err)
 			c.(*om.MockedOmConnection).BackupHostClusters[clusterId] = &backup.HostCluster{
 				ClusterName: sc.Name,
@@ -1520,10 +1585,11 @@ func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
 		clusterIds := []string{"1", "2", "3", "4"}
 		typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 		for i, clusterId := range clusterIds {
-			_, err := c.UpdateBackupConfig(&backup.Config{
+			_, err := c.UpdateBackupConfig(ctx, &backup.Config{
 				ClusterId: clusterId,
 				Status:    backup.Inactive,
 			})
+
 			require.NoError(t, err)
 			c.(*om.MockedOmConnection).BackupHostClusters[clusterId] = &backup.HostCluster{
 				ClusterName: sc.Name,
@@ -1537,7 +1603,7 @@ func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
 	// With a negative delay, backup should be enabled immediately on the first reconcile with no requeue.
 	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
 
-	config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+	config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 	require.NoError(t, err)
 	assert.Equal(t, backup.Started, config.Status)
 }
@@ -1845,7 +1911,7 @@ func vmShardProcessWithSearchSetParameters(t *testing.T, sc *mdbv1.MongoDB, with
 	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "8.2.0"}}
 	additional := &mdbv1.AdditionalMongodConfig{}
 	if withSearch {
-		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]interface{}{
+		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]any{
 			"mongotHost":                       "sc-search-0-sc-0-0.sc-search-0-sc-0-svc.my-namespace.svc.cluster.local:27028",
 			"searchIndexManagementHostAndPort": "sc-search-0-sc-0-0.sc-search-0-sc-0-svc.my-namespace.svc.cluster.local:27028",
 		})
@@ -1916,7 +1982,7 @@ func TestShardedMigration_ProceedsWhenVMProcessHasSearchConfig(t *testing.T) {
 	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
 	require.NoError(t, err)
 	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
-		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(vmShardProcessWithSearchSetParameters(t, sc, true))
+		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(ctx, vmShardProcessWithSearchSetParameters(t, sc, true))
 	})
 
 	// Search setParameters on the external (VM) shard process do not hold the migration back: the
@@ -1933,7 +1999,7 @@ func computeSingleClusterShardOverridesFromDistribution(shardOverridesDistributi
 		// Construct the ShardOverride for that shard
 		shardOverride := mdbv1.ShardOverride{
 			ShardNames: []string{shardName},
-			Members:    ptr.To(memberCount),
+			Members:    new(memberCount),
 		}
 
 		// Append the constructed ShardOverride to the shardOverrides slice
@@ -2203,8 +2269,8 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 
 	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
 		d := om.NewDeployment()
-		netWithTLS := func(port int) map[string]interface{} {
-			return map[string]interface{}{"port": port, "tls": map[string]interface{}{"mode": "disabled"}}
+		netWithTLS := func(port int) map[string]any {
+			return map[string]any{"port": port, "tls": map[string]any{"mode": "disabled"}}
 		}
 		d["processes"] = []om.Process{
 			{
@@ -2212,7 +2278,7 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 				"hostname":    "vm-mongod.example.com",
 				"processType": om.ProcessTypeMongod,
 				"version":     sc.Spec.Version,
-				"args2_6":     map[string]interface{}{"net": netWithTLS(27018)},
+				"args2_6":     map[string]any{"net": netWithTLS(27018)},
 			},
 			{
 				"name":        "vm-mongos",
@@ -2220,7 +2286,7 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 				"processType": om.ProcessTypeMongos,
 				"version":     sc.Spec.Version,
 				"cluster":     sc.GetShardedClusterName(),
-				"args2_6":     map[string]interface{}{"net": netWithTLS(27017)},
+				"args2_6":     map[string]any{"net": netWithTLS(27017)},
 			},
 		}
 		shard0Rs := om.NewReplicaSet(sc.ShardACRsName(0), sc.Spec.Version)
@@ -2232,7 +2298,7 @@ func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
 			"configServerReplica": sc.ConfigACRsName(),
 			"shards":              []om.Shard{{"_id": sc.ShardACShardId(0), "rs": sc.ShardACRsName(0)}},
 		}}
-		if _, err := conn.UpdateDeployment(d); err != nil {
+		if _, err := conn.UpdateDeployment(ctx, d); err != nil {
 			panic(err)
 		}
 	})

@@ -1,5 +1,7 @@
 package backup
 
+import "context"
+
 type Status string
 
 const (
@@ -13,19 +15,19 @@ const (
 type ConfigReader interface {
 	// ReadBackupConfigs returns all host clusters registered in OM. If there's no backup enabled the status is supposed
 	// to be Inactive
-	ReadBackupConfigs() (*ConfigsResponse, error)
+	ReadBackupConfigs(ctx context.Context) (*ConfigsResponse, error)
 
 	// ReadBackupConfig reads an individual backup config by cluster id
-	ReadBackupConfig(clusterID string) (*Config, error)
+	ReadBackupConfig(ctx context.Context, clusterID string) (*Config, error)
 
-	ReadSnapshotSchedule(clusterID string) (*SnapshotSchedule, error)
+	ReadSnapshotSchedule(ctx context.Context, clusterID string) (*SnapshotSchedule, error)
 }
 
 // ConfigUpdater is something can update an existing Backup Config
 type ConfigUpdater interface {
-	UpdateBackupConfig(config *Config) (*Config, error)
-	UpdateBackupStatus(clusterID string, status Status) error
-	UpdateSnapshotSchedule(clusterID string, schedule *SnapshotSchedule) error
+	UpdateBackupConfig(ctx context.Context, config *Config) (*Config, error)
+	UpdateBackupStatus(ctx context.Context, clusterID string, status Status) error
+	UpdateSnapshotSchedule(ctx context.Context, clusterID string, schedule *SnapshotSchedule) error
 }
 
 type ConfigHostReadUpdater interface {

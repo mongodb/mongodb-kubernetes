@@ -4,8 +4,6 @@ import (
 	"reflect"
 	"testing"
 
-	"k8s.io/utils/ptr"
-
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -21,28 +19,28 @@ func TestCalculateFeatureCompatibilityVersion(t *testing.T) {
 			name:                  "FCV is set",
 			newVersion:            "4.4.6",
 			lastAppliedFCVVersion: "4.2",
-			currentFCV:            ptr.To("4.4"),
+			currentFCV:            new("4.4"),
 			expectedResult:        "4.4",
 		},
 		{
 			name:                  "FCV is set and equal",
 			newVersion:            "4.4.6",
 			lastAppliedFCVVersion: "4.4",
-			currentFCV:            ptr.To("4.4"),
+			currentFCV:            new("4.4"),
 			expectedResult:        "4.4",
 		},
 		{
 			name:                  "FCV is AlwaysMatchVersion, new version is smaller",
 			newVersion:            "4.4.6",
 			lastAppliedFCVVersion: "5.0",
-			currentFCV:            ptr.To(util.AlwaysMatchVersionFCV),
+			currentFCV:            new(util.AlwaysMatchVersionFCV),
 			expectedResult:        "4.4",
 		},
 		{
 			name:                  "FCV is AlwaysMatchVersion, new version is higher",
 			newVersion:            "5.0.8",
 			lastAppliedFCVVersion: "4.4",
-			currentFCV:            ptr.To(util.AlwaysMatchVersionFCV),
+			currentFCV:            new(util.AlwaysMatchVersionFCV),
 			expectedResult:        "5.0",
 		},
 		{
