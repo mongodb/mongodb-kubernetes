@@ -214,7 +214,7 @@ func (v *VaultClient) Login() error {
 		return xerrors.Errorf("unable to read file containing service account token: %w", err)
 	}
 
-	params := map[string]interface{}{
+	params := map[string]any{
 		"jwt":  string(jwt),
 		"role": "mongodbenterprise", // the name of the role in Vault that was created with this app's Kubernetes service account bound to it
 	}
@@ -234,7 +234,7 @@ func (v *VaultClient) Login() error {
 	return nil
 }
 
-func (v *VaultClient) PutSecret(path string, data map[string]interface{}) error {
+func (v *VaultClient) PutSecret(path string, data map[string]any) error {
 	if err := v.Login(); err != nil {
 		return xerrors.Errorf("unable to log in: %w", err)
 	}
@@ -281,7 +281,7 @@ func (v *VaultClient) ReadSecretBytes(path string) (map[string][]byte, error) {
 
 	secrets := make(map[string][]byte)
 	for k, v := range maputil.ReadMapValueAsMap(secret.Data, "data") {
-		secrets[k] = []byte(fmt.Sprintf("%v", v))
+		secrets[k] = fmt.Appendf(nil, "%v", v)
 	}
 	return secrets, nil
 }

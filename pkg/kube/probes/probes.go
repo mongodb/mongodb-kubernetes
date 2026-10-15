@@ -1,8 +1,6 @@
 package probes
 
 import (
-	"k8s.io/apimachinery/pkg/util/intstr"
-
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -30,15 +28,6 @@ func WithExecCommand(cmd []string) Modification {
 			probe.Exec = &corev1.ExecAction{}
 		}
 		probe.Exec.Command = cmd
-	}
-}
-
-func WithTCPSocket(host string, port intstr.IntOrString) Modification {
-	return func(probe *corev1.Probe) {
-		probe.TCPSocket = &corev1.TCPSocketAction{
-			Host: host,
-			Port: port,
-		}
 	}
 }
 

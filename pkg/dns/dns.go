@@ -54,7 +54,7 @@ func GetMultiClusterProcessHostnamesAndPodNames(stsName, namespace string, clust
 	hostnames := make([]string, 0)
 	podNames := make([]string, 0)
 
-	for podNum := 0; podNum < members; podNum++ {
+	for podNum := range members {
 		hostnames = append(hostnames, GetMultiClusterPodServiceFQDN(stsName, namespace, clusterNum, externalDomain, podNum, clusterDomain))
 		podNames = append(podNames, GetMultiPodName(stsName, clusterNum, podNum))
 	}
@@ -101,7 +101,7 @@ func GetDNSNames(statefulSetName, service, namespace, clusterDomain string, repl
 	names = make([]string, replicas)
 	hostnames = make([]string, replicas)
 
-	for i := 0; i < replicas; i++ {
+	for i := range replicas {
 		names[i] = GetPodName(statefulSetName, i)
 		hostnames[i] = GetPodFQDN(names[i], service, namespace, clusterDomain, externalDomain)
 	}

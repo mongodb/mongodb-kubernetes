@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"k8s.io/utils/ptr"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,23 +66,23 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 		{
 			name: "cluster names are required when more than one cluster is specified",
 			create: []searchv1.ClusterSpec{
-				{Index: ptr.To(int32(0))},
-				{Index: ptr.To(int32(1))},
+				{Index: new(int32(0))},
+				{Index: new(int32(1))},
 			},
 			errorContains: "clusters[].name must be set and unique when more than one cluster is specified",
 		},
 		{
 			name: "cluster index must be unique",
 			create: []searchv1.ClusterSpec{
-				{Name: "cluster-a", Index: ptr.To(int32(0))},
-				{Name: "cluster-b", Index: ptr.To(int32(0))},
+				{Name: "cluster-a", Index: new(int32(0))},
+				{Name: "cluster-b", Index: new(int32(0))},
 			},
 			errorContains: "clusters[].index must be unique when set",
 		},
 		{
 			name:          "cluster name is immutable for an existing index",
-			create:        []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}},
-			update:        []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(0))}},
+			create:        []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(0))}},
+			update:        []searchv1.ClusterSpec{{Name: "cluster-b", Index: new(int32(0))}},
 			errorContains: "clusters[].name is immutable for an existing cluster index",
 		},
 	}

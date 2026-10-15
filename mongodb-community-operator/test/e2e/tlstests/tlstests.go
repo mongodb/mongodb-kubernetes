@@ -39,18 +39,18 @@ func ExtendCACertificate(ctx context.Context, mdb *mdbv1.MongoDBCommunity) func(
 			Resource: "certificates",
 		}
 		caCertificateClient := e2eutil.TestClient.DynamicClient.Resource(certGVR).Namespace(mdb.Namespace)
-		patch := []interface{}{
-			map[string]interface{}{
+		patch := []any{
+			map[string]any{
 				"op":    "replace",
 				"path":  "/spec/duration",
 				"value": "8760h0m0s",
 			},
-			map[string]interface{}{
+			map[string]any{
 				"op":    "replace",
 				"path":  "/spec/renewBefore",
 				"value": "720h0m0s",
 			},
-			map[string]interface{}{
+			map[string]any{
 				"op":    "add",
 				"path":  "/spec/dnsNames",
 				"value": []string{"*.ca-example.domain"},
@@ -74,13 +74,6 @@ func RotateAgentCertificate(ctx context.Context, mdb *mdbv1.MongoDBCommunity) fu
 	return func(t *testing.T) {
 		agentCertSecretName := mdb.AgentCertificateSecretNamespacedName()
 		rotateCertManagerSecret(ctx, agentCertSecretName, t)
-	}
-}
-
-func RotateCACertificate(ctx context.Context, mdb *mdbv1.MongoDBCommunity) func(*testing.T) {
-	return func(t *testing.T) {
-		caCertSecretName := mdb.TLSCaCertificateSecretNamespacedName()
-		rotateCertManagerSecret(ctx, caCertSecretName, t)
 	}
 }
 

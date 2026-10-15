@@ -20,7 +20,7 @@ func ReadAutomationConfigVersionFromSecret(ctx context.Context, namespace string
 		return -1, fmt.Errorf("failed to read automation config secret %s/%s: %w", namespace, automationConfigSecret, secretReadErr)
 	}
 
-	var existingDeployment map[string]interface{}
+	var existingDeployment map[string]any
 	if err := json.Unmarshal(theSecret.Data[automationConfigKey], &existingDeployment); err != nil {
 		return -1, fmt.Errorf("failed to unmarshal automation config %s key from %s/%s secret: %w", automationConfigKey, namespace, automationConfigSecret, err)
 	}

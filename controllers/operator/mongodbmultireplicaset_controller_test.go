@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -182,7 +181,7 @@ func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 								Name: "data",
 							},
 							Spec: corev1.PersistentVolumeClaimSpec{
-								StorageClassName: ptr.To("test"),
+								StorageClassName: new("test"),
 								Resources: corev1.VolumeResourceRequirements{
 									Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("1Gi")},
 								},
@@ -361,8 +360,8 @@ func TestServiceCreation_WithExternalName(t *testing.T) {
 		SetClusterSpecList(clusters).
 		SetExternalAccess(
 			mdb.ExternalAccessConfiguration{
-				ExternalDomain: ptr.To("cluster-%d.testing"),
-			}, ptr.To("cluster-%d.testing")).
+				ExternalDomain: new("cluster-%d.testing"),
+			}, new("cluster-%d.testing")).
 		Build()
 	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
@@ -416,7 +415,7 @@ func TestServiceCreation_WithPlaceholders(t *testing.T) {
 				},
 			}, nil).
 		Build()
-	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(false)
+	mrs.Spec.DuplicateServiceObjects = new(false)
 	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
@@ -494,7 +493,7 @@ func TestServiceCreation_WithDuplicates(t *testing.T) {
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
 		SetClusterSpecList(clusters).
 		Build()
-	mrs.Spec.DuplicateServiceObjects = util.BooleanRef(true)
+	mrs.Spec.DuplicateServiceObjects = new(true)
 
 	reconciler, client, memberClusterMap, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
@@ -564,8 +563,8 @@ func TestResourceDeletion(t *testing.T) {
 				return mdbmulti.DefaultMultiReplicaSetBuilder().
 					SetClusterSpecList(clusters).
 					SetExternalAccess(
-						mdb.ExternalAccessConfiguration{ExternalDomain: ptr.To("cluster-%d.testing")},
-						ptr.To("cluster-%d.testing"),
+						mdb.ExternalAccessConfiguration{ExternalDomain: new("cluster-%d.testing")},
+						new("cluster-%d.testing"),
 					).
 					Build()
 			},
@@ -663,12 +662,12 @@ func TestResourceDeletion(t *testing.T) {
 				processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
 				assert.Len(t, processes, 0)
 
-				hosts, err := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetHosts()
+				hosts, err := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetHosts(ctx)
 				assert.NoError(t, err)
 				assert.NotNil(t, hosts)
 				assert.Len(t, hosts.Results, 0)
 
-				ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+				ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 				assert.NoError(t, err)
 
 				assert.Empty(t, ac.Auth.AutoAuthMechanisms)
@@ -712,7 +711,7 @@ func TestAuthentication_IsEnabledInOM_WhenConfiguredInCR(t *testing.T) {
 	})
 
 	t.Run("Automation Config has been updated correctly", func(t *testing.T) {
-		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 		assert.NoError(t, err)
 
 		assert.Contains(t, ac.Auth.AutoAuthMechanism, "SCRAM-SHA-256")
@@ -941,7 +940,7 @@ func TestScaling(t *testing.T) {
 
 		assert.Len(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses(), 3)
 
-		dep, err := omConnectionFactory.GetConnection().ReadDeployment()
+		dep, err := omConnectionFactory.GetConnection().ReadDeployment(ctx)
 		assert.NoError(t, err)
 
 		replicaSets := dep.GetReplicaSets()
@@ -962,7 +961,7 @@ func TestScaling(t *testing.T) {
 
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
+		dep, err = omConnectionFactory.GetConnection().ReadDeployment(ctx)
 		assert.NoError(t, err)
 
 		replicaSets = dep.GetReplicaSets()
@@ -990,7 +989,7 @@ func TestScaling(t *testing.T) {
 
 		assert.Len(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses(), 3)
 
-		dep, err := omConnectionFactory.GetConnection().ReadDeployment()
+		dep, err := omConnectionFactory.GetConnection().ReadDeployment(ctx)
 		assert.NoError(t, err)
 
 		replicaSets := dep.GetReplicaSets()
@@ -1025,7 +1024,7 @@ func TestScaling(t *testing.T) {
 
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
+		dep, err = omConnectionFactory.GetConnection().ReadDeployment(ctx)
 		assert.NoError(t, err)
 
 		replicaSets = dep.GetReplicaSets()
@@ -1049,7 +1048,7 @@ func TestScaling(t *testing.T) {
 		reconciler, client, _, omConnectionFactory = defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		dep, err = omConnectionFactory.GetConnection().ReadDeployment()
+		dep, err = omConnectionFactory.GetConnection().ReadDeployment(ctx)
 		assert.NoError(t, err)
 
 		replicaSets = dep.GetReplicaSets()
@@ -1285,7 +1284,7 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	uuidStr := uuid.New().String()
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		_, err := connection.UpdateBackupConfig(&backup.Config{
+		_, err := connection.UpdateBackupConfig(ctx, &backup.Config{
 			ClusterId: uuidStr,
 			Status:    backup.Inactive,
 		})
@@ -1303,7 +1302,7 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 
 	t.Run("Backup can be started", func(t *testing.T) {
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 
 		assert.Len(t, configResponse.Configs, 1)
 		config := configResponse.Configs[0]
@@ -1322,7 +1321,7 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -1339,7 +1338,7 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 
 		checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]

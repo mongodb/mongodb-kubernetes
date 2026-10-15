@@ -19,7 +19,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -288,7 +287,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileCore(ctx context.Cont
 	}
 
 	if !cleaningRemovedOperator {
-		if supported, st := r.checkOMVersionForMetricsEndpoint(mdbSearch, projectConfig, log); !supported {
+		if supported, st := r.checkOMVersionForMetricsEndpoint(ctx, mdbSearch, projectConfig, log); !supported {
 			r.deleteMetricsForwarderResourcesFromState(ctx, mdbSearch, log)
 			return st
 		}
@@ -444,10 +443,10 @@ func normalizeTopologyState(search *searchv1.MongoDBSearch, topologyState *searc
 		if entry.ClusterIndex != nil {
 			continue
 		}
-		if index, ok := specIndexByName[name]; ok {
-			entry.ClusterIndex = ptr.To(index)
+		if index, ok := specIndexByName[name]; ok { //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
+			entry.ClusterIndex = new(index)
 		} else if name == "" {
-			entry.ClusterIndex = ptr.To(0)
+			entry.ClusterIndex = new(0)
 		} else {
 			continue // unresolvable legacy entry; kept as-is
 		}
@@ -753,7 +752,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) resolveGroupFromAgentKey(ctx c
 	// that's why it breaks from the convention of other agent endpoints which user the groupId as a username, it's by design.
 	authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte("apiKey:"+agentKey))
 
-	body, err := r.omRequester.RequestWithAgentAuth(projectConfig, "GET", "/agents/api/group/v1", authHeader, nil)
+	body, err := r.omRequester.RequestWithAgentAuth(ctx, projectConfig, "GET", "/agents/api/group/v1", authHeader, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to call agents group API: %w", err)
 	}
@@ -792,21 +791,21 @@ func (r *MongoDBSearchMetricsForwarderReconciler) readAgentApiKey(ctx context.Co
 // dependency so tests can stub the network without a live Ops Manager. The default implementation,
 // omHTTPAgentRequester, wraps the real Ops Manager HTTP client.
 type omAgentRequester interface {
-	RequestWithAgentAuth(projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error)
+	RequestWithAgentAuth(ctx context.Context, projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error)
 	// GetOMVersion fetches the Ops Manager version by calling the unauthenticated /unauth/versionManifest
 	// endpoint and extracting the version string from the X-MongoDB-Service-Version response header.
-	GetOMVersion(projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error)
+	GetOMVersion(ctx context.Context, projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error)
 }
 
 type omHTTPAgentRequester struct{}
 
-func (r omHTTPAgentRequester) RequestWithAgentAuth(projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
-	respBody, _, err := newOMHTTPClient(projectConfig).RequestWithAgentAuth(method, projectConfig.BaseURL, path, authHeader, body)
+func (r omHTTPAgentRequester) RequestWithAgentAuth(ctx context.Context, projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
+	respBody, _, err := newOMHTTPClient(projectConfig).RequestWithAgentAuth(ctx, method, projectConfig.BaseURL, path, authHeader, body)
 	return respBody, err
 }
 
-func (r omHTTPAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
-	_, headers, err := newOMHTTPClient(projectConfig).Request("GET", projectConfig.BaseURL, "/api/public/v1.0/unauth/versionManifest", nil)
+func (r omHTTPAgentRequester) GetOMVersion(ctx context.Context, projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
+	_, headers, err := newOMHTTPClient(projectConfig).Request(ctx, "GET", projectConfig.BaseURL, "/api/public/v1.0/unauth/versionManifest", nil)
 	if err != nil {
 		return versionutil.OpsManagerVersion{}, fmt.Errorf("failed to fetch Ops Manager version manifest: %w", err)
 	}
@@ -827,12 +826,12 @@ func (r omHTTPAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (v
 //   - Unknown version or unparseable semver: Implicit → Unsupported; Explicit → Failed.
 //   - Cloud Manager connection:              Implicit → Unsupported; Explicit → Failed.
 //   - Self-hosted OM version < 8.0.25:      Implicit → Unsupported; Explicit → Failed.
-func (r *MongoDBSearchMetricsForwarderReconciler) checkOMVersionForMetricsEndpoint(mdbSearch *searchv1.MongoDBSearch, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) (bool, workflow.Status) {
+func (r *MongoDBSearchMetricsForwarderReconciler) checkOMVersionForMetricsEndpoint(ctx context.Context, mdbSearch *searchv1.MongoDBSearch, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) (bool, workflow.Status) {
 	explicit := mdbSearch.MetricsForwarderHasExplicitProjectConfig()
 
 	const disableHint = " Set '.spec.observability.metricsForwarder.mode: disabled' to silence this message"
 
-	omVersion, err := r.omRequester.GetOMVersion(projectConfig)
+	omVersion, err := r.omRequester.GetOMVersion(ctx, projectConfig)
 	if err != nil {
 		log.Warnf("Failed to fetch Ops Manager version for metrics endpoint check: %v", err)
 		return false, workflow.Pending("Checking Ops Manager version compatibility.")
@@ -943,7 +942,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) openTopologyStateStore(search 
 }
 
 func desiredClusterTopology(search *searchv1.MongoDBSearch, shardNames []string, w clusterWorkItem) (clusterTopologyState, error) {
-	current := clusterTopologyState{ClusterIndex: ptr.To(w.ClusterIndex)}
+	current := clusterTopologyState{ClusterIndex: new(w.ClusterIndex)}
 	if len(shardNames) > 0 {
 		current.ShardReplicas = make(map[string]int, len(shardNames))
 		for _, shardName := range shardNames {
@@ -1157,7 +1156,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedMongotPods(ctx c
 	authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(groupID+":"+agentKey))
 	path := fmt.Sprintf("/agents/api/hosts/%s/v1/delete", groupID)
 
-	body, err := r.omRequester.RequestWithAgentAuth(projectConfig, "POST", path, authHeader, deleteHostsRequest{HostIds: hostIDs})
+	body, err := r.omRequester.RequestWithAgentAuth(ctx, projectConfig, "POST", path, authHeader, deleteHostsRequest{HostIds: hostIDs})
 	if err != nil {
 		return fmt.Errorf("failed to call delete hosts API: %w", err)
 	}
@@ -1193,7 +1192,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) cleanupRemovedMongotPods(ctx c
 // sha1(groupID + "-" + namespace + "-" + podName). The groupID is folded in so the id is globally
 // unique across all projects.
 func mongotHostID(groupID, namespace, podName string) string {
-	sum := sha1.Sum([]byte(fmt.Sprintf("%s-%s-%s", groupID, namespace, podName))) //nolint //Used to derive a stable host identifier, not for security.
+	sum := sha1.Sum(fmt.Appendf(nil, "%s-%s-%s", groupID, namespace, podName)) //nolint //Used to derive a stable host identifier, not for security.
 	return hex.EncodeToString(sum[:])
 }
 
@@ -1239,7 +1238,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 		dep.Labels = labels
 
 		dep.Spec = appsv1.DeploymentSpec{
-			Replicas: ptr.To(int32(1)),
+			Replicas: new(int32(1)),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: podLabels,
 			},

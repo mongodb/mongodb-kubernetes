@@ -12,7 +12,6 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -255,7 +254,7 @@ func checkStatefulsetIsDeleted(ctx context.Context, memberClient kubernetesClien
 	// After deleting the statefulset it can take seconds to be reflected in kubernetes.
 	// In case it is still not reflected
 	deletedIsStatefulset := false
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		time.Sleep(sleepDuration)
 		_, stsErr := memberClient.GetStatefulSet(ctx, kube.ObjectKey(desiredSts.Namespace, desiredSts.Name))
 		if apiErrors.IsNotFound(stsErr) {
@@ -330,7 +329,7 @@ func createExternalServices(ctx context.Context, client kubernetesClient.Client,
 	externalAccess := opts.ExternalAccessConfiguration
 
 	// TODO: we should not use OpsManager specific type `omv1.MongoDBOpsManagerServiceDefinition`
-	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, ptr.To(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
+	externalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, new(dns.GetPodName(set.Name, podNum)), opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeLoadBalancer})
 	externalService.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 
 	if externalAccess.ExternalDomain != nil {
@@ -452,7 +451,7 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsM
 	}
 
 	namespacedName := kube.ObjectKey(opsManager.Namespace, set.Spec.ServiceName)
-	internalService := BuildService(namespacedName, opsManager, ptr.To(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	internalService := BuildService(namespacedName, opsManager, new(serviceSelectorLabel), nil, opsManager.Spec.AppDB.AdditionalMongodConfig.GetPortOrDefault(), omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	internalService.OwnerReferences = opsManager.AppDBOwnerReferenceForMemberCluster()
 
 	// Adds Prometheus Port if Prometheus has been enabled.
@@ -482,8 +481,7 @@ func BackupDaemonInKubernetes(ctx context.Context, client kubernetesClient.Clien
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, opsManager.Namespace, log, &sts)
 	if err != nil {
 		// Check if it is a k8s error or a custom one
-		var statefulSetCantBeUpdatedError enterprisests.StatefulSetCantBeUpdatedError
-		if !errors.As(err, &statefulSetCantBeUpdatedError) {
+		if _, ok := errors.AsType[enterprisests.StatefulSetCantBeUpdatedError](err); !ok {
 			return nil, xerrors.Errorf("failed to create or update backup daemon statefulset: %w", err)
 		}
 
@@ -566,7 +564,7 @@ func getInternalServiceDefinition(opsManager *omv1.MongoDBOpsManager) omv1.Mongo
 	// The Spec.InternalConnectivity field allows for explicitly configuring headless services
 	// and adding additional annotations to the service used for internal connectivity.
 	if opsManager.Spec.IsMultiCluster() {
-		serviceDefinition.ClusterIP = ptr.To("")
+		serviceDefinition.ClusterIP = new("")
 	}
 	return serviceDefinition
 }

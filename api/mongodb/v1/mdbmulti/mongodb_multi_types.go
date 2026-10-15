@@ -248,7 +248,7 @@ func (m *MongoDBMultiSpec) GetAgentConfig() mdbv1.AgentConfig {
 	return m.Agent
 }
 
-func (m *MongoDBMultiCluster) GetStatus(...status.Option) interface{} {
+func (m *MongoDBMultiCluster) GetStatus(...status.Option) any {
 	return m.Status
 }
 
@@ -438,10 +438,10 @@ func (m *MongoDBMultiCluster) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) 
 	return prevSpec, nil
 }
 
-func (m *MongoDBMultiCluster) GetLastAdditionalMongodConfig() map[string]interface{} {
+func (m *MongoDBMultiCluster) GetLastAdditionalMongodConfig() map[string]any {
 	lastSpec, err := m.ReadLastAchievedSpec()
 	if lastSpec == nil || err != nil {
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
 	return lastSpec.GetAdditionalMongodConfig().ToMap()
 }

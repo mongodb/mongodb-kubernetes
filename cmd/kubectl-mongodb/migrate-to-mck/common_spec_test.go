@@ -145,20 +145,20 @@ func TestMapMechanismToAuthMode(t *testing.T) {
 
 // testAC builds a minimal AutomationConfig for buildSecurity tests.
 func testAC(auth *om.Auth, processMap map[string]om.Process, members []om.ReplicaSetMember) *om.AutomationConfig {
-	processes := make([]interface{}, 0, len(processMap))
+	processes := make([]any, 0, len(processMap))
 	for name, proc := range processMap {
 		proc["name"] = name
-		processes = append(processes, map[string]interface{}(proc))
+		processes = append(processes, map[string]any(proc))
 	}
-	memberSlice := make([]interface{}, len(members))
+	memberSlice := make([]any, len(members))
 	for i, m := range members {
-		memberSlice[i] = map[string]interface{}(m)
+		memberSlice[i] = map[string]any(m)
 	}
-	var replicaSets []interface{}
+	var replicaSets []any
 	if len(members) > 0 {
-		replicaSets = []interface{}{map[string]interface{}{"_id": "test-rs", "members": memberSlice}}
+		replicaSets = []any{map[string]any{"_id": "test-rs", "members": memberSlice}}
 	}
-	d := om.Deployment(map[string]interface{}{
+	d := om.Deployment(map[string]any{
 		"processes":   processes,
 		"replicaSets": replicaSets,
 	})
@@ -198,9 +198,9 @@ func TestBuildSecurity_TLSAndAuth(t *testing.T) {
 		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{util.AutomationConfigX509Option}},
 		map[string]om.Process{
 			"host-0": {
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{
-						"tls": map[string]interface{}{"mode": "requireTLS"},
+				"args2_6": map[string]any{
+					"net": map[string]any{
+						"tls": map[string]any{"mode": "requireTLS"},
 					},
 				},
 			},
@@ -227,9 +227,9 @@ func TestBuildSecurity_X509AgentAuthSetsClientCertificateSecretRef(t *testing.T)
 		},
 		map[string]om.Process{
 			"host-0": {
-				"args2_6": map[string]interface{}{
-					"net": map[string]interface{}{
-						"tls": map[string]interface{}{"mode": "requireTLS"},
+				"args2_6": map[string]any{
+					"net": map[string]any{
+						"tls": map[string]any{"mode": "requireTLS"},
 					},
 				},
 			},
@@ -261,9 +261,9 @@ func TestBuildSecurity_X509AgentAuthSetsClientCertificateSecretRef(t *testing.T)
 func TestBuildSecurity_TLS_EmptyPrefix(t *testing.T) {
 	ac := testAC(nil, map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
-					"tls": map[string]interface{}{"mode": "requireTLS"},
+			"args2_6": map[string]any{
+				"net": map[string]any{
+					"tls": map[string]any{"mode": "requireTLS"},
 				},
 			},
 		},
@@ -278,8 +278,8 @@ func TestBuildSecurity_InternalClusterAuth(t *testing.T) {
 		&om.Auth{Disabled: false, DeploymentAuthMechanisms: []string{util.AutomationConfigScramSha256Option}},
 		map[string]om.Process{
 			"host-0": {
-				"args2_6": map[string]interface{}{
-					"security": map[string]interface{}{
+				"args2_6": map[string]any{
+					"security": map[string]any{
 						"clusterAuthMode": "x509",
 					},
 				},
@@ -343,8 +343,8 @@ func TestBuildSecurity_NilAgentSSLLeavesCAFilePathEmpty(t *testing.T) {
 func TestExtractAdditionalMongodConfig_NonDefaultPortNotMigrated(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27018,
 				},
 			},
@@ -361,8 +361,8 @@ func TestExtractAdditionalMongodConfig_NonDefaultPortNotMigrated(t *testing.T) {
 func TestExtractAdditionalMongodConfig_DefaultPort(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27017,
 				},
 			},
@@ -379,13 +379,13 @@ func TestExtractAdditionalMongodConfig_DefaultPort(t *testing.T) {
 func TestExtractAdditionalMongodConfig_WiredTigerCache(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27017,
 				},
-				"storage": map[string]interface{}{
-					"wiredTiger": map[string]interface{}{
-						"engineConfig": map[string]interface{}{
+				"storage": map[string]any{
+					"wiredTiger": map[string]any{
+						"engineConfig": map[string]any{
 							"cacheSizeGB": 2.0,
 						},
 					},
@@ -400,11 +400,11 @@ func TestExtractAdditionalMongodConfig_WiredTigerCache(t *testing.T) {
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
-	storage, ok := m["storage"].(map[string]interface{})
+	storage, ok := m["storage"].(map[string]any)
 	require.True(t, ok)
-	wt, ok := storage["wiredTiger"].(map[string]interface{})
+	wt, ok := storage["wiredTiger"].(map[string]any)
 	require.True(t, ok)
-	ec, ok := wt["engineConfig"].(map[string]interface{})
+	ec, ok := wt["engineConfig"].(map[string]any)
 	require.True(t, ok)
 	assert.EqualValues(t, 2.0, ec["cacheSizeGB"])
 }
@@ -412,11 +412,11 @@ func TestExtractAdditionalMongodConfig_WiredTigerCache(t *testing.T) {
 func TestExtractAdditionalMongodConfig_ZstdCompressionLevel(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{"port": 27017},
-				"storage": map[string]interface{}{
-					"wiredTiger": map[string]interface{}{
-						"engineConfig": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{"port": 27017},
+				"storage": map[string]any{
+					"wiredTiger": map[string]any{
+						"engineConfig": map[string]any{
 							"zstdCompressionLevel": 6,
 						},
 					},
@@ -429,11 +429,11 @@ func TestExtractAdditionalMongodConfig_ZstdCompressionLevel(t *testing.T) {
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
-	storage, ok := m["storage"].(map[string]interface{})
+	storage, ok := m["storage"].(map[string]any)
 	require.True(t, ok)
-	wt, ok := storage["wiredTiger"].(map[string]interface{})
+	wt, ok := storage["wiredTiger"].(map[string]any)
 	require.True(t, ok)
-	ec, ok := wt["engineConfig"].(map[string]interface{})
+	ec, ok := wt["engineConfig"].(map[string]any)
 	require.True(t, ok)
 	assert.EqualValues(t, 6, ec["zstdCompressionLevel"])
 }
@@ -488,11 +488,11 @@ func TestExtractAdditionalMongodConfig_NoArgs(t *testing.T) {
 func TestExtractAdditionalMongodConfig_SetParameter(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27017,
 				},
-				"setParameter": map[string]interface{}{
+				"setParameter": map[string]any{
 					"authenticationMechanisms": "SCRAM-SHA-256",
 				},
 			},
@@ -505,7 +505,7 @@ func TestExtractAdditionalMongodConfig_SetParameter(t *testing.T) {
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
-	sp, ok := m["setParameter"].(map[string]interface{})
+	sp, ok := m["setParameter"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "SCRAM-SHA-256", sp["authenticationMechanisms"])
 }
@@ -516,11 +516,11 @@ func TestExtractAdditionalMongodConfig_SearchParametersExtracted(t *testing.T) {
 	// user setParameters rather than stripped as operator-managed infrastructure.
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27017,
 				},
-				"setParameter": map[string]interface{}{
+				"setParameter": map[string]any{
 					"mongotHost":                                      "mdb-search-svc.ns.svc.cluster.local:27027",
 					"searchIndexManagementHostAndPort":                "mdb-search-svc.ns.svc.cluster.local:27027",
 					"skipAuthenticationToSearchIndexManagementServer": false,
@@ -538,9 +538,9 @@ func TestExtractAdditionalMongodConfig_SearchParametersExtracted(t *testing.T) {
 
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
-	sp, ok := config.ToMap()["setParameter"].(map[string]interface{})
+	sp, ok := config.ToMap()["setParameter"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, map[string]interface{}{
+	assert.Equal(t, map[string]any{
 		"mongotHost":                                      "mdb-search-svc.ns.svc.cluster.local:27027",
 		"searchIndexManagementHostAndPort":                "mdb-search-svc.ns.svc.cluster.local:27027",
 		"skipAuthenticationToSearchIndexManagementServer": false,
@@ -556,11 +556,11 @@ func TestExtractAdditionalMongodConfig_OnlySearchParameters(t *testing.T) {
 	// which is what lets a search-only VM mongod produce a component spec at all.
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27017,
 				},
-				"setParameter": map[string]interface{}{
+				"setParameter": map[string]any{
 					"mongotHost":                                      "mdb-search-svc.ns.svc.cluster.local:27027",
 					"searchIndexManagementHostAndPort":                "mdb-search-svc.ns.svc.cluster.local:27027",
 					"skipAuthenticationToSearchIndexManagementServer": false,
@@ -577,7 +577,7 @@ func TestExtractAdditionalMongodConfig_OnlySearchParameters(t *testing.T) {
 
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
-	sp, ok := config.ToMap()["setParameter"].(map[string]interface{})
+	sp, ok := config.ToMap()["setParameter"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "mdb-search-svc.ns.svc.cluster.local:27027", sp["mongotHost"])
 	assert.Equal(t, true, sp["useGrpcForSearch"])
@@ -587,11 +587,11 @@ func TestExtractAdditionalMongodConfig_OnlySearchParameters(t *testing.T) {
 func TestExtractAdditionalMongodConfig_OplogSizeMB(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27017,
 				},
-				"replication": map[string]interface{}{
+				"replication": map[string]any{
 					"replSetName": "my-rs",
 					"oplogSizeMB": 2048,
 				},
@@ -605,7 +605,7 @@ func TestExtractAdditionalMongodConfig_OplogSizeMB(t *testing.T) {
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
-	repl, ok := m["replication"].(map[string]interface{})
+	repl, ok := m["replication"].(map[string]any)
 	require.True(t, ok)
 	assert.EqualValues(t, 2048, repl["oplogSizeMB"])
 }
@@ -613,11 +613,11 @@ func TestExtractAdditionalMongodConfig_OplogSizeMB(t *testing.T) {
 func TestExtractAdditionalMongodConfig_AuditLog(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27017,
 				},
-				"auditLog": map[string]interface{}{
+				"auditLog": map[string]any{
 					"destination": "file",
 					"format":      "JSON",
 					"path":        "/var/log/mongodb/audit.json",
@@ -632,7 +632,7 @@ func TestExtractAdditionalMongodConfig_AuditLog(t *testing.T) {
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
-	al, ok := m["auditLog"].(map[string]interface{})
+	al, ok := m["auditLog"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "file", al["destination"])
 	assert.Equal(t, "JSON", al["format"])
@@ -651,8 +651,8 @@ func TestExtractInternalClusterAuthMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			processMap := map[string]om.Process{
 				"host-0": {
-					"args2_6": map[string]interface{}{
-						"security": map[string]interface{}{
+					"args2_6": map[string]any{
+						"security": map[string]any{
 							"clusterAuthMode": tt.mode,
 						},
 					},
@@ -671,8 +671,8 @@ func TestExtractInternalClusterAuthMode(t *testing.T) {
 func TestExtractInternalClusterAuthMode_KeyFileImplicit(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"security": map[string]interface{}{
+			"args2_6": map[string]any{
+				"security": map[string]any{
 					"clusterAuthMode": "keyFile",
 				},
 			},
@@ -689,8 +689,8 @@ func TestExtractInternalClusterAuthMode_KeyFileImplicit(t *testing.T) {
 func TestExtractInternalClusterAuthMode_UnsupportedMode(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"security": map[string]interface{}{
+			"args2_6": map[string]any{
+				"security": map[string]any{
 					"clusterAuthMode": "unsupported-mode",
 				},
 			},
@@ -783,7 +783,7 @@ func TestMapACOIDCToProviderConfigs(t *testing.T) {
 			UserClaim:             "sub",
 			SupportsHumanFlows:    true,
 			UseAuthorizationClaim: false,
-			ClientId:              strPtr("client-123"),
+			ClientId:              new("client-123"),
 			RequestedScopes:       []string{"openid", "profile"},
 		},
 		{
@@ -793,7 +793,7 @@ func TestMapACOIDCToProviderConfigs(t *testing.T) {
 			UserClaim:             "sub",
 			SupportsHumanFlows:    false,
 			UseAuthorizationClaim: true,
-			GroupsClaim:           strPtr("groups"),
+			GroupsClaim:           new("groups"),
 		},
 	}
 
@@ -815,9 +815,9 @@ func TestMapACOIDCToProviderConfigs(t *testing.T) {
 func TestExtractAdditionalMongodConfig_DbPathNotExtracted(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net":     map[string]interface{}{"port": 27017},
-				"storage": map[string]interface{}{"dbPath": "/data/custom"},
+			"args2_6": map[string]any{
+				"net":     map[string]any{"port": 27017},
+				"storage": map[string]any{"dbPath": "/data/custom"},
 			},
 		},
 	}
@@ -832,9 +832,9 @@ func TestExtractAdditionalMongodConfig_DbPathNotExtracted(t *testing.T) {
 func TestExtractAdditionalMongodConfig_DefaultDbPath(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net":     map[string]interface{}{"port": 27017},
-				"storage": map[string]interface{}{"dbPath": "/data"},
+			"args2_6": map[string]any{
+				"net":     map[string]any{"port": 27017},
+				"storage": map[string]any{"dbPath": "/data"},
 			},
 		},
 	}
@@ -849,9 +849,9 @@ func TestExtractAdditionalMongodConfig_DefaultDbPath(t *testing.T) {
 func TestExtractAdditionalMongodConfig_SystemLogNotExtracted(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{"port": 27017},
-				"systemLog": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{"port": 27017},
+				"systemLog": map[string]any{
 					"destination": "file",
 					"path":        "/var/log/mongodb/mongod.log",
 				},
@@ -869,10 +869,10 @@ func TestExtractAdditionalMongodConfig_SystemLogNotExtracted(t *testing.T) {
 func TestExtractAdditionalMongodConfig_TLSModePrefer(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27017,
-					"tls":  map[string]interface{}{"mode": "preferSSL"},
+					"tls":  map[string]any{"mode": "preferSSL"},
 				},
 			},
 		},
@@ -884,9 +884,9 @@ func TestExtractAdditionalMongodConfig_TLSModePrefer(t *testing.T) {
 	config := sourceProc(processMap, members).AdditionalMongodConfig()
 	require.NotNil(t, config)
 	m := config.ToMap()
-	net, ok := m["net"].(map[string]interface{})
+	net, ok := m["net"].(map[string]any)
 	require.True(t, ok)
-	tls, ok := net["tls"].(map[string]interface{})
+	tls, ok := net["tls"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "preferSSL", tls["mode"])
 }
@@ -894,10 +894,10 @@ func TestExtractAdditionalMongodConfig_TLSModePrefer(t *testing.T) {
 func TestExtractAdditionalMongodConfig_TLSModeRequireNotIncluded(t *testing.T) {
 	processMap := map[string]om.Process{
 		"host-0": {
-			"args2_6": map[string]interface{}{
-				"net": map[string]interface{}{
+			"args2_6": map[string]any{
+				"net": map[string]any{
 					"port": 27017,
-					"tls":  map[string]interface{}{"mode": "requireSSL"},
+					"tls":  map[string]any{"mode": "requireSSL"},
 				},
 			},
 		},
@@ -992,13 +992,13 @@ func TestExtractAgentConfig_SystemLogNotMigrated(t *testing.T) {
 func TestGetTLSModeFromMongodConfig(t *testing.T) {
 	tests := []struct {
 		name     string
-		args     map[string]interface{}
+		args     map[string]any
 		expected pkgtls.Mode
 	}{
-		{"tls mode", map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{"mode": "preferSSL"}}}, "preferSSL"},
-		{"ssl mode", map[string]interface{}{"net": map[string]interface{}{"ssl": map[string]interface{}{"mode": "requireSSL"}}}, "requireSSL"},
-		{"no net defaults to require", map[string]interface{}{}, pkgtls.Require},
-		{"empty tls defaults to require", map[string]interface{}{"net": map[string]interface{}{"tls": map[string]interface{}{}}}, pkgtls.Require},
+		{"tls mode", map[string]any{"net": map[string]any{"tls": map[string]any{"mode": "preferSSL"}}}, "preferSSL"},
+		{"ssl mode", map[string]any{"net": map[string]any{"ssl": map[string]any{"mode": "requireSSL"}}}, "requireSSL"},
+		{"no net defaults to require", map[string]any{}, pkgtls.Require},
+		{"empty tls defaults to require", map[string]any{"net": map[string]any{"tls": map[string]any{}}}, pkgtls.Require},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1009,7 +1009,7 @@ func TestGetTLSModeFromMongodConfig(t *testing.T) {
 
 func TestExtractPrometheusConfig_Enabled(t *testing.T) {
 	deployment := om.Deployment{
-		"prometheus": map[string]interface{}{
+		"prometheus": map[string]any{
 			"enabled":       true,
 			"username":      "prom-user",
 			"passwordHash":  "hash123",
@@ -1032,7 +1032,7 @@ func TestExtractPrometheusConfig_Enabled(t *testing.T) {
 
 func TestExtractPrometheusConfig_CustomPort(t *testing.T) {
 	deployment := om.Deployment{
-		"prometheus": map[string]interface{}{
+		"prometheus": map[string]any{
 			"enabled":       true,
 			"username":      "prom-user",
 			"scheme":        "http",
@@ -1051,7 +1051,7 @@ func TestExtractPrometheusConfig_CustomPort(t *testing.T) {
 
 func TestExtractPrometheusConfig_Disabled(t *testing.T) {
 	deployment := om.Deployment{
-		"prometheus": map[string]interface{}{
+		"prometheus": map[string]any{
 			"enabled": false,
 		},
 	}
@@ -1078,7 +1078,7 @@ func TestExtractPrometheusConfig_MalformedNotMap(t *testing.T) {
 
 func TestExtractPrometheusConfig_EnabledNoUsername(t *testing.T) {
 	deployment := om.Deployment{
-		"prometheus": map[string]interface{}{
+		"prometheus": map[string]any{
 			"enabled":       true,
 			"listenAddress": "0.0.0.0:9216",
 		},
@@ -1090,7 +1090,7 @@ func TestExtractPrometheusConfig_EnabledNoUsername(t *testing.T) {
 
 func TestExtractPrometheusConfig_InvalidListenAddress(t *testing.T) {
 	deployment := om.Deployment{
-		"prometheus": map[string]interface{}{
+		"prometheus": map[string]any{
 			"enabled":       true,
 			"username":      "prom-user",
 			"listenAddress": "invalid-no-port",
@@ -1103,18 +1103,18 @@ func TestExtractPrometheusConfig_InvalidListenAddress(t *testing.T) {
 
 func TestExtractCustomRoles(t *testing.T) {
 	deployment := om.Deployment{
-		"roles": []interface{}{
-			map[string]interface{}{
+		"roles": []any{
+			map[string]any{
 				"role": "appReadOnly",
 				"db":   "myapp",
-				"privileges": []interface{}{
-					map[string]interface{}{
-						"actions":  []interface{}{"find", "listCollections"},
-						"resource": map[string]interface{}{"db": "myapp", "collection": ""},
+				"privileges": []any{
+					map[string]any{
+						"actions":  []any{"find", "listCollections"},
+						"resource": map[string]any{"db": "myapp", "collection": ""},
 					},
 				},
-				"roles": []interface{}{
-					map[string]interface{}{"role": "read", "db": "myapp"},
+				"roles": []any{
+					map[string]any{"role": "read", "db": "myapp"},
 				},
 			},
 		},
@@ -1132,7 +1132,7 @@ func TestExtractCustomRoles(t *testing.T) {
 
 func TestExtractCustomRoles_Empty(t *testing.T) {
 	deployment := om.Deployment{
-		"roles": []interface{}{},
+		"roles": []any{},
 	}
 	roles := deployment.GetRoles()
 	assert.Empty(t, roles)
@@ -1140,8 +1140,8 @@ func TestExtractCustomRoles_Empty(t *testing.T) {
 
 func TestExtractAdditionalMongodConfig_MultiMember_SamePort_NotMigrated(t *testing.T) {
 	processMap := map[string]om.Process{
-		"host-0": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
-		"host-1": {"args2_6": map[string]interface{}{"net": map[string]interface{}{"port": 27018}}},
+		"host-0": {"args2_6": map[string]any{"net": map[string]any{"port": 27018}}},
+		"host-1": {"args2_6": map[string]any{"net": map[string]any{"port": 27018}}},
 	}
 	members := []om.ReplicaSetMember{{"host": "host-0"}, {"host": "host-1"}}
 
@@ -1153,9 +1153,9 @@ func TestApplyClientCertificateMode_RequireCreatesField(t *testing.T) {
 	agentSSL := &om.AgentSSL{ClientCertificateMode: "REQUIRE"}
 	result := applyClientCertificateMode(agentSSL, nil)
 	require.NotNil(t, result)
-	tlsMap, ok := result.ToMap()["net"].(map[string]interface{})
+	tlsMap, ok := result.ToMap()["net"].(map[string]any)
 	require.True(t, ok)
-	tlsSub, ok := tlsMap["tls"].(map[string]interface{})
+	tlsSub, ok := tlsMap["tls"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, false, tlsSub["allowConnectionsWithoutCertificates"])
 }
@@ -1166,10 +1166,10 @@ func TestApplyClientCertificateMode_RequireMergesIntoExisting(t *testing.T) {
 	result := applyClientCertificateMode(agentSSL, existing)
 	require.NotNil(t, result)
 	m := result.ToMap()
-	netMap, ok := m["net"].(map[string]interface{})
+	netMap, ok := m["net"].(map[string]any)
 	require.True(t, ok)
 	assert.EqualValues(t, 27018, netMap["port"])
-	tlsSub, ok := netMap["tls"].(map[string]interface{})
+	tlsSub, ok := netMap["tls"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, false, tlsSub["allowConnectionsWithoutCertificates"])
 }
@@ -1183,10 +1183,6 @@ func TestApplyClientCertificateMode_OptionalNoChange(t *testing.T) {
 func TestApplyClientCertificateMode_NilAgentSSLNoChange(t *testing.T) {
 	result := applyClientCertificateMode(nil, nil)
 	assert.Nil(t, result)
-}
-
-func strPtr(s string) *string {
-	return &s
 }
 
 func sourceProc(processMap map[string]om.Process, members []om.ReplicaSetMember) *om.Process {

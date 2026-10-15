@@ -312,8 +312,8 @@ func fullTestConfigs() *ProjectConfigs {
 	return &ProjectConfigs{
 		MonitoringConfig: &om.MonitoringAgentConfig{
 			MonitoringAgentTemplate: &om.MonitoringAgentTemplate{},
-			BackingMap: map[string]interface{}{
-				"logRotate": map[string]interface{}{
+			BackingMap: map[string]any{
+				"logRotate": map[string]any{
 					"sizeThresholdMB":  500.0,
 					"timeThresholdHrs": 12,
 				},

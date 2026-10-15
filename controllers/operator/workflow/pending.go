@@ -16,7 +16,7 @@ type pendingStatus struct {
 	retryInSeconds int
 }
 
-func Pending(msg string, params ...interface{}) *pendingStatus {
+func Pending(msg string, params ...any) *pendingStatus {
 	return &pendingStatus{commonStatus: newCommonStatus(msg, params...), retryInSeconds: 10}
 }
 

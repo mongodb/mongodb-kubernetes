@@ -127,7 +127,7 @@ func NewS3Config(opsManager *omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri
 	}
 
 	if _, err := versionutil.StringToSemverVersion(opsManager.Spec.Version); err == nil {
-		config.DisableProxyS3 = util.BooleanRef(false)
+		config.DisableProxyS3 = new(false)
 
 		for _, certificate := range s3CustomCertificates {
 
@@ -153,7 +153,7 @@ func NewS3Config(opsManager *omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri
 	return config
 }
 
-func (s S3Config) Identifier() interface{} {
+func (s S3Config) Identifier() any {
 	return s.Id
 }
 

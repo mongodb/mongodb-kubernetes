@@ -135,7 +135,7 @@ func (m *Tester) HasKeyfileAuth(tries int, opts ...OptionApplier) func(t *testin
 }
 
 func (m *Tester) HasFCV(fcv string, tries int, opts ...OptionApplier) func(t *testing.T) {
-	return m.hasAdminParameter("featureCompatibilityVersion", map[string]interface{}{"version": fcv}, tries, opts...)
+	return m.hasAdminParameter("featureCompatibilityVersion", map[string]any{"version": fcv}, tries, opts...)
 }
 
 func (m *Tester) ScramIsConfigured(tries int, opts ...OptionApplier) func(t *testing.T) {
@@ -214,9 +214,9 @@ func (m *Tester) hasAdminCommandResult(verify verifyAdminResultFunc, tries int, 
 	}
 }
 
-func (m *Tester) hasAdminParameter(key string, expectedValue interface{}, tries int, opts ...OptionApplier) func(t *testing.T) {
+func (m *Tester) hasAdminParameter(key string, expectedValue any, tries int, opts ...OptionApplier) func(t *testing.T) {
 	return m.hasAdminCommandResult(func(t *testing.T) bool {
-		var result map[string]interface{}
+		var result map[string]any
 		err := m.mongoClient.Database("admin").
 			RunCommand(m.ctx, bson.D{{Key: "getParameter", Value: 1}, {Key: key, Value: 1}}).
 			Decode(&result)
@@ -310,7 +310,7 @@ func (m *Tester) WaitForRotatedCertificate(mdb mdbv1.MongoDBCommunity, initialCe
 // We cannot fully rely on the statefulset or resource being ready/running since it will change its state multiple
 // times during a port change. That means a resource might leave, go into and leave running multiple times until
 // it truly finished its port change.
-func (m *Tester) EnsureMongodConfig(selector string, expected interface{}) func(*testing.T) {
+func (m *Tester) EnsureMongodConfig(selector string, expected any) func(*testing.T) {
 	return func(t *testing.T) {
 		connectivityOpts := defaults()
 		err := wait.PollUntilContextTimeout(m.ctx, connectivityOpts.IntervalTime, connectivityOpts.TimeoutTime, false, func(ctx context.Context) (done bool, err error) {
@@ -340,8 +340,8 @@ func (m *Tester) getCommandLineOptions() (bson.M, error) {
 
 // bsonToMap will convert a bson map to a regular map recursively.
 // objx does not work when the nested objects are bson.M.
-func bsonToMap(m bson.M) map[string]interface{} {
-	out := make(map[string]interface{})
+func bsonToMap(m bson.M) map[string]any {
+	out := make(map[string]any)
 	for key, value := range m {
 		if subMap, ok := value.(bson.M); ok {
 			out[key] = bsonToMap(subMap)
@@ -588,23 +588,6 @@ func GetClientCert(ctx context.Context, mdb mdbv1.MongoDBCommunity) (*x509.Certi
 		return nil, fmt.Errorf("error decoding client cert key")
 	}
 	return x509.ParseCertificate(block.Bytes)
-}
-
-func GetUserCert(ctx context.Context, mdb mdbv1.MongoDBCommunity, userCertSecret string) (string, error) {
-	certSecret := corev1.Secret{}
-	certSecretName := types.NamespacedName{Name: userCertSecret, Namespace: mdb.Namespace}
-	if err := e2eutil.TestClient.Get(ctx, certSecretName, &certSecret); err != nil {
-		return "", err
-	}
-	crt, _ := pem.Decode(certSecret.Data["tls.crt"])
-	if crt == nil {
-		return "", fmt.Errorf("error decoding client cert key")
-	}
-	key, _ := pem.Decode(certSecret.Data["tls.key"])
-	if key == nil {
-		return "", fmt.Errorf("error decoding client cert key")
-	}
-	return string(crt.Bytes) + string(key.Bytes), nil
 }
 
 // defaults returns the default connectivity options

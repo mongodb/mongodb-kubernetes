@@ -43,8 +43,9 @@ def s3_path(filename: str, version: str) -> str:
 
 
 # upload_assets_to_github_release uploads artifacts to a GitHub release.
-# During dry-run patches, the GitHub Actions workflow didn't create the draft
-# release, so we auto-create it here if it doesn't exist.
+# In dry-run releases (BUILD_SCENARIO=dryrun-release) the GitHub Actions
+# workflow doesn't create the draft release, so we auto-create it here if
+# it doesn't exist.
 def upload_assets_to_github_release(
     asset_paths: list[str], release_version: str, is_dryrun: bool = False, target_commitish: str | None = None
 ):

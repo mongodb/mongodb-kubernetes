@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -47,17 +46,17 @@ func TestUniqueExternalDomains(t *testing.T) {
 		{
 			ClusterName:                 "1",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 		{
 			ClusterName:                 "2",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 		{
 			ClusterName:                 "3",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 	}
 
@@ -72,7 +71,7 @@ func TestAllExternalDomainsSet(t *testing.T) {
 		{
 			ClusterName:                 "1",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 		{
 			ClusterName:                 "2",
@@ -82,7 +81,7 @@ func TestAllExternalDomainsSet(t *testing.T) {
 		{
 			ClusterName:                 "3",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 	}
 

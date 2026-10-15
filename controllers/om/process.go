@@ -3,6 +3,7 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path"
 	"strings"
 
@@ -127,12 +128,12 @@ The resulting json for this type (example):
 */
 
 // used to indicate standalones when a type is used as an identifier
-type Standalone map[string]interface{}
+type Standalone map[string]any
 
-type Process map[string]interface{}
+type Process map[string]any
 
-func NewProcessFromInterface(i interface{}) Process {
-	return i.(map[string]interface{})
+func NewProcessFromInterface(i any) Process {
+	return i.(map[string]any)
 }
 
 func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string, defaultArchitecture architectures.DefaultArchitecture) Process {
@@ -217,7 +218,7 @@ func (p Process) HostName() string {
 }
 
 func (p Process) Port() string {
-	if port, ok := p.Args()["net"].(map[string]interface{})["port"]; ok {
+	if port, ok := p.Args()["net"].(map[string]any)["port"]; ok {
 		return cast.ToString(port)
 	}
 	return ""
@@ -239,24 +240,24 @@ func (p Process) GetPriority() float32 {
 	return 1.0
 }
 
-func (p Process) GetLogRotate() map[string]interface{} {
+func (p Process) GetLogRotate() map[string]any {
 	if logRotate, ok := p["logRotate"]; ok {
-		return logRotate.(map[string]interface{})
+		return logRotate.(map[string]any)
 	}
-	return make(map[string]interface{})
+	return make(map[string]any)
 }
 
-func (p Process) GetAuditLogRotate() map[string]interface{} {
+func (p Process) GetAuditLogRotate() map[string]any {
 	if logRotate, ok := p["auditLogRotate"]; ok {
-		return logRotate.(map[string]interface{})
+		return logRotate.(map[string]any)
 	}
-	return make(map[string]interface{})
+	return make(map[string]any)
 }
 
 // GetTags returns the requested tags for the member using this process.
 func (p Process) GetTags() map[string]string {
 	if tags, ok := p["tags"]; ok {
-		tagMap, ok := tags.(map[string]interface{})
+		tagMap, ok := tags.(map[string]any)
 		if !ok {
 			return nil
 		}
@@ -321,12 +322,12 @@ func (p Process) LogPath() string {
 	return maputil.ReadMapValueAsString(p.Args(), "systemLog", "path")
 }
 
-func (p Process) LogRotateSizeThresholdMB() interface{} {
+func (p Process) LogRotateSizeThresholdMB() any {
 	return maputil.ReadMapValueAsInterface(p, "logRotate", "sizeThresholdMB")
 }
 
 // Args returns the "args" attribute in the form of a map, creates if it doesn't exist
-func (p Process) Args() map[string]interface{} {
+func (p Process) Args() map[string]any {
 	return util.ReadOrCreateMap(p, "args2_6")
 }
 
@@ -406,12 +407,12 @@ func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 
 // NetTLSSections returns the TLS/SSL config maps from args2_6.net, keyed by
 // section name ("tls" or "ssl"). Only sections that are present are returned.
-func (p Process) NetTLSSections() map[string]map[string]interface{} {
+func (p Process) NetTLSSections() map[string]map[string]any {
 	net := maputil.ReadMapValueAsMap(p.Args(), "net")
 	if net == nil {
 		return nil
 	}
-	sections := make(map[string]map[string]interface{})
+	sections := make(map[string]map[string]any)
 	for _, key := range []string{"tls", "ssl"} {
 		if sec := maputil.ReadMapValueAsMap(net, key); sec != nil {
 			sections[key] = sec
@@ -429,29 +430,29 @@ func (p Process) SetDisabled(disabled bool) {
 }
 
 // EnsureNetConfig returns the Net configuration map ("net"), creates an empty map if it didn't exist
-func (p Process) EnsureNetConfig() map[string]interface{} {
+func (p Process) EnsureNetConfig() map[string]any {
 	return util.ReadOrCreateMap(p.Args(), "net")
 }
 
 // EnsureTLSConfig returns the TLS configuration map ("net.tls"), creates an empty map if it didn't exist.
 // Use this method if you intend to make updates to the map returned
-func (p Process) EnsureTLSConfig() map[string]interface{} {
+func (p Process) EnsureTLSConfig() map[string]any {
 	netConfig := p.EnsureNetConfig()
 	return util.ReadOrCreateMap(netConfig, "tls")
 }
 
 // TLSConfig returns the TLS configuration map ("net.tls") or an empty map if it doesn't exist.
 // Use this method only to read values, not update
-func (p Process) TLSConfig() map[string]interface{} {
+func (p Process) TLSConfig() map[string]any {
 	netConfig := p.EnsureNetConfig()
 	if _, ok := netConfig["tls"]; ok {
-		return netConfig["tls"].(map[string]interface{})
+		return netConfig["tls"].(map[string]any)
 	}
 
-	return make(map[string]interface{})
+	return make(map[string]any)
 }
 
-func (p Process) EnsureSecurity() map[string]interface{} {
+func (p Process) EnsureSecurity() map[string]any {
 	return util.ReadOrCreateMap(p.Args(), "security")
 }
 
@@ -592,7 +593,7 @@ func CalculateAuthSchemaVersion() int {
 
 // mergeFrom merges the Operator version of process ('operatorProcess') into OM one ('p').
 // Considers the type of process and rewrites only relevant fields
-func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[string]interface{}) {
+func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[string]any) {
 	// Dev note: merging the maps overrides/add map keys+value but doesn't remove the existing ones
 	// If there are any keys that need to be removed explicitly (to ensure OM changes haven't sneaked through)
 	// this must be done manually
@@ -603,9 +604,7 @@ func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[s
 	// Merge SSL configuration (update if it's specified - delete otherwise)
 	if mode, ok := operatorProcess.TLSConfig()["mode"]; ok {
 		tlsConfig := p.EnsureTLSConfig()
-		for key, value := range operatorProcess.TLSConfig() {
-			tlsConfig[key] = value
-		}
+		maps.Copy(tlsConfig, operatorProcess.TLSConfig())
 		// PEMKeyFile is the legacy option found under net.ssl, deprecated since version 4.2
 		// https://www.mongodb.com/docs/manual/reference/configuration-options/#mongodb-setting-net.ssl.PEMKeyFile
 		_, oldKeyInConfig := tlsConfig["PEMKeyFile"]
@@ -661,12 +660,12 @@ func (p Process) ClusterRole() string {
 	return maputil.ReadMapValueAsString(p.Args(), "sharding", "clusterRole")
 }
 
-func (p Process) security() map[string]interface{} {
+func (p Process) security() map[string]any {
 	args := p.Args()
 	if _, ok := args["security"]; ok {
-		return args["security"].(map[string]interface{})
+		return args["security"].(map[string]any)
 	}
-	return make(map[string]interface{})
+	return make(map[string]any)
 }
 
 func (p Process) ClusterAuthMode() string {

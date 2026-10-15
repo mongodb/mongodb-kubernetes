@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -336,7 +335,7 @@ func TestOpsManagerReconcilerPrepareOpsManagerWithTLS(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	reconciler, _, initializer := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
-	initializer.expectedCaContent = ptr.To("abc")
+	initializer.expectedCaContent = new("abc")
 
 	addOmCACm(ctx, t, testOm, reconciler)
 
@@ -823,9 +822,9 @@ func TestOpsManagerBackupAssignmentLabels(t *testing.T) {
 
 	// when
 	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
-	blockStoreConfigs, _ := mockedAdmin.ReadBlockStoreConfigs()
-	oplogConfigs, _ := mockedAdmin.ReadOplogStoreConfigs()
-	s3Configs, _ := mockedAdmin.ReadS3Configs()
+	blockStoreConfigs, _ := mockedAdmin.ReadBlockStoreConfigs(ctx)
+	oplogConfigs, _ := mockedAdmin.ReadOplogStoreConfigs(ctx)
+	s3Configs, _ := mockedAdmin.ReadS3Configs(ctx)
 	daemonConfigs, _ := mockedAdmin.(*api.MockedOmAdmin).ReadDaemonConfigs()
 
 	// then
@@ -841,7 +840,7 @@ func TestOpsManagerBackupObjectLock(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().
 		SetVersion("8.0.19").
 		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
-		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: util.BooleanRef(true)}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: new(true)}).
 		Build()
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
@@ -856,7 +855,7 @@ func TestOpsManagerBackupObjectLock(t *testing.T) {
 
 	// when
 	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
-	s3Configs, _ := mockedAdmin.ReadS3Configs()
+	s3Configs, _ := mockedAdmin.ReadS3Configs(ctx)
 	// then
 	assert.Equal(t, true, *s3Configs[0].ObjectLockEnabled)
 }
@@ -882,7 +881,7 @@ func TestOpsManagerBackupObjectLockNotSentWhenUnset(t *testing.T) {
 
 	// when
 	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
-	s3Configs, _ := mockedAdmin.ReadS3Configs()
+	s3Configs, _ := mockedAdmin.ReadS3Configs(ctx)
 	// then
 	assert.Nil(t, s3Configs[0].ObjectLockEnabled)
 }
@@ -961,7 +960,7 @@ func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
 	assert.NoError(t, err)
 
 	t.Run("Configs are created successfully", func(t *testing.T) {
-		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs()
+		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, s3Configs, 3)
 	})
@@ -975,7 +974,7 @@ func TestBackupConfig_ChangingName_ResultsIn_DeleteAndAdd(t *testing.T) {
 	assert.NoError(t, err)
 
 	t.Run("Name change resulted in a different config being created", func(t *testing.T) {
-		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs()
+		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, s3Configs, 3)
 
@@ -1070,15 +1069,15 @@ func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
 	assert.Equal(t, ok, res)
 
 	t.Run("Configs are created successfully", func(t *testing.T) {
-		configs, err := api.CurrMockedAdmin.ReadOplogStoreConfigs()
+		configs, err := api.CurrMockedAdmin.ReadOplogStoreConfigs(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, configs, 3)
 
-		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs()
+		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, s3Configs, 3)
 
-		blockstores, err := api.CurrMockedAdmin.ReadBlockStoreConfigs()
+		blockstores, err := api.CurrMockedAdmin.ReadBlockStoreConfigs(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, blockstores, 3)
 	})
@@ -1101,21 +1100,21 @@ func TestBackupConfigs_AreRemoved_WhenRemovedFromCR(t *testing.T) {
 	assert.NoError(t, err)
 
 	t.Run("Configs are removed successfully", func(t *testing.T) {
-		configs, err := api.CurrMockedAdmin.ReadOplogStoreConfigs()
+		configs, err := api.CurrMockedAdmin.ReadOplogStoreConfigs(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, configs, 2)
 
 		assert.Equal(t, "oplog-store-1", configs[0].Id)
 		assert.Equal(t, "oplog-store-2", configs[1].Id)
 
-		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs()
+		s3Configs, err := api.CurrMockedAdmin.ReadS3Configs(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, s3Configs, 2)
 
 		assert.Equal(t, "s3-config-0", s3Configs[0].Id)
 		assert.Equal(t, "s3-config-2", s3Configs[1].Id)
 
-		blockstores, err := api.CurrMockedAdmin.ReadBlockStoreConfigs()
+		blockstores, err := api.CurrMockedAdmin.ReadBlockStoreConfigs(ctx)
 		assert.NoError(t, err)
 		assert.Len(t, blockstores, 1)
 		assert.Equal(t, "block-store-config-1", blockstores[0].Id)
@@ -1320,7 +1319,7 @@ type MockedInitializer struct {
 	skipChecks        bool
 }
 
-func (o *MockedInitializer) TryCreateUser(omUrl string, _ string, user api.User, ca *string) (api.OpsManagerKeyPair, error) {
+func (o *MockedInitializer) TryCreateUser(_ context.Context, omUrl string, _ string, user api.User, ca *string) (api.OpsManagerKeyPair, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 

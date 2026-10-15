@@ -9,7 +9,6 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
 
@@ -33,7 +32,7 @@ func TestMergeShardedCluster_New(t *testing.T) {
 
 	require.Len(t, d.GetProcesses(), 15)
 	require.Len(t, d.GetReplicaSets(), 4)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		require.Len(t, d.GetReplicaSets()[i].Members(), 3)
 	}
 	checkMongoSProcesses(t, d.GetProcesses(), createMongosProcesses(3, "pretty", "cluster"))
@@ -61,7 +60,7 @@ func TestMergeShardedCluster_ProcessesModified(t *testing.T) {
 	(*d.getProcessByName("pretty0"))["logRotate"] = map[string]int{"sizeThresholdMB": 1000, "timeThresholdHrs": 24}
 
 	// These OM changes must be overriden
-	(*d.getProcessByName("configSrv-1")).Args()["sharding"] = map[string]interface{}{"clusterRole": "shardsrv", "archiveMovedChunks": true}
+	(*d.getProcessByName("configSrv-1")).Args()["sharding"] = map[string]any{"clusterRole": "shardsrv", "archiveMovedChunks": true}
 	(*d.getProcessByName("cluster-1-1"))["hostname"] = "rubbish"
 	(*d.getProcessByName("pretty2")).SetLogPath("/doesnt/exist")
 
@@ -81,7 +80,7 @@ func TestMergeShardedCluster_ProcessesModified(t *testing.T) {
 	expectedMongosProcesses := createMongosProcesses(3, "pretty", "cluster")
 	expectedMongosProcesses[0]["logRotate"] = map[string]int{"sizeThresholdMB": 1000, "timeThresholdHrs": 24}
 	expectedConfigrs := createConfigSrvRs("configSrv", true)
-	expectedConfigrs.Processes[1].Args()["sharding"] = map[string]interface{}{"clusterRole": "configsvr", "archiveMovedChunks": true}
+	expectedConfigrs.Processes[1].Args()["sharding"] = map[string]any{"clusterRole": "configsvr", "archiveMovedChunks": true}
 
 	require.Len(t, d.GetProcesses(), 15)
 	checkMongoSProcesses(t, d.GetProcesses(), expectedMongosProcesses)
@@ -108,7 +107,7 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 	(*d.getReplicaSetByName("cluster-0"))["writeConcernMajorityJournalDefault"] = true
 
 	// These OM changes must be overriden
-	(*d.getReplicaSetByName("cluster-0"))["protocolVersion"] = util.Int32Ref(2)
+	(*d.getReplicaSetByName("cluster-0"))["protocolVersion"] = new(int32(2))
 	(*d.getReplicaSetByName("configSrv")).addMember(
 		NewMongodProcess("foo", "bar", "fake-mongoDBImage", false, &mdbv1.AdditionalMongodConfig{}, mdbv1.NewStandaloneBuilder().Build().GetSpec(), "", nil, "", architectures.NonStatic), nil, automationconfig.MemberOptions{},
 	)
@@ -132,7 +131,7 @@ func TestMergeShardedCluster_ReplicaSetsModified(t *testing.T) {
 
 	require.Len(t, d.GetProcesses(), 15)
 	require.Len(t, d.GetReplicaSets(), 4)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		require.Len(t, d.GetReplicaSets()[i].Members(), 3)
 	}
 	checkMongoSProcesses(t, d.GetProcesses(), createMongosProcesses(3, "pretty", "cluster"))
@@ -158,7 +157,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 
 	// OM "made" some changes (should not be overriden)
 	(*d.getShardedClusterByName("cluster"))["managedSharding"] = true
-	(*d.getShardedClusterByName("cluster"))["collections"] = []map[string]interface{}{{"_id": "some", "unique": true}}
+	(*d.getShardedClusterByName("cluster"))["collections"] = []map[string]any{{"_id": "some", "unique": true}}
 
 	// These OM changes must be overriden
 	(*d.getShardedClusterByName("cluster")).setConfigServerRsName("fake")
@@ -184,7 +183,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 
 	expectedCluster := NewShardedCluster("cluster", configRs.Rs.Name(), shards, nil)
 	expectedCluster["managedSharding"] = true
-	expectedCluster["collections"] = []map[string]interface{}{{"_id": "some", "unique": true}}
+	expectedCluster["collections"] = []map[string]any{{"_id": "some", "unique": true}}
 	// The redundant shard is scheduled for draining even though its name does not match the pattern.
 	expectedCluster.setDraining([]string{"fakeShard"})
 
@@ -192,7 +191,7 @@ func TestMergeShardedCluster_ShardedClusterModified(t *testing.T) {
 	// which results in "draining" for redundant shards but not physical removal of replica sets
 	require.Len(t, d.GetProcesses(), 18)
 	require.Len(t, d.GetReplicaSets(), 5)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		require.Len(t, d.GetReplicaSets()[i].Members(), 3)
 	}
 	checkMongoSProcesses(t, d.GetProcesses(), createMongosProcesses(3, "pretty", "cluster"))
@@ -394,7 +393,7 @@ func TestMergeShardedCluster_ScaleUpShardMergeFirstProcess(t *testing.T) {
 		shardRs := d.getReplicaSetByName(s.Rs())
 		for _, m := range shardRs.Members() {
 			process := d.getProcessByName(m.Name())
-			process.Args()["security"] = map[string]interface{}{"clusterAuthMode": "sendX509"}
+			process.Args()["security"] = map[string]any{"clusterAuthMode": "sendX509"}
 		}
 	}
 
@@ -414,7 +413,7 @@ func TestMergeShardedCluster_ScaleUpShardMergeFirstProcess(t *testing.T) {
 
 	for _, s := range expectedShards {
 		for _, p := range s.Processes {
-			p.Args()["security"] = map[string]interface{}{"clusterAuthMode": "sendX509"}
+			p.Args()["security"] = map[string]any{"clusterAuthMode": "sendX509"}
 		}
 	}
 
@@ -450,7 +449,7 @@ func TestMergeShardedCluster_ScaleUpMongosMergeFirstProcess(t *testing.T) {
 	// Emulating changes to current mongoses by OM
 	for _, m := range d.getMongosProcessesNames("cluster") {
 		process := d.getProcessByName(m)
-		process.Args()["security"] = map[string]interface{}{"clusterAuthMode": "sendX509"}
+		process.Args()["security"] = map[string]any{"clusterAuthMode": "sendX509"}
 	}
 
 	// Now we "scale up" mongoses from 3 to 5
@@ -469,7 +468,7 @@ func TestMergeShardedCluster_ScaleUpMongosMergeFirstProcess(t *testing.T) {
 
 	expectedMongoses := createMongosProcesses(5, "pretty", "cluster")
 	for _, p := range expectedMongoses {
-		p.Args()["security"] = map[string]interface{}{"clusterAuthMode": "sendX509"}
+		p.Args()["security"] = map[string]any{"clusterAuthMode": "sendX509"}
 	}
 
 	checkMongoSProcesses(t, d.GetProcesses(), expectedMongoses)
