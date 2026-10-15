@@ -480,6 +480,14 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return reconcile.Result{}, nil
 	}
 
+	// Members is empty in a stale status, which would make a scale-down look like a fresh create and remove all
+	// the surplus members at once. The StatefulSet holds the actual member count.
+	if rs.Status.Members == 0 {
+		if sts, err := r.client.GetStatefulSet(ctx, rs.ObjectKey()); err == nil && sts.Spec.Replicas != nil {
+			rs.Status.Members = int(*sts.Spec.Replicas)
+		}
+	}
+
 	// Create helper for THIS reconciliation
 	helper, err := r.newReconcilerHelper(ctx, rs, log)
 	if err != nil {
