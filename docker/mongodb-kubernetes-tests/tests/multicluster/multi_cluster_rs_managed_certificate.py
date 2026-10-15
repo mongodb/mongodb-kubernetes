@@ -9,10 +9,40 @@ from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.conftest import (
+    get_central_cluster_client,
+    get_central_cluster_name,
+    get_member_cluster_clients,
+    get_member_cluster_names,
+    get_multi_cluster_operator,
+    get_multi_cluster_operator_installation_config,
+)
 from tests.multicluster.conftest import cluster_spec_list
 
 MDB_RESOURCE = "multi-cluster-replica-set"
 MEMBER_CLUSTER_MEMBERS = [2, 2, 2]
+
+
+@fixture(scope="module")
+def multi_cluster_operator(cert_manager: str, namespace: str) -> Operator:
+    """Installs the operator with operator-managed certificates enabled, after cert-manager.
+
+    The operator decides once, at startup, whether it may use cert-manager: the cert-manager CRDs
+    have to be registered and it has to have the RBAC. The RBAC comes from the same chart value that
+    turns the feature on, so this test sets it in its own operator install rather than for the whole
+    variant, and the cert_manager dependency forces cert-manager to be installed first. This
+    overrides the fixture of the same name in tests/conftest.py for this module only.
+    """
+    operator_installation_config = get_multi_cluster_operator_installation_config(namespace)
+    operator_installation_config["security.managedCertificate.enabled"] = "true"
+    return get_multi_cluster_operator(
+        namespace,
+        get_central_cluster_name(),
+        operator_installation_config,
+        get_central_cluster_client(),
+        get_member_cluster_clients(),
+        get_member_cluster_names(),
+    )
 
 
 @fixture(scope="module")
@@ -115,9 +145,9 @@ def test_ca_bundles_replicated_to_member_clusters(namespace: str, member_cluster
         assert central.get(key, "").strip() != "", f"{ca_bundle} ({key}) missing/empty on the central cluster"
         for cluster_client in member_cluster_clients:
             cm = cluster_client.read_namespaced_config_map(ca_bundle, namespace)
-            assert (cm.data or {}).get(key, "").strip() != "", (
-                f"{ca_bundle} ({key}) missing/empty in member cluster {cluster_client.cluster_name}"
-            )
+            assert (cm.data or {}).get(
+                key, ""
+            ).strip() != "", f"{ca_bundle} ({key}) missing/empty in member cluster {cluster_client.cluster_name}"
 
 
 @mark.e2e_managed_certificate_multi_cluster_rs
@@ -126,7 +156,11 @@ def test_leaf_pem_secrets_present_in_every_member_cluster(
 ):
     # The operator derives a <secret>-pem secret from each managed leaf cert and the pods mount that.
     # It must exist in every member cluster for the pods to start with TLS.
-    for base in (f"{MDB_RESOURCE}-managed-cert", f"{MDB_RESOURCE}-managed-clusterfile", f"{MDB_RESOURCE}-managed-agent-certs"):
+    for base in (
+        f"{MDB_RESOURCE}-managed-cert",
+        f"{MDB_RESOURCE}-managed-clusterfile",
+        f"{MDB_RESOURCE}-managed-agent-certs",
+    ):
         for cluster_client in member_cluster_clients:
             secret = cluster_client.core_v1_api().read_namespaced_secret(f"{base}-pem", namespace)
             assert secret.data, f"{base}-pem missing/empty in member cluster {cluster_client.cluster_name}"
@@ -157,9 +191,9 @@ def test_scale_up_and_down_members(
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
 
     # The cert covers the target in one go, so the whole three-member scale up issues it exactly once.
-    assert _cert_revision(central_cluster_client, namespace, member_cert) == revision_before + 1, (
-        "member cert must be issued once for the whole scale up, not once per member step"
-    )
+    assert (
+        _cert_revision(central_cluster_client, namespace, member_cert) == revision_before + 1
+    ), "member cert must be issued once for the whole scale up, not once per member step"
 
     cert_after_up = read_secret(namespace, member_cert)["tls.crt"]
     assert cert_after_up != cert_before, "member cert must be reissued to cover the new members"
@@ -171,8 +205,8 @@ def test_scale_up_and_down_members(
 
     # Certificate is not changed at the scale down to have scaled down members, the SANs include all the
     # members that we had during scale up, so the cert is neither reissued nor changed.
-    assert _cert_revision(central_cluster_client, namespace, member_cert) == revision_before + 1, (
-        "member cert must not be reissued on scale down"
-    )
+    assert (
+        _cert_revision(central_cluster_client, namespace, member_cert) == revision_before + 1
+    ), "member cert must not be reissued on scale down"
     cert_after_down = read_secret(namespace, member_cert)["tls.crt"]
     assert cert_after_down == cert_after_up, "member cert must not shrink on scale down"
