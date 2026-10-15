@@ -19,6 +19,11 @@ import (
 
 type SecretClientInterface interface {
 	ReadSecret(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string]string, error)
+
+	// ReadSecretLabels returns the labels of the Secret. The second return value is
+	// false when the Secret backend does not expose Secret metadata (e.g. Vault
+	// stores only the data), in which case callers must skip label-based validation.
+	ReadSecretLabels(ctx context.Context, secretName types.NamespacedName, basePath string) (labels map[string]string, metadataAvailable bool, err error)
 }
 
 var _ SecretClientInterface = (*SecretClient)(nil)
@@ -37,6 +42,20 @@ func secretNamespacedName(s corev1.Secret) types.NamespacedName {
 		Namespace: s.Namespace,
 		Name:      s.Name,
 	}
+}
+
+// ReadSecretLabels returns the labels of the Secret. When the Secret backend is
+// Vault, metadata is not available and (nil, false, nil) is returned: the Vault
+// path is already scoped by namespace, so label-based validation is skipped.
+func (r SecretClient) ReadSecretLabels(ctx context.Context, secretName types.NamespacedName, basePath string) (map[string]string, bool, error) {
+	if vault.IsVaultSecretBackend() {
+		return nil, false, nil
+	}
+	s, err := r.KubeClient.GetSecret(ctx, secretName)
+	if err != nil {
+		return nil, false, err
+	}
+	return s.Labels, true, nil
 }
 
 func (r SecretClient) ReadSecretKey(ctx context.Context, secretName types.NamespacedName, basePath string, key string) (string, error) {
