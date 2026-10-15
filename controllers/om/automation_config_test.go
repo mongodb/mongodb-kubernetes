@@ -2,6 +2,7 @@ package om
 
 import (
 	"encoding/json"
+	"maps"
 	"testing"
 
 	"github.com/spf13/cast"
@@ -9,9 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/equality"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 var originalAutomationConfig = *getTestAutomationConfig()
@@ -1093,6 +1096,32 @@ func TestApplyInto_RemovesLDAPBlockWhenLdapIsNil(t *testing.T) {
 	assert.False(t, ldapExists, "ldap block should be deleted from deployment when Ldap is nil")
 }
 
+// TestGetSerializedACDoesNotMutateInput guards getSerializedAC's shallow clone: a nested write
+// would leak into the caller's deployment.
+func TestGetSerializedACDoesNotMutateInput(t *testing.T) {
+	withOIDC := getDeploymentWithRSOverTheWire(t)
+	withOIDC["oidcProviderConfigs"] = []any{map[string]any{"authNamePrefix": "p", "clientId": "x"}}
+
+	for name, deployment := range map[string]Deployment{"replica sets": getDeploymentWithRSOverTheWire(t), "oidc": withOIDC} {
+		t.Run(name, func(t *testing.T) {
+			original, err := BuildAutomationConfigFromDeployment(deployment)
+			require.NoError(t, err)
+			original.OIDCProviderConfigs = []oidc.ProviderConfig{{AuthNamePrefix: "p"}}
+
+			before, err := json.Marshal(original.Deployment)
+			require.NoError(t, err)
+
+			_, err = getSerializedAC(*original)
+			require.NoError(t, err)
+
+			after, err := json.Marshal(original.Deployment)
+			require.NoError(t, err)
+
+			assert.JSONEq(t, string(before), string(after), "getSerializedAC must not mutate the input deployment")
+		})
+	}
+}
+
 func TestApplyInto(t *testing.T) {
 	config := AutomationConfig{
 		Auth: NewAuth(),
@@ -1158,14 +1187,34 @@ func TestIsEqual(t *testing.T) {
 	}
 }
 
+func TestIsEqualAfterModification_RoleStructs(t *testing.T) {
+	for _, inheritedRole := range []string{"read", "readWrite"} {
+		t.Run(inheritedRole, func(t *testing.T) {
+			role := mdbv1.MongoDBRole{
+				Role: "inherited", Db: "admin", Privileges: []mdbv1.Privilege{},
+				Roles: []mdbv1.InheritedRole{{Role: "read", Db: "admin"}},
+			}
+			deployment, err := maputil.StructToMap(Deployment{"roles": []mdbv1.MongoDBRole{role}})
+			require.NoError(t, err)
+
+			equal, err := isEqualAfterModification(func(d Deployment) error {
+				role.Roles[0].Role = inheritedRole
+				d.SetRoles([]mdbv1.MongoDBRole{role})
+				return nil
+			}, deployment)
+			require.NoError(t, err)
+			assert.Equal(t, inheritedRole == "read", equal, "object-key order must not hide or invent a change")
+		})
+	}
+}
+
 // TestIsEqualNotWorkingWithTypeChanges is a test that shows that deep equality does not work if our depFunc changes
 // the underlying types as we mostly do.
 func TestIsEqualNotWorkingWithTypeChanges(t *testing.T) {
 	t.Run("is not working", func(t *testing.T) {
 		overTheWire := getDeploymentWithRSOverTheWire(t)
 
-		original, err := util.MapDeepCopy(overTheWire)
-		assert.NoError(t, err)
+		original := maps.Clone(overTheWire)
 
 		_ = changeTypes(overTheWire)
 

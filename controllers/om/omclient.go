@@ -1,6 +1,7 @@
 package om
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -294,14 +295,19 @@ func (oc *HTTPOmConnection) ReadAuditLogRotation(ctx context.Context) (*automati
 }
 
 func (oc *HTTPOmConnection) GetAgentAuthMode(ctx context.Context) (string, error) {
-	ac, err := oc.ReadAutomationConfig(ctx)
+	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
 	if err != nil {
 		return "", err
 	}
-	if ac.Auth == nil {
-		return "", nil
+	var partial struct {
+		Auth struct {
+			AutoAuthMechanism string `json:"autoAuthMechanism"`
+		} `json:"auth"`
 	}
-	return ac.Auth.AutoAuthMechanism, nil
+	if err := json.Unmarshal(ans, &partial); err != nil {
+		return "", apierror.New(err)
+	}
+	return partial.Auth.AutoAuthMechanism, nil
 }
 
 var _ Connection = &HTTPOmConnection{}
@@ -812,14 +818,21 @@ func (oc *HTTPOmConnection) ReadMonitoringAgentConfig(ctx context.Context) (*Mon
 }
 
 func (oc *HTTPOmConnection) UpdateMonitoringAgentConfig(ctx context.Context, mat *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
-	original, _ := util.MapDeepCopy(mat.BackingMap)
-
-	err := mat.Apply()
+	original, err := json.Marshal(mat.BackingMap)
 	if err != nil {
 		return nil, err
 	}
 
-	if reflect.DeepEqual(original, mat.BackingMap) {
+	if err := mat.Apply(); err != nil {
+		return nil, err
+	}
+
+	modified, err := json.Marshal(mat.BackingMap)
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes.Equal(original, modified) {
 		log.Debug("Monitoring Configuration has not changed, not pushing changes to Ops Manager")
 	} else {
 		return oc.put(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/monitoringAgentConfig", oc.GroupID()), mat.BackingMap)
@@ -866,14 +879,21 @@ func (oc *HTTPOmConnection) ReadBackupAgentConfig(ctx context.Context) (*BackupA
 }
 
 func (oc *HTTPOmConnection) UpdateBackupAgentConfig(ctx context.Context, backup *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
-	original, _ := util.MapDeepCopy(backup.BackingMap)
-
-	err := backup.Apply()
+	original, err := json.Marshal(backup.BackingMap)
 	if err != nil {
 		return nil, err
 	}
 
-	if reflect.DeepEqual(original, backup.BackingMap) {
+	if err := backup.Apply(); err != nil {
+		return nil, err
+	}
+
+	modified, err := json.Marshal(backup.BackingMap)
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes.Equal(original, modified) {
 		log.Debug("Backup Configuration has not changed, not pushing changes to Ops Manager")
 	} else {
 		return oc.put(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig/backupAgentConfig", oc.GroupID()), backup.BackingMap)
