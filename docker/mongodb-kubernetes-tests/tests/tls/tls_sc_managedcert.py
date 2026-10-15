@@ -4,9 +4,17 @@ from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
+from tests.tls.managedcert_helper import managed_certificate_operator
 
 MDB_RESOURCE = "test-tls-sc-managedcert"
 SHARD_COUNT = 2
+
+
+@pytest.fixture(scope="module")
+def operator(cert_manager: str, namespace: str) -> Operator:
+    # cert_manager is a dependency, not used here: cert-manager has to be installed before the
+    # operator starts, because the operator decides once, at startup, whether it may use cert-manager.
+    return managed_certificate_operator(namespace)
 
 
 @pytest.fixture(scope="module")
