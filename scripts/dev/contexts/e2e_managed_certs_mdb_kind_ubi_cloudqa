@@ -11,3 +11,5 @@ source "${script_dir}/root-context"
 source "${script_dir}/variables/mongodb_latest"
 
 export ops_manager_version="cloud_qa"
+
+export MDB_MANAGED_CERTIFICATE_ENABLED="true"
