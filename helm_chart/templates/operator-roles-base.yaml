@@ -18,6 +18,19 @@ metadata:
   namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
 {{- end }}
 rules:
+{{- if .Values.security.managedCertificate.enabled }}
+  - apiGroups:
+      - cert-manager.io
+    resources:
+      - certificates
+      - issuers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+{{- end }}
   - apiGroups:
       - ''
     resources:
