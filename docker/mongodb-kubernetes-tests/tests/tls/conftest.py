@@ -14,7 +14,9 @@ from tests.conftest import (
 
 
 @fixture(scope="module")
-def operator(namespace: str) -> Operator:
+def operator(cert_manager_before_operator: str, namespace: str) -> Operator:
+    # cert_manager_before_operator is a no-op unless this run enables operator-managed
+    # certificates; when it does, cert-manager has to be installed before the operator starts.
     if is_multi_cluster():
         return get_multi_cluster_operator(
             namespace,
