@@ -4,10 +4,7 @@ Once `spec.backup` is added to the CR, `status.backup` is expected to report the
 Single-cluster counterpart of tests/multicluster/multi_cluster_backup_enabled_outside_operator.py.
 """
 
-import random
-import string
-
-from kubetester import get_default_storage_class, try_load
+from kubetester import get_default_storage_class, random_k8s_name, try_load
 from kubetester.kubetester import ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -25,7 +22,7 @@ from tests.common.ops_manager.backup_outside_operator import (
 logger = test_logger.get_test_logger(__name__)
 
 # Unique per run so that leftovers of a previous run in the same Ops Manager don't collide.
-RESOURCE_NAME = "rs-backup-" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+RESOURCE_NAME = random_k8s_name("rs-backup-")
 BACKUP_STORE_NAME = "backup-store"
 
 

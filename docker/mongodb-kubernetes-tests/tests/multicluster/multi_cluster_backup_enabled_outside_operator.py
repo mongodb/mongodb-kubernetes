@@ -3,13 +3,11 @@ Backup that is enabled outside of the operator, for example in the Ops Manager U
 Once `spec.backup` is added to the CR, `status.backup` is expected to report the state of the running backup.
 """
 
-import random
-import string
 from typing import List
 
 import kubernetes
 import kubernetes.client
-from kubetester import create_or_update_configmap, get_default_storage_class, try_load
+from kubetester import create_or_update_configmap, get_default_storage_class, random_k8s_name, try_load
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -43,7 +41,7 @@ from tests.multicluster.multi_cluster_backup_restore import (  # noqa: F401
 logger = test_logger.get_test_logger(__name__)
 
 # Unique per run so that leftovers of a previous run in the shared Ops Manager don't collide.
-RESOURCE_NAME = "mdb-backup-" + "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
+RESOURCE_NAME = random_k8s_name("mdb-backup-")
 
 
 def om_base_url(ops_manager: MongoDBOpsManager) -> str:
