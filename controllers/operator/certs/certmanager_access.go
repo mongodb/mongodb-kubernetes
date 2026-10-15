@@ -3,10 +3,11 @@ package certs
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )

@@ -310,4 +310,3 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interface
 		Topology:                     mdb.Spec.GetTopology(),
 	}
 }
-
