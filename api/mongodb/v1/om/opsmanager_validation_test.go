@@ -185,12 +185,27 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
 		},
-		"Invalid S3 OpLog Store config - objectLock enabled for s3 oplog": {
+		"Valid S3 OpLog Store config - objectLock enabled": {
 			testedOm: NewOpsManagerBuilderDefault().
-				SetVersion("8.0.19").
+				SetVersion("8.0.28").
 				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true)}).
 				Build(),
-			expectedErrorMessage: "'objectLockEnabled' cannot be configured for OpLog S3 Stores (S3 OpLog Store: test)",
+			expectedPart: status.None,
+		},
+		"Invalid S3 OpLog Store config - objectLock enabled for version older than 8.0.28": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true)}).
+				Build(),
+			expectedErrorMessage: "'objectLockEnabled' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 OpLog Store config - objectLockEnabled explicitly disabled for version older than 8.0.28": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(false)}).
+				Build(),
+			expectedErrorMessage: "'objectLockEnabled' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
 		},
 		"Invalid S3 Store config - object lock retention fields for version older than 8.0.27": {
@@ -201,20 +216,27 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= 8.0.27 (S3 Store: test)",
 			expectedPart:         status.OpsManager,
 		},
-		"Valid S3 Store config - object lock retention fields with objectLockEnabled": {
+		"Valid S3 Store config - object lock retention fields at exactly the 8.0.27 version floor": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.27").
 				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}).
 				Build(),
 			expectedPart: status.None,
 		},
-		"Invalid S3 OpLog Store config - object lock retention fields": {
+		"Invalid S3 OpLog Store config - object lock retention fields for version older than 8.0.28": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.27").
 				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectRetentionDays: new(30)}).
 				Build(),
-			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' cannot be configured for OpLog S3 Stores (S3 OpLog Store: test)",
+			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
+		},
+		"Valid S3 OpLog Store config - object lock retention fields at exactly the 8.0.28 version floor": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.28").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}).
+				Build(),
+			expectedPart: status.None,
 		},
 		"Valid S3 OpLog Store config - no s3SecretRef if irsaEnabled": {
 			testedOm: NewOpsManagerBuilderDefault().

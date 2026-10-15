@@ -87,6 +87,27 @@ func TestOpsManagerCELValidation_ObjectLockRetention(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "object lock retention fields on s3OpLogStores without objectLockEnabled is rejected",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: "test-om-db", Kind: "MongoDB"}
+				om.Spec.Backup = &omv1.MongoDBOpsManagerBackup{
+					Enabled:             true,
+					S3OplogStoreConfigs: []omv1.S3Config{{Name: "test", S3SecretRef: &omv1.SecretRef{Name: "test"}, ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}},
+				}
+			},
+			errorContains: "'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled",
+		},
+		{
+			name: "object lock retention fields on s3OpLogStores with objectLockEnabled is accepted",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: "test-om-db", Kind: "MongoDB"}
+				om.Spec.Backup = &omv1.MongoDBOpsManagerBackup{
+					Enabled:             true,
+					S3OplogStoreConfigs: []omv1.S3Config{{Name: "test", S3SecretRef: &omv1.SecretRef{Name: "test"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}},
+				}
+			},
+		},
 	}
 
 	for _, tc := range tests {
