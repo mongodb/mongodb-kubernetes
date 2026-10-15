@@ -28,10 +28,12 @@ def multi_cluster_operator(cert_manager: str, namespace: str) -> Operator:
     """Installs the operator with operator-managed certificates enabled, after cert-manager.
 
     The operator decides once, at startup, whether it may use cert-manager: the cert-manager CRDs
-    have to be registered and it has to have the RBAC. The RBAC comes from the same chart value that
-    turns the feature on, so this test sets it in its own operator install rather than for the whole
-    variant, and the cert_manager dependency forces cert-manager to be installed first. This
-    overrides the fixture of the same name in tests/conftest.py for this module only.
+    have to be registered, the chart value has to be on, and it has to have the RBAC. This test sets
+    all of that in its own operator install rather than for the whole variant. In multi-cluster mode
+    the chart does not create the operator RBAC, the kubectl-mongodb setup tool does, so the
+    cert-manager RBAC is asked for there. The cert_manager dependency forces cert-manager to be
+    installed first. This overrides the fixture of the same name in tests/conftest.py for this
+    module only.
     """
     operator_installation_config = get_multi_cluster_operator_installation_config(namespace)
     operator_installation_config["security.managedCertificate.enabled"] = "true"
@@ -42,6 +44,7 @@ def multi_cluster_operator(cert_manager: str, namespace: str) -> Operator:
         get_central_cluster_client(),
         get_member_cluster_clients(),
         get_member_cluster_names(),
+        create_managed_certificate_roles=True,
     )
 
 
