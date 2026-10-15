@@ -13,8 +13,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod.mongodb_tools_pod import ToolsPod, get_tools_pod
-from tests.conftest import get_default_operator, install_official_operator, log_deployments_info
-from tests.constants import MCK_HELM_CHART, OFFICIAL_OPERATOR_IMAGE_NAME, OPERATOR_NAME
+from tests.conftest import get_default_operator, log_deployments_info
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -49,11 +48,7 @@ DEST_USER_ROLES = [
     Role("admin", "backup"),
 ]
 
-# The guide was verified against MCK 1.12.0, the oldest release that publishes the
-# connection string Secret. Customers on this vintage are the ones the migration targets.
-SOURCE_OPERATOR_VERSION = "1.12.0"
-
-# The deprecation warning the operator must log when it reconciles a Standalone resource.
+# The deprecation warning the update webhook returns and the operator logs for a Standalone.
 # This must match StandaloneDeprecationMessage in the api/mongodb/v1/mdb package.
 DEPRECATION_MESSAGE = (
     "Standalone is deprecated and will not be supported in the next major version, "
@@ -61,10 +56,10 @@ DEPRECATION_MESSAGE = (
 )
 
 """
-e2e_standalone_to_replicaset_migration installs an older released MCK operator version (the
-mongodb/mongodb-kubernetes chart at SOURCE_OPERATOR_VERSION), deploys a Standalone, upgrades to
-the operator built from this branch and asserts the Standalone deprecation warning is logged,
-then performs the migration from the guide (docs/migration/standalone-to-replica-set.md).
+e2e_standalone_to_replicaset_migration installs the operator built from this branch, deploys a
+Standalone and asserts the deprecation warning reaches users, as an admission warning of the
+update webhook and as a log line on the reconcile of the Standalone. It then performs the
+migration from the published guide.
 
 The cutover is offline: a standalone has no oplog, so there is no catch up of writes that land
 during the dump. The steps mirror the guide: give the replica set its own Ops
@@ -155,6 +150,15 @@ def wait_resource_gone(name: str, namespace: str, timeout: int = 300):
     assert wait_until(is_gone, timeout=timeout), f"mongodb/{name} still exists after {timeout}s"
 
 
+def patch_standalone_warnings(namespace: str, name: str, body: dict) -> str:
+    """Applies a merge patch and returns the Warning response headers, where the API server
+    relays the warnings the admission webhooks return."""
+    _, _, headers = client.CustomObjectsApi().patch_namespaced_custom_object_with_http_info(
+        "mongodb.com", "v1", namespace, "mongodb", name, body
+    )
+    return headers.get("Warning", "")
+
+
 @fixture(scope="module")
 def standalone(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("standalone.yaml"), namespace=namespace, name=STANDALONE_NAME)
@@ -181,30 +185,8 @@ def migration_state() -> MigrationState:
 
 
 @fixture(scope="module")
-def source_operator(
-    namespace: str,
-    managed_security_context: str,
-    operator_installation_config: dict[str, str],
-) -> Operator:
-    """The released MCK operator version the migration targets."""
-    return install_official_operator(
-        namespace,
-        managed_security_context,
-        operator_installation_config,
-        central_cluster_name=None,
-        central_cluster_client=None,
-        member_cluster_clients=None,
-        member_cluster_names=None,
-        custom_operator_version=SOURCE_OPERATOR_VERSION,
-        helm_chart_path=MCK_HELM_CHART,
-        operator_name=OPERATOR_NAME,
-        operator_image=OFFICIAL_OPERATOR_IMAGE_NAME,
-    )
-
-
-@fixture(scope="module")
-def upgraded_operator(namespace: str, operator_installation_config: dict[str, str]) -> Operator:
-    """The operator built from this branch, installed over the source operator."""
+def operator(namespace: str, operator_installation_config: dict[str, str]) -> Operator:
+    """The operator built from this branch, the one that deprecates Standalone."""
     return get_default_operator(
         namespace, operator_installation_config=operator_installation_config, apply_crds_first=True
     )
@@ -297,9 +279,9 @@ def destination_auth_uri(namespace: str, destination_user: MongoDBUser) -> str:
 
 @mark.e2e_standalone_to_replicaset_migration
 class TestStandaloneToReplicaSetMigration:
-    def test_install_old_operator(self, namespace: str, source_operator: Operator):
-        """The migration targets customers on older released MCK operators."""
-        source_operator.wait_for_operator_ready()
+    def test_install_operator(self, namespace: str, operator: Operator):
+        """The operator built from this branch, installed from the local chart."""
+        operator.wait_for_operator_ready()
         log_deployments_info(namespace)
 
     def test_create_standalone(self, standalone: MongoDB):
@@ -336,23 +318,20 @@ class TestStandaloneToReplicaSetMigration:
         """Shop orders with a unique index and a validator, plus a second database."""
         mongosh_eval(tools_pod, standalone_uri(namespace, SHOP_USER, SHOP_USER_PASSWORD), SEED_JS)
 
-    def test_upgrade_operator(self, upgraded_operator: Operator):
-        """Upgrade to the operator built from this branch, same release name so helm
-        replaces the old deployment."""
-        upgraded_operator.wait_for_operator_ready()
-        log_deployments_info(upgraded_operator.namespace)
-
-    def test_standalone_reconciled(self, standalone: MongoDB):
-        """The upgraded operator reconciles the existing Standalone."""
-        standalone.assert_abandons_phase(phase=Phase.Running, timeout=300)
-        standalone.assert_reaches_phase(phase=Phase.Running, timeout=800)
-
-    def test_standalone_deprecation_logged(self, namespace: str, upgraded_operator: Operator):
-        """The upgraded operator logs the deprecation warning for the Standalone."""
-        pods = upgraded_operator.list_operator_pods()
+    def test_standalone_deprecation_logged(self, namespace: str, operator: Operator):
+        """The operator logs the deprecation warning when it reconciles the Standalone."""
+        pods = operator.list_operator_pods()
         assert len(pods) == 1
         logs = KubernetesTester.read_pod_logs(namespace, pods[0].metadata.name)
         assert DEPRECATION_MESSAGE in logs
+
+    def test_standalone_update_returns_deprecation_warning(self, namespace: str):
+        """The update webhook returns the deprecation warning for the Standalone, the API
+        server relays it to clients in the Warning response header."""
+        warnings = patch_standalone_warnings(
+            namespace, STANDALONE_NAME, {"metadata": {"labels": {"webhook-check": "true"}}}
+        )
+        assert DEPRECATION_MESSAGE in warnings
 
     def test_create_project_config_map(self, standalone: MongoDB):
         """Guide step 1, copy the project ConfigMap under a new name and projectName,
