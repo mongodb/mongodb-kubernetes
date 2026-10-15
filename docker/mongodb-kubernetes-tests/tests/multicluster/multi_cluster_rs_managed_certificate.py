@@ -59,7 +59,7 @@ def mongodb_multi(
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
     resource.set_version(custom_mdb_version)
     resource["spec"]["persistent"] = False
-    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, MEMBER_CLUSTER_MEMBERS)
+    resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, list(MEMBER_CLUSTER_MEMBERS))
     # Fully operator-managed certificates: the customer only enables the feature and picks X509
     # internal auth. No user-provided certs, no CA ConfigMap and no certsSecretPrefix anywhere.
     resource["spec"]["security"] = {
@@ -187,8 +187,7 @@ def test_scale_up_and_down_members(
     revision_before = _cert_revision(central_cluster_client, namespace, member_cert)
     cert_before = read_secret(namespace, member_cert)["tls.crt"]
 
-    up = list(MEMBER_CLUSTER_MEMBERS)
-    up[0] += 3
+    up: List[int | None] = [MEMBER_CLUSTER_MEMBERS[0] + 3, *MEMBER_CLUSTER_MEMBERS[1:]]
     mongodb_multi["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, up)
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
@@ -201,7 +200,7 @@ def test_scale_up_and_down_members(
     cert_after_up = read_secret(namespace, member_cert)["tls.crt"]
     assert cert_after_up != cert_before, "member cert must be reissued to cover the new members"
 
-    down = list(MEMBER_CLUSTER_MEMBERS)
+    down: List[int | None] = list(MEMBER_CLUSTER_MEMBERS)
     mongodb_multi["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, down)
     mongodb_multi.update()
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
