@@ -64,6 +64,21 @@ func TestRedactURI(t *testing.T) {
 	uri = "mongo.mongoUri=mongodb://om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017"
 	expected = "mongo.mongoUri=mongodb://om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017"
 	assert.Equal(t, expected, RedactMongoURI(uri))
+
+	// mongodb+srv:// scheme
+	uri = "mongo.mongoUri=mongodb+srv://mongodb-ops-manager:my-scram-password@om-scram-db-svc.mongodb.svc.cluster.local/?authSource=admin"
+	expected = "mongo.mongoUri=mongodb+srv://mongodb-ops-manager:<redacted>@om-scram-db-svc.mongodb.svc.cluster.local/?authSource=admin"
+	assert.Equal(t, expected, RedactMongoURI(uri))
+
+	// no port after the host
+	uri = "mongo.mongoUri=mongodb://mongodb-ops-manager:my-scram-password@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local/?authSource=admin"
+	expected = "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local/?authSource=admin"
+	assert.Equal(t, expected, RedactMongoURI(uri))
+
+	// mongodb+srv:// with no port and an '@' in the password
+	uri = "mongo.mongoUri=mongodb+srv://some-user:12345AllTheCharactersWith@SymbolToo@om-scram-db-svc.mongodb.svc.cluster.local"
+	expected = "mongo.mongoUri=mongodb+srv://some-user:<redacted>@om-scram-db-svc.mongodb.svc.cluster.local"
+	assert.Equal(t, expected, RedactMongoURI(uri))
 }
 
 type someId struct {
