@@ -48,8 +48,8 @@ DEST_USER_ROLES = [
     Role("admin", "backup"),
 ]
 
-# The deprecation warning the update webhook returns and the operator logs for a Standalone.
-# This must match StandaloneDeprecationMessage in the api/mongodb/v1/mdb package.
+# The deprecation warning the validation webhook returns for a Standalone, on create and update,
+# and that the operator logs. Must match StandaloneDeprecationMessage in api/mongodb/v1/mdb.
 DEPRECATION_MESSAGE = (
     "Standalone is deprecated and will not be supported in the next major version, "
     "migrate to a one member ReplicaSet"
@@ -57,9 +57,9 @@ DEPRECATION_MESSAGE = (
 
 """
 e2e_standalone_to_replicaset_migration installs the operator built from this branch, deploys a
-Standalone and asserts the deprecation warning reaches users, as an admission warning of the
-update webhook and as a log line on the reconcile of the Standalone. It then performs the
-migration from the published guide.
+Standalone and asserts the deprecation warning reaches users, as an admission warning on create
+and update and as a log line on the reconcile of the Standalone. It then performs the migration
+from the published guide.
 
 The cutover is offline: a standalone has no oplog, so there is no catch up of writes that land
 during the dump. The steps mirror the guide: give the replica set its own Ops
@@ -150,9 +150,19 @@ def wait_resource_gone(name: str, namespace: str, timeout: int = 300):
     assert wait_until(is_gone, timeout=timeout), f"mongodb/{name} still exists after {timeout}s"
 
 
-def patch_standalone_warnings(namespace: str, name: str, body: dict) -> str:
-    """Applies a merge patch and returns the Warning response headers, where the API server
-    relays the warnings the admission webhooks return."""
+def create_standalone_and_read_warnings(resource: MongoDB) -> str:
+    """Creates the Standalone, loads it back and returns the Warning response header, where the
+    API server relays the warnings the admission webhooks return."""
+    _, _, headers = client.CustomObjectsApi().create_namespaced_custom_object_with_http_info(
+        "mongodb.com", "v1", resource.namespace, "mongodb", resource.backing_obj, field_validation="Strict"
+    )
+    resource.load()
+    return headers.get("Warning", "")
+
+
+def patch_standalone_and_read_warnings(namespace: str, name: str, body: dict) -> str:
+    """Applies a merge patch to the Standalone and returns the Warning response header, where
+    the API server relays the warnings the admission webhooks return."""
     _, _, headers = client.CustomObjectsApi().patch_namespaced_custom_object_with_http_info(
         "mongodb.com", "v1", namespace, "mongodb", name, body
     )
@@ -282,10 +292,20 @@ class TestStandaloneToReplicaSetMigration:
     def test_install_operator(self, namespace: str, operator: Operator):
         """The operator built from this branch, installed from the local chart."""
         operator.wait_for_operator_ready()
+        # The deprecation warning assertions need the admission webhook serving, the
+        # operator registers it during startup.
+        operator.wait_for_operator_webhook_ready()
         log_deployments_info(namespace)
 
     def test_create_standalone(self, standalone: MongoDB):
-        standalone.update()
+        """The create webhook returns the deprecation warning as well, the API server relays it
+        to clients in the Warning response header."""
+        if standalone.bound:
+            # A rerun in the same namespace finds the Standalone already created, with no
+            # create response to inspect.
+            standalone.update()
+        else:
+            assert DEPRECATION_MESSAGE in create_standalone_and_read_warnings(standalone)
         standalone.assert_reaches_phase(Phase.Running, timeout=600)
 
     def test_tools_pod_ships_cli_tools(self, tools_pod: ToolsPod):
@@ -326,9 +346,9 @@ class TestStandaloneToReplicaSetMigration:
         assert DEPRECATION_MESSAGE in logs
 
     def test_standalone_update_returns_deprecation_warning(self, namespace: str):
-        """The update webhook returns the deprecation warning for the Standalone, the API
-        server relays it to clients in the Warning response header."""
-        warnings = patch_standalone_warnings(
+        """The validation webhook returns the deprecation warning for the Standalone on update,
+        the API server relays it to clients in the Warning response header."""
+        warnings = patch_standalone_and_read_warnings(
             namespace, STANDALONE_NAME, {"metadata": {"labels": {"webhook-check": "true"}}}
         )
         assert DEPRECATION_MESSAGE in warnings
