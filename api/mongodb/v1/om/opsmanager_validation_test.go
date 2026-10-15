@@ -216,7 +216,7 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= 8.0.27 (S3 Store: test)",
 			expectedPart:         status.OpsManager,
 		},
-		"Valid S3 Store config - object lock retention fields with objectLockEnabled": {
+		"Valid S3 Store config - object lock retention fields at exactly the 8.0.27 version floor": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.27").
 				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}).
@@ -231,7 +231,7 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
 		},
-		"Valid S3 OpLog Store config - object lock retention fields with objectLockEnabled": {
+		"Valid S3 OpLog Store config - object lock retention fields at exactly the 8.0.28 version floor": {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.28").
 				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}).
