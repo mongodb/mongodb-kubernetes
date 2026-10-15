@@ -15,7 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -1966,7 +1965,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 // doesn't mean the MongoDB resource is not ready.
 func (m *MongoDB) SetStatusCondition(condition metav1.Condition) {
 	condition.ObservedGeneration = m.GetGeneration()
-	apimeta.SetStatusCondition(&m.Status.Conditions, condition)
+	meta.SetStatusCondition(&m.Status.Conditions, condition)
 }
 
 func (m *MongoDB) SetWarnings(warnings []status.Warning, _ ...status.Option) {
