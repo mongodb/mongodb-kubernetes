@@ -487,9 +487,7 @@ class OMTester(object):
             status_code == requests.status_codes.codes.OK
         ), "Expected HTTP 200 from Ops Manager but got {} ({})".format(status_code, datetime.now())
 
-    def om_request(
-        self, method, path, json_object: Optional[Dict | List[Dict]] = None, retries=3, agent_endpoint=False
-    ):
+    def om_request(self, method, path, json_object: Optional[Dict] = None, retries=3, agent_endpoint=False):
         """Performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
         '/api../v1.0' as the method does it internally.
 

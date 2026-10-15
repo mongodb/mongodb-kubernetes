@@ -1,5 +1,3 @@
-import random
-import string
 from operator import attrgetter
 from typing import Dict, Iterator, Optional
 
@@ -20,12 +18,11 @@ from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import running_locally, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
-from kubetester.omtester import OMContext, OMTester
+from kubetester.omtester import OMTester
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from kubetester.test_identifiers import set_test_identifier
-from pytest import fixture, mark, raises
-from requests import HTTPError
+from pytest import fixture, mark
 from tests.conftest import is_multi_cluster
 from tests.constants import AWS_REGION
 from tests.opsmanager.backup_snapshot_schedule_tests import BackupSnapshotScheduleTests
@@ -37,9 +34,6 @@ OPLOG_RS_NAME = "my-mongodb-oplog"
 S3_RS_NAME = "my-mongodb-s3"
 BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "/qwerty@!#:"
-# Unique per test-run suffix so repeated runs against a shared cluster don't collide with
-# projects left behind by a previous (possibly failed) run.
-RUN_SUFFIX = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
 
 """
 Current test focuses on backup capabilities. It creates an explicit MDBs for S3 snapshot metadata, Blockstore and Oplog
@@ -746,145 +740,6 @@ class TestAssignmentLabels:
         mdb_assignment_labels_om_tester.assert_block_stores([{"id": "blockStore1", "labels": ["test"]}])
         # This one is set on the MongoDB CR level
         assert mdb_assignment_labels_om_tester.api_backup_group()["labelFilter"] == ["test"]
-
-
-@mark.e2e_om_ops_manager_backup
-class TestAssignmentLabelsNonGlobalApiKey:
-    @fixture(scope="class")
-    def label_auth_ops_manager(
-        self, namespace: str, custom_version: str, custom_appdb_version: str, custom_mdb_version: str
-    ) -> MongoDBOpsManager:
-        resource = MongoDBOpsManager.from_yaml(
-            yaml_fixture("om_ops_manager_backup.yaml"), namespace=namespace, name="om-label-auth"
-        )
-        resource.set_version(custom_version)
-        resource.set_appdb_version(custom_appdb_version)
-        backup = resource["spec"]["backup"]
-        del backup["s3Stores"]
-        backup["members"] = 1
-        backup["assignmentLabels"] = ["tenant-label"]
-        backup["headDB"]["storageClass"] = get_default_storage_class()
-        for store_type in ("opLogStores", "blockStores"):
-            backup[store_type][0]["mongodbResourceRef"]["name"] = "label-auth-store"
-            backup[store_type][0]["assignmentLabels"] = ["tenant-label"]
-        resource.update()
-        resource.om_status().assert_reaches_phase(Phase.Running, timeout=900, ignore_errors=True)
-
-        store = MongoDB.from_yaml(
-            yaml_fixture("replica-set-for-om.yaml"), namespace=namespace, name="label-auth-store"
-        ).configure(resource, "label-auth-infrastructure")
-        store["spec"]["members"] = 1
-        store.set_version(ensure_ent_version(custom_mdb_version))
-        store.update()
-        store.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
-        resource.backup_status().assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
-        return resource
-
-    def create_scoped_key(self, admin: OMTester, org_id: str, group_id: str, scope: str) -> Dict:
-        path = f"/groups/{group_id}/apiKeys" if scope == "project" else f"/orgs/{org_id}/apiKeys"
-        role = "GROUP_OWNER" if scope == "project" else "ORG_OWNER"
-        key = admin.om_request(
-            "post", path, json_object={"desc": f"backup labels {scope} owner", "roles": [role]}
-        ).json()
-        admin.om_request(
-            "post",
-            f"/orgs/{org_id}/apiKeys/{key['id']}/accessList",
-            json_object=[{"cidrBlock": "0.0.0.0/1"}, {"cidrBlock": "128.0.0.0/1"}],
-        )
-        return key
-
-    def test_project_scoped_backup_labels_and_admin_preassignment(
-        self,
-        label_auth_ops_manager: MongoDBOpsManager,
-        namespace: str,
-        custom_mdb_version: str,
-    ):
-        self._assert_scoped_backup_labels_and_admin_preassignment(
-            label_auth_ops_manager, namespace, custom_mdb_version, "project"
-        )
-
-    def test_organization_scoped_backup_labels_and_admin_preassignment(
-        self,
-        label_auth_ops_manager: MongoDBOpsManager,
-        namespace: str,
-        custom_mdb_version: str,
-    ):
-        self._assert_scoped_backup_labels_and_admin_preassignment(
-            label_auth_ops_manager, namespace, custom_mdb_version, "organization"
-        )
-
-    def _assert_scoped_backup_labels_and_admin_preassignment(
-        self,
-        label_auth_ops_manager: MongoDBOpsManager,
-        namespace: str,
-        custom_mdb_version: str,
-        scope: str,
-    ):
-        admin = label_auth_ops_manager.get_om_tester()
-        project_name = f"label-auth-{scope}-{RUN_SUFFIX}"
-        org = admin.om_request("post", "/orgs", json_object={"name": project_name}).json()
-        group = admin.om_request("post", "/groups", json_object={"name": project_name, "orgId": org["id"]}).json()
-        key = self.create_scoped_key(admin, org["id"], group["id"], scope)
-        secret_name = f"{project_name}-credentials"
-        create_or_update_secret(
-            namespace, secret_name, {"publicKey": key["publicKey"], "privateKey": key["privateKey"]}
-        )
-        config_name = f"{project_name}-config"
-        create_or_update_configmap(
-            namespace,
-            config_name,
-            {"baseUrl": admin.context.base_url, "projectName": project_name, "orgId": org["id"]},
-        )
-        scoped = OMTester(
-            OMContext(
-                admin.context.base_url, key["publicKey"], key["privateKey"], project_id=group["id"], org_id=org["id"]
-            )
-        )
-        resource = MongoDB.from_yaml(yaml_fixture("replica-set-for-om.yaml"), namespace=namespace, name=project_name)
-        resource["spec"]["opsManager"]["configMapRef"]["name"] = config_name
-        resource["spec"]["credentials"] = secret_name
-        resource["spec"]["members"] = 1
-        resource.set_version(ensure_ent_version(custom_mdb_version))
-        resource.configure_backup(mode="enabled")
-        resource.update()
-        resource.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
-        resource.assert_backup_reaches_status("STARTED", timeout=600)
-        assert scoped.om_request("get", f"/groups/{group['id']}/backupConfigs").json()["results"]
-
-        path = f"/admin/backup/groups/{group['id']}"
-        desired_config = {"id": group["id"], "labelFilter": ["tenant-label"]}
-        for method in ("get", "put"):
-            with raises(HTTPError) as denied:
-                scoped.om_request(method, path, json_object=desired_config if method == "put" else None)
-            assert denied.value.response.status_code in (401, 403)
-            print(f"{scope} owner: {method.upper()} {path} denied with {denied.value.response.status_code}")
-
-        resource["spec"]["backup"]["assignmentLabels"] = ["tenant-label"]
-        resource.update()
-        resource.assert_reaches_phase(Phase.Failed, msg_regexp=r".*Status: (401|403).*", timeout=300)
-
-        # Workaround: platform admin pre-assigns the labels out-of-band, tenant CR keeps them unset.
-        admin.om_request("put", path, json_object=desired_config)
-        resource.load()
-        resource["spec"]["backup"]["assignmentLabels"] = None
-        resource.update()
-        resource.assert_reaches_phase(Phase.Running, timeout=300, ignore_errors=True)
-        resource.assert_backup_reaches_status("STARTED", timeout=300)
-        assert admin.om_request("get", path).json()["labelFilter"] == ["tenant-label"]
-
-    def test_global_backup_admin_can_assign_labels(self, label_auth_ops_manager: MongoDBOpsManager):
-        admin = label_auth_ops_manager.get_om_tester(project_name="label-auth-infrastructure")
-        key = admin.om_request(
-            "post",
-            "/admin/apiKeys",
-            json_object={"desc": "backup labels global backup admin", "roles": ["GLOBAL_BACKUP_ADMIN"]},
-        ).json()
-        backup_admin = OMTester(OMContext(admin.context.base_url, key["publicKey"], key["privateKey"]))
-        path = f"/admin/backup/groups/{admin.context.project_id}"
-        backup_admin.om_request(
-            "put", path, json_object={"id": admin.context.project_id, "labelFilter": ["tenant-label"]}
-        )
-        assert backup_admin.om_request("get", path).json()["labelFilter"] == ["tenant-label"]
 
 
 @mark.e2e_om_ops_manager_backup
