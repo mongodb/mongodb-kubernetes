@@ -143,6 +143,18 @@ def create_test_pod(args: argparse.Namespace, namespace: str) -> None:
                             "value": f"{os.getenv('MDB_COMMUNITY_IMAGE')}",
                         },
                         {
+                            "name": "MDB_COMMUNITY_CHANGE_VERSION_INITIAL_VERSION",
+                            "value": f"{os.getenv('MDB_COMMUNITY_CHANGE_VERSION_INITIAL_VERSION')}",
+                        },
+                        {
+                            "name": "MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_VERSION",
+                            "value": f"{os.getenv('MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_VERSION')}",
+                        },
+                        {
+                            "name": "MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_PATCH_VERSION",
+                            "value": f"{os.getenv('MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_PATCH_VERSION')}",
+                        },
+                        {
                             "name": "PERFORM_CLEANUP",
                             "value": f"{args.perform_cleanup}",
                         },
