@@ -550,6 +550,8 @@ type SecretRef struct {
 	Name string `json:"name"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.objectRetentionDays) == has(self.objectRetentionMode)",message="'objectRetentionDays' and 'objectRetentionMode' must be specified together"
+// +kubebuilder:validation:XValidation:rule="(!has(self.objectRetentionDays) && !has(self.objectRetentionMode)) || (has(self.objectLockEnabled) && self.objectLockEnabled)",message="'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled"
 type S3Config struct {
 	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
 	MongoDBUserRef     *MongoDBUserRef            `json:"mongodbUserRef,omitempty"`

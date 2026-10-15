@@ -1355,6 +1355,14 @@ spec:
                       - s3BucketEndpoint
                       - s3BucketName
                       type: object
+                      x-kubernetes-validations:
+                      - message: '''objectRetentionDays'' and ''objectRetentionMode''
+                          must be specified together'
+                        rule: has(self.objectRetentionDays) == has(self.objectRetentionMode)
+                      - message: '''objectRetentionDays'' and ''objectRetentionMode''
+                          require ''objectLockEnabled'' to be enabled'
+                        rule: (!has(self.objectRetentionDays) && !has(self.objectRetentionMode))
+                          || (has(self.objectLockEnabled) && self.objectLockEnabled)
                     type: array
                   s3Stores:
                     items:
@@ -1466,6 +1474,14 @@ spec:
                       - s3BucketEndpoint
                       - s3BucketName
                       type: object
+                      x-kubernetes-validations:
+                      - message: '''objectRetentionDays'' and ''objectRetentionMode''
+                          must be specified together'
+                        rule: has(self.objectRetentionDays) == has(self.objectRetentionMode)
+                      - message: '''objectRetentionDays'' and ''objectRetentionMode''
+                          require ''objectLockEnabled'' to be enabled'
+                        rule: (!has(self.objectRetentionDays) && !has(self.objectRetentionMode))
+                          || (has(self.objectLockEnabled) && self.objectLockEnabled)
                     type: array
                   statefulSet:
                     description: |-
