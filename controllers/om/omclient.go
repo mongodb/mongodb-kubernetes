@@ -15,7 +15,7 @@ import (
 	"sync"
 
 	"github.com/blang/semver"
-	"github.com/r3labs/diff/v3"
+	"github.com/viant/godiff"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -453,16 +453,27 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(ctx context.Context, changeDepl
 			return apierror.New(err)
 		}
 
-		changelog, err := diff.Diff(originalDeployment, deployment, diff.AllowTypeMismatch(true))
-		if err != nil {
-			return apierror.New(err)
+		if err := logDeploymentDiff(originalDeployment, deployment, log); err != nil {
+			return err
 		}
-
-		log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
 	}
 	if err != nil {
 		return apierror.New(err)
 	}
+	return nil
+}
+
+// logDeploymentDiff builds a godiff differ for the two Deployments and logs
+// the resulting change log at debug level. It is only invoked when
+// util.ShouldLogAutomationConfigDiff() is true.
+func logDeploymentDiff(before, after Deployment, log *zap.SugaredLogger) error {
+	differ, err := godiff.New(reflect.TypeFor[Deployment](), reflect.TypeFor[Deployment]())
+	if err != nil {
+		return apierror.New(err)
+	}
+
+	changelog := differ.Diff(map[string]any(before), map[string]any(after))
+	log.Debug("Deployment diff (%d changes): %s", changelog.Size(), changelog.String())
 	return nil
 }
 
@@ -512,12 +523,9 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(ctx context.Context, modi
 	// we are using UpdateAutomationConfig since we need to apply our changes.
 	err = oc.UpdateAutomationConfig(ctx, ac, log)
 	if util.ShouldLogAutomationConfigDiff() {
-		changelog, err := diff.Diff(original.Deployment, ac.Deployment, diff.AllowTypeMismatch(true))
-		if err != nil {
-			return apierror.New(err)
+		if err := logDeploymentDiff(original.Deployment, ac.Deployment, log); err != nil {
+			return err
 		}
-
-		log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
 	}
 	if err != nil {
 		log.Errorf("error updating automation config. %s", err)

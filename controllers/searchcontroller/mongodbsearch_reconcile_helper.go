@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ghodss/yaml"
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
@@ -448,11 +448,11 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		cleanup: func(ctx context.Context, log *zap.SugaredLogger) error {
 			var cleanupErr error
 			if err := r.cleanupStaleShardResources(ctx, log, r.buildClusterWorkList(), units); err != nil {
-				cleanupErr = multierror.Append(cleanupErr, fmt.Errorf("failed to cleanup stale shard resources: %w", err))
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to cleanup stale shard resources: %w", err))
 			}
 			if r.mdbSearch.IsLBModeManaged() {
 				if err := r.pruneRoutingReady(ctx, shardNames); err != nil {
-					cleanupErr = multierror.Append(cleanupErr, fmt.Errorf("failed to prune routing-ready switch entries: %w", err))
+					cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to prune routing-ready switch entries: %w", err))
 				}
 			}
 			return cleanupErr
@@ -596,7 +596,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		if err != nil {
 			// e.g. unreachable cluster: aggregate and continue with the other units.
 			unitLog.Warnf("Failed to reconcile unit on cluster %q: %s", unit.clusterName, err)
-			reconcileErrs = multierror.Append(reconcileErrs, err)
+			reconcileErrs = errors.Join(reconcileErrs, err)
 			continue
 		}
 		applied = append(applied, unitApplyResult{
@@ -616,12 +616,12 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 			continue
 		}
 		if res.client == nil {
-			reconcileErrs = multierror.Append(reconcileErrs, xerrors.Errorf("no Kubernetes client registered for cluster %q", res.clusterName))
+			reconcileErrs = errors.Join(reconcileErrs, xerrors.Errorf("no Kubernetes client registered for cluster %q", res.clusterName))
 			continue
 		}
 		if err := r.ensureSearchService(ctx, log, res.client, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)); err != nil {
 			log.Warnf("Failed to ensure cluster-level proxy service on cluster %q: %s", res.clusterName, err)
-			reconcileErrs = multierror.Append(reconcileErrs, err)
+			reconcileErrs = errors.Join(reconcileErrs, err)
 			continue
 		}
 	}
@@ -636,7 +636,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// return, so one not-ready unit does not block the routing switch for the others.
 	for _, res := range applied {
 		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
-			reconcileErrs = multierror.Append(reconcileErrs, err)
+			reconcileErrs = errors.Join(reconcileErrs, err)
 		}
 	}
 	if reconcileErrs != nil {
@@ -1106,15 +1106,15 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 	notExpected := func(expected map[string]bool) func(client.Object) bool {
 		return func(obj client.Object) bool { return !expected[obj.GetName()] }
 	}
-	var errs *multierror.Error
+	var errs error
 	for index, expected := range expectedByCluster {
 		work := workByIndex[index]
 		if work.Client == nil {
-			errs = multierror.Append(errs, fmt.Errorf("no Kubernetes client registered for cleanup on cluster %q", work.ClusterName))
+			errs = errors.Join(errs, fmt.Errorf("no Kubernetes client registered for cleanup on cluster %q", work.ClusterName))
 			continue
 		}
 		c, clusterName := work.Client, work.ClusterName
-		errs = multierror.Append(errs,
+		errs = errors.Join(errs,
 			deleteOwned(ctx, c, r.mdbSearch, clusterName, "StatefulSet", "", &appsv1.StatefulSetList{}, notExpected(expected.sts), log),
 			deleteOwned(ctx, c, r.mdbSearch, clusterName, "headless Service", mongotComponent, &corev1.ServiceList{}, notExpected(expected.headless), log),
 			deleteOwned(ctx, c, r.mdbSearch, clusterName, "ConfigMap", mongotComponent, &corev1.ConfigMapList{}, notExpected(expected.config), log),
@@ -1127,11 +1127,11 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 			}, log),
 		)
 		if manageProxyServices {
-			errs = multierror.Append(errs,
+			errs = errors.Join(errs,
 				deleteOwned(ctx, c, r.mdbSearch, clusterName, "proxy Service", proxyServiceComponent, &corev1.ServiceList{}, notExpected(expected.proxy), log))
 		}
 	}
-	return errs.ErrorOrNil()
+	return errs
 }
 
 func isOperatorGeneratedServerTLSSecretName(search *searchv1.MongoDBSearch, name string) bool {
@@ -1228,7 +1228,7 @@ func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Co
 		}
 		worstPhase = searchv1.WorstOfPhase(worstPhase, validationStatus.Phase())
 		if !validationStatus.IsOK() {
-			validationErrs = multierror.Append(validationErrs, fmt.Errorf(
+			validationErrs = errors.Join(validationErrs, fmt.Errorf(
 				"cluster %q shard %q: %s",
 				w.ClusterName,
 				w.ShardName,

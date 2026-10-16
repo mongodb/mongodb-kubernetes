@@ -13,13 +13,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/internal/retry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -58,7 +58,15 @@ const (
 )
 
 type Client struct {
-	*retryablehttp.Client
+	// HTTPClient performs each attempt; its Timeout bounds a single attempt.
+	HTTPClient *http.Client
+
+	// RetryWaitMin is the minimum delay before a retry.
+	RetryWaitMin time.Duration
+	// RetryWaitMax is the maximum delay before a retry.
+	RetryWaitMax time.Duration
+	// RetryMax is the number of retries after the initial attempt.
+	RetryMax int
 
 	// Digest username and password
 	username string
@@ -74,25 +82,17 @@ type Client struct {
 // requests are retried up to defaultRetryMax times, so an overall deadline can only be enforced by the context
 // passed to Request.
 func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
-	client := &Client{
-		Client: newDefaultHTTPClient(),
-	}
+	client := newDefaultHTTPClient()
 
 	return applyOptions(client, options...)
 }
 
-func newDefaultHTTPClient() *retryablehttp.Client {
-	return &retryablehttp.Client{
+func newDefaultHTTPClient() *Client {
+	return &Client{
 		HTTPClient:   &http.Client{Transport: http.DefaultTransport, Timeout: defaultRequestTimeout},
 		RetryWaitMin: defaultRetryWaitMin,
 		RetryWaitMax: defaultRetryWaitMax,
 		RetryMax:     defaultRetryMax,
-		// Will retry on all errors
-		CheckRetry: retryablehttp.DefaultRetryPolicy,
-		// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
-		// We don't need Jitter here as we're the only client to the OM, so there's no risk
-		// of overwhelming it in a peek.
-		Backoff: retryablehttp.DefaultBackoff,
 	}
 }
 
@@ -162,6 +162,17 @@ func OptionCAValidate(ca string) func(client *Client) error {
 	}
 }
 
+// retryConfig returns the retry.Config matching this client's retry settings.
+// The default policy retries transport errors (except cancellation) and 429/5xx
+// responses; the default backoff is exponential with Retry-After support.
+func (client *Client) retryConfig() retry.Config {
+	return retry.Config{
+		MaxRetries: client.RetryMax,
+		MinDelay:   client.RetryWaitMin,
+		MaxDelay:   client.RetryWaitMax,
+	}
+}
+
 // Request executes an HTTP request, given a series of parameters, over this *Client object.
 // It handles Digest when needed and json marshaling of the `v` struct.
 // The whole exchange, including retries and backoff waits, is aborted as soon as ctx is done.
@@ -202,13 +213,38 @@ func (client *Client) RequestWithAgentAuth(ctx context.Context, method, hostname
 	return client.sendRequest(method, url, path, req)
 }
 
+// Do executes req with this client's retry policy and per-attempt timeout,
+// without any logging hooks.
+func (client *Client) Do(req *http.Request) (*http.Response, error) {
+	return client.do(req, nil, nil)
+}
+
+// do executes req with this client's retry policy and per-attempt timeout.
+// requestLogHook (if non-nil) runs before every attempt, and responseLogHook
+// (if non-nil) runs for every response with no transport error. The hooks are
+// request-scoped, so concurrent requests never share mutable state.
+func (client *Client) do(req *http.Request, requestLogHook func(attempt int, req *http.Request), responseLogHook func(resp *http.Response)) (*http.Response, error) {
+	attempt := 0
+	return retry.Send(req.Context(), req, client.retryConfig(), func(r *http.Request) (*http.Response, error) {
+		if requestLogHook != nil {
+			requestLogHook(attempt, r)
+		}
+		attempt++
+		resp, err := client.HTTPClient.Do(r)
+		if responseLogHook != nil && err == nil && resp != nil {
+			responseLogHook(resp)
+		}
+		return resp, err
+	})
+}
+
 // authorizeRequest executes one request that's meant to be challenged by the
 // server in order to build the next one. The `request` parameter is aggregated
 // with the required `Authorization` header.
-func (client *Client) authorizeRequest(ctx context.Context, method, hostname, path string, request *retryablehttp.Request) error {
+func (client *Client) authorizeRequest(ctx context.Context, method, hostname, path string, request *http.Request) error {
 	url := hostname + path
 
-	digestRequest, err := retryablehttp.NewRequestWithContext(ctx, method, url, nil)
+	digestRequest, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return err
 	}
@@ -244,14 +280,19 @@ func (client *Client) authorizeRequest(ctx context.Context, method, hostname, pa
 	return nil
 }
 
-// createHTTPRequest builds a retryable request bound to ctx, with 'v' serialized to JSON as the body.
-func createHTTPRequest(ctx context.Context, method string, url string, v any) (*retryablehttp.Request, error) {
+// createHTTPRequest builds a request bound to ctx, with 'v' serialized to JSON as the body.
+func createHTTPRequest(ctx context.Context, method string, url string, v any) (*http.Request, error) {
 	buffer, err := serializeToBuffer(v)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := retryablehttp.NewRequestWithContext(ctx, method, url, buffer)
+	var body io.Reader
+	if buffer != nil {
+		body = buffer
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, err
 	}
@@ -262,22 +303,21 @@ func createHTTPRequest(ctx context.Context, method string, url string, v any) (*
 	return req, nil
 }
 
-func (client *Client) sendRequest(method, url, path string, req *retryablehttp.Request) ([]byte, http.Header, error) {
+func (client *Client) sendRequest(method, url, path string, req *http.Request) ([]byte, http.Header, error) {
 	// we need to limit size of request/response dump, because automation config request can't have over 1MB size
 	const maxDumpSize = 10000 // 1 MB
-	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
+	requestLogHook := func(attempt int, request *http.Request) {
 		if client.debug {
 			dumpRequest, _ := httputil.DumpRequest(request, true)
 			if len(dumpRequest) > maxDumpSize {
 				dumpRequest = dumpRequest[:maxDumpSize]
 			}
-			zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", i, method, path, dumpRequest)
+			zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", attempt, method, path, dumpRequest)
 		} else {
 			zap.S().Debugf("Ops Manager request: %s %s", method, url)
 		}
 	}
-
-	client.ResponseLogHook = func(logger retryablehttp.Logger, response *http.Response) {
+	responseLogHook := func(response *http.Response) {
 		if client.debug {
 			dumpResponse, _ := httputil.DumpResponse(response, true)
 			if len(dumpResponse) > maxDumpSize {
@@ -287,17 +327,12 @@ func (client *Client) sendRequest(method, url, path string, req *retryablehttp.R
 		}
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.do(req, requestLogHook, responseLogHook)
 	if err != nil {
 		return nil, nil, apierror.New(xerrors.Errorf("error sending %s request to %s: %w", method, url, err))
 	}
 
 	omClient.WithLabelValues(strconv.Itoa(resp.StatusCode), method, path).Inc()
-
-	// need to clear hooks, because otherwise they will be persisted for the subsequent calls
-	// resulting in logging authorizeRequest
-	client.RequestLogHook = nil
-	client.ResponseLogHook = nil
 
 	// It is required for the body to be read completely for the connection to be reused.
 	// https://stackoverflow.com/a/17953506/75928
@@ -316,14 +351,13 @@ func (client *Client) sendRequest(method, url, path string, req *retryablehttp.R
 }
 
 // serializeToBuffer takes any object and tries to serialize it to the buffer
-func serializeToBuffer(v any) (io.Reader, error) {
-	var buffer io.Reader
-	if v != nil {
-		b, err := json.Marshal(v)
-		if err != nil {
-			return nil, err
-		}
-		buffer = bytes.NewBuffer(b)
+func serializeToBuffer(v any) (*bytes.Buffer, error) {
+	if v == nil {
+		return nil, nil
 	}
-	return buffer, nil
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.NewBuffer(b), nil
 }

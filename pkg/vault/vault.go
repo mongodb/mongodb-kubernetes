@@ -2,19 +2,21 @@ package vault
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
-	"github.com/hashicorp/vault/api"
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/kubernetes"
 
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/mongodb/mongodb-kubernetes/internal/hsvault"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -105,22 +107,36 @@ type VaultConfiguration struct {
 	TLSSecretRef         string
 }
 
+// Secret is a decoded logical read response. It mirrors the shape of
+// hsvault.Secret without exposing the internal package: Data holds the
+// complete outer "data" object returned by the Vault API.
+type Secret struct {
+	Data map[string]any
+}
+
 type VaultClient struct {
-	client      *api.Client
+	client      *hsvault.Client
 	VaultConfig VaultConfiguration
 	// skipLogin bypasses the Kubernetes auth flow in Login. It is only set by
 	// NewVaultClientForTesting, where no service account token is mounted.
 	skipLogin bool
 }
 
+// newHSVaultClient creates an hsvault.Client for the given address. An address
+// without a scheme is assumed to use HTTPS, matching the legacy api.Client
+// behavior.
+func newHSVaultClient(address string, httpClient *http.Client) (*hsvault.Client, error) {
+	if !strings.Contains(address, "://") {
+		address = "https://" + address
+	}
+	return hsvault.NewClient(address, httpClient)
+}
+
 // NewVaultClientForTesting returns a VaultClient talking to an arbitrary Vault address
 // (typically an httptest server) with a fixed token, skipping the Kubernetes auth flow.
 // It is only intended for use from tests.
 func NewVaultClientForTesting(address string, token string, config VaultConfiguration) (*VaultClient, error) {
-	apiConfig := api.DefaultConfig()
-	apiConfig.Address = address
-
-	vclient, err := api.NewClient(apiConfig)
+	vclient, err := newHSVaultClient(address, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -150,53 +166,56 @@ func readVaultConfig(ctx context.Context, client *kubernetes.Clientset) VaultCon
 	return config
 }
 
-func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Clientset, tlsSecretRef string) error {
+// setTLSConfig returns an *http.Client configured with the CA certificate
+// stored in the referenced Kubernetes secret's "ca.crt" key. If tlsSecretRef
+// is empty, nil is returned and the default HTTP client is used.
+func setTLSConfig(ctx context.Context, client *kubernetes.Clientset, tlsSecretRef string) (*http.Client, error) {
 	if tlsSecretRef == "" {
-		return nil
-	}
-	var secret *corev1.Secret
-	var err error
-	secret, err = client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, tlsSecretRef, v1.GetOptions{}) // nolint:forbidigo
-	if err != nil {
-		return xerrors.Errorf("can't read tls secret %s for vault: %w", tlsSecretRef, err)
+		return nil, nil
 	}
 
-	// Read the secret and write ca.crt to a temporary file
+	secret, err := client.CoreV1().Secrets(env.ReadOrPanic(util.CurrentNamespace)).Get(ctx, tlsSecretRef, v1.GetOptions{}) // nolint:forbidigo
+	if err != nil {
+		return nil, xerrors.Errorf("can't read tls secret %s for vault: %w", tlsSecretRef, err)
+	}
+
 	caData := secret.Data["ca.crt"]
-	f, err := os.CreateTemp("/tmp", "VaultCAData")
-	if err != nil {
-		return xerrors.Errorf("can't create temporary file for CA data: %w", err)
-	}
-	defer func(f *os.File) {
-		_ = f.Close()
-	}(f)
-
-	_, err = f.Write(caData)
-	if err != nil {
-		return xerrors.Errorf("can't write caData to file %s: %w", f.Name(), err)
-	}
-	if err = f.Sync(); err != nil {
-		return xerrors.Errorf("can't call Sync on file %s: %w", f.Name(), err)
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caData) {
+		return nil, xerrors.Errorf("can't parse CA data from tls secret %s as PEM", tlsSecretRef)
 	}
 
-	return config.ConfigureTLS(
-		&api.TLSConfig{
-			CACert: f.Name(),
-		},
-	)
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, xerrors.Errorf("default transport is not an *http.Transport")
+	}
+	tlsConfig := transport.TLSClientConfig.Clone()
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else {
+		if tlsConfig.MinVersion < tls.VersionTLS12 {
+			tlsConfig.MinVersion = tls.VersionTLS12
+		}
+	}
+	tlsConfig.RootCAs = pool
+
+	t := transport.Clone()
+	t.TLSClientConfig = tlsConfig
+
+	return &http.Client{
+		Transport: t,
+	}, nil
 }
 
 func InitVaultClient(ctx context.Context, client *kubernetes.Clientset) (*VaultClient, error) {
 	vaultConfig := readVaultConfig(ctx, client)
 
-	config := api.DefaultConfig()
-	config.Address = vaultConfig.VaultAddress
-
-	if err := setTLSConfig(ctx, config, client, vaultConfig.TLSSecretRef); err != nil {
+	httpClient, err := setTLSConfig(ctx, client, vaultConfig.TLSSecretRef)
+	if err != nil {
 		return nil, err
 	}
 
-	vclient, err := api.NewClient(config)
+	vclient, err := newHSVaultClient(vaultConfig.VaultAddress, httpClient)
 	if err != nil {
 		return nil, err
 	}
@@ -214,35 +233,46 @@ func (v *VaultClient) Login() error {
 		return xerrors.Errorf("unable to read file containing service account token: %w", err)
 	}
 
-	params := map[string]any{
-		"jwt":  string(jwt),
-		"role": "mongodbenterprise", // the name of the role in Vault that was created with this app's Kubernetes service account bound to it
-	}
+	role := "mongodbenterprise" // the name of the role in Vault that was created with this app's Kubernetes service account bound to it
 
 	// log in to Vault's Kubernetes auth method
-	resp, err := v.client.Logical().Write("auth/kubernetes/login", params)
+	resp, err := v.client.Login(context.Background(), string(jwt), role)
 	if err != nil {
 		return xerrors.Errorf("unable to log in with Kubernetes auth: %w", err)
 	}
 
-	if resp == nil || resp.Auth == nil || resp.Auth.ClientToken == "" {
+	if resp == nil || resp.Auth == nil {
+		return xerrors.Errorf("login response did not return client token")
+	}
+	clientToken, _ := resp.Auth["client_token"].(string)
+	if clientToken == "" {
 		return xerrors.Errorf("login response did not return client token")
 	}
 
 	// will use the resulting Vault token for making all future calls to Vault
-	v.client.SetToken(resp.Auth.ClientToken)
+	v.client.SetToken(clientToken)
 	return nil
+}
+
+// kvSuffix strips the legacy logical path prefix from path, returning the
+// mount-relative suffix used by the hsvault client. ok is false when path
+// does not use the expected prefix.
+func kvSuffix(path, prefix string) (string, bool) {
+	if after, ok := strings.CutPrefix(path, prefix); ok {
+		return after, true
+	}
+	return "", false
 }
 
 func (v *VaultClient) PutSecret(path string, data map[string]any) error {
 	if err := v.Login(); err != nil {
 		return xerrors.Errorf("unable to log in: %w", err)
 	}
-	_, err := v.client.Logical().Write(path, data)
-	if err != nil {
-		return err
+	suffix, ok := kvSuffix(path, "/secret/data/")
+	if !ok {
+		return xerrors.Errorf("unsupported vault secret path %q, expected /secret/data/ prefix", path)
 	}
-	return nil
+	return v.client.WriteKV(context.Background(), suffix, data)
 }
 
 func (v *VaultClient) ReadSecretVersion(path string) (int, error) {
@@ -250,27 +280,46 @@ func (v *VaultClient) ReadSecretVersion(path string) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	current_version, err := data.Data["current_version"].(json.Number).Int64()
+	var currentVersion int64
+	switch version := data.Data["current_version"].(type) {
+	case json.Number:
+		currentVersion, err = version.Int64()
+	case float64:
+		currentVersion = int64(version)
+	default:
+		return -1, xerrors.Errorf("current_version is not a number: %v", data.Data["current_version"])
+	}
 	if err != nil {
 		// this shouldn't happen but if it does the caller should log it with error that
 		// secret rotation won't work
 		return -1, err
 	}
-	return int(current_version), nil
+	return int(currentVersion), nil
 }
 
-func (v *VaultClient) ReadSecret(path string) (*api.Secret, error) {
+func (v *VaultClient) ReadSecret(path string) (*Secret, error) {
 	if err := v.Login(); err != nil {
 		return nil, xerrors.Errorf("unable to log in: %w", err)
 	}
-	secret, err := v.client.Logical().Read(path)
+
+	ctx := context.Background()
+	var secret *hsvault.Secret
+	var err error
+	switch {
+	case strings.HasPrefix(path, "/secret/metadata/"):
+		secret, err = v.client.ReadKVMetadata(ctx, strings.TrimPrefix(path, "/secret/metadata/"))
+	case strings.HasPrefix(path, "/secret/data/"):
+		secret, err = v.client.ReadKV(ctx, strings.TrimPrefix(path, "/secret/data/"))
+	default:
+		return nil, xerrors.Errorf("unsupported vault secret path %q, expected /secret/data/ or /secret/metadata/ prefix", path)
+	}
 	if err != nil {
 		return nil, xerrors.Errorf("can't read secret from vault: %w", err)
 	}
 	if secret == nil {
 		return nil, xerrors.Errorf("secret not found at %s", path)
 	}
-	return secret, nil
+	return &Secret{Data: secret.Data}, nil
 }
 
 func (v *VaultClient) ReadSecretBytes(path string) (map[string][]byte, error) {

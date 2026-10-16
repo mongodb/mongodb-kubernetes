@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"path"
@@ -10,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hashicorp/go-multierror"
 	"github.com/stretchr/objx"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -1230,7 +1230,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
 			err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(om.Namespace, secretName), secretHash, data, nil, certs.AppDB)
 			if err != nil {
-				errs = multierror.Append(errs, xerrors.Errorf("can't create concatenated PEM certificate in cluster %s: %w", memberCluster.Name, err))
+				errs = errors.Join(errs, xerrors.Errorf("can't create concatenated PEM certificate in cluster %s: %w", memberCluster.Name, err))
 				continue
 			}
 		}
@@ -2032,7 +2032,7 @@ func (r *ReconcileAppDbReplicaSet) ensureProjectIDConfigMap(ctx context.Context,
 	var errs error
 	for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
 		if err := r.ensureProjectIDConfigMapForCluster(ctx, opsManager, projectID, memberCluster.Client); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("error creating ConfigMap in cluster %s: %w", memberCluster.Name, err))
+			errs = errors.Join(errs, xerrors.Errorf("error creating ConfigMap in cluster %s: %w", memberCluster.Name, err))
 			continue
 		}
 	}
