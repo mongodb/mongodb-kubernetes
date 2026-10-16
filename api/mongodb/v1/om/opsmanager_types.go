@@ -550,6 +550,8 @@ type SecretRef struct {
 	Name string `json:"name"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.objectRetentionDays) == has(self.objectRetentionMode)",message="'objectRetentionDays' and 'objectRetentionMode' must be specified together"
+// +kubebuilder:validation:XValidation:rule="(!has(self.objectRetentionDays) && !has(self.objectRetentionMode)) || (has(self.objectLockEnabled) && self.objectLockEnabled)",message="'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled"
 type S3Config struct {
 	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
 	MongoDBUserRef     *MongoDBUserRef            `json:"mongodbUserRef,omitempty"`
@@ -584,6 +586,16 @@ type S3Config struct {
 	// This should be enabled to leverage Immutable Backups.
 	// +optional
 	ObjectLockEnabled *bool `json:"objectLockEnabled"`
+	// ObjectRetentionDays is the number of days backup objects must be retained in S3
+	// before deletion is allowed. Requires ObjectLockEnabled.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ObjectRetentionDays *int `json:"objectRetentionDays,omitempty"`
+	// ObjectRetentionMode is the S3 Object Lock retention mode applied to backup objects.
+	// Requires ObjectLockEnabled.
+	// +optional
+	// +kubebuilder:validation:Enum=GOVERNANCE;COMPLIANCE
+	ObjectRetentionMode *string `json:"objectRetentionMode,omitempty"`
 }
 
 func (s S3Config) Identifier() any {
