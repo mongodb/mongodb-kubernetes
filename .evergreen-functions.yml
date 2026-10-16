@@ -735,6 +735,7 @@ functions:
         add_to_path:
           - ${workdir}/bin
         command: "scripts/evergreen/generate_evergreen_expansions.sh"
+        include_expansions_in_env: [OPERATOR_VERSION]
     - command: expansions.update
       params:
         file: "src/github.com/mongodb/mongodb-kubernetes/evergreen_expansions.yaml"

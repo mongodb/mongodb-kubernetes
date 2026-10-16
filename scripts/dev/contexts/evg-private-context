@@ -117,6 +117,13 @@ fi
 echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
 export BUILD_SCENARIO="${BUILD_SCENARIO}"
 
+# Default preflight_submit to true for release builds only; preserve any
+# explicitly supplied Evergreen expansion/override.
+export preflight_submit="${preflight_submit:-}"
+if [ "${BUILD_SCENARIO}" == "${BUILD_SCENARIO_RELEASE}" ] && [ "${preflight_submit}" == "" ]; then
+  export preflight_submit="true"
+fi
+
 # Select Quay credentials: staging and dryrun-release use staging creds, everything else uses prod creds.
 source "${script_dir:-scripts/dev/contexts}/select_quay_credentials.sh"
 select_quay_credentials "${BUILD_SCENARIO}"
