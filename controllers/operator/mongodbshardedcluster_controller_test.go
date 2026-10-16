@@ -202,7 +202,7 @@ func TestShardedClusterRace(t *testing.T) {
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
 }
@@ -326,6 +326,104 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 
 			// Version from OM
 			VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
+		})
+	}
+}
+
+func TestShardedClusterReconcileContainerImageType(t *testing.T) {
+	testCases := []struct {
+		name             string
+		defaultImageType architectures.ImageType
+		annotations      map[string]string
+	}{
+		{
+			name:             "global slim image type",
+			defaultImageType: architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:             "annotation overrides global image type",
+			defaultImageType: architectures.ImageTypeUBI9,
+			annotations: map[string]string{
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			relatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_23_ubi9_slim", util.MongodbImageEnv)
+			imageUrlsMock := images.ImageUrls{
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+				relatedImageEnv:       "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE_SLIM",
+			}
+
+			ctx := context.Background()
+			sc := test.DefaultClusterBuilder().SetVersion("8.0.23").SetShardCountSpec(1).Build()
+			sc.SetAnnotations(tc.annotations)
+			reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, imageUrlsMock, "", "", sc, nil, testBackupEnableDelay, architectures.Static)
+			require.NoError(t, err)
+			reconciler.defaultImageType = tc.defaultImageType
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+			for _, stsName := range []string{sc.ConfigRsName(), sc.MongosRsName(), sc.ShardName(0)} {
+				sts := &appsv1.StatefulSet{}
+				err := kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, stsName), sts)
+				require.NoError(t, err)
+				assert.Equal(t, imageUrlsMock[relatedImageEnv], findContainerImage(sts.Spec.Template.Spec.Containers, util.DatabaseContainerName), stsName)
+			}
+		})
+	}
+}
+
+func TestShardedClusterContainerImageTypeAnnotationWarning(t *testing.T) {
+	testCases := []struct {
+		name                string
+		defaultArchitecture architectures.DefaultArchitecture
+		imageType           string
+		wantWarning         bool
+	}{
+		{
+			name:                "supported annotation on static has no warning",
+			defaultArchitecture: architectures.Static,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+		},
+		{
+			name:                "unsupported annotation on static warns",
+			defaultArchitecture: architectures.Static,
+			imageType:           "ubi9slim",
+			wantWarning:         true,
+		},
+		{
+			name:                "annotation on non-static warns",
+			defaultArchitecture: architectures.NonStatic,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+			wantWarning:         true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			imageUrlsMock := images.ImageUrls{
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+			}
+			sc := test.DefaultClusterBuilder().SetShardCountSpec(1).Build()
+			sc.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: tc.imageType})
+			reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, imageUrlsMock, "", "", sc, nil, testBackupEnableDelay, tc.defaultArchitecture)
+			require.NoError(t, err)
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+			assert.Equal(t, tc.wantWarning, hasContainerImageTypeWarning(sc.Status.Warnings), "status warnings: %v", sc.Status.Warnings)
 		})
 	}
 }
@@ -1081,7 +1179,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	sc := test.DefaultClusterBuilder().RemoveAuth().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1282,7 +1380,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1892,8 +1990,8 @@ func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.Image
 }
 
 func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), backupEnableDelay)
+	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay)
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, r.defaultImageType, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), backupEnableDelay)
 	if err != nil {
 		return nil, nil, err
 	}

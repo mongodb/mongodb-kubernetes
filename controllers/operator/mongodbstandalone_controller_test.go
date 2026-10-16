@@ -131,6 +131,100 @@ func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
 }
 
+func TestStandaloneClusterReconcileContainerImageType(t *testing.T) {
+	tests := []struct {
+		name             string
+		defaultImageType architectures.ImageType
+		annotations      map[string]string
+	}{
+		{
+			name:             "global slim image type",
+			defaultImageType: architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:             "annotation overrides global image type",
+			defaultImageType: architectures.ImageTypeUBI9,
+			annotations: map[string]string{
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			relatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_23_ubi9_slim", util.MongodbImageEnv)
+			imageUrlsMock := images.ImageUrls{
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+				relatedImageEnv:       "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE_SLIM",
+			}
+
+			ctx := context.Background()
+			st := DefaultStandaloneBuilder().SetVersion("8.0.23").Build()
+			st.SetAnnotations(test.annotations)
+			reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, imageUrlsMock, "", "", om.NewEmptyMockedOmConnection, st, architectures.Static)
+			reconciler.defaultImageType = test.defaultImageType
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
+
+			sts := &appsv1.StatefulSet{}
+			err := kubeClient.Get(ctx, kube.ObjectKey(st.Namespace, st.Name), sts)
+			require.NoError(t, err)
+			assert.Equal(t, imageUrlsMock[relatedImageEnv], findContainerImage(sts.Spec.Template.Spec.Containers, util.DatabaseContainerName))
+		})
+	}
+}
+
+func TestStandaloneContainerImageTypeAnnotationWarning(t *testing.T) {
+	tests := []struct {
+		name                string
+		defaultArchitecture architectures.DefaultArchitecture
+		imageType           string
+		wantWarning         bool
+	}{
+		{
+			name:                "supported annotation on static has no warning",
+			defaultArchitecture: architectures.Static,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+		},
+		{
+			name:                "unsupported annotation on static warns",
+			defaultArchitecture: architectures.Static,
+			imageType:           "ubi9slim",
+			wantWarning:         true,
+		},
+		{
+			name:                "annotation on non-static warns",
+			defaultArchitecture: architectures.NonStatic,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+			wantWarning:         true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			imageUrlsMock := images.ImageUrls{
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+			}
+			st := DefaultStandaloneBuilder().Build()
+			st.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: test.imageType})
+			reconciler, kubeClient, omConnectionFactory := defaultStandaloneReconciler(ctx, imageUrlsMock, "", "", om.NewEmptyMockedOmConnection, st, test.defaultArchitecture)
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
+
+			assert.Equal(t, test.wantWarning, hasContainerImageTypeWarning(st.Status.Warnings), "status warnings: %v", st.Status.Warnings)
+		})
+	}
+}
+
 // TestOnAddStandaloneWithDelay checks the reconciliation on standalone creation with some "delay" in getting
 // StatefulSet ready. The first reconciliation gets to Pending while the second reconciliation suceeds
 func TestOnAddStandaloneWithDelay(t *testing.T) {
@@ -147,7 +241,7 @@ func TestOnAddStandaloneWithDelay(t *testing.T) {
 		},
 	})
 
-	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newStandaloneReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcilePending(ctx, t, reconciler, st, "StatefulSet not ready", kubeClient, 3)
 	// this affects Get interceptor func, blocking automatically marking sts as ready
@@ -362,7 +456,7 @@ func TestStandaloneRoleAnnotationIsSet(t *testing.T) {
 func defaultStandaloneReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, omConnectionFactoryFunc om.ConnectionFactory, rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (*ReconcileMongoDbStandalone, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFunc)
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	return newStandaloneReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newStandaloneReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // TODO remove in favor of '/api/mongodbbuilder.go'
