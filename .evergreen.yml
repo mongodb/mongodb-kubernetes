@@ -1001,6 +1001,8 @@ task_groups:
     <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
     tasks: &single_cluster_search_tasks
       - e2e_search_community_basic
+      - e2e_search_pvc_resize_workaround
+      - e2e_search_pvc_resize_workaround_sharded
       - e2e_search_community_auto_embedding
       - e2e_search_community_auto_embedding_multi_mongot
       - e2e_search_auto_embedding_bad_secret
@@ -1277,6 +1279,7 @@ task_groups:
       # e2e_multi_cluster_with_ldap
       # e2e_multi_cluster_with_ldap_custom_roles
       - e2e_search_simulated_mc_rs
+      - e2e_search_pvc_resize_workaround_simulated_mc
       - e2e_search_simulated_mc_sharded
 
 
@@ -1287,6 +1290,7 @@ task_groups:
       - e2e_multi_cluster_2_clusters_replica_set
       - e2e_multi_cluster_2_clusters_clusterwide
       - e2e_search_q2_mc_rs_steady
+      - e2e_search_pvc_resize_workaround_mc
       - e2e_search_q3_mc_sharded_external_mtls
       - e2e_search_connectivity_tool_mc_rs
       - e2e_search_connectivity_tool_mc_sharded
