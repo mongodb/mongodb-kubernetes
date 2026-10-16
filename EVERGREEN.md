@@ -112,14 +112,17 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
 | `evergreen:e2e-all`        | `e2e_test_suite`     | ~1000 tasks, complete e2e set (excludes multi-arch smoke tests)                                                |
-| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~250 tasks tagged `e2e_medium`: subset of e2e-all across static/non-static, OM 7/8/9, multi-cluster, OpenShift |
+| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~250 tasks tagged `e2e_medium`: subset of e2e-all across static/non-static, OM 7/8/9, multi-cluster         |
 | `evergreen:e2e-light`      | `e2e_test_suite`     | ~125 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
 | `evergreen:e2e-static`     | `static`             | Static-container e2e variants + shared init/build (`init_test_run`, `init_tests_with_olm`, `build_om*_images`) |
 | `evergreen:e2e-non-static` | `non_static`         | Non-static e2e variants + shared init/build                                                                    |
-| `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (including OpenShift)                                                                        |
+| `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (excluding OpenShift)                                                                        |
 | `evergreen:e2e-community`  | `e2e_mco_test_suite` | Community suites (`e2e_mdb_community`, `e2e_mco_tests`)                                                        |
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
+
+OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
+the `staging` alias.
 
 Labels are evaluated when the PR patch is created; adding one afterwards injects the newly-satisfied tasks into the
 existing patch in place. Removing a label is a no-op and never cancels running tasks. Variant `paths:` filtering still
