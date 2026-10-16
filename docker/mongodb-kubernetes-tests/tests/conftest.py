@@ -137,7 +137,7 @@ def get_operator_installation_config(namespace):
     """Returns the ConfigMap containing configuration data for the Operator to be created.
     Created in the single_e2e.sh"""
     config = KubernetesTester.read_configmap(namespace, "operator-installation-config")
-    config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
+    config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}\&MDB_OPERATOR_PPROF_ENABLED=true"
     if os.getenv("OM_DEBUG_HTTP") == "true":
         logger.debug("Adding OM_DEBUG_HTTP=true to operator_installation_config")
         config["customEnvVars"] += "\&OM_DEBUG_HTTP=true"
@@ -165,7 +165,7 @@ def get_multi_cluster_operator_installation_config(namespace: str) -> dict[str, 
         "operator-installation-config",
         api_client=get_central_cluster_client(),
     )
-    config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}"
+    config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB={MONITOR_APPDB_E2E_DEFAULT}\&MDB_OPERATOR_PPROF_ENABLED=true"
     return config
 
 
