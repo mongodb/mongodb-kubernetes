@@ -613,9 +613,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: operator
-      - func: trivy_scan
-        vars:
-          image_name: operator
 
   - name: build_operator_race_ubi
     commands:
@@ -634,9 +631,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
-      - func: trivy_scan
-        vars:
-          image_name: init-ops-manager
 
   - name: build_agent_images_ubi
     commands:
@@ -648,11 +642,6 @@ tasks:
           image_name: agent
           agent_version: all
           flags: "--parallel"
-      - func: trivy_scan
-        vars:
-          image_name: agent
-          # only the currently used agent versions are scanned to keep scan time bounded
-          agent_version: current
 
   - name: build_init_database_image_ubi
     commands:
@@ -660,9 +649,6 @@ tasks:
       - func: setup_building_host
       - func: quay_staging_login
       - func: pipeline
-        vars:
-          image_name: init-database
-      - func: trivy_scan
         vars:
           image_name: init-database
 
@@ -674,9 +660,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: database
-      - func: trivy_scan
-        vars:
-          image_name: database
 
   - name: build_readiness_probe_image
     commands:
@@ -684,9 +667,6 @@ tasks:
       - func: setup_building_host
       - func: quay_staging_login
       - func: pipeline
-        vars:
-          image_name: readiness-probe
-      - func: trivy_scan
         vars:
           image_name: readiness-probe
 
@@ -698,9 +678,33 @@ tasks:
       - func: pipeline
         vars:
           image_name: upgrade-hook
+
+  # Single CVE scan of all the images built in init_test_run and of the Ops Manager images (7.0, 8.0 and 9.0,
+  # built in their own variants), reported in one Slack message. The OM versions are resolved by
+  # scripts/release/trivy_scan.sh. Only the currently used agent versions are scanned to keep scan time bounded.
+  - name: cve_scan_images
+    depends_on:
+      - name: build_operator_ubi
+      - name: build_init_om_images_ubi
+      - name: build_init_database_image_ubi
+      - name: build_database_image_ubi
+      - name: build_agent_images_ubi
+      - name: build_readiness_probe_image
+      - name: build_version_upgrade_hook_image
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_om_images
+        variant: build_om80_images
+      - name: build_om_images
+        variant: build_om90_images
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_staging_login
       - func: trivy_scan
         vars:
-          image_name: upgrade-hook
+          image_names: operator init-ops-manager init-database database readiness-probe upgrade-hook ops-manager agent
+          agent_version: current
 
   - name: publish_helm_chart
     commands:
@@ -756,9 +760,6 @@ tasks:
       - func: setup_building_host
       - func: quay_staging_login
       - func: pipeline
-        vars:
-          image_name: ops-manager
-      - func: trivy_scan
         vars:
           image_name: ops-manager
 
@@ -2271,6 +2272,7 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
+      - name: cve_scan_images
       - name: build_kubectl_mongodb_plugin
       - name: prepare_aws
       - name: publish_helm_chart
