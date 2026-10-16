@@ -701,6 +701,25 @@ func TestScalingScalesOneMemberAtATime_WhenScalingUp(t *testing.T) {
 	assertCorrectNumberOfMembersAndProcesses(ctx, t, 3, rs, client, omConnectionFactory.GetConnection(), "Once we reach the target value, we should not scale anymore")
 }
 
+func TestScalingDownScalesOneMemberAtATime_WhenStatusMembersIsStale(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
+	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+	// the reconcile reads a status without members (as written by an earlier Pending update) while the resource is scaled down
+	require.NoError(t, client.Get(ctx, rs.ObjectKey(), rs))
+	rs.Status.Members = 0
+	require.NoError(t, client.Status().Update(ctx, rs))
+	rs.Spec.Members = 1
+	require.NoError(t, client.Update(ctx, rs))
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+
+	assertCorrectNumberOfMembersAndProcesses(ctx, t, 2, rs, client, omConnectionFactory.GetConnection(), "Scaling from 3 -> 1 should remove one member at a time")
+}
+
 func TestReplicaSetPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {
 	ctx := context.Background()
 	config := mdbv1.NewAdditionalMongodConfig("net.port", 30000)
