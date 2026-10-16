@@ -124,6 +124,8 @@ type ShardedClusterDeploymentState struct {
 	LastAchievedSpec      *mdbv1.MongoDbSpec   `json:"lastAchievedSpec"`
 	LastConfiguredRoles   []string             `json:"lastConfiguredRoles"`
 	Status                *mdbv1.MongoDbStatus `json:"status"`
+	// ShardsInRemoval are the replica sets of shards whose removal is in progress; empty once it completes.
+	ShardsInRemoval []string `json:"shardsInRemoval,omitempty"`
 }
 
 // updateStatusFromResourceStatus updates the status in the deployment state with values from the resource status with additional ensurance that no data is accidentally lost.
@@ -1202,7 +1204,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), log)
+	reconcileResult := checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval, log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
 	}
@@ -2168,6 +2170,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	}
 
 	var finalProcesses []string
+	var drainingShards []string
 	shardsRemoving := false
 	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
@@ -2176,7 +2179,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames())
+			numberOfOtherMembers := d.GetNumberOfExcessProcessesWithShardsInRemoval(sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval)
 			if numberOfOtherMembers > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
@@ -2210,6 +2213,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 				MongosAdditionalOptionsDesired:       sc.Spec.MongosSpec.AdditionalMongodConfig.ToMap(),
 
 				ExternalCluster: buildExternalShardedCluster(sc),
+				ShardsInRemoval: r.deploymentState.ShardsInRemoval,
 			}
 
 			if shardsRemoving, err = d.MergeShardedCluster(mergeOpts); err != nil {
@@ -2226,12 +2230,17 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 			_ = UpdatePrometheus(ctx, &d, conn, sc.GetPrometheus(), r.commonController.SecretClient, sc.GetNamespace(), opts.prometheusCertHash, log)
 
+			drainingShards = d.GetDrainingShards(sc.GetShardedClusterName())
 			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName())
 
 			return nil
 		},
 		log)
 	if err != nil {
+		return nil, shardsRemoving, workflow.Failed(err)
+	}
+
+	if err := r.trackShardsInRemoval(ctx, opts.finalizing, drainingShards, log); err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
@@ -2252,6 +2261,22 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	}
 
 	return finalProcesses, shardsRemoving, workflow.OK()
+}
+
+// trackShardsInRemoval persists the shards in removal until the finalizing pass deletes them.
+func (r *ShardedClusterReconcileHelper) trackShardsInRemoval(ctx context.Context, finalizing bool, drainingShards []string, log *zap.SugaredLogger) error {
+	var updated []string
+	if !finalizing {
+		updated = slices.Compact(slices.Sorted(slices.Values(append(slices.Clone(r.deploymentState.ShardsInRemoval), drainingShards...))))
+	}
+	if slices.Equal(updated, r.deploymentState.ShardsInRemoval) {
+		return nil
+	}
+	r.deploymentState.ShardsInRemoval = updated
+	if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
+		return xerrors.Errorf("failed to write the removed shards to the deployment state: %w", err)
+	}
+	return nil
 }
 
 func logWarnIgnoredDueToRecovery(log *zap.SugaredLogger, err any) {
