@@ -1,10 +1,8 @@
 package util
 
 import (
-	"bytes"
 	"context"
 	"crypto/md5" //nolint //Part of the algorithm
-	"encoding/gob"
 	"encoding/hex"
 	"fmt"
 	"net/url"
@@ -95,28 +93,6 @@ func DoAndRetry(ctx context.Context, f func() (string, bool), log *zap.SugaredLo
 		}
 	}
 	return false, msg
-}
-
-// MapDeepCopy is a quick implementation of deep copy mechanism for any Go structures, it uses Go serialization and
-// deserialization mechanisms so will always be slower than any manual copy
-// https://rosettacode.org/wiki/Deepcopy#Go
-// TODO move to maputil
-func MapDeepCopy(m map[string]any) (map[string]any, error) {
-	gob.Register(map[string]any{})
-
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	dec := gob.NewDecoder(&buf)
-	err := enc.Encode(m)
-	if err != nil {
-		return nil, err
-	}
-	var copy map[string]any
-	err = dec.Decode(&copy)
-	if err != nil {
-		return nil, err
-	}
-	return copy, nil
 }
 
 func ReadOrCreateMap(m map[string]any, key string) map[string]any {

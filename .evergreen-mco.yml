@@ -26,10 +26,9 @@ task_groups:
   - replica_set_cross_namespace_deploy
   - replica_set_custom_persistent_volume
   - replica_set_custom_role
-  - replica_set_enterprise_upgrade_4_5
-  - replica_set_enterprise_upgrade_5_6
   - replica_set_enterprise_upgrade_6_7
   - replica_set_enterprise_upgrade_7_8
+  - replica_set_enterprise_upgrade_8_9
   - replica_set_mongod_config
   - replica_set_mongod_port_change_with_arbiters
   - replica_set_mongod_readiness
@@ -82,16 +81,13 @@ tasks:
   name: replica_set_custom_role
 - commands:
   - func: e2e_test
-  name: replica_set_enterprise_upgrade_4_5
-- commands:
-  - func: e2e_test
-  name: replica_set_enterprise_upgrade_5_6
-- commands:
-  - func: e2e_test
   name: replica_set_enterprise_upgrade_6_7
 - commands:
   - func: e2e_test
   name: replica_set_enterprise_upgrade_7_8
+- commands:
+  - func: e2e_test
+  name: replica_set_enterprise_upgrade_8_9
 - commands:
   - func: e2e_test
   name: replica_set_mongod_config
