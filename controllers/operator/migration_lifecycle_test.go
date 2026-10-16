@@ -99,7 +99,7 @@ func defaultReplicaSetReconcilerWithPreloadedMembersFromVMs(ctx context.Context,
 			return nil
 		}, zap.S())
 	})
-	return newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, nil), kubeClient, omConnectionFactory
 }
 
 // reconcileAndCheckMigratingCondition pushes the current rs spec to the fake client, runs one

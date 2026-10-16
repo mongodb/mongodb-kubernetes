@@ -19,6 +19,13 @@ func defaultTestClusterSpecList() mdb.ClusterSpecList {
 	}
 }
 
+func TestAutomationDeploymentName(t *testing.T) {
+	m := &MongoDBMultiCluster{}
+	m.Name, m.UID = "multi-rs", "uid-1"
+	assert.Equal(t, "multi-rs", m.AutomationDeploymentName())
+	assert.Equal(t, "uid-1", m.TelemetryIdentifier())
+}
+
 func TestMongoDBMultiSpecMinimumMajorVersion(t *testing.T) {
 	tests := []struct {
 		name         string
