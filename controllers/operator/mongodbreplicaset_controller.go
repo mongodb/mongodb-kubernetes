@@ -480,8 +480,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return reconcile.Result{}, nil
 	}
 
-	// Members is empty in a stale status, which would make a scale-down look like a fresh create and remove all
-	// the surplus members at once. The StatefulSet holds the actual member count.
+	// A reconcile started by our own status write can read the previous status from the informer cache, and its
+	// status patch then writes that stale status back, dropping Members. Zero members makes a scale-down look like
+	// a fresh create and removes all the surplus members at once, so fall back to the StatefulSet replicas.
 	if rs.Status.Members == 0 {
 		if sts, err := r.client.GetStatefulSet(ctx, rs.ObjectKey()); err == nil && sts.Spec.Replicas != nil {
 			rs.Status.Members = int(*sts.Spec.Replicas)
