@@ -34,6 +34,7 @@ USER_NAME = "mms-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 CONNECTION_STRING_SECRET_NAME = "my-replica-set-connection-string"
 USER_PASSWORD = "my-password"
+USER_NEW_PASSWORD = "my-new-password7"
 USER_DATABASE = "admin"
 
 # User that already exists in Ops Manager with only SHA-256 creds and the SCRAM-SHA-256 mechanism.
@@ -238,13 +239,12 @@ class TestCanChangePassword(KubernetesTester):
     def test_user_can_authenticate_with_new_password(self, namespace: str, replica_set: MongoDB):
         ac_version = replica_set.get_automation_config_tester().automation_config["version"]
 
-        new_password = "my-new-password7"
-        update_secret(namespace, PASSWORD_SECRET_NAME, {"password": new_password})
+        update_secret(namespace, PASSWORD_SECRET_NAME, {"password": USER_NEW_PASSWORD})
 
         wait_until(lambda: replica_set.get_automation_config_tester().reached_version(ac_version + 1), timeout=800)
 
         replica_set.tester().assert_scram_sha_authentication(
-            password=new_password,
+            password=USER_NEW_PASSWORD,
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
@@ -255,6 +255,18 @@ class TestCanChangePassword(KubernetesTester):
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
+
+
+@mark.e2e_replica_set_scram_sha_256_user_connectivity
+def test_credentials_secret_has_new_password(namespace: str):
+    # The operator rewrites the connection-string secret on a reconcile that may start before the password change
+    # is visible, so the secret can hold the old password for a while after the user is reported Updated.
+    secret_name = f"{MDB_RESOURCE}-{USER_NAME}-{USER_DATABASE}"
+    assert wait_until(
+        lambda: read_secret(namespace, secret_name)["password"] == USER_NEW_PASSWORD,
+        timeout=300,
+        msg=f"secret {secret_name} does not hold the new password",
+    )
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity

@@ -1,5 +1,7 @@
-from kubetester import create_or_update_secret, try_load
+import yaml
+from kubetester import create_or_update_secret, run_periodically, try_load
 from kubetester.certs import create_agent_tls_certs, create_tls_certs, create_x509_mongodb_tls_certs, generate_cert
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -246,6 +248,24 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 def test_wait_for_agents_ready(mdb: MongoDB):
     mdb.get_om_tester().wait_agents_ready()
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
+
+
+@mark.e2e_search_mongot_replicaset_x509_auth
+def test_wait_for_mongod_parameters(mdb: MongoDB):
+    # The mongot wiring is applied after the MongoDB is already Running, so wait for it on the mongods directly.
+    def check_mongod_parameters():
+        pod_parameters = []
+        for idx in range(mdb.get_members()):
+            mongod_config = yaml.safe_load(
+                KubernetesTester.run_command_in_pod_container(
+                    f"{mdb.name}-{idx}", mdb.namespace, ["cat", "/data/automation-mongod.conf"]
+                )
+            )
+            pod_parameters.append(mongod_config.get("setParameter", {}))
+        are_set = all("mongotHost" in p and "searchIndexManagementHostAndPort" in p for p in pod_parameters)
+        return are_set, f"Not all pods have mongot parameters set: {pod_parameters}"
+
+    run_periodically(check_mongod_parameters, timeout=600)
 
 
 @fixture(scope="function")
