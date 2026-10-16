@@ -1289,6 +1289,147 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 	return nil
 }
 
+// validateLegacyAdminKeySecretOwnership requires the legacy Kubernetes Secret to carry
+// an omv1.OpsManagerNamespaceLabel matching the Ops Manager namespace before the
+// migration copies or deletes it. A pre-existing, unlabeled or foreign-labeled
+// `<name>-admin-key` Secret is not proven to belong to this Ops Manager, so the
+// migration fails closed and leaves the legacy Secret untouched. Vault does not
+// expose Secret metadata (its paths are already namespace-scoped), so validation
+// is skipped there.
+func (r *OpsManagerReconciler) validateLegacyAdminKeySecretOwnership(ctx context.Context, legacyKey types.NamespacedName, opsManager *omv1.MongoDBOpsManager) error {
+	labels, metadataAvailable, err := r.SecretClient.ReadSecretLabels(ctx, legacyKey, "")
+	if err != nil && secret.SecretNotExist(err) {
+		// Nothing to protect: there is no legacy Secret to migrate or delete.
+		return nil
+	}
+	if err != nil {
+		return xerrors.Errorf("failed to read labels of legacy admin API key secret %s: %w", legacyKey, err)
+	}
+	if !metadataAvailable {
+		// Vault backend: Secret metadata is not available. The Vault path is already
+		// scoped by namespace, so label-based validation is skipped.
+		return nil
+	}
+	if label, ok := labels[omv1.OpsManagerNamespaceLabel]; !ok {
+		return xerrors.Errorf("legacy admin API key secret %s is missing the %q label and cannot be proven to belong to the Ops Manager in namespace %q; refusing to migrate or delete it. Either label the Secret with %s=%s manually (if it belongs to this Ops Manager), or delete/rename it (if it does not)",
+			legacyKey, omv1.OpsManagerNamespaceLabel, opsManager.Namespace, omv1.OpsManagerNamespaceLabel, opsManager.Namespace)
+	} else if label != opsManager.Namespace {
+		return xerrors.Errorf("legacy admin API key secret %s has %s=%q, which does not match the Ops Manager namespace %q; refusing to migrate or delete it",
+			legacyKey, omv1.OpsManagerNamespaceLabel, label, opsManager.Namespace)
+	}
+	return nil
+}
+
+// validateAdminKeySecretNamePreflight fails closed if another visible Ops Manager
+// resource makes the admin-key secret naming ambiguous: either another Ops Manager
+// with the same CR name in a different namespace (relevant while a legacy Secret
+// still exists) or another Ops Manager whose namespace-qualified
+// `<namespace>-<name>-admin-key` name equals this Ops Manager's qualified name
+// (namespace/name delimiter collision). When legacyExists is false, only the
+// delimiter collision is detected. Errors are short to avoid leaking
+// namespace enumerations into status conditions.
+func (r *OpsManagerReconciler) validateAdminKeySecretNamePreflight(ctx context.Context, opsManager *omv1.MongoDBOpsManager, legacyExists bool) error {
+	omList := &omv1.MongoDBOpsManagerList{}
+	if err := r.client.List(ctx, omList); err != nil {
+		return xerrors.Errorf("admin-key preflight failed: %w", err)
+	}
+	qualifiedName := fmt.Sprintf("%s-%s-admin-key", opsManager.Namespace, opsManager.Name)
+	for _, om := range omList.Items {
+		if om.Namespace == opsManager.Namespace && om.Name == opsManager.Name {
+			continue
+		}
+		if legacyExists && om.Name == opsManager.Name {
+			return xerrors.New("admin-key migration conflict: duplicate OpsManager name")
+		}
+		if fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name) == qualifiedName {
+			return xerrors.New("admin-key name collision")
+		}
+	}
+	return nil
+}
+
+// migrateLegacyAdminKeySecret migrates the legacy `<name>-admin-key` admin API key Secret
+// to the namespace-qualified `<namespace>-<name>-admin-key` Secret and deletes the legacy
+// Secret afterwards. This closes a cross-namespace credential theft via the legacy
+// name-only fallback in APIKeySecretName. Idempotent: if the qualified Secret already
+// exists, only the (leftover) legacy Secret is deleted.
+func (r *OpsManagerReconciler) migrateLegacyAdminKeySecret(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {
+	var operatorVaultPath string
+	if r.VaultClient != nil {
+		operatorVaultPath = r.VaultClient.OperatorSecretPath()
+	}
+
+	// Fail closed on qualified-name delimiter collisions before the qualified key
+	// is resolved or any secret is read, copied, or deleted.
+	if err := r.validateAdminKeySecretNamePreflight(ctx, opsManager, false); err != nil {
+		return workflow.Failed(err).WithRetry(30)
+	}
+
+	legacyKey := kube.ObjectKey(operatorNamespace(), fmt.Sprintf("%s-admin-key", opsManager.Name))
+	qualifiedKey := kube.ObjectKey(operatorNamespace(), fmt.Sprintf("%s-%s-admin-key", opsManager.Namespace, opsManager.Name))
+
+	_, err := r.ReadSecret(ctx, qualifiedKey, operatorVaultPath)
+	if err == nil {
+		// Qualified Secret already exists: no need to read/copy legacy data, but still
+		// delete any legacy Secret so APIKeySecretName cannot select it. The legacy
+		// Secret must first be proven to belong to this Ops Manager. If there is no
+		// legacy Secret, the delimiter-collision check above already ran, so nothing
+		// more is needed.
+		_, legacyErr := r.ReadSecret(ctx, legacyKey, operatorVaultPath)
+		if secret.SecretNotExist(legacyErr) {
+			return workflow.OK()
+		}
+		if legacyErr != nil {
+			return workflow.Failed(xerrors.Errorf("failed to read legacy admin API key secret %s: %w", legacyKey, legacyErr)).WithRetry(30)
+		}
+		if err := r.validateAdminKeySecretNamePreflight(ctx, opsManager, true); err != nil {
+			return workflow.Failed(err).WithRetry(30)
+		}
+		if err := r.validateLegacyAdminKeySecretOwnership(ctx, legacyKey, opsManager); err != nil {
+			return workflow.Failed(err).WithRetry(30)
+		}
+		if err := r.client.DeleteSecret(ctx, legacyKey); err != nil && !secret.SecretNotExist(err) {
+			return workflow.Failed(xerrors.Errorf("failed to delete legacy admin API key secret %s: %w", legacyKey, err)).WithRetry(30)
+		}
+		return workflow.OK()
+	}
+	if !secret.SecretNotExist(err) {
+		return workflow.Failed(xerrors.Errorf("failed to read admin API key secret %s: %w", qualifiedKey, err)).WithRetry(30)
+	}
+
+	// Qualified Secret is absent. If the legacy Secret is absent too, nothing to migrate;
+	// the normal later flow creates the qualified key as needed.
+	legacyData, legacyErr := r.ReadSecret(ctx, legacyKey, operatorVaultPath)
+	if secret.SecretNotExist(legacyErr) {
+		return workflow.OK()
+	}
+	if legacyErr != nil {
+		return workflow.Failed(xerrors.Errorf("failed to read legacy admin API key secret %s: %w", legacyKey, legacyErr)).WithRetry(30)
+	}
+
+	// The legacy Secret must be proven to belong to this Ops Manager before it is
+	// copied or deleted: an unlabeled or foreign-labeled Secret is left untouched.
+	if err := r.validateAdminKeySecretNamePreflight(ctx, opsManager, true); err != nil {
+		return workflow.Failed(err).WithRetry(30)
+	}
+	if err := r.validateLegacyAdminKeySecretOwnership(ctx, legacyKey, opsManager); err != nil {
+		return workflow.Failed(err).WithRetry(30)
+	}
+
+	newSecret := buildAdminAPIKeySecret(qualifiedKey, opsManager.Namespace, legacyData)
+
+	if err := r.PutSecret(ctx, newSecret, operatorVaultPath); err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to create the namespace-qualified admin API key secret %s: %w", qualifiedKey, err)).WithRetry(30)
+	}
+	log.Infof("Migrated legacy admin API key secret %s to %s", legacyKey, qualifiedKey)
+
+	// Delete the legacy secret after successful migration.
+	if err := r.client.DeleteSecret(ctx, legacyKey); err != nil && !secret.SecretNotExist(err) {
+		return workflow.Failed(xerrors.Errorf("failed to delete legacy admin API key secret %s: %w", legacyKey, err)).WithRetry(30)
+	}
+	return workflow.OK()
+}
+
 func (r *OpsManagerReconciler) getOpsManagerAPIKeySecretName(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, workflow.Status) {
 	var operatorVaultSecretPath string
 	if r.VaultClient != nil {
@@ -1299,6 +1440,18 @@ func (r *OpsManagerReconciler) getOpsManagerAPIKeySecretName(ctx context.Context
 		return "", workflow.Failed(xerrors.Errorf("failed to get ops-manager API key secret name: %w", err)).WithRetry(10)
 	}
 	return APISecretName, workflow.OK()
+}
+
+// buildAdminAPIKeySecret builds the admin API-key Secret for the given namespaced name, labeled with the
+// Ops Manager namespace.
+func buildAdminAPIKeySecret(key types.NamespacedName, omNamespace string, data map[string]string) corev1.Secret {
+	return secret.Builder().
+		SetNamespace(key.Namespace).
+		SetName(key.Name).
+		SetStringMapToData(data).
+		SetLabels(map[string]string{
+			omv1.OpsManagerNamespaceLabel: omNamespace,
+		}).Build()
 }
 
 func detailedAPIErrorMsg(adminKeySecretName types.NamespacedName) string {
@@ -1316,6 +1469,12 @@ func detailedAPIErrorMsg(adminKeySecretName types.NamespacedName) string {
 // Theoretically, the Operator could remove the appdb StatefulSet (as the OM must be empty without any user data) and
 // allow the db to get recreated, but this is a quite radical operation.
 func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, centralURL string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
+	// Migrate the legacy `<name>-admin-key` secret to the namespace-qualified name before
+	// anything else resolves the admin key secret name.
+	if status := r.migrateLegacyAdminKeySecret(ctx, opsManager, log); !status.IsOK() {
+		return status, nil
+	}
+
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	adminObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
 
@@ -1385,11 +1544,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 					detailedAPIErrorMsg(adminKeySecretName), err)).WithRetry(300), nil
 			}
 
-			adminSecret := secret.Builder().
-				SetNamespace(adminKeySecretName.Namespace).
-				SetName(adminKeySecretName.Name).
-				SetStringMapToData(secretData).
-				SetLabels(map[string]string{}).Build()
+			adminSecret := buildAdminAPIKeySecret(adminKeySecretName, opsManager.Namespace, secretData)
 
 			if err := r.PutSecret(ctx, adminSecret, operatorVaultPath); err != nil {
 				return workflow.Failed(xerrors.Errorf("failed to create a secret for admin public api key. %s. The error : %w",

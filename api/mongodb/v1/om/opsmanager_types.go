@@ -42,6 +42,10 @@ const (
 	queryableBackupDefaultPort int32  = 25999
 
 	LabelResourceOwner = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+
+	// OpsManagerNamespaceLabel is set on the admin API key Secret to record
+	// the namespace of the MongoDBOpsManager CR that owns the key.
+	OpsManagerNamespaceLabel = "mongodb.com/v1.opsManagerNamespace"
 )
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
@@ -939,20 +943,80 @@ func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 // To ensure backward compatibility, it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
 // if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
 // with the same name.
+//
+// Both the legacy fallback Secret and the namespace-qualified Secret are only
+// used when their metadata carries the OpsManagerNamespaceLabel matching this
+// resource's namespace. This prevents an attacker from pointing a colliding
+// (e.g. delimiter-collision) Secret name at another Ops Manager's credentials.
+// A Secret with a mismatched or absent label is rejected: the legacy fallback
+// is ignored (the qualified name is used instead), and an existing qualified
+// Secret with a bad label is reported as an error so that the failure is visible.
 func (om *MongoDBOpsManager) APIKeySecretName(ctx context.Context, client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
+	qualifiedName := fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name)
+	// Deprecated fallback: the legacy name-only secret is read here and, if it
+	// still exists, returned so that readers racing with the migration keep
+	// working. The Operator's Ops Manager reconciler migrates the legacy
+	// secret to the namespace-qualified name (see migrateLegacyAdminKeySecret)
+	// and deletes the legacy secret, after which this branch stops matching.
 	oldAPISecretName := fmt.Sprintf("%s-admin-key", om.Name)
 	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace) // nolint:forbidigo
 	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
+	legacySecretPath := fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName)
 
-	_, err := client.ReadSecret(ctx, oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
+	// validateQualifiedSecret verifies that the namespace-qualified Secret, when it
+	// exists, carries the namespace ownership label of this Ops Manager resource.
+	validateQualifiedSecret := func() error {
+		qualifiedNamespacedName := types.NamespacedName{Name: qualifiedName, Namespace: operatorNamespace}
+		labels, metadataAvailable, err := client.ReadSecretLabels(ctx, qualifiedNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, qualifiedName))
+		if err != nil {
+			if secret.SecretNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if !metadataAvailable {
+			// Vault does not expose Secret metadata; the Vault path is scoped by
+			// namespace, so label validation cannot and must not be performed.
+			return nil
+		}
+		return validateAdminKeySecretNamespaceLabel(labels, om.Namespace, qualifiedName)
+	}
+
+	_, err := client.ReadSecret(ctx, oldAPIKeySecretNamespacedName, legacySecretPath)
 	if err != nil {
 		if secret.SecretNotExist(err) {
-			return fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name), nil
+			return qualifiedName, validateQualifiedSecret()
 		}
 
 		return "", err
 	}
+
+	// The legacy Secret exists, but it is only trusted when its metadata proves
+	// ownership by this Ops Manager resource; otherwise it is ignored and the
+	// namespace-qualified name is used instead.
+	labels, metadataAvailable, err := client.ReadSecretLabels(ctx, oldAPIKeySecretNamespacedName, legacySecretPath)
+	if err != nil {
+		return "", err
+	}
+	if metadataAvailable {
+		if err := validateAdminKeySecretNamespaceLabel(labels, om.Namespace, oldAPISecretName); err != nil {
+			return qualifiedName, validateQualifiedSecret()
+		}
+	}
 	return oldAPISecretName, nil
+}
+
+// validateAdminKeySecretNamespaceLabel verifies that the Secret metadata carries the
+// OpsManagerNamespaceLabel matching the namespace of the owning Ops Manager resource.
+func validateAdminKeySecretNamespaceLabel(labels map[string]string, omNamespace, secretName string) error {
+	labelValue, ok := labels[OpsManagerNamespaceLabel]
+	if !ok {
+		return fmt.Errorf("secret %s is missing the %q namespace ownership label and cannot be used as an admin API key secret for Ops Manager in namespace %s", secretName, OpsManagerNamespaceLabel, omNamespace)
+	}
+	if labelValue != omNamespace {
+		return fmt.Errorf("secret %s has the %q namespace ownership label set to %q, which does not match the Ops Manager namespace %q", secretName, OpsManagerNamespaceLabel, labelValue, omNamespace)
+	}
+	return nil
 }
 
 func (om *MongoDBOpsManager) GetSecurity() MongoDBOpsManagerSecurity {
