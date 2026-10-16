@@ -17,6 +17,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -89,6 +90,13 @@ func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
 	// sslConfig["AutoPEMKeyFilePath"] = util.PEMKeyFilePathInContainer
 
 	tlsConfig["CAFilePath"] = caFilePath
+
+	// In operator-managed-certificate mode the clientAuth certs are validated against
+	// client trust bundle, mounted in its own dir (TLSClusterCaMountPath) and wired to mongod's
+	// net.tls.clusterCAFile.
+	if security.IsManagedCertificateEnabled() && security.RequiresX509ClientCerts() {
+		tlsConfig["clusterCAFilePath"] = fmt.Sprintf("%s/%s", util.TLSClusterCaMountPath, tls.ClusterCAConfigMapKey)
+	}
 }
 
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
