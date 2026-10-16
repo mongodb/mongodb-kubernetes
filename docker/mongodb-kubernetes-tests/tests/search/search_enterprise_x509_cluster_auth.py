@@ -189,7 +189,7 @@ def test_wait_for_mongod_parameters(mdb: MongoDB):
 def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()),
-        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace, mdb.get_version()),
     )
 
 
