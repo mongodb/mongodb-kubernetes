@@ -2316,3 +2316,43 @@ func TestEnsureAppDBStatefulSetOwnership_ClaimsSharedSecretsOnAdoption(t *testin
 		assert.Equal(t, testOm.UID, s.OwnerReferences[0].UID, "secret %s must be claimed by the OM at adoption", name)
 	}
 }
+
+type unauthorizedReadUpdateOMConnection struct {
+	*om.MockedOmConnection
+}
+
+func (c unauthorizedReadUpdateOMConnection) ReadUpdateDeployment(context.Context, func(om.Deployment) error, *zap.SugaredLogger) error {
+	return errors.New("Status: 401 (Unauthorized), Detail: You are not authorized for this resource.")
+}
+
+func TestReconcileAppDB_DeploysAppDB(t *testing.T) {
+	tests := map[string]struct {
+		unauthorized bool
+	}{
+		"Ops Manager reachable":              {unauthorized: false},
+		"Ops Manager returns 401 on updates": {unauthorized: true},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			opsManager := DefaultOpsManagerBuilder().Build()
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+			connectionFunc := omConnectionFactory.GetConnectionFunc
+			if tc.unauthorized {
+				connectionFunc = func(omContext *om.OMContext) om.Connection {
+					return unauthorizedReadUpdateOMConnection{omConnectionFactory.GetConnectionFunc(omContext).(*om.MockedOmConnection)}
+				}
+			}
+			reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, connectionFunc, zap.S())
+			require.NoError(t, err)
+			require.NoError(t, createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "password"))
+			createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
+
+			_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+			require.NoError(t, err)
+
+			sts := &appsv1.StatefulSet{}
+			assert.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()), sts))
+		})
+	}
+}
