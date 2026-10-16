@@ -1249,6 +1249,95 @@ spec:
                         maximum: 65535
                         minimum: 0
                         type: integer
+                      tls:
+                        description: |-
+                          TLS configures mTLS for the mongot Prometheus /metrics endpoint. When set,
+                          mongot serves the endpoint over HTTPS and requires scrapers to present a
+                          client certificate trusted by clientCAConfigMapRef. When unset, the endpoint
+                          keeps serving over plain HTTP (unchanged behavior).
+                        properties:
+                          clientCAConfigMapRef:
+                            description: |-
+                              ClientCAConfigMapRef references a ConfigMap holding the PEM CA bundle mongot
+                              uses to authenticate scrapers. Expected key: "ca.crt".
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          scraper:
+                            description: |-
+                              Scraper configures the built-in metrics forwarder's client credentials.
+                              Required when the built-in metrics forwarder scrapes a TLS-protected
+                              endpoint; omit when scraping is performed by an external client.
+                            properties:
+                              clientCertificateSecretRef:
+                                description: |-
+                                  ClientCertificateSecretRef references a Secret holding the forwarder's client
+                                  certificate and private key. Expected keys: "tls.crt" and "tls.key". The
+                                  private key must be unencrypted: the metrics forwarder's TLS configuration
+                                  does not support password-protected keys.
+                                properties:
+                                  name:
+                                    default: ""
+                                    description: |-
+                                      Name of the referent.
+                                      This field is effectively required, but due to backwards compatibility is
+                                      allowed to be empty. Instances of this type with an empty value here are
+                                      almost certainly wrong.
+                                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    type: string
+                                type: object
+                                x-kubernetes-map-type: atomic
+                              serverCAConfigMapRef:
+                                description: |-
+                                  ServerCAConfigMapRef references a ConfigMap holding the PEM CA bundle the
+                                  forwarder uses to verify the mongot server certificate. Expected key: "ca.crt".
+                                  This is a different trust direction from PrometheusTLS.ClientCAConfigMapRef.
+                                properties:
+                                  name:
+                                    default: ""
+                                    description: |-
+                                      Name of the referent.
+                                      This field is effectively required, but due to backwards compatibility is
+                                      allowed to be empty. Instances of this type with an empty value here are
+                                      almost certainly wrong.
+                                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    type: string
+                                type: object
+                                x-kubernetes-map-type: atomic
+                            required:
+                            - clientCertificateSecretRef
+                            - serverCAConfigMapRef
+                            type: object
+                          serverCertificateSecretRef:
+                            description: |-
+                              ServerCertificateSecretRef references a Secret holding the mongot metrics
+                              server certificate and private key. Expected keys: "tls.crt" and "tls.key".
+                              The operator combines them into a single PEM mounted into the mongot pod.
+                            properties:
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                            type: object
+                            x-kubernetes-map-type: atomic
+                        required:
+                        - clientCAConfigMapRef
+                        - serverCertificateSecretRef
+                        type: object
                     type: object
                 type: object
               security:

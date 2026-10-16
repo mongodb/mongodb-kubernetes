@@ -494,6 +494,14 @@ func (r *MongoDBSearchReconciler) registerTLSResourceWatches(mdbSearch *searchv1
 			}
 		}
 	}
+	if mdbSearch.Spec.Observability.Prometheus.MetricsTLSConfigured() {
+		serverCert := mdbSearch.MetricsServerCertificateSecret()
+		clientCA := mdbSearch.MetricsClientCAConfigMap()
+		operatorSecret := mdbSearch.MetricsServerOperatorSecret()
+		r.watch.AddWatchedResourceIfNotAdded(serverCert.Name, serverCert.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.watch.AddWatchedResourceIfNotAdded(operatorSecret.Name, operatorSecret.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.watch.AddWatchedResourceIfNotAdded(clientCA.Name, clientCA.Namespace, watch.ConfigMap, mdbSearch.NamespacedName())
+	}
 	if mdbSearch.Spec.Security.TLS == nil {
 		return
 	}

@@ -131,8 +131,17 @@ type ConfigGrpcTLS struct {
 }
 
 type ConfigMetrics struct {
-	Enabled bool   `json:"enabled"`
-	Address string `json:"address"`
+	Enabled bool              `json:"enabled"`
+	Address string            `json:"address"`
+	TLS     *ConfigMetricsTLS `json:"tls,omitempty"`
+}
+
+// ConfigMetricsTLS configures mTLS for the mongot Prometheus /metrics endpoint.
+// Field names mirror mongot's metrics.tls block exactly.
+type ConfigMetricsTLS struct {
+	CertificateKeyFile             *string `json:"certificateKeyFile,omitempty"`
+	CertificateKeyFilePasswordFile *string `json:"certificateKeyFilePasswordFile,omitempty"`
+	CAFile                         *string `json:"caFile,omitempty"`
 }
 
 type ConfigHealthCheck struct {

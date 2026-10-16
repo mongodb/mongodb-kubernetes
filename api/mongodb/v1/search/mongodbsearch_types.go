@@ -88,6 +88,114 @@ type Prometheus struct {
 	// +kubebuilder:validation:Maximum=65535
 	// +kubebuilder:default=9946
 	Port int `json:"port,omitempty"`
+
+	// TLS configures mTLS for the mongot Prometheus /metrics endpoint. When set,
+	// mongot serves the endpoint over HTTPS and requires scrapers to present a
+	// client certificate trusted by clientCAConfigMapRef. When unset, the endpoint
+	// keeps serving over plain HTTP (unchanged behavior).
+	// +optional
+	TLS *PrometheusTLS `json:"tls,omitempty"`
+}
+
+// PrometheusTLS configures mTLS for the mongot Prometheus /metrics endpoint.
+type PrometheusTLS struct {
+	// ServerCertificateSecretRef references a Secret holding the mongot metrics
+	// server certificate and private key. Expected keys: "tls.crt" and "tls.key".
+	// The operator combines them into a single PEM mounted into the mongot pod.
+	// +kubebuilder:validation:Required
+	ServerCertificateSecretRef corev1.LocalObjectReference `json:"serverCertificateSecretRef"`
+
+	// ClientCAConfigMapRef references a ConfigMap holding the PEM CA bundle mongot
+	// uses to authenticate scrapers. Expected key: "ca.crt".
+	// +kubebuilder:validation:Required
+	ClientCAConfigMapRef corev1.LocalObjectReference `json:"clientCAConfigMapRef"`
+
+	// Scraper configures the built-in metrics forwarder's client credentials.
+	// Required when the built-in metrics forwarder scrapes a TLS-protected
+	// endpoint; omit when scraping is performed by an external client.
+	// +optional
+	Scraper *PrometheusScraperTLS `json:"scraper,omitempty"`
+}
+
+// PrometheusScraperTLS configures the client credentials the built-in metrics
+// forwarder presents when scraping a TLS-protected mongot /metrics endpoint.
+type PrometheusScraperTLS struct {
+	// ClientCertificateSecretRef references a Secret holding the forwarder's client
+	// certificate and private key. Expected keys: "tls.crt" and "tls.key". The
+	// private key must be unencrypted: the metrics forwarder's TLS configuration
+	// does not support password-protected keys.
+	// +kubebuilder:validation:Required
+	ClientCertificateSecretRef corev1.LocalObjectReference `json:"clientCertificateSecretRef"`
+
+	// ServerCAConfigMapRef references a ConfigMap holding the PEM CA bundle the
+	// forwarder uses to verify the mongot server certificate. Expected key: "ca.crt".
+	// This is a different trust direction from PrometheusTLS.ClientCAConfigMapRef.
+	// +kubebuilder:validation:Required
+	ServerCAConfigMapRef corev1.LocalObjectReference `json:"serverCAConfigMapRef"`
+}
+
+// MetricsTLSConfigured returns true when mTLS is configured for the mongot
+// Prometheus /metrics endpoint.
+func (p Prometheus) MetricsTLSConfigured() bool {
+	return p.TLS != nil
+}
+
+// MetricsServerCertificateSecret returns the namespaced name of the user-provided
+// metrics server certificate Secret.
+func (s *MongoDBSearch) MetricsServerCertificateSecret() types.NamespacedName {
+	if s.Spec.Observability.Prometheus.TLS == nil {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{
+		Name:      s.Spec.Observability.Prometheus.TLS.ServerCertificateSecretRef.Name,
+		Namespace: s.Namespace,
+	}
+}
+
+// MetricsServerOperatorSecret returns the namespaced name of the operator-managed
+// Secret holding the combined metrics server certificate and key.
+func (s *MongoDBSearch) MetricsServerOperatorSecret() types.NamespacedName {
+	return types.NamespacedName{Name: s.Name + "-search-metrics-certificate-key", Namespace: s.Namespace}
+}
+
+// MetricsClientCAConfigMap returns the namespaced name of the user-provided
+// ConfigMap holding the CA bundle mongot uses to authenticate scrapers.
+func (s *MongoDBSearch) MetricsClientCAConfigMap() types.NamespacedName {
+	if s.Spec.Observability.Prometheus.TLS == nil {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{
+		Name:      s.Spec.Observability.Prometheus.TLS.ClientCAConfigMapRef.Name,
+		Namespace: s.Namespace,
+	}
+}
+
+// MetricsForwarderHasScraperTLS returns true when the built-in metrics forwarder
+// has scraper credentials configured for an mTLS-protected mongot endpoint.
+func (s *MongoDBSearch) MetricsForwarderHasScraperTLS() bool {
+	tls := s.Spec.Observability.Prometheus.TLS
+	return tls != nil && tls.Scraper != nil
+}
+
+// MetricsForwarderClientCertSecret returns the namespaced name of the
+// user-provided forwarder client certificate Secret.
+func (s *MongoDBSearch) MetricsForwarderClientCertSecret() types.NamespacedName {
+	tls := s.Spec.Observability.Prometheus.TLS
+	if tls == nil || tls.Scraper == nil {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{Name: tls.Scraper.ClientCertificateSecretRef.Name, Namespace: s.Namespace}
+}
+
+// MetricsForwarderServerCAConfigMap returns the namespaced name of the
+// user-provided ConfigMap holding the CA bundle the forwarder uses to verify the
+// mongot server certificate.
+func (s *MongoDBSearch) MetricsForwarderServerCAConfigMap() types.NamespacedName {
+	tls := s.Spec.Observability.Prometheus.TLS
+	if tls == nil || tls.Scraper == nil {
+		return types.NamespacedName{}
+	}
+	return types.NamespacedName{Name: tls.Scraper.ServerCAConfigMapRef.Name, Namespace: s.Namespace}
 }
 
 func (p Prometheus) IsEnabled() bool {
@@ -1476,4 +1584,16 @@ func (s *MongoDBSearch) MetricsForwarderAgentKeySecretNameForCluster(clusterInde
 // for the forwarder-owned replicated copy.
 func (s *MongoDBSearch) MetricsForwarderCACertConfigMapNameForCluster(clusterIndex int) string {
 	return fmt.Sprintf("%s-search-metrics-forwarder-%d-ca-cert", s.Name, clusterIndex)
+}
+
+// MetricsForwarderClientCertSecretNameForCluster returns the per-cluster name of the
+// forwarder-owned replicated copy of the scraper client certificate Secret.
+func (s *MongoDBSearch) MetricsForwarderClientCertSecretNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-search-metrics-forwarder-%d-client-cert", s.Name, clusterIndex)
+}
+
+// MetricsForwarderServerCAConfigMapNameForCluster returns the per-cluster name of the
+// forwarder-owned replicated copy of the mongot server trust CA ConfigMap.
+func (s *MongoDBSearch) MetricsForwarderServerCAConfigMapNameForCluster(clusterIndex int) string {
+	return fmt.Sprintf("%s-search-metrics-forwarder-%d-server-ca", s.Name, clusterIndex)
 }
