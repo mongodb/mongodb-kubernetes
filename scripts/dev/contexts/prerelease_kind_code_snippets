@@ -11,5 +11,3 @@ source "${script_dir}/root-context"
 
 export CODE_SNIPPETS_FLAVOR=e2e_prerelease
 export ops_manager_version="cloud_qa"
-
-export PRERELEASE_IMAGE_PULLSECRET="${PRERELEASE_PULLSECRET_DOCKERCONFIGJSON}"
