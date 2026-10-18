@@ -34,6 +34,8 @@ MAPPING_TIMEOUT = 600
 ABSENCE_DURATION = 180
 
 
+# Ops Manager implemented the OTLP ingestion endpoint in 8.0.25 and all OTel-to-OM gates in MCK use that number.
+# However OM implemented the mongodb.opsmanager.mck.deployment.mappings OTLP attribute only in 8.0.27.
 def om_supports_deployment_mappings() -> bool:
     try:
         return semver.VersionInfo.parse(get_custom_om_version()).match(">=8.0.27")
