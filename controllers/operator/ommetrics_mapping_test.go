@@ -22,11 +22,11 @@ type recordedMonitoringMapping struct {
 	project     ommetrics.Project
 	agentAPIKey string
 	tlsOpts     ommetrics.TLSOptions
-	deployment  ommetrics.Deployment
+	deployment  ommetrics.MongoDBDeployment
 	released    []ommetrics.Project
 }
 
-func (r *recordedMonitoringMapping) EnsureProject(p ommetrics.Project, agentAPIKey string, tlsOpts ommetrics.TLSOptions, deployment ommetrics.Deployment) error {
+func (r *recordedMonitoringMapping) EnsureProject(p ommetrics.Project, agentAPIKey string, tlsOpts ommetrics.TLSOptions, deployment ommetrics.MongoDBDeployment) error {
 	r.calls++
 	r.project, r.agentAPIKey, r.tlsOpts, r.deployment = p, agentAPIKey, tlsOpts, deployment
 	return nil
@@ -46,14 +46,14 @@ func installMonitoringMappingRecorder(common *ReconcileCommonController) *record
 func requireMonitoringMapping(t *testing.T, recorder *recordedMonitoringMapping, deploymentName string, uid string) {
 	t.Helper()
 	require.NotNil(t, recorder.deployment)
-	require.Equal(t, deploymentName, recorder.deployment.AutomationDeploymentName())
+	require.Equal(t, deploymentName, recorder.deployment.OpsManagerDeploymentName())
 	require.Equal(t, uid, recorder.deployment.TelemetryIdentifier())
 }
 
 type fakeDeployment struct{ uid, name string }
 
 func (d fakeDeployment) TelemetryIdentifier() string      { return d.uid }
-func (d fakeDeployment) AutomationDeploymentName() string { return d.name }
+func (d fakeDeployment) OpsManagerDeploymentName() string { return d.name }
 
 // monitoringMappingConnectionFactory mocks an Ops Manager version that supports OTLP metrics.
 func monitoringMappingConnectionFactory() *om.CachedOMConnectionFactory {

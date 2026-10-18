@@ -84,7 +84,7 @@ func TestStandaloneReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
 	runReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, st, "dublin-0.dublin-svc.my-namespace.svc.cluster.local")
 	processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
 	require.Len(t, processes, 1)
-	require.Equal(t, processes[0].HostName(), st.AutomationDeploymentName())
+	require.Equal(t, processes[0].HostName(), st.OpsManagerDeploymentName())
 }
 
 func TestStandaloneClusterReconcileContainerImages(t *testing.T) {

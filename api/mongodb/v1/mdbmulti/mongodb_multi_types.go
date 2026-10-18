@@ -113,8 +113,8 @@ func (m *MongoDBMultiCluster) TelemetryIdentifier() string {
 	return string(m.UID)
 }
 
-// AutomationDeploymentName matches the replica set name the reconciler writes to the automation config.
-func (m *MongoDBMultiCluster) AutomationDeploymentName() string {
+// OpsManagerDeploymentName matches the replica set name the reconciler writes to the automation config.
+func (m *MongoDBMultiCluster) OpsManagerDeploymentName() string {
 	return m.Name
 }
 

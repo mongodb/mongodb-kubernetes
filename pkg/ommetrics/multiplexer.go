@@ -45,7 +45,7 @@ func New(cfg Config) (*Multiplexer, error) {
 
 // EnsureProject registers a project as an export destination, or refreshes its agent API key,
 // deployment mapping and its OM's TLS settings. All projects on one OM must share TLS settings.
-func (f *Multiplexer) EnsureProject(p Project, agentAPIKey string, tlsOpts TLSOptions, deployment Deployment) error {
+func (f *Multiplexer) EnsureProject(p Project, agentAPIKey string, tlsOpts TLSOptions, deployment MongoDBDeployment) error {
 	return f.reg.ensure(p, agentAPIKey, tlsOpts, deployment)
 }
 

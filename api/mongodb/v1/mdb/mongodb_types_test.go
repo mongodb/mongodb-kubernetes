@@ -14,7 +14,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-func TestAutomationDeploymentName(t *testing.T) {
+func TestOpsManagerDeploymentName(t *testing.T) {
 	tests := map[string]struct {
 		spec MongoDbSpec
 		want string
@@ -33,7 +33,7 @@ func TestAutomationDeploymentName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := &MongoDB{Spec: tc.spec}
 			m.Name, m.Namespace, m.UID = "my-db", "my-ns", "uid-1"
-			assert.Equal(t, tc.want, m.AutomationDeploymentName())
+			assert.Equal(t, tc.want, m.OpsManagerDeploymentName())
 			assert.Equal(t, "uid-1", m.TelemetryIdentifier())
 		})
 	}

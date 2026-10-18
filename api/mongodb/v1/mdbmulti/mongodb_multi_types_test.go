@@ -19,10 +19,10 @@ func defaultTestClusterSpecList() mdb.ClusterSpecList {
 	}
 }
 
-func TestAutomationDeploymentName(t *testing.T) {
+func TestOpsManagerDeploymentName(t *testing.T) {
 	m := &MongoDBMultiCluster{}
 	m.Name, m.UID = "multi-rs", "uid-1"
-	assert.Equal(t, "multi-rs", m.AutomationDeploymentName())
+	assert.Equal(t, "multi-rs", m.OpsManagerDeploymentName())
 	assert.Equal(t, "uid-1", m.TelemetryIdentifier())
 }
 

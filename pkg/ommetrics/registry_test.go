@@ -12,7 +12,7 @@ import (
 type fakeDeployment struct{ uid, name string }
 
 func (d fakeDeployment) TelemetryIdentifier() string      { return d.uid }
-func (d fakeDeployment) AutomationDeploymentName() string { return d.name }
+func (d fakeDeployment) OpsManagerDeploymentName() string { return d.name }
 
 var testDeployment = fakeDeployment{uid: "uid-1", name: "rs"}
 
@@ -124,7 +124,7 @@ func TestEnsureEncodesDeploymentMapping(t *testing.T) {
 }
 
 func TestEnsureRejectsIncompleteDeployment(t *testing.T) {
-	for name, d := range map[string]Deployment{
+	for name, d := range map[string]MongoDBDeployment{
 		"nil":        nil,
 		"typed nil":  (*ptrDeployment)(nil),
 		"blank uid":  fakeDeployment{name: "rs"},

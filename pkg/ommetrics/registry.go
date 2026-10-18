@@ -26,7 +26,7 @@ func newRegistry(cfg Config) *registry {
 	return &registry{dests: map[destKey]*destination{}, oms: map[string]*omInstance{}, cfg: cfg, now: monoNanos}
 }
 
-func (r *registry) ensure(p Project, agentAPIKey string, tlsOpts TLSOptions, deployment Deployment) error {
+func (r *registry) ensure(p Project, agentAPIKey string, tlsOpts TLSOptions, deployment MongoDBDeployment) error {
 	mappings, err := deploymentMappingsAttribute(deployment)
 	if err != nil {
 		return err

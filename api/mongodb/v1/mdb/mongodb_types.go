@@ -261,9 +261,9 @@ func (m *MongoDB) TelemetryIdentifier() string {
 	return string(m.UID)
 }
 
-// AutomationDeploymentName is the name Ops Manager resolves this deployment by; standalones match on hostname:
+// OpsManagerDeploymentName is the name Ops Manager resolves this deployment by; standalones match on hostname:
 // https://github.com/10gen/ops-manager/blob/main/server/src/main/com/xgen/cloud/monitoring/ingestion/_public/svc/MetricsIngestionSvc.java#L333-L355
-func (m *MongoDB) AutomationDeploymentName() string {
+func (m *MongoDB) OpsManagerDeploymentName() string {
 	switch m.GetResourceType() {
 	case ReplicaSet:
 		return m.GetReplicaSetName()

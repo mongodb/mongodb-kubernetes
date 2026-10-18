@@ -80,7 +80,7 @@ type ReconcileCommonController struct {
 
 // OMMetricsMultiplexer must be passed as a true nil, not a typed-nil pointer.
 type OMMetricsMultiplexer interface {
-	EnsureProject(ommetrics.Project, string, ommetrics.TLSOptions, ommetrics.Deployment) error
+	EnsureProject(ommetrics.Project, string, ommetrics.TLSOptions, ommetrics.MongoDBDeployment) error
 	ReleaseProject(ommetrics.Project) error
 }
 
@@ -154,7 +154,7 @@ func NewReconcileCommonController(ctx context.Context, client client.Client, omM
 
 // EnsureOtelExporterForDeployment registers the connection's Ops Manager project as a metrics export
 // destination for deployment. Fire-and-forget: telemetry must never fail a reconcile.
-func (r *ReconcileCommonController) EnsureOtelExporterForDeployment(conn om.Connection, agentAPIKey string, deployment ommetrics.Deployment, log *zap.SugaredLogger) {
+func (r *ReconcileCommonController) EnsureOtelExporterForDeployment(conn om.Connection, agentAPIKey string, deployment ommetrics.MongoDBDeployment, log *zap.SugaredLogger) {
 	if r.omMetrics == nil {
 		return
 	}

@@ -10,10 +10,10 @@ import (
 
 const deploymentMappingsAttributeKey = "mongodb.opsmanager.mck.deployment.mappings"
 
-// Deployment is a MongoDB resource mapped to its Ops Manager deployment in exported metrics.
-type Deployment interface {
+// MongoDBDeployment is a replica set, sharded cluster or standalone tracked by Ops Manager (not a Kubernetes Deployment).
+type MongoDBDeployment interface {
 	TelemetryIdentifier() string
-	AutomationDeploymentName() string
+	OpsManagerDeploymentName() string
 }
 
 type mckDeploymentMapping struct {
@@ -21,11 +21,11 @@ type mckDeploymentMapping struct {
 	DeploymentName   string `json:"deploymentName"`
 }
 
-func deploymentMappingsAttribute(deployment Deployment) (attribute.KeyValue, error) {
+func deploymentMappingsAttribute(deployment MongoDBDeployment) (attribute.KeyValue, error) {
 	if v := reflect.ValueOf(deployment); !v.IsValid() || (v.Kind() == reflect.Pointer && v.IsNil()) {
 		return attribute.KeyValue{}, errors.New("deployment is required")
 	}
-	m := mckDeploymentMapping{MCKDeploymentUID: deployment.TelemetryIdentifier(), DeploymentName: deployment.AutomationDeploymentName()}
+	m := mckDeploymentMapping{MCKDeploymentUID: deployment.TelemetryIdentifier(), DeploymentName: deployment.OpsManagerDeploymentName()}
 	if m.MCKDeploymentUID == "" || m.DeploymentName == "" {
 		return attribute.KeyValue{}, errors.New("deployment telemetry identifier and automation deployment name are required")
 	}
