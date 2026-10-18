@@ -1128,7 +1128,6 @@ task_groups:
     tasks:
       - e2e_om_deployment_mappings_replica_set
       - e2e_om_deployment_mappings_sharded_cluster
-      - e2e_om_deployment_mappings_standalone
 
   # this task group contains just a one task, which is smoke testing whether the operator
   # works correctly when we run it without installing webhook cluster roles

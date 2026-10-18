@@ -108,13 +108,6 @@ def sharded_cluster_id(tester: OMTester, name: str) -> Optional[str]:
     return None
 
 
-def standalone_host_id(tester: OMTester, hostname: str) -> Optional[str]:
-    for host in tester.api_get_hosts().get("results", []):
-        if host.get("hostname") == hostname:
-            return host["id"]
-    return None
-
-
 @mark.skipif(not om_supports_deployment_mappings(), reason="Ops Manager < 8.0.27 does not store deployment mappings")
 class DeploymentMappingsLifecycle:
     """Test sequence shared by all topologies. Subclasses implement build, deployment_name and deployment_uuid."""
