@@ -449,6 +449,7 @@ type FeatureFlags struct {
 	EnableOverloadRetrySignal *bool `json:"enableOverloadRetrySignal,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.oidc) || (!has(self.x509) && !has(self.passwordSecretRef) && !has(self.username))",message="spec.source.oidc is mutually exclusive with spec.source.x509, spec.source.passwordSecretRef, and spec.source.username"
 type MongoDBSource struct {
 	// MongoDBResourceRef points to an operator-managed MongoDB resource to sync from.
 	// Mutually exclusive with External.
@@ -469,9 +470,15 @@ type MongoDBSource struct {
 	// Mutually exclusive with PasswordSecretRef and Username.
 	// +optional
 	X509 *X509Auth `json:"x509,omitempty"`
+	// OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only).
+	// When set, mongot authenticates to MongoDB using an OIDC access token obtained from the
+	// configured identity provider's token endpoint, instead of username/password or x509.
+	// Mutually exclusive with PasswordSecretRef, Username, and X509.
+	// +optional
+	OIDC *OIDCAuth `json:"oidc,omitempty"`
 	// TLS configures TLS transport settings for the sync source SCRAM connection.
 	// When set, mongot presents the specified client certificate during the TLS handshake.
-	// Only applicable when using SCRAM auth (passwordSecretRef). Mutually exclusive with X509.
+	// Only applicable when using SCRAM auth (passwordSecretRef) or OIDC auth. Mutually exclusive with X509.
 	// +optional
 	TLS *SourceTLS `json:"tls,omitempty"`
 }
@@ -487,6 +494,38 @@ type X509Auth struct {
 	// decrypts the password-encrypted client private key. Omit when the key is not encrypted.
 	// +optional
 	KeyFilePasswordSecret corev1.LocalObjectReference `json:"keyFilePasswordSecretRef,omitempty"`
+}
+
+// OIDCAuth configures OIDC client-credentials authentication for mongot's sync source
+// connection (Enterprise only). mongot obtains access tokens from the identity provider's
+// token endpoint using this client identity; trust validation (issuer, audience, signature)
+// is performed by the source MongoDB server's OIDC provider configuration.
+type OIDCAuth struct {
+	// TokenEndpoint is the identity provider's OAuth2 token endpoint URL. Must be an
+	// absolute HTTPS URI with a host and no userinfo or fragment, e.g.
+	// "https://idp.example.com/realms/search/protocol/openid-connect/token".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self.startsWith('https://') && !self.contains('@') && !self.contains('#')",message="tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment"
+	TokenEndpoint string `json:"tokenEndpoint"`
+	// ClientID is the OAuth2 client id mongot authenticates as at the token endpoint.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ClientID string `json:"clientId"`
+	// ClientSecretSecretRef references the Secret holding the OIDC client secret. The value
+	// at the given key is mounted as a file for mongot; the secret value never appears in
+	// the mongot configuration.
+	// +kubebuilder:validation:Required
+	ClientSecretSecretRef userv1.SecretKeyRef `json:"clientSecretSecretRef"`
+	// IdPCAConfigMapRef references a ConfigMap containing the CA certificate that issued
+	// the identity provider's TLS certificate. The CA certificate is expected to be PEM
+	// encoded and available at the "ca.crt" key (same convention as spec.source.external.tls.ca).
+	// +kubebuilder:validation:Required
+	IdPCAConfigMapRef corev1.LocalObjectReference `json:"idpCaConfigMapRef"`
+	// Scope is an optional OAuth2 scope requested at the token endpoint (e.g. "openid").
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Scope *string `json:"scope,omitempty"`
 }
 
 // SourceTLS configures TLS transport settings for the sync source connection.
@@ -946,6 +985,11 @@ func (s *MongoDBSearch) IsTLSConfigured() bool {
 // IsX509Auth returns true if x509 client certificate authentication is configured for the sync source.
 func (s *MongoDBSearch) IsX509Auth() bool {
 	return s.Spec.Source != nil && s.Spec.Source.X509 != nil
+}
+
+// IsOIDCAuth returns true if OIDC client-credentials authentication is configured for the sync source.
+func (s *MongoDBSearch) IsOIDCAuth() bool {
+	return s.Spec.Source != nil && s.Spec.Source.OIDC != nil
 }
 
 // X509ClientCertSecret returns the namespaced name of the user-provided x509 client certificate secret.
