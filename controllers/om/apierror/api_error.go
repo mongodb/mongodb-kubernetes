@@ -3,6 +3,7 @@ package apierror
 import (
 	"errors"
 	"fmt"
+	"net/http"
 )
 
 const (
@@ -93,4 +94,16 @@ func (e *Error) ErrorBackupDaemonConfigIsNotFound() bool {
 	}
 
 	return false
+}
+
+// IsNotFound returns whether Ops Manager answered with a 404.
+func (e *Error) IsNotFound() bool {
+	return e != nil && e.Status != nil && *e.Status == http.StatusNotFound
+}
+
+// IsConflict returns whether Ops Manager rejected the request because it conflicts with the state
+// it already holds. For a license install that means it holds an artifact at least as new as the
+// one being installed.
+func (e *Error) IsConflict() bool {
+	return e != nil && e.Status != nil && *e.Status == http.StatusConflict
 }
