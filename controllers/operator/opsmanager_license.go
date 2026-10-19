@@ -15,6 +15,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -29,6 +30,7 @@ type LicenseReconcilerHelper struct {
 
 	lastInstallSecretRef string
 	observed             *api.LicenseView
+	holderID             string
 }
 
 func (r *OpsManagerReconciler) newLicenseReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (*LicenseReconcilerHelper, error) {
@@ -55,6 +57,19 @@ func (h *LicenseReconcilerHelper) Reconcile(ctx context.Context) workflow.Status
 }
 
 func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow.Status {
+	// The identity rotation requested through an annotation runs before the license state is read.
+	if h.opsManager.LicenseRotateIdentityDue() {
+		if st := h.reconcileLicenseIdentity(ctx); !st.IsOK() {
+			return st
+		}
+	}
+
+	if h.opsManager.LicenseRecomputeDue() {
+		if st := h.reconcileLicenseRecompute(ctx); !st.IsOK() {
+			return st
+		}
+	}
+
 	// The release receipts requested in the spec resolve to the artifact ids they name.
 	receipts, st := h.resolveReleaseReceipts(ctx)
 	if !st.IsOK() {
@@ -95,6 +110,26 @@ func (h *LicenseReconcilerHelper) reconcileLicenseIntent(ctx context.Context, re
 		return h.installLicenseFromSecret(ctx, receipts)
 	}
 	return "", "", workflow.OK()
+}
+
+func (h *LicenseReconcilerHelper) reconcileLicenseIdentity(ctx context.Context) workflow.Status {
+	if err := annotations.RemoveAnnotation(ctx, h.opsManager, util.LicenseRotateIdentityAnnotation, h.reconciler.client); err != nil {
+		return licenseFailed(err, status.ReasonIdentityRotationFailed)
+	}
+	if err := h.omAdmin.RotateLicenseIdentity(ctx); err != nil {
+		return licenseFailed(err, status.ReasonIdentityRotationFailed)
+	}
+	return workflow.OK()
+}
+
+func (h *LicenseReconcilerHelper) reconcileLicenseRecompute(ctx context.Context) workflow.Status {
+	if err := annotations.RemoveAnnotation(ctx, h.opsManager, util.LicenseRecomputeAnnotation, h.reconciler.client); err != nil {
+		return licenseFailed(err, status.ReasonLicenseRecomputeFailed)
+	}
+	if _, err := h.omAdmin.RecomputeLicense(ctx); err != nil {
+		return licenseFailed(err, status.ReasonLicenseRecomputeFailed)
+	}
+	return workflow.OK()
 }
 
 func (h *LicenseReconcilerHelper) reconcileReleaseReceipts(ctx context.Context, receipts []string, releasedID string) workflow.Status {
@@ -139,6 +174,12 @@ func (h *LicenseReconcilerHelper) observeLicense(ctx context.Context) workflow.S
 	}
 
 	h.observed = &state
+	// Ops Manager versions with the license API but without the identity API are fine, the holder stays unset.
+	identity, err := h.omAdmin.ReadLicenseIdentity(ctx)
+	if err != nil && !apierror.NewNonNil(err).IsNotFound() {
+		return licenseFailed(err, status.ReasonLicenseObserveFailed)
+	}
+	h.holderID = identity.HolderID
 	return workflow.OK()
 }
 
