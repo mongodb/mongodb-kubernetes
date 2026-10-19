@@ -1692,6 +1692,60 @@ func TestOpsManagerReconciler_watchesLicenseSecrets(t *testing.T) {
 	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[licenseKey], mock.ObjectKeyFromApiObject(testOm))
 }
 
+func TestEnsureOpsManagerLicense_AutoReceiptSkippedWhenOpsManagerLostArtifact(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{AutoReleaseReceipts: true}
+	testOm.Status.OpsManagerStatus.License = &omv1.OpsManagerLicenseStatus{InstalledArtifactID: "art-1"}
+	r := newOmLicenseReconciler(t, testOm)
+	admin := &api.MockedOmAdmin{LicenseReceiptErr: assert.AnError}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assert.Empty(t, testOm.Status.OpsManagerStatus.License.InstalledArtifactID)
+}
+
+func TestEnsureOpsManagerLicense_AutoReceiptNotFoundFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{AutoReleaseReceipts: true}
+	testOm.Status.OpsManagerStatus.License = &omv1.OpsManagerLicenseStatus{InstalledArtifactID: "art-1"}
+	r := newOmLicenseReconciler(t, testOm)
+	released := omv1.OpsManagerLicenseStatus{
+		Licenses: []omv1.OpsManagerLicenseArtifactStatus{{ArtifactID: "art-1", Status: omv1.LicenseArtifactStatusReleased}},
+	}
+	notFound := http.StatusNotFound
+	admin := &api.MockedOmAdmin{LicenseState: released, LicenseReceiptErr: &apierror.Error{Status: &notFound}}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReceiptFailed)
+}
+
+func TestEnsureOpsManagerLicense_ListedReceiptNotFoundStillFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("art-1")}}
+	r := newOmLicenseReconciler(t, testOm)
+	notFound := http.StatusNotFound
+	admin := &api.MockedOmAdmin{LicenseReceiptErr: &apierror.Error{Status: &notFound}}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReceiptFailed)
+}
+
+func TestEnsureOpsManagerLicense_ReceiptCheckReadsKubernetes(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("art-1")}}
+	written := corev1.Secret{}
+	written.Name = "art-1-release-receipt"
+	written.Namespace = testOm.Namespace
+	written.Data = map[string][]byte{util.DefaultOpsManagerReleaseReceiptKey: []byte(`{"artifactId":"art-1"}`)}
+	r := newOmLicenseReconciler(t, testOm, &written)
+	// A nil VaultClient keeps the shared secret client on Kubernetes, the check must use r.client either way.
+	admin := &api.MockedOmAdmin{LicenseReceiptErr: assert.AnError}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+}
+
 func newOmLicenseReconciler(t *testing.T, opsManager *omv1.MongoDBOpsManager, extra ...client.Object) *OpsManagerReconciler {
 	t.Helper()
 	objects := append([]client.Object{opsManager.DeepCopy()}, extra...)
