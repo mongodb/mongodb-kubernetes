@@ -24,3 +24,11 @@ def get_cognito_workload_url() -> str:
 
 def get_cognito_workload_user_id() -> str:
     return os.getenv("cognito_workload_user_id", "")
+
+
+def get_cognito_workload_token_endpoint() -> str:
+    """Returns the Cognito app-client token endpoint URL (Evergreen expansion
+    cognito_workload_token_endpoint), e.g. https://<domain>.auth.<region>.amazoncognito.com/oauth2/token.
+    mongot's OIDC client-credentials grant posts to this endpoint, distinct from the
+    issuer URL (cognito_workload_url)."""
+    return os.getenv("cognito_workload_token_endpoint", "")
