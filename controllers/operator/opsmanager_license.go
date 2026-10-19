@@ -27,10 +27,17 @@ func (r *OpsManagerReconciler) ensureOpsManagerLicense(ctx context.Context, opsM
 		return licenseStatus
 	}
 
+	if opsManager.LicenseReleaseDueToRemovedInstallIntent() {
+		opsManager.SetInstalledArtifactID("")
+	}
+
 	return licenseReconciled()
 }
 
 func (r *OpsManagerReconciler) reconcileLicenseIntent(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (string, workflow.Status) {
+	if opsManager.LicenseReleaseDueToRemovedInstallIntent() {
+		return r.releaseInstalledLicense(ctx, opsManager, omAdmin)
+	}
 	if opsManager.Spec.License.InstallRequested() {
 		return r.installLicenseFromSecret(ctx, opsManager, omAdmin, log)
 	}
@@ -90,6 +97,30 @@ func (r *OpsManagerReconciler) installLicenseFromSecret(ctx context.Context, ops
 		}
 	}
 	return "", workflow.OK()
+}
+
+func (r *OpsManagerReconciler) releaseInstalledLicense(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin) (string, workflow.Status) {
+	installedID := opsManager.GetInstalledArtifactID()
+	// Ops Manager holds one license at a time. When it no longer holds ours, it was already
+	// released, and a license installed by someone else is left alone.
+	state := opsManager.GetLicenseStatus()
+	if !state.HoldsArtifact(installedID) {
+		if _, listed := state.ArtifactStatus(installedID); listed {
+			return installedID, workflow.OK()
+		}
+		return "", workflow.OK()
+	}
+
+	released, err := omAdmin.ReleaseLicense(ctx, installedID)
+	if apierror.NewNonNil(err).IsNotFound() {
+		// Ops Manager has no record of it, so there is nothing released and no receipt to collect.
+		return "", workflow.OK()
+	}
+	if err != nil {
+		return "", licenseFailed(xerrors.Errorf("failed to release Ops Manager license %s: %w", installedID, err), status.ReasonLicenseReleaseFailed)
+	}
+	opsManager.SetLicenseStatusFromState(released)
+	return installedID, workflow.OK()
 }
 
 func (r *OpsManagerReconciler) readLicenseArtifact(ctx context.Context, opsManager *omv1.MongoDBOpsManager, secretName, reason string) (rawArtifact, artifactID string, st workflow.Status) {

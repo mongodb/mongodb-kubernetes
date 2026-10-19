@@ -54,6 +54,13 @@ func TestPredicatesForOpsManager(t *testing.T) {
 		newOm.Spec.Replicas = 2
 		assert.True(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
 	})
+	t.Run("Reconciliation happens for MongoDBOpsManager when license licenseSecretRef is removed", func(t *testing.T) {
+		oldOm := omv1.NewOpsManagerBuilder().Build()
+		oldOm.Spec.License = &omv1.MongoDBOpsManagerLicense{LicenseSecretRef: &omv1.SecretRef{Name: "om-license"}}
+		newOm := oldOm.DeepCopy()
+		newOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+		assert.True(t, PredicatesForOpsManager().Update(event.UpdateEvent{ObjectOld: oldOm, ObjectNew: newOm}))
+	})
 	t.Run("No reconciliation for MongoDBOpsManager with ExternalAppDBRef when vault backend and nothing meaningful changed", func(t *testing.T) {
 		t.Setenv(vaultSecretBackendEnvVar, "VAULT_BACKEND")
 		oldOm := omv1.NewOpsManagerBuilder().Build()
