@@ -904,6 +904,7 @@ task_groups:
       - e2e_tls_rs_intermediate_ca
       - e2e_tls_sharded_cluster_certs_prefix
       - e2e_sharded_cluster_migration
+      - e2e_replica_set_no_tls_no_status_is_set
       - e2e_feature_controls_authentication
       - e2e_replica_set
       - e2e_replica_set_liveness_probe

@@ -459,6 +459,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_no_tls_no_status_is_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replica_set_tls_default
     tags: [ "patch-run", "e2e_medium" ]
     commands:
