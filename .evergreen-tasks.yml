@@ -906,6 +906,8 @@ tasks:
   - name: e2e_om_ops_manager_license
     tags: [ "patch-run" ]
     commands:
+      - func: assume_ea_license_secret_role
+      - func: fetch_gsa_credentials
       - func: "e2e_test"
 
   - name: e2e_om_ops_manager_upgrade
