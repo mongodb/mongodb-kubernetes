@@ -68,6 +68,11 @@ const (
 	ScramClientCertOperatorMountPath = "/var/lib/tls/scram-client/"
 	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
 	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
+
+	OIDCClientSecretMountPath = "/mongot/oidcClientSecret"           // #nosec G101 -- path, not a password
+	TempOIDCClientSecretPath  = tempVolumePath + "/oidcClientSecret" // #nosec G101 -- path, not a password
+	OIDCIdPCAConfigMapKey     = "ca.crt"                             // fixed key in the user's IdP-CA ConfigMap (spec.source.oidc.idpCaConfigMapRef), same convention as spec.source.external.tls.ca
+	OIDCIdPCaMountPath        = "/mongot/oidcIdpCa"                  // dir mount of the IdP-CA ConfigMap; idpCaFile = mountPath + "/" + OIDCIdPCAConfigMapKey
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
