@@ -55,7 +55,24 @@ func hangingServer(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	return srv, &requests
 }
 
-func TestRequest_DeadlineAbortsHangingServer(t *testing.T) {
+func TestParseAPIError_StandardBodyNotOverwritten(t *testing.T) {
+	body := []byte(`{"error":403,"reason":"Forbidden","errorCode":"SOME_CODE","detail":"canonical detail","message":"must not replace detail"}`)
+	err := parseAPIError(http.StatusForbidden, "PUT", "http://om/x", body)
+	require.NotNil(t, err)
+	assert.Equal(t, "SOME_CODE", err.ErrorCode)
+	assert.Equal(t, "canonical detail", err.Detail)
+}
+
+func TestParseAPIError_ArtifactOutdatedBody(t *testing.T) {
+	body := []byte(`{"error":409,"reason":"Conflict","errorCode":"ARTIFACT_OUTDATED","detail":"artifact is not newer than the installed one"}`)
+	err := parseAPIError(http.StatusConflict, "PUT", "http://om/api/public/v1.0/admin/licenses", body)
+	require.NotNil(t, err)
+	assert.True(t, err.IsConflict())
+	assert.Equal(t, "ARTIFACT_OUTDATED", err.ErrorCode)
+	assert.Equal(t, "Status: 409 (Conflict), ErrorCode: ARTIFACT_OUTDATED, Detail: artifact is not newer than the installed one", err.Error())
+}
+
+func TestRequestWithContext_DeadlineAbortsHangingServer(t *testing.T) {
 	tests := []struct {
 		name    string
 		options []func(*Client) error
