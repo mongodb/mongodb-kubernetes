@@ -135,9 +135,6 @@ func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
 }
 
 func (r *ReconcileMongoDbReplicaSet) updateStatus(ctx context.Context, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
-	if err := st.Error(); errors.IsConflict(err) {
-		return reconcile.Result{}, err
-	}
 	return commoncontroller.UpdateStatusOptimistic(ctx, r.client, reconciledResource, st, log, statusOptions...)
 }
 

@@ -12,7 +12,7 @@ A weekly report of the flakiest MCK e2e tasks led to a series of fixes. Test-onl
 |---|---|---|
 | Timeouts, stale user secret wait, `om_request` read-timeout retry, race operator memory | PR #1709 | merged |
 | Shard removal leaves an orphaned replica set (KUBE-519) | PR #1710, `maciejk/fix-shard-removal-orphan-replica-set` | open, review requested, patches green (21/21) |
-| Replica set scale-down falls back to StatefulSet replicas when `Status.Members == 0` | PR #1715, `maciejk/fix-rs-scale-stale-status` | draft |
+| Replica set scale-down falls back to StatefulSet replicas when `Status.Members == 0` | PR #1715, `maciejk/fix-rs-scale-stale-status` | closed 2026-10-16 in favour of the optimistic status write (#1721); branch kept |
 | AppDB reconcile continues on Ops Manager 401 after a password change | PR #1716, `maciejk/fix-appdb-401-deadlock` | draft |
 | Test fixes: RS scram stale secret wait, search x509 mongod params wait | PR #1717, `maciejk/fix-flaky-master-tests-2` | draft, `skip-changelog` |
 | Systemic fix pilot (this PR): optimistic status write for the replica set controller, plus the design docs | `maciejk/status-write-optimistic-pilot` | draft, nothing run in CI yet |
@@ -20,7 +20,7 @@ A weekly report of the flakiest MCK e2e tasks led to a series of fixes. Test-onl
 Evergreen patches submitted (priority 40), results not yet collected at pause time:
 - RS scram + search x509 test fixes: https://spruce.corp.mongodb.com/version/6ad0ffde22bcdf0007fd5e54
 - AppDB 401 fix (`e2e_om_appdb_scram`): https://spruce.corp.mongodb.com/version/6ad100f25a7579000724ec77
-- RS scale-down stale status fix (`e2e_replica_set`): https://spruce.corp.mongodb.com/version/6ad100fd74b9bd00072a89d6
+- RS scale-down stale status fix from the closed #1715 (`e2e_replica_set`): https://spruce.corp.mongodb.com/version/6ad100fd74b9bd00072a89d6 (useful only as a baseline)
 
 Local worktrees (siblings of `mongodb-kubernetes`, may need `git worktree prune` if removed): `mck-rs-scale`, `mck-appdb-401`, `mck-status-design` (design branch `maciejk/status-write-design`, local only, its commits are copied into this PR), `mck-status-pilot`. The `mongodb-kubernetes` checkout is on `maciejk/fix-flaky-master-tests-2`.
 
@@ -33,7 +33,7 @@ Sample sizes are small (1 to 12 failed runs per task). `flaky_aggregate` could n
 | `e2e_search_mongot_replicaset_x509_auth` | Race: `createSearchIndexes` ran before agents applied `mongotHost` (`SearchNotEnabled`, code 31082). MongoDBSearch Running only means mongot is ready; the source MongoDB was already Running | fixed in #1717 (wait for mongod parameters). A second cluster, a 300s timeout in `test_create_database_resource`, is not analysed |
 | `e2e_replica_set_scram_sha_256_user_connectivity` | 1 of 8 failures was the stale connection-string secret (same as the sharded sibling fixed in #1709). The rest are OpenShift phase-wait timeouts (400/600s, 150s) with a `FailedMount` on the group secret, and one `Operator hasn't started after 60 retries` | stale secret fixed in #1717. OpenShift timeouts: environment, no confirmed cause |
 | `e2e_om_appdb_scram` | After an AppDB password change OM returns 401, the AppDB reconcile returned early with OM `Failed`, so the new password was never published and OM never rolled. Also a dead `err` check mislabelled the failure (`appdbreplicaset_controller.go` ~1993) | fixed in #1716, e2e pending. Why the first 401 happens is not confirmed |
-| `e2e_replica_set` | Scale 3 to 1 rejected by OM (`Cannot add/remove multiple voting members`). Root cause is the lost status update, section 4 | symptom fix in #1715, systemic fix is this pilot |
+| `e2e_replica_set` | Scale 3 to 1 rejected by OM (`Cannot add/remove multiple voting members`). Root cause is the lost status update, section 4 | symptom fix #1715 closed; systemic fix is the pilot #1721 |
 | `e2e_tls_sharded_cluster_certs_prefix` | 12 failures: 6 `test_rotate_tls_certificate` 800s timeouts (no state transition, cause unknown; commit `5081f278c` notes rotation does not always show a phase change), 5 fast OM project-create errors (401 `NOT_ORG_GROUP_CREATOR`, 401 `USER_CANNOT_ACCESS_GROUP`, 409 `GROUP_ALREADY_EXISTS`), 1 OM 401 `UNEXPECTED_ERROR` | not investigated further |
 
 Other open items: OpenShift CPU capacity ("Insufficient cpu"); the unexplained 610s `test_create_sharded_cluster` failure on 2026-10-09; cloud-qa returns spurious 401 `USER_CANNOT_ACCESS_GROUP` on its own, so the digest-replay explanation in the #1709 description for an OpenShift 401 is overstated (a wording follow-up, not done); whether to add `USER_CANNOT_ACCESS_GROUP` to the transient messages in `assert_reaches_phase` (decision pending, the user wants root cause first).
@@ -100,30 +100,31 @@ Changes:
 - `pkg/kube/commoncontroller/resourcestatus.go`: `UpdateStatusOptimistic` (same mutation and log line as `UpdateStatus`, persisted with `Status().Update`; all errors returned).
 - `pkg/kube/annotations/annotations.go`: `SetAnnotationsOptimistic` (merge patch on a copy of the in-memory object, locked on its `resourceVersion`; on success copies back only the annotations and the new version, never the response). `SetAnnotations` and `RemoveAnnotation` are unchanged; refreshing a version from them is unsafe for the User controller, which does a whole-object `Update` after `SetAnnotations`.
 - `controllers/operator/mongodbreplicaset_controller.go`: `updateStatus` and `ensureBackupConfigurationAndUpdateStatus` overrides on `*ReconcileMongoDbReplicaSet`; the final annotation write uses the locked helper; a conflict returns as an error and the `Reconcile` defer turns it into a quiet `Requeue: true`. Reconcile order and `Failed` error handling are unchanged from master.
-- `controllers/operator/workflow/{status,failed}.go`: new `Error() error` on the shared `Status` interface so a `Failed(conflict)` status is not persisted. **Needs a decision**, see section 10.
 
 Tests: optimistic commoncontroller write tests; optimistic annotation tests (current object, stale object, in-memory status preserved, contrast with `SetAnnotations`); two replica set reconcile regressions (the incident sequence with scale-down 3 to 2 to 1 only after the conflict, and a stale reconcile that reaches the annotation write). The implementer reported the annotation regression fails when the locked helper is replaced by `SetAnnotations`; that swap was not re-run by the reviewer.
 
 Verification already done: `go build ./...`, `go test ./pkg/kube/... ./controllers/operator/... ./controllers/om/...` pass with `GOTOOLCHAIN=go1.26.9`, `gofmt` clean, `golangci-lint` hooks pass. Hooks that need `.generated/context.export.env` could not run locally. Not done: any run on a real cluster or in CI.
 
+Decision recorded: an `Error() error` method on the shared `workflow.Status` interface was tried and removed. A `Failed` status that wraps a conflict is written with the same stale in-memory object, so that write gets a 409 as well and is not persisted; the reconcile then requeues. The whole `controllers/operator` test package passed without the method, so no test covered it. A conflict on a non-status write (for example a StatefulSet update) wrapped into `Failed` is still persisted as before.
+
 History of the pilot, to avoid repeating mistakes: a first version synced the version from an unlocked annotation patch, which defeats the lock; the implementer worked around it by reordering the reconcile tail and changing error paths, which was rejected; the current version restores the order and locks the annotation write.
 
 ## 9. Behaviour changes to call out in review
 
-- Any conflict returned from the replica set reconcile (including a conflict on a StatefulSet update) is now a quiet requeue, not a `Failed` status plus retry.
+- Any conflict returned from the replica set reconcile is a quiet requeue. A conflict on a StatefulSet update that is wrapped into `Failed` is still persisted as `Failed`, as before; only conflicts that reach the reconcile as errors (status and annotation writes) are requeued.
 - A failed status write now returns an error instead of being silently dropped on the replica set path.
 - The Search envoy, metrics and VoyageAI controllers (no predicate) re-enqueue on any write; a refused write changes nothing on the server and does not re-enqueue.
 
 ## 10. Open decisions
 
-1. `Error() error` on the shared `workflow.Status` interface versus detecting a conflict at the few wrapping sites in the replica set controller. Interface change touches every controller's compilation.
-2. One change for all kinds versus extending kind by kind after the pilot is green on `e2e_replica_set`. Recommendation: extend after CI is green.
-3. Whether to remove the #1715 fallback in the write-path PR (design doc 7). The exit criterion proposed: remove it once this approach is green on `e2e_replica_set`.
-4. Whether to land the controller-runtime upgrade (v0.25) later and enable read-your-writes as a complement.
+1. One change for all kinds versus extending kind by kind after the pilot is green on `e2e_replica_set`. Recommendation: extend after CI is green.
+2. Whether to land the controller-runtime upgrade (v0.25) later and enable read-your-writes as a complement.
+
+Resolved: `Error()` on `workflow.Status` removed (section 8); #1715 closed, so the StatefulSet replicas fallback is not merged. Caveat: the pilot has not run in CI, and the fallback would also have covered an older status with `members` unset (for example after an upgrade); that case was not tested.
 
 ## 11. Resume plan
 
-1. Review and decide open decision 1; get this draft PR reviewed.
+1. Get this draft PR reviewed.
 2. Submit the targeted patch: `evergreen patch -p mongodb-kubernetes -v e2e_mdb_kind_ubi_cloudqa -v e2e_static_mdb_kind_ubi_cloudqa -v e2e_custom_domain_mdb_kind_ubi_cloudqa -t e2e_replica_set -d "<branch>: [AI] optimistic status write pilot" -f -y`, then `evg set_priority <id> --priority 40`. Check the operator logs for conflict frequency and for self-conflicts (a conflict at the annotation write on a current object means a missed version refresh).
 3. Add unit tests for the stale path of every other write to the MongoDB CR in the replica set controller (an audit of other CR writes in that controller found none besides `SetAnnotations`, reported by the implementer, not independently confirmed).
 4. Extend per kind (standalone, sharded, MRS, OM, user, search, VoyageAI). Prerequisites per kind: move pre-`UpdateStatus` status edits into options (MRS `FeatureCompatibilityVersion`, Search `MetricsForwarder`/`LoadBalancer` nils), audit every CR write in that controller for the version chain, handle the sharded `sc.Status = *deploymentState.Status` restore, and handle the sub-path writes of OM and Search (a PUT sends the whole status; safe under the version check but a behaviour change to review). Search needs the most care (three writers).
