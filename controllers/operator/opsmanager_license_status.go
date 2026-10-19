@@ -29,6 +29,9 @@ func (h *LicenseReconcilerHelper) setLicenseActiveCondition() {
 		}
 	}
 	message := fmt.Sprintf("License state is %s. Ops Manager holds %s.", state, license)
+	if h.holderID != "" {
+		message += fmt.Sprintf(" Holder ID %s.", h.holderID)
+	}
 
 	active, reason := true, status.ReasonLicenseActive
 	if state != licenseStateLicensed {
