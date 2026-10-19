@@ -11,6 +11,9 @@ from pytest import fixture
 from tests.opsmanager.license_e2e_helpers import (
     RECOMPUTE_ANNOTATION,
     assert_om_and_appdb_running,
+    current_artifact_id,
+    ea_artifact_row,
+    mint_run_license,
     om_holder_id,
     ops_manager,
     wait_for_cr_license_sync,
@@ -39,6 +42,13 @@ class TestOpsManagerLicenseE2E:
         assert ready["status"] == "False"
         assert ready["reason"] == "LicenseNotReady"
         assert f"Holder ID {om_holder_id(ops_manager)}." in ready["message"]
+
+    def test_mint_license_for_this_ops_manager(self, ops_manager: MongoDBOpsManager):
+        """EA issues a license bound to this Ops Manager, and lists it for the run's principal."""
+        artifact_id = mint_run_license(ops_manager)
+
+        assert artifact_id == current_artifact_id()
+        assert ea_artifact_row(ops_manager, artifact_id)["status"] == "ISSUED"
 
     def test_recompute_annotation(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
