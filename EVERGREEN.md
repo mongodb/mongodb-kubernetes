@@ -104,6 +104,12 @@ evergreen patch -p mongodb-kubernetes -d "Test unreleased Ops Manager" -f -y -u 
   -v build_om_dev_images -v e2e_om_dev_kind_ubi
 ```
 
+The licensing tests are split in three tasks. `e2e_om_ops_manager_license` runs against one connected Ops
+Manager, `e2e_om_ops_manager_license_air_gapped` runs against an Ops Manager whose proxy cannot reach EA, and
+`e2e_om_ops_manager_license_two_om` runs two Ops Managers competing for one license. The three tasks need the
+Evergreen project expansions `ea_license_secret_role_arn`, `om_dev_tarball_role_arn` and
+`ea_license_gsa_secret_arn` to be set on the project, their setup steps fail without them.
+
 To test a different build, point `OPS_MANAGER_DEV_TARBALL_KEY` at the commit keyed object
 `ea/<branch>/<revision>/mongodb-mms-<version>-ea-dev.tar.gz` of that build.
 
