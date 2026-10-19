@@ -100,6 +100,8 @@ type OpsManagerAdmin interface {
 	S3StoreBlockStoreAdmin
 	BlockStoreAdmin
 	OplogStoreAdmin
+	LicenseAdmin
+
 	// ReadDaemonConfig returns the daemon config by hostname and head db path
 	ReadDaemonConfig(ctx context.Context, hostName, headDbDir string) (backup.DaemonConfig, error)
 
