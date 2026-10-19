@@ -45,6 +45,11 @@ if [[ "${MDB_CUSTOM_AGENT_URL:-}" != "" ]]; then
     args+=(--custom-agent-url "${MDB_CUSTOM_AGENT_URL}")
 fi
 
+# The dev tag does not change between builds, so the build has to run every time.
+if [[ "${OM_DEV_BUILD:-}" != "" ]]; then
+    args+=(--skip-if-exists "false")
+fi
+
 if [[ "${FLAGS:-}" != "" ]]; then
     IFS=" " read -ra flags <<< "${FLAGS}"
     args+=("${flags[@]}")

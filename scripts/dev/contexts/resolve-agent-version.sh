@@ -17,7 +17,9 @@ if [[ -z "${MDB_AGENT_IMAGE_REPOSITORY:-}" ]]; then
 fi
 
 if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
-  AGENT_VERSION="$(jq -r --arg om "${CUSTOM_OM_VERSION}" \
+  # A dev build has no mapping of its own, its agent is the one of the version it is built from.
+  om_version="${CUSTOM_OM_VERSION%%-dev*}"
+  AGENT_VERSION="$(jq -r --arg om "${om_version}" \
     '.supportedImages."mongodb-agent".opsManagerMapping.ops_manager[$om].agent_version // empty' \
     "${PROJECT_DIR}/release.json")"
   if [[ -z "${AGENT_VERSION}" ]]; then

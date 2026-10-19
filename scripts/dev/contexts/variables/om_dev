@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+# The unreleased Ops Manager build under test, bump it when the Ops Manager team moves its dev
+# builds to a new version. The -dev suffix keeps the tag apart from the released image, which
+# shares the registry.
+export OM_VERSION="8.0.7-dev"
+export CUSTOM_OM_VERSION="${OM_VERSION}"
+export ops_manager_version="${OM_VERSION}"
+
+# Build from the unreleased Ops Manager build instead of the released one, see build_om_image.
+export OM_DEV_BUILD=true
