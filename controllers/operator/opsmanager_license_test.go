@@ -2,6 +2,8 @@ package operator
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
@@ -20,8 +23,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
+
+func licensedView(state string) api.LicenseView {
+	return api.LicenseView{Enforcement: &api.LicenseEnforcementView{EffectiveState: state}}
+}
 
 func viewWithLicenses(state string, licenses ...api.LicenseArtifactView) api.LicenseView {
 	return api.LicenseView{
@@ -34,11 +43,112 @@ func artifactView(artifactID string) api.LicenseArtifactView {
 	return api.LicenseArtifactView{ArtifactID: artifactID, Usable: true, Status: "ACTIVE"}
 }
 
+// achieveSpec records the spec as achieved on the resource, the way the controller refreshes the
+// LastAchievedSpec annotation after a successful reconciliation.
+func achieveSpec(t *testing.T, om *omv1.MongoDBOpsManager) {
+	t.Helper()
+	raw, err := json.Marshal(om.Spec)
+	require.NoError(t, err)
+	if om.Annotations == nil {
+		om.Annotations = map[string]string{}
+	}
+	om.Annotations[util.LastAchievedSpec] = string(raw)
+}
+
 func licenseReadyCondition(t *testing.T, om *omv1.MongoDBOpsManager) metav1.Condition {
 	t.Helper()
 	c := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionOpsManagerLicenseReady)
 	require.NotNil(t, c)
 	return *c
+}
+
+func reconciledCondition(t *testing.T, options []status.Option) metav1.Condition {
+	t.Helper()
+	opt, found := status.GetOption(options, status.LicenseStatusOption{})
+	require.True(t, found)
+	return opt.(status.LicenseStatusOption).Condition
+}
+
+func assertLicenseReconcileReason(t *testing.T, options []status.Option, reason string) {
+	t.Helper()
+	assert.Equal(t, reason, reconciledCondition(t, options).Reason)
+}
+
+func TestMongoDBOpsManagerLicense_InstallRequested(t *testing.T) {
+	assert.False(t, (*omv1.MongoDBOpsManagerLicense)(nil).InstallRequested())
+	assert.False(t, (&omv1.MongoDBOpsManagerLicense{}).InstallRequested())
+	assert.True(t, (&omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}).InstallRequested())
+}
+
+func TestEnsureOpsManagerLicense_ProvisioningModels(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	licensed := licensedView("LICENSED")
+	eaLicensed := viewWithLicenses("LICENSED", artifactView("ea-auto"))
+
+	tests := []struct {
+		name          string
+		configure     func(*omv1.MongoDBOpsManager) []client.Object
+		licenseState  api.LicenseView
+		wantInstalled bool
+		wantArtifact  string
+	}{
+		{
+			name:         "connected EA observes OM state without spec.license",
+			configure:    func(*omv1.MongoDBOpsManager) []client.Object { return nil },
+			licenseState: eaLicensed,
+			wantArtifact: "ea-auto",
+		},
+		{
+			name: "spec.license without secretRef observes OM state",
+			configure: func(om *omv1.MongoDBOpsManager) []client.Object {
+				om.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+				return nil
+			},
+			licenseState: eaLicensed,
+			wantArtifact: "ea-auto",
+		},
+		{
+			name: "GitOps secretRef installs from Kubernetes Secret",
+			configure: func(om *omv1.MongoDBOpsManager) []client.Object {
+				om.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+				s := licenseSecretFor(om, "om-license", "license", artifact)
+				return []client.Object{&s}
+			},
+			licenseState:  licensed,
+			wantInstalled: true,
+			wantArtifact:  "art-1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			testOm := DefaultOpsManagerBuilder().Build()
+			extra := tc.configure(testOm)
+			r := newOmLicenseReconciler(t, testOm, extra...)
+			admin := &api.MockedOmAdmin{LicenseState: tc.licenseState}
+
+			st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+			assert.True(t, st.IsOK())
+
+			if tc.wantInstalled {
+				assert.Equal(t, json.RawMessage(artifact), admin.InstalledLicense)
+			} else {
+				assert.Nil(t, admin.InstalledLicense)
+			}
+			ready := licenseReadyCondition(t, testOm)
+			assert.Contains(t, ready.Message, "License state is LICENSED.")
+			assert.Contains(t, ready.Message, tc.wantArtifact)
+
+			wantReason := status.ReasonLicenseReconciled
+			if tc.wantInstalled {
+				wantReason = status.ReasonLicenseInstalled
+			}
+			c := reconciledCondition(t, st.StatusOptions())
+			assert.Equal(t, status.ConditionLicenseReconciled, c.Type)
+			assert.Equal(t, metav1.ConditionTrue, c.Status)
+			assert.Equal(t, wantReason, c.Reason)
+		})
+	}
 }
 
 func TestEnsureOpsManagerLicense_ObserveGetFailurePolicy(t *testing.T) {
@@ -87,10 +197,284 @@ func TestEnsureOpsManagerLicense_WritesReadyConditionFromGet(t *testing.T) {
 	assert.Contains(t, ready.Message, "license art-1")
 }
 
+func TestEnsureOpsManagerLicense_InstallsWhenArtifactChanges(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{LicenseState: licensedView("LICENSED")}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, json.RawMessage(artifact), admin.InstalledLicense)
+
+	achieveSpec(t, testOm)
+	admin.InstalledLicense = nil
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Nil(t, admin.InstalledLicense)
+}
+
+func TestEnsureOpsManagerLicense_ObservesOMChangesWhenSecretUnchanged(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{LicenseState: licensedView("LICENSED")}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	require.NotNil(t, admin.InstalledLicense)
+
+	achieveSpec(t, testOm)
+	admin.InstalledLicense = nil
+	admin.LicenseState = viewWithLicenses("GRACE", artifactView("art-1"))
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Nil(t, admin.InstalledLicense)
+	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "License state is GRACE.")
+}
+
+func TestEnsureOpsManagerLicense_ReinstallsWhenOMLostTheLicense(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{LicenseState: licensedView("LICENSED")}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	require.NotNil(t, admin.InstalledLicense)
+	achieveSpec(t, testOm)
+
+	// OM lost the license out of band, the spec still asks for it and is installed again.
+	admin.LicenseState = licensedView("GRACE")
+	admin.InstalledLicense = nil
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.NotNil(t, admin.InstalledLicense)
+}
+
+func TestEnsureOpsManagerLicense_SkipsReinstallWhenOMStillLicensed(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("LICENSED", artifactView("art-1")),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Nil(t, admin.InstalledLicense)
+}
+
+func TestEnsureOpsManagerLicense_InstallFailed(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{LicenseInstallErr: assert.AnError}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+
+	c := reconciledCondition(t, st.StatusOptions())
+	assert.Equal(t, status.ConditionLicenseReconciled, c.Type)
+	assert.Equal(t, metav1.ConditionFalse, c.Status)
+	assert.Equal(t, status.ReasonLicenseInstallFailed, c.Reason)
+}
+
+func TestEnsureOpsManagerLicense_InstallConflictFails(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+
+	conflict := http.StatusConflict
+	admin := &api.MockedOmAdmin{
+		LicenseInstallErr: &apierror.Error{Status: &conflict, ErrorCode: "ARTIFACT_OUTDATED", Detail: "artifact is not newer than the installed one"},
+	}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Empty(t, admin.InstalledLicense)
+
+	c := reconciledCondition(t, st.StatusOptions())
+	assert.Equal(t, status.ReasonLicenseInstallFailed, c.Reason)
+	assert.Contains(t, c.Message, "rejected license art-1")
+	assert.Contains(t, c.Message, "ErrorCode: ARTIFACT_OUTDATED")
+	assert.Contains(t, c.Message, "artifact is not newer than the installed one")
+}
+
+func TestEnsureOpsManagerLicense_SkipsInstallWithoutSecretRef(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseState: licensedView("UNLICENSED"),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Nil(t, admin.InstalledLicense)
+	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "License state is UNLICENSED.")
+}
+
+func TestEnsureOpsManagerLicense_InstallsWhenSecretRefPresent(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef: &omv1.SecretRef{Name: "om-license"},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	unlicensed := licensedView("UNLICENSED")
+	licensed := viewWithLicenses("LICENSED", artifactView("art-1"))
+	admin := &api.MockedOmAdmin{
+		LicenseReadState: &unlicensed,
+		LicenseState:     licensed,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, json.RawMessage(artifact), admin.InstalledLicense)
+}
+
+func TestEnsureOpsManagerLicense_ReplacesAForeignArtifact(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{LicenseState: viewWithLicenses("LICENSED", artifactView("art-other"))}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.True(t, st.IsOK())
+	assert.Equal(t, json.RawMessage(artifact), admin.InstalledLicense)
+	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "license art-1")
+}
+
+func TestEnsureOpsManagerLicense_InstallsNewerLicenseAfterOutOfBandChange(t *testing.T) {
+	newArtifact := licenseArtifactJSON("art-2")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", newArtifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	manualUpload := viewWithLicenses("LICENSED", artifactView("art-ui"))
+	installed := viewWithLicenses("LICENSED", artifactView("art-2"))
+	admin := &api.MockedOmAdmin{
+		LicenseReadState: &manualUpload,
+		LicenseState:     installed,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, json.RawMessage(newArtifact), admin.InstalledLicense)
+	assert.Empty(t, admin.ReleasedIDs)
+}
+
+func TestEnsureOpsManagerLicense_RenewalWithoutReceiptSkipsRelease(t *testing.T) {
+	newArtifact := licenseArtifactJSON("art-2")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", newArtifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseReadState: viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseState:     viewWithLicenses("LICENSED", artifactView("art-2")),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assert.Equal(t, json.RawMessage(newArtifact), admin.InstalledLicense)
+}
+
+func TestEnsureOpsManagerLicense_SkipsReinstallWhenSameArtifactStillListed(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	sameArtifact := viewWithLicenses("LICENSED", artifactView("art-1"))
+	admin := &api.MockedOmAdmin{
+		LicenseReadState: &sameArtifact,
+		LicenseState:     sameArtifact,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Nil(t, admin.InstalledLicense)
+}
+
+func TestEnsureOpsManagerLicense_MissingLicenseSecretFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	r := newOmLicenseReconciler(t, testOm)
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, &api.MockedOmAdmin{}, zap.S())
+	assert.False(t, st.IsOK())
+}
+
+func TestEnsureOpsManagerLicense_MissingLicenseSecretKeyFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	badSecret := licenseSecretFor(testOm, "om-license", "other-key", `{}`)
+	r := newOmLicenseReconciler(t, testOm, &badSecret)
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, &api.MockedOmAdmin{}, zap.S())
+	assert.False(t, st.IsOK())
+}
+
+func TestEnsureOpsManagerLicense_MalformedLicenseArtifactFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	badSecret := licenseSecretFor(testOm, "om-license", "license", "not-a-license")
+	r := newOmLicenseReconciler(t, testOm, &badSecret)
+	admin := &api.MockedOmAdmin{}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Nil(t, admin.InstalledLicense)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseArtifactInvalid)
+}
+
+func TestEnsureOpsManagerLicense_InstallSucceedsWhenStateListsExtraArtifacts(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("",
+			artifactView("art-1"),
+			artifactView("art-2"),
+		),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Nil(t, admin.InstalledLicense)
+	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "license art-1")
+}
+
 func newOmLicenseReconciler(t *testing.T, opsManager *omv1.MongoDBOpsManager, extra ...client.Object) *OpsManagerReconciler {
 	t.Helper()
 	objects := append([]client.Object{opsManager.DeepCopy()}, extra...)
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, objects...)
 	return NewOpsManagerReconciler(context.Background(), kubeClient, nil, images.ImageUrls{}, "", "", architectures.NonStatic, "", omConnectionFactory.GetConnectionFunc, nil, nil)
+}
+
+func licenseSecretFor(opsManager *omv1.MongoDBOpsManager, name, key, value string) corev1.Secret {
+	return secret.Builder().
+		SetName(name).
+		SetNamespace(opsManager.Namespace).
+		SetStringMapToData(map[string]string{key: value}).
+		Build()
+}
+
+// licenseArtifactJSON builds a signed-artifact envelope whose decoded claims carry artifactID,
+// the shape EA issues and OM verifies.
+func licenseArtifactJSON(artifactID string) string {
+	claims, err := json.Marshal(map[string]string{"artifact_id": artifactID})
+	if err != nil {
+		panic(err)
+	}
+	return `{"payload":"` + base64.StdEncoding.EncodeToString(claims) + `"}`
 }
