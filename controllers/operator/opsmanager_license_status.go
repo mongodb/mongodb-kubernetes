@@ -51,6 +51,17 @@ func licenseStateReason(state string) string {
 	return reason
 }
 
+// licenseReconciledStatus reports what happened to the license in secretRef.
+func (h *LicenseReconcilerHelper) licenseReconciledStatus(requestedID string) workflow.Status {
+	if requestedID == "" {
+		return licenseReconciled(status.ReasonLicenseReconciled, "")
+	}
+	if h.observed.HoldsArtifact(requestedID) {
+		return licenseReconciled(status.ReasonLicenseInstalled, fmt.Sprintf("Ops Manager holds license %s from secretRef.", requestedID))
+	}
+	return licenseReconciled(status.ReasonLicenseReconciled, "")
+}
+
 func licenseReconciled(reason, message string) workflow.Status {
 	return workflow.OK().WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseReconciledCondition(true, reason, message)))
 }
