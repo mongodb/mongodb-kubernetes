@@ -1,7 +1,5 @@
-import yaml
-from kubetester import create_or_update_secret, run_periodically, try_load
+from kubetester import create_or_update_secret, try_load
 from kubetester.certs import create_agent_tls_certs, create_tls_certs, create_x509_mongodb_tls_certs, generate_cert
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -12,6 +10,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
+from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.tls_utils import create_keyfile_password_secret, encrypt_tls_key_with_password
@@ -251,21 +250,11 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 
 
 @mark.e2e_search_mongot_replicaset_x509_auth
-def test_wait_for_mongod_parameters(mdb: MongoDB):
+def test_wait_for_mongod_parameters(mdb: MongoDB, namespace: str):
     # The mongot wiring is applied after the MongoDB is already Running, so wait for it on the mongods directly.
-    def check_mongod_parameters():
-        pod_parameters = []
-        for idx in range(mdb.get_members()):
-            mongod_config = yaml.safe_load(
-                KubernetesTester.run_command_in_pod_container(
-                    f"{mdb.name}-{idx}", mdb.namespace, ["cat", "/data/automation-mongod.conf"]
-                )
-            )
-            pod_parameters.append(mongod_config.get("setParameter", {}))
-        are_set = all("mongotHost" in p and "searchIndexManagementHostAndPort" in p for p in pod_parameters)
-        return are_set, f"Not all pods have mongot parameters set: {pod_parameters}"
-
-    run_periodically(check_mongod_parameters, timeout=600)
+    verify_rs_mongod_parameters(namespace, mdb.name, mdb.get_members(), None)
+    # The parameters appear in the config before mongod restarts with them; the goal version covers the restart.
+    mdb.get_om_tester().wait_agents_ready()
 
 
 @fixture(scope="function")
