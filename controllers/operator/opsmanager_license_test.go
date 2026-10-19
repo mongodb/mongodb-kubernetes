@@ -23,6 +23,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -91,6 +92,10 @@ func TestMongoDBOpsManagerLicense_InstallRequested(t *testing.T) {
 	assert.False(t, (*omv1.MongoDBOpsManagerLicense)(nil).InstallRequested())
 	assert.False(t, (&omv1.MongoDBOpsManagerLicense{}).InstallRequested())
 	assert.True(t, (&omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}).InstallRequested())
+	assert.False(t, (*omv1.MongoDBOpsManagerLicense)(nil).AutoReleaseReceiptsRequested())
+	assert.False(t, (&omv1.MongoDBOpsManagerLicense{}).AutoReleaseReceiptsRequested())
+	policy := &omv1.MongoDBOpsManagerLicense{ReleaseReceiptsPolicy: omv1.ReleaseReceiptsAutomatic}
+	assert.True(t, policy.AutoReleaseReceiptsRequested())
 }
 
 func TestEnsureOpsManagerLicense_ProvisioningModels(t *testing.T) {
@@ -394,6 +399,150 @@ func TestEnsureOpsManagerLicense_AutoReleaseClearsMarkersWhenAlreadyUncovered(t 
 	assert.Empty(t, admin.ReleasedIDs)
 }
 
+func TestEnsureOpsManagerLicense_ReleaseWithReceiptInOneStep(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	seedInstalled(t, testOm, "om-license")
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("om-license")},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseState:   viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseReceipt: `{"artifactId":"art-1"}`,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
+
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+	assertNotOwnedByOperator(t, got)
+}
+
+func TestEnsureOpsManagerLicense_ReceiptAddedAfterRelease(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	seedInstalled(t, testOm, "om-license")
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("LICENSED", artifactView("art-1")),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
+
+	achieveSpec(t, testOm)
+	receiptSecret := emptyReceiptSecret(testOm, "art-1-release-receipt")
+	require.NoError(t, r.client.Create(context.Background(), &receiptSecret))
+	testOm.Spec.License.ReleaseReceipts = []omv1.LicenseReleaseReceipt{releaseReceipt("om-license")}
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+}
+
+func TestEnsureOpsManagerLicense_LostReceiptIsWrittenAgain(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("old-license")},
+	}
+	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &oldLicense)
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("", releasedArtifactView("art-1")),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	delete(got.Data, util.DefaultOpsManagerReleaseReceiptKey)
+	require.NoError(t, r.client.Update(context.Background(), &got))
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	got = getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+	assert.Empty(t, admin.ReleasedIDs)
+}
+
+func TestEnsureOpsManagerLicense_ReceiptSecretIsRebuilt(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("old-license")},
+	}
+	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
+	receiptSecret := licenseSecretFor(testOm, "art-1-release-receipt", "note", "customer note")
+	receiptSecret.Labels = map[string]string{"team": "licensing"}
+	r := newOmLicenseReconciler(t, testOm, &oldLicense, &receiptSecret)
+
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("", releasedArtifactView("art-1")),
+	}
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+	assert.NotContains(t, got.Data, "note")
+	assert.Empty(t, got.Labels)
+}
+
+func TestEnsureOpsManagerLicense_WrittenReceiptSkipsOpsManager(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("old-license")},
+	}
+	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
+	receipt := licenseSecretFor(testOm, "art-1-release-receipt", util.DefaultOpsManagerReleaseReceiptKey, `{"artifactId":"art-1"}`)
+	r := newOmLicenseReconciler(t, testOm, &oldLicense, &receipt)
+	admin := &api.MockedOmAdmin{
+		LicenseState:      viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseReceiptErr: assert.AnError,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+}
+
+func TestEnsureOpsManagerLicense_ReceiptFetchedOnlyOnce(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("old-license")},
+	}
+	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &oldLicense)
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("", releasedArtifactView("art-1")),
+	}
+
+	for range 5 {
+		assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	}
+
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	delete(got.Data, util.DefaultOpsManagerReleaseReceiptKey)
+	require.NoError(t, r.client.Update(context.Background(), &got))
+	for range 3 {
+		assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	}
+}
+
+func TestEnsureOpsManagerLicense_ReleasedArtifactInSecretRefFails(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef:       &omv1.SecretRef{Name: "om-license"},
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("released-license")},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	releasedSecret := licenseSecretFor(testOm, "released-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret, &releasedSecret)
+	admin := &api.MockedOmAdmin{}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assert.Nil(t, admin.InstalledLicense)
+}
+
 func TestEnsureOpsManagerLicense_DoesNotReleaseWithoutPriorInstall(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
@@ -453,7 +602,9 @@ func TestEnsureOpsManagerLicense_ReleaseDoesNotReinstallWithoutSecretRef(t *test
 	artifact := licenseArtifactJSON("art-1")
 	testOm := DefaultOpsManagerBuilder().Build()
 	seedInstalled(t, testOm, "om-license")
-	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("om-license")},
+	}
 	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
 	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
 	uncovered := viewWithLicenses("GRACE", releasedArtifactView("art-1"))
@@ -536,6 +687,77 @@ func TestEnsureOpsManagerLicense_InstallsNewerLicenseAfterOutOfBandChange(t *tes
 	assert.Empty(t, admin.ReleasedIDs)
 }
 
+func TestEnsureOpsManagerLicense_RenewalWritesReceiptOfReplacedArtifact(t *testing.T) {
+	newArtifact := licenseArtifactJSON("art-2")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef:       &omv1.SecretRef{Name: "om-license"},
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("old-license")},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", newArtifact)
+	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret, &oldLicense)
+	admin := &api.MockedOmAdmin{
+		LicenseReadState: viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseState: viewWithLicenses("LICENSED",
+			artifactView("art-2"),
+			artifactView("art-1"),
+		),
+		LicenseReceipt: `{"artifactId":"art-1"}`,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assert.Equal(t, json.RawMessage(newArtifact), admin.InstalledLicense)
+
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+}
+
+func TestEnsureOpsManagerLicense_WritesReceiptForReleasedArtifactRow(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("old-license")},
+	}
+	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &oldLicense)
+	admin := &api.MockedOmAdmin{
+		LicenseState:   viewWithLicenses("GRACE", releasedArtifactView("art-1")),
+		LicenseReceipt: `{"artifactId":"art-1"}`,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+}
+
+func TestEnsureOpsManagerLicense_ReceiptPendingWhileOpsManagerHoldsArtifact(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("ea-license")},
+	}
+	eaLicense := licenseSecretFor(testOm, "ea-license", "license", licenseArtifactJSON("art-ea"))
+	r := newOmLicenseReconciler(t, testOm, &eaLicense)
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("LICENSED", artifactView("art-ea")),
+	}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.True(t, st.IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assert.Contains(t, testOm.Status.OpsManagerStatus.Warnings, status.Warning(
+		"Ops Manager still holds license art-ea, its release receipt is written once it is released",
+	))
+	err := r.client.Get(context.Background(), client.ObjectKey{Namespace: testOm.Namespace, Name: "art-ea-release-receipt"}, &corev1.Secret{})
+	assert.True(t, apiErrors.IsNotFound(err))
+
+	admin.LicenseReadState = &api.LicenseView{Licenses: []api.LicenseArtifactView{releasedArtifactView("art-ea")}}
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	got := getLicenseReceiptSecret(t, r, testOm, "art-ea-release-receipt")
+	assert.Contains(t, got.Data, util.DefaultOpsManagerReleaseReceiptKey)
+	assert.Empty(t, admin.ReleasedIDs)
+}
+
 func TestEnsureOpsManagerLicense_RenewalWithoutReceiptSkipsRelease(t *testing.T) {
 	newArtifact := licenseArtifactJSON("art-2")
 	testOm := DefaultOpsManagerBuilder().Build()
@@ -550,6 +772,32 @@ func TestEnsureOpsManagerLicense_RenewalWithoutReceiptSkipsRelease(t *testing.T)
 	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
 	assert.Equal(t, json.RawMessage(newArtifact), admin.InstalledLicense)
+}
+
+func TestEnsureOpsManagerLicense_InstallDoesNotReleaseUnlistedLicense(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef:       &omv1.SecretRef{Name: "om-license"},
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("old-license")},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-old"))
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret, &oldLicense)
+	admin := &api.MockedOmAdmin{
+		LicenseReadState: viewWithLicenses("LICENSED",
+			artifactView("art-ea"),
+			releasedArtifactView("art-old"),
+		),
+		LicenseState: viewWithLicenses("LICENSED",
+			artifactView("art-1"),
+			releasedArtifactView("art-old"),
+		),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assert.Equal(t, json.RawMessage(artifact), admin.InstalledLicense)
 }
 
 func TestEnsureOpsManagerLicense_SkipsReinstallWhenSameArtifactStillListed(t *testing.T) {
@@ -598,6 +846,39 @@ func TestEnsureOpsManagerLicense_MalformedLicenseArtifactFails(t *testing.T) {
 	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseArtifactInvalid)
 }
 
+func TestEnsureOpsManagerLicense_ReceiptEntryWithMissingSecretFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
+			SecretRef: omv1.SecretRef{Name: "missing-license"},
+		}},
+	}
+	r := newOmLicenseReconciler(t, testOm)
+	admin := &api.MockedOmAdmin{}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReceiptFailed)
+}
+
+func TestEnsureOpsManagerLicense_ReceiptEntryWithMalformedSecretFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
+			SecretRef: omv1.SecretRef{Name: "malformed-license"},
+		}},
+	}
+	malformed := licenseSecretFor(testOm, "malformed-license", "license", "not-a-license")
+	r := newOmLicenseReconciler(t, testOm, &malformed)
+	admin := &api.MockedOmAdmin{}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseArtifactInvalid)
+}
+
 func TestEnsureOpsManagerLicense_InstallSucceedsWhenStateListsExtraArtifacts(t *testing.T) {
 	artifact := licenseArtifactJSON("art-1")
 	testOm := DefaultOpsManagerBuilder().Build()
@@ -616,6 +897,192 @@ func TestEnsureOpsManagerLicense_InstallSucceedsWhenStateListsExtraArtifacts(t *
 	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "license art-1")
 }
 
+func TestEnsureOpsManagerLicense_MissingReceiptSecretIsCreated(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt("old-license")},
+	}
+	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &oldLicense)
+	admin := &api.MockedOmAdmin{
+		LicenseState:   viewWithLicenses("", releasedArtifactView("art-1")),
+		LicenseReceipt: `{"artifactId":"art-1"}`,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+	assertNotOwnedByOperator(t, got)
+}
+
+func TestEnsureOpsManagerLicense_ReceiptEntryNamesArtifactByOldLicenseSecret(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
+			SecretRef: omv1.SecretRef{Name: "old-license"},
+		}},
+	}
+	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-old"))
+	r := newOmLicenseReconciler(t, testOm, &oldLicense)
+	admin := &api.MockedOmAdmin{
+		LicenseState:   viewWithLicenses("", releasedArtifactView("art-old")),
+		LicenseReceipt: `{"artifactId":"art-old"}`,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	got := getLicenseReceiptSecret(t, r, testOm, "art-old-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-old"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+}
+
+func TestEnsureOpsManagerLicense_ReceiptEntryOnInstalledLicenseFails(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef: &omv1.SecretRef{Name: "om-license"},
+		ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
+			SecretRef: omv1.SecretRef{Name: "same-artifact-different-secret"},
+		}},
+	}
+	sameArtifact := licenseSecretFor(testOm, "same-artifact-different-secret", "license", artifact)
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret, &sameArtifact)
+	admin := &api.MockedOmAdmin{}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Nil(t, admin.InstalledLicense)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseArtifactInvalid)
+}
+
+func TestEnsureOpsManagerLicense_AutoReceiptsWriteReleaseReceipt(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef:             &omv1.SecretRef{Name: "om-license"},
+		ReleaseReceiptsPolicy: omv1.ReleaseReceiptsAutomatic,
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseState:   viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseReceipt: `{"artifactId":"art-1"}`,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	achieveSpec(t, testOm)
+
+	testOm.Spec.License.SecretRef = nil
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+	assert.Empty(t, got.OwnerReferences)
+}
+
+func TestEnsureOpsManagerLicense_AutoReceiptFailureKeepsMarkersForRetry(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef:             &omv1.SecretRef{Name: "om-license"},
+		ReleaseReceiptsPolicy: omv1.ReleaseReceiptsAutomatic,
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("LICENSED", artifactView("art-1")),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	achieveSpec(t, testOm)
+
+	testOm.Spec.License.SecretRef = nil
+	admin.LicenseReceiptErr = assert.AnError
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
+	// The annotation still records the install intent, the controller refreshes it after every reconcile.
+	ref, err := testOm.GetLastInstallSecretRef()
+	require.NoError(t, err)
+	assert.Equal(t, "om-license", ref)
+
+	admin.LicenseReceiptErr = nil
+	admin.LicenseReceipt = `{"artifactId":"art-1"}`
+	admin.LicenseState = viewWithLicenses("GRACE", releasedArtifactView("art-1"))
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+}
+
+func TestEnsureOpsManagerLicense_AutoReceiptsWriteRenewalReceipt(t *testing.T) {
+	newArtifact := licenseArtifactJSON("art-2")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef:             &omv1.SecretRef{Name: "om-license"},
+		ReleaseReceiptsPolicy: omv1.ReleaseReceiptsAutomatic,
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", newArtifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseReadState: viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseState: viewWithLicenses("LICENSED",
+			artifactView("art-2"),
+			artifactView("art-1"),
+		),
+		LicenseReceipt: `{"artifactId":"art-1"}`,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assert.Equal(t, json.RawMessage(newArtifact), admin.InstalledLicense)
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+}
+
+func TestEnsureOpsManagerLicense_AutoReceiptsOffByDefault(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef: &omv1.SecretRef{Name: "om-license"},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseReadState: viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseState:     viewWithLicenses("LICENSED", artifactView("art-2")),
+		LicenseReceipt:   `{"artifactId":"art-1"}`,
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	err := r.client.Get(context.Background(), client.ObjectKey{Namespace: testOm.Namespace, Name: "art-1-release-receipt"}, &corev1.Secret{})
+	assert.True(t, apiErrors.IsNotFound(err))
+}
+
+func TestEnsureOpsManagerLicense_ReleaseReceiptReadFailureIsRetried(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	seedInstalled(t, testOm, "om-license")
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		ReleaseReceiptsPolicy: omv1.ReleaseReceiptsAutomatic,
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseState:      viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseReceiptErr: assert.AnError,
+	}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
+
+	admin.LicenseReceiptErr = nil
+	admin.LicenseState = viewWithLicenses("GRACE", releasedArtifactView("art-1"))
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
+	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
+}
+
 func TestEnsureOpsManagerLicense_ReleaseWhenOMHasNoLicenseClearsStaleStatus(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	seedInstalled(t, testOm, "om-license")
@@ -630,12 +1097,50 @@ func TestEnsureOpsManagerLicense_ReleaseWhenOMHasNoLicenseClearsStaleStatus(t *t
 	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "no license")
 }
 
+func TestOpsManagerReconciler_watchesLicenseSecrets(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef: &omv1.SecretRef{Name: "om-license"},
+	}
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	t.Cleanup(func() { api.CurrMockedAdmin = nil })
+
+	reconciler.watchLicenseSecrets(testOm)
+
+	licenseKey := getWatch(testOm.Namespace, "om-license", watch.Secret)
+	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources(), licenseKey)
+	assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[licenseKey], mock.ObjectKeyFromApiObject(testOm))
+}
+
 func newOmLicenseReconciler(t *testing.T, opsManager *omv1.MongoDBOpsManager, extra ...client.Object) *OpsManagerReconciler {
 	t.Helper()
 	objects := append([]client.Object{opsManager.DeepCopy()}, extra...)
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, objects...)
 	return NewOpsManagerReconciler(context.Background(), kubeClient, nil, images.ImageUrls{}, "", "", architectures.NonStatic, "", omConnectionFactory.GetConnectionFunc, nil, nil)
+}
+
+func emptyReceiptSecret(opsManager *omv1.MongoDBOpsManager, name string) corev1.Secret {
+	return corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: opsManager.Namespace}}
+}
+
+func releaseReceipt(licenseSecretName string) omv1.LicenseReleaseReceipt {
+	return omv1.LicenseReleaseReceipt{SecretRef: omv1.SecretRef{Name: licenseSecretName}}
+}
+
+func getLicenseReceiptSecret(t *testing.T, r *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, name string) corev1.Secret {
+	t.Helper()
+	got := corev1.Secret{}
+	require.NoError(t, r.client.Get(context.Background(), client.ObjectKey{Namespace: opsManager.Namespace, Name: name}, &got))
+	return got
+}
+
+func assertNotOwnedByOperator(t *testing.T, s corev1.Secret) {
+	t.Helper()
+	assert.Empty(t, s.OwnerReferences)
+	assert.Empty(t, s.Labels)
 }
 
 func licenseSecretFor(opsManager *omv1.MongoDBOpsManager, name, key, value string) corev1.Secret {
