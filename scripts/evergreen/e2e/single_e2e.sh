@@ -115,6 +115,7 @@ deploy_test_app() {
         "--set" "cognito_user_password=${cognito_user_password}"
         "--set" "cognito_workload_url=${cognito_workload_url}"
         "--set" "cognito_workload_user_id=${cognito_workload_user_id}"
+        "--set" "cognito_workload_token_endpoint=${cognito_workload_token_endpoint}"
         "--set" "helm.oci.version=${helm_oci_version}"
         "--set" "helm.oci.registry=${helm_oci_registry}"
         "--set" "helm.oci.repository=${helm_oci_repository}"

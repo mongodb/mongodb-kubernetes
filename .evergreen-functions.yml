@@ -8,6 +8,7 @@ variables:
       - cognito_user_password
       - cognito_workload_url
       - cognito_workload_user_id
+      - cognito_workload_token_endpoint
       - GRS_PASSWORD
       - GRS_USERNAME
       - OVERRIDE_VERSION_ID

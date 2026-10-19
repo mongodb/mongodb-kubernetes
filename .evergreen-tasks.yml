@@ -1607,6 +1607,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_enterprise_oidc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_sharded_openshift_external
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
