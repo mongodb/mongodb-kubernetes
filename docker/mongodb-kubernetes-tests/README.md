@@ -229,7 +229,7 @@ task is testing something structural, it should go into
     - func: "setup_kubectl"
   tasks:
     - e2e_all_mongodb_resources_parallel
-    - e2e_standalone_config_map
+    - e2e_replica_set_config_map
     - .... # more tasks
     - e2e_my_new_feature  # this is our new task!
 ```
