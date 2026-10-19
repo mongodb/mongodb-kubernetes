@@ -33,6 +33,9 @@ type Status interface {
 	// ReconcileResult returns the result of reconciliation to be returned by main controller
 	ReconcileResult() (reconcile.Result, error)
 
+	// Error returns the underlying error, if any.
+	Error() error
+
 	// Log performs logging of the status at some level if necessary
 	Log(log *zap.SugaredLogger)
 }
@@ -64,6 +67,10 @@ func (c commonStatus) statusOptions() []status.Option {
 		status.NewResourcesNotReadyOption(c.resourcesNotReady),
 	}
 	return append(options, c.options...)
+}
+
+func (c commonStatus) Error() error {
+	return nil
 }
 
 func ContainsPVCOption(options []status.Option) bool {
