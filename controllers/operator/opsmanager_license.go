@@ -15,11 +15,25 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func (r *OpsManagerReconciler) ensureOpsManagerLicense(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) workflow.Status {
+	// The identity rotation requested through an annotation runs before the license state is read.
+	if opsManager.LicenseRotateIdentityDue() {
+		if st := r.reconcileLicenseIdentity(ctx, opsManager, omAdmin); !st.IsOK() {
+			return st
+		}
+	}
+
+	if opsManager.LicenseRecomputeDue() {
+		if st := r.reconcileLicenseRecompute(ctx, opsManager, omAdmin); !st.IsOK() {
+			return st
+		}
+	}
+
 	// The release receipts requested in the spec resolve to the artifact ids they name.
 	receipts, st := r.resolveReleaseReceipts(ctx, opsManager)
 	if !st.IsOK() {
@@ -54,6 +68,26 @@ func (r *OpsManagerReconciler) reconcileLicenseIntent(ctx context.Context, opsMa
 		return r.installLicenseFromSecret(ctx, opsManager, omAdmin, receipts, log)
 	}
 	return "", workflow.OK()
+}
+
+func (r *OpsManagerReconciler) reconcileLicenseIdentity(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin) workflow.Status {
+	if err := annotations.RemoveAnnotation(ctx, opsManager, util.LicenseRotateIdentityAnnotation, r.client); err != nil {
+		return licenseFailed(err, status.ReasonIdentityRotationFailed)
+	}
+	if err := omAdmin.RotateLicenseIdentity(ctx); err != nil {
+		return licenseFailed(err, status.ReasonIdentityRotationFailed)
+	}
+	return workflow.OK()
+}
+
+func (r *OpsManagerReconciler) reconcileLicenseRecompute(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin) workflow.Status {
+	if err := annotations.RemoveAnnotation(ctx, opsManager, util.LicenseRecomputeAnnotation, r.client); err != nil {
+		return licenseFailed(err, status.ReasonLicenseRecomputeFailed)
+	}
+	if err := omAdmin.RecomputeLicense(ctx); err != nil {
+		return licenseFailed(err, status.ReasonLicenseRecomputeFailed)
+	}
+	return workflow.OK()
 }
 
 func (r *OpsManagerReconciler) reconcileReleaseReceipts(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, receipts []string, releasedID string) workflow.Status {
@@ -100,6 +134,14 @@ func (r *OpsManagerReconciler) observeLicense(ctx context.Context, opsManager *o
 	}
 
 	opsManager.SetLicenseStatusFromState(state)
+	// Ops Manager versions with the license API but without the identity API are fine, the identity stays unset.
+	identity, err := omAdmin.ReadLicenseIdentity(ctx)
+	if err != nil && !apierror.NewNonNil(err).IsNotFound() {
+		return licenseFailed(err, status.ReasonLicenseObserveFailed)
+	}
+	if err == nil {
+		opsManager.SetLicenseIdentity(identity.HolderID)
+	}
 	if installedID != "" && !state.HoldsArtifact(installedID) && !opsManager.LicenseReleaseDueToRemovedInstallIntent() {
 		opsManager.AddOpsManagerWarningIfNotExists("Ops Manager no longer holds the license last installed by the operator")
 	}

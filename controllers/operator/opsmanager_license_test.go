@@ -24,6 +24,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -208,6 +209,31 @@ func TestEnsureOpsManagerLicense_PersistsTypedAPIState(t *testing.T) {
 	require.Len(t, testOm.Status.OpsManagerStatus.License.ActiveEntitlements["exemption::enforcement"], 1)
 }
 
+func TestEnsureOpsManagerLicense_ShowsIdentityWithoutRotationRequest(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	admin := &api.MockedOmAdmin{LicenseIdentity: api.IdentityView{HolderID: "holder-1"}}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	require.NotNil(t, testOm.Status.OpsManagerStatus.License)
+	require.NotNil(t, testOm.Status.OpsManagerStatus.License.Identity)
+	assert.Equal(t, "holder-1", testOm.Status.OpsManagerStatus.License.Identity.HolderID)
+	assert.Equal(t, 1, admin.LicenseIdentityCalls)
+}
+
+func TestEnsureOpsManagerLicense_IdentityReadFailure(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	setLicenseRotateIdentityAnnotation(t, context.Background(), r.client, testOm, "true")
+	admin := &api.MockedOmAdmin{LicenseIdentityErr: assert.AnError}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	opt, found := status.GetOption(st.StatusOptions(), status.OmLicenseReconciledStatusOption{})
+	require.True(t, found)
+	assert.Equal(t, status.ReasonLicenseObserveFailed, opt.(status.OmLicenseReconciledStatusOption).Condition.Reason)
+}
+
 func TestEnsureOpsManagerLicense_ProvisioningModels(t *testing.T) {
 	artifact := licenseArtifactJSON("art-1")
 	licensed := omv1.OpsManagerLicenseStatus{
@@ -319,6 +345,60 @@ func TestEnsureOpsManagerLicense_ObserveGetFailurePolicy(t *testing.T) {
 			assert.Nil(t, testOm.Status.OpsManagerStatus.License)
 		})
 	}
+}
+
+func TestEnsureOpsManagerLicense_IdentityAPIMissingIsIgnored(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	notFound := http.StatusNotFound
+	admin := &api.MockedOmAdmin{
+		LicenseState: omv1.OpsManagerLicenseStatus{
+			Enforcement: &omv1.OpsManagerLicenseEnforcementStatus{EffectiveState: "GRACE"},
+		},
+		LicenseIdentityErr: &apierror.Error{Status: &notFound},
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	require.NotNil(t, testOm.Status.OpsManagerStatus.License)
+	assert.Nil(t, testOm.Status.OpsManagerStatus.License.Identity)
+	assert.Equal(t, "GRACE", licenseViewFromStatus(t, testOm.Status.OpsManagerStatus.License).Enforcement.EffectiveState)
+	assert.Equal(t, 1, admin.LicenseIdentityCalls)
+}
+
+func TestEnsureOpsManagerLicense_IdentityReadErrorWithoutRotationFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	admin := &api.MockedOmAdmin{LicenseIdentityErr: assert.AnError}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseObserveFailed)
+}
+
+func TestMongoDBOpsManager_LicenseRotateIdentityDueRequiresTrue(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+
+	testOm.Annotations = map[string]string{util.LicenseRotateIdentityAnnotation: "false"}
+	assert.False(t, testOm.LicenseRotateIdentityDue())
+
+	testOm.Annotations[util.LicenseRotateIdentityAnnotation] = "not-a-boolean"
+	assert.False(t, testOm.LicenseRotateIdentityDue())
+
+	testOm.Annotations[util.LicenseRotateIdentityAnnotation] = "true"
+	assert.True(t, testOm.LicenseRotateIdentityDue())
+}
+
+func TestMongoDBOpsManager_LicenseRecomputeDueRequiresTrue(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+
+	testOm.Annotations = map[string]string{util.LicenseRecomputeAnnotation: "false"}
+	assert.False(t, testOm.LicenseRecomputeDue())
+
+	testOm.Annotations[util.LicenseRecomputeAnnotation] = "not-a-boolean"
+	assert.False(t, testOm.LicenseRecomputeDue())
+
+	testOm.Annotations[util.LicenseRecomputeAnnotation] = "true"
+	assert.True(t, testOm.LicenseRecomputeDue())
 }
 
 func TestEnsureOpsManagerLicense_WritesStatusFromGet(t *testing.T) {
@@ -538,6 +618,105 @@ func TestEnsureOpsManagerLicense_InstallConflictWithNewerArtifactHeld(t *testing
 	assert.Contains(t, c.Message, "rejected license art-1")
 	assert.Contains(t, c.Message, "ErrorCode: ARTIFACT_OUTDATED")
 	assert.Contains(t, c.Message, "artifact is not newer than the installed one")
+}
+
+func TestEnsureOpsManagerLicense_RotateClearsFlag(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	setLicenseRotateIdentityAnnotation(t, context.Background(), r.client, testOm, "true")
+	admin := &api.MockedOmAdmin{
+		LicenseState: omv1.OpsManagerLicenseStatus{
+			Enforcement: &omv1.OpsManagerLicenseEnforcementStatus{EffectiveState: "LICENSED", Enforced: true},
+			ActiveEntitlements: map[string][]omv1.OpsManagerLicenseEntitlementStatus{
+				"exemption::enforcement": {{Type: "exemption::enforcement", Active: true}},
+			},
+		},
+		LicenseIdentity: api.IdentityView{HolderID: "holder-rotated"},
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, testOm.Annotations[util.LicenseRotateIdentityAnnotation])
+	require.NotNil(t, testOm.Status.OpsManagerStatus.License)
+	assert.Equal(t, "LICENSED", licenseViewFromStatus(t, testOm.Status.OpsManagerStatus.License).Enforcement.EffectiveState)
+	assert.Equal(t, "holder-rotated", testOm.Status.OpsManagerStatus.License.Identity.HolderID)
+	require.Len(t, licenseViewFromStatus(t, testOm.Status.OpsManagerStatus.License).ActiveEntitlements["exemption::enforcement"], 1)
+	assert.Equal(t, 1, admin.LicenseIdentityCalls)
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, "LICENSED", licenseViewFromStatus(t, testOm.Status.OpsManagerStatus.License).Enforcement.EffectiveState)
+}
+
+func TestEnsureOpsManagerLicense_RotateOnReannotate(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	setLicenseRotateIdentityAnnotation(t, context.Background(), r.client, testOm, "true")
+	admin := &api.MockedOmAdmin{
+		LicenseState: omv1.OpsManagerLicenseStatus{
+			Enforcement: &omv1.OpsManagerLicenseEnforcementStatus{EffectiveState: "LICENSED", Enforced: true},
+		},
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, testOm.Annotations[util.LicenseRotateIdentityAnnotation])
+	assert.Equal(t, 1, admin.IdentityRotationCalls)
+
+	setLicenseRotateIdentityAnnotation(t, context.Background(), r.client, testOm, "true")
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, 2, admin.IdentityRotationCalls)
+	assert.Empty(t, testOm.Annotations[util.LicenseRotateIdentityAnnotation])
+}
+
+func TestEnsureOpsManagerLicense_RotateNotRotatedFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	setLicenseRotateIdentityAnnotation(t, context.Background(), r.client, testOm, "true")
+	admin := &api.MockedOmAdmin{IdentityRotationErr: assert.AnError}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Empty(t, testOm.Annotations[util.LicenseRotateIdentityAnnotation])
+	assert.Equal(t, 1, admin.IdentityRotationCalls)
+
+	opt, found := status.GetOption(st.StatusOptions(), status.OmLicenseReconciledStatusOption{})
+	require.True(t, found)
+	c := opt.(status.OmLicenseReconciledStatusOption).Condition
+	assert.Equal(t, status.ConditionLicenseReconciled, c.Type)
+	assert.Equal(t, metav1.ConditionFalse, c.Status)
+	assert.Equal(t, status.ReasonIdentityRotationFailed, c.Reason)
+}
+
+func TestEnsureOpsManagerLicense_RecomputeOnAnnotation(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	setLicenseRecomputeAnnotation(t, context.Background(), r.client, testOm, "true")
+	admin := &api.MockedOmAdmin{}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, testOm.Annotations[util.LicenseRecomputeAnnotation])
+	assert.Equal(t, 1, admin.LicenseRecomputeCalls)
+
+	setLicenseRecomputeAnnotation(t, context.Background(), r.client, testOm, "true")
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Equal(t, 2, admin.LicenseRecomputeCalls)
+	assert.Empty(t, testOm.Annotations[util.LicenseRecomputeAnnotation])
+}
+
+func TestEnsureOpsManagerLicense_RecomputeFailureClearsAnnotation(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	setLicenseRecomputeAnnotation(t, context.Background(), r.client, testOm, "true")
+	admin := &api.MockedOmAdmin{LicenseRecomputeErr: assert.AnError}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Empty(t, testOm.Annotations[util.LicenseRecomputeAnnotation])
+	assert.Equal(t, 1, admin.LicenseRecomputeCalls)
+
+	opt, found := status.GetOption(st.StatusOptions(), status.OmLicenseReconciledStatusOption{})
+	require.True(t, found)
+	c := opt.(status.OmLicenseReconciledStatusOption).Condition
+	assert.Equal(t, metav1.ConditionFalse, c.Status)
+	assert.Equal(t, status.ReasonLicenseRecomputeFailed, c.Reason)
 }
 
 func TestEnsureOpsManagerLicense_AutoReleaseOnSecretRefRemoval(t *testing.T) {
@@ -1477,6 +1656,22 @@ func TestEnsureOpsManagerLicense_ReleaseWhenOMHasNoLicenseClearsStaleStatus(t *t
 	assert.Empty(t, testOm.Status.OpsManagerStatus.License.InstalledArtifactID)
 }
 
+func TestEnsureOpsManagerLicense_RotateWithoutSpecLicense(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	setLicenseRotateIdentityAnnotation(t, context.Background(), r.client, testOm, "true")
+	admin := &api.MockedOmAdmin{
+		LicenseState: omv1.OpsManagerLicenseStatus{
+			Enforcement: &omv1.OpsManagerLicenseEnforcementStatus{EffectiveState: "LICENSED", Enforced: true},
+		},
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, testOm.Annotations[util.LicenseRotateIdentityAnnotation])
+	require.NotNil(t, testOm.Status.OpsManagerStatus.License)
+	assert.Equal(t, "LICENSED", licenseViewFromStatus(t, testOm.Status.OpsManagerStatus.License).Enforcement.EffectiveState)
+}
+
 func TestOpsManagerReconciler_watchesLicenseSecrets(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().Build()
@@ -1558,4 +1753,18 @@ func licenseArtifactJSON(artifactID string) string {
 		panic(err)
 	}
 	return `{"payload":"` + base64.StdEncoding.EncodeToString(claims) + `"}`
+}
+
+func setLicenseRotateIdentityAnnotation(t *testing.T, ctx context.Context, kubeClient client.Client, opsManager *omv1.MongoDBOpsManager, value string) {
+	t.Helper()
+	require.NoError(t, annotations.SetAnnotations(ctx, opsManager, map[string]string{
+		util.LicenseRotateIdentityAnnotation: value,
+	}, kubeClient))
+}
+
+func setLicenseRecomputeAnnotation(t *testing.T, ctx context.Context, kubeClient client.Client, opsManager *omv1.MongoDBOpsManager, value string) {
+	t.Helper()
+	require.NoError(t, annotations.SetAnnotations(ctx, opsManager, map[string]string{
+		util.LicenseRecomputeAnnotation: value,
+	}, kubeClient))
 }
