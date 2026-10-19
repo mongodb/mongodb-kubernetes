@@ -5,7 +5,7 @@ module github.com/mongodb/mongodb-kubernetes
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/blang/semver v3.5.1+incompatible
-	github.com/cert-manager/cert-manager v1.18.2
+	github.com/cert-manager/cert-manager v1.18.5
 	github.com/envoyproxy/go-control-plane v0.14.0
 	github.com/envoyproxy/go-control-plane/envoy v1.39.0
 	github.com/ghodss/yaml v1.0.0
