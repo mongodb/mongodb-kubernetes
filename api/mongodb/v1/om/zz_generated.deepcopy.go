@@ -27,6 +27,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -764,6 +765,13 @@ func (in *OpsManagerStatus) DeepCopyInto(out *OpsManagerStatus) {
 		in, out := &in.ClusterStatusList, &out.ClusterStatusList
 		*out = make([]status.OMClusterStatusItem, len(*in))
 		copy(*out, *in)
+	}
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]metav1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 
