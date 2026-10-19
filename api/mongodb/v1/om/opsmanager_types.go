@@ -508,6 +508,11 @@ type OpsManagerStatus struct {
 	Url               string                       `json:"url,omitempty"`
 	Warnings          []status.Warning             `json:"warnings,omitempty"`
 	ClusterStatusList []status.OMClusterStatusItem `json:"clusterStatusList,omitempty"`
+	// Conditions holds the latest available observations of Ops Manager reconciliation state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type AgentVersion struct {
