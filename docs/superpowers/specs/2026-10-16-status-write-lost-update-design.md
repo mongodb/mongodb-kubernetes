@@ -179,7 +179,7 @@ Decision: add a locked annotation helper, used only by controllers converted to 
 
 ## 7. Effect on the open PRs
 
-- **#1715** (replica set scale-down falls back to StatefulSet replicas when `Status.Members == 0`): becomes a redundant defence once the write path no longer drops `members`. Exit criterion (my call): remove the fallback in the write-path PR itself, replacing its test with a regression test of the section 1 sequence (a status write built on a stale object is refused and `members` survives), once that PR is green on `e2e_replica_set`. Keep #1715 merged until then; it is not harmful.
+- **#1715** (replica set scale-down falls back to StatefulSet replicas when `Status.Members == 0`): becomes a redundant defence once the write path no longer drops `members`. Decision (2026-10-16): #1715 was closed without merging; the fallback is not part of the product code. The pilot (#1721) carries the regression test of the section 1 sequence (a status write built on a stale object is refused and `members` survives). The pilot has not run in CI yet.
 - **#1716** (AppDB 401 early return): unrelated to stale status, stays needed.
 - **#1717** (test fixes): unrelated, stays needed.
 
