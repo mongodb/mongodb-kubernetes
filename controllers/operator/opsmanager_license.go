@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -18,13 +20,23 @@ import (
 )
 
 func (r *OpsManagerReconciler) ensureOpsManagerLicense(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) workflow.Status {
+	// The release receipts requested in the spec resolve to the artifact ids they name.
+	receipts, st := r.resolveReleaseReceipts(ctx, opsManager)
+	if !st.IsOK() {
+		return st
+	}
+
 	if st := r.observeLicense(ctx, opsManager, omAdmin); !st.IsOK() {
 		return st
 	}
 
-	_, licenseStatus := r.reconcileLicenseIntent(ctx, opsManager, omAdmin, log)
+	releasedID, licenseStatus := r.reconcileLicenseIntent(ctx, opsManager, omAdmin, receipts, log)
 	if !licenseStatus.IsOK() {
 		return licenseStatus
+	}
+
+	if st := r.reconcileReleaseReceipts(ctx, opsManager, omAdmin, receipts, releasedID); !st.IsOK() {
+		return st
 	}
 
 	if opsManager.LicenseReleaseDueToRemovedInstallIntent() {
@@ -34,14 +46,46 @@ func (r *OpsManagerReconciler) ensureOpsManagerLicense(ctx context.Context, opsM
 	return licenseReconciled()
 }
 
-func (r *OpsManagerReconciler) reconcileLicenseIntent(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (string, workflow.Status) {
+func (r *OpsManagerReconciler) reconcileLicenseIntent(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, receipts []string, log *zap.SugaredLogger) (string, workflow.Status) {
 	if opsManager.LicenseReleaseDueToRemovedInstallIntent() {
 		return r.releaseInstalledLicense(ctx, opsManager, omAdmin)
 	}
 	if opsManager.Spec.License.InstallRequested() {
-		return r.installLicenseFromSecret(ctx, opsManager, omAdmin, log)
+		return r.installLicenseFromSecret(ctx, opsManager, omAdmin, receipts, log)
 	}
 	return "", workflow.OK()
+}
+
+func (r *OpsManagerReconciler) reconcileReleaseReceipts(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, receipts []string, releasedID string) workflow.Status {
+	autoReceipts := opsManager.Spec.License.AutoReleaseReceiptsRequested()
+	if autoReceipts && releasedID != "" && !slices.Contains(receipts, releasedID) {
+		receipts = append(receipts, releasedID)
+	}
+	state := opsManager.GetLicenseStatus()
+	for _, artifactID := range receipts {
+		secretName := releaseReceiptSecretName(artifactID)
+		existing, err := r.client.GetSecret(ctx, kube.ObjectKey(opsManager.Namespace, secretName))
+		if err != nil && !secret.SecretNotExist(err) {
+			return licenseFailed(err, status.ReasonLicenseReceiptFailed)
+		}
+		if _, written := existing.Data[util.DefaultOpsManagerReleaseReceiptKey]; written {
+			continue
+		}
+
+		if state.HoldsArtifact(artifactID) {
+			opsManager.AddOpsManagerWarningIfNotExists(status.Warning(fmt.Sprintf("Ops Manager still holds license %s, its release receipt is written once it is released", artifactID)))
+			continue
+		}
+
+		receipt, err := omAdmin.ReadLicenseReceipt(ctx, artifactID)
+		if err != nil {
+			return licenseFailed(xerrors.Errorf("failed to read Ops Manager license receipt for %s: %w", artifactID, err), status.ReasonLicenseReceiptFailed)
+		}
+		if err := r.createReleaseReceiptSecret(ctx, opsManager.Namespace, secretName, receipt); err != nil {
+			return licenseFailed(xerrors.Errorf("failed to write license receipt secret: %w", err), status.ReasonLicenseReceiptFailed)
+		}
+	}
+	return workflow.OK()
 }
 
 func (r *OpsManagerReconciler) observeLicense(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin) workflow.Status {
@@ -62,10 +106,13 @@ func (r *OpsManagerReconciler) observeLicense(ctx context.Context, opsManager *o
 	return workflow.OK()
 }
 
-func (r *OpsManagerReconciler) installLicenseFromSecret(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (string, workflow.Status) {
+func (r *OpsManagerReconciler) installLicenseFromSecret(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, receipts []string, log *zap.SugaredLogger) (string, workflow.Status) {
 	rawArtifact, artifactID, st := r.readLicenseArtifact(ctx, opsManager, opsManager.Spec.License.LicenseSecretRef.Name, status.ReasonLicenseSecretFailed)
 	if !st.IsOK() {
 		return "", st
+	}
+	if slices.Contains(receipts, artifactID) {
+		return "", licenseFailed(xerrors.Errorf("license artifact %s in licenseSecretRef is also listed in releaseReceipts", artifactID), status.ReasonLicenseArtifactInvalid)
 	}
 
 	if opsManager.GetInstalledArtifactID() == artifactID {
@@ -123,6 +170,30 @@ func (r *OpsManagerReconciler) releaseInstalledLicense(ctx context.Context, opsM
 	return installedID, workflow.OK()
 }
 
+func (r *OpsManagerReconciler) resolveReleaseReceipts(ctx context.Context, opsManager *omv1.MongoDBOpsManager) ([]string, workflow.Status) {
+	entries := opsManager.Spec.License.GetReleaseReceipts()
+	receipts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		artifactID, st := r.receiptArtifactID(ctx, opsManager, entry)
+		if !st.IsOK() {
+			return nil, st
+		}
+		if slices.Contains(receipts, artifactID) {
+			return nil, licenseFailed(xerrors.Errorf("releaseReceipts entries resolve to the same artifact id %s", artifactID), status.ReasonLicenseArtifactInvalid)
+		}
+		receipts = append(receipts, artifactID)
+	}
+	return receipts, workflow.OK()
+}
+
+func (r *OpsManagerReconciler) receiptArtifactID(ctx context.Context, opsManager *omv1.MongoDBOpsManager, entry omv1.LicenseReleaseReceipt) (string, workflow.Status) {
+	if entry.LicenseSecretRef == nil {
+		return entry.ArtifactID, workflow.OK()
+	}
+	_, artifactID, st := r.readLicenseArtifact(ctx, opsManager, entry.LicenseSecretRef.Name, status.ReasonLicenseReceiptFailed)
+	return artifactID, st
+}
+
 func (r *OpsManagerReconciler) readLicenseArtifact(ctx context.Context, opsManager *omv1.MongoDBOpsManager, secretName, reason string) (rawArtifact, artifactID string, st workflow.Status) {
 	rawArtifact, err := r.ReadSecretKey(ctx, kube.ObjectKey(opsManager.Namespace, secretName), r.VaultClient.OperatorSecretPathOrEmpty(), util.DefaultOpsManagerLicenseKey)
 	if secret.SecretNotExist(err) {
@@ -139,6 +210,18 @@ func (r *OpsManagerReconciler) readLicenseArtifact(ctx context.Context, opsManag
 		return "", "", licenseFailed(err, status.ReasonLicenseArtifactInvalid)
 	}
 	return rawArtifact, artifactID, workflow.OK()
+}
+
+func (r *OpsManagerReconciler) createReleaseReceiptSecret(ctx context.Context, namespace, name, receipt string) error {
+	return secret.CreateOrUpdate(ctx, r.client, secret.Builder().
+		SetName(name).
+		SetNamespace(namespace).
+		SetField(util.DefaultOpsManagerReleaseReceiptKey, receipt).
+		Build())
+}
+
+func releaseReceiptSecretName(artifactID string) string {
+	return artifactID + "-release-receipt"
 }
 
 func licenseReconciled() workflow.Status {

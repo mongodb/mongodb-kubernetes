@@ -1027,6 +1027,14 @@ func (r *OpsManagerReconciler) watchLicenseSecrets(opsManager *omv1.MongoDBOpsMa
 	if spec.InstallRequested() {
 		watchSecret(spec.LicenseSecretRef.Name)
 	}
+	for _, entry := range spec.ReleaseReceipts {
+		if entry.LicenseSecretRef != nil {
+			watchSecret(entry.LicenseSecretRef.Name)
+		}
+		if entry.ArtifactID != "" {
+			watchSecret(releaseReceiptSecretName(entry.ArtifactID))
+		}
+	}
 }
 
 func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByKmip(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
