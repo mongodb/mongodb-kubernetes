@@ -239,6 +239,9 @@ type MongoDBMultiStatus struct {
 	Link                        string              `json:"link,omitempty"`
 	FeatureCompatibilityVersion string              `json:"featureCompatibilityVersion,omitempty"`
 	Warnings                    []status.Warning    `json:"warnings,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.clusterSpecList.map(c, c.members).sum() >= 3",message="the total number of members across spec.clusterSpecList must be >= 3 when spec.role is AppDB"
