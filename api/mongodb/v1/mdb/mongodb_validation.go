@@ -34,11 +34,21 @@ var _ admission.CustomValidator = &MongoDBValidator{}
 // ValidateCreate and ValidateUpdate should be the same if we intend to do this
 // on every reconciliation as well
 func (m *MongoDBValidator) ValidateCreate(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
-	return nil, obj.(*MongoDB).ProcessValidationsOnReconcile(nil)
+	mdb := obj.(*MongoDB)
+	return standaloneDeprecationWarnings(mdb), mdb.ProcessValidationsOnReconcile(nil)
 }
 
 func (m *MongoDBValidator) ValidateUpdate(_ context.Context, oldObj, newObj runtime.Object) (warnings admission.Warnings, err error) {
-	return nil, newObj.(*MongoDB).ProcessValidationsOnReconcile(oldObj.(*MongoDB))
+	mdb := newObj.(*MongoDB)
+	return standaloneDeprecationWarnings(mdb), mdb.ProcessValidationsOnReconcile(oldObj.(*MongoDB))
+}
+
+// standaloneDeprecationWarnings surfaces the Standalone deprecation to kubectl clients through the admission response.
+func standaloneDeprecationWarnings(mdb *MongoDB) admission.Warnings {
+	if mdb.Spec.ResourceType == Standalone {
+		return admission.Warnings{StandaloneDeprecationMessage}
+	}
+	return nil
 }
 
 // ValidateDelete does nothing as we assume validation on deletion is
