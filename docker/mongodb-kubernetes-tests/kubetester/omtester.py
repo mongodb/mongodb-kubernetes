@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
@@ -905,9 +906,40 @@ class OMTester(object):
     def api_read_license_state(self) -> Dict:
         return self.om_request("get", "/admin/licenses").json()
 
+    def api_install_license(self, artifact: Dict) -> Dict:
+        return self.om_request("put", "/admin/licenses", json_object=artifact).json()
+
+    def api_release_license(self, artifact_id: str) -> Dict:
+        return self.om_request("delete", f"/admin/licenses/{artifact_id}").json()
+
+    def api_recompute_license(self) -> Dict:
+        return self.om_request("post", "/admin/licenses/recompute").json()
+
     def api_read_license_identity(self) -> Dict:
         """The enrollment identity of this Ops Manager, the holder a minted license is bound to."""
         return self.om_request("get", "/admin/artifacts/identity").json()
+
+    def ui_trigger_cron(self, username: str, password: str, cron_name: str) -> None:
+        """Runs an Ops Manager cron now. The trigger is a UI call, so it logs in as the global owner first."""
+        session = requests.Session()
+        login = session.post(
+            f"{self.context.base_url}/user/v1/auth",
+            json={"username": username, "password": base64.b64encode(password.encode()).decode()},
+            timeout=30,
+            verify=False,
+        )
+        login.raise_for_status()
+        body = login.json()
+        if body.get("errorCode", "NONE") != "NONE":
+            raise Exception(f"Ops Manager UI login failed: {body}")
+        response = session.post(
+            f"{self.context.base_url}/admin/control_panel/cronJobs/trigger/{cron_name}",
+            headers={"X-CSRF-Token": body["csrfToken"], "X-CSRF-Time": str(body["csrfTime"])},
+            json={},
+            timeout=30,
+            verify=False,
+        )
+        response.raise_for_status()
 
     def add_user(
         self,
