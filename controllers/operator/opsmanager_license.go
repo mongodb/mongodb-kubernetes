@@ -65,11 +65,20 @@ func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow
 	return h.licenseReconciledStatus(requestedID)
 }
 
+// releaseDue reports whether the install intent was removed while the last achieved spec still had one.
+func (h *LicenseReconcilerHelper) releaseDue() bool {
+	return !h.opsManager.Spec.License.InstallRequested() && h.lastInstallSecretRef != ""
+}
+
 // reconcileLicenseIntent applies the install or release the spec asks for and returns the artifact
 // the spec requested plus the artifact that was released as a consequence. The install asks OM:
 // when it already holds the artifact from the secret the PUT is skipped, otherwise the license is
 // installed or renewed.
 func (h *LicenseReconcilerHelper) reconcileLicenseIntent(ctx context.Context) (requestedID, releasedID string, st workflow.Status) {
+	if h.releaseDue() {
+		releasedID, st := h.releaseInstalledLicense(ctx)
+		return "", releasedID, st
+	}
 	if h.opsManager.Spec.License.InstallRequested() {
 		return h.installLicenseFromSecret(ctx)
 	}
@@ -122,6 +131,47 @@ func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context) 
 		return artifactID, heldBefore.ArtifactID, workflow.OK()
 	}
 	return artifactID, "", workflow.OK()
+}
+
+// releaseArtifactID resolves the artifact the operator installed. The last achieved spec names the
+// Secret the install came from. When that Secret is gone, the license Ops Manager holds is the only
+// trace left of the install.
+func (h *LicenseReconcilerHelper) releaseArtifactID(ctx context.Context) string {
+	if h.lastInstallSecretRef != "" {
+		if _, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.lastInstallSecretRef); err == nil && !invalid {
+			return artifactID
+		}
+	}
+	if held, ok := h.observed.HeldArtifact(); ok {
+		return held.ArtifactID
+	}
+	return ""
+}
+
+func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (string, workflow.Status) {
+	artifactID := h.releaseArtifactID(ctx)
+	if artifactID == "" {
+		return "", workflow.OK()
+	}
+	// Ops Manager holds one license at a time. When it no longer holds ours, it was already
+	// released, and a license installed by someone else is left alone.
+	if !h.observed.HoldsArtifact(artifactID) {
+		if _, listed := h.observed.Artifact(artifactID); listed {
+			return artifactID, workflow.OK()
+		}
+		return "", workflow.OK()
+	}
+
+	released, err := h.omAdmin.ReleaseLicense(ctx, artifactID)
+	if apierror.NewNonNil(err).IsNotFound() {
+		// Ops Manager has no record of it, so there is nothing released and no receipt to collect.
+		return "", workflow.OK()
+	}
+	if err != nil {
+		return "", licenseFailed(xerrors.Errorf("failed to release Ops Manager license %s: %w", artifactID, err), status.ReasonLicenseReleaseFailed)
+	}
+	h.observed = &released
+	return artifactID, workflow.OK()
 }
 
 // readLicenseArtifact reads the license from a Secret, invalid is set when the Secret does not hold a license.
