@@ -86,6 +86,27 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test custom agent" -f -y -
   --param mdb_custom_agent_url=https://example.com/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz
 ```
 
+### Unreleased Ops Manager build
+
+The `build_om_dev_images` and `e2e_om_dev_kind_ubi` variants build the Ops Manager image from an unreleased
+Ops Manager build and run the licensing tests against it on every merge to master, and on PRs with the
+`evergreen:e2e-all` label through their `ops_manager_license` tag. Other PR labels do not run them. To run them on
+a branch without a PR, use the patch below. The tarball is the latest build of the
+ops-manager `main` branch with the dev EA environment compiled in, which the `PACKAGE_OPS_MANAGER_EA`
+task publishes to the private `evg-mms-testing2` bucket. `find_om_dev_url` in
+`scripts/release/atomic_pipeline.py` presigns it for the image build. The version comes from
+`scripts/dev/contexts/variables/om_dev`, bump it when the Ops Manager team moves its dev builds to a new
+version. Note that `OM_VERSION` there is static while the tarball key under `ea/dev/latest/main` follows the
+ops-manager `main` branch, so the downloaded build can be newer than the pinned `OM_VERSION` until it is bumped.
+
+```shell
+evergreen patch -p mongodb-kubernetes -d "Test unreleased Ops Manager" -f -y -u --path .evergreen.yml \
+  -v build_om_dev_images -v e2e_om_dev_kind_ubi
+```
+
+To test a different build, point `OPS_MANAGER_DEV_TARBALL_KEY` at the commit keyed object
+`ea/<branch>/<revision>/mongodb-mms-<version>-ea-dev.tar.gz` of that build.
+
 ## E2E Test Path Filtering on PRs
 
 Evergreen uses two levels of file-based filtering on PRs:
