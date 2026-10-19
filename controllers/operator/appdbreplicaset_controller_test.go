@@ -27,8 +27,10 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -2317,20 +2319,30 @@ func TestEnsureAppDBStatefulSetOwnership_ClaimsSharedSecretsOnAdoption(t *testin
 	}
 }
 
-type unauthorizedReadUpdateOMConnection struct {
+type unauthorizedGetHostsOMConnection struct {
 	*om.MockedOmConnection
 }
 
-func (c unauthorizedReadUpdateOMConnection) ReadUpdateDeployment(context.Context, func(om.Deployment) error, *zap.SugaredLogger) error {
-	return errors.New("Status: 401 (Unauthorized), Detail: You are not authorized for this resource.")
+func (c unauthorizedGetHostsOMConnection) GetHosts(context.Context) (*host.Result, error) {
+	return nil, errors.New(unauthorizedOMError)
 }
 
-func TestReconcileAppDB_DeploysAppDB(t *testing.T) {
+const unauthorizedOMError = "Status: 401 (Unauthorized), Detail: You are not authorized for this resource."
+
+func TestReconcileAppDB_DeploysAppDBWhenOpsManagerReturnsUnauthorized(t *testing.T) {
 	tests := map[string]struct {
-		unauthorized bool
+		unauthorized            bool
+		expectedOMStatusPhase   status.Phase
+		expectedOMStatusMessage string
 	}{
-		"Ops Manager reachable":              {unauthorized: false},
-		"Ops Manager returns 401 on updates": {unauthorized: true},
+		"Ops Manager reachable": {
+			unauthorized: false,
+		},
+		"Ops Manager returns 401": {
+			unauthorized:            true,
+			expectedOMStatusPhase:   status.PhaseFailed,
+			expectedOMStatusMessage: "The admin-key secret might be corrupted: error registering hosts with project: error fetching existing hosts: " + unauthorizedOMError,
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -2340,7 +2352,7 @@ func TestReconcileAppDB_DeploysAppDB(t *testing.T) {
 			connectionFunc := omConnectionFactory.GetConnectionFunc
 			if tc.unauthorized {
 				connectionFunc = func(omContext *om.OMContext) om.Connection {
-					return unauthorizedReadUpdateOMConnection{omConnectionFactory.GetConnectionFunc(omContext).(*om.MockedOmConnection)}
+					return unauthorizedGetHostsOMConnection{omConnectionFactory.GetConnectionFunc(omContext).(*om.MockedOmConnection)}
 				}
 			}
 			reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, connectionFunc, zap.S())
@@ -2352,7 +2364,12 @@ func TestReconcileAppDB_DeploysAppDB(t *testing.T) {
 			require.NoError(t, err)
 
 			sts := &appsv1.StatefulSet{}
-			assert.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()), sts))
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()), sts))
+
+			updated := &omv1.MongoDBOpsManager{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Name), updated))
+			assert.Equal(t, tc.expectedOMStatusPhase, updated.Status.OpsManagerStatus.Phase)
+			assert.Equal(t, tc.expectedOMStatusMessage, updated.Status.OpsManagerStatus.Message)
 		})
 	}
 }
