@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -53,13 +55,23 @@ func (h *LicenseReconcilerHelper) Reconcile(ctx context.Context) workflow.Status
 }
 
 func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow.Status {
+	// The release receipts requested in the spec resolve to the artifact ids they name.
+	receipts, st := h.resolveReleaseReceipts(ctx)
+	if !st.IsOK() {
+		return st
+	}
+
 	if st := h.observeLicense(ctx); !st.IsOK() {
 		return st
 	}
 
-	requestedID, _, licenseStatus := h.reconcileLicenseIntent(ctx)
+	requestedID, releasedID, licenseStatus := h.reconcileLicenseIntent(ctx, receipts)
 	if !licenseStatus.IsOK() {
 		return licenseStatus
+	}
+
+	if st := h.reconcileReleaseReceipts(ctx, receipts, releasedID); !st.IsOK() {
+		return st
 	}
 
 	return h.licenseReconciledStatus(requestedID)
@@ -74,15 +86,46 @@ func (h *LicenseReconcilerHelper) releaseDue() bool {
 // the spec requested plus the artifact that was released as a consequence. The install asks OM:
 // when it already holds the artifact from the secret the PUT is skipped, otherwise the license is
 // installed or renewed.
-func (h *LicenseReconcilerHelper) reconcileLicenseIntent(ctx context.Context) (requestedID, releasedID string, st workflow.Status) {
+func (h *LicenseReconcilerHelper) reconcileLicenseIntent(ctx context.Context, receipts []string) (requestedID, releasedID string, st workflow.Status) {
 	if h.releaseDue() {
 		releasedID, st := h.releaseInstalledLicense(ctx)
 		return "", releasedID, st
 	}
 	if h.opsManager.Spec.License.InstallRequested() {
-		return h.installLicenseFromSecret(ctx)
+		return h.installLicenseFromSecret(ctx, receipts)
 	}
 	return "", "", workflow.OK()
+}
+
+func (h *LicenseReconcilerHelper) reconcileReleaseReceipts(ctx context.Context, receipts []string, releasedID string) workflow.Status {
+	autoReceipts := h.opsManager.Spec.License.AutoReleaseReceiptsRequested()
+	if autoReceipts && releasedID != "" && !slices.Contains(receipts, releasedID) {
+		receipts = append(receipts, releasedID)
+	}
+	for _, artifactID := range receipts {
+		secretName := releaseReceiptSecretName(artifactID)
+		existing, err := h.reconciler.client.GetSecret(ctx, kube.ObjectKey(h.opsManager.Namespace, secretName))
+		if err != nil && !secret.SecretNotExist(err) {
+			return licenseFailed(err, status.ReasonLicenseReceiptFailed)
+		}
+		if _, written := existing.Data[util.DefaultOpsManagerReleaseReceiptKey]; written {
+			continue
+		}
+
+		if h.observed.HoldsArtifact(artifactID) {
+			h.opsManager.AddOpsManagerWarningIfNotExists(status.Warning(fmt.Sprintf("Ops Manager still holds license %s, its release receipt is written once it is released", artifactID)))
+			continue
+		}
+
+		receipt, err := h.omAdmin.ReadLicenseReceipt(ctx, artifactID)
+		if err != nil {
+			return licenseFailed(xerrors.Errorf("failed to read Ops Manager license receipt for %s: %w", artifactID, err), status.ReasonLicenseReceiptFailed)
+		}
+		if err := h.createReleaseReceiptSecret(ctx, secretName, receipt); err != nil {
+			return licenseFailed(xerrors.Errorf("failed to write license receipt secret: %w", err), status.ReasonLicenseReceiptFailed)
+		}
+	}
+	return workflow.OK()
 }
 
 func (h *LicenseReconcilerHelper) observeLicense(ctx context.Context) workflow.Status {
@@ -101,13 +144,17 @@ func (h *LicenseReconcilerHelper) observeLicense(ctx context.Context) workflow.S
 
 // installLicenseFromSecret installs the license the spec asks for and returns the artifact it
 // names plus the artifact that was replaced as a consequence.
-func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context) (requestedID, releasedID string, st workflow.Status) {
+func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, receipts []string) (requestedID, releasedID string, st workflow.Status) {
 	rawArtifact, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.opsManager.Spec.License.SecretRef.Name)
 	if invalid {
 		return "", "", licenseFailed(err, status.ReasonLicenseArtifactInvalid)
 	}
 	if err != nil {
 		return "", "", licenseFailed(err, status.ReasonLicenseSecretFailed)
+	}
+	if slices.Contains(receipts, artifactID) {
+		err := xerrors.Errorf("license artifact %s in secretRef is also listed in releaseReceipts", artifactID)
+		return "", "", licenseFailed(err, status.ReasonLicenseArtifactInvalid)
 	}
 
 	observed := h.observed
@@ -174,6 +221,33 @@ func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (
 	return artifactID, workflow.OK()
 }
 
+func (h *LicenseReconcilerHelper) resolveReleaseReceipts(ctx context.Context) ([]string, workflow.Status) {
+	entries := h.opsManager.Spec.License.GetReleaseReceipts()
+	receipts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		artifactID, st := h.receiptArtifactID(ctx, entry)
+		if !st.IsOK() {
+			return nil, st
+		}
+		if slices.Contains(receipts, artifactID) {
+			return nil, licenseFailed(xerrors.Errorf("releaseReceipts entries resolve to the same artifact id %s", artifactID), status.ReasonLicenseArtifactInvalid)
+		}
+		receipts = append(receipts, artifactID)
+	}
+	return receipts, workflow.OK()
+}
+
+func (h *LicenseReconcilerHelper) receiptArtifactID(ctx context.Context, entry omv1.LicenseReleaseReceipt) (string, workflow.Status) {
+	_, artifactID, invalid, err := h.readLicenseArtifact(ctx, entry.SecretRef.Name)
+	if invalid {
+		return "", licenseFailed(err, status.ReasonLicenseArtifactInvalid)
+	}
+	if err != nil {
+		return "", licenseFailed(err, status.ReasonLicenseReceiptFailed)
+	}
+	return artifactID, workflow.OK()
+}
+
 // readLicenseArtifact reads the license from a Secret, invalid is set when the Secret does not hold a license.
 func (h *LicenseReconcilerHelper) readLicenseArtifact(ctx context.Context, secretName string) (rawArtifact, artifactID string, invalid bool, err error) {
 	namespace := h.opsManager.Namespace
@@ -192,4 +266,16 @@ func (h *LicenseReconcilerHelper) readLicenseArtifact(ctx context.Context, secre
 		return "", "", true, err
 	}
 	return rawArtifact, artifactID, false, nil
+}
+
+func (h *LicenseReconcilerHelper) createReleaseReceiptSecret(ctx context.Context, name, receipt string) error {
+	return secret.CreateOrUpdate(ctx, h.reconciler.client, secret.Builder().
+		SetName(name).
+		SetNamespace(h.opsManager.Namespace).
+		SetField(util.DefaultOpsManagerReleaseReceiptKey, receipt).
+		Build())
+}
+
+func releaseReceiptSecretName(artifactID string) string {
+	return artifactID + "-release-receipt"
 }
