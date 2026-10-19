@@ -1978,18 +1978,16 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		CAFilePath:         appDBCAFilePath,
 		MongoDBResource:    types.NamespacedName{Namespace: opsManager.Namespace, Name: opsManager.Name},
 	}
-	err = authentication.Configure(ctx, r.client, conn, opts, false, log)
-	if err != nil {
+	if err := authentication.Configure(ctx, r.client, conn, opts, false, log); err != nil {
 		log.Errorf("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. "+
 			"Application Database is always configured with authentication enabled, but this will not be "+
 			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
-	err = conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
+	if err := conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
 		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appDBCAFilePath)
 		return nil
-	}, log)
-	if err != nil {
+	}, log); err != nil {
 		log.Errorf("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. "+
 			"Application Database has been configured with TLS enabled, but this will not be "+
 			"visible from Ops/Cloud Manager UI. %s", err)
