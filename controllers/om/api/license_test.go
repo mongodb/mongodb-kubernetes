@@ -150,7 +150,7 @@ func TestReadLicenseState_UnsupportedAPIIsError(t *testing.T) {
 
 	_, err := NewOmAdmin(srv.URL, "", "", nil).ReadLicenseState(context.Background())
 	require.Error(t, err)
-	assert.True(t, apierror.NewNonNil(err).IsNotFound())
+	assert.False(t, apierror.NewNonNil(err).IsLicenseEnforced())
 }
 
 func TestInstallLicense_ErrorBody(t *testing.T) {
@@ -160,6 +160,7 @@ func TestInstallLicense_ErrorBody(t *testing.T) {
 	_, err := NewOmAdmin(srv.URL, "", "", nil).InstallLicense(context.Background(), json.RawMessage(`{}`))
 	require.Error(t, err)
 	omErr := apierror.NewNonNil(err)
+	assert.False(t, omErr.IsLicenseEnforced())
 	assert.Equal(t, "INVALID_LICENSE", omErr.ErrorCode)
 	assert.Equal(t, "artifact is not a signed licence", omErr.Detail)
 }
