@@ -6,10 +6,12 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -624,6 +626,49 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	backupSts = appsv1.StatefulSet{}
 	err = client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), &backupSts)
 	assert.NoError(t, err, "Backup StatefulSet should not be removed when backup is disabled")
+}
+
+func TestOpsManagerLicenseFailureDoesNotBlockBackupDaemon(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
+		Enabled: true,
+	}).
+		AddOplogStoreConfig("oplog-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		LicenseSecretRef: &omv1.SecretRef{Name: "om-license"},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+
+	api.CurrMockedAdmin = api.NewMockedAdminProvider(testOm.CentralURL(), "jane.doe@g.com", "jane.doe@g.com-key", true).(*api.MockedOmAdmin)
+	api.CurrMockedAdmin.LicenseInstallErr = assert.AnError
+	t.Cleanup(func() { api.CurrMockedAdmin = nil })
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, client.Create(ctx, &licenseSecret))
+	configureBackupResources(ctx, client, testOm)
+
+	var result reconcile.Result
+	for range 5 {
+		var err error
+		result, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+		require.NoError(t, err)
+		if result.RequeueAfter == 10*time.Second {
+			break
+		}
+	}
+	assert.Equal(t, 10*time.Second, result.RequeueAfter)
+
+	backupStatefulSet := &appsv1.StatefulSet{}
+	require.NoError(t, client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), backupStatefulSet))
+
+	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	licenseCondition := meta.FindStatusCondition(testOm.Status.OpsManagerStatus.Conditions, status.ConditionLicenseReconciled)
+	require.NotNil(t, licenseCondition)
+	assert.Equal(t, metav1.ConditionFalse, licenseCondition.Status)
+	assert.Equal(t, status.ReasonLicenseInstallFailed, licenseCondition.Reason)
 }
 
 func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
