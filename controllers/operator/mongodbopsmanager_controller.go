@@ -457,9 +457,16 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	opsManagerImage := images.ContainerImage(r.imageUrls, util.OpsManagerImageUrl, opsManager.Spec.Version)
 
 	// 2. Reconcile Ops Manager
-	status, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConfig, initOpsManagerImage, opsManagerImage, log)
-	if !status.IsOK() {
-		return r.updateStatus(ctx, opsManager, status, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
+	opsManagerStatus, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConfig, initOpsManagerImage, opsManagerImage, log)
+	if !opsManagerStatus.IsOK() {
+		return r.updateStatus(ctx, opsManager, opsManagerStatus, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
+	}
+
+	licenseStatus := r.ensureOpsManagerLicense(ctx, opsManager, omAdmin, log)
+
+	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
+	if _, err := r.updateStatus(ctx, opsManager, licenseStatus, log, statusOptions...); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	// the AppDB still needs to configure monitoring, now that Ops Manager has been created
@@ -470,8 +477,8 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// 3. Reconcile Backup Daemon
-	if status := r.reconcileBackupDaemon(ctx, opsManagerReconcilerHelper, opsManager, omAdmin, appDBConfig, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
-		return r.updateStatus(ctx, opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
+	if backupStatus := r.reconcileBackupDaemon(ctx, opsManagerReconcilerHelper, opsManager, omAdmin, appDBConfig, initOpsManagerImage, opsManagerImage, log); !backupStatus.IsOK() {
+		return r.updateStatus(ctx, opsManager, backupStatus, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
 	}
 
 	annotationsToAdd, err := getAnnotationsForOpsManagerResource(opsManager)
@@ -500,8 +507,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 	// All statuses are updated by now - we don't need to update any others - just return
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
-	// success
-	return workflow.OK().ReconcileResult()
+	return licenseStatus.ReconcileResult()
 }
 
 func (r *OpsManagerReconciler) createAppDBReconcile(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (AppDBReconciler, error) {
@@ -626,12 +632,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 		return workflow.Failed(err), nil
 	}
 
-	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManagerURL)}
-	if _, err := r.updateStatus(ctx, opsManager, workflow.OK(), log, statusOptions...); err != nil {
-		return workflow.Failed(err), nil
-	}
-
-	return status, omAdmin
+	return workflow.OK(), omAdmin
 }
 
 // triggerOmChangedEventIfNeeded triggers upgrade process for all the MongoDB agents in the system if the major/minor version upgrade
