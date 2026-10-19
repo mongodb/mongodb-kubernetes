@@ -1239,6 +1239,7 @@ spec:
                       for queryable backup. This will be mounted into the Ops Manager pod.
                     properties:
                       name:
+                        maxLength: 253
                         type: string
                     required:
                     - name
@@ -1345,6 +1346,7 @@ spec:
                             It is optional because the credentials can be provided via AWS IRSA
                           properties:
                             name:
+                              maxLength: 253
                               type: string
                           required:
                           - name
@@ -1464,6 +1466,7 @@ spec:
                             It is optional because the credentials can be provided via AWS IRSA
                           properties:
                             name:
+                              maxLength: 253
                               type: string
                           required:
                           - name
@@ -1802,6 +1805,80 @@ spec:
                 items:
                   type: string
                 type: array
+              license:
+                description: |-
+                  License configures EA licensing. secretRef installs from Secret, releaseReceipts stores the
+                  release receipts of released artifacts. When omitted, the operator still observes OM licence
+                  state when the admin API is available.
+                properties:
+                  autoReleaseReceipts:
+                    description: |-
+                      AutoReleaseReceipts turns on automatic release receipts, which only matter in air gapped
+                      deployments. The operator then writes the release receipt of every artifact it releases, on
+                      removal and on renewal, into a Secret it creates named <artifactId>-release-receipt. The
+                      Secret has no owner reference and is never deleted by the operator.
+                    type: boolean
+                  licenseSecretRef:
+                    description: |-
+                      LicenseSecretRef is the signed licence artefact Secret (data key "license"). Removing it releases
+                      the artefact the operator installed from it.
+                    properties:
+                      name:
+                        maxLength: 253
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  releaseReceipts:
+                    description: |-
+                      ReleaseReceipts lists released artifacts whose release receipt the operator writes to a
+                      Secret it creates, named <artifactId>-release-receipt. Each entry names the artifact by id
+                      or by the Secret holding its licence payload. Listing an artifact never releases it. A
+                      receipt is written once Ops Manager no longer holds the artifact.
+                    items:
+                      properties:
+                        artifactId:
+                          description: ArtifactID is the id of the released artifact.
+                          maxLength: 253
+                          minLength: 1
+                          type: string
+                        licenseSecretRef:
+                          description: |-
+                            LicenseSecretRef points at a Secret holding the old licence artefact, the operator reads
+                            the artifact id from its payload.
+                          properties:
+                            name:
+                              maxLength: 253
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of artifactId or licenseSecretRef must
+                          be set
+                        rule: has(self.artifactId) != has(self.licenseSecretRef)
+                      - message: licenseSecretRef.name must not be empty
+                        rule: '!has(self.licenseSecretRef) || size(self.licenseSecretRef.name)
+                          > 0'
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                    x-kubernetes-validations:
+                    - message: releaseReceipts must not list the same artifactId twice
+                      rule: self.all(x, !has(x.artifactId) || self.filter(y, has(y.artifactId)
+                        && y.artifactId == x.artifactId).size() == 1)
+                    - message: releaseReceipts must not list the same licenseSecretRef
+                        twice
+                      rule: self.all(x, !has(x.licenseSecretRef) || self.filter(y,
+                        has(y.licenseSecretRef) && y.licenseSecretRef.name == x.licenseSecretRef.name).size()
+                        == 1)
+                type: object
+                x-kubernetes-validations:
+                - message: licenseSecretRef must not also be listed in releaseReceipts
+                  rule: '!has(self.licenseSecretRef) || !has(self.releaseReceipts)
+                    || !self.releaseReceipts.exists(r, has(r.licenseSecretRef) &&
+                    r.licenseSecretRef.name == self.licenseSecretRef.name)'
               logging:
                 properties:
                   LogBackAccessRef:
@@ -2222,6 +2299,181 @@ spec:
                     x-kubernetes-list-type: map
                   lastTransition:
                     type: string
+                  license:
+                    description: |-
+                      License contains the typed response from Ops Manager's /admin/licenses API,
+                      together with operator-owned identity and install markers.
+                    properties:
+                      activeEntitlements:
+                        additionalProperties:
+                          items:
+                            properties:
+                              active:
+                                type: boolean
+                              productName:
+                                type: string
+                              type:
+                                type: string
+                              window:
+                                properties:
+                                  end:
+                                    type: string
+                                  start:
+                                    type: string
+                                type: object
+                            required:
+                            - active
+                            - type
+                            type: object
+                          type: array
+                        description: ActiveEntitlements contains the active entitlements
+                          grouped by type.
+                        type: object
+                      enforcement:
+                        description: Enforcement contains the current license enforcement
+                          state.
+                        properties:
+                          cause:
+                            type: string
+                          effectiveState:
+                            type: string
+                          enforced:
+                            type: boolean
+                          transition:
+                            properties:
+                              evaluatorId:
+                                type: string
+                              inStateUntil:
+                                type: string
+                              nextState:
+                                type: string
+                            type: object
+                          verdicts:
+                            items:
+                              properties:
+                                breachAt:
+                                  type: string
+                                evaluatorId:
+                                  type: string
+                                metadata:
+                                  description: |-
+                                    MapWrapper is a wrapper for a map to be used by other structs.
+                                    The CRD generator does not support map[string]interface{}
+                                    on the top level and hence we need to work around this with
+                                    a wrapping struct.
+                                  type: object
+                                  x-kubernetes-preserve-unknown-fields: true
+                                state:
+                                  type: string
+                                transition:
+                                  properties:
+                                    inStateUntil:
+                                      type: string
+                                    nextState:
+                                      type: string
+                                  type: object
+                                warningStart:
+                                  type: string
+                              type: object
+                            type: array
+                          warnings:
+                            items:
+                              properties:
+                                evaluatorId:
+                                  type: string
+                                since:
+                                  type: string
+                                subjects:
+                                  items:
+                                    properties:
+                                      id:
+                                        type: string
+                                      since:
+                                        type: string
+                                    type: object
+                                  type: array
+                              type: object
+                            type: array
+                        required:
+                        - cause
+                        - effectiveState
+                        - enforced
+                        type: object
+                      identity:
+                        description: Identity is the Ops Manager enrollment identity
+                          bound to EA licenses.
+                        properties:
+                          holderId:
+                            type: string
+                        type: object
+                      installedArtifactId:
+                        description: |-
+                          InstalledArtifactID is the artifact id of the last artefact installed from licenseSecretRef, as
+                          claimed by the artefact itself. It is kept when OM no longer holds the artefact, so it
+                          also acts as the install memory that prevents the same Secret content from being PUT
+                          again. It is cleared when the artefact is released.
+                        type: string
+                      licenses:
+                        description: Licenses contains the license artifacts reported
+                          by Ops Manager.
+                        items:
+                          properties:
+                            artifactId:
+                              type: string
+                            generatedAt:
+                              type: string
+                            grants:
+                              items:
+                                properties:
+                                  endDate:
+                                    type: string
+                                  entitlements:
+                                    items:
+                                      properties:
+                                        active:
+                                          type: boolean
+                                        productName:
+                                          type: string
+                                        type:
+                                          type: string
+                                        window:
+                                          properties:
+                                            end:
+                                              type: string
+                                            start:
+                                              type: string
+                                          type: object
+                                      required:
+                                      - active
+                                      - type
+                                      type: object
+                                    type: array
+                                  grantId:
+                                    type: string
+                                  grantType:
+                                    type: string
+                                  startDate:
+                                    type: string
+                                type: object
+                              type: array
+                            installedAt:
+                              type: string
+                            status:
+                              type: string
+                            statusCause:
+                              type: string
+                            statusReason:
+                              type: string
+                            termEnd:
+                              type: string
+                            usable:
+                              type: boolean
+                          required:
+                          - artifactId
+                          - usable
+                          type: object
+                        type: array
+                    type: object
                   message:
                     type: string
                   observedGeneration:

@@ -301,3 +301,113 @@ func TestOpsManagerCELValidation_ExternalRefKindEnum(t *testing.T) {
 		})
 	}
 }
+
+func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+	released := func(id string) omv1.LicenseReleaseReceipt {
+		return omv1.LicenseReleaseReceipt{ArtifactID: id}
+	}
+
+	tests := []struct {
+		name          string
+		license       *omv1.MongoDBOpsManagerLicense
+		errorContains string
+	}{
+		{
+			name: "entries naming the artifact by id are accepted",
+			license: &omv1.MongoDBOpsManagerLicense{
+				LicenseSecretRef: &omv1.SecretRef{Name: "om-license"},
+				ReleaseReceipts:  []omv1.LicenseReleaseReceipt{released("art-1"), released("art-2")},
+			},
+		},
+		{
+			name: "entry naming the artifact by its old licence Secret is accepted",
+			license: &omv1.MongoDBOpsManagerLicense{
+				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
+					LicenseSecretRef: &omv1.SecretRef{Name: "old-license"},
+				}},
+			},
+		},
+		{
+			name: "entry with both artifactId and licenseSecretRef is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
+					ArtifactID:       "art-1",
+					LicenseSecretRef: &omv1.SecretRef{Name: "old-license"},
+				}},
+			},
+			errorContains: "exactly one of artifactId or licenseSecretRef must be set",
+		},
+		{
+			name: "entry with neither artifactId nor licenseSecretRef is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{}},
+			},
+			errorContains: "exactly one of artifactId or licenseSecretRef must be set",
+		},
+		{
+			name: "entry with an empty licenseSecretRef name is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{LicenseSecretRef: &omv1.SecretRef{}}},
+			},
+			errorContains: "licenseSecretRef.name must not be empty",
+		},
+		{
+			name: "same artifactId listed twice is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				ReleaseReceipts: []omv1.LicenseReleaseReceipt{released("art-1"), released("art-1")},
+			},
+			errorContains: "releaseReceipts must not list the same artifactId twice",
+		},
+		{
+			name: "same licenseSecretRef listed twice is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				ReleaseReceipts: []omv1.LicenseReleaseReceipt{
+					{LicenseSecretRef: &omv1.SecretRef{Name: "old-license"}},
+					{LicenseSecretRef: &omv1.SecretRef{Name: "old-license"}},
+				},
+			},
+			errorContains: "releaseReceipts must not list the same licenseSecretRef twice",
+		},
+		{
+			name: "licenseSecretRef also listed in releaseReceipts is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				LicenseSecretRef: &omv1.SecretRef{Name: "om-license"},
+				ReleaseReceipts: []omv1.LicenseReleaseReceipt{
+					{LicenseSecretRef: &omv1.SecretRef{Name: "om-license"}},
+				},
+			},
+			errorContains: "licenseSecretRef must not also be listed in releaseReceipts",
+		},
+		{
+			name: "distinct Secrets and artifact ids are accepted",
+			license: &omv1.MongoDBOpsManagerLicense{
+				LicenseSecretRef: &omv1.SecretRef{Name: "om-license"},
+				ReleaseReceipts: []omv1.LicenseReleaseReceipt{
+					released("art-1"),
+					{LicenseSecretRef: &omv1.SecretRef{Name: "old-license-1"}},
+					{LicenseSecretRef: &omv1.SecretRef{Name: "old-license-2"}},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := newOpsManager(t, func(om *omv1.MongoDBOpsManager) {
+				om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: "test-om-db", Kind: "MongoDB"}
+				om.Spec.License = tc.license
+			})
+			err := k8sClient.Create(ctx, om)
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				_ = k8sClient.Delete(ctx, om)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
