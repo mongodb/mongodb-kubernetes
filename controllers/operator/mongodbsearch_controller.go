@@ -230,6 +230,14 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
+	// Watch the user-provided OIDC client secret so rotating it triggers a reconcile: the client
+	// secret is mounted directly (not part of the mongot config content), and only a reconcile
+	// recomputes oidcClientSecretContentHash to roll the mongot pods onto the new secret.
+	if mdbSearch.IsOIDCAuth() {
+		oidcClientSecretRef := mdbSearch.Spec.Source.OIDC.ClientSecretSecretRef
+		r.watch.AddWatchedResourceIfNotAdded(oidcClientSecretRef.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
+
 	// The no-op mutation reads the state and, as a side effect, repairs legacy
 	// owner labels on the state ConfigMap.
 	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(*searchcontroller.SearchDeploymentState) bool {

@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
@@ -759,6 +760,55 @@ func TestMongoDBSearchReconcile_RegistersOperatorTLSSecretWatch(t *testing.T) {
 	operatorTLS := search.TLSOperatorSecretNamespacedName()
 	watched := reconciler.watch.GetWatchedResources()
 	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: operatorTLS}], search.NamespacedName())
+}
+
+func TestMongoDBSearchReconcile_RegistersOIDCClientSecretWatch(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	search.Spec.Source.OIDC = &searchv1.OIDCAuth{
+		TokenEndpoint:         "https://idp.example.com/token",
+		ClientID:              "mongot-client",
+		ClientSecretSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+		IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+	}
+
+	// The source must be an enterprise MongoDB with OIDC enabled so the reconcile
+	// passes the OIDC-aware source validation; it may still fail further down —
+	// the OIDC client-secret watch is registered before the helper reconcile.
+	mdb := &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: mock.TestNamespace},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Version:      "8.2.0",
+				ResourceType: mdbv1.ReplicaSet,
+				Security: &mdbv1.Security{
+					Authentication: &mdbv1.Authentication{
+						Enabled: true,
+						Modes:   []mdbv1.AuthMode{"SCRAM", "OIDC"},
+						OIDCProviderConfigs: []mdbv1.OIDCProviderConfig{
+							{ConfigurationName: "test-provider"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().
+		WithObjects(search, mdb).
+		Build()
+	reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
+	})
+	require.NoError(t, err)
+
+	// Rotating the user-provided OIDC client secret must trigger a reconcile of
+	// the search resource so oidcClientSecretContentHash rolls the mongot pods.
+	oidcClientSecret := types.NamespacedName{Name: "oidc-client-secret", Namespace: search.Namespace}
+	watched := reconciler.watch.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: oidcClientSecret}], search.NamespacedName())
 }
 
 // pinnedCluster builds a spec.clusters[] entry with an explicit clusterIndex

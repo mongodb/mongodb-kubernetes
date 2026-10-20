@@ -2,7 +2,6 @@ package searchcontroller
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/blang/semver"
 	"golang.org/x/xerrors"
@@ -79,20 +78,6 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 
 	if err := validateSearchSourceExternalDomain(&r.Spec); err != nil {
 		return err
-	}
-
-	authModes := r.Spec.GetSecurityAuthenticationModes()
-	foundScram := false
-	for _, authMode := range authModes {
-		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
-		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
-			foundScram = true
-			break
-		}
-	}
-
-	if !foundScram && len(authModes) > 0 {
-		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
 	}
 
 	return nil
