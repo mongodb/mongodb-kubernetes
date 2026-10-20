@@ -54,7 +54,7 @@ from tests.vm_migration.vm_migration_sharded_helper import (
     vm_mongos_tester,
 )
 
-MDB_VERSION = "8.2.0-ent"
+MDB_VERSION = "8.3.13-ent"
 
 CONFIGSRV_STS_NAME = "vm-sharded-configsrv"
 SHARD_STS_NAME = "vm-sharded-shard"

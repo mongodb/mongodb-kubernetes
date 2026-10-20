@@ -44,7 +44,7 @@ def mdbc(namespace: str) -> MongoDBCommunity:
         namespace=namespace,
     )
 
-    resource.set_version("8.3.4")
+    resource.set_version("8.3.13")
 
     # Add TLS configuration
     resource["spec"]["security"]["tls"] = {

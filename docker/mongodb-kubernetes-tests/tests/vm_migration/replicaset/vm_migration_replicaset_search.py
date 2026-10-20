@@ -41,7 +41,7 @@ from tests.vm_migration.vm_migration_replicaset_helper import (
     vm_replica_set_tester,
 )
 
-MDB_VERSION = "8.2.0-ent"
+MDB_VERSION = "8.3.13-ent"
 
 # The mongot endpoint hand-written into the automation config below derives from this MongoDBSearch
 # resource's own name (<name>-search), which is what names the mongot StatefulSet. The name never
