@@ -173,15 +173,16 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			expectError:    true,
 			expectedErrMsg: errExternalDomainNotSupported.Error(),
 		},
-		// Authentication mode tests
+		// Authentication mode tests. The SCRAM-mode requirement moved to the reconcile-level
+		// validator (validateSCRAMAuthSource): the adapter cannot see the search resource's
+		// auth mode, and an OIDC-auth search needs no SCRAM on the source.
 		{
-			name:           "No SCRAM authentication",
-			version:        "8.2.0",
-			topology:       mdbv1.ClusterTopologySingleCluster,
-			resourceType:   mdbv1.ReplicaSet,
-			authModes:      []string{"X509"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			name:         "No SCRAM authentication modes",
+			version:      "8.2.0",
+			topology:     mdbv1.ClusterTopologySingleCluster,
+			resourceType: mdbv1.ReplicaSet,
+			authModes:    []string{"X509"},
+			expectError:  false,
 		},
 		{
 			name:         "Empty authentication modes",
