@@ -170,7 +170,68 @@ func TestMongoDBSearchCELValidationSourceOIDC(t *testing.T) {
 				oidc.TokenEndpoint = "http://idp.example.com/token"
 				return &searchv1.MongoDBSource{OIDC: oidc}
 			}(),
-			errorContains: "tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment",
+			errorContains: "tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment",
+		},
+		{
+			name: "tokenEndpoint with an empty host is rejected",
+			source: func() *searchv1.MongoDBSource {
+				oidc := validOIDC()
+				oidc.TokenEndpoint = "https:///token"
+				return &searchv1.MongoDBSource{OIDC: oidc}
+			}(),
+			errorContains: "tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment",
+		},
+		{
+			name: "tokenEndpoint with a port-only authority is rejected",
+			source: func() *searchv1.MongoDBSource {
+				oidc := validOIDC()
+				oidc.TokenEndpoint = "https://:443/token"
+				return &searchv1.MongoDBSource{OIDC: oidc}
+			}(),
+			errorContains: "tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment",
+		},
+		{
+			name: "tokenEndpoint with a non-numeric port is rejected",
+			source: func() *searchv1.MongoDBSource {
+				oidc := validOIDC()
+				oidc.TokenEndpoint = "https://idp.example.com:port/token"
+				return &searchv1.MongoDBSource{OIDC: oidc}
+			}(),
+			errorContains: "tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment",
+		},
+		{
+			name: "tokenEndpoint with @ in the path is accepted",
+			source: func() *searchv1.MongoDBSource {
+				oidc := validOIDC()
+				oidc.TokenEndpoint = "https://idp.example.com/oauth2/v2/token@alias"
+				return &searchv1.MongoDBSource{OIDC: oidc}
+			}(),
+		},
+		{
+			name: "tokenEndpoint with a port and query is accepted",
+			source: func() *searchv1.MongoDBSource {
+				oidc := validOIDC()
+				oidc.TokenEndpoint = "https://idp.example.com:8443/oauth2/token?x=1"
+				return &searchv1.MongoDBSource{OIDC: oidc}
+			}(),
+		},
+		{
+			name: "clientSecretSecretRef without key is rejected",
+			source: func() *searchv1.MongoDBSource {
+				oidc := validOIDC()
+				oidc.ClientSecretSecretRef = userv1.SecretKeyRef{Name: "my-oidc-client-secret"}
+				return &searchv1.MongoDBSource{OIDC: oidc}
+			}(),
+			errorContains: "clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCaConfigMapRef.name must not be empty",
+		},
+		{
+			name: "idpCaConfigMapRef with an empty name is rejected",
+			source: func() *searchv1.MongoDBSource {
+				oidc := validOIDC()
+				oidc.IdPCAConfigMapRef = corev1.LocalObjectReference{}
+				return &searchv1.MongoDBSource{OIDC: oidc}
+			}(),
+			errorContains: "clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCaConfigMapRef.name must not be empty",
 		},
 	}
 	for _, tc := range tests {

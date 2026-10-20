@@ -500,13 +500,14 @@ type X509Auth struct {
 // connection (Enterprise only). mongot obtains access tokens from the identity provider's
 // token endpoint using this client identity; trust validation (issuer, audience, signature)
 // is performed by the source MongoDB server's OIDC provider configuration.
+// +kubebuilder:validation:XValidation:rule="self.clientSecretSecretRef.name != \"\" && self.clientSecretSecretRef.key != \"\" && self.idpCaConfigMapRef.name != \"\"",message="clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCaConfigMapRef.name must not be empty"
 type OIDCAuth struct {
 	// TokenEndpoint is the identity provider's OAuth2 token endpoint URL. Must be an
 	// absolute HTTPS URI with a host and no userinfo or fragment, e.g.
 	// "https://idp.example.com/realms/search/protocol/openid-connect/token".
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:XValidation:rule="self.startsWith('https://') && !self.contains('@') && !self.contains('#')",message="tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment"
+	// +kubebuilder:validation:XValidation:rule="self.matches('^https://([a-zA-Z0-9._-]+|\\\\[[0-9a-fA-F:.]+\\\\])(:[0-9]{1,5})?([/?][^#]*)?$')",message="tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment"
 	TokenEndpoint string `json:"tokenEndpoint"`
 	// ClientID is the OAuth2 client id mongot authenticates as at the token endpoint.
 	// +kubebuilder:validation:Required
