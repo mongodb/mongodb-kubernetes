@@ -1357,23 +1357,23 @@ func (r *ReconcileMongoDbMultiReplicaSet) replicateManagedCABundlesInMemberClust
 		return workflow.Failed(err)
 	}
 
-	for _, name := range managedCABundleConfigMapNames(mrs) {
-		cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, name))
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("expected managed CA ConfigMap %s not found on the operator cluster: %w", name, err))
+	targets := make([]certs.MemberClusterTarget, 0, len(r.memberClusterClientsMap))
+	for clusterName, memberClient := range r.memberClusterClientsMap {
+		if stringutil.Contains(failedClusterNames, clusterName) {
+			continue
 		}
-		for clusterName, memberClient := range r.memberClusterClientsMap {
-			if stringutil.Contains(failedClusterNames, clusterName) {
-				continue
-			}
-			memberCm := configmap.Builder().SetName(name).SetNamespace(mrs.Namespace).SetData(cm.Data).Build()
-			if err := configmap.CreateOrUpdate(ctx, memberClient, memberCm); err != nil && !apiErrors.IsAlreadyExists(err) {
-				return workflow.Failed(xerrors.Errorf("failed to copy managed CA ConfigMap %s in cluster %s: %w", name, clusterName, err))
-			}
-			log.Debugf("Ensured managed CA ConfigMap %s/%s in cluster %s", mrs.Namespace, name, clusterName)
-		}
+		targets = append(targets, certs.MemberClusterTarget{Name: clusterName, Client: memberClient})
 	}
-	return workflow.OK()
+
+	return certs.ReplicateManagedCABundlesToMemberClusters(
+		ctx,
+		r.client,
+		mrs.Namespace,
+		managedCABundleConfigMapNames(mrs),
+		targets,
+		mrs.GetOwnerLabels(),
+		log,
+	)
 }
 
 // deleteManagedCABundlesInMemberClusters removes the operator-owned CA bundle ConfigMaps from every
