@@ -11,6 +11,7 @@ rules:
       - '*'
     resources:
       - clustermongodbroles
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRoleBinding
@@ -25,3 +26,4 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
