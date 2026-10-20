@@ -54,7 +54,7 @@ graph TD
 
 ## Prerequisites
 
-- A running **MongoDB replica set** (v8.2+ Enterprise) accessible from your Kubernetes cluster
+- A running **MongoDB replica set** (v8.3+ Enterprise) accessible from your Kubernetes cluster
 - A **search-sync-source** user on the external cluster with appropriate permissions for mongot sync
 - **kubectl** configured with access to your target Kubernetes cluster
 - **Helm 3** installed
@@ -214,8 +214,8 @@ Checks that the operator created the expected resources:
 | Deployment | `{name}-search-lb-0` | Envoy proxy pods |
 | ConfigMap | `{name}-search-lb-0-config` | Envoy routing configuration |
 | Service | `{name}-search-0-proxy-svc` | Proxy service (port 27028) |
-| StatefulSet | `{name}-search` | mongot pods |
-| Service | `{name}-search-svc` | Headless service for mongot pods |
+| StatefulSet | `{name}-search-0` | mongot pods |
+| Service | `{name}-search-0-svc` | Headless service for mongot pods |
 
 ```bash
 ./code_snippets/10_0326_internal_verify_envoy_deployment.sh
@@ -245,7 +245,7 @@ Look at the resource phase, conditions, and events for issues like missing secre
 Connectivity errors between mongot and MongoDB (auth failures, TLS mismatches, unreachable hosts) are visible here:
 
 ```bash
-kubectl logs -l app.kubernetes.io/component=mongot -n ${MDB_NS}
+kubectl logs -l app=${MDB_SEARCH_RESOURCE_NAME}-search-0-svc -n ${MDB_NS}
 ```
 
 ### Get Envoy Proxy Logs
