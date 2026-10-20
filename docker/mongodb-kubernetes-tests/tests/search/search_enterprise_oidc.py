@@ -1,6 +1,10 @@
+import base64
+import functools
+import json
 import os
 
 import kubetester.oidc as oidc
+import requests
 import yaml
 from kubetester import create_or_update_configmap, create_or_update_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs
@@ -11,7 +15,7 @@ from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
-from pytest import fixture, mark, skip
+from pytest import fail, fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper
@@ -35,7 +39,7 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = f"{USER_NAME}-password"
 
 # configurationName of the OIDC provider on the source MongoDB; the mongot
-# user's OIDC username is "<configurationName>/<cognito user id>".
+# user's OIDC username is "<configurationName>/<token sub>" (see oidc_mongot_user).
 CONFIGURATION_NAME = "OIDC-test-user"
 
 # Secret holding the Cognito app-client secret (spec.source.oidc.clientSecretSecretRef)
@@ -45,20 +49,97 @@ COGNITO_CLIENT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-cognito-client-secret"
 # certificate (spec.source.oidc.idpCaConfigMapRef) -- Amazon Root CA 1.
 COGNITO_IDP_CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-cognito-idp-ca"
 
-# Requires the Cognito test environment (the cognito_* expansions). The module
-# skips when any of them is absent.
-if not (
+# Requires the Cognito test environment (the cognito_* expansions). The tests
+# are collected and skipped (not deselected) when it is not configured, so the
+# Evergreen launcher's `pytest -m e2e_search_enterprise_oidc` run exits 0.
+_COGNITO_CONFIGURED = bool(
     oidc.get_cognito_workload_client_id()
     and oidc.get_cognito_workload_url()
     and oidc.get_cognito_workload_user_id()
     and os.getenv("cognito_workload_federation_client_secret")
     and oidc.get_cognito_workload_token_endpoint()
-):
-    skip("Cognito OIDC test environment is not configured (cognito_* expansions missing)", allow_module_level=True)
+)
+_TOKEN_ENDPOINT_IS_HTTPS = oidc.get_cognito_workload_token_endpoint().startswith("https://")
 
-assert oidc.get_cognito_workload_token_endpoint().startswith(
-    "https://"
-), "cognito_workload_token_endpoint must be an absolute HTTPS URI"
+pytestmark = mark.skipif(
+    not (_COGNITO_CONFIGURED and _TOKEN_ENDPOINT_IS_HTTPS),
+    reason="Cognito OIDC test environment is not configured (cognito_* expansions missing or token endpoint not HTTPS)",
+)
+
+
+def _decode_jwt_payload(token: str) -> dict:
+    """Decodes the JWT payload segment without signature verification."""
+    payload_segment = token.split(".")[1]
+    # restore the base64url padding stripped per RFC 7515
+    payload_segment += "=" * (-len(payload_segment) % 4)
+    return json.loads(base64.urlsafe_b64decode(payload_segment))
+
+
+@functools.lru_cache(maxsize=None)
+def _client_credentials_claims() -> dict:
+    """Fetches a client-credentials token from the Cognito token endpoint and
+    returns its decoded payload.
+
+    mongot authenticates with a client-credentials token, whose aud and sub
+    claims can differ from the user-login contract used by the m2m fixtures: a
+    Cognito client-credentials token may carry no aud, or an app-client-specific
+    aud, and its sub identifies the app client rather than the workload user.
+    The OIDC provider audience and the $external username below are derived from
+    this token, so the source of truth is the IdP, not the user-flow fixtures.
+    """
+    token_endpoint = oidc.get_cognito_workload_token_endpoint()
+    response = requests.post(
+        token_endpoint,
+        data={
+            "grant_type": "client_credentials",
+            "client_id": oidc.get_cognito_workload_client_id(),
+            "client_secret": os.getenv("cognito_workload_federation_client_secret"),
+        },
+        timeout=30,
+    )
+    if not 200 <= response.status_code < 300:
+        fail(
+            f"Client-credentials token request to {token_endpoint} failed with HTTP "
+            f"{response.status_code}: {response.text}. The Cognito app-client/token-endpoint "
+            "setup for this test is broken.",
+            pytrace=False,
+        )
+    access_token = response.json().get("access_token")
+    if not access_token:
+        fail(
+            f"Token endpoint {token_endpoint} returned no access_token: {response.text}. "
+            "The Cognito app-client/token-endpoint setup for this test is broken.",
+            pytrace=False,
+        )
+    return _decode_jwt_payload(access_token)
+
+
+def _cc_token_audience() -> str:
+    """Audience of the token the app client actually mints (for oidcProviderConfigs)."""
+    claims = _client_credentials_claims()
+    # Cognito client-credentials tokens may omit aud; the app-client id then
+    # identifies the audience.
+    audience = claims.get("aud") or claims.get("client_id")
+    if not audience:
+        fail(
+            "The Cognito client-credentials token carries neither an aud nor a client_id "
+            "claim; the Cognito setup must issue client-credentials tokens with a "
+            "MongoDB-compatible audience claim.",
+            pytrace=False,
+        )
+    return audience
+
+
+def _cc_token_subject() -> str:
+    """Subject of the token the app client actually mints (for the $external username)."""
+    subject = _client_credentials_claims().get("sub")
+    if not subject:
+        fail(
+            "The Cognito client-credentials token carries no sub claim; cannot derive the "
+            "$external OIDC username for mongot.",
+            pytrace=False,
+        )
+    return subject
 
 
 @fixture(scope="function")
@@ -87,7 +168,10 @@ def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
         "modes": ["SCRAM", "OIDC"],
         "oidcProviderConfigs": [
             {
-                "audience": oidc.get_cognito_workload_client_id(),
+                # audience is derived from the client-credentials token the app
+                # client actually mints (see _cc_token_audience), so mongod's
+                # audience validation matches the tokens mongot presents.
+                "audience": _cc_token_audience(),
                 "clientId": oidc.get_cognito_workload_client_id(),
                 "issuerURI": oidc.get_cognito_workload_url(),
                 "requestedScopes": [],
@@ -145,7 +229,9 @@ def oidc_mongot_user(namespace: str, helper: SearchDeploymentHelper) -> MongoDBU
     if try_load(resource):
         return resource
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    resource["spec"]["username"] = f"{CONFIGURATION_NAME}/{oidc.get_cognito_workload_user_id()}"
+    # the $external principal matches the sub of the client-credentials token the
+    # app client actually mints (see _cc_token_subject), not the workload user id
+    resource["spec"]["username"] = f"{CONFIGURATION_NAME}/{_cc_token_subject()}"
     resource["spec"]["db"] = "$external"
     # OIDC users don't use password auth -- remove passwordSecretKeyRef if present
     resource["spec"].pop("passwordSecretKeyRef", None)
