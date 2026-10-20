@@ -27,6 +27,7 @@ export OPERATOR_ADDITIONAL_HELM_VALUES=""
 # Existing TLS resources. Keep the issuer and CA ConfigMap aligned with the
 # source deployment's trusted CA.
 export CERT_MANAGER_NAMESPACE="cert-manager"
+export CERT_MANAGER_VERSION="v1.21.2"
 export MDB_TLS_CERT_SECRET_PREFIX="certs"
 export MDB_TLS_CA_CONFIGMAP="${MDB_EXTERNAL_CLUSTER_NAME}-ca"
 export MDB_TLS_CA_ISSUER="my-ca-issuer"

@@ -11,6 +11,8 @@ export MDB_SEARCH_SYNC_USER_PASSWORD="search-sync-user-password-CHANGE-ME"
 export MDB_TLS_CA_SECRET_NAME="ca"
 export MDB_SEARCH_TLS_SECRET_NAME="mdbs-search-tls"
 
+export CERT_MANAGER_VERSION="v1.21.2"
+
 export MDB_SEARCH_SERVICE_NAME="mdbs-search"
 export MDB_SEARCH_HOSTNAME="mdbs-search.example.com"
 

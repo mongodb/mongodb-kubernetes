@@ -36,6 +36,7 @@ export OPERATOR_ADDITIONAL_HELM_VALUES=""
 export MDB_CONNECTION_STRING="mongodb://mdb-user:${MDB_USER_PASSWORD}@${MDB_RESOURCE_NAME}-0.${MDB_RESOURCE_NAME}-svc.${MDB_NS}.svc.cluster.local:27017/?replicaSet=${MDB_RESOURCE_NAME}&tls=true&tlsCAFile=/tls/ca.crt"
 
 export CERT_MANAGER_NAMESPACE="cert-manager"
+export CERT_MANAGER_VERSION="v1.21.2"
 
 # Vector Search auto embedding related configurations
 export AUTO_EMBEDDING_API_KEY_SECRET_NAME="voyage-api-keys"

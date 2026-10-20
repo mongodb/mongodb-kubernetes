@@ -6,8 +6,8 @@ reconfigure the source MongoDB deployment.
 
 ## Prerequisites
 
-- A MongoDB 8.2 or later replica set managed by Ops Manager. MongoDB 8.3 or
-  later is recommended. Members must be reachable from both Kubernetes clusters.
+- A MongoDB 8.3 or later replica set managed by Ops Manager. Members must be
+  reachable from both Kubernetes clusters.
 - Two Kubernetes contexts connected by a service mesh that provides
   cross-cluster Service DNS and connectivity.
 - The namespace snippets use Istio's injection label. Adjust that label when
