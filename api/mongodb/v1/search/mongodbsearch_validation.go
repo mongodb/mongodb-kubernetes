@@ -529,7 +529,7 @@ func validateOIDCAuthConfig(s *MongoDBSearch) v1.ValidationResult {
 	if u.Scheme != "https" {
 		return v1.ValidationError("spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: scheme must be https", tokenEndpoint)
 	}
-	if u.Host == "" {
+	if u.Hostname() == "" {
 		return v1.ValidationError("spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: host is required", tokenEndpoint)
 	}
 	if u.User != nil {

@@ -6484,15 +6484,19 @@ spec:
                         type: string
                         x-kubernetes-validations:
                         - message: tokenEndpoint must be an absolute HTTPS URI with
-                            no userinfo or fragment
-                          rule: self.startsWith('https://') && !self.contains('@')
-                            && !self.contains('#')
+                            a host and no userinfo or fragment
+                          rule: self.matches('^https://([a-zA-Z0-9._-]+|\\[[0-9a-fA-F:.]+\\])(:[0-9]{1,5})?([/?][^#]*)?$')
                     required:
                     - clientId
                     - clientSecretSecretRef
                     - idpCaConfigMapRef
                     - tokenEndpoint
                     type: object
+                    x-kubernetes-validations:
+                    - message: clientSecretSecretRef.name, clientSecretSecretRef.key,
+                        and idpCaConfigMapRef.name must not be empty
+                      rule: self.clientSecretSecretRef.name != "" && self.clientSecretSecretRef.key
+                        != "" && self.idpCaConfigMapRef.name != ""
                   passwordSecretRef:
                     description: PasswordSecretRef references the Secret holding the
                       sync-source user's password.

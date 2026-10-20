@@ -318,6 +318,13 @@ func TestValidateOIDCAuthConfig(t *testing.T) {
 			errorContains: "host is required",
 		},
 		{
+			// url.Parse accepts a port-only authority (Host == ":443", empty Hostname),
+			// so the host check must key on Hostname(), not Host.
+			name:          "oidc with port-only authority",
+			searchSource:  &MongoDBSource{OIDC: oidc("https://:443/token")},
+			errorContains: "host is required",
+		},
+		{
 			name:          "oidc with userinfo",
 			searchSource:  &MongoDBSource{OIDC: oidc("https://user:pass@idp.example.com/token")},
 			errorContains: "userinfo is not allowed",
