@@ -45,6 +45,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
@@ -498,6 +499,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	if err := r.validateSCRAMAuthSource(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	if err := r.validateOIDCSource(); err != nil {
 		return workflow.Failed(err)
 	}
@@ -559,7 +564,12 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// (which sets username/password) so they can clear it. The loop below preserves this order when
 	// passing modifications to ensureMongotConfig and createOrUpdateStatefulSet.
 	passwordAuthStsModification := statefulset.NOOP()
-	if !r.mdbSearch.IsX509Auth() && !r.mdbSearch.IsOIDCAuth() {
+	if r.mdbSearch.IsX509Auth() || r.mdbSearch.IsOIDCAuth() {
+		// The StatefulSet modifications below merge volumes/mounts, so an existing deployment
+		// switched from SCRAM to x509/OIDC auth would keep the password volume + mount forever;
+		// removing it keeps the StatefulSet consistent with the now-unused password Secret.
+		passwordAuthStsModification = removeMongotVolumesAndMounts("password")
+	} else {
 		passwordAuthStsModification = PasswordAuthModification(r.mdbSearch)
 	}
 
@@ -2048,6 +2058,12 @@ func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Contex
 		}
 		if certPath != "" {
 			oidcConfig.TLS.TLSCertificateKeyFile = new(certPath)
+			// The mTLS client key may be password-encrypted: ensureEgressTlsConfig already mounts
+			// the password secret and applies the /tmp workaround (regardless of auth mode), so
+			// without this reference mongot cannot decrypt the client key.
+			if r.mdbSearch.ScramKeyFilePasswordSecret().Name != "" {
+				oidcConfig.TLS.TLSCertificateKeyFilePasswordFile = new(TempScramKeyPasswordPath)
+			}
 		}
 		return oidcConfig
 	}
@@ -2666,14 +2682,57 @@ func (r *MongoDBSearchReconcileHelper) validateOIDCSource() error {
 	case *CommunitySearchSource:
 		return xerrors.New("OIDC authentication requires an enterprise MongoDB source: community MongoDB does not support MONGODB-OIDC")
 	case EnterpriseResourceSearchSource:
-		if !src.IsOIDCEnabled() {
-			return xerrors.New("OIDC authentication requires OIDC to be enabled on the source MongoDB (spec.security.authentication.modes=OIDC with an oidcProviderConfigs entry)")
+		// IsOIDCEnabled() only checks the enabled flag + modes: a source with modes
+		// [SCRAM, OIDC] but no oidcProviderConfigs entry accepts no token at all.
+		if !src.IsOIDCEnabled() || len(src.Spec.Security.Authentication.OIDCProviderConfigs) == 0 {
+			return xerrors.New("OIDC authentication requires OIDC to be enabled on the source MongoDB (spec.security.authentication.modes=OIDC with a non-empty oidcProviderConfigs entry)")
 		}
 	case *ShardedInternalSearchSource:
-		if !src.IsOIDCEnabled() {
-			return xerrors.New("OIDC authentication requires OIDC to be enabled on the source MongoDB (spec.security.authentication.modes=OIDC with an oidcProviderConfigs entry)")
+		if !src.IsOIDCEnabled() || len(src.Spec.Security.Authentication.OIDCProviderConfigs) == 0 {
+			return xerrors.New("OIDC authentication requires OIDC to be enabled on the source MongoDB (spec.security.authentication.modes=OIDC with a non-empty oidcProviderConfigs entry)")
 		}
 	}
+	return nil
+}
+
+// validateSCRAMAuthSource enforces the SCRAM source requirement at reconcile time.
+// The source adapters cannot see the search resource (they only wrap the source
+// MongoDB), so the requirement lives here where both are visible: a search resource
+// that authenticates to its source with SCRAM needs a SCRAM auth mode enabled on the
+// source MongoDB. Searches authenticating with x509 or OIDC are exempt — the source
+// needs no SCRAM for them. External sources are unverifiable from the operator and
+// get no check, as before.
+func (r *MongoDBSearchReconcileHelper) validateSCRAMAuthSource() error {
+	if r.mdbSearch.IsX509Auth() || r.mdbSearch.IsOIDCAuth() {
+		return nil
+	}
+
+	var authModes []string
+	switch src := r.db.(type) {
+	case EnterpriseResourceSearchSource:
+		authModes = src.Spec.GetSecurityAuthenticationModes()
+	case *ShardedInternalSearchSource:
+		authModes = src.Spec.GetSecurityAuthenticationModes()
+	case *CommunitySearchSource:
+		for _, authMode := range src.Spec.Security.Authentication.Modes {
+			authModes = append(authModes, string(authMode))
+		}
+	default:
+		// External sources are unverifiable from the operator — no check.
+		return nil
+	}
+
+	for _, authMode := range authModes {
+		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
+		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
+			return nil
+		}
+	}
+
+	if len(authModes) > 0 {
+		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled on the source MongoDB when using SCRAM sync-source authentication")
+	}
+
 	return nil
 }
 
