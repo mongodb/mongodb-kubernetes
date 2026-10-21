@@ -4242,6 +4242,60 @@ func TestReconcileSharded_OIDCAuthRemovesStalePasswordVolumeAndMount(t *testing.
 	assert.True(t, mountNames["oidc-idp-ca"])
 }
 
+func TestReconcileSharded_OIDCStatefulSetTemplateStableAcrossReconciles(t *testing.T) {
+	// With OIDC and auto-embedding enabled, the embedding volumes are appended after the OIDC
+	// ones on the first reconcile. Removing and re-appending the OIDC volumes on the second
+	// reconcile moved them after the embedding volumes, changing the pod template and rolling
+	// every mongot pod despite unchanged inputs.
+	search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+		s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+			ProviderEndpoint: "http://voyage-embedding-svc.test-ns.svc.cluster.local:8080/embeddings",
+			EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
+				Name: "embedding-api-key",
+			},
+		}
+	})
+	shardName := "shard-0"
+	stsName := search.MongotStatefulSetForClusterShard(0, shardName)
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+	apiKeySecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "embedding-api-key", Namespace: "test-ns"},
+		Data: map[string][]byte{
+			"indexing-key": []byte(""),
+			"query-key":    []byte(""),
+		},
+	}
+	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap, apiKeySecret)
+	helper := NewMongoDBSearchReconcileHelper(
+		fakeClient,
+		search,
+		&mockShardedSource{
+			shardNames: []string{shardName},
+			hostSeeds:  map[string][]string{shardName: {"shard-0-0.test-ns.svc.cluster.local:27017"}},
+			tlsConfig: &TLSSourceConfig{
+				CAFileName: "ca-pem",
+				CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", "source-ca"),
+			},
+		},
+		newTestOperatorSearchConfig(),
+		nil, "",
+		nil,
+	)
+
+	helper.reconcile(t.Context(), zap.S())
+	created, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+	require.NoError(t, err)
+	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
+
+	helper.reconcile(t.Context(), zap.S())
+	updated, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+	require.NoError(t, err)
+
+	assert.Equal(t, created.Spec.Template, updated.Spec.Template,
+		"second reconcile must not change the pod template (a diff rolls every mongot pod)")
+}
+
 func TestReconcileSharded_TLSDisabledRemovesMountsPreservesLiveSecret(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
 		s.UID = "search-uid"
