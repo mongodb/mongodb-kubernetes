@@ -368,7 +368,7 @@ func TestValidateOIDCAuthConfig(t *testing.T) {
 			errorContains: "spec.source.oidc.clientSecretSecretRef.key must not be empty",
 		},
 		{
-			name: "oidc with empty idpCaConfigMapRef name",
+			name: "oidc with empty idpCAConfigMapRef name",
 			searchSource: &MongoDBSource{
 				OIDC: func() *OIDCAuth {
 					o := oidc("https://idp.example.com/token")
@@ -376,7 +376,7 @@ func TestValidateOIDCAuthConfig(t *testing.T) {
 					return o
 				}(),
 			},
-			errorContains: "spec.source.oidc.idpCaConfigMapRef.name must not be empty",
+			errorContains: "spec.source.oidc.idpCAConfigMapRef.name must not be empty",
 		},
 	}
 

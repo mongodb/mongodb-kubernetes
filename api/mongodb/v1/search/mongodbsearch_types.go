@@ -471,9 +471,8 @@ type MongoDBSource struct {
 	// +optional
 	X509 *X509Auth `json:"x509,omitempty"`
 	// OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only).
-	// When set, mongot authenticates to MongoDB using an OIDC access token obtained from the
-	// configured identity provider's token endpoint, instead of username/password or x509.
-	// Mutually exclusive with PasswordSecretRef, Username, and X509.
+	// mongot obtains an access token from the identity provider's token endpoint instead of
+	// using username/password or x509. Mutually exclusive with PasswordSecretRef, Username, and X509.
 	// +optional
 	OIDC *OIDCAuth `json:"oidc,omitempty"`
 	// TLS configures TLS transport settings for the sync source SCRAM connection.
@@ -497,10 +496,9 @@ type X509Auth struct {
 }
 
 // OIDCAuth configures OIDC client-credentials authentication for mongot's sync source
-// connection (Enterprise only). mongot obtains access tokens from the identity provider's
-// token endpoint using this client identity; trust validation (issuer, audience, signature)
-// is performed by the source MongoDB server's OIDC provider configuration.
-// +kubebuilder:validation:XValidation:rule="self.clientSecretSecretRef.name != \"\" && self.clientSecretSecretRef.key != \"\" && self.idpCaConfigMapRef.name != \"\"",message="clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCaConfigMapRef.name must not be empty"
+// connection (Enterprise only). Trust validation (issuer, audience, signature) is performed
+// by the source MongoDB server's OIDC provider configuration.
+// +kubebuilder:validation:XValidation:rule="self.clientSecretSecretRef.name != \"\" && self.clientSecretSecretRef.key != \"\" && self.idpCAConfigMapRef.name != \"\"",message="clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCAConfigMapRef.name must not be empty"
 type OIDCAuth struct {
 	// TokenEndpoint is the identity provider's OAuth2 token endpoint URL. Must be an
 	// absolute HTTPS URI with a host and no userinfo or fragment, e.g.
@@ -522,7 +520,7 @@ type OIDCAuth struct {
 	// the identity provider's TLS certificate. The CA certificate is expected to be PEM
 	// encoded and available at the "ca.crt" key (same convention as spec.source.external.tls.ca).
 	// +kubebuilder:validation:Required
-	IdPCAConfigMapRef corev1.LocalObjectReference `json:"idpCaConfigMapRef"`
+	IdPCAConfigMapRef corev1.LocalObjectReference `json:"idpCAConfigMapRef"`
 	// Scope is an optional OAuth2 scope requested at the token endpoint (e.g. "openid").
 	// +optional
 	// +kubebuilder:validation:MinLength=1
