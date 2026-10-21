@@ -539,8 +539,6 @@ func validateOIDCAuthConfig(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationError("spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: fragment is not allowed", tokenEndpoint)
 	}
 
-	// Defense-in-depth for stale-CRD installs whose schema predates the
-	// Required markers on these fields.
 	if s.Spec.Source.OIDC.ClientSecretSecretRef.Name == "" {
 		return v1.ValidationError("spec.source.oidc.clientSecretSecretRef.name must not be empty")
 	}
@@ -550,7 +548,7 @@ func validateOIDCAuthConfig(s *MongoDBSearch) v1.ValidationResult {
 	}
 
 	if s.Spec.Source.OIDC.IdPCAConfigMapRef.Name == "" {
-		return v1.ValidationError("spec.source.oidc.idpCaConfigMapRef.name must not be empty")
+		return v1.ValidationError("spec.source.oidc.idpCAConfigMapRef.name must not be empty")
 	}
 
 	return v1.ValidationSuccess()

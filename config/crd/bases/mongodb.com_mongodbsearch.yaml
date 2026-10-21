@@ -1411,9 +1411,8 @@ spec:
                   oidc:
                     description: |-
                       OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only).
-                      When set, mongot authenticates to MongoDB using an OIDC access token obtained from the
-                      configured identity provider's token endpoint, instead of username/password or x509.
-                      Mutually exclusive with PasswordSecretRef, Username, and X509.
+                      mongot obtains an access token from the identity provider's token endpoint instead of
+                      using username/password or x509. Mutually exclusive with PasswordSecretRef, Username, and X509.
                     properties:
                       clientId:
                         description: ClientID is the OAuth2 client id mongot authenticates
@@ -1433,7 +1432,7 @@ spec:
                         required:
                         - name
                         type: object
-                      idpCaConfigMapRef:
+                      idpCAConfigMapRef:
                         description: |-
                           IdPCAConfigMapRef references a ConfigMap containing the CA certificate that issued
                           the identity provider's TLS certificate. The CA certificate is expected to be PEM
@@ -1469,14 +1468,14 @@ spec:
                     required:
                     - clientId
                     - clientSecretSecretRef
-                    - idpCaConfigMapRef
+                    - idpCAConfigMapRef
                     - tokenEndpoint
                     type: object
                     x-kubernetes-validations:
                     - message: clientSecretSecretRef.name, clientSecretSecretRef.key,
-                        and idpCaConfigMapRef.name must not be empty
+                        and idpCAConfigMapRef.name must not be empty
                       rule: self.clientSecretSecretRef.name != "" && self.clientSecretSecretRef.key
-                        != "" && self.idpCaConfigMapRef.name != ""
+                        != "" && self.idpCAConfigMapRef.name != ""
                   passwordSecretRef:
                     description: PasswordSecretRef references the Secret holding the
                       sync-source user's password.

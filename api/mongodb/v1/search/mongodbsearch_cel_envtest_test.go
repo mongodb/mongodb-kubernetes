@@ -110,11 +110,8 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 	}
 }
 
-// TestMongoDBSearchCELValidationSourceOIDC proves that the CEL validation rules on
-// spec.source.oidc (mutual exclusivity with the other auth methods and the
-// tokenEndpoint HTTPS rule) are enforced by a real Kubernetes API server (booted
-// locally via envtest). It follows the same pattern as
-// TestMongoDBSearchCELValidation.
+// TestMongoDBSearchCELValidationSourceOIDC proves the spec.source.oidc CEL rules on a
+// real Kubernetes API server (envtest), like TestMongoDBSearchCELValidation.
 func TestMongoDBSearchCELValidationSourceOIDC(t *testing.T) {
 	ctx := context.Background()
 	k8sClient := env.Shared(t).Client
@@ -222,16 +219,16 @@ func TestMongoDBSearchCELValidationSourceOIDC(t *testing.T) {
 				oidc.ClientSecretSecretRef = userv1.SecretKeyRef{Name: "my-oidc-client-secret"}
 				return &searchv1.MongoDBSource{OIDC: oidc}
 			}(),
-			errorContains: "clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCaConfigMapRef.name must not be empty",
+			errorContains: "clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCAConfigMapRef.name must not be empty",
 		},
 		{
-			name: "idpCaConfigMapRef with an empty name is rejected",
+			name: "idpCAConfigMapRef with an empty name is rejected",
 			source: func() *searchv1.MongoDBSource {
 				oidc := validOIDC()
 				oidc.IdPCAConfigMapRef = corev1.LocalObjectReference{}
 				return &searchv1.MongoDBSource{OIDC: oidc}
 			}(),
-			errorContains: "clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCaConfigMapRef.name must not be empty",
+			errorContains: "clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCAConfigMapRef.name must not be empty",
 		},
 	}
 	for _, tc := range tests {
