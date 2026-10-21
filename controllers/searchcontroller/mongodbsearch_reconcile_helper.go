@@ -2006,10 +2006,10 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 // ensureOIDCClientConfig processes OIDC client-credentials authentication for the sync source in case of mongot to mongod communication.
 // When OIDC is configured, it replaces username/password auth with OIDC client-credentials auth.
 func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
-	removeOIDCVolumes := removeMongotVolumesAndMounts("oidc-client-secret", "oidc-idp-ca")
 	if !r.mdbSearch.IsOIDCAuth() {
-		return mongot.NOOP(), removeOIDCVolumes, nil
+		return mongot.NOOP(), removeMongotVolumesAndMounts("oidc-client-secret", "oidc-idp-ca"), nil
 	}
+	removeOIDCMounts := removeMongotVolumeMounts("oidc-client-secret", "oidc-idp-ca")
 
 	// mongot requires oidc.tls.caFile to trust the source's TLS certificate (no JVM-trust
 	// fallback), so TLS must be enabled on the source for OIDC auth.
@@ -2118,7 +2118,7 @@ func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Contex
 		)))...,
 	))
 
-	return mongotModification, statefulset.Apply(removeOIDCVolumes, stsModification), nil
+	return mongotModification, statefulset.Apply(removeOIDCMounts, stsModification), nil
 }
 
 // perShardTLSResource wraps MongoDBSearch to provide per-(cluster, shard) TLS secret names.
@@ -2249,6 +2249,18 @@ func removeMongotVolumesAndMounts(names ...string) statefulset.Modification {
 			podtemplatespec.RemoveVolume(name),
 			podtemplatespec.RemoveVolumeMount(MongotContainerName, name),
 		)
+	}
+	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(modifications...))
+}
+
+// removeMongotVolumeMounts removes only the named container mounts. Volumes merge in place by
+// name (position preserved), so removing them first would move them to the end of the volume
+// list and churn the pod template; mounts must still be removed because the mount merge keys on
+// subPath and a changed secret key would otherwise leave the stale mount behind.
+func removeMongotVolumeMounts(names ...string) statefulset.Modification {
+	modifications := make([]podtemplatespec.Modification, 0, len(names))
+	for _, name := range names {
+		modifications = append(modifications, podtemplatespec.RemoveVolumeMount(MongotContainerName, name))
 	}
 	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(modifications...))
 }
