@@ -46,7 +46,7 @@ CONFIGURATION_NAME = "OIDC-test-user"
 COGNITO_CLIENT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-cognito-client-secret"
 
 # ConfigMap holding the IdP CA that validates the Cognito token endpoint's TLS
-# certificate (spec.source.oidc.idpCaConfigMapRef) -- Amazon Root CA 1.
+# certificate (spec.source.oidc.idpCAConfigMapRef) -- Amazon Root CA 1.
 COGNITO_IDP_CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-cognito-idp-ca"
 
 # Requires the Cognito test environment (the cognito_* expansions). The tests
@@ -200,7 +200,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
             "tokenEndpoint": oidc.get_cognito_workload_token_endpoint(),
             "clientId": oidc.get_cognito_workload_client_id(),
             "clientSecretSecretRef": {"name": COGNITO_CLIENT_SECRET_NAME, "key": "clientSecret"},
-            "idpCaConfigMapRef": {"name": COGNITO_IDP_CA_CONFIGMAP_NAME},
+            "idpCAConfigMapRef": {"name": COGNITO_IDP_CA_CONFIGMAP_NAME},
         },
     }
 
@@ -220,7 +220,6 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 @fixture(scope="function")
 def oidc_mongot_user(namespace: str, helper: SearchDeploymentHelper) -> MongoDBUser:
-    """Creates a MongoDBUser for OIDC auth in the $external database."""
     resource = MongoDBUser.from_yaml(
         yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
         namespace=namespace,
