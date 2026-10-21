@@ -5,11 +5,15 @@ category, if any, uses a user configured issuer), so the resource setup and the 
 live here and the test files only keep what is specific to their scenario.
 """
 
+import tempfile
+
 from kubetester import read_configmap, read_secret, try_load
 from kubetester.certs import Certificate
 from kubetester.crypto import cert_signed_by_bundle
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
+from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import with_x509
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from tests.conftest import get_default_operator, get_operator_installation_config
@@ -17,6 +21,53 @@ from tests.conftest import get_default_operator, get_operator_installation_confi
 # The user configured issuer the `issuer` fixture creates. It is a CA-type Issuer, so it writes its
 # CA into each issued secret's ca.crt.
 CA_ISSUER_REF = {"issuerRef": {"name": "ca-issuer", "kind": "Issuer"}}
+
+
+# APP_USER is the MongoDBUser an application connects as, with an operator-issued client certificate.
+APP_USER = "app-user"
+
+
+def client_certificate_user(mdb: MongoDB, namespace: str) -> MongoDBUser:
+    """Creates a MongoDBUser with spec.clientCertificate and waits until it is registered.
+
+    The operator issues its x509 client certificate and registers it under the certificate subject,
+    so no username or password is given.
+    """
+    user = MongoDBUser(name=APP_USER, namespace=namespace)
+    user["spec"] = {
+        "db": "$external",
+        "mongodbResourceRef": {"name": mdb.name},
+        # assert_connectivity writes to the admin database, which readWriteAnyDatabase does not cover.
+        "roles": [{"db": "admin", "name": "readWrite"}],
+        "clientCertificate": {},
+    }
+    try_load(user)
+    user.update()
+    user.assert_reaches_phase(Phase.Updated, timeout=300)
+    return user
+
+
+def assert_reachable_with_client_certificate(mdb: MongoDB, user: MongoDBUser, namespace: str):
+    """Connects as the user with its operator-issued certificate, the way an application would.
+
+    The user's status names the two things an application needs: the Secret with its certificate and
+    key, and the ConfigMap with the CA that verifies the server. mongod requires a client certificate
+    because x509 is the only authentication mode, and checks it against the client CA.
+    """
+    user.load()
+    cert_status = user["status"]["clientCertificate"]
+    cert = read_secret(namespace, cert_status["secretName"])
+    server_ca = read_configmap(namespace, cert_status["serverCAConfigMapName"])["ca-pem"]
+
+    with (
+        tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as cert_file,
+        tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as ca_file,
+    ):
+        # Drivers take the certificate and key as one PEM file.
+        cert_file.write(cert["tls.crt"] + cert["tls.key"])
+        ca_file.write(server_ca)
+
+    mdb.tester(use_ssl=True, ca_path=ca_file.name).assert_connectivity(opts=[with_x509(cert_file.name, ca_file.name)])
 
 
 def managed_certificate_operator(namespace: str) -> Operator:

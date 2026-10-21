@@ -48,6 +48,34 @@ spec:
             type: object
           spec:
             properties:
+              clientCertificate:
+                description: |-
+                  ClientCertificate requests the operator to issue an x509 client certificate for this user, for an
+                  application to connect with. The referenced MongoDB resource must use operator-managed
+                  certificates (spec.security.managedCertificate) and x509 authentication, and must be in the
+                  same namespace as this user. The field's presence turns the request on, clientCertificate: {} uses
+                  the defaults. The username is the minted certificate's subject, which the operator derives and reports
+                  in status.username.
+                properties:
+                  subject:
+                    description: |-
+                      Subject of the requested certificate. The username is derived from it. Defaults:
+                      commonName is the MongoDBUser name, organizations is <resource>-app-client and
+                      organizationalUnits is the namespace. It must differ from the mongodb deployment's membership
+                      subject in organizations or organizationalUnits, or mongod treats the user as a cluster member.
+                    properties:
+                      commonName:
+                        type: string
+                      organizationalUnits:
+                        items:
+                          type: string
+                        type: array
+                      organizations:
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                type: object
               connectionStringDatabase:
                 description: |-
                   ConnectionStringDatabase is an optional database name for the connection string URI path
@@ -93,13 +121,47 @@ spec:
                   type: object
                 type: array
               username:
+                description: |-
+                  Username is the name of the user. When clientCertificate is requested it is the certificate subject,
+                  for example CN=my-app,OU=my-namespace,O=my-rs-app-client. Leave it empty to have the operator
+                  fill it in from the cert subject, or set it to that exact value.
                 type: string
             required:
             - db
-            - username
             type: object
+            x-kubernetes-validations:
+            - message: spec.username is required unless spec.clientCertificate is
+                set
+              rule: has(self.clientCertificate) || (has(self.username) && size(self.username)
+                > 0)
+            - message: 'spec.clientCertificate requires spec.db to be $external: the
+                user authenticates with its x509 certificate'
+              rule: '!has(self.clientCertificate) || self.db == ''$external'''
+            - message: 'spec.clientCertificate and spec.passwordSecretKeyRef are mutually
+                exclusive: the user authenticates with its x509 certificate'
+              rule: '!has(self.clientCertificate) || !has(self.passwordSecretKeyRef)
+                || !has(self.passwordSecretKeyRef.name) || size(self.passwordSecretKeyRef.name)
+                == 0'
           status:
             properties:
+              clientCertificate:
+                description: |-
+                  ClientCertificate tells an application where to find what it needs to connect, when
+                  spec.clientCertificate is set.
+                properties:
+                  secretName:
+                    description: SecretName is the kubernetes.io/tls Secret with the
+                      client certificate and key (tls.crt, tls.key).
+                    type: string
+                  serverCAConfigMapName:
+                    description: |-
+                      ServerCAConfigMapName is the ConfigMap with the CA that verifies the deployment's server
+                      certificates (key ca-pem). The operator keeps it up to date.
+                    type: string
+                required:
+                - secretName
+                - serverCAConfigMapName
+                type: object
               db:
                 type: string
               lastTransition:
