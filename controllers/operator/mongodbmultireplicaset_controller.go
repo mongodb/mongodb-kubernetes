@@ -43,6 +43,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	mconstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
@@ -546,6 +547,15 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		)
 
 		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
+		// MongoDBMultiCluster has not moved to the native settings file yet, so its agent still
+		// receives the operator-generated AGENT_FLAGS. Reject a customer override here as well,
+		// so that the same input is rejected on every resource type. startupOptions keeps working,
+		// because that value is what the operator generates.
+		if agent := construct.AgentContainer(sts); agent != nil {
+			if err := construct.ValidateNoCustomAgentFlags(*agent, mrs.Spec.Agent.StartupParameters); err != nil {
+				return workflow.Failed(xerrors.Errorf("cannot render agent settings for cluster %s: %w", item.ClusterName, err))
+			}
+		}
 		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))

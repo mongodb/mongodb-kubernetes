@@ -1028,7 +1028,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	}
 
 	if vault.IsVaultSecretBackend() {
-		secrets := sc.GetSecretsMountedIntoDBPod()
+		secrets := sc.GetSecretsMountedIntoDBPod(conn.GroupID())
 		vaultMap := make(map[string]string)
 		for _, s := range secrets {
 			path := fmt.Sprintf("%s/%s/%s", r.commonController.VaultClient.DatabaseSecretMetadataPath(), sc.Namespace, s)
@@ -1203,6 +1203,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
+	r.commonController.resourceWatcher.AddWatchedResourceIfNotAdded(agents.ApiKeySecretName(conn.GroupID()), sc.Namespace, watch.Secret, sc.ObjectKey())
 
 	reconcileResult := checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval, log)
 	if !reconcileResult.IsOK() {
@@ -1531,7 +1532,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
 		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
 
-		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, mongosSts, mongosOpts, log)
+		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, memberCluster.SecretClient, *s, mongosSts, mongosOpts, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Mongos Stateful Set: %w", err))
 		}
@@ -1577,7 +1578,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 				return pvcStatus
 			}
 
-			mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, shardSts, shardOpts, log)
+			mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, memberCluster.SecretClient, *s, shardSts, shardOpts, log)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create StatefulSet for shard %s: %w", shardSts.Name, err))
 			}
@@ -1625,7 +1626,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 			return pvcStatus
 		}
 
-		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, configSrvSts, configSrvOpts, log)
+		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, memberCluster.SecretClient, *s, configSrvSts, configSrvOpts, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
 		}
@@ -1942,6 +1943,10 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
 		if err != nil {
 			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
+		}
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
+		if err != nil {
+			return xerrors.Errorf("failed to set Secret watch on member cluster %s: %w", clusterName, err)
 		}
 	}
 
