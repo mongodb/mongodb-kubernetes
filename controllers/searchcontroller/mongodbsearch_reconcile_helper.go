@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -2678,19 +2679,22 @@ func (r *MongoDBSearchReconcileHelper) validateOIDCSource() error {
 	if !r.mdbSearch.IsOIDCAuth() {
 		return nil
 	}
+	var mdb *mdbv1.MongoDB
 	switch src := r.db.(type) {
 	case *CommunitySearchSource:
 		return xerrors.New("OIDC authentication requires an enterprise MongoDB source: community MongoDB does not support MONGODB-OIDC")
 	case EnterpriseResourceSearchSource:
-		// IsOIDCEnabled() only checks the enabled flag + modes: a source with modes
-		// [SCRAM, OIDC] but no oidcProviderConfigs entry accepts no token at all.
-		if !src.IsOIDCEnabled() || len(src.Spec.Security.Authentication.OIDCProviderConfigs) == 0 {
-			return xerrors.New("OIDC authentication requires OIDC to be enabled on the source MongoDB (spec.security.authentication.modes=OIDC with a non-empty oidcProviderConfigs entry)")
-		}
+		mdb = src.MongoDB
 	case *ShardedInternalSearchSource:
-		if !src.IsOIDCEnabled() || len(src.Spec.Security.Authentication.OIDCProviderConfigs) == 0 {
-			return xerrors.New("OIDC authentication requires OIDC to be enabled on the source MongoDB (spec.security.authentication.modes=OIDC with a non-empty oidcProviderConfigs entry)")
-		}
+		mdb = src.MongoDB
+	}
+	if mdb == nil {
+		return nil
+	}
+	// IsOIDCEnabled() only checks the enabled flag + modes: a source with modes
+	// [SCRAM, OIDC] but no oidcProviderConfigs entry accepts no token at all.
+	if !mdb.IsOIDCEnabled() || len(mdb.Spec.Security.Authentication.OIDCProviderConfigs) == 0 {
+		return xerrors.New("OIDC authentication requires OIDC to be enabled on the source MongoDB (spec.security.authentication.modes=OIDC with a non-empty oidcProviderConfigs entry)")
 	}
 	return nil
 }
