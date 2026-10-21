@@ -4246,54 +4246,92 @@ func TestReconcileSharded_OIDCStatefulSetTemplateStableAcrossReconciles(t *testi
 	// With OIDC and auto-embedding enabled, the embedding volumes are appended after the OIDC
 	// ones on the first reconcile. Removing and re-appending the OIDC volumes on the second
 	// reconcile moved them after the embedding volumes, changing the pod template and rolling
-	// every mongot pod despite unchanged inputs.
-	search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
-		s.UID = "search-uid"
-		s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
-			ProviderEndpoint: "http://voyage-embedding-svc.test-ns.svc.cluster.local:8080/embeddings",
-			EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
-				Name: "embedding-api-key",
-			},
-		}
-	})
-	shardName := "shard-0"
-	stsName := search.MongotStatefulSetForClusterShard(0, shardName)
-	clientSecret, idpCaConfigMap := oidcTestFixtures()
-	apiKeySecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "embedding-api-key", Namespace: "test-ns"},
+	// every mongot pod despite unchanged inputs. The egress-TLS (client cert) volumes had the
+	// same shape, so the rows also cover OIDC with a client certificate, with and without a
+	// key password.
+	clientCert := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-client-cert", Namespace: "test-ns"},
 		Data: map[string][]byte{
-			"indexing-key": []byte(""),
-			"query-key":    []byte(""),
+			"tls.crt": []byte("cert-data"),
+			"tls.key": []byte("key-data"),
 		},
 	}
-	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap, apiKeySecret)
-	helper := NewMongoDBSearchReconcileHelper(
-		fakeClient,
-		search,
-		&mockShardedSource{
-			shardNames: []string{shardName},
-			hostSeeds:  map[string][]string{shardName: {"shard-0-0.test-ns.svc.cluster.local:27017"}},
-			tlsConfig: &TLSSourceConfig{
-				CAFileName: "ca-pem",
-				CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", "source-ca"),
-			},
+	keyPassword := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-key-password-secret", Namespace: "test-ns"},
+		Data:       map[string][]byte{KeyFilePasswordSecretKey: []byte("my-key-password")},
+	}
+
+	for _, tc := range []struct {
+		name          string
+		sourceTLS     *searchv1.SourceTLS
+		extraFixtures []client.Object
+	}{
+		{name: "no client certificate"},
+		{
+			name:          "client certificate",
+			sourceTLS:     &searchv1.SourceTLS{ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"}},
+			extraFixtures: []client.Object{clientCert},
 		},
-		newTestOperatorSearchConfig(),
-		nil, "",
-		nil,
-	)
+		{
+			name: "client certificate with key password",
+			sourceTLS: &searchv1.SourceTLS{
+				ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"},
+				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "scram-key-password-secret"},
+			},
+			extraFixtures: []client.Object{clientCert, keyPassword},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+				s.UID = "search-uid"
+				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+					ProviderEndpoint: "http://voyage-embedding-svc.test-ns.svc.cluster.local:8080/embeddings",
+					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
+						Name: "embedding-api-key",
+					},
+				}
+				s.Spec.Source.TLS = tc.sourceTLS
+			})
+			shardName := "shard-0"
+			stsName := search.MongotStatefulSetForClusterShard(0, shardName)
+			clientSecret, idpCaConfigMap := oidcTestFixtures()
+			apiKeySecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "embedding-api-key", Namespace: "test-ns"},
+				Data: map[string][]byte{
+					"indexing-key": []byte(""),
+					"query-key":    []byte(""),
+				},
+			}
+			fakeClient := newTestFakeClient(append([]client.Object{search, clientSecret, idpCaConfigMap, apiKeySecret}, tc.extraFixtures...)...)
+			helper := NewMongoDBSearchReconcileHelper(
+				fakeClient,
+				search,
+				&mockShardedSource{
+					shardNames: []string{shardName},
+					hostSeeds:  map[string][]string{shardName: {"shard-0-0.test-ns.svc.cluster.local:27017"}},
+					tlsConfig: &TLSSourceConfig{
+						CAFileName: "ca-pem",
+						CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", "source-ca"),
+					},
+				},
+				newTestOperatorSearchConfig(),
+				nil, "",
+				nil,
+			)
 
-	helper.reconcile(t.Context(), zap.S())
-	created, err := fakeClient.GetStatefulSet(t.Context(), stsName)
-	require.NoError(t, err)
-	require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
+			helper.reconcile(t.Context(), zap.S())
+			created, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+			require.NoError(t, err)
+			require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
 
-	helper.reconcile(t.Context(), zap.S())
-	updated, err := fakeClient.GetStatefulSet(t.Context(), stsName)
-	require.NoError(t, err)
+			helper.reconcile(t.Context(), zap.S())
+			updated, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+			require.NoError(t, err)
 
-	assert.Equal(t, created.Spec.Template, updated.Spec.Template,
-		"second reconcile must not change the pod template (a diff rolls every mongot pod)")
+			assert.Equal(t, created.Spec.Template, updated.Spec.Template,
+				"second reconcile must not change the pod template (a diff rolls every mongot pod)")
+		})
+	}
 }
 
 func TestReconcileSharded_TLSDisabledRemovesMountsPreservesLiveSecret(t *testing.T) {

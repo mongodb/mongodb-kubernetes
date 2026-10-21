@@ -1125,6 +1125,10 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 			log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
 			return nil
 		}
+		if err := searchcontroller.ValidateSearchSourceAuth(search, shardedSource); err != nil {
+			log.Warnf("MongoDBSearch auth validation failed for sharded cluster: %v", err)
+			return nil
+		}
 	}
 
 	// Apply search configuration to each shard (all modes: no-LB, unmanaged LB, managed LB)

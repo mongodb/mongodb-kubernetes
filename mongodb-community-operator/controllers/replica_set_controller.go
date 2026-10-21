@@ -717,8 +717,9 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
 		searchSource := searchcontroller.NewCommunityResourceSearchSource(&mdb)
-		if searchSource.Validate() == nil {
-			search = &searchList.Items[0]
+		searchCandidate := &searchList.Items[0]
+		if searchSource.Validate() == nil && searchcontroller.ValidateSearchSourceAuth(searchCandidate, searchSource) == nil {
+			search = searchCandidate
 		}
 	}
 
