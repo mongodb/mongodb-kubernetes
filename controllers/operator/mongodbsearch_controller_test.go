@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -811,26 +812,17 @@ func TestMongoDBSearchReconcile_RegistersOIDCClientSecretWatch(t *testing.T) {
 	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: oidcClientSecret}], search.NamespacedName())
 }
 
-// TestMemberMongoDBSearchResourceWatches_RoutesUnlabeledOIDCSecretRotation pins the member-cluster
-// route for referenced user-provided Secrets (e.g. the OIDC client secret): they carry no
+// TestMemberMongoDBSearchResourceWatches_RoutesUnlabeledReferencedRotation pins the member-cluster
+// route for referenced user-provided objects (OIDC client secret, IdP CA ConfigMap): they carry no
 // search-owner labels, so they route by name through the dependency watcher.
-func TestMemberMongoDBSearchResourceWatches_RoutesUnlabeledOIDCSecretRotation(t *testing.T) {
+func TestMemberMongoDBSearchResourceWatches_RoutesUnlabeledReferencedRotation(t *testing.T) {
 	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
 	reconciler := newMongoDBSearchReconciler(mock.NewEmptyFakeClientBuilder().Build(), searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
 
-	// Reconcile-time registration of the referenced user-provided secret.
+	// Reconcile-time registration of the referenced user-provided objects.
 	reconciler.watch.AddWatchedResourceIfNotAdded("oidc-client-secret", search.Namespace, watch.Secret, search.NamespacedName())
+	reconciler.watch.AddWatchedResourceIfNotAdded("oidc-idp-ca", search.Namespace, watch.ConfigMap, search.NamespacedName())
 
-	var nameBasedSecretWatch *mongoDBSearchResourceWatch
-	watches := memberMongoDBSearchResourceWatches(reconciler)
-	for i := range watches {
-		if _, ok := watches[i].obj.(*corev1.Secret); ok && len(watches[i].predicates) == 0 {
-			nameBasedSecretWatch = &watches[i]
-		}
-	}
-	require.NotNil(t, nameBasedSecretWatch, "member watches must include a name-based Secret route for referenced secrets")
-
-	// An unlabeled member Secret rotation (changed data) must enqueue the search CR.
 	oldSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "oidc-client-secret", Namespace: search.Namespace},
 		Data:       map[string][]byte{"clientSecret": []byte("old")},
@@ -838,14 +830,43 @@ func TestMemberMongoDBSearchResourceWatches_RoutesUnlabeledOIDCSecretRotation(t 
 	newSecret := oldSecret.DeepCopy()
 	newSecret.Data["clientSecret"] = []byte("rotated")
 
-	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
-	defer q.ShutDown()
-	nameBasedSecretWatch.handler.Update(t.Context(), event.TypedUpdateEvent[client.Object]{ObjectOld: oldSecret, ObjectNew: newSecret}, q)
-	require.Equal(t, 1, q.Len())
-	req, shutdown := q.Get()
-	require.False(t, shutdown)
-	assert.Equal(t, search.NamespacedName(), req.NamespacedName)
-	q.Done(req)
+	oldCa := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: search.Namespace},
+		Data:       map[string]string{"ca.crt": "old-ca"},
+	}
+	newCa := oldCa.DeepCopy()
+	newCa.Data["ca.crt"] = "rotated-ca"
+
+	for _, tc := range []struct {
+		name string
+		old  client.Object
+		new  client.Object
+	}{
+		{name: "client secret", old: oldSecret, new: newSecret},
+		{name: "idp ca configmap", old: oldCa, new: newCa},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// The name-based route for the object type carries no owner-label predicates.
+			var nameBasedWatch *mongoDBSearchResourceWatch
+			watches := memberMongoDBSearchResourceWatches(reconciler)
+			for i := range watches {
+				if reflect.TypeOf(watches[i].obj) == reflect.TypeOf(tc.old) && len(watches[i].predicates) == 0 {
+					nameBasedWatch = &watches[i]
+				}
+			}
+			require.NotNil(t, nameBasedWatch, "member watches must include a name-based route for referenced %T", tc.old)
+
+			// An unlabeled member-side rotation (changed data) must enqueue the search CR.
+			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer q.ShutDown()
+			nameBasedWatch.handler.Update(t.Context(), event.TypedUpdateEvent[client.Object]{ObjectOld: tc.old, ObjectNew: tc.new}, q)
+			require.Equal(t, 1, q.Len())
+			req, shutdown := q.Get()
+			require.False(t, shutdown)
+			assert.Equal(t, search.NamespacedName(), req.NamespacedName)
+			q.Done(req)
+		})
+	}
 }
 
 // pinnedCluster builds a spec.clusters[] entry with an explicit clusterIndex

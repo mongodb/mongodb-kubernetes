@@ -233,9 +233,12 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// Watch the user-provided OIDC client secret so rotating it triggers a reconcile: the client
 	// secret is mounted directly (not part of the mongot config content), and only a reconcile
 	// recomputes oidcClientSecretContentHash to roll the mongot pods onto the new secret.
+	// Same for the IdP CA ConfigMap: the OIDC callback reads idpCaFile into its trust store once
+	// at startup, so a CA rotation needs the reconcile + roll too.
 	if mdbSearch.IsOIDCAuth() {
 		oidcClientSecretRef := mdbSearch.Spec.Source.OIDC.ClientSecretSecretRef
 		r.watch.AddWatchedResourceIfNotAdded(oidcClientSecretRef.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Source.OIDC.IdPCAConfigMapRef.Name, mdbSearch.Namespace, watch.ConfigMap, mdbSearch.NamespacedName())
 	}
 
 	// The no-op mutation reads the state and, as a side effect, repairs legacy
@@ -485,6 +488,13 @@ func memberMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSea
 			obj:        &corev1.ConfigMap{},
 			handler:    searchOwnerHandler,
 			predicates: searchOwnerPredicates,
+		},
+		{
+			// Referenced user-provided ConfigMaps (e.g. the OIDC IdP CA) carry no
+			// search-owner labels; route them by name through the dependency watcher,
+			// same as the referenced Secrets above.
+			obj:     &corev1.ConfigMap{},
+			handler: &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch},
 		},
 		{
 			obj:        &corev1.Secret{},
