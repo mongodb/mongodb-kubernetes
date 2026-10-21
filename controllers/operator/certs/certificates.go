@@ -227,9 +227,10 @@ func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []st
 	for _, certDomain := range opts.additionalCertificateDomains {
 		hostnames = append(hostnames, podNames[member]+"."+certDomain)
 	}
-	if len(opts.horizons) > 0 {
-		// at this point len(ss.ReplicaSetHorizons) should be equal to the number
-		// of members in the replica set
+	// A certificate is built for every member the deployment still has, so during a scale-down
+	// there can be more members than horizons configured. Make sur we are not reading horizon
+	// for he member that's being removed.
+	if member < len(opts.horizons) {
 		for _, externalHost := range opts.horizons[member] {
 			// need to use the URL struct directly instead of url.Parse as
 			// Parse expects the URL to have a scheme.

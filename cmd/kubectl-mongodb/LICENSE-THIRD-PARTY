@@ -42,7 +42,7 @@ github.com/hashicorp/go-secure-stdlib/strutil,v0.1.2,https://github.com/hashicor
 github.com/hashicorp/go-sockaddr,v1.0.7,https://github.com/hashicorp/go-sockaddr/blob/v1.0.7/LICENSE,MPL-2.0
 github.com/hashicorp/hcl,v1.0.1-vault-7,https://github.com/hashicorp/hcl/blob/v1.0.1-vault-7/LICENSE,MPL-2.0
 github.com/hashicorp/vault/api,v1.23.0,https://github.com/hashicorp/vault/blob/api/v1.23.0/api/LICENSE,MPL-2.0
-github.com/imdario/mergo,v0.3.15,https://github.com/imdario/mergo/blob/v0.3.15/LICENSE,BSD-3-Clause
+github.com/imdario/mergo,v0.3.16,https://github.com/imdario/mergo/blob/v0.3.16/LICENSE,BSD-3-Clause
 github.com/json-iterator/go,v1.1.12,https://github.com/json-iterator/go/blob/v1.1.12/LICENSE,MIT
 github.com/mitchellh/copystructure,v1.2.0,https://github.com/mitchellh/copystructure/blob/v1.2.0/LICENSE,MIT
 github.com/mitchellh/mapstructure,v1.5.0,https://github.com/mitchellh/mapstructure/blob/v1.5.0/LICENSE,MIT
