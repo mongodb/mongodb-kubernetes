@@ -1,11 +1,13 @@
 package construct
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -61,6 +63,12 @@ const (
 	// AGENT_API_KEY secret path
 	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key" //nolint
 	AgentAPIKeyVolumeName = "agent-api-key"                     //nolint
+
+	AgentSettingsFileName   = "automation-agent.conf"
+	AgentSettingsVolume     = "agent-settings"
+	AgentSettingsPath       = "/etc/mongodb-agent"
+	AgentSettingsHash       = "mongodb.com/agent-startup-config-hash"
+	AgentRuntimeSettingsEnv = "MDB_AGENT_RUNTIME_SETTINGS"
 
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
@@ -990,6 +998,197 @@ func defaultAgentParameters() mdbv1.StartupParameters {
 	return map[string]string{"logFile": path.Join(util.PvcMountPathLogs, "automation-agent.log")}
 }
 
+// AgentSettingsOverrides normalizes optional CLI prefixes while preserving sorted override precedence.
+func AgentSettingsOverrides(parameters mdbv1.StartupParameters) mdbv1.StartupParameters {
+	overrides := mdbv1.StartupParameters{}
+	for _, key := range slices.Sorted(maps.Keys(parameters)) {
+		overrides[strings.TrimPrefix(key, "-")] = parameters[key]
+	}
+	return overrides
+}
+
+func databaseAgentSettings(opts DatabaseStatefulSetOptions, variables map[string]string) mdbv1.StartupParameters {
+	home := cmp.Or(variables["MMS_HOME"], "/mongodb-automation")
+	logDirectory := cmp.Or(variables["MMS_LOG_DIR"], util.PvcMountPathLogs)
+	settings := defaultAgentParameters()
+	settings["mmsGroupId"] = variables[util.EnvVarProjectId]
+	settings["pidfilepath"] = path.Join(home, "mongodb-mms-automation-agent.pid")
+	settings["maxLogFileDurationHrs"] = "24"
+	settings["logLevel"] = cmp.Or(variables[util.EnvVarLogLevel], "INFO")
+	settings["healthCheckFilePath"] = path.Join(logDirectory, "agent-health-status.json")
+	settings["tlsRequireValidMMSServerCertificates"] = strconv.FormatBool(variables[util.EnvVarSSLRequireValidMMSCertificates] != "false")
+	if baseURL := strings.TrimSuffix(variables[util.EnvVarBaseUrl], "/"); baseURL != "" {
+		settings["mmsBaseUrl"] = baseURL
+	} else {
+		settings["cluster"] = "/var/lib/mongodb-automation/cluster-config.json"
+		settings["serveStatusPort"] = "5000"
+	}
+	if variables["MDB_STATIC_CONTAINERS_ARCHITECTURE"] != "" {
+		settings["operatorMode"] = strconv.FormatBool(true)
+		settings["binariesFixedPath"] = path.Join(cmp.Or(variables[DownloadBaseEnv], opts.GetDownloadBase()), "mongod/bin")
+	} else {
+		settings["useLocalMongoDbTools"] = strconv.FormatBool(true)
+	}
+	if caFile := variables[util.EnvVarSSLTrustedMMSServerCertificate]; caFile != "" {
+		settings["httpsCAFile"] = caFile
+	}
+	if opts.MultiClusterMode || variables[util.EnvVarMultiClusterMode] == "true" || (opts.ExternalAccessConfiguration != nil && opts.ExternalAccessConfiguration.ExternalDomain != nil) {
+		settings["ephemeralPortOffset"] = "1"
+	}
+	var hasAPIKeyOverride bool
+	if opts.AgentConfig != nil {
+		overrides := AgentSettingsOverrides(opts.AgentConfig.StartupParameters)
+		// Mode selection above runs on the environment, before overrides merge. Honouring an
+		// explicit empty mmsBaseUrl would leave the settings file with neither mmsBaseUrl nor the
+		// headless cluster/serveStatusPort keys, so the agent would have no usable mode. An empty
+		// value cannot mean "connect to an empty URL". Treat it the way mergeSingleEnv already
+		// treats an empty override value: as not set.
+		if baseURL, ok := overrides["mmsBaseUrl"]; ok && baseURL == "" {
+			delete(overrides, "mmsBaseUrl")
+		}
+		maps.Copy(settings, overrides)
+		_, hasAPIKeyOverride = overrides["mmsApiKey"]
+	}
+	delete(settings, "mmsApiKey")
+	delete(settings, "overrideLocalHost")
+	if settings["mmsApiKeyExec"] == "" {
+		if settings["mmsBaseUrl"] != "" || hasAPIKeyOverride {
+			keyPath := path.Join(home, "agent-api-key", util.OmAgentApiKey)
+			settings["mmsApiKeyExec"] = "cat '" + strings.ReplaceAll(keyPath, "'", "'\\''") + "'"
+		} else {
+			delete(settings, "mmsApiKeyExec")
+		}
+	}
+	return settings
+}
+
+// AgentContainer returns the container that hosts the automation agent, or nil.
+func AgentContainer(sts appsv1.StatefulSet) *corev1.Container {
+	if agent := container.GetByName(util.AgentContainerName, sts.Spec.Template.Spec.Containers); agent != nil {
+		return agent
+	}
+	return container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
+}
+
+// ValidateNoCustomAgentFlags rejects a customer-supplied AGENT_FLAGS on the agent container.
+//
+// A custom AGENT_FLAGS is rejected and never translated into the settings file. The variable is
+// an internal CSV interface that agent-launcher.sh splits on commas with shell word splitting. A
+// malformed or escaped value makes the agent start with the wrong flags and silently misbehave,
+// so it is not a supported customer surface. agent.startupOptions is the only supported way to
+// set agent startup settings.
+//
+// Every controller must call this so that the same input behaves the same way everywhere, rather
+// than being rejected on some resource types and honoured or ignored on others.
+//
+// Limit: only an explicit Env entry is inspected. An AGENT_FLAGS supplied solely through EnvFrom
+// is not detected here, and the -f launcher path ignores it.
+func ValidateNoCustomAgentFlags(agent corev1.Container, parameters mdbv1.StartupParameters) error {
+	generatedAgentFlags := startupParametersToAgentFlag(parameters).Value
+	for _, variable := range agent.Env {
+		if variable.Name != "AGENT_FLAGS" {
+			continue
+		}
+		if variable.ValueFrom != nil || variable.Value != generatedAgentFlags {
+			return fmt.Errorf("custom AGENT_FLAGS is not supported, set agent settings through agent.startupOptions")
+		}
+	}
+	return nil
+}
+
+// DatabaseAgentSettingsConfigMap renders shared settings from the effective agent environment and customer startup options.
+func DatabaseAgentSettingsConfigMap(sts appsv1.StatefulSet, opts DatabaseStatefulSetOptions) (corev1.ConfigMap, error) {
+	agent := AgentContainer(sts)
+	if agent == nil {
+		return corev1.ConfigMap{}, fmt.Errorf("agent container not found in StatefulSet %s", sts.Name)
+	}
+	var parameters mdbv1.StartupParameters
+	if opts.AgentConfig != nil {
+		parameters = opts.AgentConfig.StartupParameters
+	}
+	if err := ValidateNoCustomAgentFlags(*agent, parameters); err != nil {
+		return corev1.ConfigMap{}, err
+	}
+	settings := databaseAgentSettings(opts, env.ToMap(agent.Env...))
+	for _, key := range DatabaseAgentRuntimeSettings(*agent, opts) {
+		delete(settings, key)
+	}
+	overrides := AgentSettingsOverrides(parameters)
+	if overrides["mmsApiKeyExec"] == "" {
+		_, rawKey := overrides["mmsApiKey"]
+		baseURL, overridden := overrides["mmsBaseUrl"]
+		runtimeURL := AgentEnvironmentIsRuntime(*agent, util.EnvVarBaseUrl) && !overridden
+		if runtimeURL || (settings["mmsApiKeyExec"] != "" && AgentEnvironmentIsRuntime(*agent, "MMS_HOME")) {
+			command := `cat "${MMS_HOME:-/mongodb-automation}/agent-api-key/agentApiKey"`
+			if runtimeURL && !rawKey && baseURL == "" {
+				command = `if [ -n "${BASE_URL%/}" ]; then ` + command + `; fi`
+			}
+			settings["mmsApiKeyExec"] = command
+		}
+	}
+	return agentSettingsConfigMap(sts, settings)
+}
+
+// AgentEnvironmentIsRuntime includes kubelet expansion and EnvFrom values not shadowed by an explicit Env entry.
+func AgentEnvironmentIsRuntime(agent corev1.Container, name string) bool {
+	for _, variable := range agent.Env {
+		if variable.Name == name {
+			return variable.ValueFrom != nil || strings.Contains(variable.Value, "$(")
+		}
+	}
+	return len(agent.EnvFrom) > 0
+}
+
+// DatabaseAgentRuntimeSettings leaves only unresolved defaults to the launcher; file overrides take precedence over CLI.
+func DatabaseAgentRuntimeSettings(agent corev1.Container, opts DatabaseStatefulSetOptions) []string {
+	dependencies := map[string][]string{
+		"MMS_HOME": {"pidfilepath"}, "MMS_LOG_DIR": {"healthCheckFilePath"},
+		"MDB_STATIC_CONTAINERS_ARCHITECTURE": {"operatorMode", "useLocalMongoDbTools", "binariesFixedPath"},
+		DownloadBaseEnv:                      {"binariesFixedPath"},
+		util.EnvVarBaseUrl:                   {"mmsBaseUrl", "cluster", "serveStatusPort"},
+		util.EnvVarProjectId:                 {"mmsGroupId"}, util.EnvVarLogLevel: {"logLevel"},
+		util.EnvVarMultiClusterMode:               {"ephemeralPortOffset"},
+		util.EnvVarSSLRequireValidMMSCertificates: {"tlsRequireValidMMSServerCertificates"},
+		util.EnvVarSSLTrustedMMSServerCertificate: {"httpsCAFile"},
+	}
+	var overrides mdbv1.StartupParameters
+	if opts.AgentConfig != nil {
+		overrides = AgentSettingsOverrides(opts.AgentConfig.StartupParameters)
+	}
+	var keys []string
+	for variable, settings := range dependencies {
+		if !AgentEnvironmentIsRuntime(agent, variable) {
+			continue
+		}
+		for _, key := range settings {
+			if _, overridden := overrides[key]; !overridden {
+				if key == "ephemeralPortOffset" && (opts.MultiClusterMode || (opts.ExternalAccessConfiguration != nil && opts.ExternalAccessConfiguration.ExternalDomain != nil)) {
+					continue
+				}
+				keys = append(keys, key)
+			}
+		}
+	}
+	slices.Sort(keys)
+	return slices.Compact(keys)
+}
+
+func agentSettingsConfigMap(sts appsv1.StatefulSet, settings mdbv1.StartupParameters) (corev1.ConfigMap, error) {
+	content, err := settings.ToSettingsFile()
+	if err != nil {
+		return corev1.ConfigMap{}, err
+	}
+	return corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            sts.Name + "-agent-settings",
+			Namespace:       sts.Namespace,
+			Labels:          maps.Clone(sts.Labels),
+			OwnerReferences: append([]metav1.OwnerReference(nil), sts.OwnerReferences...),
+		},
+		Data: map[string]string{AgentSettingsFileName: content},
+	}, nil
+}
+
 func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	envVars = append(envVars, getAutomationLogEnvVars(parameters)...)
@@ -1028,7 +1227,10 @@ func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) cor
 
 func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar {
 	automationLogFile := path.Join(util.PvcMountPathLogs, "automation-agent.log")
-	if logFileValue, ok := parameters["logFile"]; ok && len(logFileValue) > 0 {
+	// Normalize the same way the settings file does. The launcher tails these environment paths,
+	// not the settings file, so a dash-prefixed "-logFile" must retarget both or kubectl logs
+	// streams the wrong file.
+	if logFileValue, ok := AgentSettingsOverrides(parameters)["logFile"]; ok && len(logFileValue) > 0 {
 		automationLogFile = logFileValue
 	}
 
