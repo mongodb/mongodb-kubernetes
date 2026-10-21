@@ -569,7 +569,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		// The StatefulSet modifications below merge volumes/mounts, so an existing deployment
 		// switched from SCRAM to x509/OIDC auth would keep the password volume + mount forever;
 		// removing it keeps the StatefulSet consistent with the now-unused password Secret.
-		passwordAuthStsModification = removeMongotVolumesAndMounts("password")
+		passwordAuthStsModification = removeMongotVolumesAndMounts(SourceUserPasswordVolumeName)
 	} else {
 		passwordAuthStsModification = PasswordAuthModification(r.mdbSearch)
 	}
