@@ -2238,7 +2238,14 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		)))...,
 	))
 
-	return mongotModification, statefulset.Apply(removeScramClientVolumes, statefulsetModification), nil
+	// The cert volume/mount merge in place by name and never change; only the conditional
+	// key-password pair needs cleanup when the password is not configured. Unconditional
+	// remove-then-add would move both volumes to the end of the list on every reconcile.
+	if !hasScramKeyPassword {
+		statefulsetModification = statefulset.Apply(removeMongotVolumesAndMounts("scram-key-password"), statefulsetModification)
+	}
+
+	return mongotModification, statefulsetModification, nil
 }
 
 func removeMongotVolumesAndMounts(names ...string) statefulset.Modification {
@@ -2704,6 +2711,16 @@ func (r *MongoDBSearchReconcileHelper) ValidateManagedLBShardedTLS() error {
 	return nil
 }
 
+// ValidateSearchSourceAuth checks that the source MongoDB supports the search resource's
+// sync-source authentication, shared by the search reconciler and the database controllers'
+// search-endpoint gates. External sources are unverifiable from the operator and pass.
+func ValidateSearchSourceAuth(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if err := validateSCRAMAuthSource(search, db); err != nil {
+		return err
+	}
+	return validateOIDCSource(search, db)
+}
+
 // validateOIDCSource enforces the OIDC source requirements at reconcile time —
 // cross-resource, so neither the CRD CEL rules nor the spec validators can see them.
 // No-op unless the search resource authenticates to its source with OIDC. External
@@ -2712,11 +2729,15 @@ func (r *MongoDBSearchReconcileHelper) ValidateManagedLBShardedTLS() error {
 // No mongod version check either: the adapters' 8.2.0 floor already exceeds the
 // 7.0 requirement for MONGODB-OIDC.
 func (r *MongoDBSearchReconcileHelper) validateOIDCSource() error {
-	if !r.mdbSearch.IsOIDCAuth() {
+	return validateOIDCSource(r.mdbSearch, r.db)
+}
+
+func validateOIDCSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if !search.IsOIDCAuth() {
 		return nil
 	}
 	var mdb *mdbv1.MongoDB
-	switch src := r.db.(type) {
+	switch src := db.(type) {
 	case *CommunitySearchSource:
 		return xerrors.New("OIDC authentication requires an enterprise MongoDB source: community MongoDB does not support MONGODB-OIDC")
 	case EnterpriseResourceSearchSource:
@@ -2743,12 +2764,16 @@ func (r *MongoDBSearchReconcileHelper) validateOIDCSource() error {
 // needs no SCRAM for them. External sources are unverifiable from the operator and
 // get no check, as before.
 func (r *MongoDBSearchReconcileHelper) validateSCRAMAuthSource() error {
-	if r.mdbSearch.IsX509Auth() || r.mdbSearch.IsOIDCAuth() {
+	return validateSCRAMAuthSource(r.mdbSearch, r.db)
+}
+
+func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if search.IsX509Auth() || search.IsOIDCAuth() {
 		return nil
 	}
 
 	var authModes []string
-	switch src := r.db.(type) {
+	switch src := db.(type) {
 	case EnterpriseResourceSearchSource:
 		authModes = src.Spec.GetSecurityAuthenticationModes()
 	case *ShardedInternalSearchSource:
