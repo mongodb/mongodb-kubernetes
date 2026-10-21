@@ -81,9 +81,10 @@ def _client_credentials_claims() -> dict:
     returns its decoded payload.
 
     mongot authenticates with a client-credentials token, whose aud and sub
-    claims can differ from the user-login contract used by the m2m fixtures: a
-    Cognito client-credentials token may carry no aud, or an app-client-specific
-    aud, and its sub identifies the app client rather than the workload user.
+    claims can differ from the user-login contract used by the m2m fixtures (those
+    authenticate with the Cognito ID token, which carries aud): a Cognito
+    client-credentials token has no aud unless the request asks for a resource
+    binding, and its sub identifies the app client rather than the workload user.
     The OIDC provider audience and the $external username below are derived from
     this token, so the source of truth is the IdP, not the user-flow fixtures.
     """
@@ -117,14 +118,24 @@ def _client_credentials_claims() -> dict:
 def _cc_token_audience() -> str:
     """Audience of the token the app client actually mints (for oidcProviderConfigs)."""
     claims = _client_credentials_claims()
-    # Cognito client-credentials tokens may omit aud; the app-client id then
-    # identifies the audience.
-    audience = claims.get("aud") or claims.get("client_id")
+    # mongod validates the configured audience against the token's aud claim only — the
+    # server's JWT parser drops client_id/azp, so an aud-less token cannot authenticate.
+    # Cognito access tokens carry aud only when the token request asks for a resource
+    # binding, so fail clearly here instead of surfacing as a mongot auth failure.
+    audience = claims.get("aud")
+    if isinstance(audience, list):
+        if len(audience) != 1:
+            fail(
+                f"The Cognito client-credentials token has a multi-valued aud {audience}; "
+                "mongod accepts exactly one audience.",
+                pytrace=False,
+            )
+        audience = audience[0]
     if not audience:
         fail(
-            "The Cognito client-credentials token carries neither an aud nor a client_id "
-            "claim; the Cognito setup must issue client-credentials tokens with a "
-            "MongoDB-compatible audience claim.",
+            "The Cognito client-credentials token carries no aud claim; mongod validates "
+            "audience against aud only. The Cognito pool must mint audience-bearing access "
+            "tokens (a resource binding on the token request) for this test to work.",
             pytrace=False,
         )
     return audience
