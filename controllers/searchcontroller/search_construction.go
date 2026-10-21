@@ -71,7 +71,7 @@ const (
 
 	OIDCClientSecretMountPath = "/mongot/oidcClientSecret"           // #nosec G101 -- path, not a password
 	TempOIDCClientSecretPath  = tempVolumePath + "/oidcClientSecret" // #nosec G101 -- path, not a password
-	OIDCIdPCAConfigMapKey     = "ca.crt"                             // fixed key in the user's IdP-CA ConfigMap (spec.source.oidc.idpCaConfigMapRef), same convention as spec.source.external.tls.ca
+	OIDCIdPCAConfigMapKey     = "ca.crt"                             // fixed key in the user's IdP-CA ConfigMap (spec.source.oidc.idpCAConfigMapRef), same convention as spec.source.external.tls.ca
 	OIDCIdPCaMountPath        = "/mongot/oidcIdpCa"                  // dir mount of the IdP-CA ConfigMap; idpCaFile = mountPath + "/" + OIDCIdPCAConfigMapKey
 )
 
