@@ -9,14 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -554,4 +557,70 @@ func TestShardedComponentConfigsSetMembersToCover(t *testing.T) {
 	for name, opts := range builders {
 		assert.Equal(t, 5, opts.MembersToCover, "%s cert Options must set MembersToCover to max(current, desired)", name)
 	}
+}
+
+// TestComponentsDoNotShareCoveredMembers covers what the certificate code sees for a sharded
+// cluster: every component is a separate certificate, and each one keeps its own covered-members
+// count. A shard with 7 mongods must not make the mongos certificate cover 7 mongos.
+func TestComponentsDoNotShareCoveredMembers(t *testing.T) {
+	ctx := context.Background()
+	sc := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	})
+
+	mongosOpts := Options{
+		ResourceName:   resName + "-mongos",
+		CertSecretName: resName + "-mongos-managed-cert",
+		Namespace:      resNamespace,
+		ServiceName:    resName + "-mongos-svc",
+		Replicas:       3,
+		MembersToCover: 3,
+	}
+	shardOpts := Options{
+		ResourceName:   resName + "-0",
+		CertSecretName: resName + "-0-managed-cert",
+		Namespace:      resNamespace,
+		ServiceName:    resName + "-0-svc",
+		Replicas:       7,
+		MembersToCover: 7,
+	}
+
+	// The shard's certificate already covers 9 members, more than its own 7.
+	// The client is built here rather than with the mock helper, which doesn't register
+	// cert-manager types in its scheme.
+	scheme := runtime.NewScheme()
+	require.NoError(t, certmanagerv1.AddToScheme(scheme))
+	fakeClient := kubernetesClient.NewClient(fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&certmanagerv1.Certificate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        shardOpts.CertSecretName,
+				Namespace:   resNamespace,
+				Annotations: map[string]string{coveredMembersAnnotation: "9"},
+			},
+		}).
+		Build())
+
+	mongosMember := memberCert(t, componentCertificates(ctx, fakeClient, sc, mongosOpts))
+	shardMember := memberCert(t, componentCertificates(ctx, fakeClient, sc, shardOpts))
+
+	assert.NotEqual(t, mongosMember.certName, shardMember.certName)
+	// Each certificate carries its own count: the shard reads its own annotation, the mongos its own.
+	assert.Equal(t, "3", mongosMember.annotations[coveredMembersAnnotation])
+	assert.Equal(t, "9", shardMember.annotations[coveredMembersAnnotation])
+	assert.Len(t, mongosMember.spec.DNSNames, 3)
+	assert.Len(t, shardMember.spec.DNSNames, 9)
+}
+
+// memberCert returns the member (server) certificate of one component, which is the one that
+// carries the covered-members annotation.
+func memberCert(t *testing.T, certs []certToEnsure) certToEnsure {
+	t.Helper()
+	for _, cert := range certs {
+		if cert.annotations[coveredMembersAnnotation] != "" {
+			return cert
+		}
+	}
+	t.Fatalf("no member certificate among %d certificates", len(certs))
+	return certToEnsure{}
 }
