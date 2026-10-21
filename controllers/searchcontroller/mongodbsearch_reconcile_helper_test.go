@@ -4242,6 +4242,58 @@ func TestReconcileSharded_OIDCAuthRemovesStalePasswordVolumeAndMount(t *testing.
 	assert.True(t, mountNames["oidc-idp-ca"])
 }
 
+// TestReconcileSharded_RemovingClientCertRemovesVolumeAndMount pins the transition: removing
+// spec.source.tls while TLS stays enabled on the source must remove the scram-client-cert
+// volume and mount; the shared CA volume stays.
+func TestReconcileSharded_RemovingClientCertRemovesVolumeAndMount(t *testing.T) {
+	search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+		s.Spec.Source.TLS = &searchv1.SourceTLS{
+			ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"},
+		}
+	})
+	shardName := "shard-0"
+	stsName := search.MongotStatefulSetForClusterShard(0, shardName)
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+	clientCert := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-client-cert", Namespace: "test-ns"},
+		Data:       map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")},
+	}
+	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap, clientCert)
+	helper := NewMongoDBSearchReconcileHelper(
+		fakeClient,
+		search,
+		&mockShardedSource{
+			shardNames: []string{shardName},
+			hostSeeds:  map[string][]string{shardName: {"shard-0-0.test-ns.svc.cluster.local:27017"}},
+			tlsConfig: &TLSSourceConfig{
+				CAFileName: "ca-pem",
+				CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", "source-ca"),
+			},
+		},
+		newTestOperatorSearchConfig(),
+		nil, "",
+		nil,
+	)
+
+	helper.reconcile(t.Context(), zap.S())
+	sts, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+	require.NoError(t, err)
+	volumeNames, mountNames := stsVolumeAndMountNames(sts)
+	require.True(t, volumeNames["scram-client-cert"])
+	require.True(t, mountNames["scram-client-cert"])
+
+	search.Spec.Source.TLS = nil
+	helper.reconcile(t.Context(), zap.S())
+	sts, err = fakeClient.GetStatefulSet(t.Context(), stsName)
+	require.NoError(t, err)
+	volumeNames, mountNames = stsVolumeAndMountNames(sts)
+	assert.False(t, volumeNames["scram-client-cert"], "the stale client-cert volume must be removed with the cert")
+	assert.False(t, mountNames["scram-client-cert"], "the stale client-cert mount must be removed with the cert")
+	assert.True(t, volumeNames["ca"], "the shared CA volume stays (source TLS is still enabled)")
+	assert.True(t, volumeNames["oidc-client-secret"])
+}
+
 func TestReconcileSharded_OIDCStatefulSetTemplateStableAcrossReconciles(t *testing.T) {
 	// With OIDC and auto-embedding enabled, the embedding volumes are appended after the OIDC
 	// ones on the first reconcile. Removing and re-appending the OIDC volumes on the second

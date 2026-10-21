@@ -1118,15 +1118,18 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 
 	searchClusterIndex := searchcontroller.ResolveSingleClusterIndex(search)
 
+	// The auth-mode check applies to every internal sharded routing mode; the endpoint
+	// validation below stays unmanaged-LB-only.
+	shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
+	if err := searchcontroller.ValidateSearchSourceAuth(search, shardedSource); err != nil {
+		log.Warnf("MongoDBSearch auth validation failed for sharded cluster %s/%s: %v", search.Namespace, search.Name, err)
+		return nil
+	}
+
 	// Validate unmanaged LB endpoint configuration (only when unmanaged LB)
 	if search.IsShardedUnmanagedLB() {
-		shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
 		if err := shardedSource.Validate(); err != nil {
 			log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
-			return nil
-		}
-		if err := searchcontroller.ValidateSearchSourceAuth(search, shardedSource); err != nil {
-			log.Warnf("MongoDBSearch auth validation failed for sharded cluster: %v", err)
 			return nil
 		}
 	}
