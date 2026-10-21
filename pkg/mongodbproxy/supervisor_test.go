@@ -18,19 +18,28 @@ import (
 //	run         - runs until SIGTERM, then exits 0
 //	ignoreterm  - ignores SIGTERM
 //	exit:<N>    - prints a line and exits with N
-//	env         - prints KRB5_KTNAME and exits 0
+//	env         - prints the launch-related environment and exits 0
+//	args        - prints its command line and exits 0
 //
 // Long-running modes create "<config>.ready" once their signal handling is set up.
 const fakeMongod = `#!/bin/sh
 mode=$(cat "$2")
 case "$mode" in
   exit:*) echo "exiting with ${mode#exit:}"; exit "${mode#exit:}";;
-  env) echo "KRB5_KTNAME=$KRB5_KTNAME"; exit 0;;
+  env) echo "KRB5_KTNAME=$KRB5_KTNAME LDAPTLS_CACERT=$LDAPTLS_CACERT GLIBC_TUNABLES=$GLIBC_TUNABLES SET_THP_DISABLED=$SET_THP_DISABLED"; exit 0;;
+  args) echo "ARGS: $*"; exit 0;;
   run) trap 'exit 0' TERM;;
   ignoreterm) trap '' TERM;;
 esac
 touch "$2.ready"
 while true; do sleep 0.1; done
+`
+
+// fakeNumactl announces itself, drops "--interleave=all" and runs the rest of the command line.
+const fakeNumactl = `#!/bin/sh
+echo "numactl $1"
+shift
+exec "$@"
 `
 
 // syncBuffer is a bytes.Buffer safe for concurrent use by exec's copy goroutines.
@@ -64,6 +73,7 @@ func newFixture(t *testing.T) *fixture {
 	for _, name := range []string{BinaryMongod, BinaryMongos} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(fakeMongod), 0o755)) //nolint:gosec
 	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, binaryNumactl), []byte(fakeNumactl), 0o755)) //nolint:gosec
 	stdout := &syncBuffer{}
 	sup := NewSupervisor(WithBinDir(dir), WithOutput(stdout, stdout))
 	t.Cleanup(func() {
@@ -167,7 +177,9 @@ func TestStartFailures(t *testing.T) {
 		"relative config path": {StartRequest{ConfigPath: "mongod.conf", Role: RoleMain}, ErrInvalidRequest},
 		"missing role":         {StartRequest{ConfigPath: cfg}, ErrInvalidRequest},
 		"unknown binary":       {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{Binary: "sh"}}, ErrInvalidRequest},
-		"env not allowed":      {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{Env: map[string]string{"LD_PRELOAD": "/x"}}}, ErrInvalidRequest},
+		"bad replSet name":     {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{ShardMaintenanceReplSet: "--fork"}}, ErrInvalidRequest},
+		"relative keytab":      {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{KerberosKeytab: "krb5.keytab"}}, ErrInvalidRequest},
+		"relative ldap CA":     {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{LdapCaPath: "ca.pem"}}, ErrInvalidRequest},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -185,16 +197,54 @@ func TestStartFailures(t *testing.T) {
 	})
 }
 
-func TestAllowedEnvIsPassedToChild(t *testing.T) {
+func TestTypedSettingsAreTurnedIntoEnvironment(t *testing.T) {
 	f := newFixture(t)
 	e, err := f.sup.Start(StartRequest{
 		ConfigPath: f.config("main", "env"),
 		Role:       RoleMain,
-		Other:      Other{Env: map[string]string{"KRB5_KTNAME": "/data/krb5.keytab"}},
+		Other: Other{
+			KerberosKeytab: "/data/krb5.keytab",
+			LdapCaPath:     "/data/ldap-ca.pem",
+			RseqDisabled:   true,
+		},
 	})
 	require.NoError(t, err)
 	waitDone(t, e)
-	assert.Contains(t, f.sup.Status().Output, "KRB5_KTNAME=/data/krb5.keytab")
+	assert.Contains(t, f.sup.Status().Output,
+		"KRB5_KTNAME=/data/krb5.keytab LDAPTLS_CACERT=/data/ldap-ca.pem GLIBC_TUNABLES=glibc.pthread.rseq=0 SET_THP_DISABLED=")
+}
+
+func TestTypedSettingsAreTurnedIntoFlags(t *testing.T) {
+	f := newFixture(t)
+	cfg := f.config("main", "args")
+	e, err := f.sup.Start(StartRequest{
+		ConfigPath: cfg,
+		Role:       RoleMain,
+		Other:      Other{ConfigExpandRest: true, Restore: true, ShardMaintenanceReplSet: "cs0", MagicRestore: true, ConfigOnly: true},
+	})
+	require.NoError(t, err)
+	waitDone(t, e)
+	assert.Contains(t, f.sup.Status().Output,
+		"ARGS: -f "+cfg+" --configExpand rest --restore --replicaSetConfigShardMaintenanceMode --replSet cs0 --magicRestore --configOnly")
+}
+
+func TestNumaInterleaveRunsUnderNumactl(t *testing.T) {
+	f := newFixture(t)
+	cfg := f.config("main", "args")
+	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaInterleave: true}})
+	require.NoError(t, err)
+	waitDone(t, e)
+	out := f.sup.Status().Output
+	assert.Contains(t, out, "numactl --interleave=all")
+	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
+}
+
+func TestNumaInterleaveWithoutNumactlFailsToStart(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, os.Remove(filepath.Join(f.dir, binaryNumactl)))
+	_, err := f.sup.Start(StartRequest{ConfigPath: f.config("main", "run"), Role: RoleMain, Other: Other{NumaInterleave: true}})
+	assert.ErrorIs(t, err, ErrSpawn)
+	assert.Equal(t, StateIdle, f.sup.Status().State)
 }
 
 func TestStopSendsSIGTERMAndWaits(t *testing.T) {

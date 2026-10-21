@@ -49,15 +49,39 @@ var (
 	ErrSpawn = errors.New("failed to start the process")
 )
 
-// Other carries launch settings. It never allows arbitrary shell execution:
-// the binary is chosen from a fixed list and environment keys are allow-listed.
+// Other carries typed launch settings. The proxy turns them into command-line flags, environment
+// variables and process attributes itself, so a request can never inject arbitrary flags or
+// environment variables (and nothing is ever passed to a shell). Everything else mongod needs
+// is written by the agent into the config file given by StartRequest.ConfigPath.
+//
+// The fields mirror what the automation agent adds on top of "-f <config>" when it starts
+// mongod/mongos itself (mongoctl.NewStartProcessCmd, util.StartMongoCmdWrapper).
 type Other struct {
 	// Binary is "mongod" (default) or "mongos".
 	Binary string `json:"binary,omitempty"`
-	// Args are extra command-line arguments appended after "-f <configPath>".
-	Args []string `json:"args,omitempty"`
-	// Env holds additional environment variables. Only allow-listed keys are accepted.
-	Env map[string]string `json:"env,omitempty"`
+
+	// ConfigExpandRest adds "--configExpand rest" (local configuration server).
+	ConfigExpandRest bool `json:"configExpandRest,omitempty"`
+	// Restore adds "--restore" (restore from a selective backup).
+	Restore bool `json:"restore,omitempty"`
+	// MagicRestore adds "--magicRestore".
+	MagicRestore bool `json:"magicRestore,omitempty"`
+	// ConfigOnly adds "--configOnly".
+	ConfigOnly bool `json:"configOnly,omitempty"`
+	// ShardMaintenanceReplSet, when set, adds "--replicaSetConfigShardMaintenanceMode --replSet <name>".
+	ShardMaintenanceReplSet string `json:"shardMaintenanceReplSet,omitempty"`
+
+	// KerberosKeytab sets KRB5_KTNAME to this absolute path.
+	KerberosKeytab string `json:"kerberosKeytab,omitempty"`
+	// LdapCaPath sets LDAPTLS_CACERT to this absolute path.
+	LdapCaPath string `json:"ldapCaPath,omitempty"`
+	// RseqDisabled sets GLIBC_TUNABLES=glibc.pthread.rseq=0 (needed for MongoDB 8.0+).
+	RseqDisabled bool `json:"rseqDisabled,omitempty"`
+	// DisableTHP disables transparent huge pages for the child (prctl PR_SET_THP_DISABLE, Linux only)
+	// and sets SET_THP_DISABLED=yes.
+	DisableTHP bool `json:"disableTHP,omitempty"`
+	// NumaInterleave runs the child under "numactl --interleave=all".
+	NumaInterleave bool `json:"numaInterleave,omitempty"`
 }
 
 // StartRequest is the body of POST /v1/process/start.

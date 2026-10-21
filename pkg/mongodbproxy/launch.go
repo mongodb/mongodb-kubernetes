@@ -4,22 +4,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"regexp"
 )
 
-// allowedEnv lists the environment variables the agent may set for the child.
-// GLIBC_TUNABLES carries the process-local THP settings.
-var allowedEnv = map[string]struct{}{
-	"KRB5_KTNAME":    {},
-	"LDAPTLS_CACERT": {},
-	"GLIBC_TUNABLES": {},
-}
+const binaryNumactl = "numactl"
+
+// replSetName limits the replica set name so that it can never be mistaken for a flag.
+var replSetName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // launchSpec is a validated StartRequest turned into what exec needs.
 type launchSpec struct {
-	binary string
-	args   []string
-	env    []string
+	binary     string
+	args       []string
+	env        []string
+	numactl    bool
+	disableTHP bool
 }
 
 func (r StartRequest) validate() (launchSpec, error) {
@@ -29,29 +28,55 @@ func (r StartRequest) validate() (launchSpec, error) {
 	if r.Role != RoleMain && r.Role != RoleEphemeral {
 		return launchSpec{}, fmt.Errorf("%w: role must be %q or %q", ErrInvalidRequest, RoleMain, RoleEphemeral)
 	}
-	binary := r.Other.Binary
+	o := r.Other
+	binary := o.Binary
 	if binary == "" {
 		binary = BinaryMongod
 	}
 	if binary != BinaryMongod && binary != BinaryMongos {
 		return launchSpec{}, fmt.Errorf("%w: binary must be %q or %q", ErrInvalidRequest, BinaryMongod, BinaryMongos)
 	}
-
-	keys := make([]string, 0, len(r.Other.Env))
-	for k := range r.Other.Env {
-		if _, ok := allowedEnv[k]; !ok {
-			return launchSpec{}, fmt.Errorf("%w: environment variable %q is not allowed", ErrInvalidRequest, k)
+	if o.ShardMaintenanceReplSet != "" && !replSetName.MatchString(o.ShardMaintenanceReplSet) {
+		return launchSpec{}, fmt.Errorf("%w: shardMaintenanceReplSet %q is not a valid replica set name", ErrInvalidRequest, o.ShardMaintenanceReplSet)
+	}
+	for field, path := range map[string]string{"kerberosKeytab": o.KerberosKeytab, "ldapCaPath": o.LdapCaPath} {
+		if path != "" && !filepath.IsAbs(path) {
+			return launchSpec{}, fmt.Errorf("%w: %s must be an absolute path", ErrInvalidRequest, field)
 		}
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	env := os.Environ()
-	for _, k := range keys {
-		env = append(env, k+"="+r.Other.Env[k])
 	}
 
-	args := append([]string{"-f", r.ConfigPath}, r.Other.Args...)
-	return launchSpec{binary: binary, args: args, env: env}, nil
+	args := []string{"-f", r.ConfigPath}
+	if o.ConfigExpandRest {
+		args = append(args, "--configExpand", "rest")
+	}
+	if o.Restore {
+		args = append(args, "--restore")
+	}
+	if o.ShardMaintenanceReplSet != "" {
+		args = append(args, "--replicaSetConfigShardMaintenanceMode", "--replSet", o.ShardMaintenanceReplSet)
+	}
+	if o.MagicRestore {
+		args = append(args, "--magicRestore")
+	}
+	if o.ConfigOnly {
+		args = append(args, "--configOnly")
+	}
+
+	env := os.Environ()
+	if o.KerberosKeytab != "" {
+		env = append(env, "KRB5_KTNAME="+o.KerberosKeytab)
+	}
+	if o.LdapCaPath != "" {
+		env = append(env, "LDAPTLS_CACERT="+o.LdapCaPath)
+	}
+	if o.RseqDisabled {
+		env = append(env, "GLIBC_TUNABLES=glibc.pthread.rseq=0")
+	}
+	if o.DisableTHP {
+		env = append(env, "SET_THP_DISABLED=yes")
+	}
+
+	return launchSpec{binary: binary, args: args, env: env, numactl: o.NumaInterleave, disableTHP: o.DisableTHP}, nil
 }
 
 func (r StopRequest) validate() error {

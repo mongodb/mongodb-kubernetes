@@ -139,13 +139,29 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		return nil, fmt.Errorf("%w: %w", ErrSpawn, err)
 	}
 
+	name, args := path, spec.args
+	if spec.numactl {
+		numactl, err := s.resolve(binaryNumactl)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrSpawn, err)
+		}
+		name, args = numactl, append([]string{"--interleave=all", path}, spec.args...)
+	}
+
 	output := &tailBuffer{limit: maxOutputBytes}
-	cmd := exec.Command(path, spec.args...) //nolint:gosec // binary is one of two fixed names, args are never passed to a shell
+	// The program is mongod/mongos (optionally behind numactl) and every argument is built by
+	// validate() from typed fields; nothing from the request reaches a shell or is used as a flag verbatim.
+	cmd := exec.Command(name, args...) //nolint:gosec
 	cmd.Env = spec.env
 	cmd.Stdout = io.MultiWriter(s.stdout, output)
 	cmd.Stderr = io.MultiWriter(s.stderr, output)
 	cmd.WaitDelay = waitDelay
-	if err := cmd.Start(); err != nil {
+
+	start := cmd.Start
+	if spec.disableTHP {
+		start = func() error { return startWithTHPDisabled(cmd) }
+	}
+	if err := start(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSpawn, err)
 	}
 
