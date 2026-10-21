@@ -80,5 +80,8 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 		return err
 	}
 
+	// No auth-mode check here: this adapter wraps the source MongoDB only and cannot see the
+	// search resource's auth mode. The SCRAM-on-source requirement lives in the reconcile-level
+	// validateSCRAMAuthSource, which exempts x509/OIDC searches.
 	return nil
 }
