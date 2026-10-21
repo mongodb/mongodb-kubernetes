@@ -291,6 +291,20 @@ manager: generate fmt vet
 mckci:
 	go build -o bin/mckci ./ci/cmd/mckci
 
+# Build the mongodb-proxy binary (PID 1 of the `mongodb` container) for linux. Override GOARCH for arm64.
+.PHONY: mongodb-proxy
+mongodb-proxy: GOARCH ?= amd64
+mongodb-proxy:
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(GOARCH) go build -o bin/mongodb-proxy ./cmd/mongodb-proxy
+
+# Build the mongodb-proxy image locally (it is mounted into the `mongodb` container as an OCI image volume).
+.PHONY: mongodb-proxy-image
+mongodb-proxy-image: PROXY_IMAGE ?= mongodb-kubernetes-mongodb-proxy:dev
+mongodb-proxy-image: TARGETARCH ?= amd64
+mongodb-proxy-image:
+	docker buildx build --load --progress plain -f docker/mongodb-kubernetes-mongodb-proxy/Dockerfile \
+		--build-arg TARGETOS=linux --build-arg TARGETARCH=$(TARGETARCH) -t $(PROXY_IMAGE) .
+
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet manifests
 	go run ./main.go
