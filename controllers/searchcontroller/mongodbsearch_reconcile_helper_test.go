@@ -3178,8 +3178,6 @@ func TestEnsureOIDCClientConfig_NoopWhenNotConfigured(t *testing.T) {
 }
 
 func TestEnsureOIDCClientConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
-	// should error out if the OIDC auth is configured between mongot -> mongod but tls is not enabled
-	// for search source
 	search := newOIDCMongoDBSearch("test-search", "test-ns")
 
 	dbSource := &mockShardedSource{tlsConfig: nil} // No TLS on source
@@ -4123,10 +4121,9 @@ func TestReconcile_RemovingLegacyClientCertificateSecretsUpdatesStatefulSet(t *t
 	}
 }
 
-// TestReconcileSharded_OIDCAuthRemovesStalePasswordVolumeAndMount pins the SCRAM→OIDC
-// auth switch: the StatefulSet modifications merge volumes/mounts, so the password
-// volume + mount left over from the former SCRAM deployment must be removed
-// explicitly — deleting the now-unused password Secret would otherwise break
+// TestReconcileSharded_OIDCAuthRemovesStalePasswordVolumeAndMount pins the SCRAM-to-OIDC
+// auth switch: StatefulSet modifications merge volumes/mounts, so the leftover password
+// volume must be removed explicitly or deleting the now-unused password Secret breaks
 // replacement pods.
 func TestReconcileSharded_OIDCAuthRemovesStalePasswordVolumeAndMount(t *testing.T) {
 	search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
