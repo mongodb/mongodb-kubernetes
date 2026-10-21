@@ -491,6 +491,14 @@ func memberMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSea
 			handler:    searchOwnerHandler,
 			predicates: searchOwnerPredicates,
 		},
+		{
+			// Referenced user-provided Secrets (e.g. the OIDC client secret) carry no
+			// search-owner labels, so the label route cannot see them; they route by
+			// name through the dependency watcher so member-cluster rotations reconcile
+			// the search CR like central ones.
+			obj:     &corev1.Secret{},
+			handler: &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch},
+		},
 	}
 }
 
