@@ -3115,7 +3115,7 @@ func newOIDCMongoDBSearch(name, namespace string, modifications ...func(*searchv
 			ClientID:              "mongot-client",
 			ClientSecretSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
 			IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "oidc-idp-ca"},
-			Scope:                 ptr.To("openid"),
+			Scope:                 new("openid"),
 		}
 	})...)
 }
