@@ -564,7 +564,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// based on the mode set by ingress. x509 and OIDC must run after baseMongotConfig
 	// (which sets username/password) so they can clear it. The loop below preserves this order when
 	// passing modifications to ensureMongotConfig and createOrUpdateStatefulSet.
-	passwordAuthStsModification := statefulset.NOOP()
+	var passwordAuthStsModification statefulset.Modification
 	if r.mdbSearch.IsX509Auth() || r.mdbSearch.IsOIDCAuth() {
 		// The StatefulSet modifications below merge volumes/mounts, so an existing deployment
 		// switched from SCRAM to x509/OIDC auth would keep the password volume + mount forever;
