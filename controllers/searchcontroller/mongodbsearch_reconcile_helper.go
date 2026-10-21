@@ -2238,10 +2238,12 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		)))...,
 	))
 
-	// The cert volume/mount merge in place by name and never change; only the conditional
-	// key-password pair needs cleanup when the password is not configured. Unconditional
-	// remove-then-add would move both volumes to the end of the list on every reconcile.
-	if !hasScramKeyPassword {
+	// The cert volume and mount merge in place by name and never change while configured.
+	// Remove both client-auth pairs when the certificate goes; only the key-password pair
+	// when just the password goes.
+	if !r.mdbSearch.HasScramClientCert() {
+		statefulsetModification = statefulset.Apply(removeScramClientVolumes, statefulsetModification)
+	} else if !hasScramKeyPassword {
 		statefulsetModification = statefulset.Apply(removeMongotVolumesAndMounts("scram-key-password"), statefulsetModification)
 	}
 
