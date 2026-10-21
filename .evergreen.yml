@@ -1222,6 +1222,7 @@ task_groups:
       - e2e_multi_cluster_specific_namespaces
       - e2e_multi_cluster_scram
       - e2e_multi_cluster_tls_with_x509
+      - e2e_managed_certificate_multi_cluster_rs
       - e2e_multi_cluster_tls_no_mesh
       - e2e_multi_cluster_enable_tls
       - e2e_multi_cluster_clusterwide
