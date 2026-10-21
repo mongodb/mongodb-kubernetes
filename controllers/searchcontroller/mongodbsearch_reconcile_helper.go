@@ -810,6 +810,16 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		configHash = hashBytes([]byte(configHash + oidcClientSecretHash))
 	}
 
+	// Same fold for the OIDC IdP CA ConfigMap: the OIDC callback reads idpCaFile into its trust
+	// store once at startup, so a CA rotation must roll the mongot pods through the hash.
+	oidcIdpCaHash, err := r.oidcIdpCaContentHash(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	if oidcIdpCaHash != "" {
+		configHash = hashBytes([]byte(configHash + oidcIdpCaHash))
+	}
+
 	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
 		map[string]string{
 			"mongotConfigHash": configHash,
@@ -2298,6 +2308,20 @@ func (r *MongoDBSearchReconcileHelper) oidcClientSecretContentHash(ctx context.C
 		return "", xerrors.Errorf("reading OIDC client secret %s: %w", ref.Name, err)
 	}
 	return hashBytes([]byte(nn.Name + ":" + clientSecret)), nil
+}
+
+// oidcIdpCaContentHash returns a hash of the OIDC IdP CA ConfigMap's content, or ""
+// when the search resource does not authenticate with OIDC.
+func (r *MongoDBSearchReconcileHelper) oidcIdpCaContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
+	if !r.mdbSearch.IsOIDCAuth() {
+		return "", nil
+	}
+	nn := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: r.mdbSearch.Spec.Source.OIDC.IdPCAConfigMapRef.Name}
+	configMap, err := kubeClient.GetConfigMap(ctx, nn)
+	if err != nil {
+		return "", xerrors.Errorf("reading OIDC IdP CA configMap %s: %w", nn.Name, err)
+	}
+	return hashBytes([]byte(nn.Name + ":" + configMap.Data[OIDCIdPCAConfigMapKey])), nil
 }
 
 // baseMongotConfig sets up the common mongot configuration fields shared by all deployment types:

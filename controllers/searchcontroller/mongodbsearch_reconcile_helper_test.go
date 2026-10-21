@@ -3650,6 +3650,65 @@ func TestOIDCClientSecretContentHash(t *testing.T) {
 	})
 }
 
+func TestOIDCIdpCaContentHash(t *testing.T) {
+	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, objects ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
+		t.Helper()
+		objs := append([]client.Object{search}, objects...)
+		fakeClient := newTestFakeClient(objs...)
+		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil), fakeClient
+	}
+
+	idpCa := func(content string) *corev1.ConfigMap {
+		return &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: "test-ns"},
+			Data:       map[string]string{OIDCIdPCAConfigMapKey: content},
+		}
+	}
+
+	t.Run("empty when not OIDC", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns")
+		helper, kubeClient := newHelper(t, search)
+
+		hash, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.Empty(t, hash)
+	})
+
+	t.Run("non-empty and stable when configured", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		helper, kubeClient := newHelper(t, search, idpCa("ca-content"))
+
+		hash, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.NotEmpty(t, hash)
+
+		again, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.Equal(t, hash, again, "hash must be stable for unchanged content")
+	})
+
+	t.Run("changes when IdP CA content changes", func(t *testing.T) {
+		mk := func(content string) string {
+			search := newOIDCMongoDBSearch("test-search", "test-ns")
+			helper, kubeClient := newHelper(t, search, idpCa(content))
+			hash, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
+			require.NoError(t, err)
+			return hash
+		}
+
+		assert.NotEqual(t, mk("ca-1"), mk("ca-2"), "different IdP CA content must yield a different hash")
+	})
+
+	t.Run("errors when configured ConfigMap is missing", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		helper, kubeClient := newHelper(t, search)
+
+		_, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
+		require.Error(t, err)
+	})
+}
+
 func TestValidateOIDCSource(t *testing.T) {
 	newEnterpriseMongoDB := func(providerConfigs []mdbv1.OIDCProviderConfig, authModes ...mdbv1.AuthMode) *mdbv1.MongoDB {
 		return &mdbv1.MongoDB{
