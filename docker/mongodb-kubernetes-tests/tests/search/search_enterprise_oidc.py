@@ -83,8 +83,8 @@ def _client_credentials_claims() -> dict:
     mongot authenticates with a client-credentials token, whose aud and sub
     claims can differ from the user-login contract used by the m2m fixtures (those
     authenticate with the Cognito ID token, which carries aud): a Cognito
-    client-credentials token has no aud unless the request asks for a resource
-    binding, and its sub identifies the app client rather than the workload user.
+    client-credentials token has no aud unless the pool's pre-token-generation Lambda
+    adds one, and its sub identifies the app client rather than the workload user.
     The OIDC provider audience and the $external username below are derived from
     this token, so the source of truth is the IdP, not the user-flow fixtures.
     """
@@ -120,8 +120,8 @@ def _cc_token_audience() -> str:
     claims = _client_credentials_claims()
     # mongod validates the configured audience against the token's aud claim only — the
     # server's JWT parser drops client_id/azp, so an aud-less token cannot authenticate.
-    # Cognito access tokens carry aud only when the token request asks for a resource
-    # binding, so fail clearly here instead of surfacing as a mongot auth failure.
+    # Cognito access tokens carry aud only when the pool runs a V3_0 pre-token-generation
+    # Lambda that adds it, so fail clearly here instead of surfacing as a mongot auth failure.
     audience = claims.get("aud")
     if isinstance(audience, list):
         if len(audience) != 1:
@@ -134,8 +134,8 @@ def _cc_token_audience() -> str:
     if not audience:
         fail(
             "The Cognito client-credentials token carries no aud claim; mongod validates "
-            "audience against aud only. The Cognito pool must mint audience-bearing access "
-            "tokens (a resource binding on the token request) for this test to work.",
+            "audience against aud only. The Cognito pool needs a V3_0 pre-token-generation "
+            "Lambda that adds aud (the app client id) to access tokens for this test to work.",
             pytrace=False,
         )
     return audience
