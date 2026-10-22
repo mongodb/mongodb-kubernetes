@@ -228,7 +228,10 @@ spec:
     {{ else }}
     args: ["-vv", "-m", "{{ .Values.taskName }}"]
     {{ end }}
-    imagePullPolicy: Always
+    # The test image is preloaded into the kind node during cluster setup (see
+    # scripts/dev/setup_kind_cluster.sh). When the preload missed, the image is absent
+    # and the kubelet pulls it, so a miss costs nothing extra here.
+    imagePullPolicy: IfNotPresent
     volumeMounts:
       - name: results
         mountPath: /tmp/results

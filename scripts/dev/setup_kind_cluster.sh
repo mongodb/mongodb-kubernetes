@@ -6,6 +6,7 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 source scripts/funcs/install
+source scripts/funcs/images
 
 usage() {
   echo "Deploy local registry and create kind cluster configured to use this registry. Local Docker registry is deployed at localhost:5000.
@@ -234,6 +235,53 @@ export_kubeconfig() {
   kind export kubeconfig --name "${cluster_name}"
 }
 
+# The e2e test pod needs the ~1.6 GB tests image and the kubelet pulls it into the node
+# on first use. Start that pull now, in a throwaway pod, so it overlaps the addon
+# installs below instead of delaying the test pod. `single_e2e.sh` renders the same
+# reference with `imagePullPolicy: IfNotPresent`, so the test pod reuses this pull.
+kind_preload_test_image() {
+  if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "kind" ]]; then
+    return 0
+  fi
+
+  local image
+  if ! image="$(meko_tests_image)"; then
+    echo "skipping the test image preload"
+    return 0
+  fi
+
+  echo "preloading the test image ${image}"
+  # The container sleeps so the pod stays Ready, which is the signal that the image is
+  # in the node. A completed pod would lose Ready and race the wait below. 600 s covers
+  # the ~115 s setup group with margin, and the pod is deleted below.
+  if kubectl --kubeconfig "${kubeconfig_path}" run mck-test-image-preload \
+    --namespace default \
+    --image="${image}" \
+    --image-pull-policy=IfNotPresent \
+    --restart=Never \
+    --command -- sleep 600 >/dev/null; then
+    mck_test_image_preload_started=true
+  else
+    echo "could not start the test image preload"
+  fi
+}
+
+kind_wait_for_test_image_preload() {
+  if [[ "${mck_test_image_preload_started:-false}" != "true" ]]; then
+    return 0
+  fi
+
+  # The pull takes about 10 s on a warm ECR. 90 s bounds a stalled registry, and the
+  # test pod falls back to the kubelet pull on a miss.
+  kubectl --kubeconfig "${kubeconfig_path}" wait --namespace default \
+    --for=condition=Ready --timeout=90s pod/mck-test-image-preload >/dev/null 2>&1 ||
+    echo "the test image preload did not finish, the test pod will pull the image"
+
+  kubectl --kubeconfig "${kubeconfig_path}" delete pod --namespace default \
+    mck-test-image-preload --ignore-not-found --wait=false >/dev/null 2>&1 ||
+    echo "could not delete the test image preload pod"
+}
+
 # main script
 
 if [[ "${install_registry}" == "1" ]]; then
@@ -257,8 +305,10 @@ fi
 kind_configure_local_registry
 kind_wait_for_nodes_are_ready
 kind_wait_for_rbac_bootstrap
+kind_preload_test_image
 kind_install_metallb
 kind_install_metrics_server
+kind_wait_for_test_image_preload
 
 if [[ "${export_kubeconfig}" == "1" ]]; then
   export_kubeconfig
