@@ -12,16 +12,26 @@ bindir="${PROJECT_DIR}/bin"
 tmpdir="${PROJECT_DIR}/tmp"
 mkdir -p "${bindir}" "${tmpdir}"
 
-# Use pinned version from root-context (no external API call needed)
-download_kubectl_binary "${KUBECTL_VERSION}" "${ARCH}"
-echo "kubectl version --client"
-./kubectl version --client
-mv kubectl "${bindir}"
+fetch_kubectl() {
+  pushd "${tmpdir}" > /dev/null
+  download_kubectl_binary "${KUBECTL_VERSION}" "${ARCH}"
+  ./kubectl version --client
+  mv kubectl "${bindir}"
+  popd > /dev/null
+}
 
-pushd "${tmpdir}" > /dev/null
-download_helm_binary "${HELM_VERSION}" "${ARCH}"
-mv "linux-${ARCH}/helm" "${bindir}"
-rm -rf "linux-${ARCH}/"
-popd > /dev/null
+fetch_helm() {
+  pushd "${tmpdir}" > /dev/null
+  download_helm_binary "${HELM_VERSION}" "${ARCH}"
+  mv "linux-${ARCH}/helm" "${bindir}"
+  rm -rf "linux-${ARCH}/"
+  popd > /dev/null
+}
 
+# download_kube_tools, setup_minikube_host and setup_evg_host all call this script.
+# ensure_binary makes every call after the first one free.
+ensure_binary kubectl fetch_kubectl
+ensure_binary helm fetch_helm
+
+"${bindir}"/kubectl version --client
 "${bindir}"/helm version

@@ -111,6 +111,15 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/dev/recreate_python_venv.sh
 
+  # One random 0-30 s offset per task, before anything downloads. Hosts are not
+  # reused, so this needs no marker and no state between tasks.
+  download_jitter: &download_jitter
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/download_jitter.sh
+
   "clone":
     - command: subprocess.exec
       type: setup
@@ -128,6 +137,7 @@ functions:
       type: setup
       params:
         command: "git config --global user.email 'kubernetes-hosted-team@mongodb.com'"
+    - *download_jitter # the first download of the task is the jq below
     - *setup_jq # we need jq in the context
     - *setup_context
 
