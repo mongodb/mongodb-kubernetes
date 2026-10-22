@@ -71,6 +71,35 @@ curl_with_retry() {
     curl --retry 5 --retry-delay 10 --retry-all-errors --fail-with-body --show-error --max-time 600 "$@"
 }
 
+# Runs the installer only when the tool is missing from ${PROJECT_DIR}/bin.
+# Every installer writes there, and ${PROJECT_DIR}/bin is on PATH for every
+# Evergreen function that uses these tools (add_to_path in .evergreen-functions.yml),
+# so no second copy is published and nothing needs sudo.
+#
+# The check after the install is the point: an installer that exits 0 without
+# producing a binary is a failure. The helm download in setup_evg_host.sh stayed
+# broken for exactly that reason, because nothing verified the result.
+#
+# Usage: ensure_binary <tool> <installer function>
+ensure_binary() {
+  local tool=$1
+  shift
+  local bin_dir="${PROJECT_DIR:-${workdir:?}}/bin"
+  local target="${bin_dir}/${tool}"
+
+  if [[ -x "${target}" ]]; then
+    echo "${tool} already installed in ${bin_dir}, skipping download"
+    return 0
+  fi
+
+  "$@"
+
+  if [[ ! -x "${target}" ]]; then
+    echo "ensure_binary: ${tool} is missing from ${bin_dir} after the install" >&2
+    return 1
+  fi
+}
+
 # Downloads a binary <bin> from <url> and moves it into <dir> directory.
 # Example usage: download_and_install_binary ${workdir}/bin jq "https://..."
 download_and_install_binary() {
