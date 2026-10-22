@@ -29,11 +29,15 @@ func (r StartRequest) validate() (launchSpec, error) {
 		return launchSpec{}, fmt.Errorf("%w: role must be %q or %q", ErrInvalidRequest, RoleMain, RoleEphemeral)
 	}
 	o := r.Other
-	binary := o.Binary
-	if binary == "" {
+	// The executable name is picked from constants instead of being validated and reused: the string
+	// from the request must not flow into exec.Command (CodeQL go/command-injection tracks that flow).
+	var binary string
+	switch o.Binary {
+	case "", BinaryMongod:
 		binary = BinaryMongod
-	}
-	if binary != BinaryMongod && binary != BinaryMongos {
+	case BinaryMongos:
+		binary = BinaryMongos
+	default:
 		return launchSpec{}, fmt.Errorf("%w: binary must be %q or %q", ErrInvalidRequest, BinaryMongod, BinaryMongos)
 	}
 	if o.ShardMaintenanceReplSet != "" && !replSetName.MatchString(o.ShardMaintenanceReplSet) {
