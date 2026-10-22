@@ -199,45 +199,74 @@ temporarily flip `patchable: true` in a throwaway branch.
 
 ## CVE Image Scanning (trivy)
 
-Every build-and-publish task runs a `trivy_scan` step (function in `.evergreen-functions.yml`)
-right after the image is pushed. The step invokes `scripts/release/trivy_scan.sh`, which
-resolves the image repository/tag the same way the build pipeline does (from `build_info.json`
-and the version env vars) and scans it with
+The build-and-publish flows run a `trivy_scan` step (function in `.evergreen-functions.yml`) that
+invokes `scripts/release/trivy_scan.sh`. It resolves the image repositories/tags the same way the
+build pipeline does (from `build_info.json` and the version env vars) and scans them with
 [trivy](https://github.com/aquasecurity/trivy) (pinned in `scripts/evergreen/setup_trivy.sh`).
-Only findings with an available fix are reported (stdout/Slack); unfixed findings are still
-captured in the uploaded raw JSON.
+The step takes `image_names` (space-separated) so that **all the images of a flow are scanned in one
+step and reported in a single Slack message**; `image_name` (a single image) is still supported.
 
 Where scans run:
 
-- **Staging builds** (`init_test_run` build tasks, `build_om*_images`, `release_om_and_agents`)
-  after each image is pushed by the `pipeline` function on master merges.
+- **Staging builds**: the `cve_scan_images` task of the `init_test_run` variant runs after all the
+  image build tasks and after the Ops Manager image builds (`build_om{70,80,90}_images`). It scans
+  operator, init-ops-manager, init-database, database, readiness-probe, upgrade-hook, the Ops Manager
+  images (7.0, 8.0 and 9.0, versions resolved from the `ops_manager_XX_latest` anchors by
+  `scripts/release/trivy_scan.sh`) and the currently used agent versions. Only `release_om_and_agents`
+  (released agents) still reports on its own.
 - **New release process** (`release_publish` variant): after `mckci_release_publish_images`
-  publishes the promoted image set to production, each published image is scanned at its
-  production ref with a fresh vulnerability DB. Skipped when `IS_DRYRUN=true`, since dry runs
-  publish to an override registry.
+  publishes the promoted image set to production, all the published images are scanned in a single
+  step at their production refs with a fresh vulnerability DB. In dry-run releases the scan runs
+  against the `REGISTRY` override instead.
 - **Legacy release process** (`release_images` variant, deprecated): after each `release_*`
-  rebuild task.
+  rebuild task (one message per image).
 
 PR/patch builds skip the scan by default (only `staging`/`release` build scenarios are
-scanned). To force a scan on a regular PR patch (e.g. to test a trivy/pipeline change), add
-`--param TRIVY_SCAN_FORCE=true`:
+scanned). To force the staging scan on a patch (e.g. to test a trivy/pipeline change), run only the
+build tasks and the scan with `TRIVY_SCAN_FORCE=true`:
 
 ```shell
-evergreen patch -p mongodb-kubernetes -a pr_patch -d "test trivy scan" -u -y --param TRIVY_SCAN_FORCE=true
+evergreen patch -p mongodb-kubernetes -v init_test_run -t cve_scan_images -d "test trivy scan" -u -y \
+  --param TRIVY_SCAN_FORCE=true
 ```
 
-Raw trivy JSON reports are written to `trivy-reports/` in the task working directory and
-uploaded to S3 (bucket `operator-e2e-artifacts`, same bucket/pattern as `upload_e2e_logs`) at
-`trivy-reports/${task_id}/${execution}/`, so findings remain inspectable even for tasks that
-didn't trigger a Slack notification. These raw reports contain *all* findings, including the
-unfixed ones. The stdout/Slack report lists only vulnerabilities that have an available fix
-(a non-empty `FixedVersion`), since those are the only actionable ones, and states the total
-(fixable vs not fixable). Images with no findings, or with only unfixable findings, are
-omitted entirely: no stdout line, no Slack notification. The upload
-link is available on the task page in the Evergreen UI (Files tab). To run a scan locally:
+Slack notifications are only sent for mainline builds by default. To also exercise the Slack
+send from a patch, add `--param TRIVY_SCAN_NOTIFY=true` (or `--param trivy_scan_flags="--dry-run"`
+to print the message instead of sending it).
+
+The Slack message lists the scanned images that have **fixable** vulnerabilities, one line per image,
+e.g.:
+
+```
+- mongodb-kubernetes:abc1234: 50 vulnerabilities: 41 fixable (report)
+- mongodb-agent:13.58.0.11326-1: 73 vulnerabilities: 57 fixable (report)
+```
+
+- The `image:tag` links to the entry of the image in its registry (the ECR console or quay.io, using the
+  digest of the tag reported by trivy).
+- `report` links to the raw trivy JSON of that image (the `linux/amd64` one when the image is scanned on
+  several platforms). The reports are in a private bucket, so the link is presigned with the credentials of
+  the `s3.put` step (`TRIVY_REPORTS_AWS_KEY`/`TRIVY_REPORTS_AWS_SECRET`) and **expires after 7 days**; the
+  reports stay available from the Files tab of the task. Without credentials the link goes to the Files tab.
+
+Images with no vulnerabilities, or with only unfixable ones, are not in the Slack message, and no
+message is sent when no image has a fixable vulnerability. The task log still prints every image with
+findings and its not fixable count. Findings are unioned across the image's platforms, so a vulnerability
+is not counted once per platform. If a single image cannot be scanned the error is logged and the other
+images are still reported. Long lists are split into several blocks of the same message to stay within
+Slack's limits.
+
+Raw trivy JSON reports (with the full per-CVE details) are written to `trivy-reports/` in the task
+working directory and uploaded to S3 (bucket `operator-e2e-artifacts`, same bucket/pattern as
+`upload_e2e_logs`) at `trivy-reports/${task_id}/${execution}/`, so findings remain inspectable even
+for tasks that didn't trigger a Slack notification. They are available on the task page in the
+Evergreen UI (Files tab). To run a scan locally:
 
 ```bash
 scripts/evergreen/setup_trivy.sh
+scripts/dev/run_python.sh scripts/release/trivy_scan.py operator agent --build-scenario release \
+  --platform linux/amd64 --dry-run   # versions are taken from the environment (OPERATOR_VERSION, OM_VERSIONS, ...)
+# or a single image with an explicit version:
 scripts/dev/run_python.sh scripts/release/trivy_scan.py operator --build-scenario release \
   --version 1.5.0 --platform linux/amd64 --dry-run
 ```

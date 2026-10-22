@@ -55,6 +55,8 @@ const (
 	ReplicaSet     ResourceType = "ReplicaSet"
 	ShardedCluster ResourceType = "ShardedCluster"
 
+	StandaloneDeprecationMessage = "Standalone is deprecated and will not be supported in the next major version, migrate to a one member ReplicaSet"
+
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
 
@@ -477,6 +479,9 @@ type DbCommonSpec struct {
 	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 
 	Persistent *bool `json:"persistent,omitempty"`
+	// The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster' and 'Standalone'.
+	// Standalone is deprecated and will not be supported in the next major version, migrate to a
+	// one member ReplicaSet.
 	// +kubebuilder:validation:Enum=Standalone;ReplicaSet;ShardedCluster
 	// +kubebuilder:validation:Required
 	ResourceType ResourceType `json:"type"`
