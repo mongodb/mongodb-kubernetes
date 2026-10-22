@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Detects changes to opsManagerMapping in release.json for triggering agent releases.
-Relies on git origin/master vs local release.json
+Relies on should_release_agents_on_ecr.sh diffing local release.json against the branch's remote state.
 """
 import json
 import logging

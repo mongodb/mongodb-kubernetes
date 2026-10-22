@@ -58,11 +58,15 @@ SOURCE_CERT_PREFIX = "clustercert"
 
 
 @fixture(scope="module")
-def tools_pod(namespace: str, member_cluster_clients: List[MultiClusterClient]) -> mongodb_tools_pod.ToolsPod:
+def tools_pod(
+    namespace: str, custom_mdb_version: str, member_cluster_clients: List[MultiClusterClient]
+) -> mongodb_tools_pod.ToolsPod:
     # Run the tools pod in a mesh-joined member cluster so it can resolve the
     # cross-cluster RS/mongos member-service DNS. The central operator cluster has
     # no istio sidecar, so a tools pod there gets "no such host" on member services.
-    return mongodb_tools_pod.get_tools_pod(namespace, api_client=member_cluster_clients[0].api_client)
+    return mongodb_tools_pod.get_tools_pod(
+        namespace, custom_mdb_version, api_client=member_cluster_clients[0].api_client
+    )
 
 
 # ---------------------------------------------------------------------------

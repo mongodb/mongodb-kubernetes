@@ -321,7 +321,7 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
 def sample_movies_helper(mdb: MongoDB, namespace: str) -> SampleMoviesSearchHelper:
     return SampleMoviesSearchHelper(
         SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD),
-        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace, mdb.get_version()),
     )
 
 

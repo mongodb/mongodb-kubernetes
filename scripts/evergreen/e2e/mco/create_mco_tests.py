@@ -5,10 +5,9 @@ from shrub.v2.task import Task
 # Define the list of dynamically generated task names
 task_names = [
     "replica_set",
-    "replica_set_enterprise_upgrade_4_5",
-    "replica_set_enterprise_upgrade_5_6",
     "replica_set_enterprise_upgrade_6_7",
     "replica_set_enterprise_upgrade_7_8",
+    "replica_set_enterprise_upgrade_8_9",
     "replica_set_recovery",
     "replica_set_mongod_readiness",
     "replica_set_scale",

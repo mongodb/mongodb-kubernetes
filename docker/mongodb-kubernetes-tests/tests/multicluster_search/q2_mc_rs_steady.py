@@ -47,6 +47,7 @@ from tests.common.search import search_resource_names
 from tests.common.search.connectivity import (
     CLUSTER_LOCATION_TAG_KEY,
     mongot_data_pvc_names,
+    rotate_member_envoy_certificates,
     search_artifact_uids,
     wait_for_deployment_recreated,
     wait_for_search_artifacts_deleted,
@@ -1187,6 +1188,32 @@ def test_per_cluster_search_query(
             sleep_time=5,
             msg=f"cluster {cluster_index}: $search query to succeed",
         )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_rotate_lb_certificates_restarts_per_cluster_envoy(
+    namespace: str,
+    multi_cluster_issuer: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    mdbs: MongoDBSearch,
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+):
+    """Write members first, central last: only central Secret names are watched,
+    while each Envoy hashes its member's data. No test-only reconcile nudge is used.
+    """
+    rotate_member_envoy_certificates(
+        namespace,
+        MDBS_RESOURCE_NAME,
+        MDBS_TLS_CERT_PREFIX,
+        multi_cluster_issuer,
+        member_cluster_clients,
+        central_cluster_client,
+    )
+
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+    test_per_cluster_search_query(mdb, helper, member_cluster_clients)
 
 
 @mark.e2e_search_q2_mc_rs_steady

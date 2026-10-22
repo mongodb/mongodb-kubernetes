@@ -23,6 +23,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtimeCluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 
@@ -114,6 +115,9 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 
 	mdbSearch := &searchv1.MongoDBSearch{}
 	if result, err := commoncontroller.GetResource(ctx, r.kubeClient, request, mdbSearch, log); err != nil {
+		if apierrors.IsNotFound(err) {
+			r.watch.RemoveDependentWatchedResources(request.NamespacedName)
+		}
 		return result, err
 	}
 	if !mdbSearch.DeletionTimestamp.IsZero() {
@@ -141,6 +145,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 		log.Warnf("Failed to clean up Envoy resources on removed member clusters: %v", err)
 	}
 	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
+		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
 		if err := deleteEnvoySearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
 			log.Warnf("Failed to clean up Envoy resources on removed cluster %q: %v", r.operatorClusterName, err)
 		}
@@ -155,6 +160,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	// Only act when lb.mode == Managed.
 	// If LB was previously active (status exists), clean up Envoy resources first.
 	if !mdbSearch.IsLBModeManaged() {
+		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
 		if mdbSearch.Status.LoadBalancer != nil {
 			if err := r.deleteEnvoyResources(ctx, mdbSearch, r.buildClusterWorkList(mdbSearch), log); err != nil {
 				return reconcile.Result{}, err
@@ -191,6 +197,13 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
 	workList := r.buildClusterWorkList(mdbSearch)
+	if tlsEnabled {
+		for _, w := range workList {
+			for _, name := range []types.NamespacedName{mdbSearch.LoadBalancerServerCert(w.ClusterIndex), mdbSearch.LoadBalancerClientCert(w.ClusterIndex)} {
+				r.watch.AddWatchedResourceIfNotAdded(name.Name, name.Namespace, watch.Secret, mdbSearch.NamespacedName())
+			}
+		}
+	}
 	var reconcileErrs error
 	var worstPhase status.Phase
 	var missingClusters []string
@@ -316,7 +329,7 @@ func (r *MongoDBSearchEnvoyReconciler) reconcileForCluster(
 	if err := r.ensureConfigMap(ctx, search, bootstrapJSON, cdsJSON, ldsJSON, w, log); err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
-	// Ensure Deployment (hash only bootstrap — CDS/LDS are hot-reloaded by Envoy via filesystem xDS)
+	// CDS/LDS are hot-reloaded via filesystem xDS; only bootstrap and cert changes restart pods.
 	if err := r.ensureDeployment(ctx, search, bootstrapJSON, w, managedLB, tlsCfg, log); err != nil {
 		return workflow.Failed(fmt.Errorf("cluster=%q: %w", clusterName, err))
 	}
@@ -524,26 +537,49 @@ func (r *MongoDBSearchEnvoyReconciler) ensureConfigMap(ctx context.Context, sear
 // envoyConfigHash hashes whitespace-normalized JSON: protojson output formatting
 // is deliberately randomized per compiled binary, so hashing raw bytes would roll
 // the Deployment on every operator rebuild.
-func envoyConfigHash(configJSON string) (string, error) {
+func envoyConfigHash(configJSON string, extra []byte) (string, error) {
 	var compact bytes.Buffer
 	if err := json.Compact(&compact, []byte(configJSON)); err != nil {
 		return "", fmt.Errorf("failed to compact Envoy config for hashing: %w", err)
 	}
-	return fmt.Sprintf("%x", sha256.Sum256(compact.Bytes())), nil
+	h := sha256.New()
+	h.Write(compact.Bytes())
+	h.Write(extra)
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 // ensureDeployment creates or updates the Envoy Deployment.
-// The config hash is computed from bootstrapJSON only — CDS/LDS changes are
-// hot-reloaded by Envoy via filesystem xDS and do not require a pod restart.
+// Bootstrap and LB cert data are hashed because static cert files require a restart;
+// CDS/LDS changes are hot-reloaded via filesystem xDS.
 func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, search *searchv1.MongoDBSearch, bootstrapJSON string, w clusterWorkItem, managedLB *searchv1.ManagedLBConfig, tlsCfg *searchcontroller.TLSSourceConfig, log *zap.SugaredLogger) error {
-	configHash, err := envoyConfigHash(bootstrapJSON)
+	tlsEnabled := search.IsTLSConfigured()
+	var certData []byte
+	if tlsEnabled {
+		data := map[string]map[string][]byte{}
+		for _, name := range []types.NamespacedName{search.LoadBalancerServerCert(w.ClusterIndex), search.LoadBalancerClientCert(w.ClusterIndex)} {
+			secret := &corev1.Secret{}
+			if err := w.Client.Get(ctx, name, secret); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return fmt.Errorf("failed to read LB cert Secret %s: %w", name, err)
+			}
+			data[name.Name] = secret.Data
+		}
+		if len(data) > 0 {
+			var err error
+			if certData, err = json.Marshal(data); err != nil {
+				return err
+			}
+		}
+	}
+	configHash, err := envoyConfigHash(bootstrapJSON, certData)
 	if err != nil {
 		return err
 	}
 	replicas := envoyReplicas(managedLB)
 	labels := envoyLabelsForCluster(search, w.ClusterIndex)
 	podLabels := envoyPodLabelsForCluster(search, w.ClusterIndex)
-	tlsEnabled := search.IsTLSConfigured()
 	image, err := r.envoyContainerImage()
 	if err != nil {
 		return err
@@ -867,6 +903,10 @@ func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, d
 	// route create/update events; the rendered LB ConfigMap is not registered, so
 	// manual edits to it never trigger a re-render (Envoy hot-reloads it in place).
 	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch})); err != nil {
+		return err
+	}
+	// Name-based: user cert Secrets carry no owner labels.
+	if err := c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch})); err != nil {
 		return err
 	}
 
