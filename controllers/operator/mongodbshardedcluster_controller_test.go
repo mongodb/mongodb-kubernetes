@@ -2953,8 +2953,9 @@ func TestShardedClusterReconcile_FinishesShardRemovalWhenOpsManagerClearedDraini
 	}
 }
 
-// dropLastShardFromShardingSection leaves a two-shard deployment as if Ops Manager had already cleared the draining
-// array after shard removal: the second shard is out of the sharding section, but its replica set and processes remain.
+// dropLastShardFromShardingSection reproduces the state the Operator sees mid scale-down: the second shard is already
+// out of sharding.shards (phase 1 removed it) and Ops Manager has already cleared draining on its own. The shard's
+// replica set and processes are still in the Automation Config because the finalizing pass that deletes them has not run.
 func dropLastShardFromShardingSection(t *testing.T, dep om.Deployment) {
 	raw, err := json.Marshal(dep["sharding"])
 	require.NoError(t, err)
