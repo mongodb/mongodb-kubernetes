@@ -527,6 +527,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return reconcile.Result{}, nil
 	}
 
+	// warn if managedCertificate.client is set but not really required/used by the operator
+	rs.SetWarnings(certs.UnusedClientConfigured(rs))
+
 	// Create helper for THIS reconciliation
 	helper, err := r.newReconcilerHelper(ctx, rs, log)
 	if err != nil {

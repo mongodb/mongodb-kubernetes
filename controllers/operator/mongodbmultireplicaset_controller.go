@@ -147,6 +147,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return reconcile.Result{}, nil
 	}
 
+	// warn if managedCertificate.client is set but not really required/used by the operator
+	mrs.SetWarnings(certs.UnusedClientConfigured(&mrs))
+
 	if err := mrs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
 	}
