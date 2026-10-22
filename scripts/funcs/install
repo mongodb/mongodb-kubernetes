@@ -57,17 +57,11 @@ kubectl_apply_retry() {
     done
 }
 
-# Curl wrapper with jitter and consistent retry params for CI downloads.
-# Adds 0-30s random jitter to prevent thundering herd when CI retries trigger simultaneously.
-# Time range: 0-630s (0-30s jitter + up to 600s curl timeout).
-# Set SKIP_DOWNLOAD_JITTER=1 to disable jitter (useful for local development).
+# Curl wrapper with consistent retry params for CI downloads.
+# The 0-30 s task jitter runs once per task in scripts/evergreen/download_jitter.sh,
+# which is the first command of download_kube_tools, so nothing sleeps here.
 # Usage: curl_with_retry [curl options...] URL
 curl_with_retry() {
-    if [[ "${SKIP_DOWNLOAD_JITTER:-}" != "1" ]]; then
-        local jitter=$((RANDOM % 31))
-        echo "Adding ${jitter}s jitter to spread out concurrent downloads..."
-        sleep "${jitter}"
-    fi
     curl --retry 5 --retry-delay 10 --retry-all-errors --fail-with-body --show-error --max-time 600 "$@"
 }
 
