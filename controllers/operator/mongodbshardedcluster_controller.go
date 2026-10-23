@@ -2016,14 +2016,14 @@ func (r *ShardedClusterReconcileHelper) managedCertOptions() []certs.Options {
 		// One member cluster, the operator's own. Each component gets its own certificate for it.
 		var opts []certs.Options
 		for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.GetExternalDomain(), r.GetMongosScaler(memberCluster)))
+			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name), r.GetMongosScaler(memberCluster)))
 		}
 		for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.GetExternalDomain(), r.GetConfigSrvScaler(memberCluster)))
+			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name), r.GetConfigSrvScaler(memberCluster)))
 		}
 		for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
 			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.GetExternalDomain(), r.GetShardScaler(shardIdx, memberCluster)))
+				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name), r.GetShardScaler(shardIdx, memberCluster)))
 			}
 		}
 		return opts
