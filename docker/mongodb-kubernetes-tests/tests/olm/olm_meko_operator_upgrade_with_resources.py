@@ -6,7 +6,7 @@ from kubeobject import CustomObject
 from kubetester import create_or_update_secret, get_default_storage_class, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_sharded_cluster_certs
-from kubetester.kubetester import ensure_ent_version
+from kubetester.kubetester import apply_operator_config_from_test_env, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_default_architecture, run_periodically
 from kubetester.mongodb import MongoDB
@@ -70,6 +70,8 @@ def meko_subscription(namespace: str, catalog_source: CustomObject, operator_ins
         {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
         {"name": "OPERATOR_ENV", "value": "dev"},
         {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
+        # MEKO is the legacy operator and still reads telemetry env vars directly, so keep send
+        # disabled here. The MCK subscription below configures this via the OperatorConfig CR instead.
         {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
     ]
     # Add registry env vars for patch builds (ECR registries for unreleased images)
@@ -99,12 +101,11 @@ def get_mck_subscription_object(
     Create a subscription object for the MCK operator.
     This is a separate function (not a fixture) so it can be called after uninstalling MEKO.
     """
-    static_value = get_default_architecture()
+    # This installs the MCK (branch) operator, which no longer reads telemetry env vars; telemetry
+    # send is kept disabled via the OperatorConfig CR (apply_operator_config_from_test_env).
     base_env_vars = [
         {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
         {"name": "OPERATOR_ENV", "value": "dev"},
-        {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
-        {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
     ]
     # Add registry env vars for patch builds (ECR registries for unreleased images)
     registry_env_vars = get_registry_env_vars_for_subscription(operator_installation_config)
@@ -492,6 +493,14 @@ def test_install_mck_operator(
     mck_subscription.update()
 
     wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}")
+
+    apply_operator_config_from_test_env(
+        namespace,
+        name=OPERATOR_NAME,
+        wait_for_ready=lambda: wait_for_operator_ready(
+            namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}"
+        ),
+    )
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources

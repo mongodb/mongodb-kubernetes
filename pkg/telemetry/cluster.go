@@ -10,8 +10,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	kubeclient "sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 const (
@@ -38,7 +36,7 @@ var kubernetesFlavourAnnotationsMapping = map[string]string{
 }
 
 // detectClusterInfo detects the Kubernetes version and cluster flavor
-func detectClusterInfos(ctx context.Context, memberClusterMap map[string]ConfigClient) []KubernetesClusterUsageSnapshotProperties {
+func detectClusterInfos(ctx context.Context, memberClusterMap map[string]ConfigClient, kubeTimeout time.Duration) []KubernetesClusterUsageSnapshotProperties {
 	var clusterProperties []KubernetesClusterUsageSnapshotProperties
 
 	for _, mgr := range memberClusterMap {
@@ -46,7 +44,7 @@ func detectClusterInfos(ctx context.Context, memberClusterMap map[string]ConfigC
 		if err != nil {
 			Logger.Debugf("failed to create discovery client: %s, sending Unknown as version", err)
 		}
-		clusterProperty := getKubernetesClusterProperty(ctx, discoveryClient, mgr.GetAPIReader())
+		clusterProperty := getKubernetesClusterProperty(ctx, discoveryClient, mgr.GetAPIReader(), kubeTimeout)
 		clusterProperties = append(clusterProperties, clusterProperty)
 	}
 
@@ -59,9 +57,9 @@ func detectClusterInfos(ctx context.Context, memberClusterMap map[string]ConfigC
 // - kubernetes cluster uid
 // Notes: We are using a non-cached client to ensure we are properly timing out in case we don't have the
 // necessary RBACs.
-func getKubernetesClusterProperty(ctx context.Context, discoveryClient discovery.DiscoveryInterface, uncachedClient kubeclient.Reader) KubernetesClusterUsageSnapshotProperties {
+func getKubernetesClusterProperty(ctx context.Context, discoveryClient discovery.DiscoveryInterface, uncachedClient kubeclient.Reader, kubeTimeout time.Duration) KubernetesClusterUsageSnapshotProperties {
 	kubernetesAPIVersion := unknown
-	kubeClusterUUID := getKubernetesClusterUUID(ctx, uncachedClient)
+	kubeClusterUUID := getKubernetesClusterUUID(ctx, uncachedClient, kubeTimeout)
 
 	if discoveryClient != nil {
 		if versionInfo := getServerVersion(discoveryClient); versionInfo != nil {
@@ -136,18 +134,19 @@ func detectKubernetesFlavour(ctx context.Context, uncachedClient kubeclient.Read
 // getKubernetesClusterUUID retrieves the UUID from the kube-system namespace.
 // We are using a non-cached client to ensure we are properly timing out in case we don't have the
 // necessary RBACs.
-func getKubernetesClusterUUID(ctx context.Context, uncachedClient kubeclient.Reader) string {
-	timeoutLengthStr := env.ReadOrDefault(KubeTimeout, "5m") // nolint:forbidigo
-	duration, err := time.ParseDuration(timeoutLengthStr)
-	if err != nil {
-		Logger.Warnf("Failed converting %s to a duration, using default 5m", KubeTimeout)
-		duration = 5 * time.Minute
+func getKubernetesClusterUUID(ctx context.Context, uncachedClient kubeclient.Reader, kubeTimeout time.Duration) string {
+	// The timeout comes pre-validated and defaulted from the OperatorConfig CR. Guard against a
+	// non-positive value as a defensive measure so we never disable the timeout entirely.
+	duration := kubeTimeout
+	if duration <= 0 {
+		Logger.Warnf("Telemetry kube timeout is not positive (%s), using default %s", duration, DefaultKubeTimeout)
+		duration = DefaultKubeTimeout
 	}
 	nonCachedClientTimeout, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 
 	namespace := &corev1.Namespace{}
-	err = uncachedClient.Get(nonCachedClientTimeout, kubeclient.ObjectKey{Name: "kube-system"}, namespace)
+	err := uncachedClient.Get(nonCachedClientTimeout, kubeclient.ObjectKey{Name: "kube-system"}, namespace)
 	if err != nil {
 		Logger.Debugf("failed to fetch kube-system namespace: %s", err)
 		return unknown

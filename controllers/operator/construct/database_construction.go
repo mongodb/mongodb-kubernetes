@@ -90,6 +90,7 @@ type DatabaseStatefulSetOptions struct {
 	Replicas                int
 	Name                    string
 	ServiceName             string
+	ServiceAccountName      string
 	PodSpec                 *mdbv1.PodSpecWrapper
 	PodVars                 *env.PodEnvVars
 	CurrentAgentAuthMode    string
@@ -148,8 +149,8 @@ type DatabaseStatefulSetOptions struct {
 	AgentDebug          bool
 	AgentDebugImage     string
 	DefaultArchitecture architectures.DefaultArchitecture
-
-	DownloadBase string
+	PropagateProxyEnv   bool
+	DownloadBase        string
 }
 
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
@@ -206,6 +207,7 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			Replicas:                1,
 			Name:                    mdb.Name,
 			ServiceName:             mdb.ServiceName(),
+			ServiceAccountName:      util.MongoDBServiceAccount,
 			PodSpec:                 NewDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
 			ServicePort:             mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
 			Persistent:              mdb.Spec.Persistent,
@@ -243,6 +245,7 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			Replicas:                    scale.ReplicasThisReconciliation(&mdb),
 			Name:                        mdb.Name,
 			ServiceName:                 mdb.ServiceName(),
+			ServiceAccountName:          util.MongoDBServiceAccount,
 			Annotations:                 map[string]string{"type": "Replicaset"},
 			PodSpec:                     NewDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
 			ServicePort:                 mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
@@ -426,7 +429,7 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 		}
 	}
 
-	extraEnvs = append(extraEnvs, ReadDatabaseProxyVarsFromEnv()...)
+	extraEnvs = append(extraEnvs, ReadDatabaseProxyVarsFromEnv(stsOpts.PropagateProxyEnv)...)
 	stsOpts.ExtraEnvs = extraEnvs
 
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts, mdb)
@@ -905,9 +908,9 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 	return podtemplatespec.Apply(mods...)
 }
 
-// getServiceAccountName returns the serviceAccount to be used by the mongoDB pod,
-// it uses the "serviceAccountName" specified in the podSpec of CR, if it's not specified returns
-// the default serviceAccount name
+// getServiceAccountName returns the serviceAccount to be used by the mongoDB pod:
+// the "serviceAccountName" specified in the podSpec of the CR wins, otherwise the
+// ServiceAccountName option is used.
 func getServiceAccountName(opts DatabaseStatefulSetOptions) string {
 	podSpec := opts.PodSpec
 
@@ -917,7 +920,7 @@ func getServiceAccountName(opts DatabaseStatefulSetOptions) string {
 		}
 	}
 
-	return util.MongoDBServiceAccount
+	return opts.ServiceAccountName
 }
 
 // sharedDatabaseConfiguration is a function which applies all the shared configuration
