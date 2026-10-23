@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
@@ -759,6 +760,121 @@ func TestMongoDBSearchReconcile_RegistersOperatorTLSSecretWatch(t *testing.T) {
 	operatorTLS := search.TLSOperatorSecretNamespacedName()
 	watched := reconciler.watch.GetWatchedResources()
 	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: operatorTLS}], search.NamespacedName())
+}
+
+// The SCRAM sync-source password secret must be registered in the
+// dependency watcher so rotating it triggers a reconcile that rolls
+// the mongot pods.
+func TestMongoDBSearchReconcile_RegistersSCRAMSourcePasswordWatch(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	search.Spec.Source.Username = new("search-user")
+	search.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
+	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+	reconciler, c := newSearchReconciler(mdbc, search)
+
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "source-user-password", Namespace: mock.TestNamespace},
+		Data:       map[string][]byte{"password": []byte("source-password")},
+	}))
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
+	})
+	require.NoError(t, err)
+
+	passwordSecret := types.NamespacedName{Name: "source-user-password", Namespace: search.Namespace}
+	watched := reconciler.watch.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: passwordSecret}], search.NamespacedName())
+}
+
+// newEnterpriseSearchSourceDB builds an enterprise MongoDB replica-set source
+// with TLS enabled, as x509 and SCRAM-mTLS sync sources require.
+func newEnterpriseSearchSourceDB(name, namespace string) *mdbv1.MongoDB {
+	return &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Version:      "8.2.0",
+				ResourceType: mdbv1.ReplicaSet,
+				Security: &mdbv1.Security{
+					TLSConfig: &mdbv1.TLSConfig{Enabled: true},
+				},
+			},
+			Members: 1,
+		},
+	}
+}
+
+// The user-provided x509 client-cert secret must be registered in the
+// dependency watcher so cert rotation triggers a reconcile that renders
+// the new content-hash-named operator secret and rolls the pods.
+func TestMongoDBSearchReconcile_RegistersX509ClientCertWatch(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	search.Spec.Source.X509 = &searchv1.X509Auth{
+		ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+	}
+	mdb := newEnterpriseSearchSourceDB("mdb", mock.TestNamespace)
+
+	builder := mock.NewEmptyFakeClientBuilder()
+	builder.WithObjects(mdb, search)
+	c := builder.Build()
+	reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
+
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: mock.TestNamespace},
+		Data: map[string][]byte{
+			"tls.crt": []byte("cert-data"),
+			"tls.key": []byte("key-data"),
+		},
+	}))
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
+	})
+	require.NoError(t, err)
+
+	watched := reconciler.watch.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: search.X509ClientCertSecret()}], search.NamespacedName())
+}
+
+// The user-provided SCRAM egress client-cert secret must be registered in
+// the dependency watcher so cert rotation triggers a reconcile.
+func TestMongoDBSearchReconcile_RegistersScramClientCertWatch(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	search.Spec.Source.Username = new("search-user")
+	search.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
+	search.Spec.Source.TLS = &searchv1.SourceTLS{
+		ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"},
+	}
+	mdb := newEnterpriseSearchSourceDB("mdb", mock.TestNamespace)
+
+	builder := mock.NewEmptyFakeClientBuilder()
+	builder.WithObjects(mdb, search)
+	c := builder.Build()
+	reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
+
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "source-user-password", Namespace: mock.TestNamespace},
+		Data:       map[string][]byte{"password": []byte("source-password")},
+	}))
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-client-cert", Namespace: mock.TestNamespace},
+		Data: map[string][]byte{
+			"tls.crt": []byte("cert-data"),
+			"tls.key": []byte("key-data"),
+		},
+	}))
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
+	})
+	require.NoError(t, err)
+
+	watched := reconciler.watch.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: search.ScramClientCertSecret()}], search.NamespacedName())
 }
 
 // pinnedCluster builds a spec.clusters[] entry with an explicit clusterIndex

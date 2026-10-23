@@ -3000,6 +3000,63 @@ func TestEnsureX509ClientCertConfig_MongotAndStsModification(t *testing.T) {
 	}
 }
 
+// The x509 client-cert rotation mechanism: EnsureTLSSecret writes the cert
+// under a sha256-of-content field name, so rotated content renders a new
+// TLSCertificateKeyFile path — a config change that rolls the mongot pods.
+func TestEnsureX509ClientCertConfig_RotatedCertRendersNewHashNamedPath(t *testing.T) {
+	ctx := context.Background()
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+		s.Spec.Source.X509 = &searchv1.X509Auth{
+			ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+		}
+	})
+	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+
+	x509Secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: "test-ns"},
+		Data: map[string][]byte{
+			"tls.crt": []byte("cert-data"),
+			"tls.key": []byte("key-data"),
+		},
+	}
+	fakeClient := newTestFakeClient(search, x509Secret)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+
+	renderCertPath := func() string {
+		mongotMod, _, err := helper.ensureX509ClientCertConfig(ctx, fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
+		require.NoError(t, err)
+		config := &mongot.Config{SyncSource: mongot.ConfigSyncSource{ReplicaSet: mongot.ConfigReplicaSet{}}}
+		mongotMod(config)
+		require.NotNil(t, config.SyncSource.ReplicaSet.X509)
+		require.NotNil(t, config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFile)
+		return *config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFile
+	}
+
+	firstPath := renderCertPath()
+
+	// Rotate the user-provided certificate.
+	current := &corev1.Secret{}
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(x509Secret), current))
+	current.Data["tls.crt"] = []byte("cert-data-2")
+	current.Data["tls.key"] = []byte("key-data-2")
+	require.NoError(t, fakeClient.Update(ctx, current))
+
+	secondPath := renderCertPath()
+
+	// A content hash names the cert file, so rotation changes the rendered
+	// mongot config and with it the config hash that rolls the pods.
+	assert.NotEqual(t, firstPath, secondPath, "rotated cert must render a new hash-named path")
+
+	// The operator-managed secret now carries the rotated content under the
+	// new hash-named field (CreateOrUpdate replaces the secret's data).
+	operatorSecret, err := fakeClient.GetSecret(ctx, search.X509OperatorManagedSecret())
+	require.NoError(t, err)
+	newFieldName := strings.TrimPrefix(secondPath, X509ClientCertOperatorMountPath)
+	assert.Contains(t, operatorSecret.Data, newFieldName)
+	assert.NotContains(t, operatorSecret.Data, strings.TrimPrefix(firstPath, X509ClientCertOperatorMountPath))
+}
+
 func TestEnsureEgressTlsConfig_LabelsGeneratedScramClientSecret(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
 		s.Spec.Source.TLS = &searchv1.SourceTLS{
@@ -3435,6 +3492,46 @@ func TestReconcile_RemovingLegacyClientCertificateSecretsUpdatesStatefulSet(t *t
 			assert.NotContains(t, configMap.Data[MongotConfigFilename], ScramClientCertOperatorMountPath)
 		})
 	}
+}
+
+// Rotating the SCRAM sync-source password must change the mongotConfigHash
+// so the mongot pods roll and stage the new value: the password is subPath-
+// mounted and staged to /tmp at pod start, so a running pod never sees a
+// rotated value without a roll.
+func TestReconcile_RotatingSCRAMSourcePasswordRollsStatefulSet(t *testing.T) {
+	ctx := context.Background()
+	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+		s.Spec.Source.Username = new("search-user")
+		s.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
+	})
+	mdbc := newTestMongoDBCommunity("test-mongodb", search.Namespace)
+	passwordSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "source-user-password", Namespace: search.Namespace},
+		Data:       map[string][]byte{"password": []byte("source-password")},
+	}
+	fakeClient := newTestFakeClient(search, mdbc, passwordSecret)
+
+	reconcileMongoDBSearch(ctx, fakeClient, search, mdbc, newTestOperatorSearchConfig())
+
+	stsName := search.StatefulSetNamespacedNameForCluster(0)
+	sts, err := fakeClient.GetStatefulSet(ctx, stsName)
+	require.NoError(t, err)
+	initialHash := sts.Spec.Template.Annotations["mongotConfigHash"]
+	require.NotEmpty(t, initialHash, "mongot config hash annotation must be set")
+
+	// Rotate the sync-source password.
+	current := &corev1.Secret{}
+	require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(passwordSecret), current))
+	current.Data["password"] = []byte("rotated-password")
+	require.NoError(t, fakeClient.Update(ctx, current))
+
+	reconcileMongoDBSearch(ctx, fakeClient, search, mdbc, newTestOperatorSearchConfig())
+
+	sts, err = fakeClient.GetStatefulSet(ctx, stsName)
+	require.NoError(t, err)
+	assert.NotEqual(t, initialHash, sts.Spec.Template.Annotations["mongotConfigHash"],
+		"rotating the sync-source password must change the config hash so the mongot pods roll")
 }
 
 func TestReconcileSharded_TLSDisabledRemovesMountsPreservesLiveSecret(t *testing.T) {
