@@ -2120,6 +2120,11 @@ func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
 	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.ReadUpdateDeployment))
 }
 
+// TestOnDeleteWaitsForInFlightReconcile reproduces the SCRAM delete race. A
+// reconcile that started before the delete can write the replica set back after
+// cleanup removed it. The test holds the reconcile inside the deployment update,
+// starts the delete, and asserts that the delete does not complete until the
+// reconcile releases the per-resource lock.
 func TestOnDeleteWaitsForInFlightReconcile(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-scram").EnableAuth().
