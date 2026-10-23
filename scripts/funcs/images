@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#
+# The e2e test image, in the form both the setup step and the test pod use it.
+
+# Prints the tag the test-app chart renders into `mekoTestsVersion`, including the
+# architecture suffix. Kept in one place so the preloaded image and the pod spec cannot
+# drift apart.
+meko_tests_version() {
+    local version="${OPERATOR_VERSION:-}"
+    if [[ -z "${version}" ]]; then
+        echo "OPERATOR_VERSION is not set, cannot resolve the e2e test image" >&2
+        return 1
+    fi
+
+    case "$(uname -m)" in
+        aarch64 | arm64) version="${version}-arm64" ;;
+        ppc64le) version="${version}-ppc64le" ;;
+        s390x) version="${version}-s390x" ;;
+        *) ;;
+    esac
+
+    echo "${version}"
+}
+
+# Prints the reference the test-app chart renders into the tests container image.
+meko_tests_image() {
+    local registry="${MEKO_TESTS_REGISTRY:-}"
+    if [[ -z "${registry}" ]]; then
+        echo "MEKO_TESTS_REGISTRY is not set, cannot resolve the e2e test image" >&2
+        return 1
+    fi
+
+    local version
+    version="$(meko_tests_version)" || return 1
+
+    echo "${registry}/mongodb-kubernetes-tests:${version}"
+}

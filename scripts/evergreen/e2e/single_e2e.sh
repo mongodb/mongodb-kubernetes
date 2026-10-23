@@ -10,6 +10,7 @@ set -Eeou pipefail
 source scripts/funcs/checks
 source scripts/funcs/printing
 source scripts/funcs/errors
+source scripts/funcs/images
 source scripts/funcs/multicluster
 source scripts/funcs/operator_deployment
 
@@ -55,25 +56,8 @@ deploy_test_app() {
     local context=${1}
     local helm_template_file
     helm_template_file=$(mktemp)
-    meko_tests_version="${OPERATOR_VERSION}"
-
-    local arch
-    arch=$(uname -m)
-
-    case "${arch}" in
-        aarch64|arm64)
-            meko_tests_version="${meko_tests_version}-arm64"
-            ;;
-        ppc64le)
-            meko_tests_version="${meko_tests_version}-ppc64le"
-            ;;
-        s390x)
-            meko_tests_version="${meko_tests_version}-s390x"
-            ;;
-        *)
-            echo "amd64 host, using default meko_tests_version"
-            ;;
-    esac
+    local tests_version
+    tests_version="$(meko_tests_version)"
 
     IS_PATCH="${IS_PATCH:-default_patch}"
     TASK_NAME="${TASK_NAME:-default_task}"
@@ -94,7 +78,7 @@ deploy_test_app() {
         "--set" "namespace=${NAMESPACE}"
         "--set" "taskName=${task_name}"
         "--set" "mekoTestsRegistry=${MEKO_TESTS_REGISTRY}"
-        "--set" "mekoTestsVersion=${meko_tests_version}"
+        "--set" "mekoTestsVersion=${tests_version}"
         "--set" "versionId=${VERSION_ID}"
         "--set" "aws.accessKey=${AWS_ACCESS_KEY_ID}"
         "--set" "aws.secretAccessKey=${AWS_SECRET_ACCESS_KEY}"
