@@ -987,6 +987,8 @@ task_groups:
       - e2e_replica_set_oidc_workforce
       - e2e_sharded_cluster_oidc_m2m_group
       - e2e_sharded_cluster_oidc_m2m_user
+      # Cognito client-credentials token probe (no deployment; needs the cognito_* expansions)
+      - e2e_oidc_cognito_cc_aud
 
   # All MongoDBSearch tests that fit on large instances (mongot requires 2 CPU).
   # Added to cloudqa-large variants.

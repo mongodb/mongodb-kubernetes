@@ -1323,6 +1323,13 @@ tasks:
     commands:
       - func: e2e_test
 
+  # Probes the Cognito pool's client-credentials tokens (aud claim) without deploying
+  # anything; runs in the kind-cloudqa task group where the cognito_* expansions exist.
+  - name: e2e_oidc_cognito_cc_aud
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_multi_cluster_oidc_m2m_group
     tags: [ "patch-run" ]
     commands:
