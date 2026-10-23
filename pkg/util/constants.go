@@ -390,6 +390,18 @@ const (
 	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
 )
 
+const (
+	MongoDBResourceOwnerLabel             = "mongodb.com/v1.mongodbResourceOwner"
+	MongoDBOpsManagerResourceOwnerLabel   = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+	MongoDBMultiClusterResourceOwnerLabel = "mongodbmulticluster"
+)
+
+var mongoDBOwnerLabels = []string{
+	MongoDBResourceOwnerLabel,
+	MongoDBOpsManagerResourceOwnerLabel,
+	MongoDBMultiClusterResourceOwnerLabel,
+}
+
 type OperatorEnvironment string
 
 func (o OperatorEnvironment) String() string {
