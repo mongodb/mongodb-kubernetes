@@ -100,7 +100,9 @@ COPY release.json /tests/release.json
 COPY public /mongodb-kubernetes/public
 
 # Only the VM migration tests use the plugin, and it is not built for every
-# architecture, so install it when the binary is present in the build context.
+# architecture, so install it when the binary is present in the build context. The
+# arch-suffixed copy is a build artifact and does not stay in the image.
 RUN if [ -f "/tests/kubectl-mongodb_${TARGETARCH}" ]; then \
     install -m 755 "/tests/kubectl-mongodb_${TARGETARCH}" /usr/local/bin/kubectl-mongodb; \
-    fi
+    fi \
+    && rm -f "/tests/kubectl-mongodb_${TARGETARCH}"
