@@ -819,11 +819,14 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 			}
 		}
 
-		// errors returned from "tryConfigureMonitoringInOpsManager" could be either transient or persistent. Transient errors could be when the ops-manager pods
-		// are not ready and trying to connect to the ops-manager service timeout, a persistent error is when the "ops-manager-admin-key" is corrupted, in this case
-		// any API call to ops-manager will fail(including the configuration of AppDB monitoring), this error should be reflected to the user in the "OPSMANAGER" status.
+		// A 401 is reflected in the "OPSMANAGER" status, but must not stop the AppDB reconciliation: after an AppDB password
+		// change Ops Manager returns 401 until it is rolled with the new password, and that rollout only happens if
+		// the AppDB first receives the new password.
 		if strings.Contains(err.Error(), "401 (Unauthorized)") {
-			return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err)), log, omStatusOption)
+			failed := workflow.Failed(xerrors.Errorf("The admin-key secret might be corrupted: %w", err))
+			if _, statusErr := r.updateStatus(ctx, opsManager, failed, log, omStatusOption); statusErr != nil {
+				log.Warnf("ignoring error updating Ops Manager status: %v", statusErr)
+			}
 		}
 	}
 
@@ -1975,27 +1978,22 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		CAFilePath:         appDBCAFilePath,
 		MongoDBResource:    types.NamespacedName{Namespace: opsManager.Namespace, Name: opsManager.Name},
 	}
-	err = authentication.Configure(ctx, r.client, conn, opts, false, log)
-	if err != nil {
+	if err := authentication.Configure(ctx, r.client, conn, opts, false, log); err != nil {
 		log.Errorf("Could not set Automation Authentication options in Ops/Cloud Manager for the Application Database. "+
 			"Application Database is always configured with authentication enabled, but this will not be "+
 			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
-	err = conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
+	if err := conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
 		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appDBCAFilePath)
 		return nil
-	}, log)
-	if err != nil {
+	}, log); err != nil {
 		log.Errorf("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. "+
 			"Application Database has been configured with TLS enabled, but this will not be "+
 			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
 	hostnames := r.generateProcessHostnames(opsManager)
-	if err != nil {
-		return existingPodVars, xerrors.Errorf("error getting current appdb statefulset hostnames: %w", err)
-	}
 
 	if err := r.registerAppDBHostsWithProject(ctx, hostnames, conn, opsManagerUserPassword, log); err != nil {
 		return existingPodVars, xerrors.Errorf("error registering hosts with project: %w", err)
