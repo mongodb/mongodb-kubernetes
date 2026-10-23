@@ -2450,3 +2450,52 @@ func TestReconcile_ReleasedAppDBRoleCRDoesNotReclaimSecrets(t *testing.T) {
 			"secret %s must stay OM-owned while the CR is released", name)
 	}
 }
+
+// TestLookupCorrespondingSearchResource_AuthGate pins the database-controller gate: a search
+// resource whose sync-source auth is incompatible with the source MongoDB (e.g. a default
+// SCRAM search on an x509-only source) must not wire the search endpoints into the automation
+// config — the search deployment fails its own reconcile for the same reason.
+func TestLookupCorrespondingSearchResource_AuthGate(t *testing.T) {
+	ctx := context.Background()
+	newSource := func(modes ...mdbv1.AuthMode) *mdbv1.MongoDB {
+		return DefaultReplicaSetBuilder().
+			SetName("my-om-db").
+			SetVersion("8.2.0").
+			SetAuthentication(&mdbv1.Authentication{Enabled: true, Modes: modes}).
+			Build()
+	}
+	newSearch := func(x509 bool) *searchv1.MongoDBSearch {
+		s := &searchv1.MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "search", Namespace: mock.TestNamespace},
+			Spec: searchv1.MongoDBSearchSpec{
+				Source: &searchv1.MongoDBSource{
+					MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "my-om-db"},
+				},
+			},
+		}
+		if x509 {
+			s.Spec.Source.X509 = &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}}
+		}
+		return s
+	}
+	lookup := func(t *testing.T, mdb *mdbv1.MongoDB, search *searchv1.MongoDBSearch) *searchv1.MongoDBSearch {
+		t.Helper()
+		reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+		require.NoError(t, kubeClient.Create(ctx, search))
+		helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+		found, err := helper.lookupCorrespondingSearchResource(ctx)
+		require.NoError(t, err)
+		return found
+	}
+
+	t.Run("x509-only source with a default SCRAM search is not wired", func(t *testing.T) {
+		assert.Nil(t, lookup(t, newSource(mdbv1.AuthMode("X509")), newSearch(false)),
+			"the auth-incompatible combination must not wire the search endpoints")
+	})
+	t.Run("x509-only source with an x509 search is wired", func(t *testing.T) {
+		assert.NotNil(t, lookup(t, newSource(mdbv1.AuthMode("X509")), newSearch(true)))
+	})
+	t.Run("SCRAM source with a default SCRAM search is wired", func(t *testing.T) {
+		assert.NotNil(t, lookup(t, newSource(mdbv1.AuthMode("SCRAM-SHA-256")), newSearch(false)))
+	})
+}

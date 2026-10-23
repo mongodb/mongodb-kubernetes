@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -45,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
@@ -498,6 +500,14 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	if err := r.validateSCRAMAuthSource(); err != nil {
+		return workflow.Failed(err)
+	}
+
+	if err := r.validateOIDCSource(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	version := r.getMongotVersion()
 
 	if err := r.ValidateSearchImageVersion(version); err != nil {
@@ -551,11 +561,16 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	// Topology-agnostic modifications (computed once, applied to every unit).
 	// Ordering note: egress TLS must be applied after ingress TLS because it toggles mTLS
-	// based on the mode set by ingress. x509 must run after baseMongotConfig (which sets
-	// username/password) so it can clear them. The loop below preserves this order when
+	// based on the mode set by ingress. x509 and OIDC must run after baseMongotConfig
+	// (which sets username/password) so they can clear it. The loop below preserves this order when
 	// passing modifications to ensureMongotConfig and createOrUpdateStatefulSet.
-	passwordAuthStsModification := statefulset.NOOP()
-	if !r.mdbSearch.IsX509Auth() {
+	var passwordAuthStsModification statefulset.Modification
+	if r.mdbSearch.IsX509Auth() || r.mdbSearch.IsOIDCAuth() {
+		// The StatefulSet modifications below merge volumes/mounts, so an existing deployment
+		// switched from SCRAM to x509/OIDC auth would keep the password volume + mount forever;
+		// removing it keeps the StatefulSet consistent with the now-unused password Secret.
+		passwordAuthStsModification = removeMongotVolumesAndMounts(SourceUserPasswordVolumeName)
+	} else {
 		passwordAuthStsModification = PasswordAuthModification(r.mdbSearch)
 	}
 
@@ -748,6 +763,12 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		return nil, nil, err
 	}
 
+	// Per-unit OIDC client config: uses unitClient for the same reason as egress TLS.
+	oidcMongotModification, oidcStsModification, err := r.ensureOIDCClientConfig(ctx, unitClient, tlsSecretLabels, unit.ownerReferences)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	configHash, err := r.ensureMongotConfig(ctx,
 		log,
 		unitClient,
@@ -760,6 +781,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		ingressTlsMongotModification,
 		egressTlsMongotModification,
 		x509MongotModification,
+		oidcMongotModification,
 		mods.embeddingConfigMongot,
 	)
 	if err != nil {
@@ -776,6 +798,26 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	}
 	if keyPasswordHash != "" {
 		configHash = hashBytes([]byte(configHash + keyPasswordHash))
+	}
+
+	// Same fold for the OIDC client secret: it is mounted directly (not part of the mongot
+	// config content), so rotating it must roll the mongot pods through the hash to re-read it.
+	oidcClientSecretHash, err := r.oidcClientSecretContentHash(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	if oidcClientSecretHash != "" {
+		configHash = hashBytes([]byte(configHash + oidcClientSecretHash))
+	}
+
+	// Same fold for the OIDC IdP CA ConfigMap: the OIDC callback reads idpCaFile into its trust
+	// store once at startup, so a CA rotation must roll the mongot pods through the hash.
+	oidcIdpCaHash, err := r.oidcIdpCaContentHash(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	if oidcIdpCaHash != "" {
+		configHash = hashBytes([]byte(configHash + oidcIdpCaHash))
 	}
 
 	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
@@ -798,6 +840,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		ingressTlsStsModification,
 		egressTlsStsModification,
 		x509StsModification,
+		oidcStsModification,
 		mods.embeddingConfigSts,
 		stsOverride,
 		withSearchOwnerLabels(r.mdbSearch),
@@ -1960,6 +2003,124 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	return mongotModification, statefulset.Apply(removeX509Volumes, stsModification), nil
 }
 
+// ensureOIDCClientConfig processes OIDC client-credentials authentication for the sync source in case of mongot to mongod communication.
+// When OIDC is configured, it replaces username/password auth with OIDC client-credentials auth.
+func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
+	if !r.mdbSearch.IsOIDCAuth() {
+		return mongot.NOOP(), removeMongotVolumesAndMounts("oidc-client-secret", "oidc-idp-ca"), nil
+	}
+	removeOIDCMounts := removeMongotVolumeMounts("oidc-client-secret", "oidc-idp-ca")
+
+	// mongot requires oidc.tls.caFile to trust the source's TLS certificate (no JVM-trust
+	// fallback), so TLS must be enabled on the source for OIDC auth.
+	tlsSourceConfig := r.db.TLSConfig()
+	if tlsSourceConfig == nil {
+		return nil, nil, xerrors.New("tls must be enabled for syncSource to enable OIDC auth for search resource")
+	}
+
+	oidc := r.mdbSearch.Spec.Source.OIDC
+
+	// Read + verify the client secret now to fail fast with a clear error; the secret value
+	// never appears in the mongot config — it is mounted directly and only referenced by path.
+	clientSecretRef := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: oidc.ClientSecretSecretRef.Name}
+	if _, err := secret.ReadKey(ctx, kubeClient, oidc.ClientSecretSecretRef.Key, clientSecretRef); err != nil {
+		return nil, nil, xerrors.Errorf("reading OIDC client secret %s: %w", oidc.ClientSecretSecretRef.Name, err)
+	}
+
+	// Read + verify the IdP CA ConfigMap: the CA certificate must be present at the fixed
+	// "ca.crt" key (same convention as spec.source.external.tls.ca).
+	idpCaConfigMapRef := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: oidc.IdPCAConfigMapRef.Name}
+	idpCaConfigMap, err := kubeClient.GetConfigMap(ctx, idpCaConfigMapRef)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("reading OIDC IdP CA configMap %s: %w", oidc.IdPCAConfigMapRef.Name, err)
+	}
+	if _, ok := idpCaConfigMap.Data[OIDCIdPCAConfigMapKey]; !ok {
+		return nil, nil, xerrors.Errorf(`key "%s" not present in the ConfigMap %s/%s`, OIDCIdPCAConfigMapKey, idpCaConfigMapRef.Namespace, idpCaConfigMapRef.Name)
+	}
+
+	// Optional mTLS client certificate for the mongod connection, reusing spec.source.tls:
+	// ensureEgressTlsConfig already ensures the secret and mounts the volume, so only the
+	// path is recorded here.
+	var certPath string
+	if r.mdbSearch.HasScramClientCert() {
+		scramCertResource := &scramClientCertResource{MongoDBSearch: r.mdbSearch}
+		certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, scramCertResource, labels, ownerReferences)
+		if err != nil {
+			return nil, nil, err
+		}
+		certPath = ScramClientCertOperatorMountPath + certFileName
+	}
+
+	newOIDC := func() *mongot.ConfigOIDC {
+		scope := (*string)(nil)
+		if oidc.Scope != nil {
+			scope = new(*oidc.Scope)
+		}
+		oidcConfig := &mongot.ConfigOIDC{
+			Environment:      mongot.ConfigOIDCEnvironmentCustom,
+			TokenEndpoint:    oidc.TokenEndpoint,
+			ClientID:         oidc.ClientID,
+			ClientSecretFile: TempOIDCClientSecretPath,
+			IDPCaFile:        OIDCIdPCaMountPath + "/" + OIDCIdPCAConfigMapKey,
+			Scope:            scope,
+			TLS: &mongot.ConfigOIDCTLS{
+				CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
+			},
+		}
+		if certPath != "" {
+			oidcConfig.TLS.TLSCertificateKeyFile = new(certPath)
+			// The mTLS client key may be password-encrypted: ensureEgressTlsConfig already mounts
+			// the password secret and applies the /tmp workaround (regardless of auth mode), so
+			// without this reference mongot cannot decrypt the client key.
+			if r.mdbSearch.ScramKeyFilePasswordSecret().Name != "" {
+				oidcConfig.TLS.TLSCertificateKeyFilePasswordFile = new(TempScramKeyPasswordPath)
+			}
+		}
+		return oidcConfig
+	}
+
+	mongotModification := func(config *mongot.Config) {
+		config.SyncSource.ReplicaSet.ScramAuth = nil
+		config.SyncSource.ReplicaSet.OIDC = newOIDC()
+
+		if config.SyncSource.Router != nil {
+			config.SyncSource.Router.ScramAuth = nil
+			config.SyncSource.Router.OIDC = newOIDC()
+		}
+	}
+
+	// Build volume/mount modifications for the OIDC client secret and the IdP CA ConfigMap.
+	// The client secret is mounted with subPath = the secret key so only that one key is
+	// exposed at /mongot/oidcClientSecret; the IdP CA ConfigMap is mounted as a directory.
+	clientSecretVolume := statefulset.CreateVolumeFromSecret("oidc-client-secret", oidc.ClientSecretSecretRef.Name)
+	clientSecretVolumeMount := statefulset.CreateVolumeMount("oidc-client-secret", OIDCClientSecretMountPath,
+		statefulset.WithReadOnly(true), statefulset.WithSubPath(oidc.ClientSecretSecretRef.Key))
+
+	idpCaVolume := statefulset.CreateVolumeFromConfigMap("oidc-idp-ca", oidc.IdPCAConfigMapRef.Name)
+	idpCaVolumeMount := statefulset.CreateVolumeMount("oidc-idp-ca", OIDCIdPCaMountPath, statefulset.WithReadOnly(true))
+
+	volumeMounts := []corev1.VolumeMount{clientSecretVolumeMount, idpCaVolumeMount}
+	volumes := []podtemplatespec.Modification{
+		podtemplatespec.WithVolume(clientSecretVolume),
+		podtemplatespec.WithVolume(idpCaVolume),
+	}
+
+	// The client secret is copied to /tmp with 0600 permissions (mongot requires it); the IdP
+	// CA is public material and gets no workaround, like the egress CA.
+	containerModifications := []container.Modification{
+		container.WithVolumeMounts(volumeMounts),
+		prependCommand(sensitiveFilePermissionsWorkaround(OIDCClientSecretMountPath, TempOIDCClientSecretPath, "0600")),
+	}
+
+	stsModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		append(volumes, podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			containerModifications...,
+		)))...,
+	))
+
+	return mongotModification, statefulset.Apply(removeOIDCMounts, stsModification), nil
+}
+
 // perShardTLSResource wraps MongoDBSearch to provide per-(cluster, shard) TLS secret names.
 // It implements the tls.TLSConfigurableResource interface for use with tls.EnsureTLSSecret.
 type perShardTLSResource struct {
@@ -2077,7 +2238,16 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		)))...,
 	))
 
-	return mongotModification, statefulset.Apply(removeScramClientVolumes, statefulsetModification), nil
+	// The cert volume and mount merge in place by name and never change while configured.
+	// Remove both client-auth pairs when the certificate goes; only the key-password pair
+	// when just the password goes.
+	if !r.mdbSearch.HasScramClientCert() {
+		statefulsetModification = statefulset.Apply(removeScramClientVolumes, statefulsetModification)
+	} else if !hasScramKeyPassword {
+		statefulsetModification = statefulset.Apply(removeMongotVolumesAndMounts("scram-key-password"), statefulsetModification)
+	}
+
+	return mongotModification, statefulsetModification, nil
 }
 
 func removeMongotVolumesAndMounts(names ...string) statefulset.Modification {
@@ -2088,6 +2258,18 @@ func removeMongotVolumesAndMounts(names ...string) statefulset.Modification {
 			podtemplatespec.RemoveVolume(name),
 			podtemplatespec.RemoveVolumeMount(MongotContainerName, name),
 		)
+	}
+	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(modifications...))
+}
+
+// removeMongotVolumeMounts removes only the named container mounts. Volumes merge in place by
+// name (position preserved), so removing them first would move them to the end of the volume
+// list and churn the pod template; mounts must still be removed because the mount merge keys on
+// subPath and a changed secret key would otherwise leave the stale mount behind.
+func removeMongotVolumeMounts(names ...string) statefulset.Modification {
+	modifications := make([]podtemplatespec.Modification, 0, len(names))
+	for _, name := range names {
+		modifications = append(modifications, podtemplatespec.RemoveVolumeMount(MongotContainerName, name))
 	}
 	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(modifications...))
 }
@@ -2132,6 +2314,35 @@ func (r *MongoDBSearchReconcileHelper) keyFilePasswordContentHash(ctx context.Co
 		return "", nil
 	}
 	return hashBytes(combined), nil
+}
+
+// oidcClientSecretContentHash returns a hash of the OIDC client secret's content, or ""
+// when the search resource does not authenticate with OIDC.
+func (r *MongoDBSearchReconcileHelper) oidcClientSecretContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
+	if !r.mdbSearch.IsOIDCAuth() {
+		return "", nil
+	}
+	ref := r.mdbSearch.Spec.Source.OIDC.ClientSecretSecretRef
+	nn := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: ref.Name}
+	clientSecret, err := secret.ReadKey(ctx, kubeClient, ref.Key, nn)
+	if err != nil {
+		return "", xerrors.Errorf("reading OIDC client secret %s: %w", ref.Name, err)
+	}
+	return hashBytes([]byte(nn.Name + ":" + clientSecret)), nil
+}
+
+// oidcIdpCaContentHash returns a hash of the OIDC IdP CA ConfigMap's content, or ""
+// when the search resource does not authenticate with OIDC.
+func (r *MongoDBSearchReconcileHelper) oidcIdpCaContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
+	if !r.mdbSearch.IsOIDCAuth() {
+		return "", nil
+	}
+	nn := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: r.mdbSearch.Spec.Source.OIDC.IdPCAConfigMapRef.Name}
+	configMap, err := kubeClient.GetConfigMap(ctx, nn)
+	if err != nil {
+		return "", xerrors.Errorf("reading OIDC IdP CA configMap %s: %w", nn.Name, err)
+	}
+	return hashBytes([]byte(nn.Name + ":" + configMap.Data[OIDCIdPCAConfigMapKey])), nil
 }
 
 // baseMongotConfig sets up the common mongot configuration fields shared by all deployment types:
@@ -2497,6 +2708,96 @@ func (r *MongoDBSearchReconcileHelper) ValidateManagedLBShardedTLS() error {
 			"TLS (spec.security.tls) is required when using managed load balancer with a sharded cluster; " +
 				"Envoy uses SNI-based routing which depends on the TLS ClientHello to route traffic to the correct shard",
 		)
+	}
+
+	return nil
+}
+
+// ValidateSearchSourceAuth checks that the source MongoDB supports the search resource's
+// sync-source authentication, shared by the search reconciler and the database controllers'
+// search-endpoint gates. External sources are unverifiable from the operator and pass.
+func ValidateSearchSourceAuth(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if err := validateSCRAMAuthSource(search, db); err != nil {
+		return err
+	}
+	return validateOIDCSource(search, db)
+}
+
+// validateOIDCSource enforces the OIDC source requirements at reconcile time —
+// cross-resource, so neither the CRD CEL rules nor the spec validators can see them.
+// No-op unless the search resource authenticates to its source with OIDC. External
+// sources are unverifiable from the operator and get no check here; the source
+// MongoDB server rejects tokens its OIDC provider configuration does not accept.
+// No mongod version check either: the adapters' 8.2.0 floor already exceeds the
+// 7.0 requirement for MONGODB-OIDC.
+func (r *MongoDBSearchReconcileHelper) validateOIDCSource() error {
+	return validateOIDCSource(r.mdbSearch, r.db)
+}
+
+func validateOIDCSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if !search.IsOIDCAuth() {
+		return nil
+	}
+	var mdb *mdbv1.MongoDB
+	switch src := db.(type) {
+	case *CommunitySearchSource:
+		return xerrors.New("OIDC authentication requires an enterprise MongoDB source: community MongoDB does not support MONGODB-OIDC")
+	case EnterpriseResourceSearchSource:
+		mdb = src.MongoDB
+	case *ShardedInternalSearchSource:
+		mdb = src.MongoDB
+	}
+	if mdb == nil {
+		return nil
+	}
+	// IsOIDCEnabled() only checks the enabled flag + modes: a source with modes
+	// [SCRAM, OIDC] but no oidcProviderConfigs entry accepts no token at all.
+	if !mdb.IsOIDCEnabled() || len(mdb.Spec.Security.Authentication.OIDCProviderConfigs) == 0 {
+		return xerrors.New("OIDC authentication requires OIDC to be enabled on the source MongoDB (spec.security.authentication.modes=OIDC with a non-empty oidcProviderConfigs entry)")
+	}
+	return nil
+}
+
+// validateSCRAMAuthSource enforces the SCRAM source requirement at reconcile time.
+// The source adapters cannot see the search resource (they only wrap the source
+// MongoDB), so the requirement lives here where both are visible: a search resource
+// that authenticates to its source with SCRAM needs a SCRAM auth mode enabled on the
+// source MongoDB. Searches authenticating with x509 or OIDC are exempt — the source
+// needs no SCRAM for them. External sources are unverifiable from the operator and
+// get no check, as before.
+func (r *MongoDBSearchReconcileHelper) validateSCRAMAuthSource() error {
+	return validateSCRAMAuthSource(r.mdbSearch, r.db)
+}
+
+func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if search.IsX509Auth() || search.IsOIDCAuth() {
+		return nil
+	}
+
+	var authModes []string
+	switch src := db.(type) {
+	case EnterpriseResourceSearchSource:
+		authModes = src.Spec.GetSecurityAuthenticationModes()
+	case *ShardedInternalSearchSource:
+		authModes = src.Spec.GetSecurityAuthenticationModes()
+	case *CommunitySearchSource:
+		for _, authMode := range src.Spec.Security.Authentication.Modes {
+			authModes = append(authModes, string(authMode))
+		}
+	default:
+		// External sources are unverifiable from the operator — no check.
+		return nil
+	}
+
+	for _, authMode := range authModes {
+		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
+		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
+			return nil
+		}
+	}
+
+	if len(authModes) > 0 {
+		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled on the source MongoDB when using SCRAM sync-source authentication")
 	}
 
 	return nil
