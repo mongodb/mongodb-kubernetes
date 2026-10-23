@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -2117,6 +2118,64 @@ func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
 	// removing the replica set from the project would make the agents shut down every mongod at
 	// once, taking the AppDB (and the Ops Manager depending on it) down mid-migration
 	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.ReadUpdateDeployment))
+}
+
+func TestOnDeleteWaitsForInFlightReconcile(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-scram").EnableAuth().
+		SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	// Hold the next reconcile inside the deployment read-modify-write window. The
+	// delete must wait for the lock instead of removing the replica set underneath it.
+	updateEntered := make(chan struct{})
+	releaseUpdate := make(chan struct{})
+	var holdOnce sync.Once
+	mockedOmConn.ReadUpdateDeploymentHook = func() {
+		holdOnce.Do(func() {
+			close(updateEntered)
+			<-releaseUpdate
+		})
+	}
+
+	reconcileDone := make(chan error, 1)
+	go func() {
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+		reconcileDone <- err
+	}()
+
+	select {
+	case <-updateEntered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("reconcile did not reach the deployment update")
+	}
+
+	deleteStarted := make(chan struct{})
+	deleteDone := make(chan error, 1)
+	go func() {
+		close(deleteStarted)
+		deleteDone <- reconciler.OnDelete(ctx, rs, zap.S())
+	}()
+	<-deleteStarted
+
+	select {
+	case err := <-deleteDone:
+		t.Fatalf("OnDelete completed while the reconcile held the resource lock: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	close(releaseUpdate)
+	require.NoError(t, <-reconcileDone)
+	require.NoError(t, <-deleteDone)
+
+	ac, err := mockedOmConn.ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	assert.False(t, ac.Auth.IsEnabled())
+	assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
+	assert.Empty(t, ac.Auth.AutoAuthMechanisms)
+	assert.Empty(t, ac.Deployment.GetProcessNames(om.ReplicaSet{}, rs.Name), "the replica set must be gone after deletion")
 }
 
 func TestConsumeAdoptionSignal(t *testing.T) {

@@ -75,6 +75,9 @@ type MockedOmConnection struct {
 
 	ReadAutomationStatusFunc func() (*AutomationStatus, error)
 	ReadAutomationAgentsFunc func(int) (Paginated, error)
+	// ReadUpdateDeploymentHook runs before the update function. Tests use it to
+	// hold a reconcile inside the read-modify-write window.
+	ReadUpdateDeploymentHook func()
 
 	numRequestsSent         int
 	AgentAPIKey             string
@@ -324,6 +327,9 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(ctx context.Context, depFunc 
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateDeployment))
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()
+	}
+	if oc.ReadUpdateDeploymentHook != nil {
+		oc.ReadUpdateDeploymentHook()
 	}
 	err := depFunc(oc.deployment)
 	oc.numRequestsSent++

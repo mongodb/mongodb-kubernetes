@@ -146,9 +146,14 @@ type ReconcileMongoDbStandalone struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
+
+	resourceLocks keyedMutex
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	unlock := r.resourceLocks.Lock(request.NamespacedName)
+	defer unlock()
+
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
 
@@ -407,6 +412,8 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 
 func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	s := obj.(*mdbv1.MongoDB)
+	unlock := r.resourceLocks.Lock(s.ObjectKey())
+	defer unlock()
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 

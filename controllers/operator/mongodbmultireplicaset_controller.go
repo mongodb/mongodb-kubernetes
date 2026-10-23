@@ -89,6 +89,8 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
+
+	resourceLocks keyedMutex
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
@@ -128,6 +130,9 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	unlock := r.resourceLocks.Lock(request.NamespacedName)
+	defer unlock()
+
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
 	log.Info("-> MultiReplicaSet.Reconcile")
 
@@ -1200,6 +1205,8 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 // OnDelete cleans up Ops Manager state and all Kubernetes resources associated with this instance.
 func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	mrs := obj.(*mdbmultiv1.MongoDBMultiCluster)
+	unlock := r.resourceLocks.Lock(mrs.ObjectKey())
+	defer unlock()
 	if mrs.IsReconciliationDisabled() {
 		log.Infof("MongoDBMultiCluster %s/%s OnDelete skipped due to %s annotation",
 			mrs.Namespace, mrs.Name, util.DisableReconciliationAnnotation)

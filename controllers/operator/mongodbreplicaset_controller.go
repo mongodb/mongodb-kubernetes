@@ -92,6 +92,11 @@ type ReconcileMongoDbReplicaSet struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
+
+	// resourceLocks serializes reconciliation and deletion for the same resource.
+	// The delete handler runs outside the workqueue, so a reconcile that started
+	// before the delete can otherwise write the deployment back after cleanup.
+	resourceLocks keyedMutex
 }
 
 type replicaSetDeploymentState struct {
@@ -464,6 +469,9 @@ type deploymentOptionsRS struct {
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	unlock := r.resourceLocks.Lock(request.NamespacedName)
+	defer unlock()
+
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
 
@@ -1243,6 +1251,9 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
+	unlock := r.resourceLocks.Lock(rs.ObjectKey())
+	defer unlock()
+
 	if rs.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)
