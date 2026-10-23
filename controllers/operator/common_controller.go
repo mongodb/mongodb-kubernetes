@@ -403,7 +403,8 @@ func (r *ReconcileCommonController) ensureFinalizer(ctx context.Context, obj cli
 }
 
 // finalize runs cleanup and releases the finalizer only after cleanup succeeds.
-// The caller holds the resource lock.
+// Reconcile calls it, so the workqueue serializes it with other changes for the
+// same resource.
 func (r *ReconcileCommonController) finalize(ctx context.Context, obj client.Object, finalizer string, cleanup func() error, log *zap.SugaredLogger) (reconcile.Result, error) {
 	if !controllerutil.ContainsFinalizer(obj, finalizer) {
 		return reconcile.Result{}, nil

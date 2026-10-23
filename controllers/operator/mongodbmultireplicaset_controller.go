@@ -89,8 +89,6 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
-
-	resourceLocks keyedMutex
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
@@ -130,9 +128,6 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	unlock := r.resourceLocks.Lock(request.NamespacedName)
-	defer unlock()
-
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
@@ -151,7 +146,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	if !mrs.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, &mrs, util.MongoDBMultiClusterFinalizer, func() error {
-			return r.onDeleteUnlocked(ctx, &mrs, log)
+			return r.OnDelete(ctx, &mrs, log)
 		}, log)
 	}
 
@@ -1217,13 +1212,6 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 // OnDelete cleans up Ops Manager state and all Kubernetes resources associated with this instance.
 func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	mrs := obj.(*mdbmultiv1.MongoDBMultiCluster)
-	unlock := r.resourceLocks.Lock(mrs.ObjectKey())
-	defer unlock()
-	return r.onDeleteUnlocked(ctx, mrs, log)
-}
-
-// onDeleteUnlocked cleans up Ops Manager state. The caller holds the resource lock.
-func (r *ReconcileMongoDbMultiReplicaSet) onDeleteUnlocked(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
 	if mrs.IsReconciliationDisabled() {
 		log.Infof("MongoDBMultiCluster %s/%s OnDelete skipped due to %s annotation",
 			mrs.Namespace, mrs.Name, util.DisableReconciliationAnnotation)

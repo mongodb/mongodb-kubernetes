@@ -145,14 +145,9 @@ type ReconcileMongoDbStandalone struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
-
-	resourceLocks keyedMutex
 }
 
 func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	unlock := r.resourceLocks.Lock(request.NamespacedName)
-	defer unlock()
-
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
@@ -168,7 +163,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 	if !s.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, s, util.MongoDBFinalizer, func() error {
-			return r.onDeleteUnlocked(ctx, s, log)
+			return r.OnDelete(ctx, s, log)
 		}, log)
 	}
 
@@ -422,15 +417,9 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	return workflow.OK()
 }
 
+// OnDelete cleans up Ops Manager state for a deleted resource.
 func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	s := obj.(*mdbv1.MongoDB)
-	unlock := r.resourceLocks.Lock(s.ObjectKey())
-	defer unlock()
-	return r.onDeleteUnlocked(ctx, s, log)
-}
-
-// onDeleteUnlocked cleans up Ops Manager state. The caller holds the resource lock.
-func (r *ReconcileMongoDbStandalone) onDeleteUnlocked(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, s, log)

@@ -92,11 +92,6 @@ type ReconcileMongoDbReplicaSet struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
-
-	// resourceLocks serializes reconciliation and deletion for the same resource.
-	// The delete handler runs outside the workqueue, so a reconcile that started
-	// before the delete can otherwise write the deployment back after cleanup.
-	resourceLocks keyedMutex
 }
 
 type replicaSetDeploymentState struct {
@@ -469,9 +464,6 @@ type deploymentOptionsRS struct {
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	unlock := r.resourceLocks.Lock(request.NamespacedName)
-	defer unlock()
-
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
@@ -487,7 +479,7 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 
 	if !rs.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, rs, util.MongoDBFinalizer, func() error {
-			return r.onDeleteUnlocked(ctx, rs, log)
+			return r.OnDelete(ctx, rs, log)
 		}, log)
 	}
 
@@ -1260,15 +1252,9 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	return errs
 }
 
+// OnDelete cleans up Ops Manager state for a deleted resource.
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
-	unlock := r.resourceLocks.Lock(rs.ObjectKey())
-	defer unlock()
-	return r.onDeleteUnlocked(ctx, rs, log)
-}
-
-// onDeleteUnlocked cleans up Ops Manager state. The caller holds the resource lock.
-func (r *ReconcileMongoDbReplicaSet) onDeleteUnlocked(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	if rs.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)

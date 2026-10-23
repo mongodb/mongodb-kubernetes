@@ -98,8 +98,6 @@ type ReconcileMongoDbShardedCluster struct {
 	agentDebugImage     string
 	backupEnableDelay   time.Duration
 	defaultArchitecture architectures.DefaultArchitecture
-
-	resourceLocks keyedMutex
 }
 
 func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
@@ -840,9 +838,6 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
-	unlock := r.resourceLocks.Lock(request.NamespacedName)
-	defer unlock()
-
 	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
 
@@ -858,7 +853,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 	if !sc.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, sc, util.MongoDBFinalizer, func() error {
-			return r.onDeleteUnlocked(ctx, sc, log)
+			return r.OnDelete(ctx, sc, log)
 		}, log)
 	}
 
@@ -882,13 +877,6 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
-	unlock := r.resourceLocks.Lock(sc.ObjectKey())
-	defer unlock()
-	return r.onDeleteUnlocked(ctx, sc, log)
-}
-
-// onDeleteUnlocked cleans up Ops Manager state. The caller holds the resource lock.
-func (r *ReconcileMongoDbShardedCluster) onDeleteUnlocked(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	if sc.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
@@ -1817,8 +1805,8 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		return nil
 	}
 
-	// Read before removing for legacy naming detection. Deletion is a single attempt with no retry,
-	// so a failed read only skips the wait for ready state instead of aborting the cleanup.
+	// Read before removal for legacy naming detection, and continue cleanup if
+	// this read fails.
 	preCleanupDeployment, preCleanupReadErr := conn.ReadDeployment(ctx)
 
 	processNames := make([]string, 0)
