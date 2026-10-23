@@ -22,6 +22,26 @@ import (
 
 const testBasePath = "/secret/data/mongodbenterprise/operator"
 
+func TestDatabaseSecretPathsUseDatabaseConfiguration(t *testing.T) {
+	for name, configuration := range map[string]vault.VaultConfiguration{
+		"database path only": {DatabaseSecretPath: "custom-database"},
+		"operator path only": {OperatorSecretPath: "custom-operator"},
+		"both paths":         {OperatorSecretPath: "custom-operator", DatabaseSecretPath: "custom-database"},
+		"default paths":      {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, err := vault.NewVaultClientForTesting("http://vault.example.com", "test-token", configuration)
+			require.NoError(t, err)
+			databasePath := configuration.DatabaseSecretPath
+			if databasePath == "" {
+				databasePath = vault.DEFAULT_DATABASE_SECRET_PATH
+			}
+			assert.Equal(t, "/secret/data/"+databasePath, client.DatabaseSecretPath())
+			assert.Equal(t, "/secret/metadata/"+databasePath, client.DatabaseSecretMetadataPath())
+		})
+	}
+}
+
 // fakeVault is a minimal Vault KV v2 stand-in: it serves the secrets it was seeded with
 // and records every write it receives.
 type fakeVault struct {
@@ -152,4 +172,17 @@ func TestPutSecretIfChanged_KubernetesBackendWritesToKubernetes(t *testing.T) {
 
 	assert.True(t, secretExistsInKubernetes(t, r, s))
 	assert.Empty(t, fv.writes)
+}
+
+func TestSecretClientWithVaultClient(t *testing.T) {
+	operatorVaultClient := &vault.VaultClient{}
+	member := SecretClient{}
+
+	composed := member.WithVaultClient(operatorVaultClient)
+
+	assert.Same(t, operatorVaultClient, composed.VaultClient)
+
+	existingVaultClient := &vault.VaultClient{}
+	withExisting := SecretClient{VaultClient: existingVaultClient}
+	assert.Same(t, existingVaultClient, withExisting.WithVaultClient(operatorVaultClient).VaultClient)
 }

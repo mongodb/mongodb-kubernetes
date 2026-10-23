@@ -26,7 +26,7 @@ func init() {
 	zap.ReplaceGlobals(logger)
 }
 
-func TestAppDBAgentFlags(t *testing.T) {
+func TestAppDBAgentSettings(t *testing.T) {
 	agentStartupParameters := mdbv1.StartupParameters{
 		"Key1": "Value1",
 		"Key2": "Value2",
@@ -37,8 +37,96 @@ func TestAppDBAgentFlags(t *testing.T) {
 		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
 	assert.NoError(t, err)
 
-	command := sts.Spec.Template.Spec.Containers[0].Command
-	assert.Contains(t, command[len(command)-1], "-Key1=Value1", "-Key2=Value2")
+	cm, err := AppDBAgentSettingsConfigMap(sts, om.Spec.AppDB, &env.PodEnvVars{ProjectID: "abcd"})
+	require.NoError(t, err)
+	assert.Contains(t, cm.Data[AgentSettingsFileName], "Key1=Value1\n")
+	assert.Contains(t, cm.Data[AgentSettingsFileName], "Key2=Value2\n")
+}
+
+func TestAppDBAgentSettingsRejectsCustomAgentFlags(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
+	require.NoError(t, err)
+	agent := AgentContainer(sts)
+	require.NotNil(t, agent, "AppDB StatefulSet must expose an agent container")
+	agent.Env = append(agent.Env, corev1.EnvVar{Name: "AGENT_FLAGS", Value: "-logLevel=DEBUG,"})
+
+	_, err = AppDBAgentSettingsConfigMap(sts, om.Spec.AppDB, &env.PodEnvVars{ProjectID: "abcd"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agent.startupOptions")
+}
+
+func TestAppDBAgentSettingsCredentialPrecedence(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	for _, tt := range []struct {
+		name       string
+		projectID  string
+		parameters mdbv1.StartupParameters
+		command    string
+	}{
+		{name: "monitoring", projectID: "project", command: "cat '/mongodb-automation/agent-api-key/agentApiKey'"},
+		{name: "empty command retains monitoring credential", projectID: "project", parameters: mdbv1.StartupParameters{"mmsApiKeyExec": ""}, command: "cat '/mongodb-automation/agent-api-key/agentApiKey'"},
+		{name: "raw key without monitoring", parameters: mdbv1.StartupParameters{"mmsApiKey": "raw-key"}, command: "cat '/mongodb-automation/agent-api-key/agentApiKey'"},
+		{name: "custom command wins over raw key", projectID: "project", parameters: mdbv1.StartupParameters{"mmsApiKey": "raw-key", "mmsApiKeyExec": "read-customer-key"}, command: "read-customer-key"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			om := omv1.NewOpsManagerBuilderDefault().Build()
+			om.Spec.AppDB.AutomationAgent.StartupParameters = tt.parameters
+			cm, err := AppDBAgentSettingsConfigMap(appsv1.StatefulSet{}, om.Spec.AppDB, &env.PodEnvVars{ProjectID: tt.projectID})
+			require.NoError(t, err)
+			settings := cm.Data[AgentSettingsFileName]
+			assert.Contains(t, settings, "mmsApiKeyExec="+tt.command+"\n")
+			assert.NotContains(t, settings, "raw-key")
+			assert.NotContains(t, settings, "mmsApiKey=")
+			assert.Contains(t, settings, "logFile="+om.Spec.AppDB.GetAgentLogFile()+"\n")
+			assert.Contains(t, settings, "maxLogFileDurationHrs=24\n")
+			assert.Equal(t, tt.parameters, om.Spec.AppDB.AutomationAgent.StartupParameters)
+		})
+	}
+}
+
+func TestAppDBAgentHostnameArguments(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		multiCluster   bool
+		externalDomain *string
+		parameters     mdbv1.StartupParameters
+		hostname       string
+	}{
+		{name: "native single cluster"},
+		{name: "external domain", externalDomain: new("external.example.com"), hostname: "$(POD_NAME).external.example.com"},
+		{name: "multi-cluster custom domain", multiCluster: true, hostname: "$(POD_NAME)-svc.$(POD_NAMESPACE).svc.custom.local"},
+		{name: "per-cluster external domain", multiCluster: true, externalDomain: new("member.example.com"), hostname: "$(POD_NAME).member.example.com"},
+		{name: "customer hostname wins", externalDomain: new("external.example.com"), parameters: mdbv1.StartupParameters{"overrideLocalHost": "customer.example.com"}, hostname: "customer.example.com"},
+		{name: "explicit empty hostname", parameters: mdbv1.StartupParameters{"overrideLocalHost": ""}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			om := omv1.NewOpsManagerBuilderDefault().Build()
+			om.Spec.AppDB.ClusterDomain = "custom.local"
+			om.Spec.AppDB.AutomationAgent.StartupParameters = tt.parameters
+			clusterName := multicluster.LegacyCentralClusterName
+			if tt.multiCluster {
+				clusterName = "member"
+				om.Spec.AppDB.Topology = omv1.ClusterTopologyMultiCluster
+				om.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{{ClusterName: clusterName, Members: 1, ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: tt.externalDomain}}}
+			} else if tt.externalDomain != nil {
+				om.Spec.AppDB.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: tt.externalDomain}
+			}
+			sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, clusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+			require.NoError(t, err)
+			agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
+			args := []string{"-f", "/etc/mongodb-agent/automation-agent.conf"}
+			if _, explicit := tt.parameters["overrideLocalHost"]; explicit || tt.hostname != "" {
+				args = append(args, "-overrideLocalHost="+tt.hostname)
+			}
+			assert.Equal(t, args, agent.Args)
+			assert.Contains(t, agent.Env, corev1.EnvVar{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}})
+			cm, err := AppDBAgentSettingsConfigMap(sts, om.Spec.AppDB, nil)
+			require.NoError(t, err)
+			assert.NotContains(t, cm.Data[AgentSettingsFileName], "overrideLocalHost")
+		})
+	}
 }
 
 func TestAppDBMultiClusterPerClusterStatefulSetOverride(t *testing.T) {
@@ -128,7 +216,7 @@ func TestAppDbStatefulSet_SingleAgentContainer_MonitoringDisabled(t *testing.T) 
 	}
 }
 
-func TestAppDbStatefulSet_MonitoringCredentialsAsCLIFlags(t *testing.T) {
+func TestAppDbStatefulSet_MonitoringCredentialsInSettings(t *testing.T) {
 	t.Setenv(util.OpsManagerMonitorAppDB, "true")
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
@@ -138,10 +226,13 @@ func TestAppDbStatefulSet_MonitoringCredentialsAsCLIFlags(t *testing.T) {
 	require.NoError(t, err)
 
 	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
-	command := agent.Command[len(agent.Command)-1]
-	assert.Contains(t, command, "-mmsGroupId=proj-123")
-	assert.Contains(t, command, "-mmsApiKey=${AGENT_API_KEY}")
-	assert.Contains(t, command, `AGENT_API_KEY="$(cat /mongodb-automation/agent-api-key/agentApiKey)"`)
+	cm, err := AppDBAgentSettingsConfigMap(sts, om.Spec.AppDB, podVars)
+	require.NoError(t, err)
+	assert.Contains(t, cm.Data[AgentSettingsFileName], "mmsGroupId=proj-123\n")
+	assert.Contains(t, cm.Data[AgentSettingsFileName], "mmsApiKeyExec=cat '/mongodb-automation/agent-api-key/agentApiKey'\n")
+	assert.NotContains(t, cm.Data[AgentSettingsFileName], "mmsApiKey=")
+	assert.NotContains(t, agent.Command[2], "AGENT_API_KEY")
+	assert.Equal(t, []string{"-f", "/etc/mongodb-agent/automation-agent.conf"}, agent.Args)
 
 	assert.NotNil(t, findVolumeByName(sts.Spec.Template.Spec.Volumes, AgentAPIKeyVolumeName),
 		"agent-api-key volume must be present when monitoring is enabled")
@@ -158,7 +249,7 @@ func TestAppDbStatefulSet_NoMonitoringCredentialsWhenDisabled(t *testing.T) {
 	require.NoError(t, err)
 
 	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
-	command := agent.Command[len(agent.Command)-1]
+	command := agent.Command[2]
 	assert.NotContains(t, command, "-mmsGroupId=")
 	assert.NotContains(t, command, "-mmsApiKey=")
 	assert.NotContains(t, command, "AGENT_API_KEY=")
@@ -398,26 +489,27 @@ func TestAppDbStatefulSet_ImagePullPolicy(t *testing.T) {
 }
 
 func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
-	logLevel := v1.LogLevel("INFO")
-	logFile := "/var/log/mongodb-mms-automation/automation-agent.log"
-	maxLogFileDurationHours := 24
-
 	t.Run("non-static includes download snippet", func(t *testing.T) {
-		cmd := AutomationAgentCommand(false, false, logLevel, logFile, maxLogFileDurationHours)
+		cmd := AutomationAgentCommand(false)
 		assert.Equal(t, "/bin/bash", cmd[0])
 		assert.Equal(t, "-c", cmd[1])
 		assert.Contains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
 		assert.Contains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
+		assert.Contains(t, cmd[2], `"$@"`)
+		assert.Equal(t, "mongodb-agent", cmd[3])
 	})
 
 	t.Run("static excludes download snippet", func(t *testing.T) {
-		cmd := AutomationAgentCommand(true, false, logLevel, logFile, maxLogFileDurationHours)
+		cmd := AutomationAgentCommand(true)
 		assert.Equal(t, "/bin/bash", cmd[0])
 		assert.Equal(t, "-c", cmd[1])
 		assert.NotContains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
 		assert.NotContains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
+		assert.Contains(t, cmd[2], "/usr/local/bin/setup-agent-files.sh")
+		assert.Contains(t, cmd[2], `"$@"`)
+		assert.Equal(t, "mongodb-agent", cmd[3])
 	})
 }
 

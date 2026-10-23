@@ -81,7 +81,7 @@ func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.Secret
 // ApiKeySecretName for a given ProjectID (`project`) returns the name of
 // the secret associated with it.
 func ApiKeySecretName(project string) string {
-	return fmt.Sprintf("%s-group-secret", project)
+	return mdbv1.AgentAPIKeySecretName(project)
 }
 
 // WaitForRsAgentsToRegister waits until all the agents associated with the given StatefulSet have registered with Ops Manager.

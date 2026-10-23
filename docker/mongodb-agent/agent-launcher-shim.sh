@@ -15,7 +15,7 @@ start_agent_launcher() {
   if [[ -f "${SCRIPTS_DIR}/agent-launcher.sh" ]]; then
     echo "Found agent-launcher.sh, executing..."
     echo "Note: agent-launcher.sh will become PID 1 and handle all signal processing including cleanup"
-    exec "${SCRIPTS_DIR}/agent-launcher.sh"
+    exec "${SCRIPTS_DIR}/agent-launcher.sh" "$@"
   else
     echo "ERROR: agent-launcher.sh not found"
     exit 1
@@ -29,7 +29,7 @@ main() {
     exit 1
   fi
 
-  start_agent_launcher
+  start_agent_launcher "$@"
 }
 
 main "$@"
