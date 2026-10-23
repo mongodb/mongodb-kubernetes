@@ -62,8 +62,7 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 	}
 
 	// watch for changes to standalone MongoDB resources
-	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForMongoDB(mdbv1.Standalone)))
 	if err != nil {
 		return err
 	}
@@ -154,6 +153,9 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	unlock := r.resourceLocks.Lock(request.NamespacedName)
 	defer unlock()
 
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
 	log := zap.S().With("Standalone", request.NamespacedName)
 	s := &mdbv1.MongoDB{}
 
@@ -162,6 +164,16 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
+	}
+
+	if !s.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, s, util.MongoDBFinalizer, func() error {
+			return r.onDeleteUnlocked(ctx, s, log)
+		}, log)
+	}
+
+	if err := r.ensureFinalizer(ctx, s, util.MongoDBFinalizer, log); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	log.Warn(mdbv1.StandaloneDeprecationMessage)
@@ -414,7 +426,11 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	s := obj.(*mdbv1.MongoDB)
 	unlock := r.resourceLocks.Lock(s.ObjectKey())
 	defer unlock()
+	return r.onDeleteUnlocked(ctx, s, log)
+}
 
+// onDeleteUnlocked cleans up Ops Manager state. The caller holds the resource lock.
+func (r *ReconcileMongoDbStandalone) onDeleteUnlocked(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, s, log)

@@ -472,6 +472,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	unlock := r.resourceLocks.Lock(request.NamespacedName)
 	defer unlock()
 
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
 
@@ -480,6 +483,16 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
+	}
+
+	if !rs.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, rs, util.MongoDBFinalizer, func() error {
+			return r.onDeleteUnlocked(ctx, rs, log)
+		}, log)
+	}
+
+	if err := r.ensureFinalizer(ctx, rs, util.MongoDBFinalizer, log); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	if rs.IsReconciliationDisabled() {
@@ -667,10 +680,8 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		return err
 	}
 
-	// watch for changes to replica set MongoDB resources
-	eventHandler := ResourceEventHandler{deleter: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ReplicaSet)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForMongoDB(mdbv1.ReplicaSet)))
 	if err != nil {
 		return err
 	}
@@ -1253,7 +1264,11 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 	rs := obj.(*mdbv1.MongoDB)
 	unlock := r.resourceLocks.Lock(rs.ObjectKey())
 	defer unlock()
+	return r.onDeleteUnlocked(ctx, rs, log)
+}
 
+// onDeleteUnlocked cleans up Ops Manager state. The caller holds the resource lock.
+func (r *ReconcileMongoDbReplicaSet) onDeleteUnlocked(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
 	if rs.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)
@@ -1263,7 +1278,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 	if err != nil {
 		return err
 	}
-	return helper.OnDelete(ctx, obj, log)
+	return helper.OnDelete(ctx, rs, log)
 }
 
 func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {

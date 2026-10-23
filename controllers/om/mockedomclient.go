@@ -78,6 +78,8 @@ type MockedOmConnection struct {
 	// ReadUpdateDeploymentHook runs before the update function. Tests use it to
 	// hold a reconcile inside the read-modify-write window.
 	ReadUpdateDeploymentHook func()
+	// ReadUpdateDeploymentError makes the next deployment read-modify-write fail.
+	ReadUpdateDeploymentError error
 
 	numRequestsSent         int
 	AgentAPIKey             string
@@ -327,6 +329,9 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(ctx context.Context, depFunc 
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateDeployment))
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()
+	}
+	if oc.ReadUpdateDeploymentError != nil {
+		return oc.ReadUpdateDeploymentError
 	}
 	if oc.ReadUpdateDeploymentHook != nil {
 		oc.ReadUpdateDeploymentHook()

@@ -133,6 +133,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	unlock := r.resourceLocks.Lock(request.NamespacedName)
 	defer unlock()
 
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
 	log.Info("-> MultiReplicaSet.Reconcile")
 
@@ -144,6 +147,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		}
 		log.Errorf("error preparing resource for reconciliation: %s", err)
 		return reconcileResult, err
+	}
+
+	if !mrs.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, &mrs, util.MongoDBMultiClusterFinalizer, func() error {
+			return r.onDeleteUnlocked(ctx, &mrs, log)
+		}, log)
+	}
+
+	if err := r.ensureFinalizer(ctx, &mrs, util.MongoDBMultiClusterFinalizer, log); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	if mrs.IsReconciliationDisabled() {
@@ -1125,8 +1138,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		return err
 	}
 
-	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbmultiv1.MongoDBMultiCluster{}, &eventHandler, predicate.Funcs{
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbmultiv1.MongoDBMultiCluster{}, &handler.EnqueueRequestForObject{}, predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMultiCluster)
 			newResource := e.ObjectNew.(*mdbmultiv1.MongoDBMultiCluster)
@@ -1207,6 +1219,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(ctx context.Context, obj runt
 	mrs := obj.(*mdbmultiv1.MongoDBMultiCluster)
 	unlock := r.resourceLocks.Lock(mrs.ObjectKey())
 	defer unlock()
+	return r.onDeleteUnlocked(ctx, mrs, log)
+}
+
+// onDeleteUnlocked cleans up Ops Manager state. The caller holds the resource lock.
+func (r *ReconcileMongoDbMultiReplicaSet) onDeleteUnlocked(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
 	if mrs.IsReconciliationDisabled() {
 		log.Infof("MongoDBMultiCluster %s/%s OnDelete skipped due to %s annotation",
 			mrs.Namespace, mrs.Name, util.DisableReconciliationAnnotation)
