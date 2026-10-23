@@ -1408,6 +1408,74 @@ spec:
                     required:
                     - name
                     type: object
+                  oidc:
+                    description: |-
+                      OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only).
+                      mongot obtains an access token from the identity provider's token endpoint instead of
+                      using username/password or x509. Mutually exclusive with PasswordSecretRef, Username, and X509.
+                    properties:
+                      clientId:
+                        description: ClientID is the OAuth2 client id mongot authenticates
+                          as at the token endpoint.
+                        minLength: 1
+                        type: string
+                      clientSecretSecretRef:
+                        description: |-
+                          ClientSecretSecretRef references the Secret holding the OIDC client secret. The value
+                          at the given key is mounted as a file for mongot; the secret value never appears in
+                          the mongot configuration.
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      idpCAConfigMapRef:
+                        description: |-
+                          IdPCAConfigMapRef references a ConfigMap containing the CA certificate that issued
+                          the identity provider's TLS certificate. The CA certificate is expected to be PEM
+                          encoded and available at the "ca.crt" key (same convention as spec.source.external.tls.ca).
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      scope:
+                        description: Scope is an optional OAuth2 scope requested at
+                          the token endpoint (e.g. "openid").
+                        minLength: 1
+                        type: string
+                      tokenEndpoint:
+                        description: |-
+                          TokenEndpoint is the identity provider's OAuth2 token endpoint URL. Must be an
+                          absolute HTTPS URI with a host and no userinfo or fragment, e.g.
+                          "https://idp.example.com/realms/search/protocol/openid-connect/token".
+                        minLength: 1
+                        type: string
+                        x-kubernetes-validations:
+                        - message: tokenEndpoint must be an absolute HTTPS URI with
+                            a host and no userinfo or fragment
+                          rule: self.matches('^https://([a-zA-Z0-9._-]+|\\[[0-9a-fA-F:.]+\\])(:[0-9]{1,5})?([/?][^#]*)?$')
+                    required:
+                    - clientId
+                    - clientSecretSecretRef
+                    - idpCAConfigMapRef
+                    - tokenEndpoint
+                    type: object
+                    x-kubernetes-validations:
+                    - message: clientSecretSecretRef.name, clientSecretSecretRef.key,
+                        and idpCAConfigMapRef.name must not be empty
+                      rule: self.clientSecretSecretRef.name != "" && self.clientSecretSecretRef.key
+                        != "" && self.idpCAConfigMapRef.name != ""
                   passwordSecretRef:
                     description: PasswordSecretRef references the Secret holding the
                       sync-source user's password.
@@ -1423,7 +1491,7 @@ spec:
                     description: |-
                       TLS configures TLS transport settings for the sync source SCRAM connection.
                       When set, mongot presents the specified client certificate during the TLS handshake.
-                      Only applicable when using SCRAM auth (passwordSecretRef). Mutually exclusive with X509.
+                      Only applicable when using SCRAM auth (passwordSecretRef) or OIDC auth. Mutually exclusive with X509.
                     properties:
                       clientCertificateSecretRef:
                         description: |-
@@ -1508,6 +1576,11 @@ spec:
                     - clientCertificateSecretRef
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: spec.source.oidc is mutually exclusive with spec.source.x509,
+                    spec.source.passwordSecretRef, and spec.source.username
+                  rule: '!has(self.oidc) || (!has(self.x509) && !has(self.passwordSecretRef)
+                    && !has(self.username))'
               version:
                 description: Version of MongoDB Search (mongot) to run. If unset,
                   the operator picks the most appropriate version.
