@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
@@ -179,6 +180,19 @@ func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx conte
 		return &externalAppDBRefObject{
 			ConnectionStringBuilder: mongodb,
 			DbCommonSpec:            mongodb.Spec.DbCommonSpec,
+		}, nil
+	case omv1.ExternalAppDBRefKindMongoDBMultiCluster:
+		mdbm := &mdbmultiv1.MongoDBMultiCluster{}
+		objectKey := kube.ObjectKey(ref.Namespace, ref.Name)
+		if err := e.client.Get(ctx, objectKey, mdbm); err != nil {
+			if apiErrors.IsNotFound(err) {
+				return nil, xerrors.Errorf("externalApplicationDatabaseRef points to MongoDBMultiCluster %s which does not exist", objectKey)
+			}
+			return nil, xerrors.Errorf("failed to fetch referenced MongoDBMultiCluster %s: %w", objectKey, err)
+		}
+		return &externalAppDBRefObject{
+			ConnectionStringBuilder: mdbm,
+			DbCommonSpec:            mdbm.Spec.DbCommonSpec,
 		}, nil
 	}
 
