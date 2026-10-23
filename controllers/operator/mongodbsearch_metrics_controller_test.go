@@ -498,7 +498,7 @@ func TestMetricsForwarderResources_WorkListAndOwnerLocality(t *testing.T) {
 				target = memberTarget
 				members = map[string]client.Client{tc.clusters[0].Name: memberTarget}
 			}
-			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, members, tc.operatorClusterName)
+			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, corev1.PullAlways, members, tc.operatorClusterName)
 
 			wl := r.buildClusterWorkList(search)
 			require.Len(t, wl, 1)
@@ -557,7 +557,7 @@ func TestBuildMetricsForwarderPodSpec_CustomResources(t *testing.T) {
 		},
 	}
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	assert.Equal(t, resource.MustParse("200m"), podSpec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 	assert.Equal(t, resource.MustParse("256Mi"), podSpec.Containers[0].Resources.Requests[corev1.ResourceMemory])
@@ -572,7 +572,7 @@ func TestBuildMetricsForwarderPodSpec_Volumes(t *testing.T) {
 	resources := metricsForwarderResourceRequirements(search)
 
 	t.Run("without CA cert", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 		assert.Len(t, podSpec.Volumes, 2)
 		assert.Equal(t, "metrics-forwarder-config", podSpec.Volumes[0].Name)
@@ -587,7 +587,7 @@ func TestBuildMetricsForwarderPodSpec_Volumes(t *testing.T) {
 	})
 
 	t.Run("with CA cert", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "my-ca-cm", 0, testDefaultImage, resources, false)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "my-ca-cm", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 		assert.Len(t, podSpec.Volumes, 3)
 		assert.Equal(t, metricsForwarderCACertVolumeName, podSpec.Volumes[2].Name)
@@ -607,7 +607,7 @@ func TestBuildMetricsForwarderPodSpec_EnvVars(t *testing.T) {
 		},
 	}
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	env := envMap(podSpec.Containers[0].Env)
 
@@ -625,13 +625,13 @@ func TestBuildMetricsForwarderPodSpec_SecurityContext(t *testing.T) {
 	resources := metricsForwarderResourceRequirements(search)
 
 	t.Run("managed security context disabled", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 		assert.NotNil(t, podSpec.SecurityContext)
 		assert.NotNil(t, podSpec.Containers[0].SecurityContext)
 	})
 
 	t.Run("managed security context enabled", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, true)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, true)
 		assert.Nil(t, podSpec.SecurityContext)
 		assert.Nil(t, podSpec.Containers[0].SecurityContext)
 	})
@@ -642,7 +642,7 @@ func TestBuildMetricsForwarderPodSpec_ContainerArgs(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 	}
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	assert.Equal(t, []string{"--config", "/etc/otelcol/config.yaml"}, podSpec.Containers[0].Args)
 }
@@ -712,6 +712,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder(t *testing.T) {
 											{Key: "dedicated", Value: "metrics", Effect: corev1.TaintEffectNoSchedule},
 										},
 										NodeSelector: map[string]string{"node-type": "metrics"},
+										Containers:   []corev1.Container{{Name: "metrics-forwarder", ImagePullPolicy: corev1.PullNever}},
 									},
 								},
 							},
@@ -727,7 +728,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder(t *testing.T) {
 	}
 
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	// Base spec: no tolerations
 	assert.Empty(t, podSpec.Tolerations)
@@ -761,6 +762,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder(t *testing.T) {
 	// Container preserved
 	assert.Len(t, dep.Spec.Template.Spec.Containers, 1)
 	assert.Equal(t, testDefaultImage, dep.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, corev1.PullNever, dep.Spec.Template.Spec.Containers[0].ImagePullPolicy)
 }
 
 func TestDeploymentConfigurationOverride_MetricsForwarder_EnvVars(t *testing.T) {
@@ -798,7 +800,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder_EnvVars(t *testing.T) 
 	}
 
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	// Base spec uses the default BATCH_SIZE and has no custom env.
 	baseEnv := envMap(podSpec.Containers[0].Env)
@@ -858,7 +860,7 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 				target = memberTarget
 				members = map[string]client.Client{tc.clusters[0].Name: memberTarget}
 			}
-			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, members, tc.operatorClusterName)
+			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, corev1.PullAlways, members, tc.operatorClusterName)
 			r.omRequester = newStubOMAgentRequester(testGroupID)
 			reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
@@ -868,6 +870,7 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 				Name:      search.MetricsForwarderDeploymentNameForCluster(tc.wantIdx),
 			}, dep))
 			assert.Equal(t, testDefaultImage, dep.Spec.Template.Spec.Containers[0].Image)
+			assert.Equal(t, corev1.PullAlways, dep.Spec.Template.Spec.Containers[0].ImagePullPolicy)
 			assert.Equal(t, "metrics-forwarder", dep.Spec.Template.Spec.Containers[0].Name)
 			if tc.crossCluster {
 				assert.Empty(t, dep.GetOwnerReferences(), "no owner ref across cluster boundaries")
@@ -885,7 +888,8 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 				Namespace: testNamespace,
 				Name:      search.MetricsForwarderConfigMapNameForCluster(tc.wantIdx),
 			}, cm))
-			assert.Contains(t, cm.Data, "config.yaml")
+			assert.Contains(t, cm.Data["config.yaml"], "cumulative_to_delta/latency")
+			assert.NotContains(t, cm.Data["config.yaml"], "cumulativetodelta")
 
 			updatedSearch := getMongoDBSearch(t, central, testNamespace, testSearchName)
 			require.NotNil(t, updatedSearch.Status.MetricsForwarder)
