@@ -211,6 +211,8 @@ spec:
       value: "{{ .Values.cognito_workload_url }}"
     - name: cognito_workload_user_id
       value: {{ .Values.cognito_workload_user_id }}
+    - name: cognito_workload_token_endpoint
+      value: "{{ .Values.cognito_workload_token_endpoint }}"
     - name: HOME
       value: /home/tests-home
     - name: AI_MONGODB_EMBEDDING_INDEXING_KEY
