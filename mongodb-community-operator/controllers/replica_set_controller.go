@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -842,7 +841,7 @@ func getMongoDBImage(repoUrl, mongodbImage, mongodbImageType, version string) st
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 	mongoImageName := mongodbImage
-	if slices.Contains(util.OfficialMongodbRepoUrls, repoUrl) {
+	if util.IsOfficialMongodbRepoUrl(repoUrl) {
 		return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
 	}
 
