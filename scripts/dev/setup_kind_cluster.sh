@@ -240,10 +240,6 @@ export_kubeconfig() {
 # installs below instead of delaying the test pod. `single_e2e.sh` renders the same
 # reference with `imagePullPolicy: IfNotPresent`, so the test pod reuses this pull.
 kind_preload_test_image() {
-  if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "kind" ]]; then
-    return 0
-  fi
-
   local image
   if ! image="$(meko_tests_image)"; then
     echo "skipping the test image preload"
@@ -305,6 +301,7 @@ fi
 kind_configure_local_registry
 kind_wait_for_nodes_are_ready
 kind_wait_for_rbac_bootstrap
+# The steps between the preload and its wait run while the image pull is in flight.
 kind_preload_test_image
 kind_install_metallb
 kind_install_metrics_server
