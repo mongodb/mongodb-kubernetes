@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"testing"
 	"testing/synctest"
@@ -699,6 +700,111 @@ func TestScalingScalesOneMemberAtATime_WhenScalingUp(t *testing.T) {
 	assert.NoError(t, err)
 
 	assertCorrectNumberOfMembersAndProcesses(ctx, t, 3, rs, client, omConnectionFactory.GetConnection(), "Once we reach the target value, we should not scale anymore")
+}
+
+func TestReplicaSetReconcile_RequeuesOnStaleStatusWriteAndScalesDownOneAtATime(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	baseGet := mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)
+	serveStale := false
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(rs).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if serveStale {
+					if mdb, ok := obj.(*mdbv1.MongoDB); ok && key == rs.ObjectKey() {
+						stale := rs.DeepCopy()
+						stale.Status.Phase = status.PhasePending
+						stale.Status.Members = 0
+						stale.ResourceVersion = "1"
+						*mdb = *stale
+						return nil
+					}
+				}
+				return baseGet(ctx, c, key, obj, opts...)
+			},
+		}).Build()
+
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).Hostnames = calculateReplicaSetExternalHostnames(rs)
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+
+	rs.Spec.Members = 1
+	require.NoError(t, fakeClient.Update(ctx, rs))
+	serveStale = true
+
+	res, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{Requeue: true}, res)
+
+	serveStale = false
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), rs))
+	assert.Equal(t, status.PhaseRunning, rs.Status.Phase)
+	assert.Equal(t, 3, rs.Status.Members, "conflict must leave the server on 3 members")
+
+	res, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, time.Second*10, res.RequeueAfter, "scale-down must step from 3 to 2 first")
+	assertCorrectNumberOfMembersAndProcesses(ctx, t, 2, rs, fakeClient, omConnectionFactory.GetConnection(), "the first fresh reconcile must only remove one member")
+
+	res, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, util.TWENTY_FOUR_HOURS, res.RequeueAfter)
+	assertCorrectNumberOfMembersAndProcesses(ctx, t, 1, rs, fakeClient, omConnectionFactory.GetConnection(), "the final reconcile must reach the target one member")
+}
+
+func TestReplicaSetReconcile_RequeuesOnStaleStatusWriteAndLeavesServerStateUntouchedAtAnnotationWrite(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
+	stale := rs.DeepCopy()
+	stale.ResourceVersion = "1"
+	stale.Status.Phase = status.PhasePending
+	stale.Status.Members = 0
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	baseGet := mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)
+	serveStale := false
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(rs).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if serveStale {
+					if mdb, ok := obj.(*mdbv1.MongoDB); ok && key == rs.ObjectKey() {
+						*mdb = *stale.DeepCopy()
+						return nil
+					}
+				}
+				return baseGet(ctx, c, key, obj, opts...)
+			},
+		}).Build()
+
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		connection.(*om.MockedOmConnection).Hostnames = calculateReplicaSetExternalHostnames(rs)
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+
+	got := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), got))
+	wantAnnotations := maps.Clone(got.Annotations)
+
+	serveStale = true
+	res, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, reconcile.Result{Requeue: true}, res)
+
+	serveStale = false
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), got))
+	assert.Equal(t, status.PhaseRunning, got.Status.Phase)
+	assert.Equal(t, 3, got.Status.Members)
+	assert.Equal(t, wantAnnotations, got.Annotations)
 }
 
 func TestReplicaSetPortIsConfigurable_WithAdditionalMongoConfig(t *testing.T) {

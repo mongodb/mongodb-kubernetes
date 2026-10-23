@@ -31,6 +31,18 @@ func UpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, recon
 	return st.ReconcileResult()
 }
 
+// UpdateStatusOptimistic updates the status for the CR using a PUT with optimistic locking.
+func UpdateStatusOptimistic(ctx context.Context, kubeClient kubernetesClient.Client, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...status.Option) (reconcile.Result, error) {
+	mergedOptions := append(statusOptions, st.StatusOptions()...)
+	log.Infof("Updating status: phase=%v, options=%+v", st.Phase(), mergedOptions)
+	reconciledResource.UpdateStatus(st.Phase(), mergedOptions...)
+	if err := kubeClient.Status().Update(ctx, reconciledResource); err != nil {
+		log.Errorf("Error updating status to %s: %s", st.Phase(), err)
+		return reconcile.Result{}, err
+	}
+	return st.ReconcileResult()
+}
+
 type emptyPayload struct{}
 
 type patchValue struct {
