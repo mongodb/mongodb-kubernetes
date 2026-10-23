@@ -26,6 +26,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -54,6 +57,19 @@ func WithCRDs(crdFileNames ...string) Option {
 		for _, name := range crdFileNames {
 			e.CRDDirectoryPaths = append(e.CRDDirectoryPaths, filepath.Join(crdBasesDir(), name))
 		}
+	}
+}
+
+// WithCertManagerCRDs installs cert-manager's Certificate and Issuer CRDs from test/envtest/crds.
+// Tests that exercise operator-managed certificates need them so the operator can create its
+// Certificate and Issuer objects. There is no cert-manager controller in envtest, so those tests
+// satisfy the Certificate objects themselves.
+func WithCertManagerCRDs() Option {
+	return func(e *envtest.Environment) {
+		e.CRDDirectoryPaths = append(e.CRDDirectoryPaths,
+			filepath.Join(repoRoot(), "test", "envtest", "crds", "cert-manager.io_certificates.yaml"),
+			filepath.Join(repoRoot(), "test", "envtest", "crds", "cert-manager.io_issuers.yaml"),
+		)
 	}
 }
 
@@ -132,6 +148,17 @@ func start(opts ...Option) (*TestEnv, error) {
 	scheme := kruntime.NewScheme()
 	if err := mdbv1.AddToScheme(scheme); err != nil {
 		return nil, err
+	}
+	// Controller tests also work with plain Kubernetes objects and cert-manager's objects, so the
+	// client has to know those types as well.
+	for _, addToScheme := range []func(*kruntime.Scheme) error{
+		corev1.AddToScheme,
+		appsv1.AddToScheme,
+		certmanagerv1.AddToScheme,
+	} {
+		if err := addToScheme(scheme); err != nil {
+			return nil, err
+		}
 	}
 
 	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
