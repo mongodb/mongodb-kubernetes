@@ -98,6 +98,50 @@ func TestVerifyTLSSecretForStatefulSetHorizonMemberDifference(t *testing.T) {
 	assert.ErrorContains(t, err, "horizon configs")
 }
 
+// TestBuildDNSNamesWithMoreMembersThanHorizons covers what a scale-down goes through: the
+// certificate is built for every member the deployment still has, while the horizons are already
+// configured for fewer members. The members that still have a horizon keep their names, and
+// reading past the end of the horizon list must not panic.
+func TestBuildDNSNamesWithMoreMembersThanHorizons(t *testing.T) {
+	opts := Options{
+		ResourceName: "mdb",
+		Namespace:    "ns",
+		ServiceName:  "mdb-svc",
+		Replicas:     4,
+		horizons: []mdbv1.MongoDBHorizonConfig{
+			{"1": "mdb-0.example.com"},
+			{"2": "mdb-1.example.com"},
+			{"3": "mdb-2.example.com"},
+		},
+	}
+
+	dnsNames := buildDNSNames(opts)
+
+	assert.Contains(t, dnsNames, "mdb-0.example.com")
+	assert.Contains(t, dnsNames, "mdb-1.example.com")
+	assert.Contains(t, dnsNames, "mdb-2.example.com")
+}
+
+// TestGetAdditionalCertDomainsForMemberPastHorizons asks for the additional domains of a member
+// whose horizon entry is already gone. That is the state a scale-down leaves behind: the
+// deployment still has more members than there are horizon entries configured. The member gets no
+// horizon names, and reading its entry must not panic.
+func TestGetAdditionalCertDomainsForMemberPastHorizons(t *testing.T) {
+	opts := Options{
+		ResourceName: "mdb",
+		Namespace:    "ns",
+		ServiceName:  "mdb-svc",
+		Replicas:     4,
+		horizons: []mdbv1.MongoDBHorizonConfig{
+			{"1": "mdb-0.example.com"},
+		},
+	}
+
+	assert.NotPanics(t, func() {
+		assert.Empty(t, GetAdditionalCertDomainsForMember(opts, 3))
+	})
+}
+
 // This test uses mock hashes and certificate because CreatePemSecretClient does not verify the certificates.
 // However, they are verified before and after calling this method.
 func TestRotateCertificate(t *testing.T) {
