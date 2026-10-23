@@ -2151,6 +2151,30 @@ func TestReplicaSetFinalizerLifecycle(t *testing.T) {
 	assert.Empty(t, ac.Deployment.GetProcessNames(om.ReplicaSet{}, rs.Name))
 }
 
+func TestReplicaSetFinalizerRemovedWhenNeverDeployed(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-never-deployed").Build()
+	rs.Status.Members = 0
+	rs.Status.Phase = status.PhaseFailed
+	rs.Finalizers = []string{util.MongoDBFinalizer}
+
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	require.NoError(t, fakeClient.Delete(ctx, rs))
+
+	deleting := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), deleting))
+	require.False(t, deleting.DeletionTimestamp.IsZero())
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the resource must be gone after cleanup")
+
+	require.Nil(t, omConnectionFactory.GetConnection(), "cleanup must not prepare an Ops Manager connection")
+}
+
 func TestReplicaSetFinalizerKeptWhenCleanupFails(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-scram").EnableAuth().

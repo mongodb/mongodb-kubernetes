@@ -1167,6 +1167,15 @@ func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.O
 }
 
 func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	// A resource that never deployed has no Ops Manager state to clean up. Reading
+	// the project and connecting to Ops Manager can fail for a validation-only CR
+	// and keep the finalizer forever. A Running CR with zero members is
+	// inconsistent, so it still takes the full cleanup path.
+	if rs.Status.Members == 0 && rs.Status.Phase != mdbstatus.PhaseRunning {
+		log.Infow("MongoDB resource has no deployed members; skipping Ops Manager cleanup")
+		return nil
+	}
+
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.reconciler.client, r.reconciler.SecretClient, rs, log)
 	if err != nil {
 		return err
