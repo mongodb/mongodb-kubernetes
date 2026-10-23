@@ -85,13 +85,14 @@ type MongoDBResourceRef struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.clientCertificate) || (has(self.username) && size(self.username) > 0)",message="spec.username is required unless spec.clientCertificate is set"
+// +kubebuilder:validation:XValidation:rule="!has(self.clientCertificate) || !has(self.username) || size(self.username) == 0",message="spec.username and spec.clientCertificate are mutually exclusive: the username of an x509 user is the certificate subject, which the operator derives"
 // +kubebuilder:validation:XValidation:rule="!has(self.clientCertificate) || self.db == '$external'",message="spec.clientCertificate requires spec.db to be $external: the user authenticates with its x509 certificate"
 // +kubebuilder:validation:XValidation:rule="!has(self.clientCertificate) || !has(self.passwordSecretKeyRef) || !has(self.passwordSecretKeyRef.name) || size(self.passwordSecretKeyRef.name) == 0",message="spec.clientCertificate and spec.passwordSecretKeyRef are mutually exclusive: the user authenticates with its x509 certificate"
 type MongoDBUserSpec struct {
 	Roles []Role `json:"roles,omitempty"`
-	// Username is the name of the user. When clientCertificate is requested it is the certificate subject,
-	// for example CN=my-app,OU=my-namespace,O=my-rs-app-client. Leave it empty to have the operator
-	// fill it in from the cert subject, or set it to that exact value.
+	// Username is the name of the user. Mutually exclusive with clientCertificate: the username of an
+	// x509 user is the subject of its certificate, for example CN=my-app,OU=my-namespace,O=my-rs-app-client,
+	// which the operator derives and reports in status.username.
 	// +optional
 	Username string `json:"username,omitempty"`
 	Database string `json:"db"`

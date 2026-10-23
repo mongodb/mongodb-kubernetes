@@ -113,47 +113,6 @@ func TestClientCertificateUser_IsRegisteredUnderTheCertificateSubject(t *testing
 	assert.NotContains(t, secret.Data, "serverCAConfigMap")
 }
 
-// A spec.username that matches the certificate subject is accepted, and the status records that same name.
-func TestClientCertificateUser_MatchingUsernameIsAccepted(t *testing.T) {
-	ctx := context.Background()
-	u := newClientCertUser()
-	u.Spec.Username = clientCertUsername
-	reconciler, c, _ := userReconcilerWithAuthMode(ctx, u, util.AutomationConfigX509Option)
-	createManagedX509ReplicaSet(ctx, t, c, u)
-	createUserControllerConfigMap(ctx, c)
-
-	reconcileUser(ctx, t, reconciler, u)
-	markClientCertReady(ctx, t, c, u)
-	reconcileUser(ctx, t, reconciler, u)
-
-	require.NoError(t, c.Get(ctx, kube.ObjectKey(u.Namespace, u.Name), u))
-	assert.Equal(t, status.PhaseUpdated, u.Status.Phase)
-	assert.Equal(t, clientCertUsername, u.Status.Username)
-}
-
-// A spec.username that does not match the certificate subject fails, with a message giving the value to use.
-// The operator adds nothing to the MongoDB deployment and creates no certificate.
-func TestClientCertificateUser_MismatchedUsernameIsRejected(t *testing.T) {
-	ctx := context.Background()
-	u := newClientCertUser()
-	u.Spec.Username = "CN=someone-else"
-	reconciler, c, omConnectionFactory := userReconcilerWithAuthMode(ctx, u, util.AutomationConfigX509Option)
-	createManagedX509ReplicaSet(ctx, t, c, u)
-	createUserControllerConfigMap(ctx, c)
-
-	reconcileUser(ctx, t, reconciler, u)
-
-	require.NoError(t, c.Get(ctx, kube.ObjectKey(u.Namespace, u.Name), u))
-	assert.Equal(t, status.PhaseFailed, u.Status.Phase)
-	assert.Contains(t, u.Status.Message, "does not match the client certificate subject")
-	assert.Contains(t, u.Status.Message, clientCertUsername, "the message gives the exact value to use")
-
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
-	require.NoError(t, err)
-	assert.Empty(t, ac.Auth.Users, "no user is registered when the username does not match")
-	assert.True(t, apiErrors.IsNotFound(c.Get(ctx, kube.ObjectKey(u.Namespace, "my-user-client-cert"), &certmanagerv1.Certificate{})), "no certificate is issued")
-}
-
 // x509 is not one of the authentication modes, so an application could not log in with a certificate, even
 // though internal cluster auth makes the operator create a client CA. The MongoDBUser fails with a message
 // saying so.
@@ -301,9 +260,10 @@ func TestClientCertificateUser_ChangingTheSubjectReplacesTheUser(t *testing.T) {
 	assert.Equal(t, []string{"apps"}, cert.Spec.Subject.Organizations, "the certificate follows the new subject")
 }
 
-// A MongoDBUser whose spec.username no longer matches the certificate subject can still be deleted, and the
-// user the operator registered earlier is removed from the MongoDB deployment.
-func TestClientCertificateUser_MismatchedUsernameDoesNotBlockDelete(t *testing.T) {
+// Tests that once a user is registered with certificate's subject as username even if
+// a new subject is provided in the spec, the one that's registered (and recorded in status)
+// is the one that gets deleted.
+func TestClientCertificateUser_EditedSubjectDoesNotBlockDelete(t *testing.T) {
 	ctx := context.Background()
 	u := newClientCertUser()
 	reconciler, c, omConnectionFactory := userReconcilerWithAuthMode(ctx, u, util.AutomationConfigX509Option)
@@ -313,10 +273,10 @@ func TestClientCertificateUser_MismatchedUsernameDoesNotBlockDelete(t *testing.T
 	markClientCertReady(ctx, t, c, u)
 	reconcileUser(ctx, t, reconciler, u)
 
+	// Change the subject of the cert to change the username so that the username recorded in status doesn't match with new username
 	require.NoError(t, c.Get(ctx, kube.ObjectKey(u.Namespace, u.Name), u))
-	u.Spec.Username = "CN=wrong"
+	u.Spec.ClientCertificate.Subject = &userv1.ClientCertificateSubject{Organizations: []string{"apps"}}
 	require.NoError(t, c.Update(ctx, u))
-	reconcileUser(ctx, t, reconciler, u)
 
 	require.NoError(t, c.Get(ctx, kube.ObjectKey(u.Namespace, u.Name), u))
 	require.NoError(t, c.Delete(ctx, u))
@@ -326,5 +286,5 @@ func TestClientCertificateUser_MismatchedUsernameDoesNotBlockDelete(t *testing.T
 	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	_, stillThere := ac.Auth.GetUser(clientCertUsername, authentication.ExternalDB)
-	assert.Nil(t, stillThere, "the registered x509 user is removed")
+	assert.Nil(t, stillThere, "the user is removed under the name it was registered with")
 }

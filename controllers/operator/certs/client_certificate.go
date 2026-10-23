@@ -57,8 +57,6 @@ func ClientCertificate(res CertificateOwner, user *userv1.MongoDBUser) (*certman
 	}
 
 	clientCert := &certmanagerv1.Certificate{}
-	clientCert.APIVersion = certmanagerv1.SchemeGroupVersion.String()
-	clientCert.Kind = certmanagerv1.CertificateKind
 	clientCert.Name = user.ClientCertificateName()
 	clientCert.Namespace = res.GetNamespace()
 	clientCert.Spec = certSpec(res, signer, user.ClientCertificateSecretName(), nil, sub.CommonName, clientCertSub, clientAuthCertUsages)

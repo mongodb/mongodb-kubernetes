@@ -253,13 +253,6 @@ func (r *MongoDBUserReconciler) Reconcile(ctx context.Context, request reconcile
 		return r.updateStatus(ctx, user, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
 
-	// With spec.clientCertificate the username is the certificate subject, so spec.username, when set,
-	// must be exactly that, or mongod would never match the certificate to the user. Not checked on
-	// delete: cleanup removes the registered name, so a mismatch must not block it.
-	if user.DeletionTimestamp.IsZero() && user.Spec.ClientCertificate != nil && user.Spec.Username != "" && user.Spec.Username != user.GetUsername() {
-		return r.updateStatus(ctx, user, workflow.Invalid("spec.username %q does not match the client certificate subject %q: leave spec.username empty, or set it to the subject", user.Spec.Username, user.GetUsername()), log)
-	}
-
 	if err = r.updateConnectionStringSecret(ctx, *user, log); err != nil {
 		return r.updateStatus(ctx, user, workflow.Failed(err), log)
 	}

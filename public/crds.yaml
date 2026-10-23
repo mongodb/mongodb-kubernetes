@@ -7506,9 +7506,9 @@ spec:
                 type: array
               username:
                 description: |-
-                  Username is the name of the user. When clientCertificate is requested it is the certificate subject,
-                  for example CN=my-app,OU=my-namespace,O=my-rs-app-client. Leave it empty to have the operator
-                  fill it in from the cert subject, or set it to that exact value.
+                  Username is the name of the user. Mutually exclusive with clientCertificate: the username of an
+                  x509 user is the subject of its certificate, for example CN=my-app,OU=my-namespace,O=my-rs-app-client,
+                  which the operator derives and reports in status.username.
                 type: string
             required:
             - db
@@ -7518,6 +7518,11 @@ spec:
                 set
               rule: has(self.clientCertificate) || (has(self.username) && size(self.username)
                 > 0)
+            - message: 'spec.username and spec.clientCertificate are mutually exclusive:
+                the username of an x509 user is the certificate subject, which the
+                operator derives'
+              rule: '!has(self.clientCertificate) || !has(self.username) || size(self.username)
+                == 0'
             - message: 'spec.clientCertificate requires spec.db to be $external: the
                 user authenticates with its x509 certificate'
               rule: '!has(self.clientCertificate) || self.db == ''$external'''

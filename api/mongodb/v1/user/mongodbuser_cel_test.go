@@ -50,8 +50,9 @@ func TestMongoDBUserClientCertificateCELValidation(t *testing.T) {
 			spec: user.MongoDBUserSpec{Database: "$external", MongoDBResourceRef: ref, ClientCertificate: &user.ClientCertificate{}},
 		},
 		{
-			name: "clientCertificate with a username is accepted",
-			spec: user.MongoDBUserSpec{Username: "CN=my-app,OU=default,O=my-rs-app-client", Database: "$external", MongoDBResourceRef: ref, ClientCertificate: &user.ClientCertificate{}},
+			name:          "clientCertificate and a username are mutually exclusive",
+			spec:          user.MongoDBUserSpec{Username: "CN=my-app,OU=default,O=my-rs-app-client", Database: "$external", MongoDBResourceRef: ref, ClientCertificate: &user.ClientCertificate{}},
+			errorContains: "spec.username and spec.clientCertificate are mutually exclusive",
 		},
 		{
 			name:          "clientCertificate requires $external",
