@@ -7,7 +7,7 @@
 #   all hooks here set priority explicitly.
 #
 # Dependency chain:
-#   P1 (concurrent): operator-version, manifests, mco-tests, RBAC, licenses, kubebuilder
+#   P1 (concurrent): operator-version, manifests, mco-tests, RBAC, license-policy, kubebuilder
 #     - P1 hooks are mutually file-independent; only update-release-json at P2 consumes
 #       release.json (written by update-mongodb-operator-version here). Do not add a P1
 #       hook that reads release.json without moving it to P2+.
@@ -57,14 +57,6 @@ repos:
         stages: [pre-commit]
         priority: 1
 
-      - id: update-licenses
-        name: update-licenses
-        entry: scripts/dev/generate_files.sh update_licenses
-        language: system
-        pass_filenames: false
-        stages: [pre-commit]
-        priority: 1
-
       - id: check-kubebuilder-annotations
         name: check-kubebuilder-annotations
         entry: scripts/dev/generate_files.sh check_kubebuilder_annotations
@@ -72,6 +64,28 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
         priority: 1
+
+      - id: check-license-policy
+        name: check-license-policy
+        entry: scripts/evergreen/check_licenses.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        priority: 1
+
+  # ── P2: serial — update-release-json + optional license regeneration ───────
+  # update-licenses runs at P2 (not P1) because both it and check-license-policy
+  # install the same pinned go-licenses binary; serializing them avoids concurrent
+  # installation races. It remains optional (gated on MDB_UPDATE_LICENSES).
+  - repo: local
+    hooks:
+      - id: update-licenses
+        name: update-licenses
+        entry: scripts/dev/generate_files.sh update_licenses
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+        priority: 2
 
   # ── P2: serial — propagates mongodbOperator, writes release.json ───────────
   - repo: local
