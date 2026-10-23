@@ -54,13 +54,14 @@ func TestContainerImage(t *testing.T) {
 }
 
 func TestGetAppDBImage(t *testing.T) {
-	// Note: if no DefaultImageType is given, we will default to ubi8
+	// Note: non-static resources always use ubi8; static resources default to ubi9
 	tests := []struct {
-		name        string
-		input       string
-		annotations map[string]string
-		want        string
-		setupEnvs   func(t *testing.T)
+		name             string
+		input            string
+		annotations      map[string]string
+		defaultImageType architectures.ImageType
+		want             string
+		setupEnvs        func(t *testing.T)
 	}{
 		{
 			name:  "Getting official image",
@@ -194,6 +195,19 @@ func TestGetAppDBImage(t *testing.T) {
 			},
 		},
 		{
+			name:             "Getting official ubi9 slim image from configured default",
+			input:            "8.0.23",
+			defaultImageType: architectures.ImageTypeUBI9Slim,
+			annotations: map[string]string{
+				architectures.ArchitectureAnnotation: string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:8.0.23-ubi9-slim",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
 			name:  "Getting official image for a pre-release version with legacy ent suffix",
 			input: "9.0.0-rc0-ent",
 			want:  "quay.io/mongodb/mongodb-enterprise-server:9.0.0-rc0-ubi8",
@@ -215,10 +229,48 @@ func TestGetAppDBImage(t *testing.T) {
 			},
 		},
 		{
+			name:             "Annotation overrides configured image type",
+			input:            "8.0.23",
+			defaultImageType: architectures.ImageTypeUBI9,
+			annotations: map[string]string{
+				architectures.ArchitectureAnnotation:       string(architectures.Static),
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server:8.0.23-ubi9-slim",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
 			name:  "Unknown image type suffixes are left alone",
 			input: "5.0.6-ubuntu",
 			want:  "quay.io/mongodb/mongodb-enterprise-server:5.0.6-ubuntu",
 			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:             "Non-static ignores configured slim image type",
+			input:            "8.0.23",
+			defaultImageType: architectures.ImageTypeUBI9Slim,
+			want:             "quay.io/mongodb/mongodb-enterprise-server:8.0.23-ubi8",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
+				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
+			},
+		},
+		{
+			name:             "Getting related ubi9 slim image",
+			input:            "8.0.23",
+			defaultImageType: architectures.ImageTypeUBI9Slim,
+			annotations: map[string]string{
+				architectures.ArchitectureAnnotation: string(architectures.Static),
+			},
+			want: "quay.io/mongodb/mongodb-enterprise-server@sha256:ubi9slim",
+			setupEnvs: func(t *testing.T) {
+				t.Setenv("RELATED_IMAGE_MONGODB_IMAGE_8_0_23_ubi9_slim", "quay.io/mongodb/mongodb-enterprise-server@sha256:ubi9slim")
 				t.Setenv(util.MongodbRepoUrlEnv, "quay.io/mongodb")
 				t.Setenv(util.MongodbImageEnv, util.OfficialEnterpriseServerImageName)
 			},
@@ -229,7 +281,7 @@ func TestGetAppDBImage(t *testing.T) {
 			t.Setenv(architectures.DefaultEnvArchitecture, "")
 			tt.setupEnvs(t)
 			imageUrlsMock := LoadImageUrlsFromEnv()
-			assert.Equalf(t, tt.want, GetOfficialImage(imageUrlsMock, tt.input, tt.annotations, architectures.NonStatic), "getOfficialImage(%v)", tt.input)
+			assert.Equalf(t, tt.want, GetOfficialImage(imageUrlsMock, tt.input, tt.annotations, architectures.NonStatic, tt.defaultImageType), "getOfficialImage(%v)", tt.input)
 		})
 	}
 }

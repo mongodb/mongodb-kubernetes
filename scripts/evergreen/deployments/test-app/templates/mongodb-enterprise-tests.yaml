@@ -181,6 +181,8 @@ spec:
     {{ end }}
     - name: MDB_DEFAULT_ARCHITECTURE
       value: "{{ .Values.mdbDefaultArchitecture }}"
+    - name: MDB_DEFAULT_IMAGE_TYPE
+      value: "{{ .Values.mdbDefaultImageType }}"
     - name: CLUSTER_DOMAIN
       value: "{{ .Values.clusterDomain }}"
     {{ if .Values.omDebugHttp }}

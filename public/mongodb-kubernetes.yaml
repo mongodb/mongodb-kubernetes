@@ -386,6 +386,8 @@ spec:
               value: prod
             - name: MDB_DEFAULT_ARCHITECTURE
               value: non-static
+            - name: MDB_DEFAULT_IMAGE_TYPE
+              value: ubi9
             - name: NAMESPACE
               valueFrom:
                 fieldRef:

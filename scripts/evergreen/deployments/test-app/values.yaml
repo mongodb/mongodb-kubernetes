@@ -40,6 +40,7 @@ otel_endpoint:
 otel_resource_attributes:
 pytestOtelEnabled: true
 mdbDefaultArchitecture: "non-static"
+mdbDefaultImageType: "ubi9"
 
 # set to "true" to set OM_DEBUG_HTTP=true for the operator
 omDebugHttp:

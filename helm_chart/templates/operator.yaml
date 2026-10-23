@@ -86,6 +86,8 @@ spec:
               value: {{ .Values.operator.env }}
             - name: MDB_DEFAULT_ARCHITECTURE
               value: {{ .Values.operator.mdbDefaultArchitecture }}
+            - name: MDB_DEFAULT_IMAGE_TYPE
+              value: {{ .Values.operator.mdbDefaultImageType }}
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
