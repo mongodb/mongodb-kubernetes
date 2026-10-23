@@ -388,6 +388,9 @@ const (
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
 
 	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
+
+	MongoDBFinalizer             = "mongodb.com/v1.mongoDBRemovalFinalizer"
+	MongoDBMultiClusterFinalizer = "mongodb.com/v1.mongoDBMultiClusterRemovalFinalizer"
 )
 
 type OperatorEnvironment string

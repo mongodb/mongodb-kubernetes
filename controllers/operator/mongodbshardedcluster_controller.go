@@ -838,6 +838,9 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 }
 
 func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
 	log := zap.S().With("ShardedCluster", request.NamespacedName)
 	sc := &mdbv1.MongoDB{}
 	reconcileResult, err := r.prepareResourceForReconciliation(ctx, request, sc, log)
@@ -846,6 +849,16 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
+	}
+
+	if !sc.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, sc, util.MongoDBFinalizer, func() error {
+			return r.OnDelete(ctx, sc, log)
+		}, log)
+	}
+
+	if err := r.ensureFinalizer(ctx, sc, util.MongoDBFinalizer, log); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	if sc.IsReconciliationDisabled() {
@@ -873,7 +886,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 	if err != nil {
 		return err
 	}
-	return reconcilerHelper.OnDelete(ctx, obj, log)
+	return reconcilerHelper.OnDelete(ctx, sc, log)
 }
 
 func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) (res reconcile.Result, e error) {
@@ -1792,8 +1805,8 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		return nil
 	}
 
-	// Read before removing for legacy naming detection. Deletion is a single attempt with no retry,
-	// so a failed read only skips the wait for ready state instead of aborting the cleanup.
+	// Read before removal for legacy naming detection, and continue cleanup if
+	// this read fails.
 	preCleanupDeployment, preCleanupReadErr := conn.ReadDeployment(ctx)
 
 	processNames := make([]string, 0)
@@ -1872,8 +1885,7 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	}
 
 	// watch for changes to sharded cluster MongoDB resources
-	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ShardedCluster)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForMongoDB(mdbv1.ShardedCluster)))
 	if err != nil {
 		return err
 	}

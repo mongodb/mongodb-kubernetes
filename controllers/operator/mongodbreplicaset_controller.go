@@ -464,6 +464,9 @@ type deploymentOptionsRS struct {
 // Reconcile reads that state of the cluster for a MongoDbReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
 	rs := &mdbv1.MongoDB{}
 
@@ -472,6 +475,16 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 			return workflow.Invalid("Object for reconciliation not found").ReconcileResult()
 		}
 		return reconcileResult, err
+	}
+
+	if !rs.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, rs, util.MongoDBFinalizer, func() error {
+			return r.OnDelete(ctx, rs, log)
+		}, log)
+	}
+
+	if err := r.ensureFinalizer(ctx, rs, util.MongoDBFinalizer, log); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	if rs.IsReconciliationDisabled() {
@@ -659,10 +672,8 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		return err
 	}
 
-	// watch for changes to replica set MongoDB resources
-	eventHandler := ResourceEventHandler{deleter: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ReplicaSet)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForMongoDB(mdbv1.ReplicaSet)))
 	if err != nil {
 		return err
 	}
@@ -1156,6 +1167,15 @@ func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.O
 }
 
 func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
+	// A resource that never deployed has no Ops Manager state to clean up. Reading
+	// the project and connecting to Ops Manager can fail for a validation-only CR
+	// and keep the finalizer forever. A Running CR with zero members is
+	// inconsistent, so it still takes the full cleanup path.
+	if rs.Status.Members == 0 && rs.Status.Phase != mdbstatus.PhaseRunning {
+		log.Infow("MongoDB resource has no deployed members; skipping Ops Manager cleanup")
+		return nil
+	}
+
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.reconciler.client, r.reconciler.SecretClient, rs, log)
 	if err != nil {
 		return err
@@ -1241,6 +1261,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	return errs
 }
 
+// OnDelete cleans up Ops Manager state for a deleted resource.
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
 	if rs.IsReconciliationDisabled() {
@@ -1252,7 +1273,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 	if err != nil {
 		return err
 	}
-	return helper.OnDelete(ctx, obj, log)
+	return helper.OnDelete(ctx, rs, log)
 }
 
 func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {

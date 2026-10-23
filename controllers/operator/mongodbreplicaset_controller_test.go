@@ -2119,6 +2119,119 @@ func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
 	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.ReadUpdateDeployment))
 }
 
+func TestReplicaSetFinalizerLifecycle(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-scram").EnableAuth().
+		SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	fetched := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), fetched))
+	require.Contains(t, fetched.Finalizers, util.MongoDBFinalizer)
+
+	require.NoError(t, fakeClient.Delete(ctx, fetched))
+
+	deleting := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), deleting))
+	require.False(t, deleting.DeletionTimestamp.IsZero(), "the finalizer must keep the resource until cleanup finishes")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the resource must be gone after cleanup")
+
+	ac, err := mockedOmConn.ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	assert.False(t, ac.Auth.IsEnabled())
+	assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
+	assert.Empty(t, ac.Auth.AutoAuthMechanisms)
+	assert.Empty(t, ac.Deployment.GetProcessNames(om.ReplicaSet{}, rs.Name))
+}
+
+func TestReplicaSetFinalizerRemovedWhenNeverDeployed(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-never-deployed").Build()
+	rs.Status.Members = 0
+	rs.Status.Phase = status.PhaseFailed
+	rs.Finalizers = []string{util.MongoDBFinalizer}
+
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	require.NoError(t, fakeClient.Delete(ctx, rs))
+
+	deleting := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), deleting))
+	require.False(t, deleting.DeletionTimestamp.IsZero())
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the resource must be gone after cleanup")
+
+	require.Nil(t, omConnectionFactory.GetConnection(), "cleanup must not prepare an Ops Manager connection")
+}
+
+func TestReplicaSetFinalizerKeptWhenCleanupFails(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-scram").EnableAuth().
+		SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	fetched := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), fetched))
+	require.NoError(t, fakeClient.Delete(ctx, fetched))
+
+	mockedOmConn.ReadUpdateDeploymentError = fmt.Errorf("injected deployment update failure")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.Error(t, err)
+
+	stuck := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), stuck))
+	assert.Contains(t, stuck.Finalizers, util.MongoDBFinalizer, "the finalizer must stay until cleanup succeeds")
+	assert.False(t, stuck.DeletionTimestamp.IsZero())
+}
+
+func TestFinalizeKeepsFinalizerWhenUpdateFails(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set").Build()
+	rs.Finalizers = []string{util.MongoDBFinalizer}
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(rs).Build()
+	require.NoError(t, fakeClient.Delete(ctx, rs))
+
+	updateAttempts := 0
+	intercepted := kubernetesClient.NewClient(interceptor.NewClient(fakeClient, interceptor.Funcs{
+		Update: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			updateAttempts++
+			return fmt.Errorf("injected finalizer removal failure")
+		},
+	}))
+	reconciler := &ReconcileCommonController{client: intercepted}
+
+	_, err := reconciler.finalize(ctx, rs, util.MongoDBFinalizer, func() error { return nil }, zap.S())
+	require.Error(t, err)
+	require.Equal(t, 1, updateAttempts)
+
+	stuck := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), stuck))
+	assert.Contains(t, stuck.Finalizers, util.MongoDBFinalizer, "the finalizer must survive a failed removal update")
+	assert.False(t, stuck.DeletionTimestamp.IsZero())
+
+	plain := &ReconcileCommonController{client: kubernetesClient.NewClient(fakeClient)}
+	_, err = plain.finalize(ctx, stuck, util.MongoDBFinalizer, func() error { return nil }, zap.S())
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the retry must remove the finalizer and delete the resource")
+}
+
 func TestConsumeAdoptionSignal(t *testing.T) {
 	tests := []struct {
 		name string

@@ -128,6 +128,9 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 // Reconcile reads that state of the cluster for a MongoDbMultiReplicaSet object and makes changes based on the state read
 // and what is in the MongoDbMultiReplicaSet.Spec
 func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
+	ctx, cancel := context.WithTimeout(ctx, reconcileTimeout)
+	defer cancel()
+
 	log := zap.S().With("MultiReplicaSet", request.NamespacedName)
 	log.Info("-> MultiReplicaSet.Reconcile")
 
@@ -139,6 +142,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		}
 		log.Errorf("error preparing resource for reconciliation: %s", err)
 		return reconcileResult, err
+	}
+
+	if !mrs.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, &mrs, util.MongoDBMultiClusterFinalizer, func() error {
+			return r.OnDelete(ctx, &mrs, log)
+		}, log)
+	}
+
+	if err := r.ensureFinalizer(ctx, &mrs, util.MongoDBMultiClusterFinalizer, log); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	if mrs.IsReconciliationDisabled() {
@@ -1120,8 +1133,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		return err
 	}
 
-	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbmultiv1.MongoDBMultiCluster{}, &eventHandler, predicate.Funcs{
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbmultiv1.MongoDBMultiCluster{}, &handler.EnqueueRequestForObject{}, predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldResource := e.ObjectOld.(*mdbmultiv1.MongoDBMultiCluster)
 			newResource := e.ObjectNew.(*mdbmultiv1.MongoDBMultiCluster)

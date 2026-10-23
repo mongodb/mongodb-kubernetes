@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -382,6 +383,42 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
 	resource.SetWarnings([]status.Warning{})
 
+	return reconcile.Result{}, nil
+}
+
+// reconcileTimeout bounds one Reconcile call. The Ops Manager client bounds a
+// single HTTP attempt at 2 minutes and the readiness wait at about 90 seconds.
+// This bound is above the normal path and below an indefinitely stuck call.
+const reconcileTimeout = 15 * time.Minute
+
+func (r *ReconcileCommonController) ensureFinalizer(ctx context.Context, obj client.Object, finalizer string, log *zap.SugaredLogger) error {
+	if !controllerutil.AddFinalizer(obj, finalizer) {
+		return nil
+	}
+	if err := r.client.Update(ctx, obj); err != nil {
+		return xerrors.Errorf("failed to add finalizer %s: %w", finalizer, err)
+	}
+	log.Infof("Added finalizer %s to %s", finalizer, obj.GetName())
+	return nil
+}
+
+// finalize runs cleanup and releases the finalizer only after cleanup succeeds.
+// Reconcile calls it, so the workqueue serializes it with other changes for the
+// same resource.
+func (r *ReconcileCommonController) finalize(ctx context.Context, obj client.Object, finalizer string, cleanup func() error, log *zap.SugaredLogger) (reconcile.Result, error) {
+	if !controllerutil.ContainsFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := cleanup(); err != nil {
+		return reconcile.Result{}, err
+	}
+	if !controllerutil.RemoveFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := r.client.Update(ctx, obj); err != nil {
+		return reconcile.Result{}, xerrors.Errorf("failed to remove finalizer %s: %w", finalizer, err)
+	}
+	log.Infof("Removed finalizer %s from %s", finalizer, obj.GetName())
 	return reconcile.Result{}, nil
 }
 

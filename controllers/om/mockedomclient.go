@@ -75,6 +75,8 @@ type MockedOmConnection struct {
 
 	ReadAutomationStatusFunc func() (*AutomationStatus, error)
 	ReadAutomationAgentsFunc func(int) (Paginated, error)
+	// ReadUpdateDeploymentError fails deployment updates while non-nil.
+	ReadUpdateDeploymentError error
 
 	numRequestsSent         int
 	AgentAPIKey             string
@@ -324,6 +326,9 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(ctx context.Context, depFunc 
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateDeployment))
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()
+	}
+	if oc.ReadUpdateDeploymentError != nil {
+		return oc.ReadUpdateDeploymentError
 	}
 	err := depFunc(oc.deployment)
 	oc.numRequestsSent++
