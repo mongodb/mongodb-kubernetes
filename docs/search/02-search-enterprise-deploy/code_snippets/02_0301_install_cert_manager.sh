@@ -1,6 +1,7 @@
 helm upgrade --install \
   cert-manager \
   oci://quay.io/jetstack/charts/cert-manager \
+  --version "${CERT_MANAGER_VERSION}" \
   --kube-context "${K8S_CTX}" \
   --namespace "${CERT_MANAGER_NAMESPACE}" \
   --create-namespace \

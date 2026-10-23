@@ -33,7 +33,7 @@ export OPS_MANAGER_ORG_ID="<SET ORG ID>"
 # MONGODB VERSION
 # ======================================================================
 
-# Minimum required MongoDB version for Search is 8.2
+# Minimum required MongoDB version for Search is 8.3
 export MDB_VERSION="8.3.13-ent"
 
 # ======================================================================
@@ -60,6 +60,7 @@ export MDB_TLS_CERT_SECRET_PREFIX="certs"
 export MDB_TLS_CA_CONFIGMAP="mongodb-ca"
 
 export CERT_MANAGER_NAMESPACE="cert-manager"
+export CERT_MANAGER_VERSION="v1.21.2"
 export MDB_TLS_SELF_SIGNED_ISSUER="selfsigned-bootstrap-issuer"
 export MDB_TLS_CA_CERT_NAME="my-selfsigned-ca"
 export MDB_TLS_CA_SECRET_NAME="root-secret"

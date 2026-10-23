@@ -13,7 +13,7 @@ if kubectl get namespace "${CERT_MANAGER_NAMESPACE}" \
     --context "${K8S_CTX}" --timeout=60s
   echo "[ok] cert-manager is ready"
 else
-  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml \
+  kubectl apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml" \
     --context "${K8S_CTX}"
 
   echo "Waiting for cert-manager to be ready..."

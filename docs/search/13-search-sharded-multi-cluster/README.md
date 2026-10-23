@@ -6,9 +6,8 @@ reconfigure the source MongoDB deployment.
 
 ## Prerequisites
 
-- A MongoDB 8.2 or later sharded cluster managed by Ops Manager. MongoDB 8.3 or
-  later is recommended. The `mongos` and shard members must be reachable from
-  both Kubernetes clusters.
+- A MongoDB 8.3 or later sharded cluster managed by Ops Manager. The `mongos`
+  and shard members must be reachable from both Kubernetes clusters.
 - Two Kubernetes contexts connected by a service mesh that provides
   cross-cluster Service DNS and connectivity.
 - The namespace snippets use Istio's injection label. Adjust that label when
