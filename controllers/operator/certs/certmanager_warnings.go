@@ -22,6 +22,7 @@ func UnusedClientConfigured(res CertificateOwner) []status.Warning {
 	}
 	return []status.Warning{
 		"The field spec.managedCertificate.client is set even though the deployment doesn't use x509 for internal " +
-			"cluster authentication or for the automation agent, so the operator doesn't use the field and it should not be set",
+			"cluster authentication or for the automation agent, so the operator doesn't use the field and it should not be set. " +
+			"The presented client certificates will be validated against the server CA.",
 	}
 }
