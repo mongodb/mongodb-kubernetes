@@ -173,3 +173,16 @@ func TestPutSecretIfChanged_KubernetesBackendWritesToKubernetes(t *testing.T) {
 	assert.True(t, secretExistsInKubernetes(t, r, s))
 	assert.Empty(t, fv.writes)
 }
+
+func TestSecretClientWithVaultClient(t *testing.T) {
+	operatorVaultClient := &vault.VaultClient{}
+	member := SecretClient{}
+
+	composed := member.WithVaultClient(operatorVaultClient)
+
+	assert.Same(t, operatorVaultClient, composed.VaultClient)
+
+	existingVaultClient := &vault.VaultClient{}
+	withExisting := SecretClient{VaultClient: existingVaultClient}
+	assert.Same(t, existingVaultClient, withExisting.WithVaultClient(operatorVaultClient).VaultClient)
+}

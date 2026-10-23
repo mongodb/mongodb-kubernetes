@@ -247,6 +247,9 @@ func settingsConsumeCredential(settings string) bool {
 
 func databaseAgentCredential(ctx context.Context, secretClient secrets.SecretClient, sts appsv1.StatefulSet) (string, error) {
 	if vault.IsVaultSecretBackend() {
+		if secretClient.VaultClient == nil {
+			return "", fmt.Errorf("vault is the secret backend but no Vault client is available for StatefulSet %s", sts.Name)
+		}
 		data, err := secretClient.VaultClient.ReadSecretString(sts.Spec.Template.Annotations["vault.hashicorp.com/agent-inject-secret-agentApiKey"])
 		if err != nil {
 			return "", err

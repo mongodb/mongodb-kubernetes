@@ -957,3 +957,25 @@ func TestStandaloneOptionsWithoutExternalAccess(t *testing.T) {
 
 	assert.Nil(t, opts.ExternalAccessConfiguration)
 }
+
+// Released agent images ship an agent-launcher-shim.sh that runs agent-launcher.sh without
+// forwarding its arguments. The static agent container must forward the settings-file flags
+// explicitly, otherwise the launcher falls back to the deleted AGENT_FLAGS variable and exits.
+func TestStaticAgentContainerForwardsLauncherArguments(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
+
+	agent := AgentContainer(sts)
+	require.NotNil(t, agent)
+	assert.Equal(t, []string{"/bin/bash", "-c", `/usr/local/bin/setup-agent-files.sh && exec /opt/scripts/agent-launcher.sh "$@"`, "agent-launcher"}, agent.Command)
+}
+
+// The non-static architecture execs the launcher script directly, so its command has no bash wrapper.
+func TestNonStaticAgentContainerRunsLauncherDirectly(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
+
+	agent := AgentContainer(sts)
+	require.NotNil(t, agent)
+	assert.Equal(t, []string{"/opt/scripts/agent-launcher.sh"}, agent.Command)
+}

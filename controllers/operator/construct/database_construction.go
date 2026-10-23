@@ -814,7 +814,12 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
-		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
+		// Released agent images ship an agent-launcher-shim.sh that runs agent-launcher.sh without
+		// forwarding its arguments, so the settings-file flags set on this container would be
+		// dropped and the launcher would fall back to the deleted AGENT_FLAGS variable. Run the
+		// shim's two steps here and forward the arguments. The arguments themselves stay
+		// in create.go, which is the only place that builds them.
+		container.WithCommand([]string{"/bin/bash", "-c", `/usr/local/bin/setup-agent-files.sh && exec /opt/scripts/agent-launcher.sh "$@"`, "agent-launcher"}),
 		container.WithVolumeMounts(volumeMounts),
 		configureContainerSecurityContext,
 	)}

@@ -1532,7 +1532,8 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
 		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
 
-		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, memberCluster.SecretClient, *s, mongosSts, mongosOpts, log)
+		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
+		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, mongosSts, mongosOpts, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Mongos Stateful Set: %w", err))
 		}
@@ -1578,7 +1579,8 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 				return pvcStatus
 			}
 
-			mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, memberCluster.SecretClient, *s, shardSts, shardOpts, log)
+			secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
+			mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, shardSts, shardOpts, log)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create StatefulSet for shard %s: %w", shardSts.Name, err))
 			}
@@ -1626,7 +1628,8 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 			return pvcStatus
 		}
 
-		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, memberCluster.SecretClient, *s, configSrvSts, configSrvOpts, log)
+		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
+		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, configSrvSts, configSrvOpts, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
 		}

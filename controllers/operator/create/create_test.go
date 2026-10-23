@@ -237,6 +237,25 @@ func TestDatabaseAgentCredentialOverrideUsesVault(t *testing.T) {
 	assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "customer-api-key")
 }
 
+// A member cluster SecretClient carries no Vault client by design. When Vault is the secret
+// backend, reading the agent credential must fail with a clear error instead of panicking on a
+// nil client. This is the sharded-cluster path: shards are built from a member cluster list.
+func TestDatabaseAgentCredentialWithoutVaultClientReturnsError(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+		StartupParameters: mdbv1.StartupParameters{"mmsBaseUrl": "https://cloud-qa.mongodb.com"},
+	}).Build()
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architectures.NonStatic))
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+
+	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no Vault client")
+}
+
 func TestDatabaseAgentSettingsHashTracksConsumedCredentials(t *testing.T) {
 	ctx := context.Background()
 	fakeClient, _ := mock.NewDefaultFakeClient()

@@ -2290,7 +2290,8 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.
 
 	serviceSelectorLabel := opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(r.helper.getMemberCluster(memberClusterName).Index)
 	memberCluster := r.helper.getMemberCluster(memberClusterName)
-	mutatedSts, err := create.AppDBInKubernetes(ctx, memberCluster.Client, memberCluster.SecretClient, opsManager, podVars, appDbSts, serviceSelectorLabel, log)
+	secretClient := memberCluster.SecretClient.WithVaultClient(r.VaultClient)
+	mutatedSts, err := create.AppDBInKubernetes(ctx, memberCluster.Client, secretClient, opsManager, podVars, appDbSts, serviceSelectorLabel, log)
 	if err != nil {
 		return nil, workflow.Failed(xerrors.Errorf("failed to create AppDB StatefulSet in cluster %s: %w", memberClusterName, err))
 	}
