@@ -1331,7 +1331,7 @@ func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx conte
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
 		searchSource := searchcontroller.NewEnterpriseResourceSearchSource(rs)
-		if searchSource.Validate() == nil {
+		if searchSource.Validate() == nil && searchcontroller.ValidateX509AuthSource(&searchList.Items[0], searchSource) == nil {
 			search = &searchList.Items[0]
 		}
 	}
