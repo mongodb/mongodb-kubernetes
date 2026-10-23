@@ -272,7 +272,7 @@ layered_runtime:
                         "containers": [
                             {
                                 "name": "envoy",
-                                "image": "envoyproxy/envoy:v1.37-latest",
+                                "image": "envoyproxy/envoy:v1.37.10",
                                 "command": ["/usr/local/bin/envoy"],
                                 "args": ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"],
                                 "ports": [

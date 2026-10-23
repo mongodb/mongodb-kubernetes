@@ -71,7 +71,7 @@ processors:
       - extract_sum_metric(true) where name == "mongot_command_searchCommandTotalLatency_seconds"
       - extract_count_metric(true) where name == "mongot_command_vectorSearchCommandTotalLatency_seconds"
       - extract_sum_metric(true) where name == "mongot_command_vectorSearchCommandTotalLatency_seconds"
-  cumulativetodelta/latency:
+  cumulative_to_delta/latency:
     include:
       match_type: strict
       metrics:
@@ -359,7 +359,7 @@ service:
         - metrics_transform/rename
         - metricsgeneration
         - transform/extract_summary_components
-        - cumulativetodelta/latency
+        - cumulative_to_delta/latency
         - metricsgeneration/latency_avg_seconds
         - metricsgeneration/latency_avg_ms
         - metrics_transform/perindex_forward
