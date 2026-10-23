@@ -42,6 +42,10 @@ const (
 	queryableBackupDefaultPort int32  = 25999
 
 	LabelResourceOwner = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+
+	// OpsManagerNamespaceLabel is set on the admin API key Secret to record
+	// the namespace of the MongoDBOpsManager CR that owns the key.
+	OpsManagerNamespaceLabel = "mongodb.com/v1.opsManagerNamespace"
 )
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
@@ -939,20 +943,67 @@ func (om *MongoDBOpsManager) GetStatusPath(options ...status.Option) string {
 // To ensure backward compatibility, it checks if a secret key is present with the old format name({$ops-manager-name}-admin-key),
 // if not it returns the new name format ({$ops-manager-namespace}-${ops-manager-name}-admin-key), to have multiple om deployments
 // with the same name.
+//
+// Both Secrets are trusted only when labeled with the Ops Manager's namespace,
+// preventing a colliding Secret name from pointing at another Ops Manager's credentials.
 func (om *MongoDBOpsManager) APIKeySecretName(ctx context.Context, client secrets.SecretClientInterface, operatorSecretPath string) (string, error) {
+	qualifiedName := fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name)
+	// Deprecated fallback, returned until migrateLegacyAdminKeySecret migrates and deletes it.
 	oldAPISecretName := fmt.Sprintf("%s-admin-key", om.Name)
 	operatorNamespace := env.ReadOrPanic(util.CurrentNamespace) // nolint:forbidigo
 	oldAPIKeySecretNamespacedName := types.NamespacedName{Name: oldAPISecretName, Namespace: operatorNamespace}
+	legacySecretPath := fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName)
 
-	_, err := client.ReadSecret(ctx, oldAPIKeySecretNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, oldAPISecretName))
+	// The qualified Secret, when it exists, must carry this Ops Manager's namespace label.
+	validateQualifiedSecret := func() error {
+		qualifiedNamespacedName := types.NamespacedName{Name: qualifiedName, Namespace: operatorNamespace}
+		labels, metadataAvailable, err := client.ReadSecretLabels(ctx, qualifiedNamespacedName, fmt.Sprintf("%s/%s/%s", operatorSecretPath, operatorNamespace, qualifiedName))
+		if err != nil {
+			if secret.SecretNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if !metadataAvailable {
+			// Vault exposes no Secret metadata; its path is already namespace-scoped.
+			return nil
+		}
+		return validateAdminKeySecretNamespaceLabel(labels, om.Namespace, qualifiedName)
+	}
+
+	_, err := client.ReadSecret(ctx, oldAPIKeySecretNamespacedName, legacySecretPath)
 	if err != nil {
 		if secret.SecretNotExist(err) {
-			return fmt.Sprintf("%s-%s-admin-key", om.Namespace, om.Name), nil
+			return qualifiedName, validateQualifiedSecret()
 		}
 
 		return "", err
 	}
+
+	// The legacy Secret is trusted only when labeled with this Ops Manager's namespace.
+	labels, metadataAvailable, err := client.ReadSecretLabels(ctx, oldAPIKeySecretNamespacedName, legacySecretPath)
+	if err != nil {
+		return "", err
+	}
+	if metadataAvailable {
+		if err := validateAdminKeySecretNamespaceLabel(labels, om.Namespace, oldAPISecretName); err != nil {
+			return qualifiedName, validateQualifiedSecret()
+		}
+	}
 	return oldAPISecretName, nil
+}
+
+// validateAdminKeySecretNamespaceLabel verifies that the Secret metadata carries the
+// OpsManagerNamespaceLabel matching the namespace of the owning Ops Manager resource.
+func validateAdminKeySecretNamespaceLabel(labels map[string]string, omNamespace, secretName string) error {
+	labelValue, ok := labels[OpsManagerNamespaceLabel]
+	if !ok {
+		return fmt.Errorf("secret %s is missing the %q namespace ownership label and cannot be used as an admin API key secret for Ops Manager in namespace %s", secretName, OpsManagerNamespaceLabel, omNamespace)
+	}
+	if labelValue != omNamespace {
+		return fmt.Errorf("secret %s has the %q namespace ownership label set to %q, which does not match the Ops Manager namespace %q", secretName, OpsManagerNamespaceLabel, labelValue, omNamespace)
+	}
+	return nil
 }
 
 func (om *MongoDBOpsManager) GetSecurity() MongoDBOpsManagerSecurity {
