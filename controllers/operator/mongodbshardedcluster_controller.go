@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -26,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	stderrors "errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1745,7 +1745,7 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 
 	var errs error
 	if err := r.cleanOpsManagerState(ctx, sc, log); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = stderrors.Join(errs, err)
 	}
 
 	// Delete resources explicitly only in multi-cluster mode where we can't set owner references cross cluster.
@@ -1755,7 +1755,7 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 			clusterClient := item.Client
 			clusterName := item.Name
 			if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
-				errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+				errs = stderrors.Join(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
 			}
 		}
 	}
@@ -1815,18 +1815,18 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	var errs error
 
 	if preCleanupReadErr != nil {
-		errs = multierror.Append(errs, xerrors.Errorf("failed to read deployment before cleanup. Skipping the wait for ready state and continuing with cleanup: %w", preCleanupReadErr))
+		errs = stderrors.Join(errs, xerrors.Errorf("failed to read deployment before cleanup. Skipping the wait for ready state and continuing with cleanup: %w", preCleanupReadErr))
 	} else {
 		healthyProcessNames := r.getHealthyProcessNamesToWaitForReadyState(ctx, preCleanupDeployment, conn, log)
 		logDiffOfProcessNames(processNames, healthyProcessNames, log.With("ctx", "cleanOpsManagerState"))
 		if err := om.WaitForReadyState(ctx, conn, healthyProcessNames, false, log); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
+			errs = stderrors.Join(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
 		}
 	}
 
 	if sc.Spec.Backup != nil && sc.Spec.Backup.AutoTerminateOnDeletion {
 		if err := backup.StopBackupIfEnabled(ctx, conn, conn, sc.GetShardedClusterName(), backup.ShardedClusterType, log); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
+			errs = stderrors.Join(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
 		}
 	}
 
@@ -1835,11 +1835,11 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 
 	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
-		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
+		errs = stderrors.Join(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
 
 	if err := r.commonController.clearProjectAuthenticationSettings(ctx, conn, sc, processNames, log); err != nil {
-		errs = multierror.Append(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
+		errs = stderrors.Join(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
 	}
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())

@@ -3,8 +3,6 @@ package x509
 import (
 	"errors"
 
-	"github.com/hashicorp/go-multierror"
-
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -61,7 +59,7 @@ func enableClientAuthentication(auth *automationconfig.Auth, opts authtypes.Opti
 func validateAgentOptions(opts authtypes.Options) error {
 	var errs error
 	if opts.AutoAuthMechanism == "" {
-		errs = multierror.Append(errs, errors.New("AutoAuthMechanism must not be empty"))
+		errs = errors.Join(errs, errors.New("AutoAuthMechanism must not be empty"))
 	}
 	return errs
 }
@@ -71,7 +69,7 @@ func validateAgentOptions(opts authtypes.Options) error {
 func validateClientOptions(opts authtypes.Options) error {
 	var errs error
 	if len(opts.AuthMechanisms) == 0 {
-		errs = multierror.Append(errs, errors.New("at least one AuthMechanism must be specified"))
+		errs = errors.Join(errs, errors.New("at least one AuthMechanism must be specified"))
 	}
 	return errs
 }

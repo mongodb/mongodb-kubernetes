@@ -9,12 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"go.opentelemetry.io/otel/attribute"
-	"go.uber.org/zap"
 
 	atlas "go.mongodb.org/atlas/mongodbatlas"
 
+	"github.com/mongodb/mongodb-kubernetes/internal/retry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -37,25 +36,22 @@ const (
 	defaultRetryWaitMax   = 10 * time.Second
 )
 
-// zapAdapter wraps zap.Logger to implement retryablehttp.Logger interface
-type zapAdapter struct {
-	logger *zap.SugaredLogger
-}
-
-func (z *zapAdapter) Printf(format string, v ...any) {
-	z.logger.Infof(format, v...)
-}
-
 var (
 	telemetryTransport = newTelemetryTransport()
-	defaultRetryClient = &retryablehttp.Client{
-		HTTPClient:   &http.Client{Transport: telemetryTransport},
-		RetryWaitMin: defaultRetryWaitMin,
-		RetryWaitMax: defaultRetryWaitMax,
-		RetryMax:     maxRetries,
-		CheckRetry:   retryablehttp.DefaultRetryPolicy,
-		Backoff:      retryablehttp.LinearJitterBackoff,
-		Logger:       &zapAdapter{logger: Logger},
+	// defaultRetryConfig retries transport errors and 429/5xx responses using
+	// linear jittered backoff between defaultRetryWaitMin and defaultRetryWaitMax.
+	defaultRetryConfig = retry.Config{
+		MaxRetries: maxRetries,
+		MinDelay:   defaultRetryWaitMin,
+		MaxDelay:   defaultRetryWaitMax,
+		Backoff:    retry.LinearJitterBackoff,
+		Hook: func(attempt int, err error, resp *http.Response) {
+			if err != nil {
+				Logger.Debugf("Telemetry request failed, retrying (attempt %d): %v", attempt, err)
+			} else {
+				Logger.Debugf("Telemetry request got status %d, retrying (attempt %d)", resp.StatusCode, attempt)
+			}
+		},
 	}
 )
 
@@ -73,13 +69,17 @@ func newTelemetryTransport() *http.Transport {
 	}
 }
 
-func NewClient(retryClient *retryablehttp.Client) (*Client, error) {
-	if retryClient == nil {
-		retryClient = defaultRetryClient
+// NewClient creates a telemetry client. Optional configOpts tweak the retry
+// configuration of the default retrying RoundTripper (e.g. to disable delays
+// in tests).
+func NewClient(configOpts ...func(*retry.Config)) (*Client, error) {
+	retryConfig := defaultRetryConfig
+	for _, opt := range configOpts {
+		opt(&retryConfig)
 	}
 
 	c := atlas.NewClient(
-		&http.Client{Transport: &retryablehttp.RoundTripper{Client: retryClient}},
+		&http.Client{Transport: &retry.RoundTripper{Transport: telemetryTransport, Config: retryConfig}},
 	)
 
 	if urlStr := env.ReadOrDefault(BaseUrl, ""); urlStr != "" { // nolint:forbidigo

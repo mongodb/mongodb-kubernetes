@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"path"
@@ -10,7 +11,6 @@ import (
 	"sort"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -1243,14 +1243,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 
 	hostsToRemove, err := mrs.GetMultiClusterAgentHostnames()
 	if err != nil {
-		errs = multierror.Append(errs, xerrors.Errorf("failed to get multi-cluster agent hostnames. Continuing with cleanup: %w", err))
+		errs = errors.Join(errs, xerrors.Errorf("failed to get multi-cluster agent hostnames. Continuing with cleanup: %w", err))
 	}
 
 	if len(hostsToRemove) > 0 {
 		log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
 		if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
 			// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
-			errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
+			errs = errors.Join(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 		}
 	}
 
@@ -1261,7 +1261,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	}
 
 	if err := authentication.Disable(ctx, r.client, conn, opts, true, log); err != nil {
-		errs = multierror.Append(errs, xerrors.Errorf("failed to disable authentication. Continuing with cleanup: %w", err))
+		errs = errors.Join(errs, xerrors.Errorf("failed to disable authentication. Continuing with cleanup: %w", err))
 	}
 
 	if errs != nil {
@@ -1276,18 +1276,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
 	var errs error
 	if err := r.cleanOpsManagerState(ctx, mrs, log); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	}
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	} else {
 		for _, item := range clusterSpecList {
 			clusterName := item.ClusterName
 			clusterClient := r.memberClusterClientsMap[clusterName]
 			if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
-				errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+				errs = errors.Join(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
 			}
 		}
 	}
