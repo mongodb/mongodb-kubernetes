@@ -1074,6 +1074,45 @@ def wait_for_search_owned_resources_deleted(
     )
 
 
+def wait_for_search_service_metadata(
+    namespace: str,
+    search_name: str,
+    expected_by_name: dict[str, dict[str, dict[str, str]]],
+    keys: dict[str, set[str]],
+    *,
+    timeout: int = 180,
+) -> None:
+    """Wait until exactly the Services in ``expected_by_name`` are owned by the
+    MongoDBSearch and each carries the expected labels/annotations.
+
+    ``expected_by_name`` maps Service name -> ``{"labels": {...}, "annotations": {...}}``.
+    ``keys`` maps ``"labels"``/``"annotations"`` -> the keys to compare; a checked key
+    missing from the expected dict must be absent on the Service. Keys outside
+    ``keys`` (e.g. other operator-managed labels) are ignored.
+    """
+    selector = f"{SEARCH_OWNER_NAME_LABEL}={search_name},{SEARCH_OWNER_NAMESPACE_LABEL}={namespace}"
+
+    def matches() -> tuple[bool, str]:
+        services = client.CoreV1Api().list_namespaced_service(namespace, label_selector=selector).items
+        actual_names = {svc.metadata.name for svc in services}
+        if actual_names != expected_by_name.keys():
+            return False, f"owned Services: expected {sorted(expected_by_name)}, actual {sorted(actual_names)}"
+        mismatches = []
+        for svc in services:
+            for field, field_keys in keys.items():
+                actual = getattr(svc.metadata, field) or {}
+                wanted = expected_by_name[svc.metadata.name].get(field, {})
+                expected_subset = {k: wanted[k] for k in sorted(field_keys) if k in wanted}
+                actual_subset = {k: actual[k] for k in sorted(field_keys) if k in actual}
+                if expected_subset != actual_subset:
+                    mismatches.append(
+                        f"{svc.metadata.name} {field}: expected {expected_subset}, actual {actual_subset}"
+                    )
+        return not mismatches, "; ".join(mismatches) or "all Services have the expected metadata"
+
+    run_periodically(matches, timeout=timeout, sleep_time=5, msg=f"{search_name} Service metadata")
+
+
 def mongot_data_pvc_names(
     namespace: str,
     sts_name: str,

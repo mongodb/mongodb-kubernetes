@@ -3,4 +3,4 @@ kind: feature
 date: 2026-10-07
 ---
 
-* **MongoDBSearch**: Configure Search Service labels and annotations with `spec.clusters[].service.metadata` to meet admission-policy metadata requirements from the first Service creation. For external sharded sources, use `spec.clusters[].shardOverrides[].service.metadata` to merge per-shard metadata onto cluster values. Operator-generated labels take precedence over user labels.
+* **MongoDBSearch**: Added optional `spec.clusters[].service.metadata.labels` and `spec.clusters[].service.metadata.annotations` to set labels and annotations on the Services the operator creates for Search, present from the first Service creation. For external sharded sources, `spec.clusters[].shardOverrides[].service.metadata` merges per key onto the cluster values for those shards' Services; the cluster-level mongos proxy Service always uses the cluster values. The operator-managed labels `app`, `component`, `shard`, `mongodb.com/search-name` and `mongodb.com/search-namespace` cannot be overridden.

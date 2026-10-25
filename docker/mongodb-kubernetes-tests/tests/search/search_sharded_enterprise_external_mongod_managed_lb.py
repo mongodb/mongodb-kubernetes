@@ -37,6 +37,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import wait_for_search_service_metadata
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
@@ -71,8 +72,13 @@ CONFIG_SERVER_COUNT = 1
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = "mdb-sh-ca"
 
+# Operator-owned "component" label values (controllers/searchcontroller): the user's
+# "component" label below must never override them.
+MONGOT_COMPONENT = "mongot"
+PROXY_SERVICE_COMPONENT = "search-proxy"
+
 SERVICE_METADATA = {
-    "labels": {"example.com/team": "cluster", "app.kubernetes.io/component": "search"},
+    "labels": {"example.com/team": "cluster", "app.kubernetes.io/component": "search", "component": "user-value"},
     "annotations": {"example.com/owner": "cluster", "example.com/keep": "retained"},
 }
 SHARD_SERVICE_METADATA = {
@@ -110,16 +116,15 @@ def mdb(namespace: str, sharded_ca_configmap: str, helper: SearchDeploymentHelpe
 
 @fixture(scope="function")
 def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoDBSearch:
-    resource = helper.mdbs_for_ext_sharded_source(
+    return helper.mdbs_for_ext_sharded_source(
         mongot_user_name=MONGOT_USER_NAME,
         lb_mode="Managed",
         replicas=2,
         shard_overrides=[
             {"shardNames": [f"{MDB_RESOURCE_NAME}-0"], "service": {"metadata": deepcopy(SHARD_SERVICE_METADATA)}}
         ],
+        service={"metadata": deepcopy(SERVICE_METADATA)},
     )
-    resource["spec"]["clusters"][0]["service"] = {"metadata": deepcopy(SERVICE_METADATA)}
-    return resource
 
 
 @fixture(scope="function")
@@ -225,43 +230,31 @@ def test_verify_envoy_deployment(namespace: str):
 
 @mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
 def test_verify_service_metadata(namespace: str):
-    expected = {search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, 0): SERVICE_METADATA}
-    for shard_index in range(SHARD_COUNT):
-        shard_name = f"{MDB_RESOURCE_NAME}-{shard_index}"
+    """Cluster-level service metadata reaches every Service, shard-0 overrides merge on top,
+    and the operator's component label wins over the user's."""
+
+    def expected_metadata(component: str, shard_override: bool = False) -> dict:
         metadata = deepcopy(SERVICE_METADATA)
-        if shard_index == 0:
+        if shard_override:
             for field in ("labels", "annotations"):
                 metadata[field].update(SHARD_SERVICE_METADATA[field])
-        expected[search_resource_names.shard_service_name(MDBS_RESOURCE_NAME, shard_name)] = metadata
-        expected[search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)] = metadata
+        metadata["labels"]["component"] = component
+        return metadata
 
-    assert len(expected) == 5
-
-    def check():
-        services = (
-            client.CoreV1Api()
-            .list_namespaced_service(
-                namespace,
-                label_selector=f"mongodb.com/search-name={MDBS_RESOURCE_NAME},mongodb.com/search-namespace={namespace}",
-            )
-            .items
+    expected_by_name = {
+        search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, 0): expected_metadata(PROXY_SERVICE_COMPONENT)
+    }
+    for shard_index in range(SHARD_COUNT):
+        shard_name = f"{MDB_RESOURCE_NAME}-{shard_index}"
+        expected_by_name[search_resource_names.shard_service_name(MDBS_RESOURCE_NAME, shard_name)] = expected_metadata(
+            MONGOT_COMPONENT, shard_index == 0
         )
-        actual_names = {svc.metadata.name for svc in services}
-        if actual_names != expected.keys():
-            return False, f"owned Services={actual_names}, expected {set(expected)}"
-        for svc in services:
-            for field in ("labels", "annotations"):
-                actual = getattr(svc.metadata, field) or {}
-                wanted = expected[svc.metadata.name][field]
-                for key in SERVICE_METADATA[field].keys() | SHARD_SERVICE_METADATA[field].keys():
-                    if actual.get(key) != wanted.get(key):
-                        return (
-                            False,
-                            f"{svc.metadata.name} {field}[{key}]={actual.get(key)}, expected {wanted.get(key)}",
-                        )
-        return True, "all five Services have the expected cluster and shard metadata"
+        expected_by_name[search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)] = (
+            expected_metadata(PROXY_SERVICE_COMPONENT, shard_index == 0)
+        )
 
-    run_periodically(check, timeout=180, sleep_time=5, msg="sharded Search Service metadata")
+    keys = {field: SERVICE_METADATA[field].keys() | SHARD_SERVICE_METADATA[field].keys() for field in SERVICE_METADATA}
+    wait_for_search_service_metadata(namespace, MDBS_RESOURCE_NAME, expected_by_name, keys)
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod_managed_lb

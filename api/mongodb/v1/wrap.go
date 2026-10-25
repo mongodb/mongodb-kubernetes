@@ -213,14 +213,19 @@ func (s *ServiceSpecWrapper) DeepCopy() *ServiceSpecWrapper {
 
 // ServiceConfiguration configures metadata on operator-created Services.
 type ServiceConfiguration struct {
+	// Metadata is merged onto the operator-generated Service metadata.
 	// +optional
-	MetadataWrapper ServiceMetadataWrapper `json:"metadata,omitempty"`
+	MetadataWrapper ServiceMetadataWrapper `json:"metadata"`
 }
 
 // ServiceMetadataWrapper contains user-defined Service labels and annotations.
 type ServiceMetadataWrapper struct {
+	// Labels to add to the Service. The operator-managed labels app, component, shard,
+	// mongodb.com/search-name and mongodb.com/search-namespace cannot be overridden.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+	// Annotations to add to the Service. The operator owns the Service's annotations:
+	// any annotation not listed here, including one added by another tool, is removed.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }

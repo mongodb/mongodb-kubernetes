@@ -298,6 +298,7 @@ type clusterWork struct {
 	ClusterName        string
 	ClusterIndex       int
 	SyncSourceSelector *searchv1.SyncSourceSelector
+	Service            *v1.ServiceConfiguration
 	Client             kubernetesClient.Client
 	Local              bool
 }
@@ -319,6 +320,7 @@ func (r *MongoDBSearchReconcileHelper) buildClusterWorkList() []clusterWork {
 			ClusterName:        c.Name,
 			ClusterIndex:       c.ResolveIndex(),
 			SyncSourceSelector: c.SyncSourceSelector,
+			Service:            c.Service,
 			Local:              c.Name == "" || c.Name == r.operatorClusterName,
 		}
 		if w.Local {
@@ -428,10 +430,6 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		})
 
 		if !seenClusters[w.ClusterIndex] {
-			cluster, err := r.mdbSearch.EffectiveClusterFor(w.ClusterName)
-			if err != nil {
-				return reconcilePlan{}, err
-			}
 			seenClusters[w.ClusterIndex] = true
 			clusterLevelResources = append(clusterLevelResources, clusterLevelResource{
 				clusterName:      w.ClusterName,
@@ -440,7 +438,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 				svcName:          r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex),
 				fallbackPodLabel: r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, shardNames[0]).Name,
 				ownerReferences:  w.ownerReferences(r.mdbSearch),
-				serviceConfig:    cluster.Service,
+				serviceConfig:    w.Service,
 			})
 		}
 	}
@@ -1505,14 +1503,14 @@ const (
 	operatorLabelValue = "mongodb-kubernetes-operator"
 )
 
-func applyUserServiceMetadata(search *searchv1.MongoDBSearch, config *v1.ServiceConfiguration, baseLabels map[string]string) (map[string]string, map[string]string) {
-	labels, annotations := map[string]string{}, map[string]string{}
-	if config != nil {
-		labels = merge.StringToStringMap(labels, config.MetadataWrapper.Labels)
-		annotations = merge.StringToStringMap(annotations, config.MetadataWrapper.Annotations)
+// serviceMetadata returns a Service's labels and annotations: the user metadata from cfg
+// with operatorLabels applied last, so user labels can never override the operator's
+// identity labels (which the resource sweep selects on).
+func serviceMetadata(cfg *v1.ServiceConfiguration, operatorLabels map[string]string) (map[string]string, map[string]string) {
+	if cfg == nil {
+		return operatorLabels, nil
 	}
-	labels = merge.StringToStringMap(labels, baseLabels)
-	return merge.StringToStringMap(labels, searchOwnerLabels(search)), annotations
+	return merge.StringToStringMap(cfg.MetadataWrapper.Labels, operatorLabels), merge.StringToStringMap(nil, cfg.MetadataWrapper.Annotations)
 }
 
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
@@ -1523,7 +1521,8 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 		componentLabelKey: mongotComponent,
 	}
 	maps.Copy(svcLabels, unit.additionalSvcLabels)
-	svcLabels, annotations := applyUserServiceMetadata(search, unit.sizing.Service, svcLabels)
+	maps.Copy(svcLabels, searchOwnerLabels(search))
+	svcLabels, annotations := serviceMetadata(unit.sizing.Service, svcLabels)
 
 	serviceBuilder := service.Builder().
 		SetName(unit.headlessSvc.Name).
@@ -1564,7 +1563,8 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 		componentLabelKey: proxyServiceComponent,
 	}
 	maps.Copy(labels, unit.additionalSvcLabels)
-	labels, annotations := applyUserServiceMetadata(search, unit.sizing.Service, labels)
+	maps.Copy(labels, searchOwnerLabels(search))
+	labels, annotations := serviceMetadata(unit.sizing.Service, labels)
 
 	targetPort := search.GetEffectiveMongotPort()
 
@@ -1606,7 +1606,8 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 		appLabelKey:       res.svcName.Name,
 		componentLabelKey: proxyServiceComponent,
 	}
-	labels, annotations := applyUserServiceMetadata(search, res.serviceConfig, labels)
+	maps.Copy(labels, searchOwnerLabels(search))
+	labels, annotations := serviceMetadata(res.serviceConfig, labels)
 
 	targetPort := search.GetEffectiveMongotPort()
 

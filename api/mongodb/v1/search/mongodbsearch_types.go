@@ -266,8 +266,10 @@ type ClusterSpec struct {
 	// reconcile loop, for customizations not exposed as first-class fields.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Service configures metadata on this cluster's Search Services.
-	// Operator-generated labels take precedence over user labels.
+	// Service configures metadata on the Services the operator creates for this cluster:
+	// the mongot headless Services, the proxy Services and, for sharded sources, the
+	// cluster-level mongos proxy Service. shardOverrides[].service applies to the per-shard
+	// Services only; the mongos proxy Service always uses this cluster-level value.
 	// +optional
 	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// +optional
@@ -329,8 +331,9 @@ type ShardOverride struct {
 	// StatefulSetConfiguration is deep-merged onto the cluster's StatefulSet override for these shards.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Service metadata merges onto the cluster's Service metadata for these shards.
-	// Shard values win per key; operator-generated labels take precedence.
+	// Service metadata merges per key onto the cluster's Service metadata for these
+	// shards' headless and proxy Services, shard values winning. It does not apply to
+	// the cluster-level mongos proxy Service.
 	// +optional
 	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// JVMFlags replaces the cluster's jvmFlags for these shards when non-empty.
@@ -1211,16 +1214,17 @@ func mergeStatefulSetConfiguration(base, override *v1.StatefulSetConfiguration) 
 	return merged
 }
 
+// mergeServiceConfiguration merges override's labels and annotations onto base per key,
+// override winning. The result shares no maps with either input, so resolving never
+// mutates the CR's spec.
 func mergeServiceConfiguration(base, override *v1.ServiceConfiguration) *v1.ServiceConfiguration {
 	if base == nil {
 		return override.DeepCopy()
 	}
-	merged := base.DeepCopy()
-	if override != nil {
-		merged.MetadataWrapper.Labels = merge.StringToStringMap(merged.MetadataWrapper.Labels, override.MetadataWrapper.Labels)
-		merged.MetadataWrapper.Annotations = merge.StringToStringMap(merged.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations)
-	}
-	return merged
+	return &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+		Labels:      merge.StringToStringMap(base.MetadataWrapper.Labels, override.MetadataWrapper.Labels),
+		Annotations: merge.StringToStringMap(base.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations),
+	}}
 }
 
 // HasMultipleReplicas reports whether any cluster runs more than one mongot

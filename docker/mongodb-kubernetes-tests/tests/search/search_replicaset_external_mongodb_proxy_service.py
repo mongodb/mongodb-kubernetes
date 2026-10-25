@@ -31,7 +31,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import wait_for_resource_deleted
+from tests.common.search.connectivity import wait_for_resource_deleted, wait_for_search_service_metadata
 from tests.common.search.rs_search_helper import (
     create_rs_lb_certificates,
     create_rs_search_tls_cert,
@@ -72,43 +72,42 @@ _state = {}
 
 TEST_MARKER = "e2e_search_replicaset_external_mongodb_proxy_service"
 
+# Operator-owned "component" label values (controllers/searchcontroller): the user's
+# "component" label below must never override them.
+MONGOT_COMPONENT = "mongot"
+PROXY_SERVICE_COMPONENT = "search-proxy"
+
 SERVICE_METADATA = {
-    "labels": {"example.com/team": "search", "app.kubernetes.io/component": "search"},
-    "annotations": {"example.com/owner": "search", "example.com/keep": "retained"},
+    "labels": {
+        "example.com/team": "search",
+        "example.com/removed": "soon",
+        "app.kubernetes.io/component": "search",
+        "component": "user-value",
+    },
+    "annotations": {"example.com/owner": "search", "example.com/removed": "soon", "example.com/keep": "retained"},
+}
+# Keys compared on every check; "example.com/added" is added by test_update_service_metadata.
+CHECKED_SERVICE_METADATA_KEYS = {
+    field: SERVICE_METADATA[field].keys() | {"example.com/added"} for field in ("labels", "annotations")
 }
 
 
-def assert_service_metadata(namespace: str, expected: dict):
-    expected_names = {
-        search_resource_names.mongot_service_name(MDBS_RESOURCE_NAME),
-        proxy_service_name(MDBS_RESOURCE_NAME),
+def wait_for_service_metadata(namespace: str, metadata: dict):
+    """Both Search Services carry the user ``metadata``, with the operator's component label winning."""
+    components = {
+        search_resource_names.mongot_service_name(MDBS_RESOURCE_NAME): MONGOT_COMPONENT,
+        proxy_service_name(MDBS_RESOURCE_NAME): PROXY_SERVICE_COMPONENT,
     }
-
-    def check():
-        services = (
-            k8s_client.CoreV1Api()
-            .list_namespaced_service(
-                namespace,
-                label_selector=f"mongodb.com/search-name={MDBS_RESOURCE_NAME},mongodb.com/search-namespace={namespace}",
-            )
-            .items
-        )
-        actual_names = {svc.metadata.name for svc in services}
-        if actual_names != expected_names:
-            return False, f"owned Services={actual_names}, expected {expected_names}"
-        for svc in services:
-            for field in ("labels", "annotations"):
-                actual = getattr(svc.metadata, field) or {}
-                wanted = expected.get(field, {})
-                for key in SERVICE_METADATA[field].keys() | {"example.com/added"}:
-                    if actual.get(key) != wanted.get(key):
-                        return (
-                            False,
-                            f"{svc.metadata.name} {field}[{key}]={actual.get(key)}, expected {wanted.get(key)}",
-                        )
-        return True, "both Services have the expected metadata"
-
-    run_periodically(check, timeout=120, sleep_time=5, msg="Search Service metadata")
+    expected_by_name = {
+        name: {
+            "labels": {**metadata.get("labels", {}), "component": component},
+            "annotations": metadata.get("annotations", {}),
+        }
+        for name, component in components.items()
+    }
+    wait_for_search_service_metadata(
+        namespace, MDBS_RESOURCE_NAME, expected_by_name, CHECKED_SERVICE_METADATA_KEYS, timeout=120
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +368,7 @@ def test_verify_headless_service_exists(namespace: str):
     assert svc is not None, f"Headless Service {headless_svc_name} not found"
     assert svc.spec.cluster_ip == "None", f"Expected headless (clusterIP=None), got {svc.spec.cluster_ip}"
     logger.info(f"Headless Service {headless_svc_name} exists with clusterIP=None")
-    assert_service_metadata(namespace, SERVICE_METADATA)
+    wait_for_service_metadata(namespace, SERVICE_METADATA)
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
@@ -453,7 +452,7 @@ def test_verify_proxy_service_managed_lb(namespace: str):
         expected_target_port=ENVOY_PROXY_PORT,
         expected_cluster_ip=_state.get("cluster_ip"),
     )
-    assert_service_metadata(namespace, SERVICE_METADATA)
+    wait_for_service_metadata(namespace, SERVICE_METADATA)
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
@@ -472,22 +471,15 @@ def test_search_query_phase2(mdb: MongoDB):
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
 def test_update_service_metadata(mdbs: MongoDBSearch, namespace: str):
+    """A single CR update changes, adds and removes user metadata keys on both Services."""
     mdbs.load()
     metadata = mdbs["spec"]["clusters"][0]["service"]["metadata"]
-    metadata["labels"].update({"example.com/team": "updated", "example.com/added": "temporary"})
-    metadata["annotations"].update({"example.com/owner": "updated", "example.com/added": "temporary"})
+    for field, changed_key in (("labels", "example.com/team"), ("annotations", "example.com/owner")):
+        metadata[field][changed_key] = "updated"
+        metadata[field]["example.com/added"] = "new"
+        del metadata[field]["example.com/removed"]
     mdbs.update()
-    assert_service_metadata(namespace, metadata)
-
-
-@mark.e2e_search_replicaset_external_mongodb_proxy_service
-def test_remove_individual_service_metadata_keys(mdbs: MongoDBSearch, namespace: str):
-    mdbs.load()
-    metadata = mdbs["spec"]["clusters"][0]["service"]["metadata"]
-    del metadata["labels"]["example.com/added"]
-    del metadata["annotations"]["example.com/added"]
-    mdbs.update()
-    assert_service_metadata(namespace, metadata)
+    wait_for_service_metadata(namespace, metadata)
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +507,7 @@ def test_verify_proxy_service_after_scaledown(namespace: str):
         expected_target_port=MONGOT_GRPC_PORT,
         expected_cluster_ip=_state.get("cluster_ip"),
     )
-    assert_service_metadata(namespace, {})
+    wait_for_service_metadata(namespace, {})
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service

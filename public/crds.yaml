@@ -5637,20 +5637,28 @@ spec:
                       type: object
                     service:
                       description: |-
-                        Service configures metadata on this cluster's Search Services.
-                        Operator-generated labels take precedence over user labels.
+                        Service configures metadata on the Services the operator creates for this cluster:
+                        the mongot headless Services, the proxy Services and, for sharded sources, the
+                        cluster-level mongos proxy Service. shardOverrides[].service applies to the per-shard
+                        Services only; the mongos proxy Service always uses this cluster-level value.
                       properties:
                         metadata:
-                          description: ServiceMetadataWrapper contains user-defined
-                            Service labels and annotations.
+                          description: Metadata is merged onto the operator-generated
+                            Service metadata.
                           properties:
                             annotations:
                               additionalProperties:
                                 type: string
+                              description: |-
+                                Annotations to add to the Service. The operator owns the Service's annotations:
+                                any annotation not listed here, including one added by another tool, is removed.
                               type: object
                             labels:
                               additionalProperties:
                                 type: string
+                              description: |-
+                                Labels to add to the Service. The operator-managed labels app, component, shard,
+                                mongodb.com/search-name and mongodb.com/search-namespace cannot be overridden.
                               type: object
                           type: object
                       type: object
@@ -5991,20 +5999,27 @@ spec:
                             type: object
                           service:
                             description: |-
-                              Service metadata merges onto the cluster's Service metadata for these shards.
-                              Shard values win per key; operator-generated labels take precedence.
+                              Service metadata merges per key onto the cluster's Service metadata for these
+                              shards' headless and proxy Services, shard values winning. It does not apply to
+                              the cluster-level mongos proxy Service.
                             properties:
                               metadata:
-                                description: ServiceMetadataWrapper contains user-defined
-                                  Service labels and annotations.
+                                description: Metadata is merged onto the operator-generated
+                                  Service metadata.
                                 properties:
                                   annotations:
                                     additionalProperties:
                                       type: string
+                                    description: |-
+                                      Annotations to add to the Service. The operator owns the Service's annotations:
+                                      any annotation not listed here, including one added by another tool, is removed.
                                     type: object
                                   labels:
                                     additionalProperties:
                                       type: string
+                                    description: |-
+                                      Labels to add to the Service. The operator-managed labels app, component, shard,
+                                      mongodb.com/search-name and mongodb.com/search-namespace cannot be overridden.
                                     type: object
                                 type: object
                             type: object
