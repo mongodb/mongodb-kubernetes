@@ -5657,9 +5657,17 @@ spec:
                               additionalProperties:
                                 type: string
                               description: |-
-                                Labels to add to the Service. The operator-managed labels app, component, shard,
-                                mongodb.com/search-name and mongodb.com/search-namespace cannot be overridden.
+                                Labels to add to the Service. The operator-managed keys app, component, shard,
+                                mongodb.com/search-name and mongodb.com/search-namespace are rejected.
                               type: object
+                              x-kubernetes-validations:
+                              - message: 'service.metadata.labels must not set operator-managed
+                                  label keys: app, component, shard, mongodb.com/search-name,
+                                  mongodb.com/search-namespace'
+                                rule: '!(''app'' in self) && !(''component'' in self)
+                                  && !(''shard'' in self) && !(''mongodb.com/search-name''
+                                  in self) && !(''mongodb.com/search-namespace'' in
+                                  self)'
                           type: object
                       type: object
                     shardOverrides:
@@ -6018,9 +6026,17 @@ spec:
                                     additionalProperties:
                                       type: string
                                     description: |-
-                                      Labels to add to the Service. The operator-managed labels app, component, shard,
-                                      mongodb.com/search-name and mongodb.com/search-namespace cannot be overridden.
+                                      Labels to add to the Service. The operator-managed keys app, component, shard,
+                                      mongodb.com/search-name and mongodb.com/search-namespace are rejected.
                                     type: object
+                                    x-kubernetes-validations:
+                                    - message: 'service.metadata.labels must not set
+                                        operator-managed label keys: app, component,
+                                        shard, mongodb.com/search-name, mongodb.com/search-namespace'
+                                      rule: '!(''app'' in self) && !(''component''
+                                        in self) && !(''shard'' in self) && !(''mongodb.com/search-name''
+                                        in self) && !(''mongodb.com/search-namespace''
+                                        in self)'
                                 type: object
                             type: object
                           shardNames:
@@ -6057,6 +6073,7 @@ spec:
                         required:
                         - shardNames
                         type: object
+                      maxItems: 100
                       type: array
                     statefulSet:
                       description: |-

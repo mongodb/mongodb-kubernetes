@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -713,6 +714,87 @@ func TestReconcile_ServiceMetadataLifecycle(t *testing.T) {
 		})
 	}
 	assert.Equal(t, map[string]bool{headless.Name: true, proxy.Name: true}, created)
+}
+
+// TestReconcile_ServiceMetadataNoChurn checks that an unchanged reconcile writes nothing,
+// and that a metadata-only CR change updates the Services but no StatefulSet or ConfigMap.
+func TestReconcile_ServiceMetadataNoChurn(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "ns")
+	search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+		Labels:      map[string]string{"team": "search"},
+		Annotations: map[string]string{"example.com/note": "initial"},
+	}}
+	mdbc := newTestMongoDBCommunity("test-mongodb", "ns")
+	c := newTestFakeClient(search, mdbc)
+	resourceVersions := func() map[string]string {
+		rvs := map[string]string{}
+		var services corev1.ServiceList
+		var statefulSets appsv1.StatefulSetList
+		var configMaps corev1.ConfigMapList
+		for kind, list := range map[string]client.ObjectList{"Service": &services, "StatefulSet": &statefulSets, "ConfigMap": &configMaps} {
+			require.NoError(t, c.List(t.Context(), list, client.InNamespace("ns")))
+			items, err := meta.ExtractList(list)
+			require.NoError(t, err)
+			for _, item := range items {
+				obj := item.(client.Object)
+				rvs[kind+"/"+obj.GetName()] = obj.GetResourceVersion()
+			}
+		}
+		return rvs
+	}
+	reconcile := func() {
+		st := reconcileMongoDBSearch(t.Context(), c, search, mdbc, newTestOperatorSearchConfig())
+		require.NotEqual(t, status.PhaseFailed, st.Phase(), MessageFromStatus(st))
+	}
+
+	reconcile()
+	initial := resourceVersions()
+	require.Contains(t, initial, "Service/"+search.SearchServiceNamespacedNameForCluster(0).Name)
+	require.Contains(t, initial, "StatefulSet/"+search.StatefulSetNamespacedNameForCluster(0).Name)
+
+	reconcile()
+	assert.Equal(t, initial, resourceVersions(), "an unchanged reconcile must not write any object")
+
+	search.Spec.Clusters[0].Service.MetadataWrapper.Labels["team"] = "changed"
+	search.Spec.Clusters[0].Service.MetadataWrapper.Annotations["example.com/note"] = "changed"
+	reconcile()
+	for key, rv := range resourceVersions() {
+		if strings.HasPrefix(key, "Service/") {
+			assert.NotEqual(t, initial[key], rv, "%s must be updated", key)
+		} else {
+			assert.Equal(t, initial[key], rv, "%s must not change on a Service metadata edit", key)
+		}
+	}
+}
+
+// TestReconcile_ServiceMetadataCannotDetachFromSweep checks that identity labels set by the
+// user (bypassing CRD validation) cannot hide Services from this Search's cleanup sweep or
+// hand them to another Search's sweep.
+func TestReconcile_ServiceMetadataCannotDetachFromSweep(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "ns")
+	search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{Labels: map[string]string{
+		componentLabelKey:                    "user",
+		khandler.MongoDBSearchOwnerNameLabel: "other-search",
+	}}}
+	mdbc := newTestMongoDBCommunity("test-mongodb", "ns")
+	c := newTestFakeClient(search, mdbc)
+	st := reconcileMongoDBSearch(t.Context(), c, search, mdbc, newTestOperatorSearchConfig())
+	require.NotEqual(t, status.PhaseFailed, st.Phase(), MessageFromStatus(st))
+	countServices := func() int {
+		var services corev1.ServiceList
+		require.NoError(t, c.List(t.Context(), &services, client.InNamespace("ns")))
+		return len(services.Items)
+	}
+	require.Equal(t, 2, countServices())
+
+	other := newTestMongoDBSearch("other-search", "ns")
+	require.NoError(t, DeleteAllOwnedResources(t.Context(), c, other, "", "Service", "", &corev1.ServiceList{}, zap.S()))
+	assert.Equal(t, 2, countServices(), "another Search's sweep must not select these Services")
+
+	for _, component := range []string{mongotComponent, proxyServiceComponent} {
+		require.NoError(t, DeleteAllOwnedResources(t.Context(), c, search, "", "Service", component, &corev1.ServiceList{}, zap.S()))
+	}
+	assert.Equal(t, 0, countServices(), "this Search's sweep must still select both Services")
 }
 
 func TestReconcile_ServiceMetadataUpdateRejected(t *testing.T) {

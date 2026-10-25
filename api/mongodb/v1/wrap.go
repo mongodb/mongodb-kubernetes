@@ -220,8 +220,9 @@ type ServiceConfiguration struct {
 
 // ServiceMetadataWrapper contains user-defined Service labels and annotations.
 type ServiceMetadataWrapper struct {
-	// Labels to add to the Service. The operator-managed labels app, component, shard,
-	// mongodb.com/search-name and mongodb.com/search-namespace cannot be overridden.
+	// Labels to add to the Service. The operator-managed keys app, component, shard,
+	// mongodb.com/search-name and mongodb.com/search-namespace are rejected.
+	// +kubebuilder:validation:XValidation:rule="!('app' in self) && !('component' in self) && !('shard' in self) && !('mongodb.com/search-name' in self) && !('mongodb.com/search-namespace' in self)",message="service.metadata.labels must not set operator-managed label keys: app, component, shard, mongodb.com/search-name, mongodb.com/search-namespace"
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 	// Annotations to add to the Service. The operator owns the Service's annotations:

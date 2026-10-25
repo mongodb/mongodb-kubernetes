@@ -285,6 +285,7 @@ type ClusterSpec struct {
 	// ShardOverrides applies per-shard sizing and metadata exceptions within this cluster,
 	// for external sharded sources only. Each entry layers its set fields
 	// onto this cluster's resolved values for the named shards.
+	// +kubebuilder:validation:MaxItems=100
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
 	// AdvancedMongotConfigs is an opaque block of mongot settings rendered verbatim

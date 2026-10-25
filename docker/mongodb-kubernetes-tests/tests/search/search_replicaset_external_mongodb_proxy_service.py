@@ -15,19 +15,23 @@ Phases:
   1. Single mongot, no LB -- verify proxy service targets mongot directly
   2. Scale to 2 mongots + managed LB -- verify proxy service flips to Envoy
   3. Scale back to 1 mongot, remove LB -- verify proxy service reverts
+
+Service metadata (spec.clusters[].service.metadata) is checked along the way: applied on
+create, kept across the LB transition, updated in place without rolling pods, protected
+operator label keys rejected by the CRD, and fully removed when the service block is dropped.
 """
 
 from copy import deepcopy
 
 from kubernetes import client as k8s_client
-from kubetester import get_service
+from kubetester import get_service, list_matching_pods
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import skip_if_cloud_manager
 from kubetester.phase import Phase
-from pytest import fixture, mark
+from pytest import fixture, mark, raises
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
@@ -72,28 +76,31 @@ _state = {}
 
 TEST_MARKER = "e2e_search_replicaset_external_mongodb_proxy_service"
 
-# Operator-owned "component" label values (controllers/searchcontroller): the user's
-# "component" label below must never override them.
+# Operator-owned "component" label values (controllers/searchcontroller). The CRD rejects
+# operator-managed keys such as "component" in service.metadata.labels (see
+# test_protected_service_label_rejected), so the user's "app.kubernetes.io/component" below
+# must coexist with, not replace, the operator's value.
 MONGOT_COMPONENT = "mongot"
 PROXY_SERVICE_COMPONENT = "search-proxy"
+PROTECTED_LABEL_REJECTION = "must not set operator-managed label keys"
 
 SERVICE_METADATA = {
     "labels": {
         "example.com/team": "search",
         "example.com/removed": "soon",
         "app.kubernetes.io/component": "search",
-        "component": "user-value",
     },
     "annotations": {"example.com/owner": "search", "example.com/removed": "soon", "example.com/keep": "retained"},
 }
 # Keys compared on every check; "example.com/added" is added by test_update_service_metadata.
 CHECKED_SERVICE_METADATA_KEYS = {
-    field: SERVICE_METADATA[field].keys() | {"example.com/added"} for field in ("labels", "annotations")
+    "labels": SERVICE_METADATA["labels"].keys() | {"example.com/added", "component"},
+    "annotations": SERVICE_METADATA["annotations"].keys() | {"example.com/added"},
 }
 
 
 def wait_for_service_metadata(namespace: str, metadata: dict):
-    """Both Search Services carry the user ``metadata``, with the operator's component label winning."""
+    """Both Search Services carry the user ``metadata`` alongside the operator's component label."""
     components = {
         search_resource_names.mongot_service_name(MDBS_RESOURCE_NAME): MONGOT_COMPONENT,
         proxy_service_name(MDBS_RESOURCE_NAME): PROXY_SERVICE_COMPONENT,
@@ -113,6 +120,30 @@ def wait_for_service_metadata(namespace: str, metadata: dict):
 # ---------------------------------------------------------------------------
 # Assertion helpers
 # ---------------------------------------------------------------------------
+
+
+def search_workload_snapshot(namespace: str) -> dict:
+    """Generations of the mongot StatefulSet and Envoy Deployment, plus the UIDs of their pods."""
+    apps = k8s_client.AppsV1Api()
+    sts_name = search_resource_names.mongot_statefulset_name(MDBS_RESOURCE_NAME)
+    envoy_name = search_resource_names.lb_deployment_name(MDBS_RESOURCE_NAME)
+    pod_uids = {}
+    # Pod "app" labels as selected by the proxy Service (see test_verify_proxy_service_*).
+    for app in (search_resource_names.mongot_service_name(MDBS_RESOURCE_NAME), envoy_name):
+        pods = [
+            p
+            for p in list_matching_pods(namespace, label_selector=f"app={app}")
+            if p.metadata.deletion_timestamp is None
+        ]
+        assert pods, f"no running pods with app={app}"
+        pod_uids.update({p.metadata.name: p.metadata.uid for p in pods})
+    return {
+        "generations": {
+            sts_name: apps.read_namespaced_stateful_set(sts_name, namespace).metadata.generation,
+            envoy_name: apps.read_namespaced_deployment(envoy_name, namespace).metadata.generation,
+        },
+        "pod_uids": pod_uids,
+    }
 
 
 def assert_proxy_service(
@@ -471,7 +502,11 @@ def test_search_query_phase2(mdb: MongoDB):
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
 def test_update_service_metadata(mdbs: MongoDBSearch, namespace: str):
-    """A single CR update changes, adds and removes user metadata keys on both Services."""
+    """A single CR update changes, adds and removes user metadata keys on both Services,
+    without rolling the mongot or Envoy pods."""
+    before = search_workload_snapshot(namespace)
+    assert len(before["pod_uids"]) == 3, f"expected 2 mongot + 1 Envoy pods, got {sorted(before['pod_uids'])}"
+
     mdbs.load()
     metadata = mdbs["spec"]["clusters"][0]["service"]["metadata"]
     for field, changed_key in (("labels", "example.com/team"), ("annotations", "example.com/owner")):
@@ -479,7 +514,29 @@ def test_update_service_metadata(mdbs: MongoDBSearch, namespace: str):
         metadata[field]["example.com/added"] = "new"
         del metadata[field]["example.com/removed"]
     mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
     wait_for_service_metadata(namespace, metadata)
+
+    after = search_workload_snapshot(namespace)
+    assert after == before, f"metadata-only update must not roll workloads: before={before}, after={after}"
+
+
+@mark.e2e_search_replicaset_external_mongodb_proxy_service
+def test_protected_service_label_rejected(mdbs: MongoDBSearch, namespace: str):
+    """The CRD rejects operator-managed keys in service.metadata.labels; nothing changes."""
+    mdbs.load()
+    spec_before = deepcopy(mdbs["spec"])
+    mdbs["spec"]["clusters"][0]["service"]["metadata"]["labels"]["component"] = "user-value"
+
+    with raises(k8s_client.ApiException) as exc_info:
+        mdbs.update()
+    assert exc_info.value.status == 422, f"expected 422 Unprocessable Entity, got {exc_info.value.status}"
+    assert PROTECTED_LABEL_REJECTION in str(exc_info.value), str(exc_info.value)
+
+    # Drop the rejected local edit so the in-memory object matches the cluster again.
+    mdbs.load()
+    assert mdbs["spec"] == spec_before, "rejected update must not change the stored spec"
+    wait_for_service_metadata(namespace, spec_before["clusters"][0]["service"]["metadata"])
 
 
 # ---------------------------------------------------------------------------
@@ -491,7 +548,8 @@ def test_update_service_metadata(mdbs: MongoDBSearch, namespace: str):
 def test_scale_down_remove_lb(mdbs: MongoDBSearch):
     """Scale back to 1 replica and remove LB. mongotHost still does NOT change."""
     mdbs.load()
-    # Replacing clusters[] without loadBalancer removes the LB entirely
+    # Replacing clusters[] without loadBalancer removes the LB entirely; dropping the service block
+    # must also remove every user label/annotation from the Services (checked in the next step).
     mdbs["spec"]["clusters"] = [{"replicas": 1}]
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)

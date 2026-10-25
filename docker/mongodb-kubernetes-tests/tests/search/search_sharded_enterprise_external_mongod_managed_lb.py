@@ -72,13 +72,14 @@ CONFIG_SERVER_COUNT = 1
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = "mdb-sh-ca"
 
-# Operator-owned "component" label values (controllers/searchcontroller): the user's
-# "component" label below must never override them.
+# Operator-owned "component" label values (controllers/searchcontroller). The CRD rejects
+# operator-managed keys such as "component" in service.metadata.labels, so the user's
+# "app.kubernetes.io/component" below must coexist with, not replace, the operator's value.
 MONGOT_COMPONENT = "mongot"
 PROXY_SERVICE_COMPONENT = "search-proxy"
 
 SERVICE_METADATA = {
-    "labels": {"example.com/team": "cluster", "app.kubernetes.io/component": "search", "component": "user-value"},
+    "labels": {"example.com/team": "cluster", "app.kubernetes.io/component": "search"},
     "annotations": {"example.com/owner": "cluster", "example.com/keep": "retained"},
 }
 SHARD_SERVICE_METADATA = {
@@ -230,8 +231,9 @@ def test_verify_envoy_deployment(namespace: str):
 
 @mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
 def test_verify_service_metadata(namespace: str):
-    """Cluster-level service metadata reaches every Service, shard-0 overrides merge on top,
-    and the operator's component label wins over the user's."""
+    """Cluster-level service metadata reaches every Service, shard-0 overrides merge on top of it
+    for shard-0's Services only, the mongos proxy Service gets cluster values only, and the
+    operator's component label is kept alongside the user's labels."""
 
     def expected_metadata(component: str, shard_override: bool = False) -> dict:
         metadata = deepcopy(SERVICE_METADATA)
@@ -254,6 +256,7 @@ def test_verify_service_metadata(namespace: str):
         )
 
     keys = {field: SERVICE_METADATA[field].keys() | SHARD_SERVICE_METADATA[field].keys() for field in SERVICE_METADATA}
+    keys["labels"] |= {"component"}
     wait_for_search_service_metadata(namespace, MDBS_RESOURCE_NAME, expected_by_name, keys)
 
 
