@@ -651,7 +651,7 @@ func TestBuildServices_ServiceMetadata(t *testing.T) {
 
 func TestReconcile_ServiceMetadataLifecycle(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "ns")
-	search.Spec.Clusters[0].Index = ptr.To(int32(7))
+	search.Spec.Clusters[0].Index = new(int32(7))
 	mdbc := newTestMongoDBCommunity("test-mongodb", "ns")
 	created := map[string]bool{}
 	base := mock.NewEmptyFakeClientBuilder().WithObjects(search, mdbc).Build()
