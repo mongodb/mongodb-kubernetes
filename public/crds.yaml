@@ -6441,7 +6441,7 @@ spec:
                         type: string
                       clientSecretSecretRef:
                         description: |-
-                          ClientSecretSecretRef references the Secret holding the OIDC client secret. The value
+                          ClientSecretRef references the Secret holding the OIDC client secret. The value
                           at the given key is mounted as a file for mongot; the secret value never appears in
                           the mongot configuration.
                         properties:

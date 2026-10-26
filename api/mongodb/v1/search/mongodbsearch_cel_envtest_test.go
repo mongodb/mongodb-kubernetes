@@ -125,10 +125,10 @@ func TestMongoDBSearchCELValidationSourceOIDC(t *testing.T) {
 
 	validOIDC := func() *searchv1.OIDCAuth {
 		return &searchv1.OIDCAuth{
-			TokenEndpoint:         "https://idp.example.com/realms/search/protocol/openid-connect/token",
-			ClientID:              "search-sync-source",
-			ClientSecretRef: userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
-			IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "my-idp-ca"},
+			TokenEndpoint:     "https://idp.example.com/realms/search/protocol/openid-connect/token",
+			ClientID:          "search-sync-source",
+			ClientSecretRef:   userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
+			IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "my-idp-ca"},
 		}
 	}
 

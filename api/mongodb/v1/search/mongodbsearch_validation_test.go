@@ -240,10 +240,10 @@ func TestValidateX509AuthConfig(t *testing.T) {
 func TestValidateOIDCAuthConfig(t *testing.T) {
 	oidc := func(tokenEndpoint string) *OIDCAuth {
 		return &OIDCAuth{
-			TokenEndpoint:         tokenEndpoint,
-			ClientID:              "search-sync-source",
-			ClientSecretRef: userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
-			IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "my-idp-ca"},
+			TokenEndpoint:     tokenEndpoint,
+			ClientID:          "search-sync-source",
+			ClientSecretRef:   userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
+			IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "my-idp-ca"},
 		}
 	}
 
