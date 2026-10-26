@@ -636,7 +636,6 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		}
 		applied = append(applied, unitApplyResult{
 			unit:               unit,
-			unitClient:         unit.client,
 			expectedGeneration: mutatedSts.GetGeneration(),
 		})
 	}
@@ -670,7 +669,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// Mark routing-ready shards across ALL units before the worst-of readiness
 	// return, so one not-ready unit does not block the routing switch for the others.
 	for _, res := range applied {
-		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
+		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unit.client); err != nil {
 			reconcileErrs = errors.Join(reconcileErrs, err)
 		}
 	}
@@ -894,11 +893,10 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	return mutatedSts, pvcStatus, nil
 }
 
-// unitApplyResult pairs an applied reconcile unit with the cluster client used to
-// apply it and the StatefulSet generation expected after the apply.
+// unitApplyResult pairs an applied reconcile unit with the StatefulSet generation
+// expected after the apply.
 type unitApplyResult struct {
 	unit               reconcileUnit
-	unitClient         kubernetesClient.Client
 	expectedGeneration int64
 }
 
@@ -953,7 +951,7 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 		acc := accFor(res.unit)
 
 		// Per shard mongot StatefulSet readiness — this is what gates the top-level phase (via topStatus).
-		stsStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient)
+		stsStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unit.client)
 		acc.searchPhase = searchv1.WorstOfPhase(acc.searchPhase, stsStatus.Phase())
 		if !stsStatus.IsOK() {
 			if msg := MessageFromStatus(stsStatus); msg != "" {
@@ -966,7 +964,7 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 		// for status.clusters only — top-level phase gating stays on IsLoadBalancerReady().
 		if managedLB && !acc.loadBalancerComputed {
 			acc.loadBalancerComputed = true
-			lbStatus := r.envoyDeploymentStatus(ctx, res.unit.clusterIndex, res.unitClient)
+			lbStatus := r.envoyDeploymentStatus(ctx, res.unit.clusterIndex, res.unit.client)
 			acc.loadBalancerPhase = lbStatus.Phase()
 			if !lbStatus.IsOK() {
 				acc.loadBalancerMsg = MessageFromStatus(lbStatus)
@@ -977,7 +975,7 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 		// for status.clusters only — never gates the top-level phase.
 		if metricsForwarderEnabled && !acc.metricsForwarderComputed {
 			acc.metricsForwarderComputed = true
-			mfStatus := r.metricsForwarderDeploymentStatus(ctx, res.unit.clusterIndex, res.unitClient)
+			mfStatus := r.metricsForwarderDeploymentStatus(ctx, res.unit.clusterIndex, res.unit.client)
 			acc.metricsForwarderPhase = mfStatus.Phase()
 			if !mfStatus.IsOK() {
 				acc.metricsForwarderMsg = MessageFromStatus(mfStatus)
