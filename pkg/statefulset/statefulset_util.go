@@ -63,7 +63,7 @@ func isVolumeClaimEqualOnForbiddenFields(existing, desired corev1.PersistentVolu
 		return false
 	}
 
-	if newSpec.VolumeAttributesClassName != nil && !reflect.DeepEqual(oldSpec.VolumeAttributesClassName, newSpec.VolumeAttributesClassName) {
+	if !reflect.DeepEqual(oldSpec.VolumeAttributesClassName, newSpec.VolumeAttributesClassName) {
 		return false
 	}
 

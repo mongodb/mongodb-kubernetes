@@ -268,6 +268,14 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "VolumeAttributesClassName: removed",
+			existing: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			desired: corev1.PersistentVolumeClaim{},
+			want:    false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
