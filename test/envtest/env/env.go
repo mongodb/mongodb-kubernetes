@@ -60,16 +60,15 @@ func WithCRDs(crdFileNames ...string) Option {
 	}
 }
 
-// WithCertManagerCRDs installs cert-manager's Certificate and Issuer CRDs from test/envtest/crds.
-// Tests that exercise operator-managed certificates need them so the operator can create its
-// Certificate and Issuer objects. There is no cert-manager controller in envtest, so those tests
-// satisfy the Certificate objects themselves.
+// WithCertManagerCRDs installs cert-manager's CRDs, which the tests that exercise
+// operator-managed certificates need so the operator can create its Certificate and Issuer
+// objects. The bundle is the one `make envtest-assets` downloads into bin/envtest/crds. There is
+// no cert-manager controller in envtest, so those tests satisfy the Certificate objects
+// themselves.
 func WithCertManagerCRDs() Option {
 	return func(e *envtest.Environment) {
 		e.CRDDirectoryPaths = append(e.CRDDirectoryPaths,
-			filepath.Join(repoRoot(), "test", "envtest", "crds", "cert-manager.io_certificates.yaml"),
-			filepath.Join(repoRoot(), "test", "envtest", "crds", "cert-manager.io_issuers.yaml"),
-		)
+			filepath.Join(repoRoot(), "bin", "envtest", "crds", "cert-manager.crds.yaml"))
 	}
 }
 
@@ -104,7 +103,7 @@ var shared *TestEnv
 func RunShared(m *testing.M, opts ...Option) int {
 	testEnv, err := start(opts...)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "failed to start the envtest control plane; run `make envtest-assets` to download the required binaries: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "failed to start the envtest control plane; run `make envtest-assets` to download the required binaries and test assets: %v\n", err)
 		return 1
 	}
 	shared = testEnv

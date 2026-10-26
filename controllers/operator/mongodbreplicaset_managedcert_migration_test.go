@@ -25,6 +25,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -83,17 +84,23 @@ func TestReplicaSetMigratesFromLegacyTLSSecretsToManagedCertificates(t *testing.
 		require.NoError(t, err)
 	}
 
-	// Legacy: reconcile until Running. There is no kubelet or StatefulSet controller in envtest, so
-	// the test marks the StatefulSet ready the way they would.
-	for i := 0; i < 5; i++ {
-		reconcileReplicaSet()
-		markStatefulSetsReady(ctx, t, c, namespace)
-		require.NoError(t, c.Get(ctx, resourceKey, rs))
-		if rs.Status.Phase == status.PhaseRunning {
-			break
+	// reconcileUntilRunning reconciles until the resource reaches Running, marking the StatefulSet
+	// ready between passes: envtest has no kubelet or StatefulSet controller, and the pass that
+	// changes the StatefulSet ends Pending because nothing has rolled the pods yet.
+	reconcileUntilRunning := func() {
+		for i := 0; i < 5; i++ {
+			reconcileReplicaSet()
+			markStatefulSetsReady(ctx, t, c, namespace, omConnectionFactory)
+			require.NoError(t, c.Get(ctx, resourceKey, rs))
+			if rs.Status.Phase == status.PhaseRunning {
+				return
+			}
 		}
+		t.Fatalf("the resource did not reach Running, last phase %q: %s", rs.Status.Phase, rs.Status.Message)
 	}
-	require.Equal(t, status.PhaseRunning, rs.Status.Phase, "the legacy deployment must be healthy before the migration")
+
+	// Legacy: the deployment has to be healthy before the migration.
+	reconcileUntilRunning()
 
 	legacySts := statefulSetForResource(ctx, t, c, resourceKey)
 	assert.Equal(t, migrationResourceName+"-cert-pem", certificateVolumeSecretName(t, legacySts))
@@ -126,11 +133,10 @@ func TestReplicaSetMigratesFromLegacyTLSSecretsToManagedCertificates(t *testing.
 	// its secret and a Ready condition, which is all the operator waits for.
 	fakeCertManagerIssueAllCertificates(ctx, t, c, namespace)
 
-	reconcileReplicaSet()
-	reconcileReplicaSet()
-
-	require.NoError(t, c.Get(ctx, resourceKey, rs))
-	assert.NotEqual(t, status.PhaseFailed, rs.Status.Phase)
+	// The deployment has to come back to Running: the pass that reissues the StatefulSet with the
+	// managed volumes ends Pending until the rollout is simulated, and the next pass has to finish
+	// the migration without any errors.
+	reconcileUntilRunning()
 
 	migratedSts := statefulSetForResource(ctx, t, c, resourceKey)
 	assert.Equal(t, migrationResourceName+"-managed-cert-pem", certificateVolumeSecretName(t, migratedSts),
@@ -206,8 +212,10 @@ func statefulSetForResource(ctx context.Context, t *testing.T, c client.Client, 
 
 // markStatefulSetsReady reports every StatefulSet in the namespace as fully rolled out, the way the
 // StatefulSet controller and the kubelet would: observedGeneration catches up with the current
-// generation and every replica is ready.
-func markStatefulSetsReady(ctx context.Context, t *testing.T, c client.Client, namespace string) {
+// generation and every replica is ready. It also registers the pod hostnames as automation agents
+// with the mocked Ops Manager: nothing runs the pods, so nothing registers them, and the reconcile
+// fails waiting for agents that can never appear.
+func markStatefulSetsReady(ctx context.Context, t *testing.T, c client.Client, namespace string, omConnectionFactory *om.CachedOMConnectionFactory) {
 	stsList := appsv1.StatefulSetList{}
 	require.NoError(t, c.List(ctx, &stsList, client.InNamespace(namespace)))
 	for i := range stsList.Items {
@@ -217,6 +225,11 @@ func markStatefulSetsReady(ctx context.Context, t *testing.T, c client.Client, n
 		sts.Status.ReadyReplicas = *sts.Spec.Replicas
 		sts.Status.Replicas = *sts.Spec.Replicas
 		require.NoError(t, c.Status().Update(ctx, sts))
+
+		if mocked, ok := omConnectionFactory.GetConnectionForResource(sts).(*om.MockedOmConnection); ok {
+			hostnames, _ := dns.GetDnsForStatefulSet(*sts, "", nil)
+			mocked.AddHosts(hostnames)
+		}
 	}
 }
 
