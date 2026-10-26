@@ -26,7 +26,13 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_workload_ready_in_cluster
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import search_artifact_uids, wait_for_search_artifacts_deleted
+from tests.common.search.connectivity import (
+    MongotPVCResize,
+    resizable_persistence,
+    search_artifact_uids,
+    wait_for_pvc_resize_pending,
+    wait_for_search_artifacts_deleted,
+)
 from tests.common.search.mc_search_helper import (
     _assert_mongot_host_on_disk,
     assert_mongot_sync_source_hosts,
@@ -73,6 +79,8 @@ MDBS_RESOURCE_NAME = "mdb-mc-sim-search"
 
 MEMBERS_PER_CLUSTER: List[int | None] = [3, 3]
 MONGOT_REPLICAS_PER_CLUSTER = 3
+INITIAL_STORAGE = "1Gi"
+RESIZED_STORAGE = "2Gi"
 
 # Generous index-ready timeout to account for cross-cluster mesh latency during sync.
 SEARCH_INDEX_READY_TIMEOUT = 300
@@ -164,7 +172,7 @@ def per_cluster_mdbs_search(
         for m in range(members)
     ]
 
-    return build_per_cluster_search_crs(
+    per_cluster = build_per_cluster_search_crs(
         namespace,
         member_cluster_clients,
         MDBS_RESOURCE_NAME,
@@ -177,6 +185,10 @@ def per_cluster_mdbs_search(
             "tls": {"ca": {"name": ca_configmap}},
         },
     )
+    for _, mdbs in per_cluster:
+        for cluster in mdbs["spec"]["clusters"]:
+            cluster.setdefault("persistence", resizable_persistence(INITIAL_STORAGE))
+    return per_cluster
 
 
 @mark.e2e_search_simulated_mc_rs
@@ -565,6 +577,51 @@ def test_per_cluster_vector_search_query(
             msg_prefix=f"cluster {cluster_index}: ",
         )
         logger.info(f"cluster_index={cluster_index}: deterministic $vectorSearch (=={limit}) via local mongod OK")
+
+
+@mark.e2e_search_simulated_mc_rs
+def test_storage_increase_resizes_pvcs_in_place_per_operator(
+    namespace: str,
+    mdb: MongoDBMulti,
+    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+):
+    """Each member operator resizes its own cluster's mongot PVCs from its local CR copy."""
+    assert_per_cluster_count(per_cluster_mdbs_search)
+    resizes = [
+        MongotPVCResize(
+            namespace,
+            search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, _idx(mcc)),
+            mcc.api_client,
+        )
+        for mcc, _ in per_cluster_mdbs_search
+    ]
+    readers = [
+        SampleMoviesSearchHelper(
+            per_cluster_search_tester(
+                f"{mdb.name}-{_idx(mcc)}-0-svc.{mdb.namespace}.svc.cluster.local:27017", USER_NAME, USER_PASSWORD
+            )
+        )
+        for mcc, _ in per_cluster_mdbs_search
+    ]
+    baselines = [reader.example_search_titles() for reader in readers]
+
+    for _, mdbs in per_cluster_mdbs_search:
+        mdbs.load()
+        for cluster in mdbs["spec"]["clusters"]:
+            cluster["persistence"] = resizable_persistence(RESIZED_STORAGE)
+        mdbs.update()
+    for resize, (_, mdbs) in zip(resizes, per_cluster_mdbs_search):
+        wait_for_pvc_resize_pending(mdbs, [resize.sts_name])
+    for _, mdbs in per_cluster_mdbs_search:
+        mdbs.assert_reaches_phase(Phase.Running, timeout=1200)
+        assert "pvc" not in mdbs["status"]
+
+    for resize in resizes:
+        resize.assert_resized(RESIZED_STORAGE)
+    title = SampleMoviesSearchHelper(_source_rs_search_tester(mdb, USER_NAME, USER_PASSWORD)).insert_search_probe()
+    for reader, baseline in zip(readers, baselines):
+        assert reader.example_search_titles() == baseline
+        reader.wait_for_title_searchable(title)
 
 
 @mark.e2e_search_simulated_mc_rs
