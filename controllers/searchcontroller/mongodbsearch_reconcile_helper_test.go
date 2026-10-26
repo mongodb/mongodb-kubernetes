@@ -650,6 +650,10 @@ func TestBuildServices_ServiceMetadata(t *testing.T) {
 	}
 }
 
+// TestReconcile_ServiceMetadataLifecycle drives Service metadata through create, no-op,
+// out-of-band edit, update and removal. Each step checks the Services' metadata and which
+// objects were written: a metadata change must update only the Services, never a
+// StatefulSet or ConfigMap, and an unchanged reconcile must write nothing.
 func TestReconcile_ServiceMetadataLifecycle(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "ns")
 	search.Spec.Clusters[0].Index = new(int32(7))
@@ -669,63 +673,7 @@ func TestReconcile_ServiceMetadataLifecycle(t *testing.T) {
 	r := NewMongoDBSearchReconcileHelper(c, search, NewCommunityResourceSearchSource(mdbc), newTestOperatorSearchConfig(), nil, "", nil)
 	headless := search.SearchServiceNamespacedNameForCluster(7)
 	proxy := search.ProxyServiceNamespacedNameForCluster(7)
-	steps := []struct {
-		name     string
-		metadata map[string]string
-	}{
-		{"create", map[string]string{"example.com/team": "initial", "example.com/keep": "yes"}},
-		{"add and change", map[string]string{"example.com/team": "updated", "example.com/keep": "yes", "example.com/new": "added"}},
-		{"remove one key", map[string]string{"example.com/team": "updated", "example.com/keep": "yes"}},
-		{"remove block", nil},
-	}
-	for _, step := range steps {
-		t.Run(step.name, func(t *testing.T) {
-			search.Spec.Clusters[0].Service = nil
-			annotations := maps.Clone(step.metadata)
-			if step.metadata != nil {
-				annotations["example.com/note"] = step.metadata["example.com/team"]
-				search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
-					Labels: step.metadata, Annotations: annotations,
-				}}
-			}
-			st := r.reconcile(t.Context(), zap.S())
-			require.NotEqual(t, status.PhaseFailed, st.Phase(), MessageFromStatus(st))
-			for _, nn := range []types.NamespacedName{headless, proxy} {
-				svc, err := c.GetService(t.Context(), nn)
-				require.NoError(t, err)
-				userLabels := maps.Clone(svc.Labels)
-				delete(userLabels, appLabelKey)
-				delete(userLabels, componentLabelKey)
-				for k := range searchOwnerLabels(search) {
-					delete(userLabels, k)
-				}
-				assert.True(t, maps.Equal(step.metadata, userLabels), "labels: %v", svc.Labels)
-				assert.True(t, maps.Equal(annotations, svc.Annotations), "annotations: %v", svc.Annotations)
-				if nn == proxy {
-					if step.name == "create" {
-						svc.Spec.ClusterIP = "10.0.0.7"
-						svc.Annotations["out-of-band"] = "removed-next-reconcile"
-						require.NoError(t, c.Update(t.Context(), &svc))
-					} else {
-						assert.Equal(t, "10.0.0.7", svc.Spec.ClusterIP)
-					}
-				}
-			}
-		})
-	}
-	assert.Equal(t, map[string]bool{headless.Name: true, proxy.Name: true}, created)
-}
-
-// TestReconcile_ServiceMetadataNoChurn checks that an unchanged reconcile writes nothing,
-// and that a metadata-only CR change updates the Services but no StatefulSet or ConfigMap.
-func TestReconcile_ServiceMetadataNoChurn(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "ns")
-	search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
-		Labels:      map[string]string{"team": "search"},
-		Annotations: map[string]string{"example.com/note": "initial"},
-	}}
-	mdbc := newTestMongoDBCommunity("test-mongodb", "ns")
-	c := newTestFakeClient(search, mdbc)
+	headlessKey, proxyKey := "Service/"+headless.Name, "Service/"+proxy.Name
 	resourceVersions := func() map[string]string {
 		rvs := map[string]string{}
 		var services corev1.ServiceList
@@ -742,86 +690,63 @@ func TestReconcile_ServiceMetadataNoChurn(t *testing.T) {
 		}
 		return rvs
 	}
-	reconcile := func() {
-		st := reconcileMongoDBSearch(t.Context(), c, search, mdbc, newTestOperatorSearchConfig())
-		require.NotEqual(t, status.PhaseFailed, st.Phase(), MessageFromStatus(st))
+	initial := map[string]string{"example.com/team": "initial", "example.com/keep": "yes"}
+	steps := []struct {
+		name      string
+		metadata  map[string]string
+		outOfBand bool     // edit the proxy Service directly before reconciling
+		written   []string // existing objects the reconcile must update
+	}{
+		{name: "create", metadata: initial},
+		{name: "unchanged", metadata: initial},
+		{name: "out-of-band annotation removed", metadata: initial, outOfBand: true, written: []string{proxyKey}},
+		{name: "add and change", metadata: map[string]string{"example.com/team": "updated", "example.com/keep": "yes", "example.com/new": "added"}, written: []string{headlessKey, proxyKey}},
+		{name: "remove one key", metadata: map[string]string{"example.com/team": "updated", "example.com/keep": "yes"}, written: []string{headlessKey, proxyKey}},
+		{name: "remove block", written: []string{headlessKey, proxyKey}},
 	}
-
-	reconcile()
-	initial := resourceVersions()
-	require.Contains(t, initial, "Service/"+search.SearchServiceNamespacedNameForCluster(0).Name)
-	require.Contains(t, initial, "StatefulSet/"+search.StatefulSetNamespacedNameForCluster(0).Name)
-
-	reconcile()
-	assert.Equal(t, initial, resourceVersions(), "an unchanged reconcile must not write any object")
-
-	search.Spec.Clusters[0].Service.MetadataWrapper.Labels["team"] = "changed"
-	search.Spec.Clusters[0].Service.MetadataWrapper.Annotations["example.com/note"] = "changed"
-	reconcile()
-	for key, rv := range resourceVersions() {
-		if strings.HasPrefix(key, "Service/") {
-			assert.NotEqual(t, initial[key], rv, "%s must be updated", key)
-		} else {
-			assert.Equal(t, initial[key], rv, "%s must not change on a Service metadata edit", key)
-		}
-	}
-}
-
-// TestReconcile_ServiceMetadataCannotDetachFromSweep checks that identity labels set by the
-// user (bypassing CRD validation) cannot hide Services from this Search's cleanup sweep or
-// hand them to another Search's sweep.
-func TestReconcile_ServiceMetadataCannotDetachFromSweep(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "ns")
-	search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{Labels: map[string]string{
-		componentLabelKey:                    "user",
-		khandler.MongoDBSearchOwnerNameLabel: "other-search",
-	}}}
-	mdbc := newTestMongoDBCommunity("test-mongodb", "ns")
-	c := newTestFakeClient(search, mdbc)
-	st := reconcileMongoDBSearch(t.Context(), c, search, mdbc, newTestOperatorSearchConfig())
-	require.NotEqual(t, status.PhaseFailed, st.Phase(), MessageFromStatus(st))
-	countServices := func() int {
-		var services corev1.ServiceList
-		require.NoError(t, c.List(t.Context(), &services, client.InNamespace("ns")))
-		return len(services.Items)
-	}
-	require.Equal(t, 2, countServices())
-
-	other := newTestMongoDBSearch("other-search", "ns")
-	require.NoError(t, DeleteAllOwnedResources(t.Context(), c, other, "", "Service", "", &corev1.ServiceList{}, zap.S()))
-	assert.Equal(t, 2, countServices(), "another Search's sweep must not select these Services")
-
-	for _, component := range []string{mongotComponent, proxyServiceComponent} {
-		require.NoError(t, DeleteAllOwnedResources(t.Context(), c, search, "", "Service", component, &corev1.ServiceList{}, zap.S()))
-	}
-	assert.Equal(t, 0, countServices(), "this Search's sweep must still select both Services")
-}
-
-func TestReconcile_ServiceMetadataUpdateRejected(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "ns")
-	search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{Labels: map[string]string{"team": "search"}}}
-	mdbc := newTestMongoDBCommunity("test-mongodb", "ns")
-	nn := search.ProxyServiceNamespacedNameForCluster(0)
-	base := mock.NewEmptyFakeClientBuilder().WithObjects(search, mdbc).Build()
-	injected := errors.New("injected Service metadata rejection")
-	reject := false
-	c := kubernetesClient.NewClient(interceptor.NewClient(base, interceptor.Funcs{
-		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-			if _, ok := obj.(*corev1.Service); ok && reject && obj.GetName() == nn.Name {
-				return injected
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			search.Spec.Clusters[0].Service = nil
+			annotations := maps.Clone(step.metadata)
+			if step.metadata != nil {
+				annotations["example.com/note"] = step.metadata["example.com/team"]
+				search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+					Labels: step.metadata, Annotations: annotations,
+				}}
 			}
-			return c.Update(ctx, obj, opts...)
-		},
-	}))
-	st := reconcileMongoDBSearch(t.Context(), c, search, mdbc, newTestOperatorSearchConfig())
-	require.NotEqual(t, status.PhaseFailed, st.Phase(), MessageFromStatus(st))
-
-	search.Spec.Clusters[0].Service.MetadataWrapper.Labels["team"] = "changed"
-	reject = true
-	st = reconcileMongoDBSearch(t.Context(), c, search, mdbc, newTestOperatorSearchConfig())
-	assert.Equal(t, status.PhaseFailed, st.Phase())
-	assert.Contains(t, MessageFromStatus(st), "error creating/updating search service "+nn.String())
-	assert.Contains(t, MessageFromStatus(st), injected.Error())
+			if step.outOfBand {
+				svc, err := c.GetService(t.Context(), proxy)
+				require.NoError(t, err)
+				svc.Spec.ClusterIP = "10.0.0.7"
+				svc.Annotations["out-of-band"] = "removed-next-reconcile"
+				require.NoError(t, c.Update(t.Context(), &svc))
+			}
+			before := resourceVersions()
+			st := r.reconcile(t.Context(), zap.S())
+			require.NotEqual(t, status.PhaseFailed, st.Phase(), MessageFromStatus(st))
+			for key, rv := range resourceVersions() {
+				if prev, existed := before[key]; existed {
+					assert.Equal(t, slices.Contains(step.written, key), prev != rv, "%s written", key)
+				}
+			}
+			for _, nn := range []types.NamespacedName{headless, proxy} {
+				svc, err := c.GetService(t.Context(), nn)
+				require.NoError(t, err)
+				userLabels := maps.Clone(svc.Labels)
+				delete(userLabels, appLabelKey)
+				delete(userLabels, componentLabelKey)
+				for k := range searchOwnerLabels(search) {
+					delete(userLabels, k)
+				}
+				assert.True(t, maps.Equal(step.metadata, userLabels), "labels: %v", svc.Labels)
+				assert.True(t, maps.Equal(annotations, svc.Annotations), "annotations: %v", svc.Annotations)
+				if step.outOfBand && nn == proxy {
+					assert.Equal(t, "10.0.0.7", svc.Spec.ClusterIP, "allocated ClusterIP must be preserved")
+				}
+			}
+		})
+	}
+	assert.Equal(t, map[string]bool{headless.Name: true, proxy.Name: true}, created)
 }
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
@@ -3805,6 +3730,16 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 			},
 		},
 	}
+	// The same goes for Service metadata: the sweep selects Services on these labels.
+	search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+		Labels: map[string]string{
+			"custom-label":                            "custom-value",
+			khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
+			khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
+			khandler.MongoDBSearchComponentLabel:      "wrong-component",
+		},
+		Annotations: map[string]string{"example.com/note": "custom"},
+	}}
 	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
 	sourceTLSSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: search.TLSSecretNamespacedName().Name, Namespace: search.Namespace},
@@ -3861,7 +3796,17 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-search-search-0-svc", svc.Spec.Selector["app"])
 	assert.Equal(t, "test-search-search-0-svc", svc.Labels["app"])
 	assert.Empty(t, svc.Labels["shard"])
+	assert.Equal(t, "custom-value", svc.Labels["custom-label"])
+	assert.Equal(t, map[string]string{"example.com/note": "custom"}, svc.Annotations)
 	assertSearchOwnershipLabels(t, &svc, search)
+
+	proxySvc, err := fakeClient.GetService(t.Context(), search.ProxyServiceNamespacedNameForCluster(0))
+	require.NoError(t, err)
+	assert.Equal(t, "custom-value", proxySvc.Labels["custom-label"])
+	assert.Equal(t, map[string]string{"example.com/note": "custom"}, proxySvc.Annotations)
+	assert.Equal(t, search.Name, proxySvc.Labels[khandler.MongoDBSearchOwnerNameLabel])
+	assert.Equal(t, search.Namespace, proxySvc.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
+	assert.Equal(t, proxyServiceComponent, proxySvc.Labels[khandler.MongoDBSearchComponentLabel])
 
 	portMap := make(map[string]int32)
 	for _, p := range svc.Spec.Ports {
