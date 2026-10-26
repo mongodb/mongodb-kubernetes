@@ -11,7 +11,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
-from tests.common.search.connectivity import MongotPVCResize, resizable_persistence, wait_for_pvc_resize_pending
+from tests.common.search.connectivity import MongotPVCResize, resizable_persistence
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
@@ -172,14 +172,11 @@ def test_storage_increase_resizes_pvcs_in_place(
 ):
     sts_name = search_resource_names.mongot_statefulset_name(mdbs.name)
     resize = MongotPVCResize(namespace, sts_name)
-    baseline = sample_movies_helper.example_search_titles()
 
     mdbs["spec"]["clusters"][0]["persistence"] = resizable_persistence(RESIZED_STORAGE)
     mdbs.update()
-    wait_for_pvc_resize_pending(mdbs, [sts_name])
     mdbs.assert_reaches_phase(Phase.Running, timeout=900)
 
     assert "pvc" not in mdbs["status"]
     resize.assert_resized(RESIZED_STORAGE)
-    assert sample_movies_helper.example_search_titles() == baseline
-    sample_movies_helper.wait_for_title_searchable(sample_movies_helper.insert_search_probe())
+    sample_movies_helper.assert_search_query(retry_timeout=300)

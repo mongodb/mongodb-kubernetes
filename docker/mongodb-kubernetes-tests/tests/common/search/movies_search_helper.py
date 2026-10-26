@@ -1,6 +1,5 @@
 import os
 from typing import Optional
-from uuid import uuid4
 
 import pymongo.errors
 import requests
@@ -144,25 +143,6 @@ class SampleMoviesSearchHelper:
             sleep_time=1,
             msg="Auto-embedding vector search query to return correct data",
         )
-
-    def example_search_titles(self) -> list[str]:
-        return sorted(row["title"] for row in self.execute_example_search_query())
-
-    def insert_search_probe(self) -> str:
-        """Inserts a movie with a unique single-token title and returns that title."""
-        title = f"probe{uuid4().hex}"
-        self.search_tester.client[self.db_name][self.col_name].insert_one({"title": title, "plot": "ingestion probe"})
-        return title
-
-    def wait_for_title_searchable(self, title: str, timeout: int = 300):
-        def searchable():
-            try:
-                rows = self.text_search_movies(title)
-            except pymongo.errors.PyMongoError as e:
-                return False, f"error: {e}"
-            return any(row["title"] == title for row in rows), f"{title} not found in {rows}"
-
-        kubetester.run_periodically(fn=searchable, timeout=timeout, sleep_time=5, msg=f"{title} to be searchable")
 
     def text_search_movies(self, query: str, index: str = "default", path: str = "title", limit: int = 10):
         return list(

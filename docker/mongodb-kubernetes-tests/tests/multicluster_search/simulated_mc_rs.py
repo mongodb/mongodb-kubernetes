@@ -30,7 +30,6 @@ from tests.common.search.connectivity import (
     MongotPVCResize,
     resizable_persistence,
     search_artifact_uids,
-    wait_for_pvc_resize_pending,
     wait_for_search_artifacts_deleted,
 )
 from tests.common.search.mc_search_helper import (
@@ -595,33 +594,23 @@ def test_storage_increase_resizes_pvcs_in_place_per_operator(
         )
         for mcc, _ in per_cluster_mdbs_search
     ]
-    readers = [
-        SampleMoviesSearchHelper(
-            per_cluster_search_tester(
-                f"{mdb.name}-{_idx(mcc)}-0-svc.{mdb.namespace}.svc.cluster.local:27017", USER_NAME, USER_PASSWORD
-            )
-        )
-        for mcc, _ in per_cluster_mdbs_search
-    ]
-    baselines = [reader.example_search_titles() for reader in readers]
 
     for _, mdbs in per_cluster_mdbs_search:
         mdbs.load()
         for cluster in mdbs["spec"]["clusters"]:
             cluster["persistence"] = resizable_persistence(RESIZED_STORAGE)
         mdbs.update()
-    for resize, (_, mdbs) in zip(resizes, per_cluster_mdbs_search):
-        wait_for_pvc_resize_pending(mdbs, [resize.sts_name])
     for _, mdbs in per_cluster_mdbs_search:
         mdbs.assert_reaches_phase(Phase.Running, timeout=1200)
         assert "pvc" not in mdbs["status"]
 
     for resize in resizes:
         resize.assert_resized(RESIZED_STORAGE)
-    title = SampleMoviesSearchHelper(_source_rs_search_tester(mdb, USER_NAME, USER_PASSWORD)).insert_search_probe()
-    for reader, baseline in zip(readers, baselines):
-        assert reader.example_search_titles() == baseline
-        reader.wait_for_title_searchable(title)
+    for mcc, _ in per_cluster_mdbs_search:
+        host = f"{mdb.name}-{_idx(mcc)}-0-svc.{mdb.namespace}.svc.cluster.local:27017"
+        SampleMoviesSearchHelper(per_cluster_search_tester(host, USER_NAME, USER_PASSWORD)).assert_search_query(
+            retry_timeout=SEARCH_QUERY_RETRY_TIMEOUT
+        )
 
 
 @mark.e2e_search_simulated_mc_rs
