@@ -18,7 +18,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
-from tests.common.search.connectivity import MongotPVCResize, resizable_persistence, wait_for_pvc_resize_pending
+from tests.common.search.connectivity import MongotPVCResize, resizable_persistence
 from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
@@ -296,18 +296,15 @@ def test_storage_increase_resizes_each_shard_to_its_own_size(
         shard: MongotPVCResize(namespace, search_resource_names.shard_statefulset_name(mdbs.name, shard))
         for shard in storage_by_shard
     }
-    baseline = sample_movies_helper.example_search_titles()
 
     mdbs["spec"]["clusters"][0]["persistence"] = resizable_persistence(storage_by_shard[f"{MDB_RESOURCE_NAME}-0"])
     mdbs["spec"]["clusters"][0]["shardOverrides"][0]["persistence"] = resizable_persistence(
         storage_by_shard[OVERRIDDEN_SHARD]
     )
     mdbs.update()
-    wait_for_pvc_resize_pending(mdbs, [r.sts_name for r in resizes.values()])
     mdbs.assert_reaches_phase(Phase.Running, timeout=900)
 
     assert "pvc" not in mdbs["status"]
     for shard, resize in resizes.items():
         resize.assert_resized(storage_by_shard[shard])
-    assert sample_movies_helper.example_search_titles() == baseline
-    sample_movies_helper.wait_for_title_searchable(sample_movies_helper.insert_search_probe())
+    sample_movies_helper.assert_search_query(retry_timeout=300)

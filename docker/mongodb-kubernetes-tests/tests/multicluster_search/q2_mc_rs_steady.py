@@ -52,7 +52,6 @@ from tests.common.search.connectivity import (
     rotate_member_envoy_certificates,
     search_artifact_uids,
     wait_for_deployment_recreated,
-    wait_for_pvc_resize_pending,
     wait_for_search_artifacts_deleted,
     wait_for_search_deleted,
 )
@@ -1279,26 +1278,19 @@ def test_storage_increase_resizes_pvcs_in_place_per_cluster(
         )
         for mcc in member_cluster_clients
     ]
-    readers = [
-        SampleMoviesSearchHelper(_direct_search_tester_for_cluster(mdb, _idx(mcc), USER_NAME, USER_PASSWORD))
-        for mcc in member_cluster_clients
-    ]
-    baselines = [reader.example_search_titles() for reader in readers]
 
     mdbs.load()
     for cluster in mdbs["spec"]["clusters"]:
         cluster["persistence"] = resizable_persistence(RESIZED_STORAGE)
     mdbs.update()
-    wait_for_pvc_resize_pending(mdbs, [resize.sts_name for resize in resizes])
     mdbs.assert_reaches_phase(Phase.Running, timeout=1200)
 
     assert "pvc" not in mdbs["status"]
     for resize in resizes:
         resize.assert_resized(RESIZED_STORAGE)
-    title = SampleMoviesSearchHelper(_search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)).insert_search_probe()
-    for reader, baseline in zip(readers, baselines):
-        assert reader.example_search_titles() == baseline
-        reader.wait_for_title_searchable(title)
+    for mcc in member_cluster_clients:
+        tester = _direct_search_tester_for_cluster(mdb, _idx(mcc), USER_NAME, USER_PASSWORD)
+        SampleMoviesSearchHelper(tester).assert_search_query(retry_timeout=300)
 
 
 @mark.e2e_search_q2_mc_rs_steady

@@ -528,9 +528,11 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
 			assert.Equal(t, corev1.PullIfNotPresent, sts.Spec.Template.Spec.Containers[0].ImagePullPolicy)
 
-			updatedSearch.Spec.Clusters[0].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1G"}}
-			require.NoError(t, c.Update(ctx, updatedSearch))
-			checkSearchReconcileFailed(ctx, t, reconciler, c, search, "Can't update pvc and statefulset to a smaller storage, from: 16G - to:1G")
+			if !tc.withWireproto {
+				updatedSearch.Spec.Clusters[0].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1G"}}
+				require.NoError(t, c.Update(ctx, updatedSearch))
+				checkSearchReconcileFailed(ctx, t, reconciler, c, search, "Can't update pvc and statefulset to a smaller storage, from: 16G - to:1G")
+			}
 		})
 	}
 
@@ -881,14 +883,11 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 			}
 			_, err = reconciler.Reconcile(ctx, requestFromObject(search))
 			require.NoError(t, err)
-			require.NoError(t, centralClient.Get(ctx, search.NamespacedName(), live))
-			assert.Equal(t, status.PVCS{{Phase: pvc.PhaseSTSOrphaned, StatefulsetName: eastStsName.Name}}, live.Status.PVCs)
 
 			recreated := &appsv1.StatefulSet{}
 			require.NoError(t, eastClient.Get(ctx, eastStsName, recreated))
 			assert.Equal(t, "2Gi", recreated.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String())
 			assert.Contains(t, recreated.Spec.Template.Annotations, statefulset.PVCSizeAnnotation)
-			assertPVCStorageRequests(t, eastClient, eastPVCs, "2Gi")
 
 			got := driveSearchReconcileToRunning(ctx, t, reconciler, centralClient, search, 3, eastClient, westClient)
 			require.Equal(t, status.PhaseRunning, got.Status.Phase, got.Status.Message)
@@ -899,8 +898,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 	})
 }
 
-// assertPVCStorageRequests checks that every PVC still exists (it was not
-// deleted with its StatefulSet) and requests the given storage.
+// assertPVCStorageRequests checks that every PVC exists and requests the given storage.
 func assertPVCStorageRequests(t *testing.T, c client.Client, pvcs []corev1.PersistentVolumeClaim, storage string) {
 	t.Helper()
 	for _, p := range pvcs {

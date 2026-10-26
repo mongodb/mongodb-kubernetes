@@ -601,12 +601,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 			reconcileErrs = multierror.Append(reconcileErrs, err)
 			continue
 		}
-		// A status update merges a single status.pvc entry, so each resizing StatefulSet records its own.
-		if workflow.ContainsPVCOption(pvcStatus.StatusOptions()) {
-			if _, err := commoncontroller.UpdateStatus(ctx, r.client, r.mdbSearch, workflow.Pending(""), unitLog, pvcStatus.StatusOptions()...); err != nil {
-				reconcileErrs = multierror.Append(reconcileErrs, err)
-				continue
-			}
+		// A status write carries a single status.pvc entry, so every resizing StatefulSet's entry is
+		// merged here and persisted by the final status write.
+		if opt, ok := status.GetOption(pvcStatus.StatusOptions(), status.PVCStatusOption{}); ok {
+			r.mdbSearch.Status.PVCs.Merge(*opt.(status.PVCStatusOption).PVC)
 		}
 		if !pvcStatus.IsOK() {
 			pvcResizeStatus = pvcResizeStatus.Merge(pvcStatus)

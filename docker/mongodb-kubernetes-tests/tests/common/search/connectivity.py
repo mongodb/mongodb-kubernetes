@@ -1110,8 +1110,9 @@ class MongotPVCResize:
         self.sts_uid = sts.metadata.uid
         self.pvc_uids = {
             name: self.core.read_namespaced_persistent_volume_claim(name, namespace).metadata.uid
-            for name in (f"data-{sts_name}-{ordinal}" for ordinal in range(sts.spec.replicas))
+            for name in mongot_data_pvc_names(namespace, sts_name, api_client=api_client)
         }
+        assert len(self.pvc_uids) == sts.spec.replicas, f"{sts_name} PVCs: {list(self.pvc_uids)}"
 
     def assert_resized(self, storage: str) -> None:
         """The StatefulSet was recreated with the new claim size and every data PVC was grown in place."""
@@ -1123,18 +1124,6 @@ class MongotPVCResize:
             pvc = self.core.read_namespaced_persistent_volume_claim(name, self.namespace)
             assert pvc.metadata.uid == uid, f"{name} was replaced, its index data is lost"
             assert parse_quantity(pvc.status.capacity["storage"]) >= parse_quantity(storage), name
-
-
-def wait_for_pvc_resize_pending(mdbs: "MongoDBSearch", sts_names: list[str], timeout: int = 300) -> None:
-    """Waits until the resource is Pending with a status.pvc entry for every resizing StatefulSet."""
-
-    def pending() -> tuple[bool, str]:
-        mdbs.load()
-        status = mdbs["status"]
-        entries = {p["statefulsetName"]: p["phase"] for p in status.get("pvc") or []}
-        return status["phase"] == "Pending" and set(sts_names) <= entries.keys(), f"status={status}"
-
-    run_periodically(pending, timeout=timeout, sleep_time=2, msg=f"PVC resize of {sts_names} to be reported")
 
 
 def wait_for_resource_deleted(read_fn: Callable[[], Any], what: str, timeout: int = 300) -> None:
