@@ -1,7 +1,7 @@
 import pytest
 from kubetester import try_load
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.kubetester import get_default_image_type
+from kubetester.kubetester import get_default_image_type, run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture
@@ -28,14 +28,18 @@ def replica_set(namespace: str) -> MongoDB:
     return resource
 
 
-def assert_mongodb_image_type(replica_set: MongoDB, image_type: str):
+def mongodb_image_has_type(replica_set: MongoDB, image_type: str) -> bool:
     statefulset = replica_set.read_statefulset()
     mongodb_container = next(
         container
         for container in statefulset.spec.template.spec.containers
         if "mongodb-enterprise-server" in container.image
     )
-    assert mongodb_container.image.endswith(f":{MDB_VERSION}-{image_type}")
+    return mongodb_container.image.endswith(f":{MDB_VERSION}-{image_type}")
+
+
+def assert_mongodb_image_type(replica_set: MongoDB, image_type: str):
+    assert mongodb_image_has_type(replica_set, image_type)
 
 
 @pytest.mark.e2e_replica_set_container_image_type
@@ -51,6 +55,11 @@ def test_replica_set_uses_annotated_container_image_type(replica_set: MongoDB):
     replica_set.load()
     replica_set["metadata"].setdefault("annotations", {})[IMAGE_TYPE_ANNOTATION] = ANNOTATED_IMAGE_TYPE
     replica_set.update()
+
+    # An annotation-only change does not bump metadata.generation, so assert_reaches_phase would return immediately.
+    assert run_periodically(
+        lambda: mongodb_image_has_type(replica_set, ANNOTATED_IMAGE_TYPE), timeout=300
+    ), f"statefulset image did not switch to {ANNOTATED_IMAGE_TYPE}"
     replica_set.assert_reaches_phase(Phase.Running)
 
     assert_mongodb_image_type(replica_set, ANNOTATED_IMAGE_TYPE)
