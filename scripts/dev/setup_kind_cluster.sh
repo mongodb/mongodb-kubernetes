@@ -240,6 +240,14 @@ export_kubeconfig() {
 # installs below instead of delaying the test pod. `single_e2e.sh` renders the same
 # reference with `imagePullPolicy: IfNotPresent`, so the test pod reuses this pull.
 kind_preload_test_image() {
+  # Only the single-cluster kind variant runs the test pod on the node this pull warms.
+  # Multi-cluster kind creates five clusters in one setup run, so four pulls would be
+  # wasted. The performance variant has six nodes and does not place the test pod on the
+  # preloaded node.
+  if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "kind" ]]; then
+    return 0
+  fi
+
   local image
   if ! image="$(meko_tests_image)"; then
     echo "skipping the test image preload"
@@ -267,8 +275,8 @@ kind_wait_for_test_image_preload() {
     return 0
   fi
 
-  # The pull takes about 10 s on a warm ECR. 90 s bounds a stalled registry, and the
-  # test pod falls back to the kubelet pull on a miss.
+  # The pull takes about 10 s on a warm ECR. A miss blocks cluster setup for up to 90 s,
+  # then the test pod pulls the image itself.
   kubectl --kubeconfig "${kubeconfig_path}" wait --namespace default \
     --for=condition=Ready --timeout=90s pod/mck-test-image-preload >/dev/null 2>&1 ||
     echo "the test image preload did not finish, the test pod will pull the image"
