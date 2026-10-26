@@ -1,0 +1,171 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "PR without a component entry: minimum stays 1.12.0",
+    "output": ".archify/workflow-component-release-20261026-133706/pr-without-component-entry.html",
+    "quality_profile": "showcase"
+  },
+  "lanes": [
+    {
+      "id": "releases",
+      "label": "Last release"
+    },
+    {
+      "id": "pr",
+      "label": "Pull request"
+    }
+  ],
+  "groups": [
+    {
+      "id": "diff",
+      "label": "Files changed in the PR",
+      "lane": "pr",
+      "fromCol": 3,
+      "toCol": 4
+    }
+  ],
+  "mainPath": [
+    "change",
+    "changelog_check",
+    "hook",
+    "f_release",
+    "f_helm"
+  ],
+  "nodes": [
+    {
+      "id": "last_release",
+      "lane": "releases",
+      "col": 2,
+      "type": "database",
+      "label": "Tag 1.14.0",
+      "sublabel": "latest 1.14.0, min 1.12.0"
+    },
+    {
+      "id": "change",
+      "lane": "pr",
+      "col": 0,
+      "type": "frontend",
+      "label": "Operator fix PR",
+      "sublabel": "no proxy code touched"
+    },
+    {
+      "id": "changelog_check",
+      "lane": "pr",
+      "col": 1,
+      "type": "security",
+      "label": "Changelog check",
+      "sublabel": "no proxy change, no entry needed"
+    },
+    {
+      "id": "hook",
+      "lane": "pr",
+      "col": 2,
+      "type": "backend",
+      "label": "Pre-commit hook",
+      "sublabel": "MCK 1.14.1, no entry: min kept"
+    },
+    {
+      "id": "f_release",
+      "lane": "pr",
+      "col": 3,
+      "type": "database",
+      "label": "release.json",
+      "sublabel": "latest 1.14.1, min 1.12.0 kept"
+    },
+    {
+      "id": "f_helm",
+      "lane": "pr",
+      "col": 4,
+      "yOffset": -90,
+      "type": "database",
+      "label": "Helm values",
+      "sublabel": "min 1.12.0, latest 1.14.1"
+    },
+    {
+      "id": "f_olm",
+      "lane": "pr",
+      "col": 4,
+      "yOffset": 0,
+      "type": "database",
+      "label": "OLM values",
+      "sublabel": "min 1.12.0, latest 1.14.1"
+    },
+    {
+      "id": "f_yaml",
+      "lane": "pr",
+      "col": 4,
+      "yOffset": 90,
+      "type": "database",
+      "label": "Static yaml",
+      "sublabel": "latest 1.14.0 → 1.14.1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "last_release",
+      "to": "hook",
+      "label": "previous state",
+      "variant": "dashed"
+    },
+    {
+      "from": "change",
+      "to": "changelog_check"
+    },
+    {
+      "from": "changelog_check",
+      "to": "hook",
+      "label": "no proxy change",
+      "variant": "emphasis"
+    },
+    {
+      "from": "hook",
+      "to": "f_release",
+      "label": "writes",
+      "variant": "emphasis"
+    },
+    {
+      "from": "f_release",
+      "to": "f_helm"
+    },
+    {
+      "from": "f_release",
+      "to": "f_olm"
+    },
+    {
+      "from": "f_release",
+      "to": "f_yaml"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Before: tag 1.14.0",
+      "items": [
+        "mongodbOperator 1.14.0",
+        "proxyLatestVersion 1.14.0",
+        "proxyMinimumVersion 1.12.0: an earlier release bumped it, later releases did not"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "What the hook computes",
+      "items": [
+        "Next MCK version 1.14.1, computed from the changelog",
+        "proxyLatestVersion is always the next MCK version: 1.14.1",
+        "proxyMinimumVersion stays 1.12.0: no component entry since the tag",
+        "Other hooks copy both values from release.json into Helm, OLM and yaml"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What customers get after upgrading",
+      "items": [
+        "Helm and OLM on the default: same proxy tag, no restart",
+        "Static yaml and track latest: proxy 1.14.1, rolling restart",
+        "The release only publishes what is already committed in the PR",
+        "Version numbers are illustrative: the proxy has not shipped"
+      ]
+    }
+  ]
+}
