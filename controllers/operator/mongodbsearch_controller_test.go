@@ -769,7 +769,7 @@ func TestMongoDBSearchReconcile_RegistersOIDCClientSecretWatch(t *testing.T) {
 	search.Spec.Source.OIDC = &searchv1.OIDCAuth{
 		TokenEndpoint:         "https://idp.example.com/token",
 		ClientID:              "mongot-client",
-		ClientSecretSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+		ClientSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
 		IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "oidc-idp-ca"},
 	}
 

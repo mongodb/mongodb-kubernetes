@@ -2022,9 +2022,9 @@ func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Contex
 
 	// Read + verify the client secret now to fail fast with a clear error; the secret value
 	// never appears in the mongot config — it is mounted directly and only referenced by path.
-	clientSecretRef := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: oidc.ClientSecretSecretRef.Name}
-	if _, err := secret.ReadKey(ctx, kubeClient, oidc.ClientSecretSecretRef.Key, clientSecretRef); err != nil {
-		return nil, nil, xerrors.Errorf("reading OIDC client secret %s: %w", oidc.ClientSecretSecretRef.Name, err)
+	clientSecretRef := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: oidc.ClientSecretRef.Name}
+	if _, err := secret.ReadKey(ctx, kubeClient, oidc.ClientSecretRef.Key, clientSecretRef); err != nil {
+		return nil, nil, xerrors.Errorf("reading OIDC client secret %s: %w", oidc.ClientSecretRef.Name, err)
 	}
 
 	// Read + verify the IdP CA ConfigMap: the CA certificate must be present at the fixed
@@ -2092,9 +2092,9 @@ func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Contex
 	// Build volume/mount modifications for the OIDC client secret and the IdP CA ConfigMap.
 	// The client secret is mounted with subPath = the secret key so only that one key is
 	// exposed at /mongot/oidcClientSecret; the IdP CA ConfigMap is mounted as a directory.
-	clientSecretVolume := statefulset.CreateVolumeFromSecret("oidc-client-secret", oidc.ClientSecretSecretRef.Name)
+	clientSecretVolume := statefulset.CreateVolumeFromSecret("oidc-client-secret", oidc.ClientSecretRef.Name)
 	clientSecretVolumeMount := statefulset.CreateVolumeMount("oidc-client-secret", OIDCClientSecretMountPath,
-		statefulset.WithReadOnly(true), statefulset.WithSubPath(oidc.ClientSecretSecretRef.Key))
+		statefulset.WithReadOnly(true), statefulset.WithSubPath(oidc.ClientSecretRef.Key))
 
 	idpCaVolume := statefulset.CreateVolumeFromConfigMap("oidc-idp-ca", oidc.IdPCAConfigMapRef.Name)
 	idpCaVolumeMount := statefulset.CreateVolumeMount("oidc-idp-ca", OIDCIdPCaMountPath, statefulset.WithReadOnly(true))
@@ -2322,7 +2322,7 @@ func (r *MongoDBSearchReconcileHelper) oidcClientSecretContentHash(ctx context.C
 	if !r.mdbSearch.IsOIDCAuth() {
 		return "", nil
 	}
-	ref := r.mdbSearch.Spec.Source.OIDC.ClientSecretSecretRef
+	ref := r.mdbSearch.Spec.Source.OIDC.ClientSecretRef
 	nn := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: ref.Name}
 	clientSecret, err := secret.ReadKey(ctx, kubeClient, ref.Key, nn)
 	if err != nil {
