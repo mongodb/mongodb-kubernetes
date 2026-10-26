@@ -127,7 +127,7 @@ func TestMongoDBSearchCELValidationSourceOIDC(t *testing.T) {
 		return &searchv1.OIDCAuth{
 			TokenEndpoint:         "https://idp.example.com/realms/search/protocol/openid-connect/token",
 			ClientID:              "search-sync-source",
-			ClientSecretSecretRef: userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
+			ClientSecretRef: userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
 			IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "my-idp-ca"},
 		}
 	}
@@ -216,7 +216,7 @@ func TestMongoDBSearchCELValidationSourceOIDC(t *testing.T) {
 			name: "clientSecretSecretRef without key is rejected",
 			source: func() *searchv1.MongoDBSource {
 				oidc := validOIDC()
-				oidc.ClientSecretSecretRef = userv1.SecretKeyRef{Name: "my-oidc-client-secret"}
+				oidc.ClientSecretRef = userv1.SecretKeyRef{Name: "my-oidc-client-secret"}
 				return &searchv1.MongoDBSource{OIDC: oidc}
 			}(),
 			errorContains: "clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCAConfigMapRef.name must not be empty",

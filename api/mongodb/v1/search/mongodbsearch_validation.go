@@ -539,11 +539,11 @@ func validateOIDCAuthConfig(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationError("spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: fragment is not allowed", tokenEndpoint)
 	}
 
-	if s.Spec.Source.OIDC.ClientSecretSecretRef.Name == "" {
+	if s.Spec.Source.OIDC.ClientSecretRef.Name == "" {
 		return v1.ValidationError("spec.source.oidc.clientSecretSecretRef.name must not be empty")
 	}
 
-	if s.Spec.Source.OIDC.ClientSecretSecretRef.Key == "" {
+	if s.Spec.Source.OIDC.ClientSecretRef.Key == "" {
 		return v1.ValidationError("spec.source.oidc.clientSecretSecretRef.key must not be empty")
 	}
 

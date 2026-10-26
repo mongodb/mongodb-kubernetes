@@ -511,11 +511,11 @@ type OIDCAuth struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	ClientID string `json:"clientId"`
-	// ClientSecretSecretRef references the Secret holding the OIDC client secret. The value
+	// ClientSecretRef references the Secret holding the OIDC client secret. The value
 	// at the given key is mounted as a file for mongot; the secret value never appears in
 	// the mongot configuration.
 	// +kubebuilder:validation:Required
-	ClientSecretSecretRef userv1.SecretKeyRef `json:"clientSecretSecretRef"`
+	ClientSecretRef userv1.SecretKeyRef `json:"clientSecretSecretRef"`
 	// IdPCAConfigMapRef references a ConfigMap containing the CA certificate that issued
 	// the identity provider's TLS certificate. The CA certificate is expected to be PEM
 	// encoded and available at the "ca.crt" key (same convention as spec.source.external.tls.ca).

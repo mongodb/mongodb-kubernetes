@@ -242,7 +242,7 @@ func TestValidateOIDCAuthConfig(t *testing.T) {
 		return &OIDCAuth{
 			TokenEndpoint:         tokenEndpoint,
 			ClientID:              "search-sync-source",
-			ClientSecretSecretRef: userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
+			ClientSecretRef: userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
 			IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "my-idp-ca"},
 		}
 	}
@@ -350,7 +350,7 @@ func TestValidateOIDCAuthConfig(t *testing.T) {
 			searchSource: &MongoDBSource{
 				OIDC: func() *OIDCAuth {
 					o := oidc("https://idp.example.com/token")
-					o.ClientSecretSecretRef.Name = ""
+					o.ClientSecretRef.Name = ""
 					return o
 				}(),
 			},
@@ -361,7 +361,7 @@ func TestValidateOIDCAuthConfig(t *testing.T) {
 			searchSource: &MongoDBSource{
 				OIDC: func() *OIDCAuth {
 					o := oidc("https://idp.example.com/token")
-					o.ClientSecretSecretRef.Key = ""
+					o.ClientSecretRef.Key = ""
 					return o
 				}(),
 			},
