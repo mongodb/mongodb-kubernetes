@@ -84,7 +84,7 @@ func expectedClusterInvariantSecretNames(search *searchv1.MongoDBSearch) []strin
 	// (The IdP CA is a ConfigMap — not checkable here; the reconcile-time read in
 	// ensureOIDCClientConfig covers it.)
 	if search.IsOIDCAuth() {
-		names = append(names, search.Spec.Source.OIDC.ClientSecretSecretRef.Name)
+		names = append(names, search.Spec.Source.OIDC.ClientSecretRef.Name)
 	} else if ref := search.SourceUserPasswordSecretRef(); ref != nil && ref.Name != "" {
 		names = append(names, ref.Name)
 	}

@@ -234,7 +234,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// triggers a reconcile: both are mounted directly, and only a reconcile recomputes their
 	// content hashes to roll the mongot pods (the callback reads idpCaFile once at startup).
 	if mdbSearch.IsOIDCAuth() {
-		oidcClientSecretRef := mdbSearch.Spec.Source.OIDC.ClientSecretSecretRef
+		oidcClientSecretRef := mdbSearch.Spec.Source.OIDC.ClientSecretRef
 		r.watch.AddWatchedResourceIfNotAdded(oidcClientSecretRef.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Source.OIDC.IdPCAConfigMapRef.Name, mdbSearch.Namespace, watch.ConfigMap, mdbSearch.NamespacedName())
 	}
