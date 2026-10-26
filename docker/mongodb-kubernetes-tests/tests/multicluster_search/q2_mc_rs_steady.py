@@ -46,10 +46,13 @@ from tests.common.multicluster.multicluster_utils import (
 from tests.common.search import search_resource_names
 from tests.common.search.connectivity import (
     CLUSTER_LOCATION_TAG_KEY,
+    MongotPVCResize,
     mongot_data_pvc_names,
+    resizable_persistence,
     rotate_member_envoy_certificates,
     search_artifact_uids,
     wait_for_deployment_recreated,
+    wait_for_pvc_resize_pending,
     wait_for_search_artifacts_deleted,
     wait_for_search_deleted,
 )
@@ -76,6 +79,8 @@ MDBS_RESOURCE_NAME = "mdb-mc-rs-ext-lb-search"
 MEMBERS_PER_CLUSTER: List[int | None] = [2, 2]
 
 MONGOT_REPLICAS_PER_CLUSTER = 1
+INITIAL_STORAGE = "1Gi"
+RESIZED_STORAGE = "2Gi"
 ENVOY_LB_REPLICAS = 2
 ENVOY_PROXY_PORT = 27028
 
@@ -265,6 +270,7 @@ def mdbs(
                     },
                 },
                 "syncSourceSelector": {"matchTagSets": [{CLUSTER_LOCATION_TAG_KEY: mcc.cluster_name}]},
+                "persistence": resizable_persistence(INITIAL_STORAGE),
             }
         )
     resource["spec"]["clusters"] = clusters
@@ -1255,6 +1261,44 @@ def test_per_cluster_vector_search_query(
             sleep_time=5,
             msg=f"cluster {cluster_index}: $vectorSearch query to succeed",
         )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_storage_increase_resizes_pvcs_in_place_per_cluster(
+    namespace: str,
+    mdb: MongoDBMulti,
+    mdbs: MongoDBSearch,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """One spec edit resizes every cluster's mongot PVCs through that member cluster's client."""
+    resizes = [
+        MongotPVCResize(
+            namespace,
+            search_resource_names.mongot_statefulset_name_for_cluster(MDBS_RESOURCE_NAME, _idx(mcc)),
+            mcc.api_client,
+        )
+        for mcc in member_cluster_clients
+    ]
+    readers = [
+        SampleMoviesSearchHelper(_direct_search_tester_for_cluster(mdb, _idx(mcc), USER_NAME, USER_PASSWORD))
+        for mcc in member_cluster_clients
+    ]
+    baselines = [reader.example_search_titles() for reader in readers]
+
+    mdbs.load()
+    for cluster in mdbs["spec"]["clusters"]:
+        cluster["persistence"] = resizable_persistence(RESIZED_STORAGE)
+    mdbs.update()
+    wait_for_pvc_resize_pending(mdbs, [resize.sts_name for resize in resizes])
+    mdbs.assert_reaches_phase(Phase.Running, timeout=1200)
+
+    assert "pvc" not in mdbs["status"]
+    for resize in resizes:
+        resize.assert_resized(RESIZED_STORAGE)
+    title = SampleMoviesSearchHelper(_search_tester_for_mdb(mdb, USER_NAME, USER_PASSWORD)).insert_search_probe()
+    for reader, baseline in zip(readers, baselines):
+        assert reader.example_search_titles() == baseline
+        reader.wait_for_title_searchable(title)
 
 
 @mark.e2e_search_q2_mc_rs_steady
