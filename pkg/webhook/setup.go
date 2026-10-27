@@ -194,6 +194,14 @@ func shouldRegisterWebhookConfiguration() bool {
 }
 
 func Setup(ctx context.Context, client client.Client, serviceLocation types.NamespacedName, certDirectory string, webhookPort int, svcSelector string, log *zap.SugaredLogger) error {
+	// The certificates need to exist even when we don't register the ValidatingWebhookConfiguration.
+	// The webhook server is always added as a manager runnable (in main.go) and will creash the whole
+	// operator if it cannot read them from certDirectory.
+	webhookServerHost := []string{serviceLocation.Name + "." + serviceLocation.Namespace + ".svc"}
+	if err := CreateCertFiles(webhookServerHost, certDirectory); err != nil {
+		return err
+	}
+
 	if !shouldRegisterWebhookConfiguration() {
 		log.Debugf("Skipping configuration of ValidatingWebhookConfiguration")
 		// After upgrading OLM version after migrating to proper OLM webhooks we don't need that `operator-service` anymore.
@@ -217,11 +225,6 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		}
 
 		return nil
-	}
-
-	webhookServerHost := []string{serviceLocation.Name + "." + serviceLocation.Namespace + ".svc"}
-	if err := CreateCertFiles(webhookServerHost, certDirectory); err != nil {
-		return err
 	}
 
 	if err := createWebhookService(ctx, client, serviceLocation, webhookPort, svcSelector); err != nil {

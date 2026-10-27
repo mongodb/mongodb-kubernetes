@@ -5,7 +5,6 @@ tests:
   - it: should have consistent ClusterRole and ClusterRoleBinding names
     set:
       operator.webhook.registerConfiguration: true
-      operator.webhook.installClusterRole: true
     asserts:
       - hasDocuments:
           count: 2
@@ -34,7 +33,6 @@ tests:
       operator.name: my-operator
       operator.namespace: custom-ns
       operator.webhook.registerConfiguration: true
-      operator.webhook.installClusterRole: true
     release:
       namespace: custom-ns
     asserts:
