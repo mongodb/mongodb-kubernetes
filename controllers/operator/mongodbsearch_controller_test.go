@@ -767,10 +767,10 @@ func TestMongoDBSearchReconcile_RegistersOIDCClientSecretWatch(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
 	search.Spec.Source.OIDC = &searchv1.OIDCAuth{
-		TokenEndpoint:         "https://idp.example.com/token",
-		ClientID:              "mongot-client",
-		ClientSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
-		IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+		TokenEndpoint:     "https://idp.example.com/token",
+		ClientID:          "mongot-client",
+		ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+		IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
 	}
 
 	// The source must be an enterprise MongoDB with OIDC enabled so the reconcile

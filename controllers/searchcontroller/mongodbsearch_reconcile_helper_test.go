@@ -3111,11 +3111,11 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 func newOIDCMongoDBSearch(name, namespace string, modifications ...func(*searchv1.MongoDBSearch)) *searchv1.MongoDBSearch {
 	return newTestMongoDBSearch(name, namespace, append(modifications, func(s *searchv1.MongoDBSearch) {
 		s.Spec.Source.OIDC = &searchv1.OIDCAuth{
-			TokenEndpoint:         "https://idp.example.com/token",
-			ClientID:              "mongot-client",
-			ClientSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
-			IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "oidc-idp-ca"},
-			Scope:                 new("openid"),
+			TokenEndpoint:     "https://idp.example.com/token",
+			ClientID:          "mongot-client",
+			ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+			IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+			Scope:             new("openid"),
 		}
 	})...)
 }
@@ -3251,7 +3251,6 @@ func TestEnsureOIDCClientConfig_MongotAndStsModification(t *testing.T) {
 	sts := newBaseMongotStatefulSet()
 	stsMod(sts)
 
-	// Verify oidc-client-secret volume exists and points to the user secret
 	var clientSecretVolume *corev1.Volume
 	for i := range sts.Spec.Template.Spec.Volumes {
 		if sts.Spec.Template.Spec.Volumes[i].Name == "oidc-client-secret" {
@@ -3261,7 +3260,6 @@ func TestEnsureOIDCClientConfig_MongotAndStsModification(t *testing.T) {
 	require.NotNil(t, clientSecretVolume, "oidc-client-secret volume should exist")
 	assert.Equal(t, "oidc-client-secret", clientSecretVolume.Secret.SecretName)
 
-	// Verify oidc-idp-ca volume exists and points to the user ConfigMap
 	var idpCaVolume *corev1.Volume
 	for i := range sts.Spec.Template.Spec.Volumes {
 		if sts.Spec.Template.Spec.Volumes[i].Name == "oidc-idp-ca" {
@@ -3424,53 +3422,47 @@ func TestEnsureOIDCClientConfig_ScramClientCertMtlsKeyPassword(t *testing.T) {
 	}
 }
 
-func TestEnsureOIDCClientConfig_ErrorWhenClientSecretMissing(t *testing.T) {
+// Each row loads the other fixture so the error proves it names the missing resource.
+func TestEnsureOIDCClientConfig_MissingResourceErrors(t *testing.T) {
 	search := newOIDCMongoDBSearch("test-search", "test-ns")
-
 	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
 
-	// Client secret absent; IdP CA present to prove the failure names the secret.
-	_, idpCaConfigMap := oidcTestFixtures()
-	fakeClient := newTestFakeClient(search, idpCaConfigMap)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
-
-	_, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reading OIDC client secret oidc-client-secret")
-}
-
-func TestEnsureOIDCClientConfig_ErrorWhenIdPCAConfigMapMissing(t *testing.T) {
-	search := newOIDCMongoDBSearch("test-search", "test-ns")
-
-	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
-
-	// IdP CA ConfigMap absent; client secret present to prove the failure names the ConfigMap.
-	clientSecret, _ := oidcTestFixtures()
-	fakeClient := newTestFakeClient(search, clientSecret)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
-
-	_, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "reading OIDC IdP CA configMap oidc-idp-ca")
-}
-
-func TestEnsureOIDCClientConfig_ErrorWhenIdPCAConfigMapKeyMissing(t *testing.T) {
-	search := newOIDCMongoDBSearch("test-search", "test-ns")
-
-	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
-
-	clientSecret, _ := oidcTestFixtures()
-	// ConfigMap present but without the fixed "ca.crt" key.
-	idpCaConfigMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: "test-ns"},
-		Data:       map[string]string{"other-ca.crt": "idp-ca-pem"},
+	tests := []struct {
+		name          string
+		objects       []client.Object
+		errorContains string
+	}{
+		{
+			name:          "client secret",
+			objects:       []client.Object{idpCaConfigMap},
+			errorContains: "reading OIDC client secret oidc-client-secret",
+		},
+		{
+			name:          "idp ca configmap",
+			objects:       []client.Object{clientSecret},
+			errorContains: "reading OIDC IdP CA configMap oidc-idp-ca",
+		},
+		{
+			name: "idp ca configmap without the ca.crt key",
+			objects: []client.Object{clientSecret, &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: "test-ns"},
+				Data:       map[string]string{"other-ca.crt": "idp-ca-pem"},
+			}},
+			errorContains: fmt.Sprintf(`key "%s" not present in the ConfigMap test-ns/oidc-idp-ca`, OIDCIdPCAConfigMapKey),
+		},
 	}
-	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
 
-	_, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), fmt.Sprintf(`key "%s" not present in the ConfigMap test-ns/oidc-idp-ca`, OIDCIdPCAConfigMapKey))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeClient := newTestFakeClient(append([]client.Object{search}, tc.objects...)...)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+
+			_, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
 }
 
 // TestEnsureMongotConfig_OIDCRenderedBlock pins the exact rendered oidc mongot
@@ -3517,196 +3509,117 @@ func TestEnsureMongotConfig_OIDCRenderedBlock(t *testing.T) {
 		"oidc must replace the scramAuth block, not leak the username/password")
 }
 
-func TestKeyFilePasswordContentHash(t *testing.T) {
-	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, secrets ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
+// TestReferencedResourceContentHash covers the config-hash fold for every user-referenced
+// secret/ConfigMap (keyFilePassword, OIDC client secret, OIDC IdP CA): the content is mounted
+// rather than rendered into the mongot config, so the fold is what makes rotation roll the pods.
+func TestReferencedResourceContentHash(t *testing.T) {
+	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, objects ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
 		t.Helper()
-		objs := append([]client.Object{search}, secrets...)
+		objs := append([]client.Object{search}, objects...)
 		fakeClient := newTestFakeClient(objs...)
 		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
 		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil), fakeClient
 	}
 
-	passwordSecret := func(name, password string) *corev1.Secret {
-		return &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-ns"},
-			Data:       map[string][]byte{KeyFilePasswordSecretKey: []byte(password)},
-		}
-	}
-
-	t.Run("empty when no password secret configured", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns")
-		helper, kubeClient := newHelper(t, search)
-
-		hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.Empty(t, hash)
-	})
-
-	t.Run("non-empty and stable when configured", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
-			s.Spec.Source.X509 = &searchv1.X509Auth{
-				ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
-				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
-			}
-		})
-		helper, kubeClient := newHelper(t, search, passwordSecret("x509-key-password-secret", "pw-1"))
-
-		hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.NotEmpty(t, hash)
-
-		again, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.Equal(t, hash, again, "hash must be stable for unchanged content")
-	})
-
-	t.Run("changes when password content changes", func(t *testing.T) {
-		mk := func(password string) string {
-			search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
-				s.Spec.Source.X509 = &searchv1.X509Auth{
-					ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
-					KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
+	tests := []struct {
+		name         string
+		unconfigured func() *searchv1.MongoDBSearch
+		configured   func() *searchv1.MongoDBSearch
+		fixture      func(content string) client.Object
+		hash         func(ctx context.Context, h *MongoDBSearchReconcileHelper, c kubernetesClient.Client) (string, error)
+	}{
+		{
+			name:         "keyFilePassword",
+			unconfigured: func() *searchv1.MongoDBSearch { return newTestMongoDBSearch("test-search", "test-ns") },
+			configured: func() *searchv1.MongoDBSearch {
+				return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+					s.Spec.Source.X509 = &searchv1.X509Auth{
+						ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+						KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
+					}
+				})
+			},
+			fixture: func(content string) client.Object {
+				return &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "x509-key-password-secret", Namespace: "test-ns"},
+					Data:       map[string][]byte{KeyFilePasswordSecretKey: []byte(content)},
 				}
+			},
+			hash: func(ctx context.Context, h *MongoDBSearchReconcileHelper, c kubernetesClient.Client) (string, error) {
+				return h.keyFilePasswordContentHash(ctx, c)
+			},
+		},
+		{
+			name:         "oidc client secret",
+			unconfigured: func() *searchv1.MongoDBSearch { return newTestMongoDBSearch("test-search", "test-ns") },
+			configured:   func() *searchv1.MongoDBSearch { return newOIDCMongoDBSearch("test-search", "test-ns") },
+			fixture: func(content string) client.Object {
+				return &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "oidc-client-secret", Namespace: "test-ns"},
+					Data:       map[string][]byte{"clientSecret": []byte(content)},
+				}
+			},
+			hash: func(ctx context.Context, h *MongoDBSearchReconcileHelper, c kubernetesClient.Client) (string, error) {
+				return h.oidcClientSecretContentHash(ctx, c)
+			},
+		},
+		{
+			name:         "oidc idp ca",
+			unconfigured: func() *searchv1.MongoDBSearch { return newTestMongoDBSearch("test-search", "test-ns") },
+			configured:   func() *searchv1.MongoDBSearch { return newOIDCMongoDBSearch("test-search", "test-ns") },
+			fixture: func(content string) client.Object {
+				return &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: "test-ns"},
+					Data:       map[string]string{OIDCIdPCAConfigMapKey: content},
+				}
+			},
+			hash: func(ctx context.Context, h *MongoDBSearchReconcileHelper, c kubernetesClient.Client) (string, error) {
+				return h.oidcIdpCaContentHash(ctx, c)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Run("empty when not configured", func(t *testing.T) {
+				helper, kubeClient := newHelper(t, tc.unconfigured())
+
+				hash, err := tc.hash(t.Context(), helper, kubeClient)
+				require.NoError(t, err)
+				assert.Empty(t, hash)
 			})
-			helper, kubeClient := newHelper(t, search, passwordSecret("x509-key-password-secret", password))
-			hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
-			require.NoError(t, err)
-			return hash
-		}
 
-		assert.NotEqual(t, mk("pw-1"), mk("pw-2"), "different password content must yield a different hash")
-	})
+			t.Run("non-empty and stable when configured", func(t *testing.T) {
+				helper, kubeClient := newHelper(t, tc.configured(), tc.fixture("content-1"))
 
-	t.Run("errors when configured secret is missing", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
-			s.Spec.Source.X509 = &searchv1.X509Auth{
-				ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
-				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "missing-secret"},
-			}
+				hash, err := tc.hash(t.Context(), helper, kubeClient)
+				require.NoError(t, err)
+				assert.NotEmpty(t, hash)
+
+				again, err := tc.hash(t.Context(), helper, kubeClient)
+				require.NoError(t, err)
+				assert.Equal(t, hash, again, "hash must be stable for unchanged content")
+			})
+
+			t.Run("changes when content changes", func(t *testing.T) {
+				mk := func(content string) string {
+					helper, kubeClient := newHelper(t, tc.configured(), tc.fixture(content))
+					hash, err := tc.hash(t.Context(), helper, kubeClient)
+					require.NoError(t, err)
+					return hash
+				}
+
+				assert.NotEqual(t, mk("content-1"), mk("content-2"), "different content must yield a different hash")
+			})
+
+			t.Run("errors when configured resource is missing", func(t *testing.T) {
+				helper, kubeClient := newHelper(t, tc.configured())
+
+				_, err := tc.hash(t.Context(), helper, kubeClient)
+				require.Error(t, err)
+			})
 		})
-		helper, kubeClient := newHelper(t, search)
-
-		_, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
-		require.Error(t, err)
-	})
-}
-
-func TestOIDCClientSecretContentHash(t *testing.T) {
-	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, objects ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
-		t.Helper()
-		objs := append([]client.Object{search}, objects...)
-		fakeClient := newTestFakeClient(objs...)
-		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
-		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil), fakeClient
 	}
-
-	clientSecret := func(value string) *corev1.Secret {
-		return &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "oidc-client-secret", Namespace: "test-ns"},
-			Data:       map[string][]byte{"clientSecret": []byte(value)},
-		}
-	}
-
-	t.Run("empty when not OIDC", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns")
-		helper, kubeClient := newHelper(t, search)
-
-		hash, err := helper.oidcClientSecretContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.Empty(t, hash)
-	})
-
-	t.Run("non-empty and stable when configured", func(t *testing.T) {
-		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper, kubeClient := newHelper(t, search, clientSecret("secret-1"))
-
-		hash, err := helper.oidcClientSecretContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.NotEmpty(t, hash)
-
-		again, err := helper.oidcClientSecretContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.Equal(t, hash, again, "hash must be stable for unchanged content")
-	})
-
-	t.Run("changes when client secret content changes", func(t *testing.T) {
-		mk := func(value string) string {
-			search := newOIDCMongoDBSearch("test-search", "test-ns")
-			helper, kubeClient := newHelper(t, search, clientSecret(value))
-			hash, err := helper.oidcClientSecretContentHash(t.Context(), kubeClient)
-			require.NoError(t, err)
-			return hash
-		}
-
-		assert.NotEqual(t, mk("secret-1"), mk("secret-2"), "different client secret content must yield a different hash")
-	})
-
-	t.Run("errors when configured secret is missing", func(t *testing.T) {
-		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper, kubeClient := newHelper(t, search)
-
-		_, err := helper.oidcClientSecretContentHash(t.Context(), kubeClient)
-		require.Error(t, err)
-	})
-}
-
-func TestOIDCIdpCaContentHash(t *testing.T) {
-	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, objects ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
-		t.Helper()
-		objs := append([]client.Object{search}, objects...)
-		fakeClient := newTestFakeClient(objs...)
-		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
-		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil), fakeClient
-	}
-
-	idpCa := func(content string) *corev1.ConfigMap {
-		return &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: "test-ns"},
-			Data:       map[string]string{OIDCIdPCAConfigMapKey: content},
-		}
-	}
-
-	t.Run("empty when not OIDC", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns")
-		helper, kubeClient := newHelper(t, search)
-
-		hash, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.Empty(t, hash)
-	})
-
-	t.Run("non-empty and stable when configured", func(t *testing.T) {
-		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper, kubeClient := newHelper(t, search, idpCa("ca-content"))
-
-		hash, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.NotEmpty(t, hash)
-
-		again, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.Equal(t, hash, again, "hash must be stable for unchanged content")
-	})
-
-	t.Run("changes when IdP CA content changes", func(t *testing.T) {
-		mk := func(content string) string {
-			search := newOIDCMongoDBSearch("test-search", "test-ns")
-			helper, kubeClient := newHelper(t, search, idpCa(content))
-			hash, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
-			require.NoError(t, err)
-			return hash
-		}
-
-		assert.NotEqual(t, mk("ca-1"), mk("ca-2"), "different IdP CA content must yield a different hash")
-	})
-
-	t.Run("errors when configured ConfigMap is missing", func(t *testing.T) {
-		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper, kubeClient := newHelper(t, search)
-
-		_, err := helper.oidcIdpCaContentHash(t.Context(), kubeClient)
-		require.Error(t, err)
-	})
 }
 
 func TestValidateOIDCSource(t *testing.T) {
@@ -4295,12 +4208,9 @@ func TestReconcileSharded_RemovingClientCertRemovesVolumeAndMount(t *testing.T) 
 }
 
 func TestReconcileSharded_OIDCStatefulSetTemplateStableAcrossReconciles(t *testing.T) {
-	// With OIDC and auto-embedding enabled, the embedding volumes are appended after the OIDC
-	// ones on the first reconcile. Removing and re-appending the OIDC volumes on the second
-	// reconcile moved them after the embedding volumes, changing the pod template and rolling
-	// every mongot pod despite unchanged inputs. The egress-TLS (client cert) volumes had the
-	// same shape, so the rows also cover OIDC with a client certificate, with and without a
-	// key password.
+	// Volume order must stay stable across reconciles: a reorder changes the pod template
+	// and rolls every mongot pod despite unchanged inputs. The client-cert variants merge
+	// through the same volume helpers, so the rows cover them too.
 	clientCert := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "scram-client-cert", Namespace: "test-ns"},
 		Data: map[string][]byte{

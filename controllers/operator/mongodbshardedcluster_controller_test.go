@@ -2990,10 +2990,10 @@ func TestApplySearchParametersForShards_AuthGateAllRoutingModes(t *testing.T) {
 		}
 		if oidc {
 			search.Spec.Source.OIDC = &searchv1.OIDCAuth{
-				TokenEndpoint:         "https://idp.example.com/token",
-				ClientID:              "mongot-client",
-				ClientSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
-				IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+				TokenEndpoint:     "https://idp.example.com/token",
+				ClientID:          "mongot-client",
+				ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+				IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
 			}
 		}
 		return search
