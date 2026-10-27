@@ -91,11 +91,15 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
+
+	// certManagerReadiness is used to make sure the managed-certificate path fails with
+	// a clear message when certmanager is not ready, instead of trying and getting a permission error.
+	certManagerReadiness certs.CertManagerReadiness
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -121,6 +125,7 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		agentDebug:                        agentDebug,
 		agentDebugImage:                   agentDebugImage,
 		defaultArchitecture:               defaultArchitecture,
+		certManagerReadiness:              certManagerReadiness,
 	}
 }
 
@@ -198,6 +203,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	// and copy the operator-owned CA bundles into the member clusters (the pods there mount them).
 	// This mirrors the single cluster replica set and sharded  paths.
 	if mrs.GetSecurity().IsManagedCertificateEnabled() {
+		if !r.certManagerReadiness.Ready {
+			return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.New(
+				r.certManagerReadiness.UnavailableMessage())), log)
+		}
 		if status := r.ensureManagedCertificates(ctx, &mrs, log); !status.IsOK() {
 			return r.updateStatus(ctx, &mrs, status, log)
 		}
@@ -1410,8 +1419,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster) error {
+	// The operator decides once, at startup, whether it may use cert-manager, the same way the
+	// single-cluster controllers do. The managed-certificate path reports the reason when it may not.
+	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), certManagerReadiness)
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1448,6 +1461,15 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
+	}
+
+	// Watch operator-owned cert-manager Certificates so a Ready-status transition of certificate resources re-triggers
+	// reconcile of the owning MongoDBMultiCluster. This is mainly useful if the renewal of certificate fails because
+	// in that case just the status of certificate changes.
+	if certManagerReadiness.Ready {
+		if err := watch.Certificates(mgr, c, &mdbmultiv1.MongoDBMultiCluster{}); err != nil {
+			return err
+		}
 	}
 
 	if enableClusterMongoDBRoles {

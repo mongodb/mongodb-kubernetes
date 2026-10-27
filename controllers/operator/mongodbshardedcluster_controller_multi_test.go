@@ -32,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -44,8 +45,8 @@ import (
 )
 
 func newShardedClusterReconcilerForMultiCluster(ctx context.Context, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, false)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), testBackupEnableDelay, false)
+	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, certs.CertManagerReadiness{})
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), testBackupEnableDelay, certs.CertManagerReadiness{})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1709,7 +1710,7 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	globalMemberClustersMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, false)
 
 	ctx := context.Background()
-	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, false)
+	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, certs.CertManagerReadiness{})
 
 	allHostnames := generateHostsForCluster(ctx, reconciler, false, sc, mongosDistribution, configSrvDistribution, shardDistribution)
 	allHostnames1 := generateHostsForCluster(ctx, reconciler, false, sc1, mongosDistribution, configSrvDistribution, shardDistribution)
@@ -2870,7 +2871,7 @@ func reconcileUntilSuccessful(ctx context.Context, t *testing.T, reconciler reco
 }
 
 func generateHostsForCluster(ctx context.Context, reconciler *ReconcileMongoDbShardedCluster, forceEnterprise bool, sc *mdbv1.MongoDB, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int) []string {
-	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S(), testBackupEnableDelay, false)
+	reconcileHelper, _ := NewShardedClusterReconcilerHelper(ctx, reconciler.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, sc, reconciler.memberClustersMap, reconciler.omConnectionFactory, zap.S(), testBackupEnableDelay, certs.CertManagerReadiness{})
 	allHostnames, _ := generateAllHosts(sc, mongosDistribution, reconcileHelper.deploymentState.ClusterMapping, configSrvDistribution, shardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
 	return allHostnames
 }
