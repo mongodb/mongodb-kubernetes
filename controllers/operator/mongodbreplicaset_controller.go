@@ -527,6 +527,9 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return reconcile.Result{}, nil
 	}
 
+	// warn if managedCertificate.client is set but not really required/used by the operator
+	rs.SetWarnings(certs.UnusedClientConfigured(rs))
+
 	// Create helper for THIS reconciliation
 	helper, err := r.newReconcilerHelper(ctx, rs, log)
 	if err != nil {
@@ -709,11 +712,10 @@ func AddReplicaSetController(
 	agentDebug bool,
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
-	managedCertificatesEnabled bool,
 ) error {
 	// make sure cert-manager resources are registered and operator has authz to access them, before actually registering
 	// watches or doing anything with cert-manager resources.
-	certManagerReady := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace(), managedCertificatesEnabled)
+	certManagerReady := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
 
 	// Create a new controller
 	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, certManagerReady)

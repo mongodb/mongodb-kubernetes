@@ -158,10 +158,6 @@ func run() error {
 
 	enableClusterMongoDBRoles := slices.Contains(crds, clusterMongoDBRoleCRDPlural)
 
-	// Set by the helm chart from security.managedCertificate.enabled, the same value that gates the
-	// cert-manager RBAC. Read here because reading environment variables elsewhere is not allowed.
-	managedCertificatesEnabled := env.ReadBoolOrDefault(util.ManagedCertificateEnv, false)
-
 	// Get trace and span IDs from environment variables
 	traceIDHex := os.Getenv("OTEL_TRACE_ID")
 	spanIDHex := os.Getenv("OTEL_PARENT_ID")
@@ -318,7 +314,6 @@ func run() error {
 			defaultArchitecture,
 			memberClusterObjectsMap,
 			backupEnableDelay,
-			managedCertificatesEnabled,
 		); err != nil {
 			return err
 		}
@@ -443,7 +438,6 @@ func setupMongoDBCRD(
 	defaultArchitecture architectures.DefaultArchitecture,
 	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
 	backupEnableDelay time.Duration,
-	managedCertificatesEnabled bool,
 ) error {
 	if err := operator.AddStandaloneController(
 		ctx,
@@ -470,7 +464,6 @@ func setupMongoDBCRD(
 		agentDebug,
 		agentDebugImage,
 		defaultArchitecture,
-		managedCertificatesEnabled,
 	); err != nil {
 		return err
 	}
