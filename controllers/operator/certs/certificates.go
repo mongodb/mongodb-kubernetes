@@ -220,6 +220,18 @@ func GetDNSNames(opts Options) (hostnames, podNames []string) {
 	return dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, nil)
 }
 
+// GetExternalDNSNames returns the external per-member FQDNs (<pod>.<externalDomain>) for the
+// members covered this reconcile, or nil when no external domain is configured. The pod
+// hostnames are ordinal-deterministic, so we can list the real names instead of relying on a
+// "*." wildcard. This is the single-cluster form.
+func GetExternalDNSNames(opts Options) []string {
+	if opts.ExternalDomain == nil {
+		return nil
+	}
+	hostnames, _ := dns.GetDNSNames(opts.ResourceName, opts.ServiceName, opts.Namespace, opts.ClusterDomain, opts.Replicas, opts.ExternalDomain)
+	return hostnames
+}
+
 // GetAdditionalCertDomainsForMember gets any additional domains that the
 // certificate for the given member of the stateful set should be signed for.
 func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []string) {
@@ -227,9 +239,10 @@ func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []st
 	for _, certDomain := range opts.additionalCertificateDomains {
 		hostnames = append(hostnames, podNames[member]+"."+certDomain)
 	}
-	if len(opts.horizons) > 0 {
-		// at this point len(ss.ReplicaSetHorizons) should be equal to the number
-		// of members in the replica set
+	// A certificate is built for every member the deployment still has, so during a scale-down
+	// there can be more members than horizons configured. Make sur we are not reading horizon
+	// for he member that's being removed.
+	if member < len(opts.horizons) {
 		for _, externalHost := range opts.horizons[member] {
 			// need to use the URL struct directly instead of url.Parse as
 			// Parse expects the URL to have a scheme.

@@ -68,6 +68,20 @@ func (o ProjectIdOption) Value() any {
 	return o.ProjectId
 }
 
+// UsernameOption is the name a MongoDBUser is registered with in MongoDB, recorded in its status
+// once the user is registered.
+type UsernameOption struct {
+	Username string
+}
+
+func NewUsernameOption(username string) UsernameOption {
+	return UsernameOption{Username: username}
+}
+
+func (o UsernameOption) Value() any {
+	return o.Username
+}
+
 // OMPartOption describes the part of Ops Manager resource status to be updated
 type OMPartOption struct {
 	StatusPart Part

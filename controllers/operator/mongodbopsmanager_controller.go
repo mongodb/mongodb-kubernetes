@@ -1969,6 +1969,9 @@ func (r *OpsManagerReconciler) getS3MongoDbUserNameAndPassword(ctx context.Conte
 	if err != nil {
 		return "", "", "", workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", mongodbUserObjectKey, err))
 	}
+	if status := validateBackupStoreUser(mongodbUser, mongodbUserObjectKey); !status.IsOK() {
+		return "", "", "", status
+	}
 	userName := mongodbUser.Spec.Username
 	connectionStringDatabase := mongodbUser.Spec.ConnectionStringDatabase
 	password, err := mongodbUser.GetPassword(ctx, r.SecretClient)
@@ -2012,6 +2015,9 @@ func (r *OpsManagerReconciler) buildOMDatastoreConfig(ctx context.Context, opsMa
 		if err != nil {
 			return backup.DataStoreConfig{}, workflow.Failed(xerrors.Errorf("Failed to fetch the user %s: %w", operatorConfig.MongodbResourceObjectKey(opsManager.Namespace), err))
 		}
+		if status := validateBackupStoreUser(mongodbUser, mongodbUserObjectKey); !status.IsOK() {
+			return backup.DataStoreConfig{}, status
+		}
 		userName = mongodbUser.Spec.Username
 		connectionStringDatabase = mongodbUser.Spec.ConnectionStringDatabase
 		password, err = mongodbUser.GetPassword(ctx, r.SecretClient)
@@ -2031,6 +2037,16 @@ func validateS3Config(modes []string, mdbName string, s3Config omv1.S3Config) wo
 
 func validateDataStoreConfig(modes []string, mdbName string, dataStoreConfig omv1.DataStoreConfig) workflow.Status {
 	return validateConfig(modes, mdbName, dataStoreConfig.MongoDBUserRef, "Oplog/Blockstore databases")
+}
+
+// validateBackupStoreUser rejects a MongoDBUser that Ops Manager cannot use to connect to a backup
+// database. Ops Manager connects to them with a username and password (SCRAM), and a user with
+// spec.clientCertificate authenticates with an x509 certificate and has no password.
+func validateBackupStoreUser(mongodbUser *user.MongoDBUser, key client.ObjectKey) workflow.Status {
+	if mongodbUser.Spec.ClientCertificate != nil {
+		return workflow.Failed(xerrors.Errorf("MongoDBUser %s uses spec.clientCertificate (x509), but Ops Manager backup databases support only SCRAM users", key))
+	}
+	return workflow.OK()
 }
 
 func validateConfig(modes []string, mdbName string, userRef *omv1.MongoDBUserRef, description string) workflow.Status {
