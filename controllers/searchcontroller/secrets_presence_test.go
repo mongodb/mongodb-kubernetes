@@ -98,10 +98,10 @@ func newSearchWithOIDCSource(name, namespace string) *searchv1.MongoDBSearch {
 	s := newSearchWithExternalSource(name, namespace)
 	s.Spec.Source.PasswordSecretRef = nil
 	s.Spec.Source.OIDC = &searchv1.OIDCAuth{
-		TokenEndpoint:         "https://idp.example.com/token",
-		ClientID:              "mongot-client",
-		ClientSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
-		IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+		TokenEndpoint:     "https://idp.example.com/token",
+		ClientID:          "mongot-client",
+		ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+		IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
 	}
 	return s
 }
@@ -350,10 +350,10 @@ func TestExpectedSecretNamesForCluster_Table(t *testing.T) {
 			build: func() *searchv1.MongoDBSearch {
 				s := newSearchWithExternalSource("s", "ns")
 				s.Spec.Source.OIDC = &searchv1.OIDCAuth{
-					TokenEndpoint:         "https://idp.example.com/token",
-					ClientID:              "mongot-client",
-					ClientSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
-					IdPCAConfigMapRef:     corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+					TokenEndpoint:     "https://idp.example.com/token",
+					ClientID:          "mongot-client",
+					ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+					IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
 				}
 				return s
 			},
