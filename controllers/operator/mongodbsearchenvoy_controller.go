@@ -83,13 +83,14 @@ type MongoDBSearchEnvoyReconciler struct {
 	kubeClient          kubernetesClient.Client
 	watch               *watch.ResourceWatcher
 	defaultEnvoyImage   string
+	envoyPullPolicy     corev1.PullPolicy
 	operatorClusterName string
 	memberClients       map[string]kubernetesClient.Client
 
 	prepareSearch prepareSearchFuncs
 }
 
-func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, memberClustersMap map[string]client.Client, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
+func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, envoyPullPolicy corev1.PullPolicy, memberClustersMap map[string]client.Client, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
 	for k, v := range memberClustersMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
@@ -100,6 +101,7 @@ func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, 
 		kubeClient:          central,
 		watch:               watch.NewResourceWatcher(),
 		defaultEnvoyImage:   defaultEnvoyImage,
+		envoyPullPolicy:     envoyPullPolicy,
 		operatorClusterName: operatorClusterName,
 		memberClients:       clientsMap,
 		prepareSearch:       newPrepareSearch(operatorClusterName),
@@ -612,7 +614,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 					Labels:      podLabels,
 					Annotations: podAnnotations,
 				},
-				Spec: buildEnvoyPodSpec(search, w.ClusterIndex, tlsCfg, tlsEnabled, image, resources, managedSecurityContext),
+				Spec: buildEnvoyPodSpec(search, w.ClusterIndex, tlsCfg, tlsEnabled, image, r.envoyPullPolicy, resources, managedSecurityContext),
 			},
 		}
 
@@ -641,7 +643,7 @@ func (r *MongoDBSearchEnvoyReconciler) ensureDeployment(ctx context.Context, sea
 // clusterIndex selects the per-cluster ConfigMap volume name. Without this,
 // MC pods mount a ConfigMap that does not exist in the member cluster and
 // Envoy never starts.
-func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
+func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg *searchcontroller.TLSSourceConfig, tlsEnabled bool, image string, imagePullPolicy corev1.PullPolicy, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
 	volumes := []corev1.Volume{
 		{
 			Name: "envoy-config",
@@ -725,9 +727,10 @@ func buildEnvoyPodSpec(search *searchv1.MongoDBSearch, clusterIndex int, tlsCfg 
 		},
 		Containers: []corev1.Container{
 			{
-				Name:    "envoy",
-				Image:   image,
-				Command: []string{"/usr/local/bin/envoy"},
+				Name:            "envoy",
+				Image:           image,
+				ImagePullPolicy: imagePullPolicy,
+				Command:         []string{"/usr/local/bin/envoy"},
 				// --log-format emits component logs as JSON so they share a
 				// uniform shape with the JSON access log we configure in the
 				// HCM (see buildHCMAccessLog). %j escapes the message body
@@ -871,11 +874,11 @@ func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) 
 //
 // For each member cluster we register watches on Envoy Deployment + ConfigMap
 // using the label-based mapper (cross-cluster owner refs do not GC).
-func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
+func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, envoyPullPolicy corev1.PullPolicy, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
-	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), operatorClusterName)
+	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, envoyPullPolicy, multicluster.ClustersMapToClientMap(memberClusterObjectsMap), operatorClusterName)
 
 	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
 		Reconciler:              r,

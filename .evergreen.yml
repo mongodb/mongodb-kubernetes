@@ -374,6 +374,10 @@ github_pr_aliases:
     task_tags: [ "e2e_medium" ]
     required_labels:
       - "evergreen:e2e-medium"
+  - variant_tags: [ "e2e_test_suite" ]
+    task: "e2e_search_.*"
+    required_labels:
+      - "evergreen:e2e-search"
   - variant_tags: [ "om7" ]
     task: ".*"
     required_labels:

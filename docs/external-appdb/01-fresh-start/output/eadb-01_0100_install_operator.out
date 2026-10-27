@@ -132,7 +132,7 @@ registry:
   readinessProbe: quay.io/mongodb
   versionUpgradeHook: quay.io/mongodb
 search:
-  envoyImage: envoyproxy/envoy:v1.37-latest
+  envoyImage: envoyproxy/envoy:v1.37.11
   metricsForwarderImage: otel/opentelemetry-collector-contrib:0.152.0
   name: mongodb-search
   repo: quay.io/mongodb
@@ -609,7 +609,7 @@ spec:
             - name: MDB_SEARCH_VERSION
               value: "1.70.1"
             - name: MDB_ENVOY_IMAGE
-              value: "envoyproxy/envoy:v1.37-latest"
+              value: "envoyproxy/envoy:v1.37.11"
             - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
               value: "otel/opentelemetry-collector-contrib:0.152.0"
             - name: MDB_VOYAGEAI_REPO_URL

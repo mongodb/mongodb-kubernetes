@@ -1554,7 +1554,7 @@ func TestMongoDBSearchReconcile_MCSharded_CrossControllerLabelInvariant(t *testi
 	memberClients := map[string]client.Client{"cluster-a": clusterA, "cluster-b": clusterB}
 
 	searchReconciler, centralClient := newSearchReconcilerWithMembers(t, nil, memberClients, "", search)
-	envoyReconciler := newMongoDBSearchEnvoyReconciler(centralClient, "envoy:test", memberClients, "")
+	envoyReconciler := newMongoDBSearchEnvoyReconciler(centralClient, "envoy:test", corev1.PullIfNotPresent, memberClients, "")
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
 

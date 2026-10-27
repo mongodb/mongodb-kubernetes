@@ -714,7 +714,7 @@ spec:
             - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_1_70_1
               value: "quay.io/mongodb/mongodb-search:1.70.1"
             - name: RELATED_IMAGE_MDB_ENVOY_IMAGE
-              value: "envoyproxy/envoy:v1.37-latest"
+              value: "envoyproxy/envoy:v1.37.11"
             - name: RELATED_IMAGE_MDB_SEARCH_METRICS_FORWARDER_IMAGE
               value: "otel/opentelemetry-collector-contrib:0.152.0"
             - name: MDB_SEARCH_REPO_URL
@@ -724,7 +724,7 @@ spec:
             - name: MDB_SEARCH_VERSION
               value: "1.70.1"
             - name: MDB_ENVOY_IMAGE
-              value: "envoyproxy/envoy:v1.37-latest"
+              value: "envoyproxy/envoy:v1.37.11"
             - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
               value: "otel/opentelemetry-collector-contrib:0.152.0"
             - name: MDB_VOYAGEAI_REPO_URL

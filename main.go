@@ -459,11 +459,12 @@ func setupMongoDBSearchCRD(
 	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
 	operatorClusterName string,
 ) error {
+	imagePullPolicy := corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:      env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:      env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion:   env.ReadOrPanic(util.SearchVersionEnv),
-		ImagePullPolicy: corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv)),
+		ImagePullPolicy: imagePullPolicy,
 	}, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
@@ -471,7 +472,7 @@ func setupMongoDBSearchCRD(
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, operatorClusterName); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, imagePullPolicy, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 
