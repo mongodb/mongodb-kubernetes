@@ -89,6 +89,10 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc fun
 		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.Labels)
 	}
 
+	if len(stsOptions.StsLabels) > 0 {
+		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.StsLabels)
+	}
+
 	if stsOptions.StatefulSetSpecOverride != nil {
 		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"path"
-	"slices"
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
@@ -633,6 +632,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		PrometheusTLSCertHash(deploymentOptions.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
+		WithStsLabels(rs.GetOwnerLabels()),
 		WithAdditionalMongodConfig(rs.Spec.GetAdditionalMongodConfig()),
 		WithInitDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, util.InitDatabaseImageUrlEnv, reconciler.initDatabaseNonStaticImageVersion)),
 		WithDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, util.NonStaticDatabaseEnterpriseImage, reconciler.databaseNonStaticImageVersion)),
@@ -884,11 +884,11 @@ func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context
 }
 
 // ensureAppDBStatefulSetOwnership arbitrates ownership of the AppDB StatefulSet at the start of reconcile:
-//   - absent: nothing to detach - Fresh Start, the MongoDB reconciler creates its own StatefulSet
-//   - if util.AppDBMigrationReadyAnnotation is present - Forward Migration, reclaim the AppDB Statefulset
-//   - if util.AppDBReverseMigrationReadyAnnotation is present - Reverse Migration,
-//     release the AppDB Statefulset, so the Ops Manager can reclaim it
-//   - foreign-owned: block reconciliation until the ownership is resolved
+//   - absent: nothing to own - the MongoDB reconciler creates its own StatefulSet
+//   - this MongoDB CR's owner label: proceed
+//   - a foreign participant label: request reverse migration via util.AppDBReverseMigrationReadyAnnotation and wait
+//   - ownerless with util.AppDBMigrationReadyAnnotation: reclaim - merge this CR's owner labels and write its ownerReference
+//   - otherwise ownerless: block reconciliation until the ownership is resolved
 func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context.Context, mdb *mdbv1.MongoDB) workflow.Status {
 	sts := appsv1.StatefulSet{}
 	if err := r.reconciler.client.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &sts); err != nil {
@@ -898,9 +898,12 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 		return workflow.Failed(xerrors.Errorf("failed to fetch StatefulSet during ownership check: %w", err))
 	}
 
-	ownedByThisMongoDB := slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
-		return ref.UID == mdb.UID
-	})
+	ownershipLabels := util.GetOwnershipLabels(sts.Labels)
+
+	// backfills label for legacy StatefulSets that used the OwnerReference for handover
+	if len(ownershipLabels) == 0 && statefulset.IsOwnedBy(&sts, mdb) {
+		ownershipLabels[util.MongoDBResourceOwnerLabel] = mdb.GetName()
+	}
 
 	if validationStatus := r.validateAppDBForwardMigration(ctx, mdb, sts); !validationStatus.IsOK() {
 		return validationStatus
@@ -908,14 +911,14 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 
 	// Forward Migration, reclaim the AppDB Statefulset
 	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString {
-		if len(sts.OwnerReferences) == 0 {
+		if len(ownershipLabels) == 0 {
 			if err := r.reclaimAppDBStatefulsetOwnership(ctx, mdb, sts); err != nil {
 				return workflow.Failed(err)
 			}
 			return workflow.OK()
 		}
 
-		if ownedByThisMongoDB {
+		if ownershipLabels[util.MongoDBResourceOwnerLabel] == mdb.GetName() {
 			return workflow.OK()
 		}
 
@@ -924,7 +927,7 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 
 	// Reverse Migration, release the AppDB Statefulset
 	if sts.Annotations[util.AppDBReverseMigrationReadyAnnotation] == trueString {
-		if ownedByThisMongoDB {
+		if ownershipLabels[util.MongoDBResourceOwnerLabel] == mdb.GetName() {
 			if err := r.releaseAppDBStatefulsetOwnership(ctx, sts); err != nil {
 				return workflow.Failed(err)
 			}
@@ -932,7 +935,7 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 		return workflow.Pending("This AppDB resource is under Reverse Migration to Ops Manager CR")
 	}
 
-	if !ownedByThisMongoDB {
+	if ownershipLabels[util.MongoDBResourceOwnerLabel] != mdb.GetName() {
 		return workflow.Pending("Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource")
 	}
 
@@ -993,8 +996,8 @@ func specCAConfigMapName(mdb *mdbv1.MongoDB) string {
 }
 
 func (r *ReplicaSetReconcilerHelper) reclaimAppDBStatefulsetOwnership(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) error {
-	sts.OwnerReferences = kube.BaseOwnerReference(mdb)
-	// stale reverse annotation cleanup
+	sts.Labels = merge.StringToStringMap(sts.Labels, mdb.GetOwnerLabels())
+	sts.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 	delete(sts.Annotations, util.AppDBReverseMigrationReadyAnnotation)
 	if err := r.reconciler.client.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to reclaim StatefulSet %s: %w", sts.GetName(), err)
@@ -1004,6 +1007,7 @@ func (r *ReplicaSetReconcilerHelper) reclaimAppDBStatefulsetOwnership(ctx contex
 }
 
 func (r *ReplicaSetReconcilerHelper) releaseAppDBStatefulsetOwnership(ctx context.Context, sts appsv1.StatefulSet) error {
+	delete(sts.Labels, util.MongoDBResourceOwnerLabel)
 	sts.OwnerReferences = nil
 	if err := r.reconciler.client.Update(ctx, &sts); err != nil {
 		return xerrors.Errorf("failed to strip OwnerReferences from StatefulSet %s: %w", sts.GetName(), err)
