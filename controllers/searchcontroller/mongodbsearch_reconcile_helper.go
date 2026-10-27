@@ -2144,7 +2144,13 @@ func ValidateX509AuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRes
 		for _, mode := range src.Spec.Security.Authentication.Modes {
 			modes = append(modes, string(mode))
 		}
+	case *externalSearchResource:
+		// The operator knows nothing about an external deployment's auth
+		// configuration; mongod rejects the SASL attempt at runtime.
+		return nil
 	default:
+		// A new internal source implementation must add an explicit case
+		// above instead of relying on this pass-through.
 		return nil
 	}
 
