@@ -217,9 +217,12 @@ func TestStaleRetryWithDigestAuth(t *testing.T) {
 			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Digest realm="test", nonce=%q, qop="auth"`, nonce))
 			w.WriteHeader(http.StatusUnauthorized)
 		case strings.Contains(authorization, `nonce="nonce-1"`):
-			// The nonce expired while the AppDB restarted.
+			// The nonce expired while the AppDB restarted. The body matches what
+			// Ops Manager returns, so the error text reaches the caller unchanged.
+			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("WWW-Authenticate", `Digest realm="test", nonce="nonce-2", qop="auth", stale=true`)
 			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":401,"reason":"Unauthorized","detail":"nonce is stale"}`))
 		case strings.Contains(authorization, `nonce="nonce-3"`):
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok"))
