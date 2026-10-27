@@ -57,18 +57,41 @@ kubectl_apply_retry() {
     done
 }
 
-# Curl wrapper with jitter and consistent retry params for CI downloads.
-# Adds 0-30s random jitter to prevent thundering herd when CI retries trigger simultaneously.
-# Time range: 0-630s (0-30s jitter + up to 600s curl timeout).
-# Set SKIP_DOWNLOAD_JITTER=1 to disable jitter (useful for local development).
+# Curl wrapper with consistent retry params for CI downloads.
+# The 0-30 s task jitter runs once per task in scripts/evergreen/download_jitter.sh,
+# which is the first command of download_kube_tools, so nothing sleeps here.
 # Usage: curl_with_retry [curl options...] URL
 curl_with_retry() {
-    if [[ "${SKIP_DOWNLOAD_JITTER:-}" != "1" ]]; then
-        local jitter=$((RANDOM % 31))
-        echo "Adding ${jitter}s jitter to spread out concurrent downloads..."
-        sleep "${jitter}"
-    fi
     curl --retry 5 --retry-delay 10 --retry-all-errors --fail-with-body --show-error --max-time 600 "$@"
+}
+
+# Runs the installer only when the tool is missing from ${PROJECT_DIR}/bin.
+# Every installer writes there, and ${PROJECT_DIR}/bin is on PATH for every
+# Evergreen function that uses these tools (add_to_path in .evergreen-functions.yml),
+# so no second copy is published and nothing needs sudo.
+#
+# The check after the install is the point: an installer that exits 0 without
+# producing a binary is a failure. The helm download in setup_evg_host.sh stayed
+# broken for exactly that reason, because nothing verified the result.
+#
+# Usage: ensure_binary <tool> <installer function>
+ensure_binary() {
+  local tool=$1
+  shift
+  local bin_dir="${PROJECT_DIR:-${workdir:?}}/bin"
+  local target="${bin_dir}/${tool}"
+
+  if [[ -x "${target}" ]]; then
+    echo "${tool} already installed in ${bin_dir}, skipping download"
+    return 0
+  fi
+
+  "$@"
+
+  if [[ ! -x "${target}" ]]; then
+    echo "ensure_binary: ${tool} is missing from ${bin_dir} after the install" >&2
+    return 1
+  fi
 }
 
 # Downloads a binary <bin> from <url> and moves it into <dir> directory.

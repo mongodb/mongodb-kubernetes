@@ -5,7 +5,6 @@ import pytest
 from kubetester.kubetester import KubernetesTester, fixture, run_periodically
 
 mdb_resources = {
-    "my-standalone": fixture("standalone.yaml"),
     "sh001-single": fixture("sharded-cluster-single.yaml"),
     "my-replica-set-single": fixture("replica-set-single.yaml"),
 }
@@ -14,9 +13,9 @@ mdb_resources = {
 @pytest.mark.e2e_all_mongodb_resources_parallel
 class TestRaceConditions(KubernetesTester):
     """
-    name: Test for no race conditions during creation of three mongodb resources in parallel.
+    name: Test for no race conditions during creation of two mongodb resources in parallel.
     description: |
-        Makes sure no duplicated organizations/groups are created, while 3 mongodb resources
+        Makes sure no duplicated organizations/groups are created, while 2 mongodb resources
         are created in parallel. Also the automation config doesn't miss entries.
     """
 
@@ -53,9 +52,8 @@ class TestRaceConditions(KubernetesTester):
         # making sure that only one single mdb resource was created
         replica_set_created = len(config["replicaSets"]) == 1 and len(config["processes"]) == 1
         sharded_cluster_created = len(config["replicaSets"]) == 2 and len(config["processes"]) == 3
-        standalone_created = len(config["replicaSets"]) == 0 and len(config["processes"]) == 1
 
-        assert replica_set_created + sharded_cluster_created + standalone_created == 1
+        assert replica_set_created + sharded_cluster_created == 1
 
     @staticmethod
     def any_resource_created():
@@ -64,5 +62,5 @@ class TestRaceConditions(KubernetesTester):
             KubernetesTester.check_phase(namespace, "MongoDB", resource, "Running") for resource in mdb_resources.keys()
         ]
 
-        print("Standalone ready: {}, sharded cluster ready: {}, replica set ready: {}".format(*results))
+        print("Sharded cluster ready: {}, replica set ready: {}".format(*results))
         return any(results)

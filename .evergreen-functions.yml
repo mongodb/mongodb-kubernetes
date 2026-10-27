@@ -111,6 +111,15 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/dev/recreate_python_venv.sh
 
+  # One random 0-30 s offset per task, before anything downloads. Hosts are not
+  # reused, so this needs no marker and no state between tasks.
+  download_jitter: &download_jitter
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/download_jitter.sh
+
   "clone":
     - command: subprocess.exec
       type: setup
@@ -128,6 +137,7 @@ functions:
       type: setup
       params:
         command: "git config --global user.email 'kubernetes-hosted-team@mongodb.com'"
+    - *download_jitter # the first download of the task is the jq below
     - *setup_jq # we need jq in the context
     - *setup_context
 
@@ -672,13 +682,13 @@ functions:
           AGENT_TOOLS_VERSION: ${agent_tools_version}
           MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
 
-  # Scans the image that was just built and pushed by the pipeline function for
-  # known CVEs using trivy, and notifies Slack when fixable CRITICAL/HIGH
-  # vulnerabilities are found on mainline (staging/release) builds. Findings
-  # without an available fix are not actionable and are omitted from the report;
-  # images with no fixable findings are not reported (no stdout, no Slack).
-  # The scan is notify-only: continue_on_err ensures it never blocks the
-  # build-and-publish flow.
+  # Scans the images that were just built and pushed for known CVEs using trivy, and
+  # notifies Slack with a single message listing the ones that have fixable vulnerabilities
+  # (one line per image with the CRITICAL/HIGH fixable count, a link to its registry entry and
+  # a link to its raw JSON report) on mainline (staging/release) builds. Use `image_names` (space-separated) to scan
+  # several images in one message, or `image_name` for a single one. Per-CVE details stay in
+  # the raw JSON uploaded to S3; images without fixable vulnerabilities are not in the message.
+  # The scan is notify-only: continue_on_err ensures it never blocks the build-and-publish flow.
   trivy_scan:
     - command: subprocess.exec
       type: setup
@@ -692,11 +702,17 @@ functions:
         binary: scripts/release/trivy_scan.sh
         env:
           IMAGE_NAME: ${image_name}
+          IMAGE_NAMES: ${image_names}
           BUILD_SCENARIO_OVERRIDE: ${build_scenario}
           AGENT_VERSION_OVERRIDE: ${agent_version}
           TRIVY_SCAN_FLAGS: ${trivy_scan_flags}
+          TRIVY_SCAN_NOTIFY: ${TRIVY_SCAN_NOTIFY}
           SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
           TASK_ID: ${task_id}
+          # Used to presign the links to the reports uploaded below. Intentionally not named
+          # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY: trivy would use them to authenticate to ECR.
+          TRIVY_REPORTS_AWS_KEY: ${enterprise_aws_access_key_id}
+          TRIVY_REPORTS_AWS_SECRET: ${enterprise_aws_secret_access_key}
     - command: s3.put
       params:
         continue_on_err: true
@@ -729,6 +745,7 @@ functions:
         add_to_path:
           - ${workdir}/bin
         command: "scripts/evergreen/generate_evergreen_expansions.sh"
+        include_expansions_in_env: [OPERATOR_VERSION]
     - command: expansions.update
       params:
         file: "src/github.com/mongodb/mongodb-kubernetes/evergreen_expansions.yaml"

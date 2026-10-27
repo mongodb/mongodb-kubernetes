@@ -362,6 +362,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-all"
+  - variant_tags: [ "e2e_test_suite !static !om7 !race" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:e2e-default"
   - variant_tags: [ "e2e_test_suite" ]
     task_tags: [ "e2e_light" ]
     required_labels:
@@ -613,9 +617,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: operator
-      - func: trivy_scan
-        vars:
-          image_name: operator
 
   - name: build_operator_race_ubi
     commands:
@@ -634,9 +635,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
-      - func: trivy_scan
-        vars:
-          image_name: init-ops-manager
 
   - name: build_agent_images_ubi
     commands:
@@ -648,11 +646,6 @@ tasks:
           image_name: agent
           agent_version: all
           flags: "--parallel"
-      - func: trivy_scan
-        vars:
-          image_name: agent
-          # only the currently used agent versions are scanned to keep scan time bounded
-          agent_version: current
 
   - name: build_init_database_image_ubi
     commands:
@@ -660,9 +653,6 @@ tasks:
       - func: setup_building_host
       - func: quay_staging_login
       - func: pipeline
-        vars:
-          image_name: init-database
-      - func: trivy_scan
         vars:
           image_name: init-database
 
@@ -674,9 +664,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: database
-      - func: trivy_scan
-        vars:
-          image_name: database
 
   - name: build_readiness_probe_image
     commands:
@@ -684,9 +671,6 @@ tasks:
       - func: setup_building_host
       - func: quay_staging_login
       - func: pipeline
-        vars:
-          image_name: readiness-probe
-      - func: trivy_scan
         vars:
           image_name: readiness-probe
 
@@ -698,9 +682,33 @@ tasks:
       - func: pipeline
         vars:
           image_name: upgrade-hook
+
+  # Single CVE scan of all the images built in init_test_run and of the Ops Manager images (7.0, 8.0 and 9.0,
+  # built in their own variants), reported in one Slack message. The OM versions are resolved by
+  # scripts/release/trivy_scan.sh. Only the currently used agent versions are scanned to keep scan time bounded.
+  - name: cve_scan_images
+    depends_on:
+      - name: build_operator_ubi
+      - name: build_init_om_images_ubi
+      - name: build_init_database_image_ubi
+      - name: build_database_image_ubi
+      - name: build_agent_images_ubi
+      - name: build_readiness_probe_image
+      - name: build_version_upgrade_hook_image
+      - name: build_om_images
+        variant: build_om70_images
+      - name: build_om_images
+        variant: build_om80_images
+      - name: build_om_images
+        variant: build_om90_images
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_staging_login
       - func: trivy_scan
         vars:
-          image_name: upgrade-hook
+          image_names: operator init-ops-manager init-database database readiness-probe upgrade-hook ops-manager agent
+          agent_version: current
 
   - name: publish_helm_chart
     commands:
@@ -756,9 +764,6 @@ tasks:
       - func: setup_building_host
       - func: quay_staging_login
       - func: pipeline
-        vars:
-          image_name: ops-manager
-      - func: trivy_scan
         vars:
           image_name: ops-manager
 
@@ -871,9 +876,6 @@ task_groups:
       - e2e_sharded_cluster_recovery
       - e2e_sharded_cluster_schema_validation
       - e2e_sharded_cluster_statefulset_status
-      - e2e_standalone_config_map
-      - e2e_standalone_recovery
-      - e2e_standalone_schema_validation
       - e2e_users_schema_validation
       - e2e_replica_set_tls_default
       - e2e_replica_set_tls_override
@@ -892,9 +894,6 @@ task_groups:
       - e2e_sharded_cluster_upgrade_downgrade
       - e2e_sharded_cluster_custom_podspec
       - e2e_sharded_cluster_agent_flags
-      - e2e_standalone_upgrade_downgrade
-      - e2e_standalone_custom_podspec
-      - e2e_standalone_agent_flags
       - e2e_replica_set_process_hostnames
       - e2e_replica_set_member_options
       # e2e_replication_state_awareness: skipped on static containers (@skip_if_static_containers) since
@@ -909,7 +908,7 @@ task_groups:
       - e2e_tls_rs_intermediate_ca
       - e2e_tls_sharded_cluster_certs_prefix
       - e2e_sharded_cluster_migration
-      - e2e_standalone_no_tls_no_status_is_set
+      - e2e_replica_set_no_tls_no_status_is_set
       - e2e_feature_controls_authentication
       - e2e_replica_set
       - e2e_replica_set_liveness_probe
@@ -1177,6 +1176,7 @@ task_groups:
       - e2e_operator_multi_namespaces
       - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
+      - e2e_standalone_to_replicaset_migration
 
   # e2e_operator_race_with_telemetry_task_group includes the tests for testing the operator with race detector enabled
   # additionally, it sends telemetry to cloud-dev; more here: https://wiki.corp.mongodb.com/display/MMS/Telemetry
@@ -1726,7 +1726,7 @@ buildvariants:
 
   - name: e2e_mdb_openshift_ubi_cloudqa
     display_name: e2e_mdb_openshift_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_openshift_test_suite", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "e2e_openshift_test_suite" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1743,7 +1743,7 @@ buildvariants:
 
   - name: e2e_static_openshift_mdb_ubi_cloudqa
     display_name: e2e_static_openshift_mdb_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_openshift_test_suite", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_openshift_test_suite" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1758,7 +1758,7 @@ buildvariants:
 
   - name: e2e_mdb_openshift_search_ubi_cloudqa
     display_name: e2e_mdb_openshift_search_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_openshift_test_suite", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "e2e_openshift_test_suite" ]
     run_on:
       - ubuntu2404-small
     <<: *base_no_om_image_dependency
@@ -2271,6 +2271,7 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
+      - name: cve_scan_images
       - name: build_kubectl_mongodb_plugin
       - name: prepare_aws
       - name: publish_helm_chart
@@ -2444,7 +2445,7 @@ buildvariants:
     tasks:
       - name: migrate_all_agents
 
-  # Runs on every merge to master and releases images auxiliary to the operator release like OM and the Agent
+  # Runs on every merge to master or a backporting branch and releases images auxiliary to the operator release like OM and the Agent
   - name: release_om_and_agents
     display_name: release_om_and_agents
     tags: [ "staging" ]
@@ -2455,7 +2456,8 @@ buildvariants:
       - name: release_om_and_agents
 
   # Notification task - runs after all staging tasks complete to report build status.
-  # Runs after all staging tests (including GKE snippets) succeed on master merge.
+  # Runs after all staging tests (including GKE snippets) succeed on a merge to
+  # master or a backporting branch.
   # Only on commit builds — see DEVPROD-27436 note on notify_master_build_status below.
   - name: mckci_release_promote
     display_name: mckci_release_promote
