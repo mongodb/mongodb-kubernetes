@@ -1,12 +1,15 @@
 import pytest
 from kubetester.kubetester import skip_if_local
 from kubetester.mongodb import MongoDB
+from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from tests.tls.managedcert_helper import (
     CA_ISSUER_REF,
     assert_leaf_certs_signed_by_its_category_ca,
     assert_leaf_secrets_created,
+    assert_reachable_with_client_certificate,
+    client_certificate_user,
     managed_cert_replica_set,
     managed_certificate_operator,
     read_ca_bundles,
@@ -28,6 +31,11 @@ def mdb(namespace: str, issuer: str, custom_mdb_version: str) -> MongoDB:
     # The server category uses the user configured issuer (ca-issuer). The client category has no
     # issuer, so the operator self-signs the client CA.
     return managed_cert_replica_set(MDB_RESOURCE, namespace, custom_mdb_version, {"server": CA_ISSUER_REF})
+
+
+@pytest.fixture(scope="module")
+def app_user(mdb: MongoDB, namespace: str) -> MongoDBUser:
+    return client_certificate_user(mdb, namespace)
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_client
@@ -60,8 +68,8 @@ def test_mdb_is_not_reachable_without_ssl(mdb: MongoDB):
 
 @pytest.mark.e2e_replica_set_tls_managedcert_client
 @skip_if_local()
-def test_mdb_is_reachable_with_ssl(mdb: MongoDB, ca_path: str):
-    mdb.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
+def test_mdb_is_reachable_with_ssl(mdb: MongoDB, app_user: MongoDBUser, namespace: str):
+    assert_reachable_with_client_certificate(mdb, app_user, namespace)
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_client
@@ -71,8 +79,8 @@ def test_scale_up(mdb: MongoDB, namespace: str):
 
 @pytest.mark.e2e_replica_set_tls_managedcert_client
 @skip_if_local()
-def test_reachable_with_ssl_after_scale_up(mdb: MongoDB, ca_path: str):
-    mdb.tester(use_ssl=True, ca_path=ca_path).assert_connectivity()
+def test_reachable_with_ssl_after_scale_up(mdb: MongoDB, app_user: MongoDBUser, namespace: str):
+    assert_reachable_with_client_certificate(mdb, app_user, namespace)
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_client
