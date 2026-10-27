@@ -2,7 +2,6 @@
 """
 Tests for scripts.release.agent.agents_to_rebuild.py
 """
-
 import unittest
 from unittest.mock import patch
 

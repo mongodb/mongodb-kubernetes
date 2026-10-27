@@ -5,10 +5,7 @@ from typing import Optional
 import kubernetes
 import kubernetes.client
 from kubetester import delete_statefulset, get_statefulset, read_configmap, try_load, update_configmap
-from kubetester.kubetester import (
-    KubernetesTester,
-    ensure_ent_version,
-)
+from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import (
     get_env_var_or_fail,

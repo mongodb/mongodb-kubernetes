@@ -13,7 +13,6 @@ skip_if_exists handles already-published images.
 Usage:
     python release_om_and_agents.py [--dry-run]
 """
-
 import argparse
 import json
 import logging
