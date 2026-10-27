@@ -12,6 +12,7 @@ from kubernetes.client.rest import ApiException
 from kubetester import create_or_update_configmap
 from kubetester.kubetester import KubernetesTester
 from kubetester.mongodb import MongoDB
+from kubetester.omtester import OMTester
 
 # Annotation that triggers migration dry-run (connectivity validation only, no OM/StatefulSet changes).
 MIGRATION_DRY_RUN_ANNOTATION = "mongodb.com/migration-dry-run"
@@ -201,6 +202,38 @@ def wait_until_phase_and_migrating_condition_reason(
         return mig is not None and mig.get("status") == "True" and mig.get("reason") == migrating_reason
 
     KubernetesTester.wait_until(_ok, timeout=timeout)
+
+
+def wait_until_external_member_pruned(
+    mdb: MongoDB, om_tester: OMTester, process_name: str, *, is_last: bool, timeout: int = 600
+) -> None:
+    """Poll until the CR is current and the removed external process is gone from OM.
+
+    The OM automation config is the durable source of truth. ``Pruning``/``InProgress`` are
+    status-only spec-delta reasons and are not used here. The observedGeneration check ensures
+    the status belongs to the current spec revision.
+    """
+
+    def _external_member_pruned() -> bool:
+        mdb.load()
+        s = _status_dict(mdb)
+        if s.get("phase") != "Running":
+            return False
+        if s.get("observedGeneration") != mdb["metadata"].get("generation"):
+            return False
+        processes = om_tester.get_automation_config_tester().get_all_processes()
+        if any(p.get("name") == process_name for p in processes):
+            return False
+        if is_last:
+            mig = _get_condition(s.get("conditions", []), CONDITION_MIGRATING)
+            return (
+                mig is not None
+                and mig.get("status") == "False"
+                and mig.get("reason") == MIGRATING_CONDITION_REASON_COMPLETE
+            )
+        return True
+
+    KubernetesTester.wait_until(_external_member_pruned, timeout=timeout, sleep_time=5)
 
 
 def wait_until_running_and_migration_in_progress(mdb: MongoDB, *, timeout: int = 600) -> None:

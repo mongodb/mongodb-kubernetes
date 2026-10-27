@@ -111,6 +111,15 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/dev/recreate_python_venv.sh
 
+  # One random 0-30 s offset per task, before anything downloads. Hosts are not
+  # reused, so this needs no marker and no state between tasks.
+  download_jitter: &download_jitter
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      binary: scripts/evergreen/download_jitter.sh
+
   "clone":
     - command: subprocess.exec
       type: setup
@@ -128,6 +137,7 @@ functions:
       type: setup
       params:
         command: "git config --global user.email 'kubernetes-hosted-team@mongodb.com'"
+    - *download_jitter # the first download of the task is the jq below
     - *setup_jq # we need jq in the context
     - *setup_context
 
@@ -288,6 +298,18 @@ functions:
         - ${workdir}/bin
       binary: scripts/evergreen/setup_prek.sh
 
+  setup_evergreen_cli: &setup_evergreen_cli
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - EVERGREEN_USER
+        - EVERGREEN_API_KEY
+      command: scripts/evergreen/setup_evergreen_cli.sh
+
   lint_repo:
     - command: subprocess.exec
       type: setup
@@ -298,16 +320,7 @@ functions:
         command: scripts/evergreen/setup_yq.sh
     - *setup_chart_testing_cli
     - *setup_prek
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        add_to_path:
-          - ${workdir}/bin
-        include_expansions_in_env:
-          - EVERGREEN_USER
-          - EVERGREEN_API_KEY
-        command: scripts/evergreen/setup_evergreen_cli.sh
+    - *setup_evergreen_cli
     - command: subprocess.exec
       type: test
       params:
@@ -735,6 +748,7 @@ functions:
         add_to_path:
           - ${workdir}/bin
         command: "scripts/evergreen/generate_evergreen_expansions.sh"
+        include_expansions_in_env: [OPERATOR_VERSION]
     - command: expansions.update
       params:
         file: "src/github.com/mongodb/mongodb-kubernetes/evergreen_expansions.yaml"

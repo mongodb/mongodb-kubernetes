@@ -410,7 +410,9 @@ def test_migration_dry_run_connectivity_passes(mdb_migration: MongoDB):
 
 @mark.e2e_vm_migration_replicaset_scram_sha256
 def test_migrate_vm_to_kubernetes(mdb_migration: MongoDB):
-    mdb_migration.assert_reaches_phase(Phase.Running, timeout=1200)
+    # Five K8s members are added one per reconcile. With SCRAM authentication,
+    # the scale-up can exceed the old 1200-second bound.
+    mdb_migration.assert_reaches_phase(Phase.Running, timeout=2400)
     assert_connection_string_contains_current_hosts(mdb_migration)
 
 

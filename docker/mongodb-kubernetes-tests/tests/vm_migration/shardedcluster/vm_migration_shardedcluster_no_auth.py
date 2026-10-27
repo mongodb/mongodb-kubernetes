@@ -117,8 +117,9 @@ def generated_cr(generated_cr_yaml: str) -> dict:
 @fixture(scope="module")
 def mdb_migration(namespace: str, generated_cr_yaml: str) -> MongoDB:
     # Start VM-only (all K8s node counts == 0) so this scenario exercises the incremental extend flow:
-    # K8s members are grown one at a time across config server, shard, and mongos, asserting the
-    # Migrating reasons Extending/Pruning/InProgress/MigrationComplete.
+    # K8s members are grown one at a time across config server, shard, and mongos. Extending,
+    # InProgress, and MigrationComplete are asserted from status; each removed VM is verified against
+    # the OM automation config.
     return apply_generated_sharded_cluster_resource(
         namespace,
         generated_cr_yaml,

@@ -1007,6 +1007,142 @@ func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
 	}
 }
 
+func TestMultiClusterShardedShardRemovalCleansUpOpsManagerAndClearsRecord(t *testing.T) {
+	memberClusters := test.NewMemberClusters(
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-1",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 2,
+			NumberOfMongoses:      2,
+		},
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-2",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 1,
+			NumberOfMongoses:      1,
+		},
+	)
+
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		WithMultiClusterSetup(memberClusters).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	removedShardRs := sc.ShardACRsName(1)
+	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	require.NotNil(t, mockedConn.GetDeployment().GetReplicaSetByName(removedShardRs))
+
+	sc.Spec.ShardCount = 1
+	require.NoError(t, kubeClient.Update(ctx, sc))
+	for range 5 {
+		_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, sc.ObjectKey(), sc))
+		if sc.Status.Phase == status.PhaseRunning && sc.Status.ShardCount == 1 {
+			break
+		}
+	}
+	require.Equal(t, status.PhaseRunning, sc.Status.Phase, sc.Status.Message)
+
+	assert.Nil(t, mockedConn.GetDeployment().GetReplicaSetByName(removedShardRs))
+	assert.Equal(t, 0, mockedConn.GetDeployment().GetNumberOfExcessProcesses(sc.GetShardedClusterName(), nil))
+	_, helper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
+	assert.Empty(t, helper.deploymentState.ShardsInRemoval)
+}
+
+func TestMultiClusterShardedFinishesShardRemovalWhenOpsManagerClearedDraining(t *testing.T) {
+	for name, tc := range map[string]struct {
+		recordShardInRemoval bool
+		expectedPhase        status.Phase
+	}{
+		"removal recorded in state": {recordShardInRemoval: true, expectedPhase: status.PhaseRunning},
+		"removal not recorded":      {recordShardInRemoval: false, expectedPhase: status.PhasePending},
+	} {
+		t.Run(name, func(t *testing.T) {
+			memberClusters := test.NewMemberClusters(
+				test.MemberClusterDetails{
+					ClusterName:           "member-cluster-1",
+					ShardMap:              []int{2, 3},
+					NumberOfConfigServers: 2,
+					NumberOfMongoses:      2,
+				},
+				test.MemberClusterDetails{
+					ClusterName:           "member-cluster-2",
+					ShardMap:              []int{2, 3},
+					NumberOfConfigServers: 1,
+					NumberOfMongoses:      1,
+				},
+			)
+
+			ctx := context.Background()
+			sc := test.DefaultClusterBuilder().
+				WithMultiClusterSetup(memberClusters).
+				Build()
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+			kubeClient := kubernetesClient.NewClient(fakeClient)
+			memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+			reconciler, helper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+			require.NoError(t, err)
+			clusterMapping := helper.deploymentState.ClusterMapping
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+				connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+			})
+			checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+			conn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+			removedShardRs := sc.ShardACRsName(1)
+
+			dep := conn.GetDeployment()
+			dropLastShardFromShardingSection(t, dep)
+
+			if tc.recordShardInRemoval {
+				state, err := helper.stateStore.ReadState(ctx)
+				require.NoError(t, err)
+				state.ShardsInRemoval = []string{removedShardRs}
+				require.NoError(t, helper.stateStore.WriteState(ctx, state, zap.S()))
+			}
+
+			sc.Spec.ShardCount = 1
+			require.NoError(t, kubeClient.Update(ctx, sc))
+			for range 5 {
+				_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+				require.NoError(t, err)
+				require.NoError(t, kubeClient.Get(ctx, sc.ObjectKey(), sc))
+				if sc.Status.Phase == status.PhaseRunning {
+					break
+				}
+			}
+
+			assert.Equal(t, tc.expectedPhase, sc.Status.Phase, sc.Status.Message)
+			if tc.recordShardInRemoval {
+				assert.Nil(t, dep.GetReplicaSetByName(removedShardRs))
+				assert.Equal(t, 0, dep.GetNumberOfExcessProcesses(sc.GetShardedClusterName(), nil))
+			} else {
+				assert.NotNil(t, dep.GetReplicaSetByName(removedShardRs))
+			}
+		})
+	}
+}
+
 func createExpectedHostnameOverrideMap(sc *mdbv1.MongoDB, clusterMapping map[string]int, mongosDistribution map[string]int, configSrvDistribution map[string]int, shardDistribution []map[string]int, clusterDomains test.ClusterDomains, externalClusterDomains test.ClusterDomains) map[string]string {
 	expectedHostnameOverrideMap := map[string]string{}
 	allHostnames, allPodNames := generateAllHosts(sc, mongosDistribution, clusterMapping, configSrvDistribution, shardDistribution, clusterDomains, externalClusterDomains)

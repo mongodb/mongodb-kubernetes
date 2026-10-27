@@ -362,6 +362,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-all"
+  - variant_tags: [ "e2e_test_suite !static !om7 !race" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:e2e-default"
   - variant_tags: [ "e2e_test_suite" ]
     task_tags: [ "e2e_light" ]
     required_labels:
@@ -484,6 +488,7 @@ tasks:
           expansion_name: GH_TOKEN
       - func: setup_chart_testing_cli
       - func: setup_prek
+      - func: setup_evergreen_cli
       - command: subprocess.exec
         type: setup
         params:
@@ -1296,6 +1301,9 @@ task_groups:
       - e2e_multi_cluster_appdb_validation
       - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
+      - e2e_om_external_multi_cluster_appdb_fresh
+      - e2e_om_external_multi_cluster_appdb_forward
+      - e2e_om_external_multi_cluster_appdb_backup_and_restore
       - e2e_multi_cluster_appdb_cleanup
       - e2e_multi_cluster_appdb_s3_based_backup_restore
       - e2e_multi_cluster_appdb_disaster_recovery
@@ -1722,7 +1730,7 @@ buildvariants:
 
   - name: e2e_mdb_openshift_ubi_cloudqa
     display_name: e2e_mdb_openshift_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_openshift_test_suite", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "e2e_openshift_test_suite" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1739,7 +1747,7 @@ buildvariants:
 
   - name: e2e_static_openshift_mdb_ubi_cloudqa
     display_name: e2e_static_openshift_mdb_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_openshift_test_suite", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_openshift_test_suite" ]
     depends_on:
       - name: build_operator_ubi
         variant: init_test_run
@@ -1754,7 +1762,7 @@ buildvariants:
 
   - name: e2e_mdb_openshift_search_ubi_cloudqa
     display_name: e2e_mdb_openshift_search_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_openshift_test_suite", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "e2e_openshift_test_suite" ]
     run_on:
       - ubuntu2404-small
     <<: *base_no_om_image_dependency

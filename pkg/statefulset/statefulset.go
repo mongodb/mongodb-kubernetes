@@ -2,6 +2,7 @@ package statefulset
 
 import (
 	"context"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -305,4 +306,10 @@ func ResetUpdateStrategy(ctx context.Context, mdb annotations.Versioned, kubeCli
 		sts.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
 	})
 	return err
+}
+
+func IsOwnedBy(sts *appsv1.StatefulSet, owner metav1.Object) bool {
+	return slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.UID == owner.GetUID()
+	})
 }
