@@ -488,6 +488,7 @@ tasks:
           expansion_name: GH_TOKEN
       - func: setup_chart_testing_cli
       - func: setup_prek
+      - func: setup_evergreen_cli
       - command: subprocess.exec
         type: setup
         params:
