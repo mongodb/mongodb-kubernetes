@@ -29,8 +29,10 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -2461,6 +2463,61 @@ func TestEnsureAppDBStatefulSetOwnership_ClaimsSharedSecretsOnAdoption(t *testin
 		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, name), &s))
 		require.Len(t, s.OwnerReferences, 1, name)
 		assert.Equal(t, testOm.UID, s.OwnerReferences[0].UID, "secret %s must be claimed by the OM at adoption", name)
+	}
+}
+
+type unauthorizedGetHostsOMConnection struct {
+	*om.MockedOmConnection
+}
+
+func (c unauthorizedGetHostsOMConnection) GetHosts(context.Context) (*host.Result, error) {
+	return nil, errors.New(unauthorizedOMError)
+}
+
+const unauthorizedOMError = "Status: 401 (Unauthorized), Detail: You are not authorized for this resource."
+
+func TestReconcileAppDB_DeploysAppDBWhenOpsManagerReturnsUnauthorized(t *testing.T) {
+	tests := map[string]struct {
+		unauthorized            bool
+		expectedOMStatusPhase   status.Phase
+		expectedOMStatusMessage string
+	}{
+		"Ops Manager reachable": {
+			unauthorized: false,
+		},
+		"Ops Manager returns 401": {
+			unauthorized:            true,
+			expectedOMStatusPhase:   status.PhaseFailed,
+			expectedOMStatusMessage: "The admin-key secret might be corrupted: error registering hosts with project: error fetching existing hosts: " + unauthorizedOMError,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			opsManager := DefaultOpsManagerBuilder().Build()
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+			connectionFunc := omConnectionFactory.GetConnectionFunc
+			if tc.unauthorized {
+				connectionFunc = func(omContext *om.OMContext) om.Connection {
+					return unauthorizedGetHostsOMConnection{omConnectionFactory.GetConnectionFunc(omContext).(*om.MockedOmConnection)}
+				}
+			}
+			reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, connectionFunc, zap.S())
+			require.NoError(t, err)
+			require.NoError(t, createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "password"))
+			createOMAPIKeySecret(ctx, t, reconciler.SecretClient, opsManager)
+
+			_, err = reconciler.ReconcileAppDB(ctx, opsManager)
+			require.NoError(t, err)
+
+			sts := &appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()), sts))
+
+			updated := &omv1.MongoDBOpsManager{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Name), updated))
+			assert.Equal(t, tc.expectedOMStatusPhase, updated.Status.OpsManagerStatus.Phase)
+			assert.Equal(t, tc.expectedOMStatusMessage, updated.Status.OpsManagerStatus.Message)
+		})
 	}
 }
 
