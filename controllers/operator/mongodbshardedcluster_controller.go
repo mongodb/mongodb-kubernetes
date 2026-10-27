@@ -98,9 +98,15 @@ type ReconcileMongoDbShardedCluster struct {
 	agentDebugImage     string
 	backupEnableDelay   time.Duration
 	defaultArchitecture architectures.DefaultArchitecture
+
+	// certManagerReady is decided once at startup: the cert-manager CRDs are installed, the chart
+	// installed the managed-certificate RBAC, and the operator has authz to manage certificates and
+	// issuers. The managed-certificate path fails with a clear message when it is false, instead of
+	// trying and getting a permission error.
+	certManagerReady bool
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, certManagerReady bool) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -116,6 +122,8 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 		agentDebugImage:     agentDebugImage,
 		backupEnableDelay:   backupEnableDelay,
 		defaultArchitecture: defaultArchitecture,
+
+		certManagerReady: certManagerReady,
 	}
 }
 
@@ -642,6 +650,10 @@ type ShardedClusterReconcileHelper struct {
 
 	// This parameter helps us decide whether write operations should be conducted in the constructor.
 	readOnly bool
+
+	// certManagerReady is decided once at startup, see ReconcileMongoDbShardedCluster. The managed
+	// certificate path fails with a clear message when it is false.
+	certManagerReady bool
 }
 
 func NewReadOnlyClusterReconcilerHelper(
@@ -652,8 +664,10 @@ func NewReadOnlyClusterReconcilerHelper(
 	log *zap.SugaredLogger,
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
+	// This helper only reads the deployment state, it never issues certificates, so certManagerReady
+	// stays false.
 	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false, false, false, "",
-		architectures.NonStatic, sc, globalMemberClustersMap, nil, log, true, backupEnableDelay)
+		architectures.NonStatic, sc, globalMemberClustersMap, nil, log, true, backupEnableDelay, false)
 }
 
 func NewShardedClusterReconcilerHelper(
@@ -672,9 +686,10 @@ func NewShardedClusterReconcilerHelper(
 	omConnectionFactory om.ConnectionFactory,
 	log *zap.SugaredLogger,
 	backupEnableDelay time.Duration,
+	certManagerReady bool,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
-		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay)
+		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay, certManagerReady)
 }
 
 func newShardedClusterReconcilerHelper(
@@ -694,6 +709,7 @@ func newShardedClusterReconcilerHelper(
 	log *zap.SugaredLogger,
 	readOnly bool,
 	backupEnableDelay time.Duration,
+	certManagerReady bool,
 ) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
@@ -717,7 +733,8 @@ func newShardedClusterReconcilerHelper(
 		backupEnableDelay:   backupEnableDelay,
 		defaultArchitecture: defaultArchitecture,
 
-		readOnly: readOnly,
+		readOnly:         readOnly,
+		certManagerReady: certManagerReady,
 	}
 
 	helper.sc = sc
@@ -852,7 +869,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcile.Result{}, nil
 	}
 
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	// warn if managedCertificate.client is set but not really required/used by the operator
+	sc.SetWarnings(certs.UnusedClientConfigured(sc))
+
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReady)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -867,7 +887,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
 		return nil
 	}
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReady)
 	if err != nil {
 		return err
 	}
@@ -1227,6 +1247,32 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.LogLevel)
 
+	// When managedCertificate is enabled, issue and wait for the cert-manager Certificates for
+	// every sharded component (mongos, config server, each shard). EnsureCertificatesAndCA loops
+	// over all component Options and populates the single per-resource CA trust bundle.
+	if sc.GetSecurity().IsManagedCertificateEnabled() {
+		if !r.certManagerReady {
+			return workflow.Failed(xerrors.Errorf(
+				"It looks like the operator doesn't have authz to manage cert-manager resources, it's required for managedCertificate feature to work."))
+		}
+
+		status, certsCondition := certs.EnsureCertificatesAndCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log)
+		sc.SetStatusCondition(certsCondition)
+		if !status.IsOK() {
+			return status
+		}
+
+		// The pods run in the member clusters, but the operator creates the CA bundles only in its own
+		// cluster, so they have to be copied over for the pods to trust the deployment's CAs.
+		if sc.Spec.IsMultiCluster() {
+			replicateStatus := certs.ReplicateManagedCABundlesToMemberClusters(
+				ctx, r.commonController.client, sc.Namespace, r.managedCABundleNames(), r.managedCABundleTargets(), sc.GetOwnerLabels(), log)
+			if !replicateStatus.IsOK() {
+				return replicateStatus
+			}
+		}
+	}
+
 	workflowStatus := r.ensureSSLCertificates(ctx, sc, log)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
@@ -1314,20 +1360,20 @@ func (r *ShardedClusterReconcileHelper) prepareX509CertConfigurator(memberCluste
 	for shardIdx := range r.desiredShardsConfiguration {
 		for _, shardMemberCluster := range r.shardsMemberClustersMap[shardIdx] {
 			if shardMemberCluster.Name == memberCluster.Name {
-				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.GetExternalDomain(), r.GetShardScaler(shardIdx, shardMemberCluster)))
+				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, shardMemberCluster.Name), r.GetShardScaler(shardIdx, shardMemberCluster)))
 			}
 		}
 	}
 
 	for _, configSrvMemberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		if memberCluster.Name == configSrvMemberCluster.Name {
-			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.GetExternalDomain(), r.GetConfigSrvScaler(configSrvMemberCluster)))
+			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, configSrvMemberCluster.Name), r.GetConfigSrvScaler(configSrvMemberCluster)))
 		}
 	}
 
 	for _, mongosMemberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		if memberCluster.Name == mongosMemberCluster.Name {
-			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.GetExternalDomain(), r.GetMongosScaler(mongosMemberCluster)))
+			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, mongosMemberCluster.Name), r.GetMongosScaler(mongosMemberCluster)))
 		}
 	}
 
@@ -1444,20 +1490,20 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		mongosCert := certs.MongosConfig(*s, r.sc.Spec.GetExternalDomain(), r.GetMongosScaler(memberCluster))
+		mongosCert := certs.MongosConfig(*s, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name), r.GetMongosScaler(memberCluster))
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, mongosCert, log)
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetConfigSrvScaler(memberCluster))
+		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name), r.GetConfigSrvScaler(memberCluster))
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, configSrvCert, log)
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[i]) {
-			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetShardScaler(i, memberCluster))
+			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name), r.GetShardScaler(i, memberCluster))
 			tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, shardCert, log)
 			workflowStatus = workflowStatus.Merge(tStatus)
 		}
@@ -1862,7 +1908,11 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 
 func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
+	// Make sure cert-manager is installed and the operator has the RBAC the managed-certificate
+	// feature needs. It is checked once here, at startup, and the reconcile path fails with a clear
+	// message when it is false.
+	certManagerReady := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, certManagerReady)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -1954,6 +2004,108 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	zap.S().Infof("Registered controller %s", util.MongoDbShardedClusterController)
 
 	return nil
+}
+
+// managedCertOptions returns the certificate Options for every sharded component: mongos, the
+// config server, and each shard.
+//
+// In a single cluster sharded cluster every component lives in the one cluster, so each component
+// gets its own Options. In a multi-cluster sharded cluster one component runs in several member
+// clusters and all of them share that component's certificate, so the component gets a single
+// Options carrying every member cluster it runs in. That makes the certificate's names the union
+// across those clusters, instead of one cluster's certificate overwriting another's.
+func (r *ShardedClusterReconcileHelper) managedCertOptions() []certs.Options {
+	if !r.sc.Spec.IsMultiCluster() {
+		// One member cluster, the operator's own. Each component gets its own certificate for it.
+		var opts []certs.Options
+		for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
+			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name), r.GetMongosScaler(memberCluster)))
+		}
+		for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
+			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name), r.GetConfigSrvScaler(memberCluster)))
+		}
+		for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
+			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
+				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name), r.GetShardScaler(shardIdx, memberCluster)))
+			}
+		}
+		return opts
+	}
+
+	opts := []certs.Options{
+		certs.MultiShardedComponentManagedCertConfig(
+			*r.sc,
+			r.sc.MongosRsName(),
+			r.managedMemberClusters(r.sc.Spec.MongosSpec, mdbv1.TierMongos, r.mongosMemberClusters, r.GetMongosScaler),
+		),
+		certs.MultiShardedComponentManagedCertConfig(
+			*r.sc,
+			r.sc.ConfigRsName(),
+			r.managedMemberClusters(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, r.configSrvMemberClusters, r.GetConfigSrvScaler),
+		),
+	}
+	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
+		opts = append(opts, certs.MultiShardedComponentManagedCertConfig(
+			*r.sc,
+			r.sc.ShardName(shardIdx),
+			r.managedMemberClusters(r.sc.Spec.ShardSpec, mdbv1.TierShard, r.shardsMemberClustersMap[shardIdx], func(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
+				return r.GetShardScaler(shardIdx, memberCluster)
+			})),
+		)
+	}
+	return opts
+}
+
+// managedCABundleNames returns the CA bundle ConfigMaps the operator creates for a sharded cluster.
+// The server bundle is always created, the client bundle only when the deployment uses x509 client
+// certificates.
+func (r *ShardedClusterReconcileHelper) managedCABundleNames() []string {
+	names := []string{certs.ManagedServerCABundleConfigMapName(r.sc.Name)}
+	if r.sc.Spec.GetSecurity().RequiresX509ClientCerts() {
+		names = append(names, certs.ManagedClientCABundleConfigMapName(r.sc.Name))
+	}
+	return names
+}
+
+// managedCABundleTargets returns the member clusters the CA bundles are copied to, the clusters that
+// are up, because a cluster the operator cannot reach cannot be written to.
+func (r *ShardedClusterReconcileHelper) managedCABundleTargets() []certs.MemberClusterTarget {
+	healthy := getHealthyMemberClusters(r.allMemberClusters)
+	targets := make([]certs.MemberClusterTarget, 0, len(healthy))
+	for _, memberCluster := range healthy {
+		targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
+	}
+	return targets
+}
+
+// managedMemberClusters turns the member clusters that run one component into the list the
+// certificate builder needs.
+//
+// It uses every member cluster, not only the healthy ones. The certificate's never-shrink
+// annotation only remembers the clusters that are in the list, so leaving an unreachable cluster
+// out would drop its names from the certificate and issue it twice, once when the cluster goes away
+// and once when it comes back.
+//
+// For each cluster it covers the larger of the members that are there now and the members the spec
+// asks for, so a scale up covers the target in one go and the certificate is issued once rather
+// than once per member.
+func (r *ShardedClusterReconcileHelper) managedMemberClusters(
+	component *mdbv1.ShardedClusterComponentSpec,
+	tier mdbv1.ShardedClusterTier,
+	memberClusters []multicluster.MemberCluster,
+	scaler func(multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler,
+) []certs.MemberCluster {
+	out := make([]certs.MemberCluster, 0, len(memberClusters))
+	for _, memberCluster := range memberClusters {
+		s := scaler(memberCluster)
+		out = append(out, certs.MemberCluster{
+			ClusterNum:     memberCluster.Index,
+			ClusterName:    memberCluster.Name,
+			Members:        max(s.CurrentReplicas(), s.TargetReplicas()),
+			ExternalDomain: r.sc.Spec.EffectiveExternalDomain(component, tier, memberCluster.Name),
+		})
+	}
+	return out
 }
 
 func (r *ShardedClusterReconcileHelper) getConfigSrvHostnames(memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
