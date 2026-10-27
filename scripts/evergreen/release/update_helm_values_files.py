@@ -7,6 +7,7 @@ Note, that the script must be called from the root of the project
 Usage:
     update_helm_values_files.py
 """
+
 import json
 import sys
 from typing import List

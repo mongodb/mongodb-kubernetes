@@ -17,7 +17,7 @@ pycognito==2024.5.1
 PyYAML==6.0.3
 urllib3==2.8.0
 cryptography==50.0.2
-python-dateutil==3.0.0
+python-dateutil==2.9.0.post0
 python-ldap==3.4.8
 GitPython==3.2.1
 setuptools>=84.2.1 # not directly required, pinned by Snyk to avoid a vulnerability

@@ -13,8 +13,7 @@ import pytest
 
 HELPER = Path(__file__).resolve().parents[1] / "contexts" / "select_quay_credentials.sh"
 
-SCRIPT_TEMPLATE = dedent(
-    """\
+SCRIPT_TEMPLATE = dedent("""\
     #!/usr/bin/env bash
     set -Eeou pipefail
     source "{helper}"
@@ -25,8 +24,7 @@ SCRIPT_TEMPLATE = dedent(
     select_quay_credentials "{scenario}"
     echo "$quay_username"
     echo "$quay_password"
-    """
-)
+    """)
 
 
 def run_selection(scenario: str) -> tuple[str, str]:
@@ -78,14 +76,12 @@ def test_select_quay_credentials(scenario, want_user, want_password):
 
 
 def test_unset_values_default_to_empty():
-    script = dedent(
-        f"""\
+    script = dedent(f"""\
         #!/usr/bin/env bash
         set -Eeou pipefail
         source "{HELPER}"
         select_quay_credentials "release"
         echo "[$quay_username|$quay_password]"
-        """
-    )
+        """)
     out = subprocess_run(script).strip()
     assert out == "[|]"

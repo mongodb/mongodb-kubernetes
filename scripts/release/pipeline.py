@@ -204,9 +204,7 @@ def _setup_tracing():
 
     # Import lazily to avoid loading grpcio C extension when tracing is not used.
     # grpcio registers at exit handlers that segfault on s390x + Python 3.13.
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
-        OTLPSpanExporter as OTLPSpanGrpcExporter,
-    )
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as OTLPSpanGrpcExporter  # noqa: PLC0415
 
     logger.info(f"parent_id is {parent_id}")
     logger.info(f"trace_id is {trace_id}")
