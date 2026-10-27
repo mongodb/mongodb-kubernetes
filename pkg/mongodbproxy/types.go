@@ -64,8 +64,6 @@ type Other struct {
 	ConfigExpandRest bool `json:"configExpandRest,omitempty"`
 	// Restore adds "--restore" (restore from a selective backup).
 	Restore bool `json:"restore,omitempty"`
-	// MagicRestore adds "--magicRestore".
-	MagicRestore bool `json:"magicRestore,omitempty"`
 	// ConfigOnly adds "--configOnly".
 	ConfigOnly bool `json:"configOnly,omitempty"`
 	// ShardMaintenanceReplSet, when set, adds "--replicaSetConfigShardMaintenanceMode --replSet <name>".

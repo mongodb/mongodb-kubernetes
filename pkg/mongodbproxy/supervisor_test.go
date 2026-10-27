@@ -220,12 +220,12 @@ func TestTypedSettingsAreTurnedIntoFlags(t *testing.T) {
 	e, err := f.sup.Start(StartRequest{
 		ConfigPath: cfg,
 		Role:       RoleMain,
-		Other:      Other{ConfigExpandRest: true, Restore: true, ShardMaintenanceReplSet: "cs0", MagicRestore: true, ConfigOnly: true},
+		Other:      Other{ConfigExpandRest: true, Restore: true, ShardMaintenanceReplSet: "cs0", ConfigOnly: true},
 	})
 	require.NoError(t, err)
 	waitDone(t, e)
 	assert.Contains(t, f.sup.Status().Output,
-		"ARGS: -f "+cfg+" --configExpand rest --restore --replicaSetConfigShardMaintenanceMode --replSet cs0 --magicRestore --configOnly")
+		"ARGS: -f "+cfg+" --configExpand rest --restore --replicaSetConfigShardMaintenanceMode --replSet cs0 --configOnly")
 }
 
 func TestNumaInterleaveRunsUnderNumactl(t *testing.T) {

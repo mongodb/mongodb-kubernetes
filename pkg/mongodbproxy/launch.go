@@ -59,9 +59,6 @@ func (r StartRequest) validate() (launchSpec, error) {
 	if o.ShardMaintenanceReplSet != "" {
 		args = append(args, "--replicaSetConfigShardMaintenanceMode", "--replSet", o.ShardMaintenanceReplSet)
 	}
-	if o.MagicRestore {
-		args = append(args, "--magicRestore")
-	}
 	if o.ConfigOnly {
 		args = append(args, "--configOnly")
 	}
