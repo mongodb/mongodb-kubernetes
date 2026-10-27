@@ -33,6 +33,23 @@ EOF
 
 }
 
+wait_for_service_account_token() {
+  local context=${1}
+  local secret_name=${2}
+  local token
+  # the token controller populates .data.token asynchronously after the secret is created
+  for _ in {1..10}; do
+    token="$(kubectl --context "${context}" get secret "${secret_name}" -o jsonpath='{ .data.token }' -n "${NAMESPACE}" | base64 -d)"
+    if [[ -n "${token}" ]]; then
+      echo "${token}"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Error: .data.token not populated for secret ${secret_name} in cluster ${context}" >&2
+  return 1
+}
+
 configure_multi_cluster_environment() {
   echo "Running a multi cluster test, configuring e2e roles in all clusters and kubeconfig secret."
 
@@ -145,7 +162,7 @@ EOF
   fi
 
   local central_cluster_token
-  central_cluster_token="$(kubectl --context "${CENTRAL_CLUSTER}" get secret "${secret_name}" -o jsonpath='{ .data.token}' -n "${NAMESPACE}" | base64 -d)"
+  central_cluster_token="$(wait_for_service_account_token "${CENTRAL_CLUSTER}" "${secret_name}")" || exit 1
   echo "Creating Multi Cluster configuration secret"
 
   configuration_params=(
@@ -164,18 +181,8 @@ EOF
       create_service_account_token_secret "${member_cluster}" "${service_account_name}" "${secret_name}"
     fi
 
-    # Retry up to 10 times if .data.token is not yet populated
-    for _ in {1..10}; do
-      member_cluster_token="$(kubectl --context "${member_cluster}" get secret "${secret_name}" -o jsonpath='{ .data.token }' -n "${NAMESPACE}" | base64 -d)"
-      if [[ -n "${member_cluster_token}" ]]; then
-        break
-      fi
-      sleep 1
-    done
-    if [[ -z "${member_cluster_token}" ]]; then
-      echo "Error: .data.token not populated for secret ${secret_name} in cluster ${member_cluster}"
-      exit 1
-    fi
+    local member_cluster_token
+    member_cluster_token="$(wait_for_service_account_token "${member_cluster}" "${secret_name}")" || exit 1
     # for 2 cluster tests central cluster is the first member, so we cannot add this as it will result in duplicate key and error in create secret
     if [[ "${member_cluster}" != "${CENTRAL_CLUSTER}" ]]; then
       configuration_params+=(
