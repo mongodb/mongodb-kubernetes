@@ -377,7 +377,11 @@ github_pr_aliases:
   - variant_tags: [ "e2e_test_suite" ]
     task: "e2e_search_.*"
     required_labels:
-      - "evergreen:e2e-search"
+      - "evergreen:e2e-search-all"
+  - variant: "^(e2e_mdb_kind_ubi_cloudqa_large|e2e_multi_cluster_2_clusters)$"
+    task: "e2e_search_.*"
+    required_labels:
+      - "evergreen:e2e-search-light"
   - variant_tags: [ "om7" ]
     task: ".*"
     required_labels:
