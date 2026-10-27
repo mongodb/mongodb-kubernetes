@@ -297,6 +297,29 @@ func MultiReplicaSetManagedCertConfig(mdbm mdbmulti.MongoDBMultiCluster, cluster
 	}
 }
 
+// MultiShardedComponentManagedCertConfig builds the single Options type for the managed member
+// certificate of one sharded component (mongos, the config server, or one shard) in a multi-cluster
+// sharded cluster. Every member cluster that runs that component shares the one certificate, so its
+// SANs are the union across those clusters.
+//
+// baseName is the component's hostname base, MongosRsName(), ConfigRsName() or ShardName(i), not
+// the per-cluster StatefulSet name: the pods are addressed as
+// <baseName>-<cluster index>-<pod>-svc.<namespace>.svc.<clusterDomain>, so passing the StatefulSet
+// name would put the cluster index in the hostname twice.
+func MultiShardedComponentManagedCertConfig(sc mdbv1.MongoDB, baseName string, clusters []MemberCluster) Options {
+	return Options{
+		ResourceName:                 baseName,
+		CertSecretName:               sc.GetSecurity().MemberCertificateSecretName(baseName),
+		InternalClusterSecretName:    sc.GetSecurity().InternalClusterAuthSecretName(baseName),
+		Namespace:                    sc.Namespace,
+		ClusterDomain:                sc.Spec.GetClusterDomain(),
+		Topology:                     mdbv1.ClusterTopologyMultiCluster,
+		OwnerReference:               sc.GetOwnerReferences(),
+		MultiClusterMembers:          clusters,
+		additionalCertificateDomains: sc.Spec.Security.TLSConfig.AdditionalCertificateDomains,
+	}
+}
+
 // MongosConfig returns a struct which provides all of the configuration options required for the given Mongos.
 func MongosConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
 	resourceName := mdb.MongosRsName()

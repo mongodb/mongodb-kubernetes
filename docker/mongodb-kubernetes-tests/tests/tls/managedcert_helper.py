@@ -6,6 +6,7 @@ live here and the test files only keep what is specific to their scenario.
 """
 
 import tempfile
+from typing import List, Optional
 
 from kubetester import read_configmap, read_secret, try_load
 from kubetester.certs import Certificate
@@ -47,12 +48,17 @@ def client_certificate_user(mdb: MongoDB, namespace: str) -> MongoDBUser:
     return user
 
 
-def assert_reachable_with_client_certificate(mdb: MongoDB, user: MongoDBUser, namespace: str):
+def assert_reachable_with_client_certificate(
+    mdb: MongoDB, user: MongoDBUser, namespace: str, service_names: Optional[List[str]] = None
+):
     """Connects as the user with its operator-issued certificate, the way an application would.
 
     The user's status names the two things an application needs: the Secret with its certificate and
     key, and the ConfigMap with the CA that verifies the server. mongod requires a client certificate
     because x509 is the only authentication mode, and checks it against the client CA.
+
+    service_names is only needed for a multi-cluster sharded deployment, which has no single mongos
+    service: the caller passes the service of each mongos pod.
     """
     user.load()
     cert_status = user["status"]["clientCertificate"]
@@ -67,7 +73,9 @@ def assert_reachable_with_client_certificate(mdb: MongoDB, user: MongoDBUser, na
         cert_file.write(cert["tls.crt"] + cert["tls.key"])
         ca_file.write(server_ca)
 
-    mdb.tester(use_ssl=True, ca_path=ca_file.name).assert_connectivity(opts=[with_x509(cert_file.name, ca_file.name)])
+    mdb.tester(use_ssl=True, ca_path=ca_file.name, service_names=service_names).assert_connectivity(
+        opts=[with_x509(cert_file.name, ca_file.name)]
+    )
 
 
 def managed_certificate_operator(namespace: str) -> Operator:
