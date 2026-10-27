@@ -9,14 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -522,5 +525,247 @@ func TestBuildDNSNamesExternalDomain(t *testing.T) {
 		noExt := opts
 		noExt.ExternalDomain = nil
 		assert.Nil(t, GetExternalDNSNames(noExt))
+	})
+}
+
+type fakeScaler struct {
+	current int
+	desired int
+}
+
+func (f fakeScaler) DesiredReplicas() int          { return f.desired }
+func (f fakeScaler) CurrentReplicas() int          { return f.current }
+func (f fakeScaler) ForcedIndividualScaling() bool { return false }
+func (f fakeScaler) ScalingFirstTime() bool        { return false }
+func (f fakeScaler) TargetReplicas() int           { return f.desired }
+func (f fakeScaler) MemberClusterName() string     { return "" }
+func (f fakeScaler) MemberClusterNum() int         { return 0 }
+func (f fakeScaler) ScalerDescription() string     { return "" }
+
+// TestShardedComponentConfigsSetMembersToCover covers that the sharded cert Options builders set
+// the never-shrink MembersToCover count (max of current and desired), like the replica set does.
+// Without it the shared member cert would reissue on every one-at-a-time scale step.
+func TestShardedComponentConfigsSetMembersToCover(t *testing.T) {
+	mdb := newMongoDB(resName, nil)
+	scaler := fakeScaler{current: 3, desired: 5}
+
+	builders := map[string]Options{
+		"shard":  ShardConfig(*mdb, 0, nil, scaler),
+		"mongos": MongosConfig(*mdb, nil, scaler),
+		"config": ConfigSrvConfig(*mdb, nil, scaler),
+	}
+	for name, opts := range builders {
+		assert.Equal(t, 5, opts.MembersToCover, "%s cert Options must set MembersToCover to max(current, desired)", name)
+	}
+}
+
+// TestComponentsDoNotShareCoveredMembers covers what the certificate code sees for a sharded
+// cluster: every component is a separate certificate, and each one keeps its own covered-members
+// count. A shard with 7 mongods must not make the mongos certificate cover 7 mongos.
+func TestComponentsDoNotShareCoveredMembers(t *testing.T) {
+	ctx := context.Background()
+	sc := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	})
+
+	mongosOpts := Options{
+		ResourceName:   resName + "-mongos",
+		CertSecretName: resName + "-mongos-managed-cert",
+		Namespace:      resNamespace,
+		ServiceName:    resName + "-mongos-svc",
+		Replicas:       3,
+		MembersToCover: 3,
+	}
+	shardOpts := Options{
+		ResourceName:   resName + "-0",
+		CertSecretName: resName + "-0-managed-cert",
+		Namespace:      resNamespace,
+		ServiceName:    resName + "-0-svc",
+		Replicas:       7,
+		MembersToCover: 7,
+	}
+
+	// The shard's certificate already covers 9 members, more than its own 7.
+	// The client is built here rather than with the mock helper, which doesn't register
+	// cert-manager types in its scheme.
+	scheme := runtime.NewScheme()
+	require.NoError(t, certmanagerv1.AddToScheme(scheme))
+	fakeClient := kubernetesClient.NewClient(fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&certmanagerv1.Certificate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        shardOpts.CertSecretName,
+				Namespace:   resNamespace,
+				Annotations: map[string]string{coveredMembersAnnotation: "9"},
+			},
+		}).
+		Build())
+
+	mongosMember := memberCert(t, componentCertificates(ctx, fakeClient, sc, mongosOpts))
+	shardMember := memberCert(t, componentCertificates(ctx, fakeClient, sc, shardOpts))
+
+	assert.NotEqual(t, mongosMember.certName, shardMember.certName)
+	// Each certificate carries its own count: the shard reads its own annotation, the mongos its own.
+	assert.Equal(t, "3", mongosMember.annotations[coveredMembersAnnotation])
+	assert.Equal(t, "9", shardMember.annotations[coveredMembersAnnotation])
+	assert.Len(t, mongosMember.spec.DNSNames, 3)
+	assert.Len(t, shardMember.spec.DNSNames, 9)
+}
+
+// memberCert returns the member (server) certificate of one component, which is the one that
+// carries the covered-members annotation.
+func memberCert(t *testing.T, certs []certToEnsure) certToEnsure {
+	t.Helper()
+	for _, cert := range certs {
+		if cert.annotations[coveredMembersAnnotation] != "" {
+			return cert
+		}
+	}
+	t.Fatalf("no member certificate among %d certificates", len(certs))
+	return certToEnsure{}
+}
+
+// TestResolveMultiClusterMembersToCover covers the per-cluster never-shrink rule for the
+// multi-cluster member certificate: each cluster covers max(desired, previously covered) members.
+func TestResolveMultiClusterMembersToCover(t *testing.T) {
+	ext := "example.com"
+	mk := func(name string, num, members int, external *string) MemberCluster {
+		return MemberCluster{ClusterName: name, ClusterNum: num, Members: members, ExternalDomain: external}
+	}
+
+	tests := []struct {
+		name       string
+		clusters   []MemberCluster
+		covered    map[string]int
+		expMembers map[string]int
+	}{
+		{
+			name:       "first reconcile covers the desired members and covered would be empty",
+			clusters:   []MemberCluster{mk("a", 0, 3, nil), mk("b", 1, 3, &ext)},
+			covered:    map[string]int{},
+			expMembers: map[string]int{"a": 3, "b": 3},
+		},
+		{
+			name:       "scale-up in one cluster jumps to the target and doesn't go one by one",
+			clusters:   []MemberCluster{mk("a", 0, 5, nil), mk("b", 1, 3, nil)},
+			covered:    map[string]int{"a": 3, "b": 3},
+			expMembers: map[string]int{"a": 5, "b": 3},
+		},
+		{
+			name:       "scale-down holds the previously covered count",
+			clusters:   []MemberCluster{mk("a", 0, 3, nil), mk("b", 1, 3, nil)},
+			covered:    map[string]int{"a": 5, "b": 3},
+			expMembers: map[string]int{"a": 5, "b": 3},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resolved, annotation := resolveMultiClusterMembersToCover(tc.clusters, tc.covered)
+			gotMembers := map[string]int{}
+			for _, m := range resolved {
+				gotMembers[m.ClusterName] = m.Members
+			}
+			assert.Equal(t, tc.expMembers, gotMembers)
+			// The annotation records the same per-cluster counts.
+			assert.Equal(t, tc.expMembers, annotation)
+			// External domains are carried through untouched.
+			assert.Equal(t, tc.clusters[0].ExternalDomain, resolved[0].ExternalDomain)
+		})
+	}
+}
+
+// TestMultiShardedComponentManagedCertConfig covers the builder for one sharded component of a
+// multi-cluster sharded cluster: one certificate per component, named after the component's
+// hostname base, covering every member cluster that runs that component.
+func TestMultiShardedComponentManagedCertConfig(t *testing.T) {
+	sc := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		m.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"extra.example.org"}
+	})
+	ext := "c0.example.com"
+	clusters := []MemberCluster{
+		{ClusterNum: 0, ClusterName: "cluster-0", Members: 2, ExternalDomain: &ext},
+		{ClusterNum: 1, ClusterName: "cluster-1", Members: 3},
+	}
+
+	opts := MultiShardedComponentManagedCertConfig(*sc, "mdb-0", clusters)
+
+	assert.Equal(t, "mdb-0", opts.ResourceName, "the hostname base, not the per-cluster StatefulSet name")
+	assert.Equal(t, "mdb-0-managed-cert", opts.CertSecretName)
+	assert.Equal(t, "mdb-0-managed-clusterfile", opts.InternalClusterSecretName)
+	assert.Equal(t, resNamespace, opts.Namespace)
+	assert.Equal(t, mdbv1.ClusterTopologyMultiCluster, opts.Topology)
+	assert.Equal(t, clusters, opts.MultiClusterMembers)
+	assert.Equal(t, []string{"extra.example.org"}, opts.additionalCertificateDomains)
+}
+
+// TestMultiShardedComponentManagedCertSANs covers the SANs of one sharded component's certificate:
+// the union of the internal per-pod service names and the external hostnames of every member
+// cluster that runs the component, plus the additional certificate domains. The sharded check asks
+// for the additional domains, so a component's certificate has to carry them.
+// TestMultiShardedComponentManagedCertSANs covers the names of one sharded component's managed
+// certificate: the internal names of every member in every cluster, the external names of the
+// clusters that are exposed, each under its own external domain, and the additional certificate
+// domains, which every member gets.
+func TestMultiShardedComponentManagedCertSANs(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	ext0 := "c0.example.com"
+	ext2 := "c2.example.com"
+	sc := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		m.Spec.Security.Authentication = &mdbv1.Authentication{InternalCluster: util.X509}
+		m.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"extra.example.org"}
+	})
+
+	opts := MultiShardedComponentManagedCertConfig(*sc, resName, []MemberCluster{
+		{ClusterNum: 0, ClusterName: "cluster-0", Members: 2, ExternalDomain: &ext0},
+		{ClusterNum: 1, ClusterName: "cluster-1", Members: 1},
+		{ClusterNum: 2, ClusterName: "cluster-2", Members: 1, ExternalDomain: &ext2},
+	})
+
+	got := componentCertificates(ctx, fakeClient, sc, opts)
+	require.Len(t, got, 2, "x509 internal auth adds the clusterfile certificate")
+
+	assert.ElementsMatch(t, []string{
+		// cluster 0, internally and externally exposed
+		"mdb-0-0-svc.ns.svc.cluster.local",
+		"mdb-0-1-svc.ns.svc.cluster.local",
+		"mdb-0-0.c0.example.com",
+		"mdb-0-1.c0.example.com",
+		// cluster 1, internal only
+		"mdb-1-0-svc.ns.svc.cluster.local",
+		// cluster 2, exposed under its own external domain
+		"mdb-2-0-svc.ns.svc.cluster.local",
+		"mdb-2-0.c2.example.com",
+		// the additional certificate domains, for the members of every cluster
+		"mdb-0-0.extra.example.org",
+		"mdb-0-1.extra.example.org",
+		"mdb-1-0.extra.example.org",
+		"mdb-2-0.extra.example.org",
+	}, got[0].spec.DNSNames)
+}
+
+// TestMemberClusterDNSNames covers the per-cluster SAN generation for the multi-cluster member
+// cert, the internal per-pod service FQDNs, plus the external hostnames when the cluster is exposed.
+func TestMemberClusterDNSNames(t *testing.T) {
+	opts := Options{ResourceName: "mrs", Namespace: "ns", ClusterDomain: "cluster.local"}
+
+	t.Run("internal FQDNs only when the cluster is not externally exposed", func(t *testing.T) {
+		names := memberClusterDNSNames(opts, 0, 2, nil)
+		assert.ElementsMatch(t, []string{
+			"mrs-0-0-svc.ns.svc.cluster.local",
+			"mrs-0-1-svc.ns.svc.cluster.local",
+		}, names)
+	})
+
+	t.Run("internal and external hostnames when the cluster is externally exposed", func(t *testing.T) {
+		ext := "example.com"
+		names := memberClusterDNSNames(opts, 1, 1, &ext)
+		assert.ElementsMatch(t, []string{
+			"mrs-1-0-svc.ns.svc.cluster.local",
+			"mrs-1-0.example.com",
+		}, names)
 	})
 }

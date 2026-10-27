@@ -94,10 +94,6 @@ spec:
             # Optional: it can be resolved from the API server.
             - name: MDB_OPERATOR_IMAGE
               value: "{{ $operatorImage }}"
-            # Operator-managed TLS. The chart grants the cert-manager RBAC from this same value, so
-            # the operator reads it to know whether it may use cert-manager at all.
-            - name: MDB_MANAGED_CERTIFICATE_ENABLED
-              value: "{{ .Values.security.managedCertificate.enabled }}"
     {{- $opentelemetry := default dict .Values.operator.opentelemetry }}
     {{- $openTelemetryTracing := default dict $opentelemetry.tracing }}
     {{- if eq $openTelemetryTracing.enabled true }}
