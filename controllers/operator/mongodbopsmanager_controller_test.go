@@ -939,6 +939,180 @@ func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	})
 }
 
+const stuckTerminatingFinalizer = "test.mongodb.com/keep-terminating"
+
+// deleteAllOfRecorder records the options DeleteAllOf is called with.
+type deleteAllOfRecorder struct {
+	kubernetesClient.Client
+	calls []*client.DeleteAllOfOptions
+}
+
+func (c *deleteAllOfRecorder) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
+	options := &client.DeleteAllOfOptions{}
+	options.ApplyOptions(opts)
+	c.calls = append(c.calls, options)
+	return c.Client.DeleteAllOf(ctx, obj, opts...)
+}
+
+func backupDaemonPod(om *omv1.MongoDBOpsManager, finalizers ...string) *corev1.Pod {
+	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name:       om.BackupDaemonStatefulSetName() + "-0",
+		Namespace:  om.Namespace,
+		Labels:     map[string]string{"app": om.BackupDaemonServiceName()},
+		Finalizers: finalizers,
+	}}
+}
+
+func TestStopBackupDaemonIfNeeded(t *testing.T) {
+	tests := []struct {
+		name                  string
+		statusVersion         string
+		gracePeriodSeconds    *int64
+		podFinalizers         []string
+		expectedStopped       bool
+		expectedReplicas      int32
+		expectedPodsRemaining int
+		expectedDeleteCalls   int
+	}{
+		{
+			name:                  "version did not change",
+			statusVersion:         "7.0.0",
+			expectedStopped:       true,
+			expectedReplicas:      1,
+			expectedPodsRemaining: 1,
+		},
+		{
+			name:                  "first deployment",
+			statusVersion:         "",
+			expectedStopped:       true,
+			expectedReplicas:      1,
+			expectedPodsRemaining: 1,
+		},
+		{
+			name:                "upgrade stops the daemon",
+			statusVersion:       "6.0.0",
+			expectedStopped:     true,
+			expectedReplicas:    0,
+			expectedDeleteCalls: 1,
+		},
+		{
+			name:                  "upgrade waits for a terminating daemon pod",
+			statusVersion:         "6.0.0",
+			podFinalizers:         []string{stuckTerminatingFinalizer},
+			expectedStopped:       false,
+			expectedReplicas:      0,
+			expectedPodsRemaining: 1,
+			expectedDeleteCalls:   1,
+		},
+		{
+			name:                "upgrade with a short grace period",
+			statusVersion:       "6.0.0",
+			gracePeriodSeconds:  new(int64(1)),
+			expectedStopped:     true,
+			expectedReplicas:    0,
+			expectedDeleteCalls: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			testOm := DefaultOpsManagerBuilder().SetOMStatusVersion(tt.statusVersion).Build()
+			reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+			recorder := &deleteAllOfRecorder{Client: kubeClient}
+			reconciler.client = recorder
+
+			require.NoError(t, kubeClient.Create(ctx, &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{Name: testOm.BackupDaemonStatefulSetName(), Namespace: testOm.Namespace},
+				Spec:       appsv1.StatefulSetSpec{Replicas: new(int32(1))},
+			}))
+			require.NoError(t, kubeClient.Create(ctx, backupDaemonPod(testOm, tt.podFinalizers...)))
+
+			helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+			require.NoError(t, err)
+
+			stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper, tt.gracePeriodSeconds)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.expectedStopped, stopped)
+
+			sts := appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), &sts))
+			assert.Equal(t, tt.expectedReplicas, *sts.Spec.Replicas)
+
+			pods := corev1.PodList{}
+			require.NoError(t, kubeClient.List(ctx, &pods))
+			assert.Len(t, pods.Items, tt.expectedPodsRemaining)
+
+			require.Len(t, recorder.calls, tt.expectedDeleteCalls)
+			for _, call := range recorder.calls {
+				assert.Equal(t, tt.gracePeriodSeconds, call.GracePeriodSeconds)
+			}
+		})
+	}
+}
+
+func TestStopBackupDaemonIfNeeded_NoBackupDaemon(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetOMStatusVersion("6.0.0").Build()
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+
+	stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper, nil)
+	require.NoError(t, err)
+	assert.True(t, stopped)
+}
+
+func TestOpsManagerUpgrade_StopsBackupDaemonBeforeRollingOpsManager(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().AddS3Config("s3-config", "s3-secret").
+		AddOplogStoreConfig("oplog-store-0", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	configureBackupResources(ctx, kubeClient, testOm)
+
+	// the first reconcile requeues to configure the AppDB monitoring, the second one completes the deployment
+	for range 2 {
+		_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+		require.NoError(t, err)
+	}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	require.Equal(t, "7.0.0", testOm.Status.OpsManagerStatus.Version)
+
+	// the finalizer keeps the pod around after it is deleted, as a daemon that is still draining would be
+	require.NoError(t, kubeClient.Create(ctx, backupDaemonPod(testOm, stuckTerminatingFinalizer)))
+	testOm.Spec.Version = "7.0.1"
+	require.NoError(t, kubeClient.Update(ctx, testOm))
+
+	omImage := func() string {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.OpsManagerStatefulSetName()), &sts))
+		return sts.Spec.Template.Spec.Containers[0].Image
+	}
+	backupDaemonImage := func() string {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), &sts))
+		return sts.Spec.Template.Spec.Containers[0].Image
+	}
+
+	res, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Positive(t, res.RequeueAfter)
+	assert.Contains(t, omImage(), "7.0.0", "Ops Manager must not be rolled while the Backup Daemon is still stopping")
+
+	daemonPod := &corev1.Pod{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(backupDaemonPod(testOm)), daemonPod))
+	assert.NotNil(t, daemonPod.DeletionTimestamp)
+
+	daemonPod.Finalizers = nil
+	require.NoError(t, kubeClient.Update(ctx, daemonPod))
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Contains(t, omImage(), "7.0.1")
+	assert.Contains(t, backupDaemonImage(), "7.0.1")
+}
+
 func TestBackupIsStillConfigured_WhenAppDBIsConfigured_WithTls(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().AddS3Config("s3-config", "s3-secret").
