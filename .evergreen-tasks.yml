@@ -1130,6 +1130,16 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_managed_certificate_multi_cluster_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_managed_certificate_multi_cluster_sharded
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_multi_cluster_with_ldap
     tags: [ "patch-run" ]
     commands:
