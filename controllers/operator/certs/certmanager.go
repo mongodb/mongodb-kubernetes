@@ -659,9 +659,17 @@ func resolveMultiClusterMembersToCover(clusters []MemberCluster, covered map[str
 // FQDNs for its members, plus the external hostnames when that cluster is externally exposed. Both
 // are listed so the certificate works for internal and external connections.
 func memberClusterDNSNames(opts Options, clusterNum, members int, externalDomain *string) []string {
-	names := dns.GetMultiClusterProcessHostnames(opts.ResourceName, opts.Namespace, clusterNum, members, opts.ClusterDomain, nil)
+	names, podNames := dns.GetMultiClusterProcessHostnamesAndPodNames(opts.ResourceName, opts.Namespace, clusterNum, members, opts.ClusterDomain, nil)
 	if externalDomain != nil {
 		names = append(names, dns.GetMultiClusterProcessHostnames(opts.ResourceName, opts.Namespace, clusterNum, members, opts.ClusterDomain, externalDomain)...)
+	}
+	// additionalCertificateDomains is <pod>.<domain> for every member, the same names the single
+	// cluster path adds. The sharded check asks for them, so a sharded component's certificate has
+	// to carry them too. A multi-cluster replica set leaves the field empty and is unaffected.
+	for _, podName := range podNames {
+		for _, domain := range opts.additionalCertificateDomains {
+			names = append(names, podName+"."+domain)
+		}
 	}
 	return names
 }
