@@ -12,19 +12,16 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
-// CertManagerReady reports whether this operator can use cert-manager to manage the certificates.
-// It would mean cert-manager resources are registered, helm field is enabled (that results in RBAC
-// getting installed) and operator actually has permissions to manage cert-manager resources.
+// CertManagerReady reports whether this operator can use cert-manager to manage the certificates:
+// the cert-manager resources have to be registered in the cluster, and the operator has to be
+// allowed to manage them.
 // It is evaluated once at startup. The caller uses it both to decide whether to watch Certificates
 // and to fail a resource that asks for security.managedCertificate, so that a missing permission
 // never reaches cert-manager.
 // watchedNamespaces are the namespaces the operator watches, as returned by GetWatchedNamespace:
 // []string{""} when it watches the whole cluster, otherwise the list of namespaces.
-func CertManagerReady(ctx context.Context, c kubernetesClient.Client, restMapper apimeta.RESTMapper, watchedNamespaces []string, managedCertificatesEnabled bool) bool {
+func CertManagerReady(ctx context.Context, c kubernetesClient.Client, restMapper apimeta.RESTMapper, watchedNamespaces []string) bool {
 	if !CertManagerCRDsInstalled(restMapper) {
-		return false
-	}
-	if !managedCertificatesEnabled {
 		return false
 	}
 	return certManagerAccessAllowed(ctx, c, watchedNamespaces)
