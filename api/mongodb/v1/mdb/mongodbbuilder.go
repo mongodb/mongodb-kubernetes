@@ -146,6 +146,11 @@ func (b *MongoDBBuilder) SetShardAdditionalConfig(c *AdditionalMongodConfig) *Mo
 	return b
 }
 
+func (b *MongoDBBuilder) SetSecurity(s *Security) *MongoDBBuilder {
+	b.mdb.Spec.Security = s
+	return b
+}
+
 func (b *MongoDBBuilder) SetSecurityTLSEnabled() *MongoDBBuilder {
 	b.mdb.Spec.Security.TLSConfig.Enabled = true
 	return b
