@@ -205,11 +205,8 @@ const (
 	// The connectivity-validator binary is compiled into the same image, so migration dry-run Jobs use this ref.
 	OperatorImageEnv          = "MDB_OPERATOR_IMAGE"
 	ManagedSecurityContextEnv = "MANAGED_SECURITY_CONTEXT"
-	// ManagedCertificateEnv is set by helm field security.managedCertificate.enabled. If it's true
-	// the operator can assume that the helm installed the cert-manager RBACs.
-	ManagedCertificateEnv = "MDB_MANAGED_CERTIFICATE_ENABLED"
-	CurrentNamespace      = "NAMESPACE"
-	OperatorNameEnv       = "OPERATOR_NAME"
+	CurrentNamespace          = "NAMESPACE"
+	OperatorNameEnv           = "OPERATOR_NAME"
 	// OperatorPodNameEnv is injected via the Downward API and lets the operator read its own pod.
 	OperatorPodNameEnv            = "POD_NAME"
 	WatchNamespace                = "WATCH_NAMESPACE"
