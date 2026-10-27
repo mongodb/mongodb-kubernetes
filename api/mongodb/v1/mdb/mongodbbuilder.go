@@ -89,6 +89,11 @@ func (b *MongoDBBuilder) SetName(name string) *MongoDBBuilder {
 	return b
 }
 
+func (b *MongoDBBuilder) SetReplicaSetNameOverride(name string) *MongoDBBuilder {
+	b.mdb.Spec.ReplicaSetNameOverride = name
+	return b
+}
+
 func (b *MongoDBBuilder) SetNamespace(namespace string) *MongoDBBuilder {
 	b.mdb.Namespace = namespace
 	return b
@@ -138,6 +143,11 @@ func (b *MongoDBBuilder) SetShardAdditionalConfig(c *AdditionalMongodConfig) *Mo
 		b.mdb.Spec.ShardSpec = &ShardedClusterComponentSpec{}
 	}
 	b.mdb.Spec.ShardSpec.AdditionalMongodConfig = c
+	return b
+}
+
+func (b *MongoDBBuilder) SetSecurity(s *Security) *MongoDBBuilder {
+	b.mdb.Spec.Security = s
 	return b
 }
 
@@ -218,11 +228,6 @@ func (b *MongoDBBuilder) SetMongosCountSpec(count int) *MongoDBBuilder {
 		panic("Only sharded cluster can have mongos configuration")
 	}
 	b.mdb.Spec.MongosCount = count
-	return b
-}
-
-func (b *MongoDBBuilder) SetAdditionalOptions(config AdditionalMongodConfig) *MongoDBBuilder {
-	b.mdb.Spec.AdditionalMongodConfig = &config
 	return b
 }
 

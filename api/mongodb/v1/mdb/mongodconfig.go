@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/mitchellh/copystructure"
 	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -20,7 +21,7 @@ import (
 // The space is on purpose to not generate the comment in the CRD.
 
 type AdditionalMongodConfig struct {
-	object map[string]interface{} `json:"-"`
+	object map[string]any `json:"-"`
 }
 
 // Note: The MarshalJSON and UnmarshalJSON need to be explicitly implemented in this case as our wrapper type itself cannot be marshalled/unmarshalled by default. Without this custom logic the values provided in the resource definition will not be set in the struct created.
@@ -32,22 +33,22 @@ func (amc *AdditionalMongodConfig) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON will decode the data into the wrapped map
 func (amc *AdditionalMongodConfig) UnmarshalJSON(data []byte) error {
 	if amc.object == nil {
-		amc.object = map[string]interface{}{}
+		amc.object = map[string]any{}
 	}
 	return json.Unmarshal(data, &amc.object)
 }
 
 func NewEmptyAdditionalMongodConfig() *AdditionalMongodConfig {
-	return &AdditionalMongodConfig{object: make(map[string]interface{})}
+	return &AdditionalMongodConfig{object: make(map[string]any)}
 }
 
-func NewAdditionalMongodConfig(key string, value interface{}) *AdditionalMongodConfig {
+func NewAdditionalMongodConfig(key string, value any) *AdditionalMongodConfig {
 	config := NewEmptyAdditionalMongodConfig()
 	config.AddOption(key, value)
 	return config
 }
 
-func (amc *AdditionalMongodConfig) AddOption(key string, value interface{}) *AdditionalMongodConfig {
+func (amc *AdditionalMongodConfig) AddOption(key string, value any) *AdditionalMongodConfig {
 	keys := strings.Split(key, ".")
 	maputil.SetMapValue(amc.object, value, keys...)
 	return amc
@@ -93,25 +94,29 @@ func (amc *AdditionalMongodConfig) DeepCopy() *AdditionalMongodConfig {
 }
 
 func (amc *AdditionalMongodConfig) DeepCopyInto(out *AdditionalMongodConfig) {
-	cp, err := util.MapDeepCopy(amc.object)
+	cp, err := copystructure.Copy(amc.object)
 	if err != nil {
 		zap.S().Errorf("Failed to copy the map: %s", err)
 		return
 	}
-	config := AdditionalMongodConfig{object: cp}
-	*out = config
+	object := cp.(map[string]any)
+	if object == nil {
+		// keep the object always initialized, as NewEmptyAdditionalMongodConfig does
+		object = map[string]any{}
+	}
+	*out = AdditionalMongodConfig{object: object}
 }
 
 // ToMap creates a copy of the config as a map (Go is quite restrictive to types, and sometimes we need to
 // explicitly declare the type as map :( )
-func (amc *AdditionalMongodConfig) ToMap() map[string]interface{} {
+func (amc *AdditionalMongodConfig) ToMap() map[string]any {
 	if amc == nil || amc.object == nil {
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
-	cp, err := util.MapDeepCopy(amc.object)
+	cp, err := copystructure.Copy(amc.object)
 	if err != nil {
 		zap.S().Errorf("Failed to copy the map: %s", err)
 		return nil
 	}
-	return cp
+	return cp.(map[string]any)
 }

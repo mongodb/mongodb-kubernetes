@@ -28,7 +28,7 @@ def ops_manager(
     )
     try_load(resource)
 
-    resource["spec"]["version"] = custom_version
+    resource.set_version(custom_version)
     resource.create_admin_secret(api_client=central_cluster_client)
 
     resource["spec"]["applicationDatabase"] = {

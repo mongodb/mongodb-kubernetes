@@ -78,7 +78,7 @@ type User struct {
 	// ConnectionStringOptions contains connection string options for this user
 	// These options will be appended at the end of the connection string and
 	// will override any existing options from the resources.
-	ConnectionStringOptions map[string]interface{}
+	ConnectionStringOptions map[string]any
 }
 
 func (u User) GetLoginString(password string) string {

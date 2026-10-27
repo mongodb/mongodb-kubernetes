@@ -16,6 +16,10 @@ const maxStaleRetries = 3
 // the server returns 401 with stale=true in the WWW-Authenticate header
 // (RFC 7616 §3.2). A stale nonce means the credentials are valid but the
 // nonce has expired; the client should retry with a fresh challenge.
+//
+// The wrapped transport runs the challenge-response cycle. On retry,
+// staleRetryTransport replays the request body and lets that transport answer
+// the new challenge with a fresh nonce.
 type staleRetryTransport struct {
 	transport http.RoundTripper
 }
@@ -26,6 +30,7 @@ func (t *staleRetryTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	if req.Body != nil && req.GetBody == nil {
 		var err error
 		bodyBytes, err = io.ReadAll(req.Body)
+		_ = req.Body.Close()
 		if err != nil {
 			return nil, err
 		}
@@ -56,6 +61,9 @@ func (t *staleRetryTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		if attempt >= maxStaleRetries {
 			return resp, nil
 		}
+		// Read the discarded response to EOF before closing it, so the
+		// transport can reuse the keep-alive connection for the retry.
+		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 	}
 }

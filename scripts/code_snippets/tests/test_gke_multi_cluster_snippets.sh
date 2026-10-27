@@ -2,6 +2,7 @@
 
 set -eou pipefail
 source scripts/dev/set_env_context.sh
+source scripts/code_snippets/tests/cleanup_load_balancer_services.sh
 
 script_name=$(readlink -f "${BASH_SOURCE[0]}")
 
@@ -12,14 +13,19 @@ mkdir -p "${_SNIPPETS_OUTPUT_DIR}"
 function cleanup() {
   if [ "${code_snippets_teardown:-true}" = true ]; then
     echo "Deleting clusters"
+    # Delete LoadBalancer Services first so GKE releases the GCP load-balancer
+    # resources before the clusters (and their contexts) are gone.
+    cleanup_load_balancer_services || echo "Warning: LoadBalancer Service cleanup failed"
     ./public/architectures/setup-multi-cluster/ra-01-setup-gke/teardown.sh
   elif [ "${code_snippets_reset:-false}" = true ]; then
       echo "Deleting resources, keeping the clusters"
       ./public/architectures/ra-06-ops-manager-multi-cluster/teardown.sh &
       ./public/architectures/ra-08-mongodb-sharded-multi-cluster/teardown.sh &
       ./public/architectures/ra-07-mongodb-replicaset-multi-cluster/teardown.sh &
+      ./public/architectures/setup-multi-cluster/ra-13-setup-rustfs/teardown.sh &
       wait
 
+      cleanup_load_balancer_services || echo "Warning: LoadBalancer Service cleanup failed"
       ./public/architectures/setup-multi-cluster/ra-02-setup-operator/teardown.sh
   else
     echo "Not deleting anything"
@@ -39,6 +45,7 @@ if [[ "${cmd}" == "dump_logs" ]]; then
   exit 0
 elif [[ "${cmd}" == "cleanup" ]]; then
   source public/architectures/setup-multi-cluster/ra-01-setup-gke/env_variables.sh
+  source public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variables.sh
   cleanup
   exit 0
 fi
@@ -64,6 +71,9 @@ source public/architectures/setup-multi-cluster/ra-02-setup-operator/env_variabl
 ./public/architectures/setup-multi-cluster/ra-05-setup-cert-manager/test.sh
 
 source public/architectures/ra-06-ops-manager-multi-cluster/env_variables.sh
+source public/architectures/setup-multi-cluster/ra-13-setup-rustfs/env_variables.sh
+./public/architectures/setup-multi-cluster/ra-13-setup-rustfs/test.sh
+
 ./public/architectures/ra-06-ops-manager-multi-cluster/test.sh
 
 source public/architectures/ra-07-mongodb-replicaset-multi-cluster/env_variables.sh

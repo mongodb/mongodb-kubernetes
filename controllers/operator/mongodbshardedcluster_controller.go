@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"maps"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -15,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -39,20 +40,25 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
+	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -62,8 +68,10 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
+	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -116,6 +124,8 @@ type ShardedClusterDeploymentState struct {
 	LastAchievedSpec      *mdbv1.MongoDbSpec   `json:"lastAchievedSpec"`
 	LastConfiguredRoles   []string             `json:"lastConfiguredRoles"`
 	Status                *mdbv1.MongoDbStatus `json:"status"`
+	// ShardsInRemoval are the replica sets of shards whose removal is in progress; empty once it completes.
+	ShardsInRemoval []string `json:"shardsInRemoval,omitempty"`
 }
 
 // updateStatusFromResourceStatus updates the status in the deployment state with values from the resource status with additional ensurance that no data is accidentally lost.
@@ -258,8 +268,8 @@ func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap
 	for shardIdx, shardSpec := range shardsMap {
 		shardGetLastAppliedMembersFunc := func(memberClusterName string) int {
 			shardOverridesInClusters := deploymentState.Status.SizeStatusInClusters.ShardOverridesInClusters
-			if _, ok := shardOverridesInClusters[r.sc.ShardRsName(shardIdx)]; ok {
-				if count, ok := shardOverridesInClusters[r.sc.ShardRsName(shardIdx)][memberClusterName]; ok {
+			if _, ok := shardOverridesInClusters[r.sc.ShardName(shardIdx)]; ok {
+				if count, ok := shardOverridesInClusters[r.sc.ShardName(shardIdx)][memberClusterName]; ok {
 					// If we stored an override for this shard in the status, get the member count from it
 					return count
 				}
@@ -296,12 +306,16 @@ func (r *ShardedClusterReconcileHelper) createShardsMemberClusterLists(shardsMap
 	return shardMemberClustersMap, allShardsMemberClusters
 }
 
-func (r *ShardedClusterReconcileHelper) getShardNameToShardIdxMap() map[string]int {
-	mapping := map[string]int{}
-	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
-		mapping[r.sc.ShardRsName(shardIdx)] = shardIdx
-	}
+func (r *ShardedClusterReconcileHelper) maxShardCount() int {
+	return max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount)
+}
 
+// shardK8sNameToIndex returns a map from K8s shard StatefulSet name to shard index.
+func (r *ShardedClusterReconcileHelper) shardK8sNameToIndex() map[string]int {
+	mapping := map[string]int{}
+	for shardIdx := 0; shardIdx < r.maxShardCount(); shardIdx++ {
+		mapping[r.sc.ShardName(shardIdx)] = shardIdx
+	}
 	return mapping
 }
 
@@ -321,7 +335,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 	// For multiple clusters, each shard will have configuration specified for each member cluster.
 	shardComponentSpecs := map[int]*mdbv1.ShardedClusterComponentSpec{}
 
-	for shardIdx := 0; shardIdx < max(spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
+	for shardIdx := 0; shardIdx < r.maxShardCount(); shardIdx++ {
 		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIdx)
 
 		shardComponentSpec := *spec.ShardSpec.DeepCopy()
@@ -332,7 +346,7 @@ func (r *ShardedClusterReconcileHelper) prepareDesiredShardsConfiguration() map[
 	for _, shardOverride := range expandShardOverrides(spec.ShardOverrides) {
 		// guaranteed to have one shard name in expandedShardOverrides
 		shardName := shardOverride.ShardNames[0]
-		shardIndex := r.getShardNameToShardIdxMap()[shardName]
+		shardIndex := r.shardK8sNameToIndex()[shardName]
 		// here we copy the whole element and overwrite at the end of every iteration
 		defaultShardConfiguration := shardComponentSpecs[shardIndex].DeepCopy()
 		topLevelPersistenceOverride, topLevelPodSpecOverride := getShardTopLevelOverrides(spec, shardIndex)
@@ -398,7 +412,7 @@ func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShar
 		}
 
 		if shardOverrideClusterSpecItem.Members == nil {
-			shardOverrideClusterSpecItem.Members = ptr.To(finalShardConfigurationClusterSpecItem.Members)
+			shardOverrideClusterSpecItem.Members = new(finalShardConfigurationClusterSpecItem.Members)
 		}
 
 		if shardOverrideClusterSpecItem.MemberConfig == nil {
@@ -576,8 +590,8 @@ func processClusterSpecList(
 		for j := range clusterSpecList[i].Members {
 			if j >= len(clusterSpecList[i].MemberConfig) {
 				clusterSpecList[i].MemberConfig = append(clusterSpecList[i].MemberConfig, automationconfig.MemberOptions{
-					Votes:    ptr.To(1),
-					Priority: ptr.To("1"),
+					Votes:    new(1),
+					Priority: new("1"),
 					Tags:     nil,
 				})
 			}
@@ -834,6 +848,12 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
+	if sc.IsReconciliationDisabled() {
+		log.Infof("MongoDB %s/%s reconciliation disabled by %s annotation; skipping",
+			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
+		return reconcile.Result{}, nil
+	}
+
 	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
@@ -843,7 +863,13 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, obj.(*mdbv1.MongoDB), r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	sc := obj.(*mdbv1.MongoDB)
+	if sc.IsReconciliationDisabled() {
+		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
+			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
+		return nil
+	}
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
 	if err != nil {
 		return err
 	}
@@ -886,10 +912,6 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
-	if !architectures.IsRunningStaticArchitecture(sc.Annotations, r.defaultArchitecture) {
-		agents.UpgradeAllIfNeeded(ctx, agents.ClientSecret{Client: r.commonController.client, SecretClient: r.commonController.SecretClient}, r.omConnectionFactory, GetWatchedNamespace(), false)
-	}
-
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
@@ -898,6 +920,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+
+	if !architectures.IsRunningStaticArchitecture(sc.Annotations, r.defaultArchitecture) {
+		agents.UpgradeIfNeeded(ctx, sc, conn)
 	}
 
 	if err := r.replicateAgentKeySecret(ctx, conn, agentAPIKey, log); err != nil {
@@ -915,7 +941,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		// In case the Agent *is* overridden, its version will be merged into the StatefulSet. The merging process
 		// happens after creating the StatefulSet definition.
 		if !sc.IsAgentImageOverridden() {
-			automationAgentVersion, err = r.commonController.getAgentVersion(conn, conn.OpsManagerVersion().VersionString, false, log)
+			automationAgentVersion, err = r.commonController.getAgentVersion(ctx, conn, conn.OpsManagerVersion().VersionString, false, log)
 			if err != nil {
 				log.Errorf("Impossible to get agent version, please override the agent image by providing a pod template")
 				return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to get agent version: %w", err)), log)
@@ -925,12 +951,43 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	r.automationAgentVersion = automationAgentVersion
 
-	if err := connection.EnsureTargetAutomationConfigSeeded(conn, sc.Status.ProjectId, projectConfig, credsConfig, r.omConnectionFactory, log); err != nil {
+	// Connectivity dry-run: handle before any reconciliation that modifies state.
+	if sc.IsMigrationDryRun() {
+		if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+			result.Log(log)
+			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+		}
+		operatorImage, imgStatus := opMigration.ResolveOperatorImage(r.imageUrls)
+		if !imgStatus.IsOK() {
+			return r.updateStatus(ctx, sc, imgStatus, log)
+		}
+		currentAgentAuthMode, err := conn.GetAgentAuthMode(ctx)
+		if err != nil {
+			return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+		}
+		var databaseSecretPath string
+		if r.commonController.VaultClient != nil {
+			databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
+		}
+		agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
+		agentCertHash, defaultAgentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+		agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, sc.Spec.GetSecurity())
+		opts := deploymentOptions{
+			podEnvVars:           newPodVars(conn, projectConfig, sc.Spec.LogLevel),
+			currentAgentAuthMode: currentAgentAuthMode,
+			caFilePath:           util.CAFilePathInContainer,
+			agentCertPath:        agentCertPath,
+			agentCertHash:        agentCertHash,
+		}
+		return r.updateStatus(ctx, sc, r.runConnectivityValidationDryRun(ctx, sc, opts, operatorImage, log), log)
+	}
+
+	if err := connection.EnsureTargetAutomationConfigSeeded(ctx, conn, sc.Status.ProjectId, projectConfig, credsConfig, r.omConnectionFactory, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
 	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, log)
-	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported {
+	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported || workflowStatus.Phase() == mdbstatus.PhaseConnectivityValidation {
 		return r.updateStatus(ctx, sc, workflowStatus, log)
 	}
 
@@ -979,9 +1036,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		}
 		path := fmt.Sprintf("%s/%s/%s", r.commonController.VaultClient.OperatorScretMetadataPath(), sc.Namespace, sc.Spec.Credentials)
 		vaultMap = merge.StringToStringMap(vaultMap, r.commonController.VaultClient.GetSecretAnnotation(path))
-		for k, val := range vaultMap {
-			annotationsToAdd[k] = val
-		}
+		maps.Copy(annotationsToAdd, vaultMap)
 	}
 
 	// Set annotation and state for previously configured roles
@@ -999,6 +1054,15 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	// Deep copy: updateStatus refreshes sc from the API, so a concurrent spec patch would corrupt the pointer.
 	specCopy := sc.Spec.DeepCopy()
 	r.deploymentState.LastAchievedSpec = specCopy
+
+	// Generate connection string secret
+	connStringHostnames := r.GetAllMongosHostnamesAndPorts()
+	extHostnames := sc.GetExternalMembersHostnames()
+	connStringHostnames = append(connStringHostnames, extHostnames...)
+	if err := connectionstringsecret.PublishForMongoDB(ctx, r.commonController.client, sc, connStringHostnames); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)), log)
+	}
+
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	// It's the second place in the reconcile logic we're updating sizes of all the components
 	// We're also updating the shardCount here - it's the only place we're doing that.
@@ -1125,7 +1189,7 @@ func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx co
 	return search, nil
 }
 
-func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj interface{}, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {
+func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.Context, obj any, conn om.Connection, projectConfig mdbv1.ProjectConfig, log *zap.SugaredLogger) workflow.Status {
 	log.Info("ShardedCluster.doShardedClusterProcessing")
 	sc := obj.(*mdbv1.MongoDB)
 
@@ -1140,9 +1204,17 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
-	reconcileResult := checkIfHasExcessProcesses(conn, sc.Name, log)
+	reconcileResult := checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval, log)
 	if !reconcileResult.IsOK() {
 		return reconcileResult
+	}
+
+	if status := checkExternalMembersDrift(ctx, conn, sc.Spec.GetExternalMembers()); !status.IsOK() {
+		return status
+	}
+
+	if status := validateACForMigration(ctx, conn, sc); !status.IsOK() {
+		return status
 	}
 
 	security := sc.Spec.Security
@@ -1150,14 +1222,14 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflow.Invalid("cannot have a non-tls deployment when x509 authentication is enabled")
 	}
 
-	currentAgentAuthMode, err := conn.GetAgentAuthMode()
+	currentAgentAuthMode, err := conn.GetAgentAuthMode(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
 
 	podEnvVars := newPodVars(conn, projectConfig, sc.Spec.LogLevel)
 
-	workflowStatus, certSecretTypesForSTS := r.ensureSSLCertificates(ctx, sc, log)
+	workflowStatus := r.ensureSSLCertificates(ctx, sc, log)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
@@ -1170,27 +1242,15 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	opts := deploymentOptions{
 		podEnvVars:           podEnvVars,
 		currentAgentAuthMode: currentAgentAuthMode,
-		certTLSType:          certSecretTypesForSTS,
 	}
 
-	if workflowStatus := validateMongoDBResource(sc, conn); !workflowStatus.IsOK() {
+	if workflowStatus := validateMongoDBResource(ctx, sc, conn); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
-	// Ensures that all sharded cluster certificates are either of Opaque type (old design)
-	// or are all of kubernetes.io/tls type
-	// and save the value for future use
-	allCertsType, err := getCertTypeForAllShardedClusterCertificates(certSecretTypesForSTS)
-	if err != nil {
-		return workflow.Failed(err)
-	}
+	caFilePath := sc.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
 
-	caFilePath := util.CAFilePathInContainer
-	if allCertsType == corev1.SecretTypeTLS {
-		caFilePath = fmt.Sprintf("%s/ca-pem", util.TLSCaMountPath)
-	}
-
-	if workflowStatus := controlledfeature.EnsureFeatureControls(*sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
+	if workflowStatus := controlledfeature.EnsureFeatureControls(ctx, *sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
 		return workflowStatus
 	}
 
@@ -1206,7 +1266,8 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	agentCertSecretName := sc.GetSecurity().AgentClientCertificateSecretName(sc.Name)
-	agentCertHash, agentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertHash, defaultAgentCertPath := r.commonController.agentCertHashAndPath(ctx, log, sc.Namespace, agentCertSecretName, databaseSecretPath)
+	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, sc.Spec.GetSecurity())
 
 	opts = deploymentOptions{
 		podEnvVars:           podEnvVars,
@@ -1290,7 +1351,7 @@ func getTLSSecretNames(sc *mdbv1.MongoDB) func() []string {
 			sc.GetSecurity().MemberCertificateSecretName(sc.ConfigRsName()),
 		)
 		for i := 0; i < sc.Spec.ShardCount; i++ {
-			secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(i)))
+			secretNames = append(secretNames, sc.GetSecurity().MemberCertificateSecretName(sc.ShardName(i)))
 		}
 		if sc.GetSecurity().ShouldUseX509("") {
 			secretNames = append(secretNames, sc.GetSecurity().AgentClientCertificateSecretName(sc.Name))
@@ -1307,31 +1368,10 @@ func getInternalAuthSecretNames(sc *mdbv1.MongoDB) func() []string {
 			sc.GetSecurity().InternalClusterAuthSecretName(sc.ConfigRsName()),
 		)
 		for i := 0; i < sc.Spec.ShardCount; i++ {
-			secretNames = append(secretNames, sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(i)))
+			secretNames = append(secretNames, sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardName(i)))
 		}
 		return secretNames
 	}
-}
-
-// getCertTypeForAllShardedClusterCertificates checks whether all certificates secret are of the same type and returns it.
-func getCertTypeForAllShardedClusterCertificates(certTypes map[string]bool) (corev1.SecretType, error) {
-	if len(certTypes) == 0 {
-		return corev1.SecretTypeTLS, nil
-	}
-	valueSlice := make([]bool, 0, len(certTypes))
-	for _, v := range certTypes {
-		valueSlice = append(valueSlice, v)
-	}
-	curTypeIsTLS := valueSlice[0]
-	for i := 1; i < len(valueSlice); i++ {
-		if valueSlice[i] != curTypeIsTLS {
-			return corev1.SecretTypeOpaque, xerrors.Errorf("TLS Certificates for Sharded cluster must all be of the same type - either kubernetes.io/tls or secrets containing a concatenated pem file")
-		}
-	}
-	if curTypeIsTLS {
-		return corev1.SecretTypeTLS, nil
-	}
-	return corev1.SecretTypeOpaque, nil
 }
 
 // anyStatefulSetNeedsToPublishStateToOM checks to see if any stateful set
@@ -1393,30 +1433,27 @@ func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Con
 	}
 }
 
-func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) (workflow.Status, map[string]bool) {
+func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
 	tlsConfig := s.Spec.GetTLSConfig()
 
-	certSecretTypes := map[string]bool{}
 	if tlsConfig == nil || !s.Spec.GetSecurity().IsTLSEnabled() {
-		return workflow.OK(), certSecretTypes
+		return workflow.OK()
 	}
 
 	if err := r.replicateTLSCAConfigMap(ctx, log); err != nil {
-		return workflow.Failed(err), nil
+		return workflow.Failed(err)
 	}
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		mongosCert := certs.MongosConfig(*s, r.sc.Spec.GetExternalDomain(), r.GetMongosScaler(memberCluster))
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, mongosCert, log)
-		certSecretTypes[mongosCert.CertSecretName] = true
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetConfigSrvScaler(memberCluster))
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, configSrvCert, log)
-		certSecretTypes[configSrvCert.CertSecretName] = true
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
@@ -1424,12 +1461,11 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[i]) {
 			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.DbCommonSpec.GetExternalDomain(), r.GetShardScaler(i, memberCluster))
 			tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, shardCert, log)
-			certSecretTypes[shardCert.CertSecretName] = true
 			workflowStatus = workflowStatus.Merge(tStatus)
 		}
 	}
 
-	return workflowStatus, certSecretTypes
+	return workflowStatus
 }
 
 // createKubernetesResources creates all Kubernetes objects that are specified in 'state' parameter.
@@ -1438,10 +1474,15 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 // Note, that it doesn't remove any existing shards - this will be done later
 func (r *ShardedClusterReconcileHelper) createKubernetesResources(ctx context.Context, s *mdbv1.MongoDB, opts deploymentOptions, log *zap.SugaredLogger) workflow.Status {
 	if r.sc.Spec.IsMultiCluster() {
-		// for multi-cluster deployment we should create pod-services first, as doing it after is a bit too late
-		// statefulset creation loops and waits for sts to become ready, and it's easier for the replica set to be ready if
-		// it can connect to other members in the clusters
-		// TODO the same should be considered for external services, we should always create them before sts; now external services are created inside DatabaseInKubernetes function;
+		// Deliberate topology split: reconcileServices owns multi-cluster, where per-pod services must
+		// exist before the StatefulSets so members can reach each other while the STS wait loop runs,
+		// and where service names carry a cluster index (<sts>-<clusterIdx>-<pod>). Single-cluster
+		// external services are created inside create.DatabaseInKubernetes instead, which keeps the
+		// established <sts>-<pod>-svc-external names and avoids a meaningless cluster index. Both paths
+		// resolve external access through MongoDbSpec.EffectiveExternalAccessConfiguration - the
+		// multi-cluster one in reconcile{ConfigServer,Shard,Mongos}Services directly, the single-cluster
+		// one via DatabaseStatefulSetOptions.ExternalAccessConfiguration - so the services that get
+		// created always match the hostnames published to the automation config.
 		if err := r.reconcileServices(ctx, log); err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
 		}
@@ -1528,7 +1569,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			// shardsNames contains shard name, not statefulset name
 			// in single cluster sts name == shard name
 			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
-			shardsNames[shardIdx] = s.ShardRsName(shardIdx)
+			shardsNames[shardIdx] = s.ShardName(shardIdx)
 			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)
 			shardSts := construct.DatabaseStatefulSet(*s, shardOpts, log)
 
@@ -1651,7 +1692,7 @@ func (r *ShardedClusterReconcileHelper) calculateSizeStatus(s *mdbv1.MongoDB) (*
 	// In all shards, we iterate over all clusters (not only healthy as it would remove the counts from those) and store
 	// counts to deployment state
 	for shardIdx := 0; shardIdx < s.Spec.ShardCount; shardIdx++ {
-		shardName := r.sc.ShardRsName(shardIdx)
+		shardName := r.sc.ShardName(shardIdx)
 		isOverridden := isShardOverridden(shardName, r.sc.Spec.ShardOverrides)
 
 		// if all shards are overridden, we have nothing in shardMongodsCountInClusters, followup ticket: https://jira.mongodb.org/browse/CLOUDP-287426
@@ -1735,17 +1776,36 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		return err
 	}
 
+	// A resource that still declares externalMembers is mid-migration from VMs: the sharded cluster in
+	// Ops Manager is partly made of processes the operator does not own. Removing it from the
+	// automation config, or deregistering its hosts, would tear down the still-running VM deployment.
+	// Deleting the CR is therefore a rollback of the migration: leave OM state alone and only clear
+	// the project's feature controls, since the project is no longer operator-managed.
+	if len(sc.Spec.GetExternalMembers()) > 0 {
+		log.Infow("Resource has external members, skipping Ops Manager cleanup on deletion",
+			"externalMembers", len(sc.Spec.GetExternalMembers()))
+		log.Infow("Clear feature control for group", "groupID", conn.GroupID())
+		if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+			result.Log(log)
+			log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
+		}
+		return nil
+	}
+
+	// Read before removing for legacy naming detection. Deletion is a single attempt with no retry,
+	// so a failed read only skips the wait for ready state instead of aborting the cleanup.
+	preCleanupDeployment, preCleanupReadErr := conn.ReadDeployment(ctx)
+
 	processNames := make([]string, 0)
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
-			processNames = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
-			if e := d.RemoveShardedClusterByName(sc.Name, log); e != nil {
+			processNames = d.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName())
+			if e := d.RemoveShardedClusterByName(sc.GetShardedClusterName(), log); e != nil {
 				log.Warnf("Failed to remove sharded cluster from automation config: %s", e)
 			}
 			return nil
 		},
-		log,
-	)
+		log)
 	if err != nil {
 		return err
 	}
@@ -1754,21 +1814,26 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	// This ensures we attempt all cleanup operations even if some fail.
 	var errs error
 
-	logDiffOfProcessNames(processNames, r.getHealthyProcessNames(), log.With("ctx", "cleanOpsManagerState"))
-	if err := om.WaitForReadyState(conn, r.getHealthyProcessNames(), false, log); err != nil {
-		errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
+	if preCleanupReadErr != nil {
+		errs = multierror.Append(errs, xerrors.Errorf("failed to read deployment before cleanup. Skipping the wait for ready state and continuing with cleanup: %w", preCleanupReadErr))
+	} else {
+		healthyProcessNames := r.getHealthyProcessNamesToWaitForReadyState(ctx, preCleanupDeployment, conn, log)
+		logDiffOfProcessNames(processNames, healthyProcessNames, log.With("ctx", "cleanOpsManagerState"))
+		if err := om.WaitForReadyState(ctx, conn, healthyProcessNames, false, log); err != nil {
+			errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
+		}
 	}
 
 	if sc.Spec.Backup != nil && sc.Spec.Backup.AutoTerminateOnDeletion {
-		if err := backup.StopBackupIfEnabled(conn, conn, sc.Name, backup.ShardedClusterType, log); err != nil {
+		if err := backup.StopBackupIfEnabled(ctx, conn, conn, sc.GetShardedClusterName(), backup.ShardedClusterType, log); err != nil {
 			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
 		}
 	}
 
-	hostsToRemove := r.getAllHostnames(false)
+	hostsToRemove := r.getAllHosts(false)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
 
-	if err := host.StopMonitoring(conn, hostsToRemove, log); err != nil {
+	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
@@ -1778,7 +1843,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	}
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
-	if result := controlledfeature.ClearFeatureControls(conn, conn.OpsManagerVersion(), log); !result.IsOK() {
+	if result := controlledfeature.ClearFeatureControls(ctx, conn, conn.OpsManagerVersion(), log); !result.IsOK() {
 		result.Log(log)
 		log.Warnf("Failed to clear feature control from group: %s", conn.GroupID())
 	}
@@ -1894,10 +1959,7 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 }
 
 func (r *ShardedClusterReconcileHelper) getConfigSrvHostnames(memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
-	externalDomain := r.sc.Spec.ConfigSrvSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
-	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
-		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
-	}
+	externalDomain := r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name)
 	if !memberCluster.Legacy {
 		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ConfigRsName(), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
@@ -1905,29 +1967,24 @@ func (r *ShardedClusterReconcileHelper) getConfigSrvHostnames(memberCluster mult
 	}
 }
 
+// getShardHostnames uses r.sc.Spec.ShardSpec rather than a per-shard override, matching pre-existing
+// behaviour: shardOverrides cannot carry external access, so all shards share one domain.
 func (r *ShardedClusterReconcileHelper) getShardHostnames(shardIdx int, memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
-	externalDomain := r.sc.Spec.ShardSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
-	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
-		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
-	}
+	externalDomain := r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name)
 	if !memberCluster.Legacy {
-		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ShardRsName(shardIdx), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
+		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.ShardName(shardIdx), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
 		return dns.GetDNSNames(r.GetShardStsName(shardIdx, memberCluster), r.sc.ShardServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
 }
 
 func (r *ShardedClusterReconcileHelper) getMongosHostnames(memberCluster multicluster.MemberCluster, replicas int) ([]string, []string) {
-	externalDomain := r.sc.Spec.MongosSpec.ClusterSpecList.GetExternalDomainForMemberCluster(memberCluster.Name)
-	if externalDomain == nil && r.sc.Spec.IsMultiCluster() {
-		externalDomain = r.sc.Spec.DbCommonSpec.GetExternalDomain()
-	}
+	// Resolution order is the per-cluster clusterSpecList entry, then spec.mongos.externalAccess,
+	// then the top-level spec.externalAccess.
+	externalDomain := r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name)
 	if !memberCluster.Legacy {
 		return dns.GetMultiClusterProcessHostnamesAndPodNames(r.sc.MongosRsName(), r.sc.Namespace, memberCluster.Index, replicas, r.sc.Spec.GetClusterDomain(), externalDomain)
 	} else {
-		// In Single Cluster Mode, only Mongos are exposed to the outside consumption. As such, they need to use proper
-		// External Domain.
-		externalDomain = r.sc.Spec.GetExternalDomain()
 		return dns.GetDNSNames(r.GetMongosStsName(memberCluster), r.sc.ServiceName(), r.sc.Namespace, r.sc.Spec.GetClusterDomain(), replicas, externalDomain)
 	}
 }
@@ -1939,10 +1996,12 @@ type deploymentOptions struct {
 	caFilePath           string
 	agentCertPath        string
 	agentCertHash        string
-	certTLSType          map[string]bool
-	finalizing           bool
-	processNames         []string
-	prometheusCertHash   string
+
+	finalizing         bool
+	processNames       []string
+	prometheusCertHash string
+	// externalAgentVersion is set from OM when spec.externalMembers is non-empty (see updateOmDeploymentShardedCluster).
+	externalAgentVersion string
 }
 
 // updateOmDeploymentShardedCluster performs OM registration operation for the sharded cluster. So the changes will be finally propagated
@@ -1954,7 +2013,7 @@ type deploymentOptions struct {
 // The logic is designed to be idempotent: if the reconciliation is retried the controller will never skip the phase 1
 // until the agents have performed draining
 func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
-	err := r.waitForAgentsToRegister(sc, conn, log)
+	err := r.waitForAgentsToRegister(ctx, sc, conn, log)
 	if err != nil {
 		if !isRecovering {
 			return workflow.Failed(err)
@@ -1962,18 +2021,23 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logWarnIgnoredDueToRecovery(log, err)
 	}
 
-	dep, err := conn.ReadDeployment()
+	dep, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		if !isRecovering {
 			return workflow.Failed(err)
 		}
 		logWarnIgnoredDueToRecovery(log, err)
+	} else if len(sc.Spec.GetExternalMembers()) > 0 {
+		opts.externalAgentVersion, err = agentVersionManagement.GetAgentVersionFromOpsManager(ctx, conn)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("Failed to retrieve agent version from Ops Manager: %w", err))
+		}
 	}
 
 	opts.finalizing = false
-	opts.processNames = dep.GetProcessNames(om.ShardedCluster{}, sc.Name)
+	opts.processNames = dep.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName())
 
-	processNames, shardsRemoving, workflowStatus := r.publishDeployment(ctx, conn, sc, &opts, isRecovering, log)
+	processNames, shardsRemoving, workflowStatus := r.publishDeployment(ctx, conn, sc, opts, isRecovering, log)
 
 	if !workflowStatus.IsOK() {
 		if !isRecovering {
@@ -1982,9 +2046,9 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		logWarnIgnoredDueToRecovery(log, workflowStatus)
 	}
 
-	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(conn, log)
+	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, dep, conn, log)
 	logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmDeploymentShardedCluster"))
-	if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
+	if err = om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 		if !isRecovering {
 			if shardsRemoving {
 				return workflow.Pending("automation agents haven't reached READY state: shards removal in progress: %v", err)
@@ -1998,7 +2062,7 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		opts.finalizing = true
 
 		log.Infof("Some shards were removed from the sharded cluster, we need to remove them from the deployment completely")
-		processNames, _, workflowStatus := r.publishDeployment(ctx, conn, sc, &opts, isRecovering, log)
+		processNames, _, workflowStatus := r.publishDeployment(ctx, conn, sc, opts, isRecovering, log)
 		if !workflowStatus.IsOK() {
 			if !isRecovering {
 				return workflowStatus
@@ -2006,9 +2070,9 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 			logWarnIgnoredDueToRecovery(log, workflowStatus)
 		}
 
-		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(conn, log)
+		healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, dep, conn, log)
 		logDiffOfProcessNames(processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "shardsRemoving"))
-		if err = om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
+		if err = om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 			if !isRecovering {
 				return workflow.Failed(xerrors.Errorf("automation agents haven't reached READY state while cleaning replica set and processes: %w", err))
 			}
@@ -2016,10 +2080,10 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 		}
 	}
 
-	currentHosts := r.getAllHostnames(false)
-	wantedHosts := r.getAllHostnames(true)
+	hostsBefore := r.getAllHosts(false)
+	hostsAfter := r.getAllHosts(true)
 
-	if err = host.CalculateDiffAndStopMonitoring(conn, currentHosts, wantedHosts, log); err != nil {
+	if err = host.CalculateDiffAndStopMonitoring(ctx, conn, hostsBefore, hostsAfter, log); err != nil {
 		if !isRecovering {
 			return workflow.Failed(err)
 		}
@@ -2037,24 +2101,23 @@ func (r *ShardedClusterReconcileHelper) updateOmDeploymentShardedCluster(ctx con
 	return workflow.OK()
 }
 
-func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts *deploymentOptions, isRecovering bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
+func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, conn om.Connection, sc *mdbv1.MongoDB, opts deploymentOptions, isRecovering bool, log *zap.SugaredLogger) ([]string, bool, workflow.Status) {
 	// Mongos
 	var mongosProcesses []om.Process
 	// We take here the first cluster arbitrarily because the options are used for irrelevant stuff below, same for
 	// config servers and shards below
 	mongosMemberCluster := r.mongosMemberClusters[0]
-	mongosOptionsFunc := r.getMongosOptions(ctx, *sc, *opts, log, mongosMemberCluster)
+	mongosOptionsFunc := r.getMongosOptions(ctx, *sc, opts, log, mongosMemberCluster)
 	mongosOptions := mongosOptionsFunc(*r.sc)
 	mongosInternalClusterPath := fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, mongosOptions.InternalClusterHash)
 	mongosMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, mongosOptions.CertificateHash)
 	if mongosOptions.CertificateHash == "" {
 		mongosMemberCertPath = util.PEMKeyFilePathInContainer
 	}
-	mongosProcesses = append(mongosProcesses, r.createDesiredMongosProcesses(mongosMemberCertPath)...)
 
 	// Config server
 	configSrvMemberCluster := r.configSrvMemberClusters[0]
-	configSrvOptionsFunc := r.getConfigServerOptions(ctx, *sc, *opts, log, configSrvMemberCluster)
+	configSrvOptionsFunc := r.getConfigServerOptions(ctx, *sc, opts, log, configSrvMemberCluster)
 	configSrvOptions := configSrvOptionsFunc(*r.sc)
 
 	configSrvInternalClusterPath := fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, configSrvOptions.InternalClusterHash)
@@ -2063,40 +2126,42 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 		configSrvMemberCertPath = util.PEMKeyFilePathInContainer
 	}
 
-	existingDeployment, err := conn.ReadDeployment()
+	existingDeployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return nil, false, workflow.Failed(err)
 	}
 
-	configSrvProcesses, configSrvMemberOptions := r.createDesiredConfigSrvProcessesAndMemberOptions(configSrvMemberCertPath)
-	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment)
+	mongosProcesses = append(mongosProcesses, r.createDesiredMongosProcesses(mongosMemberCertPath, existingDeployment)...)
+
+	configSrvProcesses, configSrvMemberOptions := r.createDesiredConfigSrvProcessesAndMemberOptions(configSrvMemberCertPath, existingDeployment)
+	configRs, _ := buildReplicaSetFromProcesses(sc.ConfigACRsName(), configSrvProcesses, sc, configSrvMemberOptions, existingDeployment)
 
 	// Shards
 	shards := make([]om.ReplicaSetWithProcesses, sc.Spec.ShardCount)
 	var shardInternalClusterPaths []string
 	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
-		shardOptionsFunc := r.getShardOptions(ctx, *sc, shardIdx, *opts, log, r.shardsMemberClustersMap[shardIdx][0])
+		shardOptionsFunc := r.getShardOptions(ctx, *sc, shardIdx, opts, log, r.shardsMemberClustersMap[shardIdx][0])
 		shardOptions := shardOptionsFunc(*r.sc)
 		shardInternalClusterPaths = append(shardInternalClusterPaths, fmt.Sprintf("%s/%s", util.InternalClusterAuthMountPath, shardOptions.InternalClusterHash))
 		shardMemberCertPath := fmt.Sprintf("%s/%s", util.TLSCertMountPath, shardOptions.CertificateHash)
-		desiredShardProcesses, desiredShardMemberOptions := r.createDesiredShardProcessesAndMemberOptions(shardIdx, shardMemberCertPath)
-		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
+		desiredShardProcesses, desiredShardMemberOptions := r.createDesiredShardProcessesAndMemberOptions(shardIdx, shardMemberCertPath, existingDeployment)
+		shards[shardIdx], _ = buildReplicaSetFromProcesses(r.sc.ShardACRsName(shardIdx), desiredShardProcesses, sc, desiredShardMemberOptions, existingDeployment)
 	}
 
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
 	// We can look into unifying this into updateOmAuthentication at a later stage.
-	if err := conn.ReadUpdateDeployment(func(d om.Deployment) error {
-		setInternalAuthClusterFileIfItHasChanged(d, sc.GetSecurity().GetInternalClusterAuthenticationMode(), sc.Name, configSrvInternalClusterPath, mongosInternalClusterPath, shardInternalClusterPaths, isRecovering)
+	if err := conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
+		setInternalAuthClusterFileIfItHasChanged(d, sc.GetSecurity().GetInternalClusterAuthenticationMode(), sc.GetShardedClusterName(), configSrvInternalClusterPath, mongosInternalClusterPath, sc.ShardACRsNames(), shardInternalClusterPaths, isRecovering)
 		return nil
 	}, log); err != nil {
 		return nil, false, workflow.Failed(err)
 	}
 
-	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(conn, log)
+	healthyProcessesToWaitForReadyState := r.getHealthyProcessNamesToWaitForReadyState(ctx, existingDeployment, conn, log)
 
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmAuthentication"))
 
-	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertPath, opts.caFilePath, "", isRecovering, log)
+	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertPath, opts.caFilePath, "", sc.Spec.GetDownloadBase(), isRecovering, log)
 	if !workflowStatus.IsOK() {
 		if !isRecovering {
 			return nil, false, workflowStatus
@@ -2105,15 +2170,16 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	}
 
 	var finalProcesses []string
+	var drainingShards []string
 	shardsRemoving := false
-	err = conn.ReadUpdateDeployment(
+	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			allProcesses := getAllProcesses(shards, configRs, mongosProcesses)
-			// it is not possible to disable internal cluster authentication once enabled
+
 			if sc.Spec.Security.GetInternalClusterAuthenticationMode() == "" && d.ExistingProcessesHaveInternalClusterAuthentication(allProcesses) {
 				return xerrors.Errorf("cannot disable x509 internal cluster authentication")
 			}
-			numberOfOtherMembers := d.GetNumberOfExcessProcesses(sc.Name)
+			numberOfOtherMembers := d.GetNumberOfExcessProcessesWithShardsInRemoval(sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval)
 			if numberOfOtherMembers > 0 {
 				return xerrors.Errorf("cannot have more than 1 MongoDB Cluster per project (see https://docs.mongodb.com/kubernetes-operator/stable/tutorial/migrate-to-single-resource/)")
 			}
@@ -2134,7 +2200,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			}
 
 			mergeOpts := om.DeploymentShardedClusterMergeOptions{
-				Name:                                 sc.Name,
+				Name:                                 sc.GetShardedClusterName(),
 				MongosProcesses:                      mongosProcesses,
 				ConfigServerRs:                       configRs,
 				Shards:                               shards,
@@ -2145,6 +2211,9 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 				ShardAdditionalOptionsDesired:        sc.Spec.ShardSpec.AdditionalMongodConfig.ToMap(),
 				MongosAdditionalOptionsPrev:          lastMongosServerConf.ToMap(),
 				MongosAdditionalOptionsDesired:       sc.Spec.MongosSpec.AdditionalMongodConfig.ToMap(),
+
+				ExternalCluster: buildExternalShardedCluster(sc),
+				ShardsInRemoval: r.deploymentState.ShardsInRemoval,
 			}
 
 			if shardsRemoving, err = d.MergeShardedCluster(mergeOpts); err != nil {
@@ -2154,30 +2223,36 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			d.ConfigureMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
 			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath)
 
-			setupInternalClusterAuth(d, sc.Name, sc.GetSecurity().GetInternalClusterAuthenticationMode(),
-				configSrvInternalClusterPath, mongosInternalClusterPath, shardInternalClusterPaths)
+			d.SetDownloadBase(sc.Spec.GetDownloadBase())
+
+			setupInternalClusterAuth(d, sc.GetShardedClusterName(), sc.GetSecurity().GetInternalClusterAuthenticationMode(),
+				configSrvInternalClusterPath, mongosInternalClusterPath, sc.ShardACRsNames(), shardInternalClusterPaths)
 
 			_ = UpdatePrometheus(ctx, &d, conn, sc.GetPrometheus(), r.commonController.SecretClient, sc.GetNamespace(), opts.prometheusCertHash, log)
 
-			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.Name)
+			drainingShards = d.GetDrainingShards(sc.GetShardedClusterName())
+			finalProcesses = d.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName())
 
 			return nil
 		},
-		log,
-	)
+		log)
 	if err != nil {
+		return nil, shardsRemoving, workflow.Failed(err)
+	}
+
+	if err := r.trackShardsInRemoval(ctx, opts.finalizing, drainingShards, log); err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
 	// Here we only support sc.Spec.Agent on purpose because logRotation for the agents and all processes
 	// are configured the same way, its unrelated what type of process it is.
-	if reconcileResult, _ := ReconcileLogRotateSetting(conn, sc.Spec.Agent, log); !reconcileResult.IsOK() {
+	if reconcileResult, _ := ReconcileLogRotateSetting(ctx, conn, sc.Spec.Agent, log); !reconcileResult.IsOK() {
 		return nil, shardsRemoving, reconcileResult
 	}
 
-	healthyProcessesToWaitForReadyState = r.getHealthyProcessNamesToWaitForReadyState(conn, log)
+	healthyProcessesToWaitForReadyState = r.getHealthyProcessNamesToWaitForReadyState(ctx, existingDeployment, conn, log)
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "publishDeployment"))
-	if err := om.WaitForReadyState(conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
+	if err := om.WaitForReadyState(ctx, conn, healthyProcessesToWaitForReadyState, isRecovering, log); err != nil {
 		return nil, shardsRemoving, workflow.Failed(err)
 	}
 
@@ -2188,24 +2263,45 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	return finalProcesses, shardsRemoving, workflow.OK()
 }
 
+// trackShardsInRemoval persists the shards in removal until the finalizing pass deletes them.
+func (r *ShardedClusterReconcileHelper) trackShardsInRemoval(ctx context.Context, finalizing bool, drainingShards []string, log *zap.SugaredLogger) error {
+	var updated []string
+	if !finalizing {
+		updated = slices.Compact(slices.Sorted(slices.Values(append(slices.Clone(r.deploymentState.ShardsInRemoval), drainingShards...))))
+	}
+	if slices.Equal(updated, r.deploymentState.ShardsInRemoval) {
+		return nil
+	}
+	r.deploymentState.ShardsInRemoval = updated
+	if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
+		return xerrors.Errorf("failed to write the removed shards to the deployment state: %w", err)
+	}
+	return nil
+}
+
 func logWarnIgnoredDueToRecovery(log *zap.SugaredLogger, err any) {
 	log.Warnf("ignoring error due to automatic recovery process: %v", err)
 }
 
-func setInternalAuthClusterFileIfItHasChanged(d om.Deployment, internalAuthMode string, name string, configInternalClusterPath string, mongosInternalClusterPath string, shardsInternalClusterPath []string, isRecovering bool) {
+// setInternalAuthClusterFileIfItHasChanged applies the per shard internal cluster cert paths.
+// shardACRsNames is parallel to shardsInternalClusterPath. Shards are looked up by replica set name
+// since the AC shards array is sorted by _id.
+func setInternalAuthClusterFileIfItHasChanged(d om.Deployment, internalAuthMode string, name string, configInternalClusterPath string, mongosInternalClusterPath string, shardACRsNames []string, shardsInternalClusterPath []string, isRecovering bool) {
 	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterConfigProcessNames(name), configInternalClusterPath, internalAuthMode, isRecovering)
 	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterMongosProcessNames(name), mongosInternalClusterPath, internalAuthMode, isRecovering)
 	for i, path := range shardsInternalClusterPath {
-		d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterShardProcessNames(name, i), path, internalAuthMode, isRecovering)
+		d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterShardProcessNamesByRs(name, shardACRsNames[i]), path, internalAuthMode, isRecovering)
 	}
 }
 
-func setupInternalClusterAuth(d om.Deployment, name string, internalClusterAuthMode string, configInternalClusterPath string, mongosInternalClusterPath string, shardsInternalClusterPath []string) {
+// setupInternalClusterAuth configures internal cluster authentication paths per component.
+// shardACRsNames is parallel to shardsInternalClusterPath, see setInternalAuthClusterFileIfItHasChanged.
+func setupInternalClusterAuth(d om.Deployment, name string, internalClusterAuthMode string, configInternalClusterPath string, mongosInternalClusterPath string, shardACRsNames []string, shardsInternalClusterPath []string) {
 	d.ConfigureInternalClusterAuthentication(d.GetShardedClusterConfigProcessNames(name), internalClusterAuthMode, configInternalClusterPath)
 	d.ConfigureInternalClusterAuthentication(d.GetShardedClusterMongosProcessNames(name), internalClusterAuthMode, mongosInternalClusterPath)
 
 	for i, path := range shardsInternalClusterPath {
-		d.ConfigureInternalClusterAuthentication(d.GetShardedClusterShardProcessNames(name, i), internalClusterAuthMode, path)
+		d.ConfigureInternalClusterAuthentication(d.GetShardedClusterShardProcessNamesByRs(name, shardACRsNames[i]), internalClusterAuthMode, path)
 	}
 }
 
@@ -2219,14 +2315,14 @@ func getAllProcesses(shards []om.ReplicaSetWithProcesses, configRs om.ReplicaSet
 	return allProcesses
 }
 
-func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) error {
+func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(ctx context.Context, sc *mdbv1.MongoDB, conn om.Connection, log *zap.SugaredLogger) error {
 	var mongosHostnames []string
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		hostnames, _ := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
 		mongosHostnames = append(mongosHostnames, hostnames...)
 	}
 
-	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, mongosHostnames, log.With("hostnamesOf", "mongos")); err != nil {
+	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(ctx, conn, mongosHostnames, log.With("hostnamesOf", "mongos")); err != nil {
 		return xerrors.Errorf("Mongos agents didn't register with Ops Manager: %w", err)
 	}
 
@@ -2235,7 +2331,7 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 		hostnames, _ := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
 		configSrvHostnames = append(configSrvHostnames, hostnames...)
 	}
-	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, configSrvHostnames, log.With("hostnamesOf", "configServer")); err != nil {
+	if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(ctx, conn, configSrvHostnames, log.With("hostnamesOf", "configServer")); err != nil {
 		return xerrors.Errorf("Config server agents didn't register with Ops Manager: %w", err)
 	}
 
@@ -2245,7 +2341,7 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 			hostnames, _ := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
 			shardHostnames = append(shardHostnames, hostnames...)
 		}
-		if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(conn, shardHostnames, log.With("hostnamesOf", "shard", "shardIdx", shardIdx)); err != nil {
+		if err := agents.WaitForRsAgentsToRegisterSpecifiedHostnames(ctx, conn, shardHostnames, log.With("hostnamesOf", "shard", "shardIdx", shardIdx)); err != nil {
 			return xerrors.Errorf("Shards agents didn't register with Ops Manager: %w", err)
 		}
 	}
@@ -2253,10 +2349,10 @@ func (r *ShardedClusterReconcileHelper) waitForAgentsToRegister(sc *mdbv1.MongoD
 	return nil
 }
 
-func (r *ShardedClusterReconcileHelper) getAllHostnames(desiredReplicas bool) []string {
+func (r *ShardedClusterReconcileHelper) getAllHosts(desiredReplicas bool) []string {
 	configSrvHostnames, _ := r.getAllConfigSrvHostnamesAndPodNames(desiredReplicas)
 	mongosHostnames, _ := r.getAllMongosHostnamesAndPodNames(desiredReplicas)
-	shardHostnames, _ := r.getAllShardHostnamesAndPodNames(desiredReplicas)
+	shardHostnames, _ := r.getShardsHostnamesAndPodNames(desiredReplicas)
 
 	var hostnames []string
 	hostnames = append(hostnames, configSrvHostnames...)
@@ -2281,11 +2377,16 @@ func (r *ShardedClusterReconcileHelper) getAllConfigSrvHostnamesAndPodNames(desi
 	return configSrvHostnames, configSrvPodNames
 }
 
-func (r *ShardedClusterReconcileHelper) getAllShardHostnamesAndPodNames(desiredReplicas bool) ([]string, []string) {
+func (r *ShardedClusterReconcileHelper) getShardsHostnamesAndPodNames(desiredReplicas bool) ([]string, []string) {
+	shardCount := r.sc.Spec.ShardCount
+	if !desiredReplicas {
+		shardCount = r.maxShardCount()
+	}
+
 	var shardHostnames []string
 	var shardPodNames []string
-	for shardIdx, memberClusterMap := range r.shardsMemberClustersMap {
-		for _, memberCluster := range memberClusterMap {
+	for shardIdx := range shardCount {
+		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 			replicas := memberCluster.Replicas
 			if desiredReplicas {
 				replicas = scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster))
@@ -2320,14 +2421,60 @@ func (r *ShardedClusterReconcileHelper) GetAllMongosHostnames() []string {
 	return hostnames
 }
 
-func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificateFilePath string) []om.Process {
+func (r *ShardedClusterReconcileHelper) GetAllMongosHostnamesAndPorts() []string {
+	hostnames := r.GetAllMongosHostnames()
+	portOrDefault := r.desiredMongosConfiguration.AdditionalMongodConfig.GetPortOrDefault()
+
+	hostnamesAndPorts := make([]string, len(hostnames))
+	for idx, hostname := range hostnames {
+		hostnamesAndPorts[idx] = fmt.Sprintf("%s:%d", hostname, portOrDefault)
+	}
+
+	return hostnamesAndPorts
+}
+
+// existingMongosProcessIds returns a process id map for legacy naming detection, only the key set matters.
+func (r *ShardedClusterReconcileHelper) existingMongosProcessIds(existingDeployment om.Deployment) map[string]int {
+	existingMongosNames := existingDeployment.GetShardedClusterMongosProcessNames(r.sc.GetShardedClusterName())
+	existingMongosIds := make(map[string]int, len(existingMongosNames))
+	for _, name := range existingMongosNames {
+		existingMongosIds[name] = 0
+	}
+	return existingMongosIds
+}
+
+// useLegacyMongosNames reports whether the mongos processes of the existing deployment use the legacy bare pod name scheme.
+func (r *ShardedClusterReconcileHelper) useLegacyMongosNames(existingDeployment om.Deployment) bool {
+	return replicaset.IsLegacyDeployment(r.existingMongosProcessIds(existingDeployment), r.sc.Spec.GetExternalMemberProcessNamesForMongos())
+}
+
+// mongosProcessNames converts mongos pod names to AC process names following the naming scheme of the existing deployment.
+func (r *ShardedClusterReconcileHelper) mongosProcessNames(existingDeployment om.Deployment, podNames []string) []string {
+	return replicaset.ConvertPodNamesToProcessNames(r.existingMongosProcessIds(existingDeployment), r.sc.Spec.GetExternalMemberProcessNamesForMongos(), podNames, r.sc.Namespace)
+}
+
+// configSrvProcessNames converts config server pod names to AC process names following the naming scheme of the existing deployment.
+func (r *ShardedClusterReconcileHelper) configSrvProcessNames(existingDeployment om.Deployment, podNames []string) []string {
+	existingIds := getReplicaSetProcessIdsFromReplicaSets(r.sc.ConfigACRsName(), existingDeployment)
+	return replicaset.ConvertPodNamesToProcessNames(existingIds, r.sc.GetExternalMemberProcessNamesForConfigRS(), podNames, r.sc.Namespace)
+}
+
+// shardProcessNames converts shard pod names to AC process names following the naming scheme of the existing deployment.
+func (r *ShardedClusterReconcileHelper) shardProcessNames(shardIdx int, existingDeployment om.Deployment, podNames []string) []string {
+	rsName := r.sc.ShardACRsName(shardIdx)
+	existingIds := getReplicaSetProcessIdsFromReplicaSets(rsName, existingDeployment)
+	return replicaset.ConvertPodNamesToProcessNames(existingIds, r.sc.Spec.GetExternalMemberProcessNamesForRS(rsName), podNames, r.sc.Namespace)
+}
+
+func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificateFilePath string, existingDeployment om.Deployment) []om.Process {
 	var processes []om.Process
 	for _, memberCluster := range r.mongosMemberClusters {
 		hostnames, podNames := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
+		processNames := r.mongosProcessNames(existingDeployment, podNames)
 		for i := range hostnames {
 			// Use desiredMongosConfiguration which includes search parameters applied in applySearchParametersForShards
-			process := om.NewMongosProcess(
-				podNames[i],
+			p := om.NewMongosProcess(
+				processNames[i],
 				hostnames[i],
 				r.imageUrls[util.MongodbImageEnv],
 				r.forceEnterprise,
@@ -2338,21 +2485,22 @@ func (r *ShardedClusterReconcileHelper) createDesiredMongosProcesses(certificate
 				r.sc.CalculateFeatureCompatibilityVersion(),
 				r.defaultArchitecture,
 			)
-			processes = append(processes, process)
+			processes = append(processes, p)
 		}
 	}
 
 	return processes
 }
 
-func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMemberOptions(certificateFilePath string) ([]om.Process, []automationconfig.MemberOptions) {
+func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMemberOptions(certificateFilePath string, existingDeployment om.Deployment) ([]om.Process, []automationconfig.MemberOptions) {
 	var processes []om.Process
 	var memberOptions []automationconfig.MemberOptions
 	for _, memberCluster := range r.configSrvMemberClusters {
 		hostnames, podNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
+		processNames := r.configSrvProcessNames(existingDeployment, podNames)
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion(), r.defaultArchitecture)
-			processes = append(processes, process)
+			p := om.NewMongodProcess(processNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion(), r.defaultArchitecture)
+			processes = append(processes, p)
 		}
 
 		specMemberConfig := r.desiredConfigServerConfiguration.GetClusterSpecItem(memberCluster.Name).MemberConfig
@@ -2362,14 +2510,15 @@ func (r *ShardedClusterReconcileHelper) createDesiredConfigSrvProcessesAndMember
 	return processes, memberOptions
 }
 
-func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOptions(shardIdx int, certificateFilePath string) ([]om.Process, []automationconfig.MemberOptions) {
+func (r *ShardedClusterReconcileHelper) createDesiredShardProcessesAndMemberOptions(shardIdx int, certificateFilePath string, existingDeployment om.Deployment) ([]om.Process, []automationconfig.MemberOptions) {
 	var processes []om.Process
 	var memberOptions []automationconfig.MemberOptions
 	for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 		hostnames, podNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
+		processNames := r.shardProcessNames(shardIdx, existingDeployment, podNames)
 		for i := range hostnames {
-			process := om.NewMongodProcess(podNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion(), r.defaultArchitecture)
-			processes = append(processes, process)
+			p := om.NewMongodProcess(processNames[i], hostnames[i], r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig(), r.sc.GetSpec(), certificateFilePath, r.sc.Annotations, r.sc.CalculateFeatureCompatibilityVersion(), r.defaultArchitecture)
+			processes = append(processes, p)
 		}
 		specMemberOptions := r.desiredShardsConfiguration[shardIdx].GetClusterSpecItem(memberCluster.Name).MemberConfig
 		memberOptions = append(memberOptions, specMemberOptions...)
@@ -2391,7 +2540,7 @@ func createMongodProcessForShardedCluster(mongoDBImage string, forceEnterprise b
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongodProcess(names[idx], hostname, mongoDBImage, forceEnterprise, additionalMongodConfig, &mdb.Spec, certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion(), defaultArchitecture)
+		processes[idx] = om.NewMongodProcess(process.PodNameToProcessName(names[idx], mdb.Namespace), hostname, mongoDBImage, forceEnterprise, additionalMongodConfig, &mdb.Spec, certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion(), defaultArchitecture)
 	}
 
 	return processes
@@ -2411,10 +2560,25 @@ func buildReplicaSetFromProcesses(name string, members []om.Process, mdb *mdbv1.
 		// horizons are not needed
 		rsWithProcesses = om.NewMultiClusterReplicaSetWithProcesses(replicaSet, members, memberOptions, existingProcessIds, nil)
 	} else {
-		rsWithProcesses = om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions)
+		rsWithProcesses = om.NewReplicaSetWithProcesses(replicaSet, members, memberOptions, existingProcessIds)
 		rsWithProcesses.SetHorizons(mdb.Spec.Connectivity.ReplicaSetHorizons)
 	}
 	return rsWithProcesses, nil
+}
+
+func buildExternalShardedCluster(sc *mdbv1.MongoDB) om.ExternalShardedCluster {
+	shardIds := make([]string, sc.Spec.ShardCount)
+	shardMembers := make([][]string, sc.Spec.ShardCount)
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		shardIds[i] = sc.ShardACShardId(i)
+		shardMembers[i] = sc.Spec.GetExternalMemberProcessNamesForRS(sc.ShardACRsName(i))
+	}
+	return om.ExternalShardedCluster{
+		ConfigServerMembers: sc.GetExternalMemberProcessNamesForConfigRS(),
+		ShardIds:            shardIds,
+		ShardMembers:        shardMembers,
+		MongosMembers:       sc.Spec.GetExternalMemberProcessNamesForMongos(),
+	}
 }
 
 // getConfigServerOptions returns the Options needed to build the StatefulSet for the config server.
@@ -2452,6 +2616,8 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
+		WithExternalAgentVersion(opts.externalAgentVersion),
+		WithAgentCertPath(opts.agentCertPath),
 	}
 	if sc.Spec.IsMultiCluster() {
 		opts2 = append(opts2, WithStsAnnotations(khandler.MultiClusterStatefulSetAnnotations(sc.Name)))
@@ -2490,6 +2656,8 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
+		WithExternalAgentVersion(opts.externalAgentVersion),
+		WithAgentCertPath(opts.agentCertPath),
 	}
 	if sc.Spec.IsMultiCluster() {
 		opts2 = append(opts2, WithStsAnnotations(khandler.MultiClusterStatefulSetAnnotations(sc.Name)))
@@ -2499,8 +2667,8 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 
 // getShardOptions returns the Options needed to build the StatefulSet for a given shard.
 func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc mdbv1.MongoDB, shardNum int, opts deploymentOptions, log *zap.SugaredLogger, memberCluster multicluster.MemberCluster) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
-	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ShardRsName(shardNum))
-	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardRsName(shardNum))
+	certSecretName := sc.GetSecurity().MemberCertificateSecretName(sc.ShardName(shardNum))
+	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.ShardName(shardNum))
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
@@ -2530,6 +2698,8 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
+		WithExternalAgentVersion(opts.externalAgentVersion),
+		WithAgentCertPath(opts.agentCertPath),
 	}
 	if sc.Spec.IsMultiCluster() {
 		opts2 = append(opts2, WithStsAnnotations(khandler.MultiClusterStatefulSetAnnotations(sc.Name)))
@@ -2570,6 +2740,58 @@ func (r *ShardedClusterReconcileHelper) migrateToNewDeploymentState(sc *mdbv1.Mo
 	return nil
 }
 
+// runConnectivityValidationDryRun launches (or polls) a connectivity-validator Kubernetes Job
+// that checks whether all external MongoDB members in the current Ops Manager deployment are
+// reachable from within the cluster. No StatefulSets or Ops Manager config are modified.
+// The Job is built from the mongos StatefulSet spec so it uses the same credentials volumes and
+// mounts as the mongos STS. Sharded cluster clients connect through mongos, so the connection
+// string targets external mongos members and the validator pings each external member directly.
+//
+// The MongoDB resource phase stays PhaseConnectivityValidation for both in-progress and passed
+// outcomes; the migration condition carries ConnectivityCheckRunning or ConnectivityCheckPassed.
+func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx context.Context, sc *mdbv1.MongoDB, opts deploymentOptions, operatorImage string, log *zap.SugaredLogger) workflow.Status {
+	healthyClusters := getHealthyMemberClusters(r.mongosMemberClusters)
+	if len(healthyClusters) == 0 {
+		return workflow.Failed(fmt.Errorf("connectivity dry-run: no healthy mongos member cluster available")).
+			WithAdditionalOptions(mdbstatus.NewMigrationStatusOptionWithCondition(mdbstatus.MigrationCondition(
+				mdbstatus.MigrationPhaseConnectivityCheckFailed, "NoHealthyMemberCluster",
+				"No healthy mongos member cluster is available to build the validation Job.",
+			)))
+	}
+
+	mongosHostnames := make([]string, 0)
+	for _, m := range sc.Spec.GetExternalMembers() {
+		if m.Type == mdbv1.ExternalMemberTypeMongos {
+			mongosHostnames = append(mongosHostnames, m.Hostname)
+		}
+	}
+	if len(mongosHostnames) == 0 {
+		return workflow.Failed(fmt.Errorf("connectivity dry-run: no external mongos members configured")).
+			WithAdditionalOptions(mdbstatus.NewMigrationStatusOptionWithCondition(mdbstatus.MigrationCondition(
+				mdbstatus.MigrationPhaseConnectivityCheckFailed, "NoExternalMongos",
+				"No external mongos members are configured. Add mongos external members to spec.externalMembers before running the connectivity dry-run.",
+			)))
+	}
+
+	mongosOptsFunc := r.getMongosOptions(ctx, *sc, opts, log, healthyClusters[0])
+	sts := construct.DatabaseStatefulSet(*sc, mongosOptsFunc, log)
+	connectionString := fmt.Sprintf("mongodb://%s/", strings.Join(mongosHostnames, ","))
+
+	allHostnames := make([]string, 0, len(sc.Spec.GetExternalMembers()))
+	for _, m := range sc.Spec.GetExternalMembers() {
+		allHostnames = append(allHostnames, m.Hostname)
+	}
+
+	subjectDN, dnStatus := r.commonController.ensureAgentSubjectDN(ctx, sc, opts.currentAgentAuthMode, log)
+	if !dnStatus.IsOK() {
+		return dnStatus
+	}
+
+	job := pkgMigration.BuildJobFromStatefulSet(sc, &sts, operatorImage, connectionString, allHostnames, opts.currentAgentAuthMode, opts.agentCertHash, subjectDN)
+
+	return r.commonController.runConnectivityJob(ctx, job, log)
+}
+
 func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resource *mdbv1.MongoDB, status workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
 	if result, err := r.commonController.updateStatus(ctx, resource, status, log, statusOptions...); err != nil {
 		return result, err
@@ -2586,7 +2808,7 @@ func (r *ShardedClusterReconcileHelper) updateStatus(ctx context.Context, resour
 
 func (r *ShardedClusterReconcileHelper) GetShardStsName(shardIdx int, memberCluster multicluster.MemberCluster) string {
 	if memberCluster.Legacy {
-		return r.sc.ShardRsName(shardIdx)
+		return r.sc.ShardName(shardIdx)
 	} else {
 		return r.sc.MultiShardRsName(memberCluster.Index, shardIdx)
 	}
@@ -2608,16 +2830,25 @@ func (r *ShardedClusterReconcileHelper) GetMongosStsName(memberCluster multiclus
 	}
 }
 
+// hasExternalMembers reports whether the sharded cluster is being migrated from VMs. It is
+// deliberately global across components — config server, shards and mongos alike: a migration
+// always covers the whole deployment (there is no config-server-only migration), and one-by-one
+// scaling during migration matches the normal scale-up behavior, so a per-component flag would
+// add complexity without changing behavior.
+func (r *ShardedClusterReconcileHelper) hasExternalMembers() bool {
+	return len(r.sc.Spec.GetExternalMembers()) > 0
+}
+
 func (r *ShardedClusterReconcileHelper) GetConfigSrvScaler(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler("configSrv", r.desiredConfigServerConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.configSrvMemberClusters)
+	return scalers.NewMultiClusterReplicaSetScaler("configSrv", r.desiredConfigServerConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.configSrvMemberClusters, r.hasExternalMembers())
 }
 
 func (r *ShardedClusterReconcileHelper) GetMongosScaler(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler("mongos", r.desiredMongosConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.mongosMemberClusters)
+	return scalers.NewMultiClusterReplicaSetScaler("mongos", r.desiredMongosConfiguration.ClusterSpecList, memberCluster.Name, memberCluster.Index, r.mongosMemberClusters, r.hasExternalMembers())
 }
 
 func (r *ShardedClusterReconcileHelper) GetShardScaler(shardIdx int, memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
-	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx])
+	return scalers.NewMultiClusterReplicaSetScaler(fmt.Sprintf("shard idx %d", shardIdx), r.desiredShardsConfiguration[shardIdx].ClusterSpecList, memberCluster.Name, memberCluster.Index, r.shardsMemberClustersMap[shardIdx], r.hasExternalMembers())
 }
 
 func (r *ShardedClusterReconcileHelper) getAllScalers() []interfaces.MultiClusterReplicaSetScaler {
@@ -2694,7 +2925,7 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMapData() ma
 		}
 	}
 
-	for shardIdx := 0; shardIdx < max(r.sc.Spec.ShardCount, r.deploymentState.Status.ShardCount); shardIdx++ {
+	for shardIdx := 0; shardIdx < r.maxShardCount(); shardIdx++ {
 		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
 			shardScaler := r.GetShardScaler(shardIdx, memberCluster)
 			shardHostnames, shardPodNames := r.getShardHostnames(shardIdx, memberCluster, max(shardScaler.CurrentReplicas(), shardScaler.DesiredReplicas()))
@@ -2706,9 +2937,33 @@ func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMapData() ma
 	return data
 }
 
+// anyTierHasExternalDomain reports whether any tier of a single-cluster deployment resolves to an
+// external domain. The StatefulSets mount the hostname-override ConfigMap per tier (see
+// construct.baseOptions), so gating its creation on the top-level spec.externalAccess alone would
+// leave pods stuck on a missing ConfigMap when only spec.<tier>.externalAccess is set.
+func (r *ShardedClusterReconcileHelper) anyTierHasExternalDomain() bool {
+	for _, memberCluster := range r.allMemberClusters {
+		tiers := []struct {
+			component *mdbv1.ShardedClusterComponentSpec
+			tier      mdbv1.ShardedClusterTier
+		}{
+			{r.sc.Spec.MongosSpec, mdbv1.TierMongos},
+			{r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv},
+			{r.sc.Spec.ShardSpec, mdbv1.TierShard},
+		}
+		for _, t := range tiers {
+			if r.sc.Spec.EffectiveExternalDomain(t.component, t.tier, memberCluster.Name) != nil {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func (r *ShardedClusterReconcileHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger) error {
 	if !r.sc.Spec.IsMultiCluster() {
-		if r.sc.Spec.DbCommonSpec.GetExternalDomain() == nil {
+		if !r.anyTierHasExternalDomain() {
 			log.Debugf("Skipping creating hostname override config map in SingleCluster topology (with external domain unspecified)")
 			return nil
 		}
@@ -2773,10 +3028,9 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 	scaler := r.GetConfigSrvScaler(memberCluster)
 
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
-		configServerExternalAccess := r.desiredConfigServerConfiguration.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
-		if configServerExternalAccess == nil {
-			configServerExternalAccess = r.sc.Spec.ExternalAccessConfiguration
-		}
+		// Same resolution as getConfigSrvHostnames, so the services created here and the hostnames
+		// published to the automation config can never disagree.
+		configServerExternalAccess := r.sc.Spec.EffectiveExternalAccessConfiguration(r.desiredConfigServerConfiguration, mdbv1.TierConfigSrv, memberCluster.Name)
 		// Config servers need external services only if an externalDomain is configured
 		if configServerExternalAccess != nil && configServerExternalAccess.ExternalDomain != nil {
 			log.Debugf("creating external services for %s in cluster: %s", r.sc.ConfigRsName(), memberCluster.Name)
@@ -2809,25 +3063,24 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 }
 
 func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Context, log *zap.SugaredLogger, shardIdx int, memberCluster multicluster.MemberCluster, allServices []*corev1.Service) error {
-	shardsExternalAccess := r.desiredShardsConfiguration[shardIdx].ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
-	if shardsExternalAccess == nil {
-		shardsExternalAccess = r.sc.Spec.ExternalAccessConfiguration
-	}
+	// Same resolution as getShardHostnames, so the services created here and the hostnames published to
+	// the automation config can never disagree.
+	shardsExternalAccess := r.sc.Spec.EffectiveExternalAccessConfiguration(r.desiredShardsConfiguration[shardIdx], mdbv1.TierShard, memberCluster.Name)
 	portOrDefault := r.desiredShardsConfiguration[shardIdx].AdditionalMongodConfig.GetPortOrDefault()
 	scaler := r.GetShardScaler(shardIdx, memberCluster)
 
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
 		// Shards need external services only if an externalDomain is configured
 		if shardsExternalAccess != nil && shardsExternalAccess.ExternalDomain != nil {
-			log.Debugf("creating external services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
+			log.Debugf("creating external services for %s in cluster: %s", r.sc.ShardName(shardIdx), memberCluster.Name)
 			svc, err := r.getPodExternalService(
 				memberCluster,
-				r.sc.ShardRsName(shardIdx),
+				r.sc.ShardName(shardIdx),
 				shardsExternalAccess,
 				podNum,
 				portOrDefault)
 			if err != nil {
-				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardRsName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
+				return xerrors.Errorf("failed to build an external service %s in cluster: %s, err: %w", dns.GetMultiExternalServiceName(r.sc.ShardName(shardIdx), memberCluster.Index, podNum), memberCluster.Name, err)
 			}
 			if err = service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create external service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
@@ -2835,8 +3088,8 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		}
 		// We don't need internal per-pod services in case we have externalAccess configured AND an external domain
 		if shardsExternalAccess == nil || shardsExternalAccess.ExternalDomain == nil {
-			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardRsName(shardIdx), memberCluster.Name)
-			svc := r.getPodService(r.sc.ShardRsName(shardIdx), memberCluster, podNum, portOrDefault)
+			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardName(shardIdx), memberCluster.Name)
+			svc := r.getPodService(r.sc.ShardName(shardIdx), memberCluster, podNum, portOrDefault)
 			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
@@ -2845,7 +3098,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		}
 	}
 
-	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardRsName(shardIdx), portOrDefault, memberCluster); err != nil {
+	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardName(shardIdx), portOrDefault, memberCluster); err != nil {
 		return err
 	}
 	return nil
@@ -2855,10 +3108,7 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 	scaler := r.GetMongosScaler(memberCluster)
 	portOrDefault := r.desiredMongosConfiguration.AdditionalMongodConfig.GetPortOrDefault()
 	for podNum := 0; podNum < scaler.DesiredReplicas(); podNum++ {
-		mongosExternalAccess := r.desiredMongosConfiguration.ClusterSpecList.GetExternalAccessConfigurationForMemberCluster(memberCluster.Name)
-		if mongosExternalAccess == nil {
-			mongosExternalAccess = r.sc.Spec.ExternalAccessConfiguration
-		}
+		mongosExternalAccess := r.sc.Spec.EffectiveExternalAccessConfiguration(r.desiredMongosConfiguration, mdbv1.TierMongos, memberCluster.Name)
 		// Mongos always need external services if externalAccess is configured
 		if mongosExternalAccess != nil {
 			log.Debugf("creating external services for %s in cluster: %s", r.sc.MongosRsName(), memberCluster.Name)
@@ -2900,7 +3150,7 @@ func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx 
 
 	headlessServiceName := dns.GetMultiHeadlessServiceName(stsName, memberCluster.Index)
 	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
-	headlessService := create.BuildService(nameSpacedName, r.sc, ptr.To(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
+	headlessService := create.BuildService(nameSpacedName, r.sc, new(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	headlessService.OwnerReferences = r.sc.OwnerReferenceForMemberCluster()
 
 	if err := service.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
@@ -3054,30 +3304,10 @@ func (r *ShardedClusterReconcileHelper) statefulsetLabels() map[string]string {
 	return merge.StringToStringMap(r.sc.Labels, r.sc.GetOwnerLabels())
 }
 
-func (r *ShardedClusterReconcileHelper) ShardsMemberClustersMap() map[int][]multicluster.MemberCluster {
-	return r.shardsMemberClustersMap
-}
-
-func (r *ShardedClusterReconcileHelper) ConfigSrvMemberClusters() []multicluster.MemberCluster {
-	return r.configSrvMemberClusters
-}
-
-func (r *ShardedClusterReconcileHelper) MongosMemberClusters() []multicluster.MemberCluster {
-	return r.mongosMemberClusters
-}
-
-func (r *ShardedClusterReconcileHelper) AllShardsMemberClusters() []multicluster.MemberCluster {
-	return r.allShardsMemberClusters
-}
-
-func (r *ShardedClusterReconcileHelper) AllMemberClusters() []multicluster.MemberCluster {
-	return r.allMemberClusters
-}
-
-func (r *ShardedClusterReconcileHelper) getHealthyProcessNames() []string {
-	_, mongosProcessNames := r.getHealthyMongosProcesses()
-	_, configSrvProcessNames := r.getHealthyConfigSrvProcesses()
-	_, shardsProcessNames := r.getHealthyShardsProcesses()
+func (r *ShardedClusterReconcileHelper) getHealthyProcessNames(existingDeployment om.Deployment) []string {
+	_, mongosProcessNames := r.getHealthyMongosProcesses(existingDeployment)
+	_, configSrvProcessNames := r.getHealthyConfigSrvProcesses(existingDeployment)
+	_, shardsProcessNames := r.getHealthyShardsProcesses(existingDeployment)
 
 	var processNames []string
 	processNames = append(processNames, mongosProcessNames...)
@@ -3087,16 +3317,23 @@ func (r *ShardedClusterReconcileHelper) getHealthyProcessNames() []string {
 	return processNames
 }
 
-func (r *ShardedClusterReconcileHelper) getHealthyProcessNamesToWaitForReadyState(conn om.Connection, log *zap.SugaredLogger) []string {
-	processList := r.getHealthyProcessNames()
+func (r *ShardedClusterReconcileHelper) getHealthyProcessNamesToWaitForReadyState(ctx context.Context, existingDeployment om.Deployment, conn om.Connection, log *zap.SugaredLogger) []string {
+	processList := r.getHealthyProcessNames(existingDeployment)
 
-	clusterState, err := agents.GetMongoDBClusterState(conn)
+	clusterState, err := agents.GetMongoDBClusterState(ctx, conn)
 	if err != nil {
 		log.Warnf("Skipping check for mongos deadlock for all the nodes being healthy (deadlock) due to error: %v", err)
 		return processList
 	}
 
-	if mongosDeadlock, deadlockedMongos := checkForMongosDeadlock(clusterState, r.sc.MongosRsName(), r.isStillScaling(), log); mongosDeadlock {
+	// For new-naming deployments, mongos process names carry a k8s/<namespace>/ prefix so the prefix
+	// used to identify mongos processes in the agent state must match that scheme.
+	mongosPrefix := r.sc.MongosRsName()
+	if !r.useLegacyMongosNames(existingDeployment) {
+		mongosPrefix = process.PodNameToProcessName(r.sc.MongosRsName(), r.sc.Namespace)
+	}
+
+	if mongosDeadlock, deadlockedMongos := checkForMongosDeadlock(clusterState, mongosPrefix, r.isStillScaling(), log); mongosDeadlock {
 		deadlockedProcessNames := util.Transform(deadlockedMongos, func(obj agents.ProcessState) string {
 			return obj.ProcessName
 		})
@@ -3114,36 +3351,36 @@ func (r *ShardedClusterReconcileHelper) getHealthyProcessNamesToWaitForReadyStat
 	return processList
 }
 
-func (r *ShardedClusterReconcileHelper) getHealthyMongosProcesses() ([]string, []string) {
+func (r *ShardedClusterReconcileHelper) getHealthyMongosProcesses(existingDeployment om.Deployment) ([]string, []string) {
 	var processNames []string
 	var hostnames []string
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		clusterHostnames, clusterProcessNames := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
+		clusterHostnames, clusterPodNames := r.getMongosHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster)))
 		hostnames = append(hostnames, clusterHostnames...)
-		processNames = append(processNames, clusterProcessNames...)
+		processNames = append(processNames, r.mongosProcessNames(existingDeployment, clusterPodNames)...)
 	}
 	return hostnames, processNames
 }
 
-func (r *ShardedClusterReconcileHelper) getHealthyConfigSrvProcesses() ([]string, []string) {
+func (r *ShardedClusterReconcileHelper) getHealthyConfigSrvProcesses(existingDeployment om.Deployment) ([]string, []string) {
 	var processNames []string
 	var hostnames []string
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		clusterHostnames, clusterProcessNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
+		clusterHostnames, clusterPodNames := r.getConfigSrvHostnames(memberCluster, scale.ReplicasThisReconciliation(r.GetConfigSrvScaler(memberCluster)))
 		hostnames = append(hostnames, clusterHostnames...)
-		processNames = append(processNames, clusterProcessNames...)
+		processNames = append(processNames, r.configSrvProcessNames(existingDeployment, clusterPodNames)...)
 	}
 	return hostnames, processNames
 }
 
-func (r *ShardedClusterReconcileHelper) getHealthyShardsProcesses() ([]string, []string) {
+func (r *ShardedClusterReconcileHelper) getHealthyShardsProcesses(existingDeployment om.Deployment) ([]string, []string) {
 	var processNames []string
 	var hostnames []string
 	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-			clusterHostnames, clusterProcessNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
+			clusterHostnames, clusterPodNames := r.getShardHostnames(shardIdx, memberCluster, scale.ReplicasThisReconciliation(r.GetShardScaler(shardIdx, memberCluster)))
 			hostnames = append(hostnames, clusterHostnames...)
-			processNames = append(processNames, clusterProcessNames...)
+			processNames = append(processNames, r.shardProcessNames(shardIdx, existingDeployment, clusterPodNames)...)
 		}
 	}
 	return hostnames, processNames
@@ -3214,12 +3451,7 @@ func checkForMongosDeadlock(clusterState agents.MongoDBClusterStateInOM, mongosR
 	}
 
 	allDeadlockedMongos := slices.DeleteFunc(slices.Clone(allHealthyMongosNotInGoalState), func(processState agents.ProcessState) bool {
-		for _, agentMove := range processState.Plan {
-			if agentMove == agents.RollingChangeArgs {
-				return false
-			} // TODO make a constant
-		}
-		return true
+		return !slices.Contains(processState.Plan, agents.RollingChangeArgs)
 	})
 
 	if len(allDeadlockedMongos) > 0 {

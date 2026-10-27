@@ -108,7 +108,10 @@ func backupDaemonStatefulSetFunc(opts OpsManagerStatefulSetOptions) statefulset.
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	defaultConfig := v1.PersistenceConfig{Storage: util.DefaultHeadDbStorageSize}
-	pvc := PvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig, opts.Labels)
+	// Deliberately no labels: spec.volumeClaimTemplates is immutable, so propagating the
+	// resource's labels here would wedge the StatefulSet as soon as they change (CLOUDP-208587).
+	// Use spec.statefulSet overrides to label the head DB PVC.
+	pvc := PvcFunc(util.PvcNameHeadDb, opts.HeadDbPersistenceConfig, defaultConfig, nil)
 	headDbMount := statefulset.CreateVolumeMount(util.PvcNameHeadDb, util.PvcMountPathHeadDb)
 
 	caVolumeFunc := podtemplatespec.NOOP()

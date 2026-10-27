@@ -2,6 +2,7 @@ package statefulset
 
 import (
 	"context"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -262,14 +263,6 @@ func WithVolumeClaim(name string, f func(*corev1.PersistentVolumeClaim)) Modific
 	}
 }
 
-func WithVolumeClaimTemplates(pv []corev1.PersistentVolumeClaim) Modification {
-	pvCopy := make([]corev1.PersistentVolumeClaim, len(pv))
-	copy(pvCopy, pv)
-	return func(set *appsv1.StatefulSet) {
-		set.Spec.VolumeClaimTemplates = pvCopy
-	}
-}
-
 func WithCustomSpecs(spec appsv1.StatefulSetSpec) Modification {
 	return func(set *appsv1.StatefulSet) {
 		set.Spec = merge.StatefulSetSpecs(set.Spec, spec)
@@ -313,4 +306,10 @@ func ResetUpdateStrategy(ctx context.Context, mdb annotations.Versioned, kubeCli
 		sts.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
 	})
 	return err
+}
+
+func IsOwnedBy(sts *appsv1.StatefulSet, owner metav1.Object) bool {
+	return slices.ContainsFunc(sts.OwnerReferences, func(ref metav1.OwnerReference) bool {
+		return ref.UID == owner.GetUID()
+	})
 }

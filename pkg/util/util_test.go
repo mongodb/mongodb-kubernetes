@@ -46,6 +46,100 @@ func TestMajorMinorVersion(t *testing.T) {
 	assert.Equal(t, "4.2", s)
 }
 
+func TestGetOwnershipLabels(t *testing.T) {
+	tests := []struct {
+		name      string
+		stsLabels map[string]string
+		expectedX map[string]string
+	}{
+		{
+			name:      "nil labels produce no ownership labels",
+			expectedX: map[string]string{},
+		},
+		{
+			name:      "unrelated labels are ignored",
+			stsLabels: map[string]string{"app": "demo"},
+			expectedX: map[string]string{},
+		},
+		{
+			name:      "a participant label is returned",
+			stsLabels: map[string]string{"app": "demo", MongoDBResourceOwnerLabel: "my-mdb"},
+			expectedX: map[string]string{MongoDBResourceOwnerLabel: "my-mdb"},
+		},
+		{
+			name: "every present participant label is returned",
+			stsLabels: map[string]string{
+				MongoDBResourceOwnerLabel:             "my-mdb",
+				MongoDBOpsManagerResourceOwnerLabel:   "my-om",
+				MongoDBMultiClusterResourceOwnerLabel: "my-mdbm",
+			},
+			expectedX: map[string]string{
+				MongoDBResourceOwnerLabel:             "my-mdb",
+				MongoDBOpsManagerResourceOwnerLabel:   "my-om",
+				MongoDBMultiClusterResourceOwnerLabel: "my-mdbm",
+			},
+		},
+		{
+			name:      "an empty participant value is not an ownership label",
+			stsLabels: map[string]string{MongoDBResourceOwnerLabel: ""},
+			expectedX: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedX, GetOwnershipLabels(tt.stsLabels))
+		})
+	}
+}
+
+func TestStripOwnerLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		labels   map[string]string
+		expected map[string]string
+	}{
+		{
+			name:     "nil labels return nil",
+			labels:   nil,
+			expected: nil,
+		},
+		{
+			name:     "empty labels return nil",
+			labels:   map[string]string{},
+			expected: nil,
+		},
+		{
+			name:     "unrelated labels survive",
+			labels:   map[string]string{"app": "demo"},
+			expected: map[string]string{"app": "demo"},
+		},
+		{
+			name: "participant labels are stripped",
+			labels: map[string]string{
+				"app":                                 "demo",
+				MongoDBResourceOwnerLabel:             "my-mdb",
+				MongoDBOpsManagerResourceOwnerLabel:   "my-om",
+				MongoDBMultiClusterResourceOwnerLabel: "my-mdbm",
+			},
+			expected: map[string]string{"app": "demo"},
+		},
+		{
+			name: "only participant labels return nil",
+			labels: map[string]string{
+				MongoDBResourceOwnerLabel: "my-mdb",
+			},
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, StripOwnerLabels(tt.labels))
+		})
+	}
+}
+
 func TestRedactURI(t *testing.T) {
 	uri := "mongo.mongoUri=mongodb://mongodb-ops-manager:my-scram-password@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
 	expected := "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
@@ -80,7 +174,7 @@ func newSome(name, property string) someId {
 	}
 }
 
-func (s someId) Identifier() interface{} {
+func (s someId) Identifier() any {
 	return s.name
 }
 
@@ -230,6 +324,11 @@ func TestIsURL(t *testing.T) {
 			expectedErrorString: "missing URL host: http://",
 		},
 		{
+			name:                "port without hostname",
+			input:               "http://:8080",
+			expectedErrorString: "missing URL hostname: http://:8080",
+		},
+		{
 			name:                "empty string",
 			input:               "",
 			expectedErrorString: "empty URL",
@@ -257,6 +356,28 @@ func TestIsURL(t *testing.T) {
 				assert.NoError(t, err)
 				assert.NotNil(t, u)
 			}
+		})
+	}
+}
+
+func TestIsPOSIXAbsolutePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "root", path: "/", want: true},
+		{name: "nested", path: "/etc/ssl/cert.pem", want: true},
+		{name: "double_slash", path: "//foo", want: true},
+		{name: "empty", path: "", want: false},
+		{name: "relative", path: "relative", want: false},
+		{name: "dot_slash", path: "./abs", want: false},
+		{name: "dot_dot_segment", path: "/safe/../etc/passwd", want: false},
+		{name: "dot_dot_in_name", path: "/opt/foo..bar/x", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsPOSIXAbsolutePath(tt.path))
 		})
 	}
 }

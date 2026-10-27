@@ -67,32 +67,6 @@ tasks:
           image_name: mongodb-kubernetes
           mongodbOperator: "latest"
 
-# Code snippets tasks
-# Each task is selected by convention by running scripts/code_snippets/${task_name}_test.sh
-  - name: task_gke_multi_cluster_snippets
-    tags: [ "code_snippets" ]
-    commands:
-      - func: test_code_snippets
-      - func: archive_snippets_output
-
-  - name: task_gke_multi_cluster_no_mesh_snippets
-    tags: [ "code_snippets" ]
-    commands:
-      - func: test_code_snippets
-      - func: archive_snippets_output
-
-  - name: task_kind_search_community_snippets
-    tags: [ "code_snippets", "patch-run" ]
-    commands:
-      - func: test_code_snippets
-      - func: archive_snippets_output
-
-  - name: task_kind_search_enterprise_snippets
-    tags: [ "code_snippets", "patch-run" ]
-    commands:
-      - func: test_code_snippets
-      - func: archive_snippets_output
-
 ## Below are only e2e runs for .evergreen.yml ##
 
   - name: e2e_multiple_cluster_failures
@@ -104,16 +78,6 @@ tasks:
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
-
-  - name: e2e_standalone_custom_podspec
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_standalone_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
 
   - name: e2e_replica_set_schema_validation
     tags: [ "patch-run" ]
@@ -136,23 +100,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_crd_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_standalone_config_map
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  # TODO: not used in any variant
-  - name: e2e_standalone_groups
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_standalone_recovery
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -162,12 +110,12 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_operator_clusterwide
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_operator_proxy
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -177,7 +125,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_operator_upgrade_replica_set
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -202,23 +150,22 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_meko_mck_upgrade
+    tags: [ "patch-run", "e2e_medium" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_standalone_to_replicaset_migration
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_olm_operator_upgrade
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  # TODO: not used in any variant
-  - name: e2e_olm_operator_webhooks
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_olm_operator_upgrade_with_resources
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -248,12 +195,12 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_mongodb_validation_webhook
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -268,7 +215,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_recovery
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -277,14 +224,8 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
-  - name: e2e_replica_set_groups
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_replica_set_pv
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -294,7 +235,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_exposed_externally
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -308,8 +249,77 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_replication_state_awareness
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_scram_sha256
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_scram_sha1
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_scram_sha256_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_no_auth
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_external_access
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_search
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_manual_rollback
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_mck_to_mck
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_x509
+    tags: [ "patch-run", "e2e_medium" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_prometheus
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_oidc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_oidc_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_replicaset_oidc_workforce
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -355,7 +365,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_sharded_cluster
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -365,7 +375,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_sharded_cluster_recovery
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -375,6 +385,11 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_sharded_cluster_scale_shards
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_scale_shards_name_overrides
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -394,13 +409,8 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_standalone_agent_flags
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_replica_set_agent_flags_and_readinessProbe
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -409,18 +419,13 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_standalone_upgrade_downgrade
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_replica_set_upgrade_downgrade
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_replica_set_custom_podspec
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -445,22 +450,22 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_sharded_cluster_custom_podspec
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_sharded_cluster_upgrade_downgrade
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
-  - name: e2e_standalone_no_tls_no_status_is_set
+  - name: e2e_replica_set_no_tls_no_status_is_set
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_replica_set_tls_default
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -490,7 +495,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_tls_allow
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -500,6 +505,11 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_tls_require
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_require_custom_ca_path
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -509,35 +519,23 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_tls_certs_top_level_prefix
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_disable_tls_and_scale
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_replica_set_tls_require_to_allow
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_sharded_cluster_tls_require_custom_ca
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_replica_set_tls_require_and_disable
     tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  # TODO: not used in any variant
-  - name: e2e_tls_multiple_different_ssl_configs
     commands:
       - func: "e2e_test"
 
@@ -547,13 +545,13 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_tls_x509_rs
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     # longer timeout than usual as this test tests recovery from bad states which can take some time
     commands:
       - func: "e2e_test"
 
   - name: e2e_tls_x509_sc
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -578,7 +576,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_scram_sha_256_user_connectivity
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -593,7 +591,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_sharded_cluster_scram_sha_256_user_connectivity
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -603,7 +601,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_scram_sha_1_upgrade
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -613,7 +611,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_x509_to_scram_transition
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -628,12 +626,12 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_ldap
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_sharded_cluster_ldap
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -663,7 +661,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_pv_resize
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -742,7 +740,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_replica_set_scram_x509_internal_cluster
     tags: [ "patch-run" ]
     commands:
@@ -758,7 +755,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  # TODO: not used in any variant
   - name: e2e_sharded_cluster_scram_x509_internal_cluster
     tags: [ "patch-run" ]
     commands:
@@ -801,16 +797,31 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_om_appdb_scram
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_om_appdb_upgrade
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_om_appdb_validation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_external_appdb_forward
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_external_appdb_fresh
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_external_appdb_backup_and_restore
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -831,7 +842,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_om_ops_manager_backup
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -848,12 +859,12 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_om_ops_manager_backup_light
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: e2e_test
 
   - name: e2e_om_ops_manager_backup_tls
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -888,12 +899,12 @@ tasks:
       - func: e2e_test
 
   - name: e2e_om_ops_manager_scale
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_om_ops_manager_upgrade
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -903,12 +914,12 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_om_ops_manager_prometheus
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_om_ops_manager_pod_spec
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     run_on:
       - ubuntu2404-large
     commands:
@@ -920,7 +931,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_om_ops_manager_https_enabled
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -945,7 +956,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_om_migration
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -975,7 +986,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_replica_set
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -995,7 +1006,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_scale_up_cluster
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1010,7 +1021,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_replica_set_scale_down
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1025,7 +1036,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_scram
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1040,18 +1051,12 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_enable_tls
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
   - name: e2e_multi_cluster_upgrade_downgrade
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
-  # TODO: not used in any variant
-  - name: e2e_multi_cluster_tls_cert_rotation
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1061,7 +1066,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_backup_restore
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1081,11 +1086,26 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_om_validation
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
   - name: e2e_multi_cluster_appdb
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_external_multi_cluster_appdb_fresh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_external_multi_cluster_appdb_forward
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_external_multi_cluster_appdb_backup_and_restore
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1096,7 +1116,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_tls_with_x509
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1115,14 +1135,13 @@ tasks:
     commands:
       - func: e2e_test
 
-  # TODO: not used in any variant
   - name: e2e_multi_cluster_clusterwide
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
   - name: e2e_multi_cluster_disaster_recovery
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1132,7 +1151,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_2_clusters_replica_set
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1177,7 +1196,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_vault_setup
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1196,13 +1215,13 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_om_ops_manager_backup_restore_minio
+  - name: e2e_om_ops_manager_backup_restore_rustfs
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 
   - name: e2e_multi_cluster_appdb_disaster_recovery
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1227,7 +1246,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_om_appdb_no_mesh
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1242,7 +1261,6 @@ tasks:
     commands:
       - func: e2e_test
 
-  # TODO: not used in any variant
   - name: e2e_om_reconcile_perf
     tags: [ "patch-run" ]
     commands:
@@ -1254,7 +1272,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_sharded_scaling
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1264,7 +1282,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_sharded_simplest
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1296,7 +1314,7 @@ tasks:
 
   # OIDC tests
   - name: e2e_replica_set_oidc_m2m_group
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1311,7 +1329,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_sharded_cluster_oidc_m2m_group
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: e2e_test
 
@@ -1331,7 +1349,7 @@ tasks:
       - func: e2e_test
 
   - name: e2e_search_community_basic
-    tags: ["patch-run"]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -1366,7 +1384,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_community_tls
-    tags: ["patch-run"]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -1381,7 +1399,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_enterprise_basic
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -1391,6 +1409,71 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_enterprise_x509_cluster_auth
+    tags: [ "patch-run", "e2e_medium" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_no_auth
+    tags: [ "patch-run", "e2e_medium" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_scram_sha256
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_scram_sha1
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_scram_sha256_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_ldap
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_oidc
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_oidc_group
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_oidc_workforce
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_prometheus
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_external_access
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_search
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_vm_migration_shardedcluster_voting_scale_up
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1485,6 +1568,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_search_mc_sharded_om_lifecycle
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_search_replicaset_external_mongodb_multi_mongot_managed_lb
     tags: [ "patch-run" ]
     commands:
@@ -1525,7 +1613,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_sharded_internal_mongodb_single_mongot
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -1535,7 +1623,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_sharded_openshift_external
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 

@@ -2,12 +2,15 @@ package construct
 
 import (
 	"fmt"
+	"maps"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"go.uber.org/zap"
-	"k8s.io/utils/ptr"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -65,6 +68,7 @@ const (
 	LogFileMongoDBEnv                = "MDB_LOG_FILE_MONGODB"
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
 	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
+	DownloadBaseEnv                  = "MMS_DOWNLOAD_BASE"
 )
 
 type StsType int
@@ -101,6 +105,18 @@ type DatabaseStatefulSetOptions struct {
 	StsType                 StsType
 	AdditionalMongodConfig  *mdbv1.AdditionalMongodConfig
 
+	// ExternalAccessConfiguration is the external access configuration in force for this
+	// StatefulSet's tier and member cluster. Nil means this tier is not externally exposed.
+	//
+	// It differs from spec.externalAccess, which is only one of the places a tier's
+	// configuration can come from. MongoDbSpec.EffectiveExternalAccessConfiguration picks
+	// between them, preferring the per-member-cluster entry in the tier's clusterSpecList,
+	// then the per-tier spec.<tier>.externalAccess, and falling back to the top-level
+	// spec.externalAccess only for multi-cluster and for mongos. Callers set this field from
+	// that function, and consumers read it rather than mdb.Spec.ExternalAccessConfiguration,
+	// which would be wrong for a sharded cluster's config server and shards.
+	ExternalAccessConfiguration *mdbv1.ExternalAccessConfiguration
+
 	InitDatabaseImage      string
 	DatabaseNonStaticImage string
 	MongodbImage           string
@@ -113,6 +129,14 @@ type DatabaseStatefulSetOptions struct {
 	Labels      map[string]string
 	StsLabels   map[string]string
 
+	// ExternalAgentVersion sets the agent version to download when spec.externalMembers is non-empty:
+	// databaseEnvVars forwards it as MDB_AGENT_VERSION.
+	ExternalAgentVersion string
+
+	// AgentCertPath is the absolute path to the agent PEM (Ops Manager tls.autoPEMKeyFilePath). When set and not
+	// equal to AgentCertMountPath/<AgentCertHash>, the StatefulSet uses an items-based secret mount at this path.
+	AgentCertPath string
+
 	// These fields are only relevant for multi-cluster
 	MultiClusterMode bool // should always be "false" in single-cluster
 	// This needs to be provided for the multi-cluster statefulsets as they contain a member index in the name.
@@ -124,6 +148,8 @@ type DatabaseStatefulSetOptions struct {
 	AgentDebug          bool
 	AgentDebugImage     string
 	DefaultArchitecture architectures.DefaultArchitecture
+
+	DownloadBase string
 }
 
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
@@ -143,6 +169,16 @@ func (d DatabaseStatefulSetOptions) GetStatefulSetName() string {
 	return d.Name
 }
 
+// GetDownloadBase returns the configured download base, falling back to util.DefaultPvcMmsMountPath
+// when unset. Leaving DownloadBase empty in the struct therefore yields the same behavior as before
+// the field was introduced.
+func (d DatabaseStatefulSetOptions) GetDownloadBase() string {
+	if d.DownloadBase != "" {
+		return d.DownloadBase
+	}
+	return util.DefaultPvcMmsMountPath
+}
+
 // databaseStatefulSetSource is an interface which provides all the required fields to fully construct
 // a database StatefulSet.
 type databaseStatefulSetSource interface {
@@ -154,6 +190,10 @@ type databaseStatefulSetSource interface {
 	GetPrometheus() *v1.Prometheus
 
 	GetAnnotations() map[string]string
+
+	GetDownloadBase() string
+
+	IsRoleAppDB() bool
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
@@ -176,6 +216,13 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StatefulSetSpecOverride: stsSpec,
 			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
 			StsType:                 Standalone,
+			// create.DatabaseInKubernetes creates or deletes the per-pod external services based on
+			// opts.ExternalAccessConfiguration, so leaving it unset would delete the external
+			// service of a standalone that configures spec.externalAccess. A standalone has no
+			// tiers, so the top-level field is the only source, as it is for a replica set.
+			ExternalAccessConfiguration: mdb.Spec.ExternalAccessConfiguration,
+			// Standalone deliberately leaves DownloadBase unset: it does not support configuring the
+			// download base (used only for VM migration), so GetDownloadBase falls back to the default.
 		}
 
 		for _, opt := range additionalOpts {
@@ -195,19 +242,21 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 		}
 
 		opts := DatabaseStatefulSetOptions{
-			Replicas:                scale.ReplicasThisReconciliation(&mdb),
-			Name:                    mdb.Name,
-			ServiceName:             mdb.ServiceName(),
-			Annotations:             map[string]string{"type": "Replicaset"},
-			PodSpec:                 NewDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
-			ServicePort:             mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
-			Persistent:              mdb.Spec.Persistent,
-			OwnerReference:          kube.BaseOwnerReference(&mdb),
-			AgentConfig:             &mdb.Spec.Agent,
-			StatefulSetSpecOverride: stsSpec,
-			Labels:                  mdb.Labels,
-			MultiClusterMode:        mdb.Spec.IsMultiCluster(),
-			StsType:                 ReplicaSet,
+			Replicas:                    scale.ReplicasThisReconciliation(&mdb),
+			Name:                        mdb.Name,
+			ServiceName:                 mdb.ServiceName(),
+			Annotations:                 map[string]string{"type": "Replicaset"},
+			PodSpec:                     NewDefaultPodSpecWrapper(*mdb.Spec.PodSpec),
+			ServicePort:                 mdb.Spec.AdditionalMongodConfig.GetPortOrDefault(),
+			Persistent:                  mdb.Spec.Persistent,
+			OwnerReference:              kube.BaseOwnerReference(&mdb),
+			AgentConfig:                 &mdb.Spec.Agent,
+			StatefulSetSpecOverride:     stsSpec,
+			Labels:                      mdb.Labels,
+			MultiClusterMode:            mdb.Spec.IsMultiCluster(),
+			StsType:                     ReplicaSet,
+			DownloadBase:                mdb.Spec.GetDownloadBase(),
+			ExternalAccessConfiguration: mdb.Spec.ExternalAccessConfiguration,
 		}
 
 		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -254,9 +303,17 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 		MultiClusterMode:        cfg.mdb.Spec.IsMultiCluster(),
 		Persistent:              cfg.persistent,
 		StsType:                 cfg.stsType,
+		DownloadBase:            cfg.mdb.Spec.GetDownloadBase(),
 	}
 
-	if cfg.mdb.Spec.IsMultiCluster() {
+	opts.ExternalAccessConfiguration = cfg.mdb.Spec.EffectiveExternalAccessConfiguration(cfg.componentSpec, shardedClusterTierForStsType(cfg.stsType), cfg.memberClusterName)
+
+	// Multi-cluster always needs the override because processes are addressed by per-pod service
+	// FQDN rather than by pod name. Single-cluster needs it for any tier published under an external
+	// domain, so the process self-identifies as its external hostname rather than its internal one.
+	// This subsumes the mongos-only case that MongosOptions used to handle.
+	externalDomain := cfg.mdb.Spec.EffectiveExternalDomain(cfg.componentSpec, shardedClusterTierForStsType(cfg.stsType), cfg.memberClusterName)
+	if cfg.mdb.Spec.IsMultiCluster() || externalDomain != nil {
 		opts.HostNameOverrideConfigmapName = cfg.mdb.GetHostNameOverrideConfigmapName()
 	}
 	for _, opt := range additionalOpts {
@@ -276,8 +333,15 @@ type shardedOptionCfg struct {
 	persistent        *bool
 }
 
-func (c shardedOptionCfg) hasExternalDomain() bool {
-	return c.mdb.Spec.DbCommonSpec.GetExternalDomain() != nil
+func shardedClusterTierForStsType(stsType StsType) mdbv1.ShardedClusterTier {
+	switch stsType {
+	case Config:
+		return mdbv1.TierConfigSrv
+	case Mongos:
+		return mdbv1.TierMongos
+	default:
+		return mdbv1.TierShard
+	}
 }
 
 // ShardOptions returns a set of options which will configure single Shard StatefulSet
@@ -286,7 +350,7 @@ func ShardOptions(shardNum int, shardSpec *mdbv1.ShardedClusterComponentSpec, me
 		cfg := shardedOptionCfg{
 			mdb:               mdb,
 			componentSpec:     shardSpec,
-			rsName:            mdb.ShardRsName(shardNum),
+			rsName:            mdb.ShardName(shardNum),
 			memberClusterName: memberClusterName,
 			serviceName:       mdb.ShardServiceName(),
 			stsType:           Shard,
@@ -324,14 +388,8 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 			memberClusterName: memberClusterName,
 			serviceName:       mdb.ServiceName(),
 			stsType:           Mongos,
-			persistent:        ptr.To(false),
+			persistent:        new(false),
 		}
-
-		additionalOpts = append(additionalOpts, func(options *DatabaseStatefulSetOptions) {
-			if !cfg.mdb.Spec.IsMultiCluster() && cfg.hasExternalDomain() {
-				options.HostNameOverrideConfigmapName = cfg.mdb.GetHostNameOverrideConfigmapName()
-			}
-		})
 
 		return shardedOptions(cfg, additionalOpts...)
 	}
@@ -346,7 +404,7 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 	}
 
 	if len(stsOptions.Labels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.Labels)
+		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, util.StripOwnerLabels(stsOptions.Labels))
 	}
 
 	if len(stsOptions.StsLabels) > 0 {
@@ -415,12 +473,26 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 	return secretsToInject
 }
 
+// podAntiAffinityName returns the value identifying a resource's pods in the pod-anti-affinity
+// label, from which the StatefulSet selector is built. A role-AppDB resource adopts the Ops
+// Manager AppDB StatefulSet, whose selector carries the per-cluster StatefulSet name, so it must
+// produce the same value; every other resource keeps the resource name so existing StatefulSets
+// stay updatable on upgrade (spec.selector is immutable).
+func podAntiAffinityName(mdb databaseStatefulSetSource, opts DatabaseStatefulSetOptions) string {
+	if mdb.IsRoleAppDB() {
+		return opts.GetStatefulSetName()
+	}
+	return opts.Name
+}
+
 // buildDatabaseStatefulSetConfigurationFunction returns the function that will modify the StatefulSet
 func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource, podTemplateSpecFunc podtemplatespec.Modification, opts DatabaseStatefulSetOptions, log *zap.SugaredLogger) statefulset.Modification {
+	stsName := opts.GetStatefulSetName()
+
 	podLabels := map[string]string{
 		appLabelKey:             opts.ServiceName,
 		util.OperatorLabelName:  util.OperatorLabelValue,
-		PodAntiAffinityLabelKey: opts.Name,
+		PodAntiAffinityLabelKey: podAntiAffinityName(mdb, opts),
 	}
 
 	configurePodSpecSecurityContext, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
@@ -481,20 +553,13 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		podTemplateAnnotationFunc = podtemplatespec.Apply(podTemplateAnnotationFunc, podtemplatespec.WithAnnotations(secretsToInject.DatabaseAnnotations(mdb.GetNamespace())))
 	}
 
-	stsName := opts.GetStatefulSetName()
-	podAffinity := mdb.GetName()
-	if opts.StatefulSetNameOverride != "" {
-		stsName = opts.StatefulSetNameOverride
-		podAffinity = opts.StatefulSetNameOverride
-	}
-
 	shareProcessNs := statefulset.NOOP()
 
 	var databaseImage string
 	var staticMods []podtemplatespec.Modification
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
 		}
 		// Add volume mounts to all containers in static architecture
 		// This runs after all containers have been added to the spec
@@ -514,7 +579,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 			log.Warnf("%s is true but delve image is not configured. Plese configure %s", util.EnvVarDebug, util.EnvVarDebugImage)
 		} else {
 			shareProcessNs = func(sts *appsv1.StatefulSet) {
-				sts.Spec.Template.Spec.ShareProcessNamespace = ptr.To(true)
+				sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
 			}
 
 			agentDebugMod = podtemplatespec.WithInitContainer("delve-sidecar", func(c *corev1.Container) {
@@ -532,7 +597,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	podTemplateModifications := []podtemplatespec.Modification{
 		podTemplateAnnotationFunc,
-		podtemplatespec.WithAffinity(podAffinity, PodAntiAffinityLabelKey, 100),
+		podtemplatespec.WithAffinity(podAntiAffinityName(mdb, opts), PodAntiAffinityLabelKey, 100),
 		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 		podtemplatespec.WithPodLabels(podLabels),
 		podtemplatespec.WithContainerByIndex(0, sharedDatabaseContainerFunc(databaseImage, *opts.PodSpec, volumeMounts, configureContainerSecurityContext, opts.ServicePort)),
@@ -589,7 +654,7 @@ func sharedDatabaseContainerFunc(databaseImage string, podSpecWrapper mdbv1.PodS
 	return container.Apply(
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(podSpecWrapper)),
 		container.WithPorts([]corev1.ContainerPort{{ContainerPort: port}}),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithVolumeMounts(volumeMounts),
 		container.WithImage(databaseImage),
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
@@ -621,7 +686,7 @@ func getTLSPrometheusVolumeAndVolumeMount(prom *v1.Prometheus) ([]corev1.Volume,
 		return volumes, volumeMounts
 	}
 
-	secretFunc := func(v *corev1.Volume) { v.Secret.Optional = util.BooleanRef(true) }
+	secretFunc := func(v *corev1.Volume) { v.Secret.Optional = new(true) }
 	// Name of the Secret (PEM-format) with the concatenation of the certificate and key.
 	secretName := prom.TLSSecretRef.Name + certs.OperatorGeneratedCertSuffix
 
@@ -666,13 +731,33 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	volumeMounts = append(volumeMounts, prometheusVolumeMounts...)
 
 	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().ShouldUseX509(databaseOpts.CurrentAgentAuthMode) || mdb.GetSecurity().ShouldUseClientCertificates() {
-		agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			MountPath: util.AgentCertMountPath,
-			Name:      agentSecretVolume.Name,
-			ReadOnly:  true,
-		})
-		volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		defaultAgentCertPath := filepath.Join(util.AgentCertMountPath, databaseOpts.AgentCertHash)
+		if databaseOpts.AgentCertPath != "" && databaseOpts.AgentCertPath != defaultAgentCertPath {
+			// Custom PEM path (e.g. spec.agents.autoPEMKeyFilePath): items mount (key=AgentCertHash, path=basename).
+			certFileName := filepath.Base(databaseOpts.AgentCertPath)
+			certDir := filepath.Dir(databaseOpts.AgentCertPath)
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName, func(v *corev1.Volume) {
+				v.Secret.Items = []corev1.KeyToPath{
+					{Key: databaseOpts.AgentCertHash, Path: certFileName},
+				}
+			})
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: certDir,
+				Name:      agentSecretVolume.Name,
+				ReadOnly:  true,
+			})
+			volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		} else {
+			// Normal mode: mount the whole secret as a directory at AgentCertMountPath.
+			// All hash-keyed cert files are accessible; hash changes trigger StatefulSet rollout.
+			agentSecretVolume := statefulset.CreateVolumeFromSecret(util.AgentSecretName, agentCertsSecretName)
+			volumeMounts = append(volumeMounts, corev1.VolumeMount{
+				MountPath: util.AgentCertMountPath,
+				Name:      agentSecretVolume.Name,
+				ReadOnly:  true,
+			})
+			volumesToAdd = append(volumesToAdd, agentSecretVolume)
+		}
 	}
 
 	// add volume for x509 cert used in internal cluster authentication
@@ -691,7 +776,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 
-	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts)
+	volumesToAdd, volumeMounts = GetNonPersistentAgentVolumeMounts(volumesToAdd, volumeMounts, databaseOpts.GetDownloadBase())
 
 	return volumesToAdd, volumeMounts
 }
@@ -704,7 +789,7 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 	} else {
 		modifications = buildNonStaticArchitecturePodTemplateSpec(opts, mdb)
 	}
-	sharedModifications := sharedDatabaseConfiguration(opts)
+	sharedModifications := sharedDatabaseConfiguration(opts, mdb)
 	return podtemplatespec.Apply(sharedModifications, modifications)
 }
 
@@ -724,7 +809,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithImage(opts.AgentImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithArgs([]string{}),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
@@ -740,6 +825,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithResourceRequirements(buildRequirementsFromPodSpec(*opts.PodSpec)),
 		container.WithImage(opts.MongodbImage),
 		container.WithEnvs(databaseEnvVars(opts)...),
+		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
 		configureContainerSecurityContext,
 	)}
@@ -796,7 +882,7 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithCommand([]string{"/opt/scripts/agent-launcher.sh"}),
 		container.WithVolumeMounts(volumeMounts),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.AutomationAgentImagePullPolicy))), // nolint:forbidigo
+		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
@@ -817,7 +903,7 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 	}
 
 	mods := []podtemplatespec.Modification{
-		sharedDatabaseConfiguration(opts),
+		sharedDatabaseConfiguration(opts, mdb),
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithServiceAccount(getServiceAccountName(opts)),
 		podtemplatespec.WithVolumes(volumes),
@@ -845,7 +931,8 @@ func getServiceAccountName(opts DatabaseStatefulSetOptions) string {
 
 // sharedDatabaseConfiguration is a function which applies all the shared configuration
 // between the appDb and MongoDB resources
-func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespec.Modification {
+func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
+	antiAffinityValue := podAntiAffinityName(mdb, opts)
 	configurePodSpecSecurityContext, _ := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	pullSecretsConfigurationFunc := podtemplatespec.NOOP()
@@ -854,11 +941,11 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 	}
 
 	return podtemplatespec.Apply(
-		podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, opts.Name)),
+		podtemplatespec.WithPodLabels(defaultPodLabels(opts.ServiceName, antiAffinityValue)),
 		podtemplatespec.WithTerminationGracePeriodSeconds(util.DefaultPodTerminationPeriodSeconds),
 		pullSecretsConfigurationFunc,
 		configurePodSpecSecurityContext,
-		podtemplatespec.WithAffinity(opts.Name, PodAntiAffinityLabelKey, 100),
+		podtemplatespec.WithAffinity(antiAffinityValue, PodAntiAffinityLabelKey, 100),
 		podtemplatespec.WithTopologyKey(opts.PodSpec.GetTopologyKeyOrDefault(), 0),
 	)
 }
@@ -868,7 +955,7 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions) podtemplatespe
 // and concatenates them into a single string that is then
 // returned as env variable AGENT_FLAGS
 func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.EnvVar {
-	agentParams := ""
+	var agentParams strings.Builder
 	finalParameters := mdbv1.StartupParameters{}
 	// add default parameters if not already set
 	for key, value := range defaultAgentParameters() {
@@ -877,9 +964,7 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 			finalParameters[key] = value
 		}
 	}
-	for key, value := range parameters {
-		finalParameters[key] = value
-	}
+	maps.Copy(finalParameters, parameters)
 	// sort the parameters by key
 	keys := make([]string, 0, len(finalParameters))
 	for k := range finalParameters {
@@ -889,10 +974,10 @@ func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.Env
 	for _, key := range keys {
 		// Using comma as delimiter to split the string later
 		// in the agentlauncher script
-		agentParams += "-" + key + "=" + finalParameters[key] + ","
+		agentParams.WriteString("-" + key + "=" + finalParameters[key] + ",")
 	}
 
-	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams}
+	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams.String()}
 }
 
 // readinessEnvironmentVariablesToEnvVars returns the environment variables to bet set in the readinessProbe container
@@ -1034,6 +1119,24 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 		vars = append(vars, corev1.EnvVar{Name: util.EnvVarCustomAgentURL, Value: opts.CustomAgentURL})
 	}
 
+	if agentVersion := os.Getenv(util.EnvVarAgentVersion); agentVersion != "" { // nolint:forbidigo
+		zap.S().Debugf("using a custom agent version from operator env: %s", agentVersion)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: agentVersion})
+	} else if opts.ExternalAgentVersion != "" {
+		// Non-static pods download the agent
+		zap.S().Debugf("using external agent version for: %s", opts.ExternalAgentVersion)
+		vars = append(vars, corev1.EnvVar{Name: util.EnvVarAgentVersion, Value: opts.ExternalAgentVersion})
+	}
+
+	// The agent extracts MongoDB binaries and places the keyfile under this directory. It must match
+	// the volume mount path (see GetNonPersistentAgentVolumeMounts) and options.downloadBase in the
+	// automation config, in both static and non-static architectures.
+	// Only set the env var when it differs from the launcher's default (see agent-launcher.sh),
+	// which matches util.DefaultPvcMmsMountPath.
+	if downloadBase := opts.GetDownloadBase(); downloadBase != util.DefaultPvcMmsMountPath {
+		vars = append(vars, corev1.EnvVar{Name: DownloadBaseEnv, Value: downloadBase})
+	}
+
 	// append any additional env vars specified.
 	vars = append(vars, opts.ExtraEnvs...)
 
@@ -1103,12 +1206,12 @@ func GetNonPersistentMongoDBVolumeMounts(volumes []corev1.Volume, volumeMounts [
 }
 
 // GetNonPersistentAgentVolumeMounts returns two arrays of non-persistent, empty volumes and corresponding mounts for the Agent container.
-func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount) ([]corev1.Volume, []corev1.VolumeMount) {
+func GetNonPersistentAgentVolumeMounts(volumes []corev1.Volume, volumeMounts []corev1.VolumeMount, downloadBase string) ([]corev1.Volume, []corev1.VolumeMount) {
 	volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(util.PvMms))
 
 	// The agent reads and writes into its own directory. It also contains a subdirectory called downloads.
 	// This one is published by the Dockerfile
-	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsMountPath, statefulset.WithSubPath(util.PvcMms)))
+	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, downloadBase, statefulset.WithSubPath(util.PvcMms)))
 
 	// Runtime data for MMS
 	volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(util.PvMms, util.PvcMmsHomeMountPath, statefulset.WithSubPath(util.PvcMmsHome)))

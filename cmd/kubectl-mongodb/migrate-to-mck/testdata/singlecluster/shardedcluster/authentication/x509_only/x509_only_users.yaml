@@ -1,0 +1,13 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBUser
+metadata:
+  name: cn-x509-client-o-mongodb
+  namespace: mongodb
+spec:
+  db: $external
+  mongodbResourceRef:
+    name: sc-x509only-cluster
+  roles:
+  - db: secure-db
+    name: readWrite
+  username: CN=x509-client,O=MongoDB

@@ -30,6 +30,7 @@ get_operator_helm_values() {
     "readinessProbe.version=${READINESS_PROBE_VERSION}"
     "versionUpgradeHook.version=${VERSION_UPGRADE_HOOK_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
+    "mongodb.repo=${MONGODB_REPO_URL}"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
     "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
     # only send the telemetry to the backend on a specific variant, thus default to false
@@ -84,6 +85,8 @@ get_operator_helm_values() {
 
   if [[ "${BUILD_WITH_RACE_DETECTION:-}" == "true" ]]; then
     config+=("operator.build=-race")
+    # the race detector multiplies memory usage; the chart's default 1Gi limit gets the operator OOMKilled
+    config+=("operator.resources.limits.memory=4Gi")
   fi
 
   if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-}" != "" ]]; then

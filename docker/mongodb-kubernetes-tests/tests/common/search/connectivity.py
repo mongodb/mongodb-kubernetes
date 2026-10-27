@@ -10,16 +10,23 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import pymongo
 import pymongo.errors
 from kubernetes import client
-from kubetester import list_matching_pods, pod_is_ready
+from kubetester import create_or_update_secret, list_matching_pods, pod_is_ready, read_secret
+from kubetester.certs import create_tls_certs, rotate_cert
 from kubetester.kubetester import run_periodically
 from pymongo.read_preferences import Nearest
 from tests import test_logger
+from tests.common.search import search_resource_names
 from tests.common.search.search_tester import SearchTester
+
+if TYPE_CHECKING:
+    from kubetester.mongodb_search import MongoDBSearch
+    from kubetester.multicluster_client import MultiClusterClient
+    from kubetester.phase import Phase
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -39,6 +46,9 @@ FAILURE_SEARCH_NOT_ENABLED = "search_not_enabled"
 # only an explicit index-state rejection proves the bad Ready-while-syncing mode.
 FAILURE_MONGOT_UNREACHABLE = "mongot_unreachable"
 FAILURE_OTHER = "other"
+
+SEARCH_OWNER_NAME_LABEL = "mongodb.com/search-name"
+SEARCH_OWNER_NAMESPACE_LABEL = "mongodb.com/search-namespace"
 
 _CURSOR_LOST_MESSAGE_RE = re.compile(
     r"cursor id .*?(not found|was killed)|remote error from mongot|rst_stream",
@@ -598,6 +608,121 @@ def wait_for_pods_by_label_replaced(
     )
 
 
+ENVOY_CONFIG_HASH_ANNOTATION = "mongodb.com/envoy-config-hash"
+
+
+def wait_for_envoy_restart(
+    namespace: str,
+    deployment_name: str,
+    previous_hash: str,
+    *,
+    api_client: Optional[client.ApiClient] = None,
+) -> None:
+    """Require a changed template hash and every replacement ready before the next certificate rotation."""
+    assert previous_hash, f"{deployment_name}: missing pre-rotation hash"
+    apps = client.AppsV1Api(api_client=api_client)
+
+    def check() -> tuple[bool, str]:
+        deployment = apps.read_namespaced_deployment(deployment_name, namespace)
+        current_hash = (deployment.spec.template.metadata.annotations or {}).get(ENVOY_CONFIG_HASH_ANNOTATION)
+        desired = deployment.spec.replicas
+        status = deployment.status
+        if not current_hash or current_hash == previous_hash:
+            return False, f"{deployment_name}: waiting for changed certificate hash"
+        if (
+            not desired
+            or status.observed_generation != deployment.metadata.generation
+            or status.replicas != desired
+            or status.updated_replicas != desired
+            or status.ready_replicas != desired
+        ):
+            return False, f"{deployment_name}: replacement not converged"
+        pods = list_matching_pods(namespace, label_selector=f"app={deployment_name}", api_client=api_client)
+        if len(pods) != desired or any(p.metadata.deletion_timestamp or not pod_is_ready(p) for p in pods):
+            return False, f"{deployment_name}: waiting for exactly {desired} ready nonterminating pods"
+        if any((p.metadata.annotations or {}).get(ENVOY_CONFIG_HASH_ANNOTATION) != current_hash for p in pods):
+            return False, f"{deployment_name}: waiting for all pods to carry the new hash"
+        return True, f"{deployment_name}: every replacement is ready with hash {current_hash}"
+
+    run_periodically(check, timeout=300, sleep_time=5, msg=f"{deployment_name}: Envoy certificate restart")
+
+
+def rotate_member_envoy_certificates(
+    namespace: str,
+    search_name: str,
+    certs_prefix: str,
+    issuer: str,
+    members: list[MultiClusterClient],
+    central_api_client: client.ApiClient,
+) -> None:
+    """Finish each certificate phase across all members before changing the other certificate."""
+    server_domains = []
+    for member in members:
+        assert member.cluster_index is not None
+        server_domains.append(search_resource_names.mc_proxy_svc_fqdn(search_name, namespace, member.cluster_index))
+
+    for cert_name, domains in (
+        (search_resource_names.lb_server_cert_name, server_domains),
+        (search_resource_names.lb_client_cert_name, [f"*.{namespace}.svc.cluster.local"]),
+    ):
+
+        replacements: list[tuple[MultiClusterClient, str, str, dict[str, str], str]] = []
+        for member in members:
+            assert member.cluster_index is not None
+            deployment_name = search_resource_names.lb_deployment_name(search_name, member.cluster_index)
+            secret_name = cert_name(search_name, certs_prefix, member.cluster_index)
+            scratch_name = f"{secret_name}-rotated"
+            create_tls_certs(
+                issuer=issuer,
+                namespace=namespace,
+                resource_name=deployment_name,
+                replicas=1,
+                service_name=deployment_name,
+                additional_domains=domains,
+                secret_name=scratch_name,
+                api_client=central_api_client,
+                ready_timeout=120,
+            )
+            data = read_secret(namespace, scratch_name, api_client=central_api_client)
+            assert data["tls.crt"] != read_secret(namespace, secret_name, api_client=member.api_client)["tls.crt"]
+            before = member.apps_v1_api().read_namespaced_deployment(deployment_name, namespace)
+            previous_hash = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
+            replacements.append((member, deployment_name, secret_name, data, previous_hash))
+
+        for member, _, secret_name, data, _ in replacements:
+            create_or_update_secret(
+                namespace, secret_name, data, type="kubernetes.io/tls", api_client=member.api_client
+            )
+            assert read_secret(namespace, secret_name, api_client=member.api_client) == data
+        # Central-only watches must see the trigger after every member has the corresponding data.
+        for _, _, secret_name, data, _ in replacements:
+            create_or_update_secret(
+                namespace, secret_name, data, type="kubernetes.io/tls", api_client=central_api_client
+            )
+        for member, deployment_name, _, _, previous_hash in replacements:
+            wait_for_envoy_restart(namespace, deployment_name, previous_hash, api_client=member.api_client)
+
+
+def rotate_envoy_certificates(namespace: str, search_name: str, certs_prefix: str) -> None:
+    deployment_name = search_resource_names.lb_deployment_name(search_name)
+    apps = client.AppsV1Api()
+    for certificate_name in (
+        search_resource_names.lb_server_cert_name(search_name, certs_prefix),
+        search_resource_names.lb_client_cert_name(search_name, certs_prefix),
+    ):
+        before = apps.read_namespaced_deployment(deployment_name, namespace)
+        previous_hash = before.spec.template.metadata.annotations[ENVOY_CONFIG_HASH_ANNOTATION]
+        previous_cert = read_secret(namespace, certificate_name)["tls.crt"]
+        rotate_cert(namespace, certificate_name)
+
+        def secret_changed() -> tuple[bool, str]:
+            changed = read_secret(namespace, certificate_name)["tls.crt"] != previous_cert
+            return changed, f"{certificate_name}: changed={changed}"
+
+        run_periodically(secret_changed, timeout=120, sleep_time=5, msg=f"{certificate_name}: certificate reissuance")
+        wait_for_envoy_restart(namespace, deployment_name, previous_hash)
+
+
 # MongoDBSearch reconcile + readiness-probe disruption helpers
 
 DISABLE_RECONCILIATION_ANNOTATION = "mongodb.com/disable-reconciliation"
@@ -894,14 +1019,9 @@ def wait_for_mongot_pvcs_deleted(
     named ``<template>-<sts>-<ordinal>``, so we match on the ``-<sts>-`` infix.
     ``api_client`` must target the cluster hosting the STS.
     """
-    core = client.CoreV1Api(api_client=api_client)
 
     def deleted() -> tuple[bool, str]:
-        remaining = [
-            pvc.metadata.name
-            for pvc in core.list_namespaced_persistent_volume_claim(namespace).items
-            if f"-{sts_name}-" in f"-{pvc.metadata.name}"
-        ]
+        remaining = mongot_data_pvc_names(namespace, sts_name, api_client=api_client)
         return not remaining, ("all deleted" if not remaining else f"remaining={remaining}")
 
     run_periodically(
@@ -909,6 +1029,245 @@ def wait_for_mongot_pvcs_deleted(
         timeout=timeout,
         sleep_time=sleep_time,
         msg=f"mongot PVCs for STS {sts_name} to be deleted",
+    )
+
+
+def _search_owned_top_level_resources(
+    apps_v1: Any,
+    core_v1: Any,
+    namespace: str,
+    search_name: str,
+) -> dict[str, list[Any]]:
+    selector = f"{SEARCH_OWNER_NAME_LABEL}={search_name},{SEARCH_OWNER_NAMESPACE_LABEL}={namespace}"
+    return {
+        "StatefulSet": apps_v1.list_namespaced_stateful_set(namespace, label_selector=selector).items,
+        "Deployment": apps_v1.list_namespaced_deployment(namespace, label_selector=selector).items,
+        "Service": core_v1.list_namespaced_service(namespace, label_selector=selector).items,
+        "ConfigMap": core_v1.list_namespaced_config_map(namespace, label_selector=selector).items,
+        "Secret": core_v1.list_namespaced_secret(namespace, label_selector=selector).items,
+    }
+
+
+def wait_for_search_owned_resources_deleted(
+    apps_v1: Any,
+    core_v1: Any,
+    namespace: str,
+    search_name: str,
+    *,
+    where: str,
+    timeout: int = 600,
+) -> None:
+    def deleted() -> tuple[bool, str]:
+        resources = _search_owned_top_level_resources(apps_v1, core_v1, namespace, search_name)
+        remaining = [
+            f"{kind}/{resource.metadata.name}(uid={resource.metadata.uid})"
+            for kind, items in resources.items()
+            for resource in items
+        ]
+        return not remaining, f"{where}: remaining={remaining}"
+
+    run_periodically(
+        deleted,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"{where} Search-owned top-level resource cleanup",
+    )
+
+
+def mongot_data_pvc_names(
+    namespace: str,
+    sts_name: str,
+    *,
+    api_client: Optional[client.ApiClient] = None,
+) -> list[str]:
+    core = client.CoreV1Api(api_client=api_client)
+    return [
+        pvc.metadata.name
+        for pvc in core.list_namespaced_persistent_volume_claim(namespace).items
+        if f"-{sts_name}-" in f"-{pvc.metadata.name}"
+    ]
+
+
+def wait_for_resource_deleted(read_fn: Callable[[], Any], what: str, timeout: int = 300) -> None:
+    def deleted() -> tuple[bool, str]:
+        try:
+            read_fn()
+            return False, f"{what} still present"
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return True, f"{what} deleted"
+            raise
+
+    run_periodically(deleted, timeout=timeout, sleep_time=5, msg=f"{what} cleanup")
+
+
+def wait_for_search_deleted(mdbs: "MongoDBSearch", timeout: int = 300) -> None:
+    wait_for_resource_deleted(mdbs.load, f"MongoDBSearch {mdbs.name}", timeout=timeout)
+
+
+def wait_for_deployment_recreated(apps: Any, namespace: str, name: str, previous_uid: str, timeout: int = 300) -> None:
+    """Poll until Deployment `name` exists with a NEW uid and all desired replicas ready."""
+
+    def recreated_and_ready() -> tuple[bool, str]:
+        try:
+            deployment = apps.read_namespaced_deployment(name, namespace)
+        except client.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return False, f"{name} absent"
+            raise
+        desired = deployment.spec.replicas or 0
+        ready = deployment.status.ready_replicas or 0
+        replaced = deployment.metadata.uid != previous_uid
+        return replaced and desired > 0 and ready == desired, f"replaced={replaced}, ready={ready}/{desired}"
+
+    run_periodically(recreated_and_ready, timeout=timeout, sleep_time=5, msg=f"Deployment {name} recreation")
+
+
+def wait_for_metrics_forwarder_phase(mdbs: "MongoDBSearch", phase: "Phase", timeout: int = 120) -> None:
+    def reached() -> bool:
+        mdbs.reload()
+        status = mdbs.get_metrics_forwarder_status()
+        return status is not None and status.get("phase") == phase.name
+
+    run_periodically(
+        reached,
+        timeout=timeout,
+        sleep_time=10,
+        msg=f"metrics forwarder status to reach {phase.name}",
+    )
+
+
+def protected_search_input_uids(
+    core_v1: Any,
+    namespace: str,
+    source_tls_secret_name: str,
+    sync_user_secret_name: str,
+    ca_configmap_name: str,
+    *,
+    additional_secret_names: tuple[str, ...] = (),
+) -> dict[str, str]:
+    """Snapshot the UIDs of customer-provided ("protected") Search inputs.
+
+    These are resources the customer creates (source TLS Secret, sync-user password
+    Secret, CA ConfigMap, ...) that the operator consumes but must never delete or
+    recreate — cleanup sweeps only remove operator-owned artifacts. Tests capture
+    these UIDs before a lifecycle transition and assert afterwards that they are
+    unchanged, proving the inputs survived untouched.
+    """
+
+    def uid(resource: Any, what: str) -> str:
+        value = resource.metadata.uid
+        assert value, f"{what} has no UID"
+        return value
+
+    uids = {
+        "source_tls_secret": uid(
+            core_v1.read_namespaced_secret(source_tls_secret_name, namespace),
+            f"Secret {source_tls_secret_name}",
+        ),
+        "sync_user_secret": uid(
+            core_v1.read_namespaced_secret(sync_user_secret_name, namespace),
+            f"Secret {sync_user_secret_name}",
+        ),
+        "ca_configmap": uid(
+            core_v1.read_namespaced_config_map(ca_configmap_name, namespace),
+            f"ConfigMap {ca_configmap_name}",
+        ),
+    }
+    uids.update(
+        {
+            f"secret/{name}": uid(core_v1.read_namespaced_secret(name, namespace), f"Secret {name}")
+            for name in additional_secret_names
+        }
+    )
+    return uids
+
+
+def _mc_search_artifact_readers(
+    mcc: "MultiClusterClient",
+    namespace: str,
+    names: dict[str, str],
+) -> dict[str, Callable[[], Any]]:
+    """Direct readers for the concrete (kind, name) identities of one cluster's
+    Search artifact set (keys match `mc_search_artifact_names`)."""
+    apps = mcc.apps_v1_api()
+    core = mcc.core_v1_api()
+    return {
+        f"StatefulSet/{names['sts']}": lambda: mcc.read_namespaced_stateful_set(names["sts"], namespace),
+        f"Service/{names['svc']}": lambda: mcc.read_namespaced_service(names["svc"], namespace),
+        f"Service/{names['proxy']}": lambda: mcc.read_namespaced_service(names["proxy"], namespace),
+        f"ConfigMap/{names['mongot_cm']}": lambda: mcc.read_namespaced_config_map(names["mongot_cm"], namespace),
+        f"Deployment/{names['envoy_deployment']}": lambda: apps.read_namespaced_deployment(
+            names["envoy_deployment"], namespace
+        ),
+        f"ConfigMap/{names['envoy_cm']}": lambda: mcc.read_namespaced_config_map(names["envoy_cm"], namespace),
+        f"Secret/{names['operator_tls_secret']}": lambda: core.read_namespaced_secret(
+            names["operator_tls_secret"], namespace
+        ),
+    }
+
+
+def search_artifact_uids(
+    mcc: "MultiClusterClient",
+    namespace: str,
+    names: dict[str, str],
+) -> dict[str, str]:
+    core = mcc.core_v1_api()
+    resources = {what: read() for what, read in _mc_search_artifact_readers(mcc, namespace, names).items()}
+    pvc_names = mongot_data_pvc_names(namespace, names["sts"], api_client=mcc.api_client)
+    assert pvc_names, f"[{mcc.cluster_name}] expected mongot data PVCs for {names['sts']}"
+    resources.update(
+        {
+            f"PersistentVolumeClaim/{name}": core.read_namespaced_persistent_volume_claim(name, namespace)
+            for name in pvc_names
+        }
+    )
+
+    uids = {what: resource.metadata.uid for what, resource in resources.items()}
+    assert all(uids.values()), f"[{mcc.cluster_name}] Search artifact without UID: {uids}"
+    return uids
+
+
+def wait_for_search_artifacts_deleted(
+    mcc: "MultiClusterClient",
+    namespace: str,
+    names: dict[str, str],
+    search_name: str,
+    *,
+    timeout: int = 600,
+) -> None:
+    """Identity-based absence is the authoritative cleanup assertion: every concrete
+    (kind, name) captured before deletion must read back 404 — a resource that loses
+    its owner labels drops out of a label selector but not out of this poll. The
+    label-scoped emptiness List stays as a secondary check for labeled orphans
+    outside the captured inventory."""
+    readers = _mc_search_artifact_readers(mcc, namespace, names)
+
+    def identities_deleted() -> tuple[bool, str]:
+        remaining = []
+        for what, read in readers.items():
+            try:
+                read()
+                remaining.append(what)
+            except client.exceptions.ApiException as exc:
+                if exc.status != 404:
+                    raise
+        return not remaining, f"{mcc.cluster_name}: remaining={remaining}"
+
+    run_periodically(
+        identities_deleted,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"{mcc.cluster_name} Search artifact identity cleanup",
+    )
+    wait_for_mongot_pvcs_deleted(namespace, names["sts"], api_client=mcc.api_client, timeout=300)
+    wait_for_search_owned_resources_deleted(
+        mcc.apps_v1_api(),
+        mcc.core_v1_api(),
+        namespace,
+        search_name,
+        where=mcc.cluster_name,
+        timeout=timeout,
     )
 
 

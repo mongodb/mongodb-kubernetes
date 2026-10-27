@@ -412,7 +412,7 @@ func TestService_usesCustomMongodPortWhenSpecified(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
 
-	mongodConfig := objx.New(map[string]interface{}{})
+	mongodConfig := objx.New(map[string]any{})
 	mongodConfig.Set("net.port", 1000.)
 	mdb.Spec.AdditionalMongodConfig.Object = mongodConfig
 
@@ -734,7 +734,7 @@ func TestService_configuresPrometheusCustomPorts(t *testing.T) {
 		Port: 4321,
 	}
 
-	mongodConfig := objx.New(map[string]interface{}{})
+	mongodConfig := objx.New(map[string]any{})
 	mongodConfig.Set("net.port", 1000.)
 	mdb.Spec.AdditionalMongodConfig.Object = mongodConfig
 
@@ -881,7 +881,7 @@ func TestAutomationConfig_CustomMongodConfig(t *testing.T) {
 	ctx := context.Background()
 	mdb := newTestReplicaSet()
 
-	mongodConfig := objx.New(map[string]interface{}{})
+	mongodConfig := objx.New(map[string]any{})
 	mongodConfig.Set("net.port", float64(1000))
 	mongodConfig.Set("storage.other", "value")
 	mongodConfig.Set("arbitrary.config.path", "value")

@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -92,9 +91,9 @@ func TestUpdateOmAuthentication_NoAuthenticationEnabled(t *testing.T) {
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
-	r.updateOmAuthentication(ctx, conn, processNames, rs, "", "", "", false, zap.S())
+	r.updateOmAuthentication(ctx, conn, processNames, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 
-	ac, _ := conn.ReadAutomationConfig()
+	ac, _ := conn.ReadAutomationConfig(ctx)
 
 	assert.True(t, ac.Auth.Disabled, "authentication was not specified to enabled, so it should remain disabled in Ops Manager")
 	assert.Len(t, ac.Auth.Users, 0)
@@ -113,7 +112,7 @@ func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring both options at once should not result in a failed status")
 	assert.True(t, isMultiStageReconciliation, "configuring both tls and x509 at once should result in a multi stage reconciliation")
@@ -125,7 +124,7 @@ func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring x509 when tls has already been enabled should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if tls is already enabled, we should be able to configure x509 is a single reconciliation")
@@ -141,10 +140,10 @@ func TestUpdateOmAuthentication_AuthenticationIsNotConfigured_IfAuthIsNotSet(t *
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
 	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
 
-	status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
+	status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 	assert.True(t, status.IsOK(), "no authentication should have been configured")
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	// authentication has not been touched
 	assert.True(t, ac.Auth.Disabled)
@@ -168,7 +167,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	// x509 auth has been enabled
 	assert.True(t, ac.Auth.IsEnabled())
 	assert.Contains(t, ac.Auth.AutoAuthMechanism, authentication.MongoDBX509)
@@ -179,7 +178,7 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	ac, _ = omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ = omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.True(t, ac.Auth.IsEnabled())
 	assert.Contains(t, ac.Auth.AutoAuthMechanism, authentication.MongoDBX509)
 }
@@ -213,7 +212,7 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 	secretName := util.AgentSecretName
 	createAgentCSRs(t, ctx, r.client, secretName, certsv1.CertificateApproved)
 
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 	assert.True(t, status.IsOK(), "configuring x509 and tls when there are no processes should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if we are enabling tls and x509 at once, this should be done in a single reconciliation")
 }
@@ -242,7 +241,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
 }
 
@@ -278,7 +277,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
 }
 
@@ -287,7 +286,7 @@ func TestScramAgentUser_IsNotOverridden(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().EnableSCRAM().Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		err := connection.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		err := connection.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 			ac.Auth.AutoUser = "my-custom-agent-name"
 			return nil
 		}, nil)
@@ -300,7 +299,7 @@ func TestScramAgentUser_IsNotOverridden(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	assert.Equal(t, "my-custom-agent-name", ac.Auth.AutoUser)
 }
@@ -320,7 +319,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *t
 
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	dep, _ := omConnectionFactory.GetConnection().ReadDeployment()
+	dep, _ := omConnectionFactory.GetConnection().ReadDeployment(ctx)
 	for _, p := range dep.ProcessesCopy() {
 		assert.Equal(t, p.ClusterAuthMode(), "x509")
 	}
@@ -338,7 +337,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 	addKubernetesTlsResources(ctx, r.client, sc)
 	checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
 
-	dep, _ := omConnectionFactory.GetConnection().ReadDeployment()
+	dep, _ := omConnectionFactory.GetConnection().ReadDeployment(ctx)
 	for _, p := range dep.ProcessesCopy() {
 		assert.Equal(t, p.ClusterAuthMode(), "x509")
 	}
@@ -381,7 +380,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 	assert.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "LITZTOd6YiCV8j", ac.Ldap.BindQueryPassword)
 	assert.Equal(t, "bindQueryUser", ac.Ldap.BindQueryUser)
@@ -438,7 +437,7 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 	assert.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "server0:1234", ac.Ldap.Servers)
 
@@ -492,7 +491,7 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 	assert.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "server0:0000,server1:1111,server2:2222", ac.Ldap.Servers)
 
@@ -795,7 +794,7 @@ func Test_NoExternalDomainPresent(t *testing.T) {
 		EnableX509().
 		Build()
 
-	rs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("foo")}
+	rs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("foo")}
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
@@ -872,4 +871,36 @@ func createMockCSRBytes() []byte {
 	}
 
 	return certRequestPemBytes.Bytes()
+}
+
+func TestUpdateOmAuthentication_KeyFileFollowsDownloadBase(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("custom download base", func(t *testing.T) {
+		rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
+		omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
+		kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
+		r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+
+		status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", "/custom/download/base", false, zap.S())
+		assert.True(t, status.IsOK())
+
+		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "/custom/download/base/keyfile", ac.Auth.KeyFile)
+	})
+
+	t.Run("default download base preserves the legacy keyfile path", func(t *testing.T) {
+		rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
+		omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
+		kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
+		r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+
+		status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
+		assert.True(t, status.IsOK())
+
+		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, util.AutomationAgentKeyFilePathInContainer, ac.Auth.KeyFile)
+	})
 }

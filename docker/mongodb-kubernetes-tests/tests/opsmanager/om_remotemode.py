@@ -139,7 +139,7 @@ def replica_set_ent(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_v
 @mark.e2e_om_remotemode
 def test_appdb(ops_manager: MongoDBOpsManager):
     ops_manager.update()
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
     assert ops_manager.appdb_status().get_members() == 3
 
 

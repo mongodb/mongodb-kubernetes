@@ -44,6 +44,9 @@ func (p KubernetesClusterUsageSnapshotProperties) ConvertToFlatMap() (map[string
 type DeploymentUsageSnapshotProperties struct {
 	DatabaseClusters         *int     `json:"databaseClusters,omitempty"` // pointers allow us to not send that value if it's not set.
 	AppDBClusters            *int     `json:"appDBClusters,omitempty"`
+	AppDBBackupMode          string   `json:"appDBBackupMode,omitempty"`
+	ExternalAppDB            string   `json:"externalAppDB,omitempty"`
+	Role                     string   `json:"role,omitempty"`
 	OmClusters               *int     `json:"OmClusters,omitempty"`
 	DeploymentUID            string   `json:"deploymentUID"`
 	OperatorID               string   `json:"operatorID"`
@@ -51,10 +54,17 @@ type DeploymentUsageSnapshotProperties struct {
 	IsMultiCluster           bool     `json:"isMultiCluster"`
 	Type                     string   `json:"type"` // RS, SC, OM, Single
 	IsRunningEnterpriseImage bool     `json:"IsRunningEnterpriseImage"`
-	ExternalDomains          string   `json:"externalDomains"`                   // None, Uniform, ClusterSpecific, Mixed
-	CustomRoles              string   `json:"customRoles,omitempty"`             // Custom roles used 	// None, Uniform, ClusterSpecific, Mixed
+	ExternalDomains          string   `json:"externalDomains,omitempty"`         // None, Uniform, ClusterSpecific, Mixed
+	CustomRoles              string   `json:"customRoles,omitempty"`             // Custom roles used: None, Embedded, Referenced
 	AuthenticationAgentMode  string   `json:"authenticationAgentMode,omitempty"` // Agent authentication mode
 	AuthenticationModes      []string `json:"-"`                                 // Deployment authentication modes
+	MigrationPhase           string   `json:"migrationPhase,omitempty"`          // Validating, Extending, InProgress, Pruning, MigrationComplete
+	ExternalMembersCount     *int     `json:"externalMembersCount,omitempty"`    // spec.externalMembers still present at snapshot time
+	// MigrationStartedAt and MigrationCompletedAt are exact transition instants, never both on the
+	// same snapshot. Migration duration is derived by aggregating a deploymentUID's snapshots rather
+	// than reported directly: see populateMigrationFields.
+	MigrationStartedAt   string `json:"migrationStartedAt,omitempty"`
+	MigrationCompletedAt string `json:"migrationCompletedAt,omitempty"`
 }
 
 type FakeDeploymentUsageSnapshotProperties DeploymentUsageSnapshotProperties

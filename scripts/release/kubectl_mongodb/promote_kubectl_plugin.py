@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 
 from lib.base_logger import logger
 from scripts.release.build.build_info import KUBECTL_PLUGIN_BINARY, load_build_info
-from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.build.build_scenario import BuildScenario, is_dryrun
 from scripts.release.kubectl_mongodb.download_kubectl_plugin import download_kubectl_plugin_from_s3
 from scripts.release.kubectl_mongodb.utils import (
     CHECKSUMS_PATH,
@@ -31,9 +31,13 @@ def main():
 
     kubectl_plugin_staging_info = load_build_info(BuildScenario.STAGING).binaries[KUBECTL_PLUGIN_BINARY]
     staging_scenario_bucket_name = kubectl_plugin_staging_info.s3_store
-    staging_version_override = os.environ.get("STAGING_VERSION_OVERRIDE")
-    if staging_version_override:
-        staging_version = staging_version_override
+    # On patches the git tag doesn't exist, so the patch param target_commit is
+    # used for the S3 staging path; it takes precedence over STAGING_VERSION_OVERRIDE
+    # in every scenario — required for "real release as a patch" runs.
+    if os.environ.get("target_commit"):
+        staging_version = os.environ["target_commit"][:8]
+    elif os.environ.get("STAGING_VERSION_OVERRIDE"):
+        staging_version = os.environ["STAGING_VERSION_OVERRIDE"]
     else:
         staging_version = get_commit_from_tag(release_version)
 
@@ -57,7 +61,16 @@ def main():
 
     if os.environ.get("SKIP_GITHUB_RELEASE_UPLOAD", "false").lower() == "false":
         github_artifacts = artifacts_tar + [checksum_file]
-        upload_assets_to_github_release(github_artifacts, release_version)
+        # Dry runs draft the GitHub release under a "test-{version}" tag rather
+        # than the real "{version}" one (see .github/workflows/release.yml), so
+        # assets must be attached there instead.
+        dryrun = is_dryrun()
+        github_release_tag = f"test-{release_version}" if dryrun else release_version
+
+        # Dry runs auto-create the draft release inside upload_assets_to_github_release.
+        upload_assets_to_github_release(
+            github_artifacts, github_release_tag, is_dryrun=dryrun, target_commitish=os.environ.get("target_commit")
+        )
 
 
 # get_commit_from_tag gets the commit associated with a release tag, so that we can use that

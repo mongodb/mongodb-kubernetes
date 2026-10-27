@@ -8,11 +8,11 @@ import (
 
 func TestSetMapValue(t *testing.T) {
 	t.Run("Set to empty map", func(t *testing.T) {
-		dest := map[string]interface{}{}
+		dest := map[string]any{}
 		SetMapValue(dest, 30, "one", "two", "three")
-		expectedMap := map[string]interface{}{
-			"one": map[string]interface{}{
-				"two": map[string]interface{}{
+		expectedMap := map[string]any{
+			"one": map[string]any{
+				"two": map[string]any{
 					"three": 30,
 				},
 			},
@@ -20,20 +20,20 @@ func TestSetMapValue(t *testing.T) {
 		assert.Equal(t, expectedMap, dest)
 	})
 	t.Run("Set to non-empty map", func(t *testing.T) {
-		dest := map[string]interface{}{
-			"one": map[string]interface{}{
+		dest := map[string]any{
+			"one": map[string]any{
 				"ten": "bar",
-				"two": map[string]interface{}{
+				"two": map[string]any{
 					"three":  100,
 					"eleven": true,
 				},
 			},
 		}
 		SetMapValue(dest, 30, "one", "two", "three")
-		expectedMap := map[string]interface{}{
-			"one": map[string]interface{}{
+		expectedMap := map[string]any{
+			"one": map[string]any{
 				"ten": "bar",
-				"two": map[string]interface{}{
+				"two": map[string]any{
 					"three":  30, // this was changed
 					"eleven": true,
 				},
@@ -44,33 +44,33 @@ func TestSetMapValue(t *testing.T) {
 }
 
 func TestRemoveFieldsBasedOnDesiredAndPrevious(t *testing.T) {
-	p := map[string]interface{}{
+	p := map[string]any{
 		"one": "oneValue",
-		"two": map[string]interface{}{
+		"two": map[string]any{
 			"three": "threeValue",
 			"four":  "fourValue",
 		},
 	}
 
 	// we are removing the "two.three" entry in this case.
-	spec := map[string]interface{}{
+	spec := map[string]any{
 		"one": "oneValue",
-		"two": map[string]interface{}{
+		"two": map[string]any{
 			"four": "fourValue",
 		},
 	}
 
-	prev := map[string]interface{}{
+	prev := map[string]any{
 		"one": "oneValue",
-		"two": map[string]interface{}{
+		"two": map[string]any{
 			"three": "threeValue",
 			"four":  "fourValue",
 		},
 	}
 
-	expected := map[string]interface{}{
+	expected := map[string]any{
 		"one": "oneValue",
-		"two": map[string]interface{}{
+		"two": map[string]any{
 			"four": "fourValue",
 		},
 	}
@@ -83,26 +83,26 @@ func TestRemoveFieldsBasedOnDesiredAndPrevious_NilValueMeansRemove(t *testing.T)
 	// Simulates setting additionalMongodConfig.systemLog.verbosity to null in the CR.
 	// Kubernetes preserves the null in the stored spec, so the desired map has verbosity: nil.
 	// nil must be treated as "absent" so that RemoveFieldsBasedOnDesiredAndPrevious removes it.
-	current := map[string]interface{}{
-		"systemLog": map[string]interface{}{
+	current := map[string]any{
+		"systemLog": map[string]any{
 			"verbosity": 4,
 			"logAppend": true,
 		},
 	}
-	desired := map[string]interface{}{
-		"systemLog": map[string]interface{}{
+	desired := map[string]any{
+		"systemLog": map[string]any{
 			"verbosity": nil,
 			"logAppend": true,
 		},
 	}
-	prev := map[string]interface{}{
-		"systemLog": map[string]interface{}{
+	prev := map[string]any{
+		"systemLog": map[string]any{
 			"verbosity": 4,
 			"logAppend": true,
 		},
 	}
-	expected := map[string]interface{}{
-		"systemLog": map[string]interface{}{
+	expected := map[string]any{
+		"systemLog": map[string]any{
 			"logAppend": true,
 		},
 	}

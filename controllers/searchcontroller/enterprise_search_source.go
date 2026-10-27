@@ -26,10 +26,13 @@ func (r EnterpriseResourceSearchSource) HostSeeds(shardName string) ([]string, e
 	if shardName != "" {
 		return nil, fmt.Errorf("shardName is not supported for replica set")
 	}
-	seeds := make([]string, r.Spec.Members)
 	clusterDomain := r.Spec.GetClusterDomain()
-	for i := range seeds {
+	seeds := make([]string, r.Spec.Members+len(r.Spec.ExternalMembers))
+	for i := range r.Spec.Members {
 		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
+	}
+	for i, m := range r.Spec.ExternalMembers {
+		seeds[r.Spec.Members+i] = m.Hostname
 	}
 	return seeds, nil
 }
@@ -72,6 +75,10 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 
 	if r.GetResourceType() != mdbv1.ReplicaSet {
 		return xerrors.Errorf("MongoDBSearch is only supported for %s resources", mdbv1.ReplicaSet)
+	}
+
+	if err := validateSearchSourceExternalDomain(&r.Spec); err != nil {
+		return err
 	}
 
 	authModes := r.Spec.GetSecurityAuthenticationModes()

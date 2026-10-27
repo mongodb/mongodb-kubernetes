@@ -115,12 +115,12 @@ const (
 	KMIPClientSecretNamePrefix     = "kmip-client-" //nolint
 	KMIPCAFileInContainer          = KMIPServerCAHome + "/ca.pem"
 	PvcMms                         = "mongodb-mms-automation"
-	PvcMmsMountPath                = "/var/lib/mongodb-mms-automation"
+	DefaultPvcMmsMountPath         = "/var/lib/mongodb-mms-automation"
 	PvMms                          = "agent"
-	AgentDownloadsDir              = PvcMmsMountPath + "/downloads"
-	AgentAuthenticationKeyfilePath = PvcMmsMountPath + "/keyfile"
+	AgentDownloadsDir              = DefaultPvcMmsMountPath + "/downloads"
+	AgentAuthenticationKeyfilePath = DefaultPvcMmsMountPath + "/keyfile"
 	AutomationConfigFilePath       = PvcMountPathData + "/automation-mongod.conf"
-	MongosConfigFileDirPath        = PvcMmsMountPath + "/workspace"
+	MongosConfigFileDirPath        = DefaultPvcMmsMountPath + "/workspace"
 
 	MmsPemKeyFileDirInContainer  = "/opt/mongodb/mms/secrets"
 	AppDBMmsCaFileDirInContainer = "/opt/mongodb/mms/ca/"
@@ -179,7 +179,7 @@ const (
 
 	// AutomationAgentKeyFilePathInContainer is the default path of the keyfile and should be
 	// kept as is for the same reason as above
-	AutomationAgentKeyFilePathInContainer = PvcMmsMountPath + "/keyfile"
+	AutomationAgentKeyFilePathInContainer = DefaultPvcMmsMountPath + "/keyfile"
 
 	// Operator Env configuration properties. Please note that when adding environment variables to this list,
 	// make sure you append them to util.go:PrintEnvVars function's `printableEnvPrefixes` if you need the
@@ -193,7 +193,7 @@ const (
 	InitDatabaseImageUrlEnv          = "INIT_DATABASE_IMAGE_REPOSITORY"
 	OpsManagerPullPolicy             = "OPS_MANAGER_IMAGE_PULL_POLICY"
 	NonStaticDatabaseEnterpriseImage = "MONGODB_ENTERPRISE_DATABASE_IMAGE"
-	AutomationAgentImagePullPolicy   = "IMAGE_PULL_POLICY"
+	ImagePullPolicyEnv               = "IMAGE_PULL_POLICY"
 	ImagePullSecrets                 = "IMAGE_PULL_SECRETS" //nolint
 	OmOperatorEnv                    = "OPERATOR_ENV"
 	MemberListConfigMapName          = OperatorName + "-member-list"
@@ -201,15 +201,20 @@ const (
 	BackupDisableWaitSecondsEnv      = "BACKUP_WAIT_SEC"
 	BackupDisableWaitRetriesEnv      = "BACKUP_WAIT_RETRIES"
 	BackupStartDelaySecondsEnv       = "MDB_BACKUP_START_DELAY_SECONDS"
-	ManagedSecurityContextEnv        = "MANAGED_SECURITY_CONTEXT"
-	CurrentNamespace                 = "NAMESPACE"
-	OperatorNameEnv                  = "OPERATOR_NAME"
-	WatchNamespace                   = "WATCH_NAMESPACE"
-	OpsManagerMonitorAppDB           = "OPS_MANAGER_MONITOR_APPDB"
-	MongodbCommunityAgentImageEnv    = "MDB_COMMUNITY_AGENT_IMAGE"
-	AgentImageUrlEnv                 = "MDB_AGENT_IMAGE_REPOSITORY"
-	AgentImageUrlDefault             = "quay.io/mongodb/mongodb-agent"
-	AgentImageEnv                    = "AGENT_IMAGE"
+	// OperatorImageEnv is the MDB-prefixed env var for the full operator image reference (registry/name:tag or digest).
+	// The connectivity-validator binary is compiled into the same image, so migration dry-run Jobs use this ref.
+	OperatorImageEnv          = "MDB_OPERATOR_IMAGE"
+	ManagedSecurityContextEnv = "MANAGED_SECURITY_CONTEXT"
+	CurrentNamespace          = "NAMESPACE"
+	OperatorNameEnv           = "OPERATOR_NAME"
+	// OperatorPodNameEnv is injected via the Downward API and lets the operator read its own pod.
+	OperatorPodNameEnv            = "POD_NAME"
+	WatchNamespace                = "WATCH_NAMESPACE"
+	OpsManagerMonitorAppDB        = "OPS_MANAGER_MONITOR_APPDB"
+	MongodbCommunityAgentImageEnv = "MDB_COMMUNITY_AGENT_IMAGE"
+	AgentImageUrlEnv              = "MDB_AGENT_IMAGE_REPOSITORY"
+	AgentImageUrlDefault          = "quay.io/mongodb/mongodb-agent"
+	AgentImageEnv                 = "AGENT_IMAGE"
 
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
@@ -270,6 +275,18 @@ const (
 	// This variable is used for validating the OM version when an s3 store with object lock is configured
 	MinimumVersionImmutableBackup = "8.0.19"
 
+	// S3 object lock retention settings (objectRetentionDays/objectRetentionMode) were
+	// introduced in 8.0.27; older versions reject them with INVALID_ATTRIBUTE.
+	// This variable is used both for validating the OM version when retention is configured
+	// and for omitting the fields from the OM API payload on older versions.
+	MinimumVersionS3ObjectLockRetention = "8.0.27"
+
+	// S3 Object Lock for OpLog stores (objectLockEnabled and the retention fields on
+	// spec.backup.s3OpLogStores) was introduced in 8.0.28 — later than for snapshot
+	// stores (8.0.19/8.0.27). Older versions reject objectLockEnabled on the OpLog S3
+	// config endpoint with INVALID_ATTRIBUTE.
+	MinimumVersionS3OpLogObjectLock = "8.0.28"
+
 	// Below is a list of non-persistent PV and PVCs for OpsManager
 	OpsManagerPvcNameData       = "data"
 	OpsManagerPvcNameConf       = "conf"
@@ -315,6 +332,30 @@ const (
 	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
 	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
 
+	// Migration annotation keys. MigrationDryRunAnnotation triggers migration dry-run mode: when set to "true"
+	// on a MongoDB CR, the operator launches a connectivity validation Job instead of performing the
+	// normal reconciliation that would write to Ops Manager or modify StatefulSets.
+	// MigrateToolVersionAnnotation records the version of the import tool that generated the resource.
+	MigrationDryRunAnnotation    = "mongodb.com/migration-dry-run"
+	MigrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
+
+	// DisableReconciliationAnnotation when set to "true" on a CR, short-circuits
+	// the reconciler: it returns Result{} + nil without mutating any owned objects.
+	DisableReconciliationAnnotation = "mongodb.com/disable-reconciliation"
+
+	// AppDBMigrationReadyAnnotation marks the internal AppDB StatefulSet as fully detached from
+	// the MongoDBOpsManager resource, allowing the referenced MongoDB resource to
+	// adopt it (see checkAdoptionGate).
+	AppDBMigrationReadyAnnotation = "mongodb.com/appdb-migration-ready"
+
+	// AppDBReverseMigrationReadyAnnotation is the reverse-migration release request: set by the
+	// internal AppDB reconciler on a StatefulSet still owned by a MongoDB CR, answered by the
+	// MongoDB controller stripping its OwnerReference, and removed at adoption
+	// (ensureAppDBStatefulSetOwnership). Removal happens at adoption (not at migration
+	// completion), symmetric with the forward direction's consumeAdoptionSignal: from adoption
+	// onward the OwnerReference is the authoritative state.
+	AppDBReverseMigrationReadyAnnotation = "mongodb.com/appdb-reverse-migration-ready"
+
 	// SecretVolumeName is the name of the volume resource.
 	SecretVolumeName = "secret-certs"
 
@@ -348,6 +389,18 @@ const (
 
 	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
 )
+
+const (
+	MongoDBResourceOwnerLabel             = "mongodb.com/v1.mongodbResourceOwner"
+	MongoDBOpsManagerResourceOwnerLabel   = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+	MongoDBMultiClusterResourceOwnerLabel = "mongodbmulticluster"
+)
+
+var mongoDBOwnerLabels = []string{
+	MongoDBResourceOwnerLabel,
+	MongoDBOpsManagerResourceOwnerLabel,
+	MongoDBMultiClusterResourceOwnerLabel,
+}
 
 type OperatorEnvironment string
 

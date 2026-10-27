@@ -24,7 +24,7 @@ type MongodConfiguration struct {
 
 // NewMongodConfiguration returns an empty MongodConfiguration
 func NewMongodConfiguration() MongodConfiguration {
-	return MongodConfiguration{MapWrapper{map[string]interface{}{}}}
+	return MongodConfiguration{MapWrapper{map[string]any{}}}
 }
 
 // GetDBDataDir returns the db path which should be used.

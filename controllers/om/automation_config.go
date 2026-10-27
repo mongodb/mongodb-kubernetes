@@ -1,13 +1,15 @@
 package om
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"reflect"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/spf13/cast"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -17,7 +19,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/generate"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 // AutomationConfig maintains the raw map in the Deployment field
@@ -39,12 +40,13 @@ func (ac *AutomationConfig) Apply() error {
 	return applyInto(*ac, &ac.Deployment)
 }
 
-// applyInto is a helper method that does not mutate AutomationConfig "a", but only Deployment "deployment"
+// applyInto is a helper method that does not mutate AutomationConfig "a", but only Deployment "deployment".
+// It writes only top-level keys of "into", so a shallow clone protects the original (see getSerializedAC).
 func applyInto(a AutomationConfig, into *Deployment) error {
 	// applies all changes made to the Auth struct and merges with the corresponding map[string]interface{}
 	// inside the Deployment
 	if _, ok := a.Deployment["auth"]; ok {
-		mergedAuth, err := util.MergeWith(a.Auth, a.Deployment["auth"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+		mergedAuth, err := util.MergeWith(a.Auth, a.Deployment["auth"].(map[string]any), &util.AutomationConfigTransformer{})
 		if err != nil {
 			return err
 		}
@@ -52,15 +54,17 @@ func applyInto(a AutomationConfig, into *Deployment) error {
 	}
 	// the same applies for the ssl object and map
 	if _, ok := a.Deployment["tls"]; ok {
-		mergedTLS, err := util.MergeWith(a.AgentSSL, a.Deployment["tls"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+		mergedTLS, err := util.MergeWith(a.AgentSSL, a.Deployment["tls"].(map[string]any), &util.AutomationConfigTransformer{})
 		if err != nil {
 			return err
 		}
 		(*into)["tls"] = mergedTLS
 	}
 
-	if _, ok := a.Deployment["ldap"]; ok {
-		mergedLdap, err := util.MergeWith(a.Ldap, a.Deployment["ldap"].(map[string]interface{}), &util.AutomationConfigTransformer{})
+	if a.Ldap == nil {
+		delete(*into, "ldap")
+	} else if _, ok := a.Deployment["ldap"]; ok {
+		mergedLdap, err := util.MergeWith(a.Ldap, a.Deployment["ldap"].(map[string]any), &util.AutomationConfigTransformer{})
 		if err != nil {
 			return err
 		}
@@ -82,7 +86,8 @@ func updateOIDCProviderConfigs(a AutomationConfig, into *Deployment) {
 	if configs, ok := a.Deployment["oidcProviderConfigs"]; ok {
 		configsSliceAny := cast.ToSlice(configs)
 		for _, configAny := range configsSliceAny {
-			config := configAny.(map[string]any)
+			// clone so the writes below do not leak into a.Deployment
+			config := maps.Clone(configAny.(map[string]any))
 			configName := config["authNamePrefix"].(string)
 			deploymentConfigs[configName] = config
 		}
@@ -152,47 +157,53 @@ func (ac *AutomationConfig) EqualsWithoutDeployment(b AutomationConfig) bool {
 	return cmp.Equal(acA, acB, deploymentsComparer)
 }
 
-// getSerializedAC calls apply on a deepCopy which decodes the internal struct into the Deployment map. After decoding,
+// getSerializedAC calls apply on a shallow clone which decodes the internal struct into the Deployment map. After decoding,
 // we encode the map into its internal representation again. Doing that removes util.MergoDelete for proper comparison
 func getSerializedAC(original AutomationConfig) (AutomationConfig, error) {
 	empty := AutomationConfig{}
-	deepCopy, err := util.MapDeepCopy(original.Deployment)
-	if err != nil {
-		return empty, err
+	clone := maps.Clone(original.Deployment)
+	if clone == nil {
+		clone = Deployment{}
 	}
-	err = applyInto(original, (*Deployment)(&deepCopy))
-	if err != nil {
+	if err := applyInto(original, &clone); err != nil {
 		return empty, err
 	}
 
-	ac, err := BuildAutomationConfigFromDeployment(deepCopy)
+	ac, err := BuildAutomationConfigFromDeployment(clone)
 	if err != nil {
 		return empty, err
 	}
 	return *ac, nil
 }
 
-// isEqualAfterModification returns true if two Deployment objects are equal ignoring their underlying custom types.
-// depFunc might change the Deployment or might only change the types. In both cases it will fail the comparison
-// as long as we don't ignore the types.
+// isEqualAfterModification returns true if changeDeploymentFunc did not change the deployment.
+// The deployment is snapshotted as JSON before and after the call, so modifications that only
+// change the Go types (as most depFuncs do) compare equal.
 func isEqualAfterModification(changeDeploymentFunc func(Deployment) error, deployment Deployment) (bool, error) {
-	original, err := util.MapDeepCopy(deployment) // original over the wire does not contain any types
+	original, err := json.Marshal(deployment)
 	if err != nil {
 		return false, err
 	}
-	if err := changeDeploymentFunc(deployment); err != nil { // might change types as well
+	if err := changeDeploymentFunc(deployment); err != nil {
 		return false, err
 	}
-
-	deploymentWithoutTypes, err := maputil.StructToMap(deployment)
+	modified, err := json.Marshal(deployment)
 	if err != nil {
 		return false, err
 	}
-
-	if equality.Semantic.DeepEqual(deploymentWithoutTypes, original) {
+	if bytes.Equal(original, modified) {
 		return true, nil
 	}
-	return false, nil
+
+	// Maps sort JSON keys; structs use field order. Compare values when the bytes differ.
+	var originalValue, modifiedValue any
+	if err := json.Unmarshal(original, &originalValue); err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(modified, &modifiedValue); err != nil {
+		return false, err
+	}
+	return reflect.DeepEqual(originalValue, modifiedValue), nil
 }
 
 // NewAutomationConfig returns an AutomationConfig instance with all reference
@@ -224,7 +235,7 @@ func (ac *AutomationConfig) SetVersion(configVersion int64) *AutomationConfig {
 
 // SetOptionsDownloadBase is needed only for the cluster config file when we use a headless agent
 func (ac *AutomationConfig) SetOptionsDownloadBase(downloadBase string) *AutomationConfig {
-	ac.Deployment["options"] = map[string]string{"downloadBase": downloadBase}
+	ac.Deployment["options"] = map[string]any{"downloadBase": downloadBase}
 
 	return ac
 }

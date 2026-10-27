@@ -41,7 +41,7 @@ const (
 	debuggingPortConfigPath    string = "mms.k8s.debuggingPort"
 	queryableBackupDefaultPort int32  = 25999
 
-	LabelResourceOwner = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+	LabelResourceOwner = util.MongoDBOpsManagerResourceOwnerLabel
 )
 
 // The MongoDBOpsManager resource allows you to deploy Ops Manager within your Kubernetes cluster
@@ -65,7 +65,7 @@ type MongoDBOpsManager struct {
 	Status MongoDBOpsManagerStatus `json:"status"`
 }
 
-func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretClient secrets.SecretClient, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
+func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
 	if om.IsTLSEnabled() {
 		opsManagerCA := om.Spec.GetOpsManagerCA()
 		cm, err := client.GetConfigMap(ctx, kube.ObjectKey(om.Namespace, opsManagerCA))
@@ -75,7 +75,7 @@ func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretCl
 		ca := cm.Data["mms-ca.crt"]
 		return mdbv1.ProjectConfig{
 			BaseURL:     om.CentralURL(),
-			ProjectName: om.Spec.AppDB.Name(),
+			ProjectName: om.AppDBName(),
 			SSLProjectConfig: env.SSLProjectConfig{
 				SSLRequireValidMMSServerCertificates: true,
 				SSLMMSCAConfigMap:                    opsManagerCA,
@@ -86,7 +86,7 @@ func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, secretCl
 
 	return mdbv1.ProjectConfig{
 		BaseURL:     om.CentralURL(),
-		ProjectName: om.Spec.AppDB.Name(),
+		ProjectName: om.AppDBName(),
 	}, nil
 }
 
@@ -98,6 +98,8 @@ type MongoDBOpsManagerList struct {
 	Items           []MongoDBOpsManager `json:"items"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.externalApplicationDatabaseRef) || !has(oldSelf.applicationDatabase) || (self.externalApplicationDatabaseRef.kind == 'MongoDBMultiCluster' ? (has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster') : !(has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology == 'MultiCluster'))",message="topology does not match between the current AppDB and the external AppDB"
+// +kubebuilder:validation:XValidation:rule="has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)",message="at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef must be set"
 type MongoDBOpsManagerSpec struct {
 	// The configuration properties passed to Ops Manager/Backup Daemon
 	// +optional
@@ -117,8 +119,19 @@ type MongoDBOpsManagerSpec struct {
 
 	// AdminSecret is the secret for the first admin user to create
 	// has the fields: "Username", "Password", "FirstName", "LastName"
-	AdminSecret string    `json:"adminCredentials,omitempty"`
-	AppDB       AppDBSpec `json:"applicationDatabase"`
+	AdminSecret string `json:"adminCredentials,omitempty"`
+
+	// AppDB configures the internally-managed Application Database. Required unless
+	// ExternalAppDBRef is set, in which case it may be omitted entirely.
+	// Ignored when ExternalAppDBRef is set.
+	// +optional
+	AppDB *AppDBSpec `json:"applicationDatabase,omitempty"`
+
+	// ExternalAppDBRef references a MongoDB resource
+	// to use as this Ops Manager's AppDB, instead of the internally-managed one.
+	// Takes precedence over AppDB when both are set.
+	// +optional
+	ExternalAppDBRef *ExternalAppDBRef `json:"externalApplicationDatabaseRef,omitempty"`
 
 	Logging *Logging `json:"logging,omitempty"`
 	// Custom JVM parameters passed to the Ops Manager JVM
@@ -162,6 +175,29 @@ type MongoDBOpsManagerSpec struct {
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
 }
+
+// ExternalAppDBRef references an MongoDB resource
+// playing the AppDB role for this Ops Manager instance.
+type ExternalAppDBRef struct {
+	// Name of the MongoDB resource to use as the external AppDB.
+	// Must be in the same namespace as the MongoDBOpsManager resource, and named
+	// <MongoDBOpsManager name>-db.
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Kind of the referenced resource.
+	// +kubebuilder:validation:Enum=MongoDB;MongoDBMultiCluster
+	// +kubebuilder:validation:Required
+	Kind string `json:"kind"`
+
+	// Transient fields
+	Namespace string `json:"-"`
+}
+
+const (
+	ExternalAppDBRefKindMongoDB             = "MongoDB"
+	ExternalAppDBRefKindMongoDBMultiCluster = "MongoDBMultiCluster"
+)
 
 type Logging struct {
 	// LogBackAccessRef points at a ConfigMap/key with the logback access configuration file to mount on the Pod
@@ -277,13 +313,6 @@ func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
 func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
 	if ms.Security != nil {
 		return ms.Security.TLS.CA
-	}
-	return ""
-}
-
-func (ms MongoDBOpsManagerSpec) GetAppDbCA() string {
-	if ms.AppDB.Security != nil && ms.AppDB.Security.TLSConfig != nil {
-		return ms.AppDB.Security.TLSConfig.CA
 	}
 	return ""
 }
@@ -519,7 +548,7 @@ type DataStoreConfig struct {
 	AssignmentLabels []string `json:"assignmentLabels,omitempty"`
 }
 
-func (f DataStoreConfig) Identifier() interface{} {
+func (f DataStoreConfig) Identifier() any {
 	return f.Name
 }
 
@@ -527,6 +556,8 @@ type SecretRef struct {
 	Name string `json:"name"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.objectRetentionDays) == has(self.objectRetentionMode)",message="'objectRetentionDays' and 'objectRetentionMode' must be specified together"
+// +kubebuilder:validation:XValidation:rule="(!has(self.objectRetentionDays) && !has(self.objectRetentionMode)) || (has(self.objectLockEnabled) && self.objectLockEnabled)",message="'objectRetentionDays' and 'objectRetentionMode' require 'objectLockEnabled' to be enabled"
 type S3Config struct {
 	MongoDBResourceRef *userv1.MongoDBResourceRef `json:"mongodbResourceRef,omitempty"`
 	MongoDBUserRef     *MongoDBUserRef            `json:"mongodbUserRef,omitempty"`
@@ -561,9 +592,19 @@ type S3Config struct {
 	// This should be enabled to leverage Immutable Backups.
 	// +optional
 	ObjectLockEnabled *bool `json:"objectLockEnabled"`
+	// ObjectRetentionDays is the number of days backup objects must be retained in S3
+	// before deletion is allowed. Requires ObjectLockEnabled.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ObjectRetentionDays *int `json:"objectRetentionDays,omitempty"`
+	// ObjectRetentionMode is the S3 Object Lock retention mode applied to backup objects.
+	// Requires ObjectLockEnabled.
+	// +optional
+	// +kubebuilder:validation:Enum=GOVERNANCE;COMPLIANCE
+	ObjectRetentionMode *string `json:"objectRetentionMode,omitempty"`
 }
 
-func (s S3Config) Identifier() interface{} {
+func (s S3Config) Identifier() any {
 	return s.Name
 }
 
@@ -639,13 +680,20 @@ func (om *MongoDBOpsManager) InitDefaultFields() {
 		om.Spec.Backup.Members = 1
 	}
 
-	om.Spec.AppDB.Security = ensureSecurityWithSCRAM(om.Spec.AppDB.Security)
+	if om.IsInternalAppDB() {
+		if om.Spec.AppDB == nil {
+			om.Spec.AppDB = &AppDBSpec{}
+		}
+		om.Spec.AppDB.Security = ensureSecurityWithSCRAM(om.Spec.AppDB.Security)
 
-	// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)
-	om.Spec.AppDB.OpsManagerName = om.Name
-	om.Spec.AppDB.Namespace = om.Namespace
-	om.Spec.AppDB.ClusterDomain = om.Spec.GetClusterDomain()
-	om.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
+		// setting ops manager name, namespace and ClusterDomain for the appdb (transient fields)
+		om.Spec.AppDB.OpsManagerName = om.Name
+		om.Spec.AppDB.Namespace = om.Namespace
+		om.Spec.AppDB.ClusterDomain = om.Spec.GetClusterDomain()
+		om.Spec.AppDB.ResourceType = mdbv1.ReplicaSet
+	} else {
+		om.Spec.ExternalAppDBRef.Namespace = om.Namespace
+	}
 }
 
 func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
@@ -657,6 +705,20 @@ func ensureSecurityWithSCRAM(specSecurity *mdbv1.Security) *mdbv1.Security {
 	return specSecurity
 }
 
+// AppDBName's AppDB branch is nil-safe only via the admission invariant that at least one of
+// applicationDatabase or externalApplicationDatabaseRef is set.
+func (om *MongoDBOpsManager) AppDBName() string {
+	if om.IsInternalAppDB() {
+		return om.Spec.AppDB.Name()
+	}
+
+	return om.Spec.ExternalAppDBRef.Name
+}
+
+func (om *MongoDBOpsManager) IsInternalAppDB() bool {
+	return om.Spec.ExternalAppDBRef == nil
+}
+
 func (om *MongoDBOpsManager) SvcName() string {
 	return om.Name + "-svc"
 }
@@ -666,7 +728,7 @@ func (om *MongoDBOpsManager) ExternalSvcName() string {
 }
 
 func (om *MongoDBOpsManager) AppDBMongoConnectionStringSecretName() string {
-	return om.Spec.AppDB.Name() + "-connection-string"
+	return om.AppDBName() + "-connection-string"
 }
 
 func (om *MongoDBOpsManager) BackupDaemonServiceName() string {
@@ -729,6 +791,12 @@ func (om *MongoDBOpsManager) UpdateStatus(phase status.Phase, statusOptions ...s
 }
 
 func (om *MongoDBOpsManager) updateStatusAppDb(phase status.Phase, statusOptions ...status.Option) {
+	if !om.IsInternalAppDB() {
+		om.Status.AppDbStatus = AppDbStatus{}
+		om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
+		return
+	}
+
 	om.Status.AppDbStatus.UpdateCommonFields(phase, om.GetGeneration(), statusOptions...)
 
 	if option, exists := status.GetOption(statusOptions, status.ReplicaSetMembersOption{}); exists {
@@ -810,7 +878,7 @@ func (om *MongoDBOpsManager) AddBackupWarningIfNotExists(warning status.Warning)
 	om.Status.BackupStatus.Warnings = status.Warnings(om.Status.BackupStatus.Warnings).AddIfNotExists(warning)
 }
 
-func (om *MongoDBOpsManager) GetStatus(options ...status.Option) interface{} {
+func (om *MongoDBOpsManager) GetStatus(options ...status.Option) any {
 	if part, exists := status.GetOption(options, status.OMPartOption{}); exists {
 		switch part.Value().(status.Part) {
 		case status.OpsManager:
@@ -1133,4 +1201,8 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 	}
 	ownerReference := *metav1.NewControllerRef(&m.OpsManager, groupVersionKind)
 	return []metav1.OwnerReference{ownerReference}
+}
+
+func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
+	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
 }

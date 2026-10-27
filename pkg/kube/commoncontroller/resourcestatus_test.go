@@ -45,19 +45,19 @@ func TestStatusSubresourcePatchPaths(t *testing.T) {
 func TestEnsureStatusSubresourceExists_DoesNotClobberExistingStatus(t *testing.T) {
 	tests := []struct {
 		name          string
-		initialStatus map[string]interface{}
+		initialStatus map[string]any
 	}{
 		{name: "status missing entirely", initialStatus: nil},
 		{
 			name:          "status exists without loadBalancer",
-			initialStatus: map[string]interface{}{"phase": "Running", "version": "1.2.3"},
+			initialStatus: map[string]any{"phase": "Running", "version": "1.2.3"},
 		},
 		{
 			name: "status and loadBalancer both exist",
-			initialStatus: map[string]interface{}{
+			initialStatus: map[string]any{
 				"phase":        "Running",
 				"version":      "1.2.3",
-				"loadBalancer": map[string]interface{}{"phase": "Pending", "message": "deploying"},
+				"loadBalancer": map[string]any{"phase": "Pending", "message": "deploying"},
 			},
 		},
 	}
@@ -66,11 +66,11 @@ func TestEnsureStatusSubresourceExists_DoesNotClobberExistingStatus(t *testing.T
 			ctx := context.Background()
 			// Seeded as unstructured: a typed object always marshals "status",
 			// so only unstructured can represent a CR without it.
-			obj := &unstructured.Unstructured{Object: map[string]interface{}{
+			obj := &unstructured.Unstructured{Object: map[string]any{
 				"apiVersion": "mongodb.com/v1",
 				"kind":       "MongoDBSearch",
-				"metadata":   map[string]interface{}{"name": "mdbs", "namespace": "ns"},
-				"spec":       map[string]interface{}{},
+				"metadata":   map[string]any{"name": "mdbs", "namespace": "ns"},
+				"spec":       map[string]any{},
 			}}
 			if tc.initialStatus != nil {
 				obj.Object["status"] = tc.initialStatus
@@ -90,7 +90,7 @@ func TestEnsureStatusSubresourceExists_DoesNotClobberExistingStatus(t *testing.T
 			got := &unstructured.Unstructured{}
 			got.SetGroupVersionKind(obj.GroupVersionKind())
 			require.NoError(t, c.Get(ctx, types.NamespacedName{Name: "mdbs", Namespace: "ns"}, got))
-			gotStatus, ok := got.Object["status"].(map[string]interface{})
+			gotStatus, ok := got.Object["status"].(map[string]any)
 			require.True(t, ok, "/status must exist after ensure")
 			assert.Contains(t, gotStatus, "loadBalancer", "/status/loadBalancer must exist after ensure")
 

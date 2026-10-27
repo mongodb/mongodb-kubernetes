@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -30,12 +29,15 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -84,13 +86,13 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, c)
-	assert.Len(t, mock.GetMapForObject(c, &corev1.Secret{}), 3)
+	assert.Len(t, mock.GetMapForObject(c, &corev1.Secret{}), 4)
 	assert.Len(t, mock.GetMapForObject(c, &corev1.Service{}), 3)
 	assert.Len(t, mock.GetMapForObject(c, &appsv1.StatefulSet{}), 4)
 	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ConfigRsName()), t), int32(sc.Spec.ConfigServerCount))
 	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.MongosRsName()), t), int32(sc.Spec.MongosCount))
-	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ShardRsName(0)), t), int32(sc.Spec.MongodsPerShardCount))
-	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ShardRsName(1)), t), int32(sc.Spec.MongodsPerShardCount))
+	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ShardName(0)), t), int32(sc.Spec.MongodsPerShardCount))
+	assert.Equal(t, getStsReplicas(ctx, c, kube.ObjectKey(sc.Namespace, sc.ShardName(1)), t), int32(sc.Spec.MongodsPerShardCount))
 
 	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
 	expectedDeployment := createDeploymentFromShardedCluster(t, sc)
@@ -135,7 +137,7 @@ func TestReconcileCreateSingleClusterShardedClusterWithExternalDomainSimplest(t 
 		configServersHostNames, _ := dns.GetDNSNames(sc.ConfigRsName(), sc.ConfigSrvServiceName(), sc.Namespace, "", sc.Spec.ConfigServerCount, &test.NoneExternalClusterDomains.ConfigServerExternalDomain)
 		allHostnames = append(allHostnames, configServersHostNames...)
 		for shardIdx := range sc.Spec.ShardCount {
-			shardHostNames, _ := dns.GetDNSNames(sc.ShardRsName(shardIdx), sc.ShardServiceName(), sc.Namespace, "", sc.Spec.MongodsPerShardCount, &test.NoneExternalClusterDomains.ShardsExternalDomain)
+			shardHostNames, _ := dns.GetDNSNames(sc.ShardName(shardIdx), sc.ShardServiceName(), sc.Namespace, "", sc.Spec.MongodsPerShardCount, &test.NoneExternalClusterDomains.ShardsExternalDomain)
 			allHostnames = append(allHostnames, shardHostNames...)
 		}
 
@@ -272,7 +274,7 @@ func TestShardedClusterReconcileContainerImages(t *testing.T) {
 	for stsAlias, stsName := range map[string]string{
 		"config":  sc.ConfigRsName(),
 		"mongos":  sc.MongosRsName(),
-		"shard-0": sc.ShardRsName(0),
+		"shard-0": sc.ShardName(0),
 	} {
 		t.Run(stsAlias, func(t *testing.T) {
 			sts := &appsv1.StatefulSet{}
@@ -312,7 +314,7 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 	for stsAlias, stsName := range map[string]string{
 		"config":  sc.ConfigRsName(),
 		"mongos":  sc.MongosRsName(),
-		"shard-0": sc.ShardRsName(0),
+		"shard-0": sc.ShardName(0),
 	} {
 		t.Run(stsAlias, func(t *testing.T) {
 			sts := &appsv1.StatefulSet{}
@@ -338,7 +340,7 @@ func TestReconcilePVCResizeShardedCluster(t *testing.T) {
 				Storage: "1Gi",
 			},
 		}
-		sc.Spec.Persistent = util.BooleanRef(true)
+		sc.Spec.Persistent = new(true)
 		sc.Spec.ConfigSrvPodSpec.Persistence = &persistence
 		sc.Spec.ShardPodSpec.Persistence = &persistence
 		reconciler, _, c, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
@@ -522,11 +524,116 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 		reflect.ValueOf(mockedOmConnection.GetHosts), reflect.ValueOf(mockedOmConnection.RemoveHost))
 }
 
+// TestDeleteShardedClusterWithExternalMembers verifies that deleting a hybrid (mid-migration)
+// sharded cluster leaves the Ops Manager automation config and monitored hosts intact, so the
+// still-running VM deployment survives. Only feature controls are cleared.
+func TestDeleteShardedClusterWithExternalMembers(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+
+	reconciler, _, clusterClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	// Reconcile first without external members so that Ops Manager ends up holding a real sharded
+	// cluster with monitored hosts, then mark the resource hybrid. Reconciling with external members
+	// already set would require seeding the mocked automation config with matching external
+	// processes and TLS settings (see checkExternalMembersDrift / validateACForMigration), none of
+	// which the deletion path reads: OnDelete only looks at spec.externalMembers.
+	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "ext-cfg-0", Hostname: "ext-cfg-0:27017", Type: "mongod", ReplicaSetName: test.SCBuilderDefaultName + "-config"},
+		{ProcessName: "ext-mongos-0", Hostname: "ext-mongos-0:27017", Type: "mongos"},
+	}
+
+	mockedOmConnection := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	hostsBefore, err := mockedOmConnection.GetHosts(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, hostsBefore.Results, "precondition: the sharded cluster is monitored in OM")
+
+	mockedOmConnection.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, sc, zap.S()))
+
+	// The sharded cluster and its processes must still be in the automation config.
+	d, err := mockedOmConnection.ReadDeployment(ctx)
+	require.NoError(t, err)
+	assert.NotEmpty(t, d.GetProcessNames(om.ShardedCluster{}, sc.GetShardedClusterName()),
+		"sharded cluster processes must stay in the automation config")
+
+	// Monitoring must be untouched.
+	hostsAfter, err := mockedOmConnection.GetHosts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, hostsBefore.Results, hostsAfter.Results, "monitored hosts must not be deregistered")
+
+	// None of the destructive cleanup operations may have happened.
+	mockedOmConnection.CheckOperationsDidntHappen(t,
+		reflect.ValueOf(mockedOmConnection.ReadUpdateDeployment),
+		reflect.ValueOf(mockedOmConnection.RemoveHost))
+
+	// Feature controls must have been cleared.
+	cf, err := mockedOmConnection.GetControlledFeature(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, util.OperatorName, cf.ManagementSystem.Name)
+	assert.NotNil(t, cf.Policies)
+	assert.Empty(t, cf.Policies)
+}
+
 func getEmptyDeploymentOptions() deploymentOptions {
 	return deploymentOptions{
 		podEnvVars:         &env.PodEnvVars{},
-		certTLSType:        map[string]bool{},
 		prometheusCertHash: "",
+	}
+}
+
+func TestGetShardNameToShardIdxMap(t *testing.T) {
+	tests := []struct {
+		name             string
+		shardCount       int
+		statusShardCount int
+		overrides        []mdbv1.ShardNameOverride
+		expectedMapping  map[string]int
+	}{
+		{
+			name:             "no overrides maps only k8s names",
+			shardCount:       2,
+			statusShardCount: 2,
+			overrides:        nil,
+			expectedMapping:  map[string]int{"slaney-0": 0, "slaney-1": 1},
+		},
+		{
+			name:             "overrides do not affect the map keys, only K8s names are present",
+			shardCount:       2,
+			statusShardCount: 2,
+			overrides: []mdbv1.ShardNameOverride{
+				{ShardName: "slaney-0", ShardId: "vm-shard-0", ReplicaSetName: "vm-shard-0"},
+				{ShardName: "slaney-1", ShardId: "vm-shard-1", ReplicaSetName: "vm-shard-1"},
+			},
+			expectedMapping: map[string]int{"slaney-0": 0, "slaney-1": 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := test.DefaultClusterBuilder().
+				SetShardCountSpec(tt.shardCount).
+				SetShardCountStatus(tt.statusShardCount).
+				SetShardNameOverrides(tt.overrides).
+				Build()
+
+			helper := &ShardedClusterReconcileHelper{
+				sc: sc,
+				deploymentState: &ShardedClusterDeploymentState{
+					Status: &mdbv1.MongoDbStatus{
+						MongodbShardedClusterSizeConfig: status.MongodbShardedClusterSizeConfig{
+							ShardCount: tt.statusShardCount,
+						},
+					},
+				},
+			}
+
+			assert.Equal(t, tt.expectedMapping, helper.shardK8sNameToIndex())
+		})
 	}
 }
 
@@ -572,7 +679,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		// the initial deployment we create should have all processes
 		deployment := createDeploymentFromShardedCluster(t, sc)
-		if _, err := connection.UpdateDeployment(deployment); err != nil {
+		if _, err := connection.UpdateDeployment(ctx, deployment); err != nil {
 			panic(err)
 		}
 		connection.(*om.MockedOmConnection).AddHosts(deployment.GetAllHostnames())
@@ -581,7 +688,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 
 	// updateOmDeploymentShardedCluster checks an element from ac.Auth.DeploymentAuthMechanisms
 	// so we need to ensure it has a non-nil value. An empty list implies no authentication
-	_ = omConnectionFactory.GetConnection().ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+	_ = omConnectionFactory.GetConnection().ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 		ac.Auth.DeploymentAuthMechanisms = []string{}
 		return nil
 	}, nil)
@@ -601,6 +708,70 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	})
 }
 
+func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoringOnShardRemoval(t *testing.T) {
+	ctx := context.Background()
+
+	initialState := MultiClusterShardedScalingStep{
+		shardCount: 3,
+		shardDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 3,
+		},
+		mongosDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 1,
+		},
+		configServerDistribution: map[string]int{
+			multicluster.LegacyCentralClusterName: 3,
+		},
+	}
+
+	sc := test.DefaultClusterBuilder().
+		SetShardCountSpec(3).
+		SetMongodsPerShardCountSpec(3).
+		SetConfigServerCountSpec(3).
+		SetMongosCountSpec(1).
+		Build()
+
+	scScaledDown := test.DefaultClusterBuilder().
+		SetShardCountSpec(2).
+		SetMongodsPerShardCountSpec(3).
+		SetConfigServerCountSpec(3).
+		SetMongosCountSpec(1).
+		Build()
+
+	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, sc)))
+	kubeClient, _ := mock.NewDefaultFakeClient(scScaledDown)
+	assert.NoError(t, createMockStateConfigMap(kubeClient, mock.TestNamespace, scScaledDown.Name, initialState))
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", scScaledDown, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	assert.NoError(t, err)
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		deployment := createDeploymentFromShardedCluster(t, sc)
+		if _, err := connection.UpdateDeployment(ctx, deployment); err != nil {
+			panic(err)
+		}
+		connection.(*om.MockedOmConnection).AddHosts(deployment.GetAllHostnames())
+		connection.(*om.MockedOmConnection).CleanHistory()
+	})
+
+	_ = omConnectionFactory.GetConnection().ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
+		ac.Auth.DeploymentAuthMechanisms = []string{}
+		return nil
+	}, nil)
+
+	mockOm := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
+
+	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
+
+	removedShardStsName := sc.ShardName(2)
+	removedShardHostnames := make([]string, 3)
+	for i := range 3 {
+		removedShardHostnames[i] = fmt.Sprintf("%s-%d.%s-sh.%s.svc.cluster.local", removedShardStsName, i, scScaledDown.ShardServiceName(), mock.TestNamespace)
+	}
+
+	mockOm.CheckMonitoredHostsRemoved(t, removedShardHostnames)
+}
+
 // CLOUDP-32765: checks that pod anti affinity rule spreads mongods inside one shard, not inside all shards
 func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
@@ -610,14 +781,14 @@ func TestPodAntiaffinity_MongodsInsideShardAreSpread(t *testing.T) {
 	firstShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(0, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), zap.S())
 	secondShardSet := construct.DatabaseStatefulSet(*sc, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), zap.S())
 
-	assert.Equal(t, sc.ShardRsName(0), firstShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
-	assert.Equal(t, sc.ShardRsName(1), secondShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
+	assert.Equal(t, sc.ShardName(0), firstShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
+	assert.Equal(t, sc.ShardName(1), secondShardSet.Spec.Selector.MatchLabels[construct.PodAntiAffinityLabelKey])
 
 	firstShartPodAffinityTerm := firstShardSet.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm
-	assert.Equal(t, firstShartPodAffinityTerm.LabelSelector.MatchLabels[construct.PodAntiAffinityLabelKey], sc.ShardRsName(0))
+	assert.Equal(t, firstShartPodAffinityTerm.LabelSelector.MatchLabels[construct.PodAntiAffinityLabelKey], sc.ShardName(0))
 
 	secondShartPodAffinityTerm := secondShardSet.Spec.Template.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm
-	assert.Equal(t, secondShartPodAffinityTerm.LabelSelector.MatchLabels[construct.PodAntiAffinityLabelKey], sc.ShardRsName(1))
+	assert.Equal(t, secondShartPodAffinityTerm.LabelSelector.MatchLabels[construct.PodAntiAffinityLabelKey], sc.ShardName(1))
 }
 
 func createShardSpecAndDefaultCluster(client kubernetesClient.Client, sc *mdbv1.MongoDB) (*mdbv1.ShardedClusterComponentSpec, multicluster.MemberCluster) {
@@ -914,7 +1085,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
-	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature()
+	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 2)
 
@@ -947,7 +1118,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 
 	getShard := func(i int) appsv1.StatefulSet {
 		sts := appsv1.StatefulSet{}
-		err := clusterClient.Get(ctx, types.NamespacedName{Name: sc.ShardRsName(i), Namespace: sc.Namespace}, &sts)
+		err := clusterClient.Get(ctx, types.NamespacedName{Name: sc.ShardName(i), Namespace: sc.Namespace}, &sts)
 		assert.NoError(t, err)
 		return sts
 	}
@@ -979,7 +1150,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingUp(t *testing.T
 		err = clusterClient.Get(ctx, sc.ObjectKey(), sc)
 		assert.NoError(t, err)
 
-		deployment, err = omConnectionFactory.GetConnection().ReadDeployment()
+		deployment, err = omConnectionFactory.GetConnection().ReadDeployment(ctx)
 		assert.NoError(t, err)
 	}
 
@@ -1065,7 +1236,7 @@ func TestScalingShardedCluster_ScalesOneMemberAtATime_WhenScalingDown(t *testing
 
 	getShard := func(i int) *appsv1.StatefulSet {
 		sts := appsv1.StatefulSet{}
-		err := clusterClient.Get(ctx, types.NamespacedName{Name: sc.ShardRsName(i), Namespace: sc.Namespace}, &sts)
+		err := clusterClient.Get(ctx, types.NamespacedName{Name: sc.ShardName(i), Namespace: sc.Namespace}, &sts)
 		if errors.IsNotFound(err) {
 			return nil
 		}
@@ -1115,7 +1286,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
-	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature()
+	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 3)
 
@@ -1250,10 +1421,11 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		clusterIds := []string{"1", "2", "3", "4"}
 		typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 		for i, clusterId := range clusterIds {
-			_, err := c.UpdateBackupConfig(&backup.Config{
+			_, err := c.UpdateBackupConfig(ctx, &backup.Config{
 				ClusterId: clusterId,
 				Status:    backup.Inactive,
 			})
+
 			require.NoError(t, err)
 
 			c.(*om.MockedOmConnection).BackupHostClusters[clusterId] = &backup.HostCluster{
@@ -1267,7 +1439,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 	assertAllOtherBackupConfigsRemainUntouched := func(t *testing.T) {
 		for _, configId := range []string{"2", "3", "4"} {
-			config, err := omConnectionFactory.GetConnection().ReadBackupConfig(configId)
+			config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, configId)
 			assert.NoError(t, err)
 			// backup status should remain INACTIVE for all non "SHARDED_REPLICA_SET" configs.
 			assert.Equal(t, backup.Inactive, config.Status)
@@ -1306,7 +1478,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 		require.NoError(t, clusterClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
 		require.NotNil(t, sc.Status.BackupStatus, "expected backup status to be set after backup is configured")
 
-		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+		config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 		assert.NoError(t, err)
 		assert.Equal(t, backup.Started, config.Status)
 		assert.Equal(t, "1", config.ClusterId)
@@ -1323,7 +1495,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
-		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+		config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 		assert.NoError(t, err)
 		assert.Equal(t, backup.Stopped, config.Status)
 		assert.Equal(t, "1", config.ClusterId)
@@ -1338,7 +1510,7 @@ func TestBackupConfiguration_ShardedCluster(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
 
-		config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+		config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 		assert.NoError(t, err)
 		assert.Equal(t, backup.Terminating, config.Status)
 		assert.Equal(t, "1", config.ClusterId)
@@ -1363,10 +1535,11 @@ func TestBackupConfiguration_ShardedCluster_DelayStateResetWhenBackupDisabledDur
 		clusterIds := []string{"1", "2", "3", "4"}
 		typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 		for i, clusterId := range clusterIds {
-			_, err := c.UpdateBackupConfig(&backup.Config{
+			_, err := c.UpdateBackupConfig(ctx, &backup.Config{
 				ClusterId: clusterId,
 				Status:    backup.Inactive,
 			})
+
 			require.NoError(t, err)
 			c.(*om.MockedOmConnection).BackupHostClusters[clusterId] = &backup.HostCluster{
 				ClusterName: sc.Name,
@@ -1412,10 +1585,11 @@ func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
 		clusterIds := []string{"1", "2", "3", "4"}
 		typeNames := []string{"SHARDED_REPLICA_SET", "REPLICA_SET", "REPLICA_SET", "CONFIG_SERVER_REPLICA_SET"}
 		for i, clusterId := range clusterIds {
-			_, err := c.UpdateBackupConfig(&backup.Config{
+			_, err := c.UpdateBackupConfig(ctx, &backup.Config{
 				ClusterId: clusterId,
 				Status:    backup.Inactive,
 			})
+
 			require.NoError(t, err)
 			c.(*om.MockedOmConnection).BackupHostClusters[clusterId] = &backup.HostCluster{
 				ClusterName: sc.Name,
@@ -1429,7 +1603,7 @@ func TestBackupConfiguration_ShardedCluster_NegativeDelay(t *testing.T) {
 	// With a negative delay, backup should be enabled immediately on the first reconcile with no requeue.
 	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
 
-	config, err := omConnectionFactory.GetConnection().ReadBackupConfig("1")
+	config, err := omConnectionFactory.GetConnection().ReadBackupConfig(ctx, "1")
 	require.NoError(t, err)
 	assert.Equal(t, backup.Started, config.Status)
 }
@@ -1463,7 +1637,7 @@ func createShardedClusterTLSSecretsFromCustomCerts(ctx context.Context, sc *mdbv
 
 	for i := 0; i < sc.Spec.ShardCount; i++ {
 		shardSecret := secret.Builder().
-			SetName(fmt.Sprintf("%s-%s-cert", prefix, sc.ShardRsName(i))).
+			SetName(fmt.Sprintf("%s-%s-cert", prefix, sc.ShardName(i))).
 			SetNamespace(sc.Namespace).SetDataType(corev1.SecretTypeTLS).
 			Build()
 
@@ -1594,12 +1768,66 @@ func assertPodSpecSts(t *testing.T, sts *appsv1.StatefulSet, nodeName, hostName 
 	}
 }
 
+// createLegacyDeploymentFromShardedCluster builds a deployment with bare process names (no k8s/ prefix)
+// to simulate a pre-migration legacy OM deployment for use in legacy-naming tests.
+func createLegacyDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourceReadWriter) om.Deployment {
+	sh := updatable.(*mdbv1.MongoDB)
+	kubeClient, _ := mock.NewDefaultFakeClient(sh)
+	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, sh)
+
+	shards := make([]om.ReplicaSetWithProcesses, sh.Spec.ShardCount)
+	for i := 0; i < sh.Spec.ShardCount; i++ {
+		shardOptions := construct.ShardOptions(i, shardSpec, memberCluster.Name,
+			Replicas(sh.Spec.MongodsPerShardCount),
+			construct.GetPodEnvOptions(),
+		)
+		shardSts := construct.DatabaseStatefulSet(*sh, shardOptions, zap.S())
+		hostnames, names := dns.GetDnsForStatefulSet(shardSts, sh.Spec.GetClusterDomain(), nil)
+		processes := make([]om.Process, len(hostnames))
+		for idx, hostname := range hostnames {
+			processes[idx] = om.NewMongodProcess(names[idx], hostname, "fake-mongoDBImage", false, sh.Spec.ShardSpec.GetAdditionalMongodConfig(), &sh.Spec, "", sh.Annotations, sh.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+		}
+		shards[i], _ = buildReplicaSetFromProcesses(shardSts.Name, processes, sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
+	}
+
+	desiredMongosConfig := createMongosSpec(sh)
+	mongosOptions := construct.MongosOptions(desiredMongosConfig, memberCluster.Name, Replicas(sh.Spec.MongosCount), construct.GetPodEnvOptions())
+	mongosSts := construct.DatabaseStatefulSet(*sh, mongosOptions, zap.S())
+	hostnames, names := dns.GetDnsForStatefulSet(mongosSts, sh.Spec.GetClusterDomain(), nil)
+	mongosProcesses := make([]om.Process, len(hostnames))
+	for idx, hostname := range hostnames {
+		mongosProcesses[idx] = om.NewMongosProcess(names[idx], hostname, "fake-mongoDBImage", false, sh.Spec.MongosSpec.GetAdditionalMongodConfig(), sh.GetSpec(), util.PEMKeyFilePathInContainer, sh.Annotations, sh.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+	}
+
+	desiredConfigSrvConfig := createConfigSrvSpec(sh)
+	configServerOptions := construct.ConfigServerOptions(desiredConfigSrvConfig, memberCluster.Name, Replicas(sh.Spec.ConfigServerCount), construct.GetPodEnvOptions())
+	configSvrSts := construct.DatabaseStatefulSet(*sh, configServerOptions, zap.S())
+	hostnames, names = dns.GetDnsForStatefulSet(configSvrSts, sh.Spec.GetClusterDomain(), nil)
+	configProcesses := make([]om.Process, len(hostnames))
+	for idx, hostname := range hostnames {
+		configProcesses[idx] = om.NewMongodProcess(names[idx], hostname, "fake-mongoDBImage", false, sh.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), &sh.Spec, "", sh.Annotations, sh.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+	}
+	configRs, _ := buildReplicaSetFromProcesses(configSvrSts.Name, configProcesses, sh, sh.Spec.GetMemberOptions(), om.NewDeployment())
+
+	d := om.NewDeployment()
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            sh.Name,
+		MongosProcesses: mongosProcesses,
+		ConfigServerRs:  configRs,
+		Shards:          shards,
+		Finalizing:      false,
+	})
+	assert.NoError(t, err)
+	d.ConfigureMonitoringAndBackup(zap.S(), sh.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	return d
+}
+
 func createMongosProcesses(mongoDBImage string, forceEnterprise bool, set appsv1.StatefulSet, mdb *mdbv1.MongoDB, certificateFilePath string) []om.Process {
 	hostnames, names := dns.GetDnsForStatefulSet(set, mdb.Spec.GetClusterDomain(), nil)
 	processes := make([]om.Process, len(hostnames))
 
 	for idx, hostname := range hostnames {
-		processes[idx] = om.NewMongosProcess(names[idx], hostname, mongoDBImage, forceEnterprise, mdb.Spec.MongosSpec.GetAdditionalMongodConfig(), mdb.GetSpec(), certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+		processes[idx] = om.NewMongosProcess(process.PodNameToProcessName(names[idx], mdb.Namespace), hostname, mongoDBImage, forceEnterprise, mdb.Spec.MongosSpec.GetAdditionalMongodConfig(), mdb.GetSpec(), certificateFilePath, mdb.Annotations, mdb.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
 	}
 
 	return processes
@@ -1675,6 +1903,193 @@ func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls imag
 	return r, reconcileHelper, nil
 }
 
+// vmShardReplicaSet builds the single-shard replica set shared by the migration fixtures: one
+// external VM process named "vm-shard-0", optionally carrying additional mongod config (e.g. the
+// search setParameters the operator writes when search is attached).
+func vmShardReplicaSet(t *testing.T, sc *mdbv1.MongoDB, additional *mdbv1.AdditionalMongodConfig) om.ReplicaSetWithProcesses {
+	t.Helper()
+	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: sc.Spec.Version}}
+	vmProcess := om.NewMongodProcess(
+		"vm-shard-0", "vm-shard-0.example.com", "fake-image", false,
+		additional, spec, "", nil, "", architectures.NonStatic,
+	)
+	shardRs, err := buildReplicaSetFromProcesses(sc.ShardACRsName(0), []om.Process{vmProcess}, sc, nil, om.NewDeployment())
+	require.NoError(t, err)
+	return shardRs
+}
+
+// mergeShardedDeployment assembles the deployment parts the way the migration fixtures seed the
+// mock OM, keeping MergeShardedCluster options and monitoring/backup configuration in one place.
+func mergeShardedDeployment(t *testing.T, sc *mdbv1.MongoDB, mongosProcesses []om.Process, configRs om.ReplicaSetWithProcesses, shardRs om.ReplicaSetWithProcesses) om.Deployment {
+	t.Helper()
+	d := om.NewDeployment()
+	_, err := d.MergeShardedCluster(om.DeploymentShardedClusterMergeOptions{
+		Name:            sc.Name,
+		MongosProcesses: mongosProcesses,
+		ConfigServerRs:  configRs,
+		Shards:          []om.ReplicaSetWithProcesses{shardRs},
+		Finalizing:      false,
+	})
+	require.NoError(t, err)
+	d.ConfigureMonitoringAndBackup(zap.S(), sc.Spec.GetSecurity().IsTLSEnabled(), util.CAFilePathInContainer)
+	return d
+}
+
+// vmShardProcessWithSearchSetParameters returns a full sharded-cluster deployment (mongos, config
+// server and a single shard) whose only shard member is an external VM process, optionally
+// carrying the mongod setParameters the operator writes when search is attached.
+func vmShardProcessWithSearchSetParameters(t *testing.T, sc *mdbv1.MongoDB, withSearch bool) om.Deployment {
+	t.Helper()
+	additional := &mdbv1.AdditionalMongodConfig{}
+	if withSearch {
+		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]any{
+			"mongotHost":                       "sc-search-0-sc-0-0.sc-search-0-sc-0-svc.my-namespace.svc.cluster.local:27028",
+			"searchIndexManagementHostAndPort": "sc-search-0-sc-0-0.sc-search-0-sc-0-svc.my-namespace.svc.cluster.local:27028",
+		})
+	}
+	shardRs := vmShardReplicaSet(t, sc, additional)
+
+	desiredMongosConfig := createMongosSpec(sc)
+	mongosOptions := construct.MongosOptions(desiredMongosConfig, multicluster.LegacyCentralClusterName, Replicas(sc.Spec.MongosCount), construct.GetPodEnvOptions())
+	mongosSts := construct.DatabaseStatefulSet(*sc, mongosOptions, zap.S())
+	hostnames, names := dns.GetDnsForStatefulSet(mongosSts, sc.Spec.GetClusterDomain(), nil)
+	mongosProcesses := make([]om.Process, len(hostnames))
+	for idx, hostname := range hostnames {
+		mongosProcesses[idx] = om.NewMongosProcess(names[idx], hostname, "fake-mongoDBImage", false, sc.Spec.MongosSpec.GetAdditionalMongodConfig(), sc.GetSpec(), util.PEMKeyFilePathInContainer, sc.Annotations, sc.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+	}
+
+	desiredConfigSrvConfig := createConfigSrvSpec(sc)
+	configServerOptions := construct.ConfigServerOptions(desiredConfigSrvConfig, multicluster.LegacyCentralClusterName, Replicas(sc.Spec.ConfigServerCount), construct.GetPodEnvOptions())
+	configSvrSts := construct.DatabaseStatefulSet(*sc, configServerOptions, zap.S())
+	hostnames, names = dns.GetDnsForStatefulSet(configSvrSts, sc.Spec.GetClusterDomain(), nil)
+	configProcesses := make([]om.Process, len(hostnames))
+	for idx, hostname := range hostnames {
+		configProcesses[idx] = om.NewMongodProcess(names[idx], hostname, "fake-mongoDBImage", false, sc.Spec.ConfigSrvSpec.GetAdditionalMongodConfig(), &sc.Spec, "", sc.Annotations, sc.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+	}
+	configRs, err := buildReplicaSetFromProcesses(configSvrSts.Name, configProcesses, sc, sc.Spec.GetMemberOptions(), om.NewDeployment())
+	require.NoError(t, err)
+
+	return mergeShardedDeployment(t, sc, mongosProcesses, configRs, shardRs)
+}
+
+// newShardedClusterWithExternalMember builds a sharded MongoDB with a single shard whose AC
+// replica set name ("vm-shard-0") differs from its K8s shard name ("<name>-0"), mirroring what
+// migrate-to-mck emits via shardNameOverrides, plus the corresponding external mongod member.
+func newShardedClusterWithExternalMember(name string) *mdbv1.MongoDB {
+	sc := test.DefaultClusterBuilder().
+		SetName(name).
+		SetVersion("8.2.0").
+		SetShardCountSpec(1).
+		SetShardCountStatus(1).
+		SetMongodsPerShardCountSpec(0).
+		SetMongodsPerShardCountStatus(0).
+		Build()
+	sc.Spec.ShardNameOverrides = []mdbv1.ShardNameOverride{
+		{ShardName: sc.ShardName(0), ShardId: "vm-shard-0", ReplicaSetName: "vm-shard-0"},
+	}
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-shard-0", Hostname: "vm-shard-0.example.com:27017", Type: "mongod", ReplicaSetName: "vm-shard-0"},
+	}
+	return sc
+}
+
+func TestShardedMigration_ProceedsWhenVMProcessHasSearchConfig(t *testing.T) {
+	ctx := context.Background()
+	sc := newShardedClusterWithExternalMember("search-on-vm-sc")
+
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(ctx, vmShardProcessWithSearchSetParameters(t, sc, true))
+	})
+
+	// Search setParameters on the external (VM) shard process do not hold the migration back: the
+	// MongoDBSearch keeps its external source and its host seeds are maintained by the user.
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+}
+
+// vmDeploymentWithExternalConfigAndShard seeds the mock OM with a sharded cluster whose config
+// server and single shard consist of one external (VM) member each, plus one VM mongos.
+func vmDeploymentWithExternalConfigAndShard(t *testing.T, sc *mdbv1.MongoDB) om.Deployment {
+	t.Helper()
+	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: sc.Spec.Version}}
+	additional := &mdbv1.AdditionalMongodConfig{}
+
+	vmConfigProcess := om.NewMongodProcess("vm-config-0", "vm-config-0.example.com", "fake-image", false, additional, spec, "", nil, "", architectures.NonStatic)
+	configRs, err := buildReplicaSetFromProcesses(sc.ConfigACRsName(), []om.Process{vmConfigProcess}, sc, nil, om.NewDeployment())
+	require.NoError(t, err)
+
+	vmMongosProcess := om.NewMongosProcess("vm-mongos-0", "vm-mongos-0.example.com", "fake-image", false, additional, spec, "", sc.Annotations, sc.CalculateFeatureCompatibilityVersion(), architectures.NonStatic)
+
+	return mergeShardedDeployment(t, sc, []om.Process{vmMongosProcess}, configRs, vmShardReplicaSet(t, sc, additional))
+}
+
+// TestShardedMigration_ScalesUpOneMemberAtATime_FromZero verifies that scaling a component from
+// zero Kubernetes members while external members are present grows the replica set by one member
+// per reconciliation instead of jumping straight to the target count. Adding all members at once
+// makes Ops Manager reject the automation config with "Cannot add/remove multiple voting members
+// of a replica set at once" (HELP-100454), because the replica set already exists on the external
+// members and is not being created.
+func TestShardedMigration_ScalesUpOneMemberAtATime_FromZero(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		SetName("sc-migration").
+		SetVersion("8.2.0").
+		SetShardCountSpec(1).
+		SetShardCountStatus(1).
+		SetMongodsPerShardCountSpec(0).
+		SetMongodsPerShardCountStatus(0).
+		SetConfigServerCountSpec(0).
+		SetConfigServerCountStatus(0).
+		SetMongosCountSpec(1).
+		SetMongosCountStatus(1).
+		Build()
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-config-0", Hostname: "vm-config-0.example.com:27017", Type: "mongod", ReplicaSetName: sc.ConfigACRsName()},
+		{ProcessName: "vm-shard-0", Hostname: "vm-shard-0.example.com:27017", Type: "mongod", ReplicaSetName: sc.ShardACRsName(0)},
+	}
+
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		_, err := conn.(*om.MockedOmConnection).UpdateDeployment(ctx, vmDeploymentWithExternalConfigAndShard(t, sc))
+		require.NoError(t, err)
+	})
+
+	// The VM-only import (all Kubernetes counts at 0) reconciles to Running.
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	// The customer edit from HELP-100454: configServerCount 0 -> 3 with all members voting.
+	votes, priority := 1, "1"
+	sc.Spec.ConfigServerCount = 3
+	sc.Spec.MemberConfig = []automationconfig.MemberOptions{
+		{Votes: &votes, Priority: &priority},
+		{Votes: &votes, Priority: &priority},
+		{Votes: &votes, Priority: &priority},
+	}
+	require.NoError(t, kubeClient.Update(ctx, sc))
+
+	configRsName := sc.ConfigACRsName()
+	for expectedK8sMembers := 1; expectedK8sMembers <= 3; expectedK8sMembers++ {
+		res, err := reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		if expectedK8sMembers < 3 {
+			assert.Equal(t, time.Duration(10000000000), res.RequeueAfter, "expected requeue while scaling to member %d", expectedK8sMembers)
+		} else {
+			ok, _ := workflow.OK().ReconcileResult()
+			assert.Equal(t, ok, res)
+		}
+
+		// The config server replica set must gain exactly one member per reconciliation: the single
+		// external VM member plus expectedK8sMembers Kubernetes ones, never more.
+		deployment, err := omConnectionFactory.GetConnection().ReadDeployment(ctx)
+		require.NoError(t, err)
+		assert.Len(t, deployment.GetReplicaSetByName(configRsName).Members(), 1+expectedK8sMembers)
+
+		require.NoError(t, kubeClient.Get(ctx, sc.ObjectKey(), sc))
+	}
+}
+
 func computeSingleClusterShardOverridesFromDistribution(shardOverridesDistribution map[string]int) []mdbv1.ShardOverride {
 	var shardOverrides []mdbv1.ShardOverride
 
@@ -1684,7 +2099,7 @@ func computeSingleClusterShardOverridesFromDistribution(shardOverridesDistributi
 		// Construct the ShardOverride for that shard
 		shardOverride := mdbv1.ShardOverride{
 			ShardNames: []string{shardName},
-			Members:    ptr.To(memberCount),
+			Members:    new(memberCount),
 		}
 
 		// Append the constructed ShardOverride to the shardOverrides slice
@@ -1934,9 +2349,623 @@ func generateAllHostsSingleCluster(sc *mdbv1.MongoDB, mongosCount int, configSrv
 	allPodNames = append(allPodNames, podNames...)
 
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
-		podNames, hosts = generateHostsWithDistributionSingleCluster(sc.ShardRsName(shardIdx), sc.Namespace, shardsMemberCounts[shardIdx], clusterDomain.ShardsExternalDomain, externalClusterDomain.ShardsExternalDomain)
+		podNames, hosts = generateHostsWithDistributionSingleCluster(sc.ShardName(shardIdx), sc.Namespace, shardsMemberCounts[shardIdx], clusterDomain.ShardsExternalDomain, externalClusterDomain.ShardsExternalDomain)
 		allHosts = append(allHosts, hosts...)
 		allPodNames = append(allPodNames, podNames...)
 	}
 	return allHosts, allPodNames
+}
+
+func TestShardedClusterReconcile_PublishesConnectionStringSecret(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetName("conn-str-sc").Build()
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-mongod", Hostname: "vm-mongod.example.com:27018", Type: "mongod", ReplicaSetName: sc.ShardACRsName(0)},
+		{ProcessName: "vm-mongos", Hostname: "vm-mongos.example.com:27017", Type: "mongos"},
+	}
+
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		d := om.NewDeployment()
+		netWithTLS := func(port int) map[string]any {
+			return map[string]any{"port": port, "tls": map[string]any{"mode": "disabled"}}
+		}
+		d["processes"] = []om.Process{
+			{
+				"name":        "vm-mongod",
+				"hostname":    "vm-mongod.example.com",
+				"processType": om.ProcessTypeMongod,
+				"version":     sc.Spec.Version,
+				"args2_6":     map[string]any{"net": netWithTLS(27018)},
+			},
+			{
+				"name":        "vm-mongos",
+				"hostname":    "vm-mongos.example.com",
+				"processType": om.ProcessTypeMongos,
+				"version":     sc.Spec.Version,
+				"cluster":     sc.GetShardedClusterName(),
+				"args2_6":     map[string]any{"net": netWithTLS(27017)},
+			},
+		}
+		shard0Rs := om.NewReplicaSet(sc.ShardACRsName(0), sc.Spec.Version)
+		shard0Rs["members"] = []om.ReplicaSetMember{{"_id": 0, "host": "vm-mongod", "votes": 1, "priority": 1.0}}
+		d["replicaSets"] = []om.ReplicaSet{shard0Rs}
+		// validateShardedACIdentity requires the sharding section under the resolved AC cluster name.
+		d["sharding"] = []om.ShardedCluster{{
+			"name":                sc.GetShardedClusterName(),
+			"configServerReplica": sc.ConfigACRsName(),
+			"shards":              []om.Shard{{"_id": sc.ShardACShardId(0), "rs": sc.ShardACRsName(0)}},
+		}}
+		if _, err := conn.UpdateDeployment(ctx, d); err != nil {
+			panic(err)
+		}
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	secret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx,
+		kube.ObjectKey(sc.Namespace, "conn-str-sc"+connectionstringsecret.SecretNameSuffix),
+		secret))
+
+	std := string(secret.Data["connectionString.standard"])
+	// k8s mongos hostnames present.
+	assert.Contains(t, std, "conn-str-sc-mongos-0.")
+	// External mongos appended; external mongod filtered out.
+	assert.Contains(t, std, "vm-mongos.example.com:27017")
+	assert.NotContains(t, std, "vm-mongod.example.com")
+	// Credential-less.
+	assert.NotContains(t, std, "@")
+
+	require.Len(t, secret.OwnerReferences, 1)
+	assert.Equal(t, "MongoDB", secret.OwnerReferences[0].Kind)
+	assert.Equal(t, v1.SchemeGroupVersion.String(), secret.OwnerReferences[0].APIVersion)
+}
+
+// TestCreateDesiredProcesses_NewNaming verifies that with no existing processes in the deployment
+// (new cluster), all process names get the k8s/<namespace>/<podName> prefix.
+// Mirrors TestBuildFromMongoDBWithReplicas in the replicaset package.
+func TestCreateDesiredProcesses_NewNaming(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	_, reconcileHelper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	existingDeployment := om.NewDeployment()
+	ns := sc.Namespace
+
+	configProcesses, _ := reconcileHelper.createDesiredConfigSrvProcessesAndMemberOptions("", existingDeployment)
+	require.Len(t, configProcesses, sc.Spec.ConfigServerCount)
+	for i, p := range configProcesses {
+		assert.Equal(t, fmt.Sprintf("k8s/%s/%s-%d", ns, sc.ConfigRsName(), i), p.Name(),
+			"config server process %d name", i)
+		assert.Equal(t, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local", sc.ConfigRsName(), i, sc.ConfigSrvServiceName(), ns), p.HostName(),
+			"config server process %d hostname", i)
+	}
+
+	for _, shardIdx := range []int{0, 1} {
+		shardProcesses, _ := reconcileHelper.createDesiredShardProcessesAndMemberOptions(shardIdx, "", existingDeployment)
+		require.Len(t, shardProcesses, sc.Spec.MongodsPerShardCount)
+		for i, p := range shardProcesses {
+			assert.Equal(t, fmt.Sprintf("k8s/%s/%s-%d", ns, sc.ShardName(shardIdx), i), p.Name(),
+				"shard %d process %d name", shardIdx, i)
+			assert.Equal(t, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local", sc.ShardName(shardIdx), i, sc.ShardServiceName(), ns), p.HostName(),
+				"shard %d process %d hostname", shardIdx, i)
+		}
+	}
+
+	mongosProcesses := reconcileHelper.createDesiredMongosProcesses("", existingDeployment)
+	require.Len(t, mongosProcesses, sc.Spec.MongosCount)
+	for i, p := range mongosProcesses {
+		assert.Equal(t, fmt.Sprintf("k8s/%s/%s-%d", ns, sc.MongosRsName(), i), p.Name(),
+			"mongos process %d name", i)
+		assert.Equal(t, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local", sc.MongosRsName(), i, sc.ServiceName(), ns), p.HostName(),
+			"mongos process %d hostname", i)
+	}
+}
+
+// TestCreateDesiredProcesses_LegacyNaming verifies that when existing processes have bare names
+// (legacy deployment, no k8s/ prefix), process names keep the bare pod name format.
+// Mirrors TestBuildFromMongoDBWithReplicas_LegacyNaming in the replicaset package.
+func TestCreateDesiredProcesses_LegacyNaming(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	_, reconcileHelper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	existingDeployment := createLegacyDeploymentFromShardedCluster(t, sc)
+	ns := sc.Namespace
+
+	configProcesses, _ := reconcileHelper.createDesiredConfigSrvProcessesAndMemberOptions("", existingDeployment)
+	require.Len(t, configProcesses, sc.Spec.ConfigServerCount)
+	for i, p := range configProcesses {
+		assert.Equal(t, fmt.Sprintf("%s-%d", sc.ConfigRsName(), i), p.Name(),
+			"config server process %d name", i)
+		assert.Equal(t, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local", sc.ConfigRsName(), i, sc.ConfigSrvServiceName(), ns), p.HostName(),
+			"config server process %d hostname", i)
+	}
+
+	for _, shardIdx := range []int{0, 1} {
+		shardProcesses, _ := reconcileHelper.createDesiredShardProcessesAndMemberOptions(shardIdx, "", existingDeployment)
+		require.Len(t, shardProcesses, sc.Spec.MongodsPerShardCount)
+		for i, p := range shardProcesses {
+			assert.Equal(t, fmt.Sprintf("%s-%d", sc.ShardName(shardIdx), i), p.Name(),
+				"shard %d process %d name", shardIdx, i)
+			assert.Equal(t, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local", sc.ShardName(shardIdx), i, sc.ShardServiceName(), ns), p.HostName(),
+				"shard %d process %d hostname", shardIdx, i)
+		}
+	}
+
+	mongosProcesses := reconcileHelper.createDesiredMongosProcesses("", existingDeployment)
+	require.Len(t, mongosProcesses, sc.Spec.MongosCount)
+	for i, p := range mongosProcesses {
+		assert.Equal(t, fmt.Sprintf("%s-%d", sc.MongosRsName(), i), p.Name(),
+			"mongos process %d name", i)
+		assert.Equal(t, fmt.Sprintf("%s-%d.%s.%s.svc.cluster.local", sc.MongosRsName(), i, sc.ServiceName(), ns), p.HostName(),
+			"mongos process %d hostname", i)
+	}
+}
+
+// TestCreateDesiredProcesses_ExternalMembersForceNewNaming verifies that external members
+// (VM-to-K8s migration) force the k8s/<namespace>/<podName> naming scheme, even when the
+// existing K8s processes in the deployment still have bare names.
+func TestCreateDesiredProcesses_ExternalMembersForceNewNaming(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	sc.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-mongos-0", Hostname: "vm-mongos-0.example.com:27017", Type: "mongos"},
+		{ProcessName: "vm-config-0", Hostname: "vm-config-0.example.com:27018", Type: "mongod", ReplicaSetName: sc.ConfigACRsName()},
+		{ProcessName: "vm-shard0-0", Hostname: "vm-shard0-0.example.com:27018", Type: "mongod", ReplicaSetName: sc.ShardACRsName(0)},
+		{ProcessName: "vm-shard1-0", Hostname: "vm-shard1-0.example.com:27018", Type: "mongod", ReplicaSetName: sc.ShardACRsName(1)},
+	}
+	_, reconcileHelper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	existingDeployment := createLegacyDeploymentFromShardedCluster(t, sc)
+	ns := sc.Namespace
+
+	configProcesses, _ := reconcileHelper.createDesiredConfigSrvProcessesAndMemberOptions("", existingDeployment)
+	require.NotEmpty(t, configProcesses)
+	for i, p := range configProcesses {
+		assert.True(t, strings.HasPrefix(p.Name(), "k8s/"+ns+"/"),
+			"config server process %d should use new naming when external members exist, got %q", i, p.Name())
+	}
+
+	for _, shardIdx := range []int{0, 1} {
+		shardProcesses, _ := reconcileHelper.createDesiredShardProcessesAndMemberOptions(shardIdx, "", existingDeployment)
+		require.NotEmpty(t, shardProcesses)
+		for i, p := range shardProcesses {
+			assert.True(t, strings.HasPrefix(p.Name(), "k8s/"+ns+"/"),
+				"shard %d process %d should use new naming when external members exist, got %q", shardIdx, i, p.Name())
+		}
+	}
+
+	mongosProcesses := reconcileHelper.createDesiredMongosProcesses("", existingDeployment)
+	require.NotEmpty(t, mongosProcesses)
+	for i, p := range mongosProcesses {
+		assert.True(t, strings.HasPrefix(p.Name(), "k8s/"+ns+"/"),
+			"mongos process %d should use new naming when external members exist, got %q", i, p.Name())
+	}
+}
+
+// TestShardedRSK8sConfigMatchesDesiredConfiguration pins shardedRSK8sConfig to the reconcile side
+// resolution in prepareDesiredShardsConfiguration so the two cannot drift apart.
+func TestShardedRSK8sConfigMatchesDesiredConfiguration(t *testing.T) {
+	ctx := context.Background()
+	votes0 := 0
+	votes1 := 1
+	prio := "0"
+
+	sc := test.DefaultClusterBuilder().Build()
+	sc.Spec.MemberConfig = make([]automationconfig.MemberOptions, sc.Spec.MongodsPerShardCount)
+	for i := range sc.Spec.MemberConfig {
+		sc.Spec.MemberConfig[i] = automationconfig.MemberOptions{Votes: &votes0, Priority: &prio}
+	}
+	overrideConfig := make([]automationconfig.MemberOptions, sc.Spec.MongodsPerShardCount)
+	for i := range overrideConfig {
+		overrideConfig[i] = automationconfig.MemberOptions{Votes: &votes1, Priority: &prio}
+	}
+	overrideMembers := sc.Spec.MongodsPerShardCount + 1
+	sc.Spec.ShardOverrides = []mdbv1.ShardOverride{{
+		ShardNames:   []string{sc.ShardName(1)},
+		Members:      &overrideMembers,
+		MemberConfig: overrideConfig,
+	}}
+
+	_, reconcileHelper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+		members, memberConfig := shardedRSK8sConfig(sc, sc.ShardACRsName(shardIdx))
+		desired := reconcileHelper.desiredShardsConfiguration[shardIdx].ClusterSpecList[0]
+		assert.Equal(t, desired.Members, members, "shard %d members", shardIdx)
+		assert.Equal(t, desired.MemberConfig, memberConfig, "shard %d memberConfig", shardIdx)
+	}
+}
+
+func TestReconcileShardedCluster_SetsDownloadBase(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	sc.Spec.DownloadBase = "/custom/download/base"
+
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	assert.Equal(t, "/custom/download/base", mockedConn.GetDeployment().DownloadBase())
+}
+
+func TestSingleClusterShardedHostnamesUsePerTierExternalDomains(t *testing.T) {
+	ctx := context.Background()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	sc := test.DefaultClusterBuilder().
+		SetPerTierExternalAccessDomains(test.ExampleExternalClusterDomains).
+		Build()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(sc).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	legacyCluster := multicluster.MemberCluster{Name: multicluster.LegacyCentralClusterName, Legacy: true}
+
+	configHostnames, _ := reconcileHelper.getConfigSrvHostnames(legacyCluster, sc.Spec.ConfigServerCount)
+	for _, hostname := range configHostnames {
+		assert.Contains(t, hostname, test.ExampleExternalClusterDomains.ConfigServerExternalDomain)
+		assert.NotContains(t, hostname, "svc.cluster.local")
+	}
+
+	shardHostnames, _ := reconcileHelper.getShardHostnames(0, legacyCluster, sc.Spec.MongodsPerShardCount)
+	for _, hostname := range shardHostnames {
+		assert.Contains(t, hostname, test.ExampleExternalClusterDomains.ShardsExternalDomain)
+		assert.NotContains(t, hostname, "svc.cluster.local")
+	}
+
+	mongosHostnames, _ := reconcileHelper.getMongosHostnames(legacyCluster, sc.Spec.MongosCount)
+	for _, hostname := range mongosHostnames {
+		assert.Contains(t, hostname, test.ExampleExternalClusterDomains.MongosExternalDomain)
+		assert.NotContains(t, hostname, "svc.cluster.local")
+	}
+}
+
+func TestSingleClusterShardedMongosPerTierDomainBeatsTopLevel(t *testing.T) {
+	ctx := context.Background()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	// Top-level says single.mongodb.com; spec.mongos.externalAccess says mongos.mongodb.com.
+	sc := test.DefaultClusterBuilder().
+		SetExternalAccessDomain(test.ExampleExternalClusterDomains).
+		SetPerTierExternalAccessDomains(test.ClusterDomains{MongosExternalDomain: test.ExampleExternalClusterDomains.MongosExternalDomain}).
+		Build()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(sc).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	legacyCluster := multicluster.MemberCluster{Name: multicluster.LegacyCentralClusterName, Legacy: true}
+	mongosHostnames, _ := reconcileHelper.getMongosHostnames(legacyCluster, sc.Spec.MongosCount)
+
+	for _, hostname := range mongosHostnames {
+		assert.Contains(t, hostname, test.ExampleExternalClusterDomains.MongosExternalDomain)
+		assert.NotContains(t, hostname, test.ExampleExternalClusterDomains.SingleClusterDomain)
+	}
+}
+
+func TestReconcileCreateSingleClusterShardedClusterWithPerTierExternalDomains(t *testing.T) {
+	ctx := context.Background()
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	// Distinct counts per tier so the external-service loop bound is exercised: before the fix the
+	// loop used Spec.Replicas(), which is MongosCount for a sharded cluster, and config servers would
+	// have got MongosCount services instead of ConfigServerCount.
+	sc := test.DefaultClusterBuilder().
+		SetConfigServerCountSpec(3).
+		SetMongodsPerShardCountSpec(2).
+		SetMongosCountSpec(4).
+		SetShardCountSpec(1).
+		SetPerTierExternalAccessDomains(test.ExampleExternalClusterDomains).
+		Build()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().
+		WithObjects(sc).
+		WithObjects(mock.GetDefaultResources()...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
+		}).
+		Build()
+
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	reconciler, _, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		var allHostnames []string
+		mongosHostNames, _ := dns.GetDNSNames(sc.MongosRsName(), sc.ServiceName(), sc.Namespace, "", sc.Spec.MongosCount, &test.ExampleExternalClusterDomains.MongosExternalDomain)
+		allHostnames = append(allHostnames, mongosHostNames...)
+		configHostNames, _ := dns.GetDNSNames(sc.ConfigRsName(), sc.ConfigSrvServiceName(), sc.Namespace, "", sc.Spec.ConfigServerCount, &test.ExampleExternalClusterDomains.ConfigServerExternalDomain)
+		allHostnames = append(allHostnames, configHostNames...)
+		for shardIdx := range sc.Spec.ShardCount {
+			shardHostNames, _ := dns.GetDNSNames(sc.ShardName(shardIdx), sc.ShardServiceName(), sc.Namespace, "", sc.Spec.MongodsPerShardCount, &test.ExampleExternalClusterDomains.ShardsExternalDomain)
+			allHostnames = append(allHostnames, shardHostNames...)
+		}
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	memberClusterChecks := newClusterChecks(t, multicluster.LegacyCentralClusterName, 0, sc.Namespace, kubeClient)
+
+	// Every tier gets one external service per member, and no internal per-pod services.
+	mongosStatefulSetName := fmt.Sprintf("%s-mongos", sc.Name)
+	memberClusterChecks.checkExternalServices(ctx, mongosStatefulSetName, sc.Spec.MongosCount)
+	memberClusterChecks.checkPerPodServicesDontExist(ctx, mongosStatefulSetName, sc.Spec.MongosCount)
+
+	configServerStatefulSetName := fmt.Sprintf("%s-config", sc.Name)
+	memberClusterChecks.checkExternalServices(ctx, configServerStatefulSetName, sc.Spec.ConfigServerCount)
+	memberClusterChecks.checkPerPodServicesDontExist(ctx, configServerStatefulSetName, sc.Spec.ConfigServerCount)
+
+	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
+		shardStatefulSetName := fmt.Sprintf("%s-%d", sc.Name, shardIdx)
+		memberClusterChecks.checkExternalServices(ctx, shardStatefulSetName, sc.Spec.MongodsPerShardCount)
+		memberClusterChecks.checkPerPodServicesDontExist(ctx, shardStatefulSetName, sc.Spec.MongodsPerShardCount)
+	}
+
+	// The loop-bound fix: config servers get ConfigServerCount external services, not MongosCount.
+	// With ConfigServerCount=3 and MongosCount=4, index 3 must not exist. Asserted with a direct Get
+	// rather than checkExternalServicesDontExist, because that helper builds names as
+	// <statefulSetName>-<podIdx>-svc-external and would look for the wrong name here.
+	extraConfigService := corev1.Service{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, fmt.Sprintf("%s-config-%d-svc-external", sc.Name, sc.Spec.ConfigServerCount)), &extraConfigService)
+	assert.True(t, errors.IsNotFound(err),
+		"config servers must get exactly ConfigServerCount (%d) external services, not MongosCount (%d)",
+		sc.Spec.ConfigServerCount, sc.Spec.MongosCount)
+
+	// Headless services are still there for all tiers.
+	memberClusterChecks.checkServiceExists(ctx, fmt.Sprintf("%s-cs", sc.Name))
+	memberClusterChecks.checkServiceExists(ctx, fmt.Sprintf("%s-sh", sc.Name))
+	memberClusterChecks.checkServiceExists(ctx, fmt.Sprintf("%s-svc", sc.Name))
+
+	// An external domain implies a non-ephemeral backup port on every tier's external service, not
+	// just mongos. Without it the backup agent cannot connect through the external hostname.
+	for _, tier := range []struct {
+		stsName string
+		members int
+	}{
+		{fmt.Sprintf("%s-config", sc.Name), sc.Spec.ConfigServerCount},
+		{fmt.Sprintf("%s-0", sc.Name), sc.Spec.MongodsPerShardCount},
+		{fmt.Sprintf("%s-mongos", sc.Name), sc.Spec.MongosCount},
+	} {
+		for podIdx := 0; podIdx < tier.members; podIdx++ {
+			svc := corev1.Service{}
+			serviceName := fmt.Sprintf("%s-%d-svc-external", tier.stsName, podIdx)
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, serviceName), &svc))
+
+			portNames := make([]string, 0, len(svc.Spec.Ports))
+			for _, port := range svc.Spec.Ports {
+				portNames = append(portNames, port.Name)
+			}
+			assert.Contains(t, portNames, "backup", "external service %s must expose the backup port", serviceName)
+		}
+	}
+}
+
+// TestShardedClusterHostnameOverrideConfigMap_SingleClusterPerTierExternalDomain guards against pods
+// mounting a ConfigMap that was never created: the StatefulSets mount it whenever a tier resolves to
+// an external domain, so creation must not be gated on the top-level spec.externalAccess alone.
+func TestShardedClusterHostnameOverrideConfigMap_SingleClusterPerTierExternalDomain(t *testing.T) {
+	ctx := context.Background()
+
+	testCases := map[string]struct {
+		sc             *mdbv1.MongoDB
+		expectedExists bool
+	}{
+		"no external domain": {
+			sc:             test.DefaultClusterBuilder().Build(),
+			expectedExists: false,
+		},
+		"per-tier external domains only": {
+			sc: test.DefaultClusterBuilder().
+				SetPerTierExternalAccessDomains(test.ExampleExternalClusterDomains).
+				Build(),
+			expectedExists: true,
+		},
+		"top-level external domain only": {
+			sc: test.DefaultClusterBuilder().
+				SetExternalAccessDomain(test.SingleExternalClusterDomains).
+				Build(),
+			expectedExists: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, tc.sc)))
+			kubeClient, _ := mock.NewDefaultFakeClient(tc.sc)
+			_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", tc.sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+			require.NoError(t, err)
+
+			require.NoError(t, reconcileHelper.reconcileHostnameOverrideConfigMap(ctx, zap.S()))
+
+			cm := corev1.ConfigMap{}
+			err = kubeClient.Get(ctx, types.NamespacedName{Name: tc.sc.GetHostNameOverrideConfigmapName(), Namespace: tc.sc.Namespace}, &cm)
+			if !tc.expectedExists {
+				assert.True(t, errors.IsNotFound(err), "expected no hostname override ConfigMap, got err: %v", err)
+				return
+			}
+			require.NoError(t, err)
+			assert.NotEmpty(t, cm.Data)
+		})
+	}
+}
+
+func TestShardedClusterDeploymentState_ShardsInRemovalBackwardCompatibility(t *testing.T) {
+	var legacy ShardedClusterDeploymentState
+	require.NoError(t, json.Unmarshal([]byte(`{"lastAchievedSpec":null,"lastConfiguredRoles":[],"status":{}}`), &legacy))
+	assert.Empty(t, legacy.ShardsInRemoval)
+
+	raw, err := json.Marshal(NewShardedClusterDeploymentState())
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "shardsInRemoval")
+}
+
+func TestShardedClusterReconcileHelper_TrackShardsInRemoval(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+	_, helper, _, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	log := zap.S()
+
+	persisted := func() []string {
+		state, err := helper.stateStore.ReadState(ctx)
+		require.NoError(t, err)
+		return state.ShardsInRemoval
+	}
+
+	require.NoError(t, helper.trackShardsInRemoval(ctx, false, []string{"sc-2", "sc-1"}, log))
+	assert.Equal(t, []string{"sc-1", "sc-2"}, helper.deploymentState.ShardsInRemoval)
+	assert.Equal(t, []string{"sc-1", "sc-2"}, persisted(), "the record must be persisted right away")
+
+	require.NoError(t, helper.trackShardsInRemoval(ctx, false, []string{"sc-1"}, log))
+	assert.Equal(t, []string{"sc-1", "sc-2"}, persisted(), "a later pass must not drop shards that are still being removed")
+
+	require.NoError(t, helper.trackShardsInRemoval(ctx, false, nil, log))
+	assert.Equal(t, []string{"sc-1", "sc-2"}, persisted(), "an empty draining array must not clear the record")
+
+	require.NoError(t, helper.trackShardsInRemoval(ctx, true, nil, log))
+	assert.Empty(t, helper.deploymentState.ShardsInRemoval)
+	assert.Empty(t, persisted(), "the finalizing pass clears the record")
+}
+
+func TestShardedClusterReconcile_ShardRemovalCleansUpOpsManagerAndClearsRecord(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+	reconciler, helper, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	removedShardRs := sc.ShardACRsName(1)
+	mockedConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	require.NotNil(t, mockedConn.GetDeployment().GetReplicaSetByName(removedShardRs))
+
+	sc.Spec.ShardCount = 1
+	require.NoError(t, kubeClient.Update(ctx, sc))
+	for range 5 {
+		_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, sc.ObjectKey(), sc))
+		if sc.Status.Phase == status.PhaseRunning && sc.Status.ShardCount == 1 {
+			break
+		}
+	}
+	require.Equal(t, status.PhaseRunning, sc.Status.Phase, sc.Status.Message)
+
+	assert.Nil(t, mockedConn.GetDeployment().GetReplicaSetByName(removedShardRs))
+	assert.Equal(t, 0, mockedConn.GetDeployment().GetNumberOfExcessProcesses(sc.GetShardedClusterName(), nil))
+	state, err := helper.stateStore.ReadState(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, state.ShardsInRemoval)
+}
+
+func TestCheckIfHasExcessProcesses_ShardInRemovalIsNotExcess(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+	reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	conn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	removedShardRs := sc.ShardACRsName(1)
+
+	dep := conn.GetDeployment()
+	dropLastShardFromShardingSection(t, dep)
+	require.NotNil(t, dep.GetReplicaSetByName(removedShardRs))
+
+	name := sc.GetShardedClusterName()
+	assert.False(t, checkIfHasExcessProcesses(ctx, conn, name, nil, zap.S()).IsOK())
+	assert.True(t, checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, name, nil, []string{removedShardRs}, zap.S()).IsOK())
+}
+
+func TestShardedClusterReconcile_FinishesShardRemovalWhenOpsManagerClearedDraining(t *testing.T) {
+	for name, tc := range map[string]struct {
+		recordShardInRemoval bool
+		expectedPhase        status.Phase
+	}{
+		"removal recorded in state": {recordShardInRemoval: true, expectedPhase: status.PhaseRunning},
+		"removal not recorded":      {recordShardInRemoval: false, expectedPhase: status.PhasePending},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			sc := test.DefaultClusterBuilder().SetShardCountSpec(2).SetShardCountStatus(2).Build()
+			reconciler, helper, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+			require.NoError(t, err)
+			checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+			conn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+			removedShardRs := sc.ShardACRsName(1)
+
+			dep := conn.GetDeployment()
+			dropLastShardFromShardingSection(t, dep)
+
+			if tc.recordShardInRemoval {
+				state, err := helper.stateStore.ReadState(ctx)
+				require.NoError(t, err)
+				state.ShardsInRemoval = []string{removedShardRs}
+				require.NoError(t, helper.stateStore.WriteState(ctx, state, zap.S()))
+			}
+
+			sc.Spec.ShardCount = 1
+			require.NoError(t, kubeClient.Update(ctx, sc))
+			for range 5 {
+				_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+				require.NoError(t, err)
+				require.NoError(t, kubeClient.Get(ctx, sc.ObjectKey(), sc))
+				if sc.Status.Phase == status.PhaseRunning {
+					break
+				}
+			}
+
+			assert.Equal(t, tc.expectedPhase, sc.Status.Phase, sc.Status.Message)
+			if tc.recordShardInRemoval {
+				assert.Nil(t, dep.GetReplicaSetByName(removedShardRs))
+				assert.Equal(t, 0, dep.GetNumberOfExcessProcesses(sc.GetShardedClusterName(), nil))
+			} else {
+				assert.NotNil(t, dep.GetReplicaSetByName(removedShardRs))
+			}
+		})
+	}
+}
+
+// dropLastShardFromShardingSection reproduces the state the Operator sees mid scale-down: the second shard is already
+// out of sharding.shards (phase 1 removed it) and Ops Manager has already cleared draining on its own. The shard's
+// replica set and processes are still in the Automation Config because the finalizing pass that deletes them has not run.
+func dropLastShardFromShardingSection(t *testing.T, dep om.Deployment) {
+	raw, err := json.Marshal(dep["sharding"])
+	require.NoError(t, err)
+	var sharding []map[string]any
+	require.NoError(t, json.Unmarshal(raw, &sharding))
+	result := make([]any, 0, len(sharding))
+	for _, s := range sharding {
+		s["shards"] = s["shards"].([]any)[:1]
+		delete(s, "draining")
+		result = append(result, s)
+	}
+	dep["sharding"] = result
 }

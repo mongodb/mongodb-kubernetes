@@ -401,8 +401,8 @@ func main() {
 	// Cluster is a set because central cluster can be part of member clusters
 	clusters := make(map[string]bool)
 	if kubeEnvironmentName == "multi" {
-		memberClusters := strings.Fields(os.Getenv("MEMBER_CLUSTERS")) // nolint:forbidigo
-		for _, cluster := range memberClusters {
+		memberClusters := strings.FieldsSeq(os.Getenv("MEMBER_CLUSTERS")) // nolint:forbidigo
+		for cluster := range memberClusters {
 			clusters[cluster] = true
 		}
 		centralClusterName := os.Getenv("CENTRAL_CLUSTER") // nolint:forbidigo

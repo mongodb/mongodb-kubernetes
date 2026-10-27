@@ -23,7 +23,7 @@ export TEST_POD_CLUSTER="${CLUSTER_NAME}"
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
 export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
-export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator
+export KUBECTL_MONGODB_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/kubectl-mongodb
 
 # override for /etc/config/kubeconfig file mounted in operator's pod
 if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
@@ -93,7 +93,7 @@ fi
 export KUBECONFIG
 
 if [[ "$(uname)" == "Linux" ]]; then
-  export GOROOT=/opt/golang/go1.25
+  export GOROOT=/opt/golang/go1.26
 fi
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
@@ -160,7 +160,7 @@ export OPERATOR_CLUSTER_SCOPED=false
 
 # for downloading helm and kubectl binaries
 export HELM_VERSION="v3.19.4"
-export KUBECTL_VERSION="v1.35.0"
+export KUBECTL_VERSION="v$(jq -r '.kubernetes.max' "${PROJECT_DIR}/kubernetes-versions.json")"
 
 # s390x-specific feature flags — use ${VAR:-default} so they can be overridden before sourcing this context.
 # PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure Python protobuf implementation

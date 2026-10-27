@@ -1,0 +1,14 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: meta-om-backup-meta-db
+spec:
+  members: 3
+  version: "8.0.6-ent"
+  type: ReplicaSet
+  opsManager:
+    configMapRef:
+      name: meta-om-backup-meta-db-config
+  credentials: my-credentials
+  persistent: true

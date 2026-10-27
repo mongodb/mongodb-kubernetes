@@ -87,7 +87,7 @@ func TestStandaloneClusterReconcileContainerImages(t *testing.T) {
 
 	ctx := context.Background()
 	st := DefaultStandaloneBuilder().SetVersion("8.0.0").Build()
-	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, imageUrlsMock, "2.0.0", "1.0.0", st, architectures.NonStatic)
+	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, imageUrlsMock, "2.0.0", "1.0.0", om.NewEmptyMockedOmConnection, st, architectures.NonStatic)
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
@@ -189,7 +189,7 @@ func TestStandaloneAuthenticationOwnedByOpsManager(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
-	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature()
+	cf, _ := omConnectionFactory.GetConnection().GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 2)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -217,7 +217,7 @@ func TestStandaloneAuthenticationOwnedByOperator(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
 
 	mockedConn := omConnectionFactory.GetConnection()
-	cf, _ := mockedConn.GetControlledFeature()
+	cf, _ := mockedConn.GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 3)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -374,7 +374,7 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 	spec := mdbv1.MongoDbSpec{
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Version:    "4.0.0",
-			Persistent: util.BooleanRef(true),
+			Persistent: new(true),
 			ConnectionSpec: mdbv1.ConnectionSpec{
 				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
 					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
@@ -398,18 +398,8 @@ func DefaultStandaloneBuilder() *StandaloneBuilder {
 	return &StandaloneBuilder{resource}
 }
 
-func (b *StandaloneBuilder) SetName(name string) *StandaloneBuilder {
-	b.Name = name
-	return b
-}
-
 func (b *StandaloneBuilder) SetVersion(version string) *StandaloneBuilder {
 	b.Spec.Version = version
-	return b
-}
-
-func (b *StandaloneBuilder) SetPersistent(p *bool) *StandaloneBuilder {
-	b.Spec.Persistent = p
 	return b
 }
 

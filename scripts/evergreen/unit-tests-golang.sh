@@ -6,6 +6,12 @@ set -x
 
 source scripts/dev/set_env_context.sh
 
+# Provision the envtest binaries (etcd + kube-apiserver) used by envtest-based Go tests
+# (see test/envtest) and expose them to `go test` via KUBEBUILDER_ASSETS.
+make envtest-assets
+KUBEBUILDER_ASSETS="$(make -s envtest-assets-path)"
+export KUBEBUILDER_ASSETS
+
 USE_RACE_SWITCH=""
 if [[ "${USE_RACE:-"false"}" = "true" ]]; then
   USE_RACE_SWITCH="-race"

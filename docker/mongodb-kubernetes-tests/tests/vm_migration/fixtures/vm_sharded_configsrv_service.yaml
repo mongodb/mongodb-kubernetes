@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vm-sharded-configsrv
+  labels:
+    app: vm-sharded-configsrv
+spec:
+  type: ClusterIP
+  clusterIP: None  # headless: vm-sharded-configsrv-0.vm-sharded-configsrv.ns.svc.cluster.local resolves to pod IP
+  selector:
+    app: vm-sharded-configsrv
+  ports:
+    - port: 27017
+      targetPort: 27017
+      name: mongodb

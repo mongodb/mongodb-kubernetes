@@ -2,6 +2,7 @@ package om
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/spf13/cast"
@@ -10,6 +11,8 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 /* This corresponds to:
@@ -33,24 +36,25 @@ import (
 		]
 }*/
 
-type ReplicaSet map[string]interface{}
+type ReplicaSet map[string]any
 
 /* This corresponds to:
  {
 		"_id": 0,
 		"host": "blue_0",
  		"priority": 0,
- 		"slaveDelay": 0
+ 		"secondaryDelaySecs": 0,
+ 		"buildIndexes": true
  }*/
 
-type ReplicaSetMember map[string]interface{}
+type ReplicaSetMember map[string]any
 
-func NewReplicaSetFromInterface(i interface{}) ReplicaSet {
-	return i.(map[string]interface{})
+func NewReplicaSetFromInterface(i any) ReplicaSet {
+	return i.(map[string]any)
 }
 
-func NewReplicaSetMemberFromInterface(i interface{}) ReplicaSetMember {
-	return i.(map[string]interface{})
+func NewReplicaSetMemberFromInterface(i any) ReplicaSetMember {
+	return i.(map[string]any)
 }
 
 func NewReplicaSet(name, version string) ReplicaSet {
@@ -67,7 +71,6 @@ func NewReplicaSet(name, version string) ReplicaSet {
 	}
 
 	initDefaultRs(ans, name, protocolVersion)
-
 	return ans
 }
 
@@ -94,6 +97,22 @@ func (r ReplicaSetMember) Priority() float32 {
 
 func (r ReplicaSetMember) Tags() map[string]string {
 	return r["tags"].(map[string]string)
+}
+
+func (r ReplicaSetMember) SecondaryDelaySecs() int {
+	return cast.ToInt(r["secondaryDelaySecs"])
+}
+
+func (r ReplicaSetMember) IsHidden() bool {
+	return cast.ToBool(r["hidden"])
+}
+
+func (r ReplicaSetMember) BuildIndexes() bool {
+	v, ok := r["buildIndexes"]
+	if !ok {
+		return true
+	}
+	return cast.ToBool(v)
 }
 
 /* Merges the other replica set to the current one. "otherRs" members have higher priority (as they are supposed
@@ -166,7 +185,7 @@ func initDefaultRs(set ReplicaSet, name string, protocolVersion string) {
 
 // Adding a member to the replicaset. The _id for the new member is calculated
 // based on last existing member in the RS.
-func (r ReplicaSet) addMember(process Process, id string, options automationconfig.MemberOptions) {
+func (r ReplicaSet) addMember(process Process, id *int, options automationconfig.MemberOptions) {
 	members := r.Members()
 	lastIndex := -1
 	if len(members) > 0 {
@@ -174,9 +193,11 @@ func (r ReplicaSet) addMember(process Process, id string, options automationconf
 	}
 
 	rsMember := ReplicaSetMember{}
-	rsMember["_id"] = id
-	if id == "" {
+
+	if id == nil {
 		rsMember["_id"] = lastIndex + 1
+	} else {
+		rsMember["_id"] = *id
 	}
 	rsMember["host"] = process.Name()
 
@@ -187,13 +208,14 @@ func (r ReplicaSet) addMember(process Process, id string, options automationconf
 }
 
 // mergeFrom merges "operatorRs" into "OM" one
-func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet) []string {
+func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet, externalMembers []string) []string {
 	initDefaultRs(r, operatorRs.Name(), operatorRs.protocolVersion())
 
 	// technically we use "operatorMap" as the target map which will be used to update the members
 	// for the 'r' object
 	omMap := buildMapOfRsNodes(r)
 	operatorMap := buildMapOfRsNodes(operatorRs)
+	externalSet := stringutil.ToSet(externalMembers)
 
 	// merge overlapping members into the operatorMap (overriding the 'host',
 	// 'horizons' and '_id' fields only)
@@ -210,6 +232,10 @@ func (r ReplicaSet) mergeFrom(operatorRs ReplicaSet) []string {
 			} else {
 				delete(currentValue, "horizons")
 			}
+			operatorMap[k] = currentValue
+		}
+		if _, ok := externalSet[k]; ok {
+			// this is an external member, just copy it as is
 			operatorMap[k] = currentValue
 		}
 	}
@@ -240,7 +266,7 @@ func (r ReplicaSet) Members() []ReplicaSetMember {
 	switch v := r["members"].(type) {
 	case []ReplicaSetMember:
 		return v
-	case []interface{}:
+	case []any:
 		ans := make([]ReplicaSetMember, len(v))
 		for i, val := range v {
 			ans[i] = NewReplicaSetMemberFromInterface(val)
@@ -249,6 +275,29 @@ func (r ReplicaSet) Members() []ReplicaSetMember {
 	default:
 		panic("Unexpected type of members variable")
 	}
+}
+
+// CountVotingMembers returns the number of voting K8s members and voting external members in this
+// replica set. External members are identified by matching ReplicaSetMember.Name() (the AC "host"
+// field, which equals the process name) against externalMemberProcessNames. Members that are not in
+// externalMemberProcessNames are treated as K8s members. An external process name that does not
+// match any member of the RS is silently ignored — drift checks already guard against that case.
+func CountVotingMembers(r ReplicaSet, externalMemberProcessNames []string) (k8sVoting int, externalVoting int) {
+	externalSet := make(map[string]struct{}, len(externalMemberProcessNames))
+	for _, n := range externalMemberProcessNames {
+		externalSet[n] = struct{}{}
+	}
+	for _, m := range r.Members() {
+		if m.Votes() <= 0 {
+			continue
+		}
+		if _, isExternal := externalSet[m.Name()]; isExternal {
+			externalVoting++
+		} else {
+			k8sVoting++
+		}
+	}
+	return k8sVoting, externalVoting
 }
 
 func (r ReplicaSet) setName(name string) {
@@ -310,9 +359,7 @@ func (r ReplicaSetMember) setPriority(priority float32) ReplicaSetMember {
 
 func (r ReplicaSetMember) setTags(tags map[string]string) ReplicaSetMember {
 	finalTags := make(map[string]string)
-	for k, v := range tags {
-		finalTags[k] = v
-	}
+	maps.Copy(finalTags, tags)
 	r["tags"] = finalTags
 	return r
 }
@@ -326,6 +373,52 @@ func findDifference(leftMap map[string]ReplicaSetMember, rightMap map[string]Rep
 		}
 	}
 	return ans
+}
+
+// ExtractExternalMembers builds CR-shaped externalMembers from the given processes, skipping disabled ones.
+// mongos processes naturally produce an empty ReplicaSetName since their AC args do not declare replication.replSetName.
+func ExtractExternalMembers(processes []Process) []mdbv1.ExternalMember {
+	var out []mdbv1.ExternalMember
+	for _, proc := range processes {
+		if proc.IsDisabled() {
+			continue
+		}
+		out = append(out, mdbv1.ExternalMember{
+			ProcessName:    proc.Name(),
+			Hostname:       fmt.Sprintf("%s:%s", proc.HostName(), proc.Port()),
+			Type:           string(proc.ProcessType()),
+			ReplicaSetName: proc.ReplicaSetName(),
+		})
+	}
+	return out
+}
+
+// ExtractMemberInfo reads version, FCV, and per-member metadata from the
+// given replica set members and process map. Each member becomes an
+// mdbv1.ExternalMember suitable for the CR's spec.externalMembers.
+func ExtractMemberInfo(members []ReplicaSetMember, processMap map[string]Process) ([]mdbv1.ExternalMember, string, string) {
+	if len(members) == 0 {
+		return nil, "", ""
+	}
+	firstProc := processMap[members[0].Name()]
+	version := firstProc.Version()
+	fcv := firstProc.FeatureCompatibilityVersion()
+
+	var externalMembers []mdbv1.ExternalMember
+	for _, m := range members {
+		host := m.Name()
+		proc := processMap[host]
+		port := maputil.ReadMapValueAsInt(proc.Args(), "net", "port")
+
+		externalMembers = append(externalMembers, mdbv1.ExternalMember{
+			ProcessName:    host,
+			Hostname:       fmt.Sprintf("%s:%d", proc.HostName(), port),
+			Type:           "mongod",
+			ReplicaSetName: proc.ReplicaSetName(),
+		})
+	}
+
+	return externalMembers, version, fcv
 }
 
 // Builds the map[<process name>]<replica set member>. This makes intersection easier

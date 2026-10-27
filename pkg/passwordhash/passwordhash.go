@@ -14,6 +14,18 @@ const (
 	HashLength     = 32
 )
 
+// PasswordMatchesHash verifies whether the password reproduces the stored hash when
+// hashed with the stored salt using the same PBKDF2 parameters.
+func PasswordMatchesHash(password, storedHash, storedSalt string) (bool, error) {
+	salt, err := base64.StdEncoding.DecodeString(storedSalt)
+	if err != nil {
+		return false, err
+	}
+	hash := pbkdf2.Key([]byte(password), salt, HashIterations, HashLength, sha256.New)
+	computed := base64.StdEncoding.EncodeToString(hash)
+	return computed == storedHash, nil
+}
+
 // GenerateHashAndSaltForPassword returns a `hash` and `salt` for this password.
 func GenerateHashAndSaltForPassword(password string) (string, string) {
 	salt, err := generate.GenerateRandomBytes(8)

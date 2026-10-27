@@ -3,6 +3,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -18,6 +19,7 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
@@ -48,12 +50,6 @@ const (
 	EnvoyPreStopDrainSleepSeconds int64 = EnvoyTerminationGracePeriodSeconds - 10
 
 	ForceWireprotoAnnotation = "mongodb.com/v1.force-search-wireproto"
-
-	// DisableReconciliationAnnotation, when set to "true" on a MongoDBSearch CR,
-	// short-circuits the reconciler: it returns Result{} + nil without
-	// mutating any owned objects. Useful for tests that need to mutate
-	// owned StatefulSets directly without the operator reverting them.
-	DisableReconciliationAnnotation = "mongodb.com/disable-reconciliation"
 
 	MongoDBSearchIndexFieldName = "mdbsearch-for-mongodbresourceref-index"
 
@@ -213,7 +209,7 @@ type AdvancedMongotConfigs struct {
 }
 
 // ToMap returns a deep copy of the wrapped config, or nil when unset.
-func (a *AdvancedMongotConfigs) ToMap() map[string]interface{} {
+func (a *AdvancedMongotConfigs) ToMap() map[string]any {
 	if a == nil || a.Object == nil {
 		return nil
 	}
@@ -679,7 +675,7 @@ func (s *MongoDBSearch) GetCommonStatus(options ...status.Option) *status.Common
 	return &s.Status.Common
 }
 
-func (s *MongoDBSearch) GetStatus(options ...status.Option) interface{} {
+func (s *MongoDBSearch) GetStatus(options ...status.Option) any {
 	if partOpt, exists := status.GetOption(options, SearchPartOption{}); exists {
 		switch partOpt.(SearchPartOption).Part {
 		case SearchPartLoadBalancer:
@@ -1044,7 +1040,7 @@ func (s *MongoDBSearch) IsWireprotoEnabled() bool {
 }
 
 func (s *MongoDBSearch) IsReconciliationDisabled() bool {
-	return s.Annotations[DisableReconciliationAnnotation] == "true"
+	return s.Annotations[util.DisableReconciliationAnnotation] == "true"
 }
 
 func (s *MongoDBSearch) GetEffectiveMongotPort() int32 {
@@ -1183,10 +1179,8 @@ func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName stri
 // findShardOverride returns the override whose ShardNames contains shardName, or nil.
 func findShardOverride(overrides []ShardOverride, shardName string) *ShardOverride {
 	for i := range overrides {
-		for _, name := range overrides[i].ShardNames {
-			if name == shardName {
-				return &overrides[i]
-			}
+		if slices.Contains(overrides[i].ShardNames, shardName) {
+			return &overrides[i]
 		}
 	}
 	return nil

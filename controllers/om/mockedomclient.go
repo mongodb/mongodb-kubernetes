@@ -1,11 +1,13 @@
 package om
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"reflect"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +25,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
@@ -42,7 +45,7 @@ import (
 // * To emulate the work of real OM it's possible to emulate the agents delay in "reaching" goal state. This can be
 //   configured using 'AgentsDelayCount' property
 // * As Deployment has package access to most of its data to preserve encapsulation (processes, ssl etc.) this class can
-//   be used as an access point to those fields for testing (see 'getProcesses' as an example)
+//   be used as an access point to those fields for testing (see 'GetProcesses' as an example)
 // ********************************************************************************************************************
 
 const (
@@ -62,6 +65,8 @@ type MockedOmConnection struct {
 	automationConfig      *AutomationConfig
 	backupAgentConfig     *BackupAgentConfig
 	monitoringAgentConfig *MonitoringAgentConfig
+	processLogRotation    *automationconfig.AcLogRotate
+	auditLogRotation      *automationconfig.AcLogRotate
 	controlledFeature     *controlledfeature.ControlledFeature
 	// hosts are used for both automation agents and monitoring endpoints.
 	// They are necessary for emulating "agents" are ready behavior as operator checks for hosts for agents to exist
@@ -100,15 +105,15 @@ func (oc *MockedOmConnection) GetDeployment() Deployment {
 	return oc.deployment
 }
 
-func (oc *MockedOmConnection) ReadGroupBackupConfig() (backup.GroupBackupConfig, error) {
+func (oc *MockedOmConnection) ReadGroupBackupConfig(ctx context.Context) (backup.GroupBackupConfig, error) {
 	return backup.GroupBackupConfig{}, xerrors.Errorf("not implemented")
 }
 
-func (oc *MockedOmConnection) UpdateGroupBackupConfig(config backup.GroupBackupConfig) ([]byte, error) {
+func (oc *MockedOmConnection) UpdateGroupBackupConfig(ctx context.Context, config backup.GroupBackupConfig) ([]byte, error) {
 	return nil, xerrors.Errorf("not implemented")
 }
 
-func (oc *MockedOmConnection) UpdateBackupAgentConfig(mat *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
+func (oc *MockedOmConnection) UpdateBackupAgentConfig(ctx context.Context, mat *BackupAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
 	return nil, xerrors.Errorf("not implemented")
 }
 
@@ -300,14 +305,14 @@ func (c *CachedOMConnectionFactory) SetPostCreateHook(postCreateHook func(Connec
 	c.postCreateHook = postCreateHook
 }
 
-func (oc *MockedOmConnection) UpdateDeployment(d Deployment) ([]byte, error) {
+func (oc *MockedOmConnection) UpdateDeployment(ctx context.Context, d Deployment) ([]byte, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateDeployment))
 	oc.numRequestsSent++
 	oc.deployment = d
 	return nil, nil
 }
 
-func (oc *MockedOmConnection) ReadDeployment() (Deployment, error) {
+func (oc *MockedOmConnection) ReadDeployment(ctx context.Context) (Deployment, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadDeployment))
 	if oc.deployment == nil {
 		return NewDeployment(), nil
@@ -315,7 +320,7 @@ func (oc *MockedOmConnection) ReadDeployment() (Deployment, error) {
 	return oc.deployment, nil
 }
 
-func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) error, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateDeployment(ctx context.Context, depFunc func(Deployment) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateDeployment))
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()
@@ -325,7 +330,7 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(depFunc func(Deployment) erro
 	return err
 }
 
-func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(ctx context.Context, matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateMonitoringAgentConfig))
 	if oc.monitoringAgentConfig == nil {
 		oc.monitoringAgentConfig = &MonitoringAgentConfig{MonitoringAgentTemplate: &MonitoringAgentTemplate{}}
@@ -335,18 +340,18 @@ func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(matFunc func(*Moni
 	if err != nil {
 		return err
 	}
-	_, err = oc.UpdateMonitoringAgentConfig(oc.monitoringAgentConfig, log)
+	_, err = oc.UpdateMonitoringAgentConfig(ctx, oc.monitoringAgentConfig, log)
 	return err
 }
 
-func (oc *MockedOmConnection) UpdateAutomationConfig(ac *AutomationConfig, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) UpdateAutomationConfig(ctx context.Context, ac *AutomationConfig, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateAutomationConfig))
 	oc.deployment = ac.Deployment
 	oc.automationConfig = ac
 	return nil
 }
 
-func (oc *MockedOmConnection) ReadAutomationConfig() (*AutomationConfig, error) {
+func (oc *MockedOmConnection) ReadAutomationConfig(ctx context.Context) (*AutomationConfig, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationConfig))
 	if oc.automationConfig == nil {
 		if oc.deployment == nil {
@@ -357,7 +362,7 @@ func (oc *MockedOmConnection) ReadAutomationConfig() (*AutomationConfig, error) 
 	return oc.automationConfig, nil
 }
 
-func (oc *MockedOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateAutomationConfig(ctx context.Context, modifyACFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAutomationConfig))
 	if oc.automationConfig == nil {
 		if oc.deployment == nil {
@@ -377,7 +382,7 @@ func (oc *MockedOmConnection) ReadUpdateAutomationConfig(modifyACFunc func(ac *A
 	return err
 }
 
-func (oc *MockedOmConnection) AddHost(h host.Host) error {
+func (oc *MockedOmConnection) AddHost(ctx context.Context, h host.Host) error {
 	// Generate a unique ID if not provided (similar to AddHosts)
 	if h.Id == "" {
 		if oc.agentHostnameMap == nil {
@@ -390,7 +395,7 @@ func (oc *MockedOmConnection) AddHost(h host.Host) error {
 	return nil
 }
 
-func (oc *MockedOmConnection) UpdateHost(host host.Host) error {
+func (oc *MockedOmConnection) UpdateHost(ctx context.Context, host host.Host) error {
 	// assume the host in question exists
 	for idx := range oc.hostResults.Results {
 		if oc.hostResults.Results[idx].Hostname == host.Hostname {
@@ -400,16 +405,16 @@ func (oc *MockedOmConnection) UpdateHost(host host.Host) error {
 	return nil
 }
 
-func (oc *MockedOmConnection) MarkProjectAsBackingDatabase(_ BackingDatabaseType) error {
+func (oc *MockedOmConnection) MarkProjectAsBackingDatabase(ctx context.Context, _ BackingDatabaseType) error {
 	return nil
 }
 
-func (oc *MockedOmConnection) UpgradeAgentsToLatest() (string, error) {
+func (oc *MockedOmConnection) UpgradeAgentsToLatest(ctx context.Context) (string, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpgradeAgentsToLatest))
 	return "new-version", nil
 }
 
-func (oc *MockedOmConnection) ReadBackupAgentConfig() (*BackupAgentConfig, error) {
+func (oc *MockedOmConnection) ReadBackupAgentConfig(ctx context.Context) (*BackupAgentConfig, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadBackupAgentConfig))
 	if oc.backupAgentConfig == nil {
 		oc.backupAgentConfig = &BackupAgentConfig{BackupAgentTemplate: &BackupAgentTemplate{}}
@@ -423,7 +428,7 @@ func (oc *MockedOmConnection) UpdateBackupAgentConfigFromConfigWrapper(bac *Back
 	return nil, nil
 }
 
-func (oc *MockedOmConnection) ReadUpdateBackupAgentConfig(bacFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateBackupAgentConfig(ctx context.Context, bacFunc func(*BackupAgentConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateBackupAgentConfig))
 	if oc.backupAgentConfig == nil {
 		oc.backupAgentConfig = &BackupAgentConfig{BackupAgentTemplate: &BackupAgentTemplate{}}
@@ -431,12 +436,22 @@ func (oc *MockedOmConnection) ReadUpdateBackupAgentConfig(bacFunc func(*BackupAg
 	return bacFunc(oc.backupAgentConfig)
 }
 
-func (oc *MockedOmConnection) ReadUpdateAgentsLogRotation(logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
+func (oc *MockedOmConnection) ReadUpdateAgentsLogRotation(ctx context.Context, logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAgentsLogRotation))
 	return nil
 }
 
-func (oc *MockedOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfig, error) {
+func (oc *MockedOmConnection) ReadProcessLogRotation(ctx context.Context) (*automationconfig.AcLogRotate, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadProcessLogRotation))
+	return oc.processLogRotation, nil
+}
+
+func (oc *MockedOmConnection) ReadAuditLogRotation(ctx context.Context) (*automationconfig.AcLogRotate, error) {
+	oc.addToHistory(reflect.ValueOf(oc.ReadAuditLogRotation))
+	return oc.auditLogRotation, nil
+}
+
+func (oc *MockedOmConnection) ReadMonitoringAgentConfig(ctx context.Context) (*MonitoringAgentConfig, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadMonitoringAgentConfig))
 	if oc.monitoringAgentConfig == nil {
 		oc.monitoringAgentConfig = &MonitoringAgentConfig{MonitoringAgentTemplate: &MonitoringAgentTemplate{}}
@@ -444,7 +459,7 @@ func (oc *MockedOmConnection) ReadMonitoringAgentConfig() (*MonitoringAgentConfi
 	return oc.monitoringAgentConfig, nil
 }
 
-func (oc *MockedOmConnection) UpdateMonitoringAgentConfig(mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
+func (oc *MockedOmConnection) UpdateMonitoringAgentConfig(ctx context.Context, mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateMonitoringAgentConfig))
 	if oc.UpdateMonitoringAgentConfigFunc != nil {
 		return oc.UpdateMonitoringAgentConfigFunc(mac, log)
@@ -453,13 +468,13 @@ func (oc *MockedOmConnection) UpdateMonitoringAgentConfig(mac *MonitoringAgentCo
 	return nil, nil
 }
 
-func (oc *MockedOmConnection) GenerateAgentKey() (string, error) {
+func (oc *MockedOmConnection) GenerateAgentKey(ctx context.Context) (string, error) {
 	oc.addToHistory(reflect.ValueOf(oc.GenerateAgentKey))
 
 	return oc.AgentAPIKey, nil
 }
 
-func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) {
+func (oc *MockedOmConnection) ReadAutomationStatus(ctx context.Context) (*AutomationStatus, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationStatus))
 	if oc.ReadAutomationStatusFunc != nil {
 		return oc.ReadAutomationStatusFunc()
@@ -475,7 +490,7 @@ func (oc *MockedOmConnection) ReadAutomationStatus() (*AutomationStatus, error) 
 	return oc.buildAutomationStatusFromDeployment(oc.deployment, false), nil
 }
 
-func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, error) {
+func (oc *MockedOmConnection) ReadAutomationAgents(_ context.Context, pageNum int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadAutomationAgents))
 	if oc.ReadAutomationAgentsFunc != nil {
 		return oc.ReadAutomationAgentsFunc(pageNum)
@@ -490,12 +505,12 @@ func (oc *MockedOmConnection) ReadAutomationAgents(pageNum int) (Paginated, erro
 	return AutomationAgentStatusResponse{AutomationAgents: results}, nil
 }
 
-func (oc *MockedOmConnection) GetHosts() (*host.Result, error) {
+func (oc *MockedOmConnection) GetHosts(ctx context.Context) (*host.Result, error) {
 	oc.addToHistory(reflect.ValueOf(oc.GetHosts))
 	return oc.hostResults, nil
 }
 
-func (oc *MockedOmConnection) RemoveHost(hostID string) error {
+func (oc *MockedOmConnection) RemoveHost(ctx context.Context, hostID string) error {
 	oc.addToHistory(reflect.ValueOf(oc.RemoveHost))
 	toKeep := make([]host.Host, 0)
 	for _, v := range oc.hostResults.Results {
@@ -510,7 +525,7 @@ func (oc *MockedOmConnection) RemoveHost(hostID string) error {
 	return nil
 }
 
-func (oc *MockedOmConnection) ReadOrganizationsByName(name string) ([]*Organization, error) {
+func (oc *MockedOmConnection) ReadOrganizationsByName(ctx context.Context, name string) ([]*Organization, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizationsByName))
 	allOrgs := make([]*Organization, 0)
 	for k := range oc.OrganizationsWithGroups {
@@ -524,7 +539,7 @@ func (oc *MockedOmConnection) ReadOrganizationsByName(name string) ([]*Organizat
 	return allOrgs, nil
 }
 
-func (oc *MockedOmConnection) ReadOrganizations(page int) (Paginated, error) {
+func (oc *MockedOmConnection) ReadOrganizations(_ context.Context, page int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganizations))
 	// We don't set Next field - so there should be no pagination
 	allOrgs := make([]*Organization, 0)
@@ -535,12 +550,12 @@ func (oc *MockedOmConnection) ReadOrganizations(page int) (Paginated, error) {
 	return &response, nil
 }
 
-func (oc *MockedOmConnection) ReadOrganization(orgID string) (*Organization, error) {
+func (oc *MockedOmConnection) ReadOrganization(ctx context.Context, orgID string) (*Organization, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadOrganization))
 	return oc.findOrganization(orgID)
 }
 
-func (oc *MockedOmConnection) ReadProjectsInOrganizationByName(orgID string, name string) ([]*Project, error) {
+func (oc *MockedOmConnection) ReadProjectsInOrganizationByName(ctx context.Context, orgID string, name string) ([]*Project, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadProjectsInOrganizationByName))
 	org, err := oc.findOrganization(orgID)
 	if err != nil {
@@ -555,7 +570,7 @@ func (oc *MockedOmConnection) ReadProjectsInOrganizationByName(orgID string, nam
 	return projects, nil
 }
 
-func (oc *MockedOmConnection) ReadProjectsInOrganization(orgID string, page int) (Paginated, error) {
+func (oc *MockedOmConnection) ReadProjectsInOrganization(_ context.Context, orgID string, page int) (Paginated, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadProjectsInOrganization))
 	org, err := oc.findOrganization(orgID)
 	if err != nil {
@@ -565,7 +580,7 @@ func (oc *MockedOmConnection) ReadProjectsInOrganization(orgID string, page int)
 	return response, nil
 }
 
-func (oc *MockedOmConnection) CreateProject(project *Project) (*Project, error) {
+func (oc *MockedOmConnection) CreateProject(ctx context.Context, project *Project) (*Project, error) {
 	oc.addToHistory(reflect.ValueOf(oc.CreateProject))
 	if oc.CreateGroupFunc != nil {
 		return oc.CreateGroupFunc(project)
@@ -583,7 +598,7 @@ func (oc *MockedOmConnection) CreateProject(project *Project) (*Project, error) 
 	return project, nil
 }
 
-func (oc *MockedOmConnection) UpdateProject(project *Project) (*Project, error) {
+func (oc *MockedOmConnection) UpdateProject(ctx context.Context, project *Project) (*Project, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateProject))
 	if oc.UpdateGroupFunc != nil {
 		return oc.UpdateGroupFunc(project)
@@ -601,13 +616,13 @@ func (oc *MockedOmConnection) UpdateProject(project *Project) (*Project, error) 
 	return nil, xerrors.Errorf("failed to find project")
 }
 
-func (oc *MockedOmConnection) UpdateBackupConfig(config *backup.Config) (*backup.Config, error) {
+func (oc *MockedOmConnection) UpdateBackupConfig(ctx context.Context, config *backup.Config) (*backup.Config, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateBackupConfig))
 	oc.BackupConfigs[config.ClusterId] = config
 	return config, nil
 }
 
-func (oc *MockedOmConnection) ReadBackupConfigs() (*backup.ConfigsResponse, error) {
+func (oc *MockedOmConnection) ReadBackupConfigs(ctx context.Context) (*backup.ConfigsResponse, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadBackupConfigs))
 
 	values := make([]*backup.Config, 0, len(oc.BackupConfigs))
@@ -617,7 +632,7 @@ func (oc *MockedOmConnection) ReadBackupConfigs() (*backup.ConfigsResponse, erro
 	return &backup.ConfigsResponse{Configs: values}, nil
 }
 
-func (oc *MockedOmConnection) ReadBackupConfig(clusterId string) (*backup.Config, error) {
+func (oc *MockedOmConnection) ReadBackupConfig(ctx context.Context, clusterId string) (*backup.Config, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadBackupConfig))
 
 	if config, ok := oc.BackupConfigs[clusterId]; ok {
@@ -626,7 +641,7 @@ func (oc *MockedOmConnection) ReadBackupConfig(clusterId string) (*backup.Config
 	return nil, apierror.New(errors.New("Failed to find backup config"))
 }
 
-func (oc *MockedOmConnection) ReadHostCluster(clusterId string) (*backup.HostCluster, error) {
+func (oc *MockedOmConnection) ReadHostCluster(ctx context.Context, clusterId string) (*backup.HostCluster, error) {
 	oc.addToHistory(reflect.ValueOf(oc.ReadHostCluster))
 
 	if hostCluster, ok := oc.BackupHostClusters[clusterId]; ok {
@@ -635,7 +650,7 @@ func (oc *MockedOmConnection) ReadHostCluster(clusterId string) (*backup.HostClu
 	return nil, apierror.New(errors.New("Failed to find host cluster"))
 }
 
-func (oc *MockedOmConnection) UpdateBackupStatus(clusterId string, newStatus backup.Status) error {
+func (oc *MockedOmConnection) UpdateBackupStatus(ctx context.Context, clusterId string, newStatus backup.Status) error {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateBackupStatus))
 
 	if oc.UpdateBackupStatusFunc != nil {
@@ -646,30 +661,30 @@ func (oc *MockedOmConnection) UpdateBackupStatus(clusterId string, newStatus bac
 	return nil
 }
 
-func (oc *MockedOmConnection) UpdateControlledFeature(cf *controlledfeature.ControlledFeature) error {
+func (oc *MockedOmConnection) UpdateControlledFeature(ctx context.Context, cf *controlledfeature.ControlledFeature) error {
 	oc.controlledFeature = cf
 	return nil
 }
 
-func (oc *MockedOmConnection) GetControlledFeature() (*controlledfeature.ControlledFeature, error) {
+func (oc *MockedOmConnection) GetControlledFeature(ctx context.Context) (*controlledfeature.ControlledFeature, error) {
 	if oc.controlledFeature == nil {
 		oc.controlledFeature = &controlledfeature.ControlledFeature{}
 	}
 	return oc.controlledFeature, nil
 }
 
-func (oc *MockedOmConnection) GetAgentAuthMode() (string, error) {
+func (oc *MockedOmConnection) GetAgentAuthMode(ctx context.Context) (string, error) {
 	return oc.AgentAuthMechanism, nil
 }
 
-func (oc *MockedOmConnection) ReadSnapshotSchedule(clusterID string) (*backup.SnapshotSchedule, error) {
+func (oc *MockedOmConnection) ReadSnapshotSchedule(ctx context.Context, clusterID string) (*backup.SnapshotSchedule, error) {
 	if snapshotSchedule, ok := oc.SnapshotSchedules[clusterID]; ok {
 		return snapshotSchedule, nil
 	}
 	return nil, apierror.New(errors.New("Failed to find snapshot schedule"))
 }
 
-func (oc *MockedOmConnection) UpdateSnapshotSchedule(clusterID string, snapshotSchedule *backup.SnapshotSchedule) error {
+func (oc *MockedOmConnection) UpdateSnapshotSchedule(ctx context.Context, clusterID string, snapshotSchedule *backup.SnapshotSchedule) error {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateSnapshotSchedule))
 	oc.SnapshotSchedules[clusterID] = snapshotSchedule
 	return nil
@@ -682,7 +697,7 @@ func (oc *MockedOmConnection) SetAgentVersion(agentVersion string, agentMinimumV
 }
 
 // ReadAgentVersion reads the versions from OM API
-func (oc *MockedOmConnection) ReadAgentVersion() (AgentsVersionsResponse, error) {
+func (oc *MockedOmConnection) ReadAgentVersion(ctx context.Context) (AgentsVersionsResponse, error) {
 	return AgentsVersionsResponse{oc.agentVersion, oc.agentMinimumVersion}, nil
 }
 
@@ -707,10 +722,10 @@ func (oc *MockedOmConnection) doUpdateBackupStatus(clusterID string, newStatus b
 }
 
 func (oc *MockedOmConnection) GetProcesses() []Process {
-	return oc.deployment.getProcesses()
+	return oc.deployment.GetProcesses()
 }
 
-func (oc *MockedOmConnection) GetTLS() map[string]interface{} {
+func (oc *MockedOmConnection) GetTLS() map[string]any {
 	return oc.deployment.getTLS()
 }
 
@@ -741,13 +756,13 @@ func (oc *MockedOmConnection) CheckResourcesDeleted(t *testing.T) {
 func (oc *MockedOmConnection) CheckResourcesAndBackupDeleted(t *testing.T, resourceName string) {
 	// This can be improved for some more complicated scenarios when we have different resources in parallel - so far
 	// just checking if deployment
-	assert.Empty(t, oc.deployment.getProcesses())
+	assert.Empty(t, oc.deployment.GetProcesses())
 	assert.Empty(t, oc.deployment.GetReplicaSets())
 	assert.Empty(t, oc.deployment.getShardedClusters())
 	assert.Empty(t, oc.deployment.getMonitoringVersions())
 	assert.Empty(t, oc.deployment.getBackupVersions())
 
-	hosts, err := oc.GetHosts()
+	hosts, err := oc.GetHosts(t.Context())
 	assert.NoError(t, err)
 	assert.NotNil(t, hosts)
 	assert.Empty(t, hosts.Results)
@@ -777,19 +792,19 @@ func (oc *MockedOmConnection) CleanHistory() {
 // CheckOrderOfOperations verifies the mocked client operations were called in specified order
 func (oc *MockedOmConnection) CheckOrderOfOperations(t *testing.T, value ...reflect.Value) {
 	j := 0
-	matched := ""
+	var matched strings.Builder
 	for _, h := range oc.history {
 		valueName := runtime.FuncForPC(value[j].Pointer()).Name()
 		zap.S().Infof("Comparing history func %s with %s (value[%d])", h.Name(), valueName, j)
 		if h.Name() == valueName {
-			matched += h.Name() + " "
+			matched.WriteString(h.Name() + " ")
 			j++
 		}
 		if j == len(value) {
 			break
 		}
 	}
-	assert.Equal(t, len(value), j, "Only %d of %d expected operations happened in expected order (%s)", j, len(value), matched)
+	assert.Equal(t, len(value), j, "Only %d of %d expected operations happened in expected order (%s)", j, len(value), matched.String())
 }
 
 func (oc *MockedOmConnection) CheckOperationsDidntHappen(t *testing.T, value ...reflect.Value) {
@@ -856,7 +871,7 @@ func (oc *MockedOmConnection) addToHistory(value reflect.Value) {
 func buildHostsFromDeployment(d Deployment) *host.Result {
 	hosts := make([]host.Host, 0)
 	if d != nil {
-		for i, p := range d.getProcesses() {
+		for i, p := range d.GetProcesses() {
 			hosts = append(hosts, host.Host{Id: strconv.Itoa(i), Hostname: p.HostName()})
 		}
 	}
@@ -867,7 +882,7 @@ func (oc *MockedOmConnection) buildAutomationStatusFromDeployment(d Deployment, 
 	// edge case: if there are no processes - we think that
 	processStatuses := make([]ProcessStatus, 0)
 	if d != nil {
-		for _, p := range d.getProcesses() {
+		for _, p := range d.GetProcesses() {
 			if reached {
 				processStatuses = append(processStatuses, ProcessStatus{Name: p.Name(), LastGoalVersionAchieved: 1})
 			} else {
@@ -918,7 +933,7 @@ func (oc *MockedOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion 
 	return versionutil.OpsManagerVersion{VersionString: "7.0.0"}
 }
 
-func (oc *MockedOmConnection) GetPreferredHostnames(agentApiKey string) ([]PreferredHostname, error) {
+func (oc *MockedOmConnection) GetPreferredHostnames(ctx context.Context, agentApiKey string) ([]PreferredHostname, error) {
 	if agentApiKey != oc.AgentAPIKey {
 		return nil, apierror.New(xerrors.Errorf("Unauthorized"))
 	}
@@ -926,7 +941,7 @@ func (oc *MockedOmConnection) GetPreferredHostnames(agentApiKey string) ([]Prefe
 	return oc.PreferredHostnames, nil
 }
 
-func (oc *MockedOmConnection) AddPreferredHostname(agentApiKey string, value string, isRegexp bool) error {
+func (oc *MockedOmConnection) AddPreferredHostname(ctx context.Context, agentApiKey string, value string, isRegexp bool) error {
 	if agentApiKey != oc.AgentAPIKey {
 		return apierror.New(xerrors.Errorf("Unauthorized"))
 	}

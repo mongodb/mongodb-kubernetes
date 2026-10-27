@@ -3,9 +3,11 @@ package om
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path"
 	"strings"
 
+	"github.com/mitchellh/copystructure"
 	"github.com/spf13/cast"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -27,6 +29,46 @@ const (
 	ProcessTypeMongod MongoType = "mongod"
 )
 
+// Cluster role values that may appear under args2_6.sharding.clusterRole.
+const (
+	// ClusterRoleConfigSrv defines a constant for the config server cluster role.
+	ClusterRoleConfigSrv = "configsvr"
+
+	// ClusterRoleShardSrv defines a constant for the shard server cluster role.
+	ClusterRoleShardSrv = "shardsvr"
+)
+
+// infrastructureFieldPaths lists args2_6 field paths that are set into the
+// mongod spec by the operator or deployment infrastructure, not by the
+// arguments present on the mongod config level. AdditionalMongodConfig
+// strips these to isolate user-supplied config. When a new
+// infrastructure-managed field is introduced, add its path here.
+//
+// MongoDB Search setParameters (mongotHost, searchIndexManagementHostAndPort,
+// searchTLSMode, useGrpcForSearch, skipAuthenticationToMongot,
+// skipAuthenticationToSearchIndexManagementServer) are deliberately NOT listed: they are
+// extracted like any other user setParameter, so the generated CR carries them. Nothing else
+// does during a migration. Once a MongoDBSearch targets the migrated resource, the search
+// controller overwrites the whole setParameter subtree and the CR-side values are superseded.
+var infrastructureFieldPaths = [][]string{
+	{"systemLog"},
+	{"storage", "dbPath"},
+	{"replication", "replSetName"},
+	{"security", "clusterAuthMode"},
+	// If external members are listening on a port different from 27017,
+	// there is no reason to make the MCK-managed members listen on the same port.
+	{"net", "port"},
+	// clusterRole is inferred by the operator from the sharded cluster topology, so it must not
+	// be surfaced as user-supplied additionalMongodConfig.
+	{"sharding", "clusterRole"},
+}
+
+// infrastructureTLSCertKeys lists TLS/SSL certificate-related keys under
+// net.{tls,ssl} that are set by the operator, not by the arguments present
+// on the mongod config level. Stripped by AdditionalMongodConfig when
+// extracting user config.
+var infrastructureTLSCertKeys = []string{"certificateKeyFile", "PEMKeyFile", "clusterFile"}
+
 /*
 This is a class for all types of processes.
 Note, that mongos types of processes don't have some fields (replication, storage etc.) but it's impossible to use a
@@ -40,6 +82,8 @@ the process that was read from Ops Manager.
 the other properties unmodified. That's why structs are not used anywhere as they would result in possible overriding of
 the whole elements which we don't want. Deal with data as with maps, create convenience methods (setters, getters,
 ensuremap etc.) and make sure not to override anything unrelated.
+- when adding a new infrastructure-managed field, also add its path to infrastructureFieldPaths (or
+  infrastructureTLSCertKeys for TLS cert keys) so it is automatically stripped during VM migration.
 
 The resulting json for this type (example):
 
@@ -85,12 +129,12 @@ The resulting json for this type (example):
 */
 
 // used to indicate standalones when a type is used as an identifier
-type Standalone map[string]interface{}
+type Standalone map[string]any
 
-type Process map[string]interface{}
+type Process map[string]any
 
-func NewProcessFromInterface(i interface{}) Process {
-	return i.(map[string]interface{})
+func NewProcessFromInterface(i any) Process {
+	return i.(map[string]any)
 }
 
 func NewMongosProcess(name, hostName, mongoDBImage string, forceEnterprise bool, additionalMongodConfig *mdbv1.AdditionalMongodConfig, spec mdbv1.DbSpec, certificateFilePath string, annotations map[string]string, fcv string, defaultArchitecture architectures.DefaultArchitecture) Process {
@@ -161,7 +205,11 @@ func getTLSMode(spec mdbv1.DbSpec, additionalMongodConfig mdbv1.AdditionalMongod
 }
 
 func (p Process) DeepCopy() (Process, error) {
-	return util.MapDeepCopy(p)
+	cp, err := copystructure.Copy(p)
+	if err != nil {
+		return nil, err
+	}
+	return cp.(Process), nil
 }
 
 // Name returns the name of the process.
@@ -172,6 +220,13 @@ func (p Process) Name() string {
 // HostName returns the hostname for this process.
 func (p Process) HostName() string {
 	return p["hostname"].(string)
+}
+
+func (p Process) Port() string {
+	if port, ok := p.Args()["net"].(map[string]any)["port"]; ok {
+		return cast.ToString(port)
+	}
+	return ""
 }
 
 // GetVotes returns the number of votes requested for the member using this process.
@@ -190,24 +245,24 @@ func (p Process) GetPriority() float32 {
 	return 1.0
 }
 
-func (p Process) GetLogRotate() map[string]interface{} {
+func (p Process) GetLogRotate() map[string]any {
 	if logRotate, ok := p["logRotate"]; ok {
-		return logRotate.(map[string]interface{})
+		return logRotate.(map[string]any)
 	}
-	return make(map[string]interface{})
+	return make(map[string]any)
 }
 
-func (p Process) GetAuditLogRotate() map[string]interface{} {
+func (p Process) GetAuditLogRotate() map[string]any {
 	if logRotate, ok := p["auditLogRotate"]; ok {
-		return logRotate.(map[string]interface{})
+		return logRotate.(map[string]any)
 	}
-	return make(map[string]interface{})
+	return make(map[string]any)
 }
 
 // GetTags returns the requested tags for the member using this process.
 func (p Process) GetTags() map[string]string {
 	if tags, ok := p["tags"]; ok {
-		tagMap, ok := tags.(map[string]interface{})
+		tagMap, ok := tags.(map[string]any)
 		if !ok {
 			return nil
 		}
@@ -272,12 +327,12 @@ func (p Process) LogPath() string {
 	return maputil.ReadMapValueAsString(p.Args(), "systemLog", "path")
 }
 
-func (p Process) LogRotateSizeThresholdMB() interface{} {
+func (p Process) LogRotateSizeThresholdMB() any {
 	return maputil.ReadMapValueAsInterface(p, "logRotate", "sizeThresholdMB")
 }
 
 // Args returns the "args" attribute in the form of a map, creates if it doesn't exist
-func (p Process) Args() map[string]interface{} {
+func (p Process) Args() map[string]any {
 	return util.ReadOrCreateMap(p, "args2_6")
 }
 
@@ -301,7 +356,78 @@ func (p Process) ProcessType() MongoType {
 
 // IsDisabled returns the "disabled" attribute.
 func (p Process) IsDisabled() bool {
-	return p["disabled"].(bool)
+	return cast.ToBool(p["disabled"])
+}
+
+// AdditionalMongodConfig recovers user-supplied mongod config from args2_6 during VM migration.
+// Infrastructure-managed fields listed in infrastructureFieldPaths and infrastructureTLSCertKeys
+// are stripped, along with default TLS modes.
+// Returns nil when nothing user-relevant remains.
+func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
+	if len(p.Args()) == 0 {
+		return nil
+	}
+	cp, err := copystructure.Copy(p.Args())
+	if err != nil {
+		return nil
+	}
+	m := cp.(map[string]any)
+
+	for _, path := range infrastructureFieldPaths {
+		if len(path) == 1 {
+			delete(m, path[0])
+		} else {
+			maputil.DeleteMapValue(m, path...)
+		}
+	}
+
+	for _, tlsKey := range []string{"tls", "ssl"} {
+		for _, certKey := range infrastructureTLSCertKeys {
+			maputil.DeleteMapValue(m, "net", tlsKey, certKey)
+		}
+		if mode := maputil.ReadMapValueAsString(m, "net", tlsKey, "mode"); mode == string(tls.Require) || mode == "requireSSL" || mode == string(tls.Disabled) {
+			maputil.DeleteMapValue(m, "net", tlsKey, "mode")
+		}
+	}
+
+	// drop sections that became empty after stripping operator fields
+	for _, path := range [][]string{{"net", "tls"}, {"net", "ssl"}, {"net"}, {"storage"}, {"replication"}, {"security"}, {"setParameter"}, {"sharding"}} {
+		if sub := maputil.ReadMapValueAsMap(m, path...); len(sub) == 0 && sub != nil {
+			maputil.DeleteMapValue(m, path...)
+		}
+	}
+
+	if len(m) == 0 {
+		return nil
+	}
+	cfg := mdbv1.NewEmptyAdditionalMongodConfig()
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	if err := json.Unmarshal(data, cfg); err != nil {
+		return nil
+	}
+	return cfg
+}
+
+// NetTLSSections returns the TLS/SSL config maps from args2_6.net, keyed by
+// section name ("tls" or "ssl"). Only sections that are present are returned.
+func (p Process) NetTLSSections() map[string]map[string]any {
+	net := maputil.ReadMapValueAsMap(p.Args(), "net")
+	if net == nil {
+		return nil
+	}
+	sections := make(map[string]map[string]any)
+	for _, key := range []string{"tls", "ssl"} {
+		if sec := maputil.ReadMapValueAsMap(net, key); sec != nil {
+			sections[key] = sec
+		}
+	}
+	if len(sections) == 0 {
+		return nil
+	}
+	return sections
 }
 
 // SetDisabled sets the "disabled" attribute to `disabled`.
@@ -310,29 +436,29 @@ func (p Process) SetDisabled(disabled bool) {
 }
 
 // EnsureNetConfig returns the Net configuration map ("net"), creates an empty map if it didn't exist
-func (p Process) EnsureNetConfig() map[string]interface{} {
+func (p Process) EnsureNetConfig() map[string]any {
 	return util.ReadOrCreateMap(p.Args(), "net")
 }
 
 // EnsureTLSConfig returns the TLS configuration map ("net.tls"), creates an empty map if it didn't exist.
 // Use this method if you intend to make updates to the map returned
-func (p Process) EnsureTLSConfig() map[string]interface{} {
+func (p Process) EnsureTLSConfig() map[string]any {
 	netConfig := p.EnsureNetConfig()
 	return util.ReadOrCreateMap(netConfig, "tls")
 }
 
-// SSLConfig returns the TLS configuration map ("net.tls") or an empty map if it doesn't exist.
+// TLSConfig returns the TLS configuration map ("net.tls") or an empty map if it doesn't exist.
 // Use this method only to read values, not update
-func (p Process) TLSConfig() map[string]interface{} {
+func (p Process) TLSConfig() map[string]any {
 	netConfig := p.EnsureNetConfig()
 	if _, ok := netConfig["tls"]; ok {
-		return netConfig["tls"].(map[string]interface{})
+		return netConfig["tls"].(map[string]any)
 	}
 
-	return make(map[string]interface{})
+	return make(map[string]any)
 }
 
-func (p Process) EnsureSecurity() map[string]interface{} {
+func (p Process) EnsureSecurity() map[string]any {
 	return util.ReadOrCreateMap(p.Args(), "security")
 }
 
@@ -473,7 +599,7 @@ func CalculateAuthSchemaVersion() int {
 
 // mergeFrom merges the Operator version of process ('operatorProcess') into OM one ('p').
 // Considers the type of process and rewrites only relevant fields
-func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[string]interface{}) {
+func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[string]any) {
 	// Dev note: merging the maps overrides/add map keys+value but doesn't remove the existing ones
 	// If there are any keys that need to be removed explicitly (to ensure OM changes haven't sneaked through)
 	// this must be done manually
@@ -484,9 +610,7 @@ func (p Process) mergeFrom(operatorProcess Process, specArgs26, prevArgs26 map[s
 	// Merge SSL configuration (update if it's specified - delete otherwise)
 	if mode, ok := operatorProcess.TLSConfig()["mode"]; ok {
 		tlsConfig := p.EnsureTLSConfig()
-		for key, value := range operatorProcess.TLSConfig() {
-			tlsConfig[key] = value
-		}
+		maps.Copy(tlsConfig, operatorProcess.TLSConfig())
 		// PEMKeyFile is the legacy option found under net.ssl, deprecated since version 4.2
 		// https://www.mongodb.com/docs/manual/reference/configuration-options/#mongodb-setting-net.ssl.PEMKeyFile
 		_, oldKeyInConfig := tlsConfig["PEMKeyFile"]
@@ -522,8 +646,8 @@ func (p Process) setClusterAuthMode(authMode string) Process {
 	return p
 }
 
-func (p Process) authSchemaVersion() int {
-	return p["authSchemaVersion"].(int)
+func (p Process) AuthSchemaVersion() int {
+	return cast.ToInt(p["authSchemaVersion"])
 }
 
 // These methods are ONLY FOR REPLICA SET members!
@@ -533,16 +657,21 @@ func (p Process) setReplicaSetName(rsName string) Process {
 	return p
 }
 
-func (p Process) replicaSetName() string {
+func (p Process) ReplicaSetName() string {
 	return maputil.ReadMapValueAsString(p.Args(), "replication", "replSetName")
 }
 
-func (p Process) security() map[string]interface{} {
+// ClusterRole returns the sharding role declared for this process (configsvr, shardsvr, or empty).
+func (p Process) ClusterRole() string {
+	return maputil.ReadMapValueAsString(p.Args(), "sharding", "clusterRole")
+}
+
+func (p Process) security() map[string]any {
 	args := p.Args()
 	if _, ok := args["security"]; ok {
-		return args["security"].(map[string]interface{})
+		return args["security"].(map[string]any)
 	}
-	return make(map[string]interface{})
+	return make(map[string]any)
 }
 
 func (p Process) ClusterAuthMode() string {
@@ -555,7 +684,7 @@ func (p Process) ClusterAuthMode() string {
 // These methods are ONLY FOR CONFIG SERVER REPLICA SET members!
 // external packages are not supposed to call this method directly as it should be called during sharded cluster merge
 func (p Process) setClusterRoleConfigSrv() Process {
-	util.ReadOrCreateMap(p.Args(), "sharding")["clusterRole"] = "configsvr"
+	util.ReadOrCreateMap(p.Args(), "sharding")["clusterRole"] = ClusterRoleConfigSrv
 	return p
 }
 

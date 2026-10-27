@@ -1,23 +1,46 @@
 package util
 
 import (
-	"bytes"
+	"context"
 	"crypto/md5" //nolint //Part of the algorithm
-	"encoding/gob"
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/blang/semver"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
 // ************** This is a file containing any general "algorithmic" or "util" functions used by other packages
+
+// NormalizeName returns a string that conforms to RFC-1123.
+func NormalizeName(name string) string {
+	if errs := validation.IsDNS1123Subdomain(name); len(errs) == 0 {
+		return name
+	}
+
+	name = strings.ToLower(name)
+	re := regexp.MustCompile("[^a-z0-9-]+")
+	name = re.ReplaceAllString(name, "-")
+
+	re = regexp.MustCompile(`\-+`)
+	name = re.ReplaceAllString(name, "-")
+
+	name = strings.Trim(name, "-")
+
+	if len(name) > validation.DNS1123SubdomainMaxLength {
+		name = name[0:validation.DNS1123SubdomainMaxLength]
+	}
+	return name
+}
 
 // FindLeftDifference finds the difference between arrays of string - the elements that are present in "left" but absent
 // in "right" array
@@ -31,24 +54,39 @@ func FindLeftDifference(left, right []string) []string {
 	return ans
 }
 
-// Int32Ref is required to return a *int32, which can't be declared as a literal.
-func Int32Ref(i int32) *int32 {
-	return &i
+func GetOwnershipLabels(stsLabels map[string]string) map[string]string {
+	labels := make(map[string]string)
+	if len(stsLabels) == 0 {
+		return labels
+	}
+
+	for _, key := range mongoDBOwnerLabels {
+		if stsLabels[key] != "" {
+			labels[key] = stsLabels[key]
+		}
+	}
+
+	return labels
 }
 
-// Int64Ref is required to return a *int64, which can't be declared as a literal.
-func Int64Ref(i int64) *int64 {
-	return &i
-}
+// StripOwnerLabels removes all resource-owner labels from user-supplied labels
+func StripOwnerLabels(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
 
-// Float64Ref is required to return a *float64, which can't be declared as a literal.
-func Float64Ref(i float64) *float64 {
-	return &i
-}
+	stripped := make(map[string]string, len(labels))
+	for key, value := range labels {
+		if !slices.Contains(mongoDBOwnerLabels, key) {
+			stripped[key] = value
+		}
+	}
 
-// BooleanRef is required to return a *bool, which can't be declared as a literal.
-func BooleanRef(b bool) *bool {
-	return &b
+	if len(stripped) == 0 {
+		return nil
+	}
+
+	return stripped
 }
 
 func StripEnt(version string) string {
@@ -57,10 +95,23 @@ func StripEnt(version string) string {
 
 // DoAndRetry performs the task 'f' until it returns true or 'count' retrials are executed. Sleeps for 'interval' seconds
 // between retries. String return parameter contains the fail message that is printed in case of failure.
-func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
+// Gives up as soon as ctx is done, without waiting out the interval.
+// Once ctx is done, f is never invoked again, and if ctx is already done on entry the context error is
+// returned as the fail message.
+func DoAndRetry(ctx context.Context, f func() (string, bool), log *zap.SugaredLogger, count, interval int) (bool, string) {
 	var ok bool
 	var msg string
-	for i := 0; i < count; i++ {
+	// count may be zero (retry counts come from unclamped env vars), in which case the loop is never entered
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, ctxErr.Error()
+	}
+	for i := range count {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			if msg == "" {
+				msg = ctxErr.Error()
+			}
+			return false, msg
+		}
 		msg, ok = f()
 		if ok {
 			return true, msg
@@ -69,38 +120,22 @@ func DoAndRetry(f func() (string, bool), log *zap.SugaredLogger, count, interval
 			msg += "."
 		}
 		log.Debugf("%s Retrying %d/%d (waiting for %d more seconds)", msg, i+1, count, interval)
-		time.Sleep(time.Duration(interval) * time.Second)
+		timer := time.NewTimer(time.Duration(interval) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return false, msg
+		case <-timer.C:
+		}
 	}
 	return false, msg
 }
 
-// MapDeepCopy is a quick implementation of deep copy mechanism for any Go structures, it uses Go serialization and
-// deserialization mechanisms so will always be slower than any manual copy
-// https://rosettacode.org/wiki/Deepcopy#Go
-// TODO move to maputil
-func MapDeepCopy(m map[string]interface{}) (map[string]interface{}, error) {
-	gob.Register(map[string]interface{}{})
-
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	dec := gob.NewDecoder(&buf)
-	err := enc.Encode(m)
-	if err != nil {
-		return nil, err
-	}
-	var copy map[string]interface{}
-	err = dec.Decode(&copy)
-	if err != nil {
-		return nil, err
-	}
-	return copy, nil
-}
-
-func ReadOrCreateMap(m map[string]interface{}, key string) map[string]interface{} {
+func ReadOrCreateMap(m map[string]any, key string) map[string]any {
 	if _, ok := m[key]; !ok {
-		m[key] = make(map[string]interface{})
+		m[key] = make(map[string]any)
 	}
-	return m[key].(map[string]interface{})
+	return m[key].(map[string]any)
 }
 
 func CompareVersions(version1, version2 string) (int, error) {
@@ -153,13 +188,6 @@ func RedactMongoURI(uri string) string {
 	return re.ReplaceAllString(uri, "$1<redacted>$3")
 }
 
-func Redact(toRedact interface{}) string {
-	if toRedact == nil {
-		return "nil"
-	}
-	return "<redacted>"
-}
-
 // Transform converts a slice of objects to a new slice containing objects returned from f.
 // It is useful for simple slice transformations that otherwise require declaring a new slice var and for loop.
 //
@@ -170,7 +198,7 @@ func Redact(toRedact interface{}) string {
 //	 })
 func Transform[T any, U any](objs []T, f func(obj T) U) []U {
 	result := make([]U, len(objs))
-	for i := 0; i < len(objs); i++ {
+	for i := range objs {
 		result[i] = f(objs[i])
 	}
 	return result
@@ -179,7 +207,7 @@ func Transform[T any, U any](objs []T, f func(obj T) U) []U {
 // TransformToMap converts a slice of objects to a map with key values returned from f.
 func TransformToMap[T any, K comparable, V any](objs []T, f func(obj T, idx int) (K, V)) map[K]V {
 	result := make(map[K]V, len(objs))
-	for i := 0; i < len(objs); i++ {
+	for i := range objs {
 		k, v := f(objs[i], i)
 		result[k] = v
 	}
@@ -209,5 +237,19 @@ func ParseURL(str string) (*url.URL, error) {
 		return nil, fmt.Errorf("missing URL host: %s", str)
 	}
 
+	// u.Host can be non-empty with an empty hostname (e.g. "http://:8080"), which would
+	// pass an addressless URL to the HTTP client.
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("missing URL hostname: %s", str)
+	}
+
 	return u, nil
+}
+
+// IsPOSIXAbsolutePath reports whether p is safe to treat as a fixed in-container
+// path: it uses forward-slash semantics (as in Linux containers and URLs), is
+// absolute, and does not contain ".." (path.IsAbs alone still allows "/etc/../foo").
+// Use this instead of filepath.IsAbs, which follows the operator host OS.
+func IsPOSIXAbsolutePath(p string) bool {
+	return path.IsAbs(p) && !strings.Contains(p, "..")
 }

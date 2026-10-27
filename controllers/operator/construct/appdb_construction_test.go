@@ -149,6 +149,30 @@ func TestAppDbStatefulSet_MonitoringCredentialsAsCLIFlags(t *testing.T) {
 		"agent container must mount the agent-api-key volume when monitoring is enabled")
 }
 
+func TestAppDbStatefulSet_StripsUserOwnerLabels(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	om.Labels = map[string]string{
+		"app":                                    "demo",
+		util.MongoDBResourceOwnerLabel:           "spoofed-mdb",
+		util.MongoDBOpsManagerResourceOwnerLabel: "spoofed-om",
+	}
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	assert.Equal(t, "demo", sts.Labels["app"], "non-reserved user label must survive")
+	assert.NotContains(t, sts.Labels, util.MongoDBResourceOwnerLabel, "user-supplied participant key must be stripped")
+	assert.Equal(t, om.GetOwnerLabels()[util.MongoDBOpsManagerResourceOwnerLabel], sts.Labels[util.MongoDBOpsManagerResourceOwnerLabel],
+		"user-supplied OpsManager owner label value must be replaced by GetOwnerLabels")
+
+	ownerLabels := om.GetOwnerLabels()
+	require.NotEmpty(t, ownerLabels)
+	for k, v := range ownerLabels {
+		assert.Equal(t, v, sts.Labels[k], "owner label %s from GetOwnerLabels must be present", k)
+	}
+}
+
 func TestAppDbStatefulSet_NoMonitoringCredentialsWhenDisabled(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
@@ -369,6 +393,34 @@ func TestCustomAgentURL(t *testing.T) {
 	})
 }
 
+func TestAppDbStatefulSet_ImagePullPolicy(t *testing.T) {
+	// mongod and the single non-static init container have no explicit policy
+	unmanaged := map[string]bool{util.MongodbContainerName: true, InitAppDbContainerName: true}
+
+	for _, arch := range []architectures.DefaultArchitecture{architectures.NonStatic, architectures.Static} {
+		t.Run(string(arch), func(t *testing.T) {
+			t.Setenv(util.ImagePullPolicyEnv, string(corev1.PullIfNotPresent))
+
+			om := omv1.NewOpsManagerBuilderDefault().Build()
+			sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+				AppDBStatefulSetOptions{},
+				scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+				appsv1.OnDeleteStatefulSetStrategyType, arch, zap.S())
+			require.NoError(t, err)
+
+			checked := 0
+			for _, c := range append(sts.Spec.Template.Spec.Containers, sts.Spec.Template.Spec.InitContainers...) {
+				if unmanaged[c.Name] {
+					continue
+				}
+				assert.Equal(t, corev1.PullIfNotPresent, c.ImagePullPolicy, "container %s", c.Name)
+				checked++
+			}
+			assert.Positive(t, checked)
+		})
+	}
+}
+
 func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 	logLevel := v1.LogLevel("INFO")
 	logFile := "/var/log/mongodb-mms-automation/automation-agent.log"
@@ -390,5 +442,47 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 		assert.NotContains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
 		assert.NotContains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
+	})
+}
+
+// TestAppDbStatefulSet_LabelsNotPropagatedToVolumeClaimTemplates asserts that the Ops Manager
+// resource labels reach the AppDB StatefulSet metadata but not its volume claim templates, which are
+// immutable and would wedge the StatefulSet on every label change (CLOUDP-208587).
+func TestAppDbStatefulSet_LabelsNotPropagatedToVolumeClaimTemplates(t *testing.T) {
+	labels := map[string]string{"label1": "val1"}
+
+	buildStatefulSet := func(t *testing.T, om *omv1.MongoDBOpsManager) appsv1.StatefulSet {
+		om.Labels = labels
+		scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+		sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		require.NoError(t, err)
+		return sts
+	}
+
+	assertNoClaimLabels := func(t *testing.T, sts appsv1.StatefulSet, expectedClaims int) {
+		assert.Equal(t, "val1", sts.Labels["label1"], "the statefulset metadata is mutable and still gets the labels")
+		require.Len(t, sts.Spec.VolumeClaimTemplates, expectedClaims)
+		for _, claim := range sts.Spec.VolumeClaimTemplates {
+			assert.Empty(t, claim.Labels, "volume claim template %s must not carry the resource labels", claim.Name)
+		}
+	}
+
+	t.Run("single volume", func(t *testing.T) {
+		sts := buildStatefulSet(t, omv1.NewOpsManagerBuilderDefault().Build())
+		assertNoClaimLabels(t, sts, 1)
+	})
+
+	t.Run("separate data, logs and journal volumes", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().SetAppDbPodSpec(mdbv1.MongoDbPodSpec{
+			Persistence: &v1.Persistence{
+				MultipleConfig: &v1.MultiplePersistenceConfig{
+					Data:    &v1.PersistenceConfig{Storage: "1G"},
+					Logs:    &v1.PersistenceConfig{Storage: "1G"},
+					Journal: &v1.PersistenceConfig{Storage: "1G"},
+				},
+			},
+		}).Build()
+		sts := buildStatefulSet(t, om)
+		assertNoClaimLabels(t, sts, 3)
 	})
 }

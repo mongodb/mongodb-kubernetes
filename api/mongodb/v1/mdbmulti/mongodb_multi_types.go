@@ -35,7 +35,7 @@ const (
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
 
-	LabelResourceOwner = "mongodbmulticluster"
+	LabelResourceOwner = util.MongoDBMultiClusterResourceOwnerLabel
 )
 
 // The MongoDBMultiCluster resource allows users to create MongoDB deployment spread over
@@ -55,6 +55,10 @@ type MongoDBMultiCluster struct {
 	Spec   MongoDBMultiSpec   `json:"spec"`
 }
 
+func (m *MongoDBMultiCluster) GetDownloadBase() string {
+	return m.Spec.GetDownloadBase()
+}
+
 func (m *MongoDBMultiCluster) GetProjectConfigMapNamespace() string {
 	return m.Namespace
 }
@@ -69,6 +73,10 @@ func (m *MongoDBMultiCluster) GetProjectConfigMapName() string {
 
 func (m *MongoDBMultiCluster) GetCredentialsSecretName() string {
 	return m.Spec.Credentials
+}
+
+func (m *MongoDBMultiCluster) IsRoleAppDB() bool {
+	return m.Spec.Role == mdbv1.RoleAppDB
 }
 
 func (m *MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
@@ -202,6 +210,10 @@ func (m *MongoDBMultiCluster) GetClusterSpecByName(clusterName string) *mdbv1.Cl
 	return nil
 }
 
+func (m *MongoDBMultiCluster) StatefulSetNameForCluster(clusterName string) string {
+	return dns.GetMultiStatefulSetName(m.Name, m.ClusterNum(clusterName))
+}
+
 // ClusterStatusList holds a list of clusterStatuses corresponding to each cluster
 type ClusterStatusList struct {
 	ClusterStatuses []ClusterStatusItem `json:"clusterStatuses,omitempty"`
@@ -229,6 +241,7 @@ type MongoDBMultiStatus struct {
 	Warnings                    []status.Warning    `json:"warnings,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.clusterSpecList.map(c, c.members).sum() >= 3",message="the total number of members across spec.clusterSpecList must be >= 3 when spec.role is AppDB"
 type MongoDBMultiSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	mdbv1.DbCommonSpec `json:",inline"`
@@ -243,7 +256,7 @@ func (m *MongoDBMultiSpec) GetAgentConfig() mdbv1.AgentConfig {
 	return m.Agent
 }
 
-func (m *MongoDBMultiCluster) GetStatus(...status.Option) interface{} {
+func (m *MongoDBMultiCluster) GetStatus(...status.Option) any {
 	return m.Status
 }
 
@@ -433,10 +446,10 @@ func (m *MongoDBMultiCluster) ReadLastAchievedSpec() (*MongoDBMultiSpec, error) 
 	return prevSpec, nil
 }
 
-func (m *MongoDBMultiCluster) GetLastAdditionalMongodConfig() map[string]interface{} {
+func (m *MongoDBMultiCluster) GetLastAdditionalMongodConfig() map[string]any {
 	lastSpec, err := m.ReadLastAchievedSpec()
 	if lastSpec == nil || err != nil {
-		return map[string]interface{}{}
+		return map[string]any{}
 	}
 	return lastSpec.GetAdditionalMongodConfig().ToMap()
 }
@@ -488,6 +501,14 @@ func (m *MongoDBMultiCluster) InitDefaults() {
 	}
 
 	m.Spec.Security = mdbv1.EnsureSecurity(m.Spec.Security)
+
+	if m.IsRoleAppDB() {
+		m.Spec.Security.Authentication = &mdbv1.Authentication{
+			Enabled:            true,
+			Modes:              []mdbv1.AuthMode{util.SCRAM},
+			IgnoreUnknownUsers: true,
+		}
+	}
 }
 
 // Replicas returns the total number of MongoDB members running across all the clusters
@@ -629,13 +650,11 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 }
 
 // BuildConnectionString for a MultiCluster user.
-//
-// Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
-// to complete.
-func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
+func (m *MongoDBMultiCluster) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {
-		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), nil)...)
+		domain := m.Spec.GetExternalDomainForMemberCluster(spec.ClusterName)
+		hostnames = append(hostnames, dns.GetMultiClusterProcessHostnames(m.Name, m.Namespace, m.ClusterNum(spec.ClusterName), spec.Members, m.Spec.GetClusterDomain(), domain)...)
 	}
 	builder := connectionstring.Builder().
 		SetName(m.Name).
@@ -653,7 +672,8 @@ func (m *MongoDBMultiCluster) BuildConnectionString(username, password string, s
 		SetIsTLSEnabled(m.Spec.IsSecurityTLSConfigEnabled()).
 		SetHostnames(hostnames).
 		SetScheme(scheme).
-		SetConnectionParams(connectionParams)
+		SetConnectionParams(connectionParams).
+		SetConnectionStringDatabase(connectionStringDatabase)
 
 	return builder.Build()
 }
@@ -685,4 +705,8 @@ func (m *MongoDBMultiCluster) IsInChangeVersion() bool {
 
 func (m *MongoDBMultiCluster) CalculateFeatureCompatibilityVersion() string {
 	return fcv.CalculateFeatureCompatibilityVersion(m.Spec.Version, m.Status.FeatureCompatibilityVersion, m.Spec.FeatureCompatibilityVersion)
+}
+
+func (m *MongoDBMultiCluster) IsReconciliationDisabled() bool {
+	return m.Annotations[util.DisableReconciliationAnnotation] == "true"
 }

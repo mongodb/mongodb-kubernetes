@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -27,6 +26,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
@@ -35,18 +35,24 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
@@ -65,7 +71,7 @@ func TestCreateReplicaSet(t *testing.T) {
 
 	assert.Len(t, mock.GetMapForObject(client, &corev1.Service{}), 1)
 	assert.Len(t, mock.GetMapForObject(client, &appsv1.StatefulSet{}), 1)
-	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 3)
+	assert.Len(t, mock.GetMapForObject(client, &corev1.Secret{}), 4)
 
 	sts, err := client.GetStatefulSet(ctx, rs.ObjectKey())
 	assert.NoError(t, err)
@@ -236,7 +242,7 @@ func TestHorizonVerificationCount(t *testing.T) {
 //	ctx := context.Background()
 //	rs := DefaultReplicaSetBuilder().SetMembers(3).Build()
 //
-//	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs)
+//	reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
 //
 //	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 //	set := &appsv1.StatefulSet{}
@@ -278,7 +284,7 @@ func TestExposedExternallyReplicaSet(t *testing.T) {
 	err := client.Get(ctx, types.NamespacedName{Name: rs.Name + "-svc-external", Namespace: rs.Namespace}, externalService)
 	assert.Error(t, err)
 
-	for podNum := 0; podNum < 3; podNum++ {
+	for podNum := range 3 {
 		err := client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%d-svc-external", rs.Name, podNum), Namespace: rs.Namespace}, externalService)
 		assert.NoError(t, err)
 
@@ -303,7 +309,7 @@ func TestExposedExternallyReplicaSetExternalDomainInHostnames(t *testing.T) {
 	memberCount := 3
 	replicaSetName := "rs"
 	var expectedHostnames []string
-	for i := 0; i < memberCount; i++ {
+	for i := range memberCount {
 		expectedHostnames = append(expectedHostnames, fmt.Sprintf("%s-%d.%s", replicaSetName, i, externalDomain))
 	}
 
@@ -353,7 +359,7 @@ func TestExposedExternallyReplicaSetWithNodePort(t *testing.T) {
 	}
 
 	// then
-	for podNum := 0; podNum < 3; podNum++ {
+	for podNum := range 3 {
 		err := client.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-%d-svc-external", rs.Name, podNum), Namespace: rs.Namespace}, externalService)
 		assert.NoError(t, err)
 
@@ -434,6 +440,57 @@ func TestCreateDeleteReplicaSet(t *testing.T) {
 	}
 }
 
+// TestDeleteReplicaSetWithExternalMembers verifies that deleting a hybrid (mid-migration)
+// replica set leaves the Ops Manager automation config and monitored hosts intact, so the
+// still-running VM deployment survives. Only feature controls are cleared.
+func TestDeleteReplicaSetWithExternalMembers(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	// Reconcile first without external members so that Ops Manager ends up holding a real replica
+	// set with monitored hosts, then mark the resource hybrid. Reconciling with external members
+	// already set would require seeding the mocked automation config with matching external
+	// processes and TLS settings (see checkExternalMembersDrift / validateACForMigration), none of
+	// which the deletion path reads: OnDelete only looks at spec.externalMembers.
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	rs.Spec.ExternalMembers = fourExternalMembers()
+
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	hostsBefore, err := mockedOmConn.GetHosts(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, hostsBefore.Results, "precondition: the replica set is monitored in OM")
+
+	mockedOmConn.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+
+	// The replica set and its processes must still be in the automation config.
+	d, err := mockedOmConn.ReadDeployment(ctx)
+	require.NoError(t, err)
+	assert.NotEmpty(t, d.GetReplicaSets(), "replica set must stay in the automation config")
+	assert.NotEmpty(t, d.GetProcessNames(om.ReplicaSet{}, rs.Name), "processes must stay in the automation config")
+
+	// Monitoring must be untouched.
+	hostsAfter, err := mockedOmConn.GetHosts(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, hostsBefore.Results, hostsAfter.Results, "monitored hosts must not be deregistered")
+
+	// None of the destructive cleanup operations may have happened.
+	mockedOmConn.CheckOperationsDidntHappen(t,
+		reflect.ValueOf(mockedOmConn.ReadUpdateDeployment),
+		reflect.ValueOf(mockedOmConn.RemoveHost))
+
+	// Feature controls must have been cleared.
+	cf, err := mockedOmConn.GetControlledFeature(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, util.OperatorName, cf.ManagementSystem.Name)
+	assert.NotNil(t, cf.Policies)
+	assert.Empty(t, cf.Policies)
+}
+
 func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetVersion("4.0.0").EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
@@ -442,7 +499,7 @@ func TestReplicaSetScramUpgradeDowngrade(t *testing.T) {
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.Contains(t, ac.Auth.AutoAuthMechanisms, string(authentication.ScramSha256))
 
 	// downgrade to version that will not use SCRAM-SHA-256
@@ -559,7 +616,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
 	mockedConn := omConnectionFactory.GetConnection()
-	cf, _ := mockedConn.GetControlledFeature()
+	cf, _ := mockedConn.GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 3)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -583,7 +640,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
 	mockedConn := omConnectionFactory.GetConnection()
-	cf, _ := mockedConn.GetControlledFeature()
+	cf, _ := mockedConn.GetControlledFeature(ctx)
 
 	assert.Len(t, cf.Policies, 2)
 	assert.Equal(t, cf.ManagementSystem.Version, util.OperatorVersion)
@@ -727,10 +784,11 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 	uuidStr := uuid.New().String()
 	// configure backup for this project in Ops Manager in the mocked connection
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		_, err := connection.UpdateBackupConfig(&backup.Config{
+		_, err := connection.UpdateBackupConfig(ctx, &backup.Config{
 			ClusterId: uuidStr,
 			Status:    backup.Inactive,
 		})
+
 		assert.NoError(t, err)
 
 		// add corresponding host cluster.
@@ -744,7 +802,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 	t.Run("Backup can be started", func(t *testing.T) {
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -763,7 +821,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -780,7 +838,7 @@ func TestBackupConfiguration_ReplicaSet(t *testing.T) {
 
 		checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
-		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs()
+		configResponse, _ := omConnectionFactory.GetConnection().ReadBackupConfigs(ctx)
 		assert.Len(t, configResponse.Configs, 1)
 
 		config := configResponse.Configs[0]
@@ -829,7 +887,7 @@ func TestHandlePVCResize(t *testing.T) {
 				Namespace: "default",
 			},
 			Spec: appsv1.StatefulSetSpec{
-				Replicas: ptr.To(int32(3)),
+				Replicas: new(int32(3)),
 				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -890,7 +948,7 @@ func TestReplicaSetReconciler_PVCStatusClearedAfterSuccessfulResize(t *testing.T
 		podSpec := newDefaultPodSpec()
 		podSpec.Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1Gi"}}
 		rs := DefaultReplicaSetBuilder().
-			SetPersistent(util.BooleanRef(true)).
+			SetPersistent(new(true)).
 			SetPodSpec(&podSpec).
 			Build()
 
@@ -1191,7 +1249,7 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 	err := client.Get(ctx, mdb.ObjectKey(), mdb)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, mdb.Status.Members, msg)
-	dep, err := omConnection.ReadDeployment()
+	dep, err := omConnection.ReadDeployment(ctx)
 	assert.NoError(t, err)
 	assert.Len(t, dep.ProcessesCopy(), expected)
 }
@@ -1236,7 +1294,7 @@ func DefaultReplicaSetBuilder() *ReplicaSetBuilder {
 	spec := mdbv1.MongoDbSpec{
 		DbCommonSpec: mdbv1.DbCommonSpec{
 			Version:    "4.0.0",
-			Persistent: util.BooleanRef(false),
+			Persistent: new(false),
 			ConnectionSpec: mdbv1.ConnectionSpec{
 				SharedConnectionSpec: mdbv1.SharedConnectionSpec{
 					OpsManagerConfig: &mdbv1.PrivateCloudConfig{
@@ -1301,6 +1359,11 @@ func (b *ReplicaSetBuilder) SetAuthentication(auth *mdbv1.Authentication) *Repli
 		b.Spec.Security = &mdbv1.Security{}
 	}
 	b.Spec.Security.Authentication = auth
+	return b
+}
+
+func (b *ReplicaSetBuilder) SetRole(role string) *ReplicaSetBuilder {
+	b.Spec.Role = role
 	return b
 }
 
@@ -1425,7 +1488,7 @@ func baseTestStatefulSet(name string, replicas int32) *appsv1.StatefulSet {
 			Namespace: mock.TestNamespace,
 		},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas: ptr.To(replicas),
+			Replicas: new(replicas),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -1594,6 +1657,16 @@ func TestPublishAutomationConfigFirst(t *testing.T) {
 			},
 			expectedPublishACFirst: true,
 		},
+		{
+			name:        "AppDB-role with existing STS",
+			existingSts: baseTestStatefulSet("test-appdb", 3),
+			mdb: func() mdbv1.MongoDB {
+				m := baseTestMongoDB("test-appdb", 3)
+				m.Spec.Role = mdbv1.RoleAppDB
+				return m
+			}(),
+			expectedPublishACFirst: false,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1638,7 +1711,7 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 		return &searchv1.MongoDBSearch{
 			ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
 			Spec: searchv1.MongoDBSearchSpec{
-				Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(7))}},
+				Clusters: []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(7))}},
 				Source:   &searchv1.MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"}},
 			},
 		}
@@ -1655,4 +1728,669 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 
 	c := mock.NewEmptyFakeClientBuilder().WithObjects(newPinnedSearch()).Build()
 	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
+}
+
+func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
+	ctx := context.Background()
+	rs := mdbv1.NewDefaultReplicaSetBuilder().
+		SetName("rs").
+		SetNamespace(mock.TestNamespace).
+		SetMembers(1).
+		SetReplicaSetNameOverride("conn-str-rs").
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+	rs.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-0", Hostname: "vm-0.example.com:27017", Type: "mongod", ReplicaSetName: "conn-str-rs"},
+	}
+
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		mocked := conn.(*om.MockedOmConnection)
+		spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "6.0.0"}}
+		vmProcess := om.NewMongodProcess(
+			"vm-0", "vm-0.example.com", "fake-image", false,
+			&mdbv1.AdditionalMongodConfig{}, spec, "", nil, "", architectures.NonStatic,
+		)
+		d := om.NewDeployment()
+		d.MergeReplicaSet(buildRsByProcessesHelper("conn-str-rs", []om.Process{vmProcess}), nil, nil, nil, zap.S())
+		_, _ = mocked.UpdateDeployment(ctx, d)
+	})
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	secret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx,
+		kube.ObjectKey(rs.Namespace, "rs"+connectionstringsecret.SecretNameSuffix),
+		secret))
+
+	std := string(secret.Data["connectionString.standard"])
+	assert.Contains(t, std, "rs-0.rs-svc.")
+	assert.Contains(t, std, "vm-0.example.com:27017")
+	assert.Contains(t, std, "replicaSet=conn-str-rs")
+	// Credential-less secret.
+	assert.NotContains(t, std, "@")
+	_, hasUsername := secret.Data["username"]
+	assert.False(t, hasUsername)
+
+	srv := string(secret.Data["connectionString.standardSrv"])
+	assert.NotEmpty(t, srv)
+
+	require.Len(t, secret.OwnerReferences, 1)
+}
+
+// vmProcessWithSearchSetParameters returns a deployment containing a single external VM
+// process carrying the mongod setParameters the operator writes when search is attached.
+func vmProcessWithSearchSetParameters(t *testing.T, withSearch bool) om.Deployment {
+	t.Helper()
+	spec := &mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{Version: "8.2.0"}}
+	additional := &mdbv1.AdditionalMongodConfig{}
+	if withSearch {
+		additional = mdbv1.NewAdditionalMongodConfig("setParameter", map[string]any{
+			"mongotHost":                       "mdb-search-0.mdb-search-svc.my-namespace.svc.cluster.local:27028",
+			"searchIndexManagementHostAndPort": "mdb-search-0.mdb-search-svc.my-namespace.svc.cluster.local:27028",
+		})
+	}
+	vmProcess := om.NewMongodProcess(
+		"vm-0", "vm-0.example.com", "fake-image", false,
+		additional, spec, "", nil, "", architectures.NonStatic,
+	)
+	d := om.NewDeployment()
+	d.MergeReplicaSet(buildRsByProcessesHelper("search-rs", []om.Process{vmProcess}), nil, nil, nil, zap.S())
+	return d
+}
+
+func newReplicaSetWithExternalMember(name string) *mdbv1.MongoDB {
+	rs := mdbv1.NewDefaultReplicaSetBuilder().
+		SetName(name).
+		SetNamespace(mock.TestNamespace).
+		SetMembers(1).
+		SetVersion("8.2.0").
+		SetReplicaSetNameOverride("search-rs").
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+	rs.Spec.ExternalMembers = []mdbv1.ExternalMember{
+		{ProcessName: "vm-0", Hostname: "vm-0.example.com:27017", Type: "mongod", ReplicaSetName: "search-rs"},
+	}
+	return rs
+}
+
+func TestReplicaSetMigration_ProceedsWhenVMProcessHasSearchConfig(t *testing.T) {
+	ctx := context.Background()
+	rs := newReplicaSetWithExternalMember("search-on-vm-rs")
+
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	omConnectionFactory.SetPostCreateHook(func(conn om.Connection) {
+		_, _ = conn.(*om.MockedOmConnection).UpdateDeployment(ctx, vmProcessWithSearchSetParameters(t, true))
+	})
+
+	// Search setParameters on the external (VM) process do not hold the migration back: the
+	// MongoDBSearch keeps its external source and its host seeds are maintained by the user.
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+}
+
+func TestEnsureAppDBRoleKeyfile(t *testing.T) {
+	const sharedKey = "shared-keyfile-contents"
+	const projectGeneratedKey = "project-generated-key"
+
+	tests := []struct {
+		name        string
+		existingKey string // pre-seeded "<name>-keyfile" secret contents; "" = secret absent
+		projectKey  string // pre-existing project automation-config key; "" = none
+	}{
+		{name: "existing secret overrides a differing project key", existingKey: sharedKey, projectKey: projectGeneratedKey},
+		{name: "existing secret with matching project key stays in place", existingKey: sharedKey, projectKey: sharedKey},
+		{name: "absent secret is seeded from the project key", projectKey: projectGeneratedKey},
+		{name: "absent secret and no project key: key generated and persisted"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+			reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+			conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+			if tt.projectKey != "" {
+				require.NoError(t, conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
+					ac.Auth.Key = tt.projectKey
+					return nil
+				}, zap.S()))
+			}
+			keyfileSecretName := fmt.Sprintf("%s-keyfile", mdb.Name)
+			if tt.existingKey != "" {
+				existing := secret.Builder().
+					SetName(keyfileSecretName).
+					SetNamespace(mdb.Namespace).
+					SetField(constants.AgentKeyfileKey, tt.existingKey).
+					Build()
+				require.NoError(t, kubeClient.CreateSecret(ctx, existing))
+			}
+
+			require.NoError(t, helper.ensureAppDBRoleKeyfile(ctx, mdb, conn))
+			// second call must be stable: same key in the AC and the secret (determinism)
+			require.NoError(t, helper.ensureAppDBRoleKeyfile(ctx, mdb, conn))
+
+			ac, err := conn.ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			sec := corev1.Secret{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, keyfileSecretName), &sec))
+			persistedKey := string(sec.Data[constants.AgentKeyfileKey])
+			if tt.existingKey != "" {
+				assert.Equal(t, tt.existingKey, ac.Auth.Key, "the shared secret's key must win over the project key")
+				assert.Equal(t, tt.existingKey, persistedKey)
+			} else {
+				require.NotEmpty(t, ac.Auth.Key)
+				if tt.projectKey != "" {
+					assert.Equal(t, tt.projectKey, ac.Auth.Key, "an existing project key must be reused, not regenerated")
+				}
+				assert.Equal(t, ac.Auth.Key, persistedKey, "the project key must be persisted into the shared secret")
+			}
+		})
+	}
+}
+
+func TestEnsureAppDBRoleUser_CreatesSharedPasswordSecret(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	err := helper.ensureAppDBRoleUser(ctx, mdb, conn)
+	assert.NoError(t, err)
+
+	sec := corev1.Secret{}
+	err = kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, omv1.OpsManagerUserPasswordSecretName(mdb.Name)), &sec)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, sec.Data[util.OpsManagerPasswordKey])
+
+	ac, err := conn.ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
+	require.NotNil(t, createdUser)
+	assert.Equal(t, util.OpsManagerMongoDBUserName, createdUser.Username)
+	assertAppDBRoleUserRolesAndCreds(t, createdUser)
+}
+
+func TestEnsureAppDBRoleUser_ReusesExistingPassword(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	existing := secret.Builder().
+		SetName(omv1.OpsManagerUserPasswordSecretName("my-om-db")).
+		SetNamespace(mdb.Namespace).
+		SetField(util.OpsManagerPasswordKey, "pre-existing-password").
+		Build()
+	require.NoError(t, kubeClient.CreateSecret(ctx, existing))
+
+	err := helper.ensureAppDBRoleUser(ctx, mdb, conn)
+	assert.NoError(t, err)
+
+	result := corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, omv1.OpsManagerUserPasswordSecretName("my-om-db")), &result))
+	assert.Equal(t, "pre-existing-password", string(result.Data[util.OpsManagerPasswordKey]))
+
+	ac, err := conn.ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	_, createdUser := ac.Auth.GetUser(util.OpsManagerMongoDBUserName, util.DefaultUserDatabase)
+	require.NotNil(t, createdUser)
+	assertAppDBRoleUserRolesAndCreds(t, createdUser)
+}
+
+func assertAppDBRoleUserRolesAndCreds(t *testing.T, createdUser *om.MongoDBUser) {
+	assert.ElementsMatch(t, expectedAppDBRoleUserRoles, createdUser.Roles)
+	require.NotNil(t, createdUser.ScramSha256Creds)
+	require.NotNil(t, createdUser.ScramSha1Creds)
+}
+
+func TestOnDelete_AppDBRoleSkipsOpsManagerCleanup(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).
+		EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	rs.Spec.Security.Authentication.IgnoreUnknownUsers = true
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	mockedOmConn.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+
+	// deletion of an AppDB-role CR is a handover to internal AppDB management, not a deprovision:
+	// removing the replica set from the project would make the agents shut down every mongod at
+	// once, taking the AppDB (and the Ops Manager depending on it) down mid-migration
+	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.ReadUpdateDeployment))
+}
+
+// expectedAppDBRoleUserRoles mirrors the roles granted to the AppDB Ops Manager user in
+// AppDBSpec.GetAuthUsers (api/mongodb/v1/om/appdb_types.go).
+var expectedAppDBRoleUserRoles = []*om.Role{
+	{Role: "readWriteAnyDatabase", Database: "admin"},
+	{Role: "dbAdminAnyDatabase", Database: "admin"},
+	{Role: "clusterMonitor", Database: "admin"},
+	{Role: "backup", Database: "admin"},
+	{Role: "restore", Database: "admin"},
+	{Role: "hostManager", Database: "admin"},
+}
+
+// someOtherOwnerReference builds an OwnerReference belonging to a different object than the
+// one under test (e.g. the MongoDBOpsManager CR that used to own the internal AppDB StatefulSet),
+// used to simulate a "foreign" StatefulSet that has not yet been detached.
+func someOtherOwnerReference() []metav1.OwnerReference {
+	return []metav1.OwnerReference{
+		{
+			APIVersion: "mongodb.com/v1",
+			Kind:       "MongoDBOpsManager",
+			Name:       "some-other-owner",
+			UID:        types.UID(uuid.New().String()),
+			Controller: new(true),
+		},
+	}
+}
+
+// StatefulSetBuilder builds appsv1.StatefulSet fixtures for adoption-gate tests.
+type StatefulSetBuilder struct {
+	sts appsv1.StatefulSet
+}
+
+func DefaultStatefulSetBuilder() *StatefulSetBuilder {
+	return &StatefulSetBuilder{sts: appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Namespace: mock.TestNamespace},
+		// Spec.Replicas must be non-nil: the fake client's Get interceptor
+		// (mock.markStatefulSetsReady) unconditionally dereferences it.
+		Spec: appsv1.StatefulSetSpec{Replicas: new(int32(3))},
+	}}
+}
+
+func (b *StatefulSetBuilder) SetName(name string) *StatefulSetBuilder {
+	b.sts.Name = name
+	return b
+}
+
+func (b *StatefulSetBuilder) SetOwnerReferences(refs []metav1.OwnerReference) *StatefulSetBuilder {
+	b.sts.OwnerReferences = refs
+	return b
+}
+
+func (b *StatefulSetBuilder) SetLabels(labels map[string]string) *StatefulSetBuilder {
+	b.sts.Labels = labels
+	return b
+}
+
+func (b *StatefulSetBuilder) SetAnnotations(annotations map[string]string) *StatefulSetBuilder {
+	b.sts.Annotations = annotations
+	return b
+}
+
+func (b *StatefulSetBuilder) SetReplicas(replicas int32) *StatefulSetBuilder {
+	b.sts.Spec.Replicas = new(replicas)
+	return b
+}
+
+func (b *StatefulSetBuilder) SetVolumes(volumes []corev1.Volume) *StatefulSetBuilder {
+	b.sts.Spec.Template.Spec.Volumes = volumes
+	return b
+}
+
+func (b *StatefulSetBuilder) Build() appsv1.StatefulSet {
+	return b.sts
+}
+
+func statusMessage(s workflow.Status) string {
+	if opt, exists := status.GetOption(s.StatusOptions(), status.MessageOption{}); exists {
+		return opt.(status.MessageOption).Message
+	}
+	return ""
+}
+
+func TestEnsureMongoDBStatefulSetOwnershipGate(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	mdb.UID = types.UID("my-mdb-uid")
+	ownerLabels := mdb.GetOwnerLabels()
+	expectedOwnRef := kube.BaseOwnerReference(mdb)
+	expectedMemberClusterOwnerRef := mdb.OwnerReferenceForMemberCluster()
+	foreignOwnerRef := someOtherOwnerReference()[0]
+
+	tests := []struct {
+		name                string
+		labels              map[string]string
+		annotations         map[string]string
+		ownerReferences     []metav1.OwnerReference
+		expectedOK          bool
+		expectedPhase       status.Phase
+		expectedError       string
+		expectedLabels      map[string]string
+		expectedOwnerRefs   []metav1.OwnerReference
+		expectedAnnotations map[string]string
+	}{
+		{
+			name:           "owned label stays unchanged",
+			labels:         map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: ownerLabels[util.MongoDBResourceOwnerLabel]},
+			expectedOK:     true,
+			expectedLabels: map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: ownerLabels[util.MongoDBResourceOwnerLabel]},
+		},
+		{
+			name:           "own key with a different value blocks ownership",
+			labels:         map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: "wrong"},
+			expectedOK:     false,
+			expectedError:  "Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource",
+			expectedLabels: map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: "wrong"},
+		},
+		{
+			name:                "forward annotation adopts and merges CR owner labels",
+			labels:              map[string]string{"app": "demo"},
+			annotations:         map[string]string{util.AppDBMigrationReadyAnnotation: "true", util.AppDBReverseMigrationReadyAnnotation: "true"},
+			expectedOK:          true,
+			expectedLabels:      map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: ownerLabels[util.MongoDBResourceOwnerLabel], "controller": ownerLabels["controller"]},
+			expectedOwnerRefs:   expectedMemberClusterOwnerRef,
+			expectedAnnotations: map[string]string{util.AppDBMigrationReadyAnnotation: "true"},
+		},
+		{
+			name:                "reverse annotation releases owned StatefulSet",
+			labels:              map[string]string{"app": "demo", util.MongoDBResourceOwnerLabel: ownerLabels[util.MongoDBResourceOwnerLabel]},
+			annotations:         map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+			ownerReferences:     []metav1.OwnerReference{foreignOwnerRef, expectedOwnRef[0]},
+			expectedOK:          false,
+			expectedError:       "This AppDB resource is under Reverse Migration to Ops Manager CR",
+			expectedLabels:      map[string]string{"app": "demo"},
+			expectedOwnerRefs:   nil,
+			expectedAnnotations: map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"},
+		},
+		{
+			name:           "foreign participant label without annotations blocks external-ref reconciliation",
+			labels:         map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "foreign-om"},
+			expectedOK:     false,
+			expectedError:  "Cannot take ownership of the AppDB Statefulset: Configure spec.externalApplicationDatabaseRef under Ops Manager CR or delete this resource",
+			expectedLabels: map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "foreign-om"},
+		},
+		{
+			name:                "foreign participant label with forward annotation blocks ownership",
+			labels:              map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "foreign-om"},
+			annotations:         map[string]string{util.AppDBMigrationReadyAnnotation: "true"},
+			expectedOK:          false,
+			expectedPhase:       status.PhasePending,
+			expectedError:       "Cannot take ownership of the AppDB Statefulset: it has other owner",
+			expectedLabels:      map[string]string{"app": "demo", util.MongoDBOpsManagerResourceOwnerLabel: "foreign-om"},
+			expectedAnnotations: map[string]string{util.AppDBMigrationReadyAnnotation: "true"},
+		},
+		{
+			name:              "bootstrap backfills the label from same-cluster ownerReference",
+			labels:            map[string]string{"app": "demo"},
+			ownerReferences:   expectedOwnRef,
+			expectedOK:        true,
+			expectedLabels:    map[string]string{"app": "demo"},
+			expectedOwnerRefs: expectedOwnRef,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			sts := DefaultStatefulSetBuilder().SetName(mdb.Name).SetLabels(tt.labels).SetAnnotations(tt.annotations).SetOwnerReferences(tt.ownerReferences).Build()
+			require.NoError(t, kubeClient.Create(ctx, &sts))
+			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+			ownershipStatus := helper.ensureAppDBStatefulSetOwnership(ctx, mdb)
+			assert.Equal(t, tt.expectedOK, ownershipStatus.IsOK())
+			if tt.expectedPhase != "" {
+				assert.Equal(t, tt.expectedPhase, ownershipStatus.Phase())
+			}
+			if tt.expectedError != "" {
+				assert.Equal(t, tt.expectedError, statusMessage(ownershipStatus))
+			}
+
+			result := appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name), &result))
+
+			if tt.expectedLabels != nil {
+				assert.Equal(t, tt.expectedLabels, result.Labels)
+			}
+			if tt.expectedOwnerRefs != nil {
+				assert.Equal(t, tt.expectedOwnerRefs, result.OwnerReferences)
+			}
+			if tt.expectedAnnotations != nil {
+				assert.Equal(t, tt.expectedAnnotations, result.Annotations)
+			}
+		})
+	}
+}
+
+func TestReplicaSetStatefulSetOwnerLabelsNotInSelector(t *testing.T) {
+	mdb := DefaultReplicaSetBuilder().Build()
+
+	// This mirrors the controller's option set: ReplicaSetOptions with owner labels applied via WithStsLabels.
+	sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions(), WithStsLabels(mdb.GetOwnerLabels())), zap.S())
+
+	ownerLabels := mdb.GetOwnerLabels()
+	require.NotEmpty(t, ownerLabels)
+	for k, v := range ownerLabels {
+		assert.Equal(t, v, sts.Labels[k], "owner label %s must be present in StatefulSet metadata labels", k)
+	}
+
+	require.NotNil(t, sts.Spec.Selector)
+	require.NotNil(t, sts.Spec.Template)
+	for _, key := range []string{util.MongoDBResourceOwnerLabel, util.MongoDBOpsManagerResourceOwnerLabel, util.MongoDBMultiClusterResourceOwnerLabel} {
+		assert.NotContains(t, sts.Spec.Selector.MatchLabels, key, "owner label %s must not appear in selector.matchLabels", key)
+		assert.NotContains(t, sts.Spec.Template.Labels, key, "owner label %s must not appear in pod template labels", key)
+	}
+}
+
+func TestReplicaSetBuildStatefulSetOptionsCarriesOwnerLabels(t *testing.T) {
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().Build()
+	reconciler, _, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, reconciler.client, reconciler.SecretClient, mdb, zap.S())
+	require.NoError(t, err)
+	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, omConnectionFactory.GetConnectionFunc, mdb.Namespace, true, zap.S())
+	require.NoError(t, err)
+
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	opts := helper.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptionsRS{})(*mdb)
+
+	assert.Equal(t, mdb.GetOwnerLabels(), opts.StsLabels, "buildStatefulSetOptions must carry the CR's owner labels in StsLabels")
+}
+
+func TestValidateAppDBForwardMigration(t *testing.T) {
+	const certSecretName = "my-om-db-cert-pem"
+	const appDBCAConfigMap = "my-om-db-ca"
+
+	tests := []struct {
+		name             string
+		tlsEnabled       bool
+		tlsCA            string
+		members          int
+		stsReplicas      int32
+		annotated        bool
+		certSecretExists bool
+		expectedError    string // exact Invalid message; empty = expect OK
+	}{
+		{
+			name:             "disabling TLS is blocked",
+			members:          3,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.security.tls.enabled must remain true",
+		},
+		{
+			name:        "TLS-off spec against a non-TLS AppDB passes",
+			members:     3,
+			stsReplicas: 3,
+			annotated:   true,
+		},
+		{
+			name:             "changing the CA is blocked",
+			tlsEnabled:       true,
+			tlsCA:            "other-ca",
+			members:          3,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    `cannot change AppDB configuration during forward migration: spec.security.tls.ca must reference ConfigMap "my-om-db-ca"`,
+		},
+		{
+			name:             "scaling down is blocked",
+			tlsEnabled:       true,
+			tlsCA:            appDBCAConfigMap,
+			members:          3,
+			stsReplicas:      5,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.members must remain 5",
+		},
+		{
+			name:             "scaling up is blocked",
+			tlsEnabled:       true,
+			tlsCA:            appDBCAConfigMap,
+			members:          5,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.members must remain 3",
+		},
+		{
+			name:             "first violation wins when several settings diverge",
+			members:          5,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+			expectedError:    "cannot change AppDB configuration during forward migration: spec.security.tls.enabled must remain true",
+		},
+		{
+			name:             "matching spec passes",
+			tlsEnabled:       true,
+			tlsCA:            appDBCAConfigMap,
+			members:          3,
+			stsReplicas:      3,
+			annotated:        true,
+			certSecretExists: true,
+		},
+		{
+			name:             "missing migration annotation closes the window",
+			members:          5,
+			stsReplicas:      3,
+			certSecretExists: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			builder := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).SetMembers(tt.members)
+			if tt.tlsEnabled {
+				builder.EnableTLS()
+			}
+			if tt.tlsCA != "" {
+				builder.SetTLSCA(tt.tlsCA)
+			}
+			mdb := builder.Build()
+
+			annotations := map[string]string{}
+			if tt.annotated {
+				annotations[util.AppDBMigrationReadyAnnotation] = "true"
+			}
+			// the AppDB pod template mounts the TLS volumes unconditionally (Optional=true),
+			// so the fixture always carries them regardless of whether TLS is enabled
+			sts := DefaultStatefulSetBuilder().SetName("my-om-db").
+				SetAnnotations(annotations).
+				SetReplicas(tt.stsReplicas).
+				SetVolumes([]corev1.Volume{
+					{Name: util.SecretVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: certSecretName}}},
+					{Name: tls.ConfigMapVolumeCAName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: appDBCAConfigMap}}}},
+				}).Build()
+
+			reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			if tt.certSecretExists {
+				certSecret := secret.Builder().SetName(certSecretName).SetNamespace(mdb.Namespace).SetField("tls.crt", "cert").Build()
+				require.NoError(t, kubeClient.CreateSecret(ctx, certSecret))
+			}
+			helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+
+			validationStatus := helper.validateAppDBForwardMigration(ctx, mdb, sts)
+
+			if tt.expectedError == "" {
+				assert.True(t, validationStatus.IsOK())
+				return
+			}
+			require.False(t, validationStatus.IsOK())
+			assert.Equal(t, status.PhaseFailed, validationStatus.Phase())
+			assert.Equal(t, tt.expectedError, statusMessage(validationStatus))
+		})
+	}
+}
+
+func TestEnsureAppDBRoleSecrets_ClaimedByCR(t *testing.T) {
+	// forward migration: the secrets pre-exist (created by internal AppDB, ownerRefs stripped by
+	// detach); the CR must claim them so its eventual deletion (fallback path) GCs them together
+	// with the StatefulSet
+	ctx := context.Background()
+	mdb := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).Build()
+	mdb.UID = types.UID("cr-uid-2222")
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+	conn := omConnectionFactory.GetConnectionFunc(&om.OMContext{GroupName: om.TestGroupName})
+
+	passwordName := omv1.OpsManagerUserPasswordSecretName(mdb.Name)
+	keyfileName := fmt.Sprintf("%s-keyfile", mdb.Name)
+	for name, field := range map[string]string{passwordName: util.OpsManagerPasswordKey, keyfileName: constants.AgentKeyfileKey} {
+		s := secret.Builder().SetName(name).SetNamespace(mdb.Namespace).SetField(field, "pre-existing").Build()
+		require.NoError(t, kubeClient.CreateSecret(ctx, s))
+	}
+
+	require.NoError(t, helper.claimAppDBRoleSecrets(ctx, mdb))
+	require.NoError(t, helper.ensureAppDBRoleUser(ctx, mdb, conn))
+	require.NoError(t, helper.ensureAppDBRoleKeyfile(ctx, mdb, conn))
+
+	for _, name := range []string{passwordName, keyfileName} {
+		s := corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mdb.Namespace, name), &s))
+		require.Len(t, s.OwnerReferences, 1, name)
+		assert.Equal(t, mdb.UID, s.OwnerReferences[0].UID, "secret %s must be claimed by the CR", name)
+	}
+}
+
+func TestReconcile_ReleasedAppDBRoleCRDoesNotReclaimSecrets(t *testing.T) {
+	// regression: the release check must run before the ensureAppDBRole* claim steps - a released
+	// CR re-claiming the OM-owned handover secrets would garbage-collect them on its deletion,
+	// rotating the keyfile under a running internal AppDB
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-om-db").SetRole(mdbv1.RoleAppDB).
+		EnableAuth().SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	rs.Spec.Security.Authentication.IgnoreUnknownUsers = true
+	rs.UID = types.UID("cr-uid-2222")
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	omOwnerRef := []metav1.OwnerReference{{
+		APIVersion: "mongodb.com/v1", Kind: "MongoDBOpsManager", Name: "my-om", UID: "om-uid-1111",
+	}}
+	sts := DefaultStatefulSetBuilder().SetName(rs.Name).
+		SetOwnerReferences(kube.BaseOwnerReference(rs)).
+		SetAnnotations(map[string]string{util.AppDBReverseMigrationReadyAnnotation: "true"}).Build()
+	require.NoError(t, kubeClient.Create(ctx, &sts))
+
+	passwordName := omv1.OpsManagerUserPasswordSecretName(rs.Name)
+	keyfileName := fmt.Sprintf("%s-keyfile", rs.Name)
+	for name, field := range map[string]string{passwordName: util.OpsManagerPasswordKey, keyfileName: constants.AgentKeyfileKey} {
+		s := secret.Builder().SetName(name).SetNamespace(rs.Namespace).SetField(field, "om-owned").SetOwnerReferences(omOwnerRef).Build()
+		require.NoError(t, kubeClient.CreateSecret(ctx, s))
+	}
+
+	res, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.NotEqual(t, reconcile.Result{}, res)
+
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(rs), rs))
+	assert.Equal(t, status.PhasePending, rs.Status.Phase)
+	assert.Contains(t, rs.Status.Message, "under Reverse Migration")
+
+	for _, name := range []string{passwordName, keyfileName} {
+		s := corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, name), &s))
+		require.Len(t, s.OwnerReferences, 1, name)
+		assert.Equal(t, types.UID("om-uid-1111"), s.OwnerReferences[0].UID,
+			"secret %s must stay OM-owned while the CR is released", name)
+	}
 }

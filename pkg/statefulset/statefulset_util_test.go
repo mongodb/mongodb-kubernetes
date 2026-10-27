@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "k8s.io/api/apps/v1"
@@ -86,7 +85,8 @@ func TestIsStatefulSetUpdatableTo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, isStatefulSetEqualOnForbiddenFields(tt.existing, tt.desired), "isStatefulSetEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
+			actual, _ := isStatefulSetEqualOnForbiddenFields(tt.existing, tt.desired)
+			assert.Equalf(t, tt.want, actual, "isStatefulSetEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
 		})
 	}
 }
@@ -203,10 +203,85 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			name: "Labels: equal nil and empty",
+			existing: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: nil},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}},
+			},
+			want: true,
+		},
+		{
+			name: "Labels: unequal",
+			existing: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"label1": "val1"}},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"label1": "val2"}},
+			},
+			want: false,
+		},
+		{
+			name: "Labels: removed",
+			existing: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"label1": "val1"}},
+			},
+			desired: corev1.PersistentVolumeClaim{},
+			want:    false,
+		},
+		{
+			name: "Annotations: unequal",
+			existing: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"a": "1"}},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"a": "2"}},
+			},
+			want: false,
+		},
+		{
+			name: "VolumeAttributesClassName: equal",
+			existing: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			want: true,
+		},
+		{
+			name: "VolumeAttributesClassName: unequal",
+			existing: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("silver")},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			want: false,
+		},
+		{
+			name:     "VolumeAttributesClassName: added",
+			existing: corev1.PersistentVolumeClaim{},
+			desired: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			want: false,
+		},
+		{
+			name: "VolumeAttributesClassName: removed",
+			existing: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			desired: corev1.PersistentVolumeClaim{},
+			want:    false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, isVolumeClaimEqualOnForbiddenFields(tt.existing, tt.desired), "isVolumeClaimEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
+			actual, _ := isVolumeClaimEqualOnForbiddenFields(tt.existing, tt.desired)
+			assert.Equalf(t, tt.want, actual, "isVolumeClaimEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
 		})
 	}
 }
@@ -287,7 +362,7 @@ func createStatefulSet(name, namespace string, generation int64, observedGenerat
 			Generation: generation,
 		},
 		Spec: v1.StatefulSetSpec{
-			Replicas: ptr.To(replicas),
+			Replicas: new(replicas),
 		},
 		Status: v1.StatefulSetStatus{
 			ObservedGeneration: observedGeneration,

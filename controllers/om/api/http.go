@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -13,6 +14,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	// mongodb-forks/digest implements RFC 7616 digest auth (MD5 and SHA-256) and
+	// replays request bodies. It replaces the hand-rolled MD5 client that ignored
+	// the stale=true challenge parameter.
 	"github.com/mongodb-forks/digest"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
@@ -52,6 +56,13 @@ const (
 	defaultRetryWaitMin = 1 * time.Second
 	defaultRetryWaitMax = 10 * time.Second
 	defaultRetryMax     = 3
+
+	// maxRedirects is the net/http default redirect limit, kept because
+	// CheckRedirect replaces the default policy.
+	maxRedirects = 10
+
+	// defaultRequestTimeout bounds a single HTTP attempt (connection, response headers and body) against Ops Manager.
+	defaultRequestTimeout = 2 * time.Minute
 )
 
 type Client struct {
@@ -67,9 +78,9 @@ type Client struct {
 
 // NewHTTPClient is a functional options constructor, based on this blog post:
 // https://dave.cheney.net/2014/10/17/functional-options-for-friendly-apis
-// The default clients specifies some important timeouts (some of them are synced with AA one):
-// 10 seconds for connection (TLS/non TLS)
-// 10 minutes for requests (time to get the first response headers)
+// The default client uses http.DefaultTransport and bounds every attempt with defaultRequestTimeout. Failed
+// requests are retried up to defaultRetryMax times, so an overall deadline can only be enforced by the context
+// passed to Request.
 func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 	client := &Client{
 		Client: newDefaultHTTPClient(),
@@ -85,6 +96,23 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 	// (RFC 7616 §3.2). This runs after TLS options so they modify the
 	// *http.Transport first.
 	if client.username != "" && client.password != "" {
+		// The digest transport answers a challenge with credentials on whatever
+		// host sent it, so a cross-host redirect would send the OM credentials to
+		// an unrelated server. net/http only strips an existing Authorization
+		// header, and this transport adds one after the redirect.
+		client.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			// CheckRedirect replaces the net/http default policy, so keep its limit.
+			if len(via) >= maxRedirects {
+				return xerrors.Errorf("stopped after %d redirects", maxRedirects)
+			}
+			if req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host {
+				// Hand the 3xx response to sendRequest instead of failing the
+				// request: an error here makes retryablehttp replay a request that
+				// may not be idempotent.
+				return http.ErrUseLastResponse
+			}
+			return nil
+		}
 		client.HTTPClient.Transport = &staleRetryTransport{
 			transport: &digest.Transport{
 				Username:  client.username,
@@ -99,7 +127,7 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 
 func newDefaultHTTPClient() *retryablehttp.Client {
 	return &retryablehttp.Client{
-		HTTPClient:   &http.Client{Transport: http.DefaultTransport},
+		HTTPClient:   &http.Client{Transport: http.DefaultTransport, Timeout: defaultRequestTimeout},
 		RetryWaitMin: defaultRetryWaitMin,
 		RetryWaitMax: defaultRetryWaitMax,
 		RetryMax:     defaultRetryMax,
@@ -180,10 +208,11 @@ func OptionCAValidate(ca string) func(client *Client) error {
 
 // Request executes an HTTP request, given a series of parameters, over this *Client object.
 // It handles Digest when needed and json marshaling of the `v` struct.
-func (client *Client) Request(method, hostname, path string, v interface{}) ([]byte, http.Header, error) {
+// The whole exchange, including retries and backoff waits, is aborted as soon as ctx is done.
+func (client *Client) Request(ctx context.Context, method, hostname, path string, v any) ([]byte, http.Header, error) {
 	url := hostname + path
 
-	req, err := createHTTPRequest(method, url, v)
+	req, err := createHTTPRequest(ctx, method, url, v)
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}
@@ -195,10 +224,10 @@ func (client *Client) Request(method, hostname, path string, v interface{}) ([]b
 // We use it for /group/v2/info and /group/v2/addPreferredHostname to manage preferred hostnames
 // We have created a ticket for the EA team to add a public or private endpoint
 // whilst maintaining the other 2 https://jira.mongodb.org/browse/CLOUDP-308115
-func (client *Client) RequestWithAgentAuth(method, hostname, path string, agentAuth string, v interface{}) ([]byte, http.Header, error) {
+func (client *Client) RequestWithAgentAuth(ctx context.Context, method, hostname, path string, agentAuth string, v any) ([]byte, http.Header, error) {
 	url := hostname + path
 
-	req, err := createHTTPRequest(method, url, v)
+	req, err := createHTTPRequest(ctx, method, url, v)
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}
@@ -208,14 +237,14 @@ func (client *Client) RequestWithAgentAuth(method, hostname, path string, agentA
 	return client.sendRequest(method, url, path, req)
 }
 
-// createHTTPRequest
-func createHTTPRequest(method string, url string, v interface{}) (*retryablehttp.Request, error) {
+// createHTTPRequest builds a retryable request bound to ctx, with 'v' serialized to JSON as the body.
+func createHTTPRequest(ctx context.Context, method string, url string, v any) (*retryablehttp.Request, error) {
 	buffer, err := serializeToBuffer(v)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := retryablehttp.NewRequest(method, url, buffer)
+	req, err := retryablehttp.NewRequestWithContext(ctx, method, url, buffer)
 	if err != nil {
 		return nil, err
 	}
@@ -258,8 +287,8 @@ func (client *Client) sendRequest(method, url, path string, req *retryablehttp.R
 
 	omClient.WithLabelValues(strconv.Itoa(resp.StatusCode), method, path).Inc()
 
-	// need to clear hooks, because otherwise they will be persisted for the subsequent calls
-	// resulting in logging authorizeRequest
+	// Clear the hooks, because otherwise they persist for the subsequent calls and log
+	// requests and responses that belong to other call sites.
 	client.RequestLogHook = nil
 	client.ResponseLogHook = nil
 
@@ -280,7 +309,7 @@ func (client *Client) sendRequest(method, url, path string, req *retryablehttp.R
 }
 
 // serializeToBuffer takes any object and tries to serialize it to the buffer
-func serializeToBuffer(v interface{}) (io.Reader, error) {
+func serializeToBuffer(v any) (io.Reader, error) {
 	var buffer io.Reader
 	if v != nil {
 		b, err := json.Marshal(v)

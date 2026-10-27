@@ -29,26 +29,26 @@ func TestPromote(t *testing.T) {
 	}{
 		{
 			name:   "happy path",
-			inputs: PromoteInputs{Image: srcRef, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest"},
+			inputs: PromoteInputs{Image: srcRef, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest", AllowPartialSignatures: true},
 		},
 		{
 			name:    "image required",
-			inputs:  PromoteInputs{Commit: "abc1234", Version: "1.9.0", Repo: repo},
+			inputs:  PromoteInputs{Commit: "abc1234", Version: "1.9.0", Repo: repo, AllowPartialSignatures: true},
 			wantErr: "image",
 		},
 		{
 			name:    "commit required",
-			inputs:  PromoteInputs{Image: srcRef, Version: "1.9.0", Repo: repo},
+			inputs:  PromoteInputs{Image: srcRef, Version: "1.9.0", Repo: repo, AllowPartialSignatures: true},
 			wantErr: "commit",
 		},
 		{
 			name:    "version required",
-			inputs:  PromoteInputs{Image: srcRef, Commit: "abc1234", Repo: repo},
+			inputs:  PromoteInputs{Image: srcRef, Commit: "abc1234", Repo: repo, AllowPartialSignatures: true},
 			wantErr: "version",
 		},
 		{
 			name:    "repo required",
-			inputs:  PromoteInputs{Image: srcRef, Commit: "abc1234", Version: "1.9.0"},
+			inputs:  PromoteInputs{Image: srcRef, Commit: "abc1234", Version: "1.9.0", AllowPartialSignatures: true},
 			wantErr: "repo",
 		},
 	}
@@ -97,12 +97,13 @@ func TestPromoteDryRun(t *testing.T) {
 	pushImage(t, srcRef, name.Insecure)
 
 	result, err := Promote(PromoteInputs{
-		Image:        srcRef,
-		Commit:       "abc1234",
-		Version:      "9.9.9",
-		Repo:         repo,
-		LatestMarker: "latest",
-		DryRun:       true,
+		Image:                  srcRef,
+		Commit:                 "abc1234",
+		Version:                "9.9.9",
+		Repo:                   repo,
+		LatestMarker:           "latest",
+		DryRun:                 true,
+		AllowPartialSignatures: true,
 	}, host, DefaultRegistryConnector(srv.URL))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -136,11 +137,12 @@ func TestPromoteCustomLatestMarker(t *testing.T) {
 	srcDigest := pushImage(t, srcRef, name.Insecure)
 
 	result, err := Promote(PromoteInputs{
-		Image:        srcRef,
-		Commit:       "abc1234",
-		Version:      "1.10.1",
-		Repo:         repo,
-		LatestMarker: "latestv1",
+		Image:                  srcRef,
+		Commit:                 "abc1234",
+		Version:                "1.10.1",
+		Repo:                   repo,
+		LatestMarker:           "latestv1",
+		AllowPartialSignatures: true,
 	}, host, DefaultRegistryConnector(srv.URL))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -189,14 +191,14 @@ func TestPromoteRefusesStompedTag(t *testing.T) {
 	reg := DefaultRegistryConnector(srv.URL)
 
 	t.Run("refused without force", func(t *testing.T) {
-		_, err := Promote(PromoteInputs{Image: newSrc, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest"}, host, reg)
+		_, err := Promote(PromoteInputs{Image: newSrc, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest", AllowPartialSignatures: true}, host, reg)
 		if err == nil || !strings.Contains(err.Error(), "already exists at a different digest") {
 			t.Fatalf("expected stomp error, got %v", err)
 		}
 	})
 
 	t.Run("proceeds with force", func(t *testing.T) {
-		result, err := Promote(PromoteInputs{Image: newSrc, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest", Force: true}, host, reg)
+		result, err := Promote(PromoteInputs{Image: newSrc, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest", Force: true, AllowPartialSignatures: true}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -231,10 +233,11 @@ func TestPromoteRequiresLatestMarker(t *testing.T) {
 	pushImage(t, srcRef, name.Insecure)
 
 	_, err := Promote(PromoteInputs{
-		Image:   srcRef,
-		Commit:  "abc1234",
-		Version: "1.9.0",
-		Repo:    repo,
+		Image:                  srcRef,
+		Commit:                 "abc1234",
+		Version:                "1.9.0",
+		Repo:                   repo,
+		AllowPartialSignatures: true,
 	}, host, DefaultRegistryConnector(srv.URL))
 	if err == nil || !strings.Contains(err.Error(), "latest-marker is required") {
 		t.Fatalf("expected 'latest-marker is required' error, got %v", err)
@@ -251,7 +254,7 @@ func TestPromoteInfosOnIdempotentRerun(t *testing.T) {
 	pushImage(t, srcRef, name.Insecure)
 
 	reg := DefaultRegistryConnector(srv.URL)
-	inputs := PromoteInputs{Image: srcRef, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest"}
+	inputs := PromoteInputs{Image: srcRef, Commit: "abc1234", Version: "1.9.0", Repo: repo, LatestMarker: "latest", AllowPartialSignatures: true}
 
 	if _, err := Promote(inputs, host, reg); err != nil {
 		t.Fatalf("first promote: unexpected error: %v", err)

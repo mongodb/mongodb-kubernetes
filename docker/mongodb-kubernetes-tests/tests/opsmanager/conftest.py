@@ -2,23 +2,20 @@
 
 import os
 import time
-from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import List, Optional, Set
 
 import boto3
 from botocore.exceptions import ClientError
 from kubernetes import client
-from kubetester import create_or_update_secret, get_pod_when_ready
-from kubetester.helm import helm_install_from_chart
+from kubetester import get_pod_when_ready
+from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml as apply_yaml
+from kubetester.kubetester import fixture as _fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
 from tests import test_logger
 from tests.conftest import is_multi_cluster
 
 logger = test_logger.get_test_logger(__name__)
-
-MINIO_OPERATOR = "minio-operator"
-MINIO_TENANT = "minio-tenant"
 
 
 def pytest_runtest_setup(item):
@@ -65,71 +62,16 @@ def admin_key_resource_version(ops_manager: MongoDBOpsManager) -> str:
     return secret.metadata.resource_version
 
 
-def mino_operator_install(
-    namespace: str,
-    operator_name: str = MINIO_OPERATOR,
-    cluster_client: Optional[client.ApiClient] = None,
-    cluster_name: Optional[str] = None,
-    helm_args: Optional[Dict[str, str]] = None,
-    version="5.0.6",
-):
-    if cluster_name is not None:
-        os.environ["HELM_KUBECONTEXT"] = cluster_name
-
-    if helm_args is None:
-        helm_args = {}
-    helm_args.update(
-        {
-            "namespace": namespace,
-            "fullnameOverride": operator_name,
-            "nameOverride": operator_name,
-        }
-    )
-
-    # check if the pod exists, if not do a helm upgrade
-    operator_pod = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(
-        namespace, label_selector=f"app.kubernetes.io/instance={operator_name}"
-    )
-    # check if the console exists, if not do a helm upgrade
-    console_pod = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(
-        namespace, label_selector=f"app.kubernetes.io/instance=minio-operator-console"
-    )
-    if not operator_pod.items or not console_pod:
-        print(f"Performing helm upgrade of minio-operator")
-
-        helm_install_from_chart(
-            release=operator_name,
-            namespace=namespace,
-            helm_args=helm_args,
-            version=version,
-            custom_repo=("minio", "https://operator.min.io/"),
-            chart=f"minio/operator",
-        )
-    else:
-        print(f"Minio operator already installed, skipping helm installation!")
-
-    get_pod_when_ready(
-        namespace,
-        f"app.kubernetes.io/instance={operator_name}",
-        api_client=cluster_client,
-    )
-    get_pod_when_ready(
-        namespace,
-        f"app.kubernetes.io/instance=minio-operator-console",
-        api_client=cluster_client,
-    )
-
-
-def _create_minio_buckets(
+def _ensure_s3_buckets(
     endpoint: str,
     bucket_names: List[str],
-    access_key: str = "minio",
-    secret_key: str = "minio123",
+    access_key: str = "rustfsadmin",
+    secret_key: str = "rustfsadmin123",
     timeout: int = 120,
     interval: int = 5,
     issuer_ca_filepath: Optional[str] = None,
 ) -> None:
-    """Ensure MinIO buckets exist via S3 API (create each; already-exists is treated as success). Uses test CA when tenant has custom TLS."""
+    """Ensure the S3 buckets exist via the S3 API (create each; already-exists is treated as success). Uses the test CA when the endpoint has custom TLS."""
     s3 = boto3.client(
         "s3",
         endpoint_url=f"https://{endpoint}",
@@ -151,11 +93,11 @@ def _create_minio_buckets(
             except ClientError as ce:
                 # boto3 ClientError.response: ResponseMetadata.HTTPStatusCode, Error.Code
                 # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/error-handling.html
-                # MinIO/S3 use HTTP 409 for bucket-already-exists.
+                # S3 servers use HTTP 409 for bucket-already-exists.
                 status_code = ce.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
                 message_code = ce.response.get("Error", {}).get("Code", "")
                 logger.debug(
-                    "MinIO bucket %s create: HTTP %s, Code=%s, %s",
+                    "S3 bucket %s create: HTTP %s, Code=%s, %s",
                     bucket,
                     status_code,
                     message_code,
@@ -164,75 +106,29 @@ def _create_minio_buckets(
                 if status_code == 409:
                     ready.add(bucket)
             except Exception as e:
-                logger.debug("MinIO bucket create failed for %s (will retry): %s", bucket, e)
-                # MinIO not ready (connection/SSL) or transient S3 errors, retry
+                logger.debug("S3 bucket create failed for %s (will retry): %s", bucket, e)
         if ready >= target:
             return
         time.sleep(interval)
 
-    raise TimeoutError(f"Could not create MinIO buckets within {timeout}s: missing {target - ready}")
+    raise TimeoutError(f"Could not create S3 buckets within {timeout}s: missing {target - ready}")
 
 
-def mino_tenant_install(
+RUSTFS_SERVICE_NAME = "rustfs"
+
+
+def rustfs_install(
     namespace: str,
-    tenant_name: str = MINIO_TENANT,
-    cluster_client: Optional[client.ApiClient] = None,
-    cluster_name: Optional[str] = None,
-    helm_args: Optional[Dict[str, str]] = None,
-    version="5.0.6",
-    issuer_ca_filepath: Optional[str] = os.getenv("MINIO_ISSUER_CA_FILEPATH", None),
-):
-    if cluster_name is not None:
-        os.environ["HELM_KUBECONTEXT"] = cluster_name
-
-    if helm_args is None:
-        helm_args = {}
-
-    # check if the minio pod exists, if not do a helm upgrade
-    pods = client.CoreV1Api(api_client=cluster_client).list_namespaced_pod(namespace, label_selector=f"app=minio")
-    if not pods.items:
-        print(f"Performing helm upgrade of minio-tenant")
-
-        # Provide the test CA to the MinIO operator so it can trust the MinIO server's
-        # TLS cert when creating buckets. Without this, the operator fails with
-        # "x509: certificate signed by unknown authority" and buckets are never created.
-        #
-        # We use ca-tls.crt (the bare test CA) rather than issuer_ca_filepath
-        # (ca-tls-full-chain.crt). The full-chain file bundles extra MongoDB CDN certs that
-        # have since expired. The MinIO operator (Go x509) marks the entire secret as expired
-        # if any cert inside it is expired, so even the still-valid test CA would be skipped.
-        if issuer_ca_filepath is not None:
-            ca_cert_path = Path(issuer_ca_filepath).parent / "ca-tls.crt"
-            with open(ca_cert_path) as f:
-                ca_cert = f.read()
-            create_or_update_secret(
-                namespace=namespace,
-                name="minio-ca-cert",
-                data={"public.crt": ca_cert},
-                api_client=cluster_client,
-            )
-            helm_args["tenant.certificate.externalCaCertSecret[0].name"] = "minio-ca-cert"
-
-        path = f"{Path(__file__).parent}/fixtures/minio/values-tenant.yaml"
-        helm_install_from_chart(
-            release=tenant_name,
-            namespace=namespace,
-            helm_args=helm_args,
-            version=version,
-            custom_repo=("minio", "https://operator.min.io/"),
-            chart=f"minio/tenant",
-            override_path=path,
-        )
-    else:
-        print(f"Minio tenant already installed, skipping helm installation!")
-
-    get_pod_when_ready(namespace, f"app=minio", api_client=cluster_client)
-    # Ensure buckets exist from the test so we don't rely on the operator (custom TLS often
-    # breaks operator bucket creation). Retries until all buckets are created/accessible.
-    _create_minio_buckets(
-        endpoint=f"minio.{namespace}.svc.cluster.local",
+    issuer_ca_filepath: Optional[str] = None,
+    timeout: int = 120,
+) -> None:
+    apply_yaml(client.ApiClient(), _fixture("rustfs.yaml"), namespace=namespace)
+    get_pod_when_ready(namespace, f"app={RUSTFS_SERVICE_NAME}")
+    _ensure_s3_buckets(
+        endpoint=f"{RUSTFS_SERVICE_NAME}.{namespace}.svc.cluster.local",
         bucket_names=["s3-store-bucket", "oplog-s3-bucket"],
         issuer_ca_filepath=issuer_ca_filepath,
+        timeout=timeout,
     )
 
 
