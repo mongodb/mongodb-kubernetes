@@ -228,9 +228,7 @@ spec:
     {{ else }}
     args: ["-vv", "-m", "{{ .Values.taskName }}"]
     {{ end }}
-    # The kind e2e setup preloads this image into the node before this pod starts (see
-    # scripts/dev/setup_kind_cluster.sh). Elsewhere the kubelet pulls it when it is absent.
-    imagePullPolicy: IfNotPresent
+    imagePullPolicy: Always
     volumeMounts:
       - name: results
         mountPath: /tmp/results

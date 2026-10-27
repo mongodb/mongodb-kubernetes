@@ -243,8 +243,8 @@ kind_preload_test_image() {
   # Only the single-cluster kind variant runs the test pod on the node this pull warms.
   # Multi-cluster kind creates five clusters in one setup run, so four pulls would be
   # wasted. The performance variant has six nodes and does not place the test pod on the
-  # preloaded node.
-  if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "kind" ]]; then
+  # preloaded node. MCO tests use a different runner and set MEKO_TESTS_PRELOAD=false.
+  if [[ "${KUBE_ENVIRONMENT_NAME:-}" != "kind" || "${MEKO_TESTS_PRELOAD:-true}" != "true" ]]; then
     return 0
   fi
 
@@ -255,9 +255,8 @@ kind_preload_test_image() {
   fi
 
   echo "preloading the test image ${image}"
-  # The container sleeps so the pod stays Ready, which is the signal that the image is
-  # in the node. A completed pod would lose Ready and race the wait below. 600 s covers
-  # the ~115 s setup group with margin, and the pod is deleted below.
+  # The container sleeps so the pod stays alive until cleanup. The pull happens before
+  # the container starts. 600 s covers the setup group with margin.
   if kubectl --kubeconfig "${kubeconfig_path}" run mck-test-image-preload \
     --namespace default \
     --image="${image}" \
@@ -270,17 +269,13 @@ kind_preload_test_image() {
   fi
 }
 
-kind_wait_for_test_image_preload() {
+kind_cleanup_test_image_preload() {
   if [[ "${mck_test_image_preload_started:-false}" != "true" ]]; then
     return 0
   fi
 
-  # The pull takes about 10 s on a warm ECR. A miss blocks cluster setup for up to 90 s,
-  # then the test pod pulls the image itself.
-  kubectl --kubeconfig "${kubeconfig_path}" wait --namespace default \
-    --for=condition=Ready --timeout=90s pod/mck-test-image-preload >/dev/null 2>&1 ||
-    echo "the test image preload did not finish, the test pod will pull the image"
-
+  # The pull normally finishes during the addon installs. Do not wait for it here. A
+  # slow pull falls back to the test pod's own pull.
   kubectl --kubeconfig "${kubeconfig_path}" delete pod --namespace default \
     mck-test-image-preload --ignore-not-found --wait=false >/dev/null 2>&1 ||
     echo "could not delete the test image preload pod"
@@ -309,11 +304,11 @@ fi
 kind_configure_local_registry
 kind_wait_for_nodes_are_ready
 kind_wait_for_rbac_bootstrap
-# The steps between the preload and its wait run while the image pull is in flight.
+# The steps between the preload and its cleanup run while the image pull is in flight.
 kind_preload_test_image
 kind_install_metallb
 kind_install_metrics_server
-kind_wait_for_test_image_preload
+kind_cleanup_test_image_preload
 
 if [[ "${export_kubeconfig}" == "1" ]]; then
   export_kubeconfig
