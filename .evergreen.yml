@@ -1218,6 +1218,8 @@ task_groups:
     <<: [ *setup_group, *setup_and_teardown_task, *teardown_group ]
     tasks:
       - e2e_om_ops_manager_license
+      - e2e_om_ops_manager_license_air_gapped
+      - e2e_om_ops_manager_license_two_om
 
   # e2e_operator_race_with_telemetry_task_group includes the tests for testing the operator with race detector enabled
   # additionally, it sends telemetry to cloud-dev; more here: https://wiki.corp.mongodb.com/display/MMS/Telemetry
