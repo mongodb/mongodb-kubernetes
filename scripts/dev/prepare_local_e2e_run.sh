@@ -10,9 +10,9 @@ source scripts/funcs/operator_deployment
 source scripts/funcs/multicluster
 source scripts/funcs/kubernetes
 
-if [[ "$(uname)" == "Linux" ]]; then
-  export PATH=/opt/golang/go1.26/bin:${PATH}
-  export GOROOT=/opt/golang/go1.26
+# root-context sets GOROOT on Linux hosts
+if [[ -n "${GOROOT:-}" ]]; then
+  export PATH="${GOROOT}/bin:${PATH}"
 fi
 
 on_exit() {
