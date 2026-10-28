@@ -36,3 +36,19 @@ golden_run() {
 @test "golden: docker_run_local_registry starts the registry" {
   golden_run run-registry -- bash -c 'source scripts/funcs/kubernetes && docker_run_local_registry kind-registry 5000'
 }
+
+@test "kind_network defaults: subnet 172.18.0.0/16 and the .255 row" {
+  run_in_fake_repo_ok -- bash -c \
+    'source scripts/funcs/kind_network && echo "${KIND_NETWORK_SUBNET}|${KIND_NETWORK_PREFIX}|${KIND_LB_PREFIX}|${KIND_METALLB_RANGE_SINGLE}"'
+  [ "${output}" = "172.18.0.0/16|172.18|172.18.255|172.18.255.200-172.18.255.250" ]
+}
+
+@test "kind_network: KIND_NETWORK_SUBNET moves the prefix and the ranges, KIND_LB_PREFIX moves the ranges only" {
+  run_in_fake_repo_ok KIND_NETWORK_SUBNET=10.9.0.0/16 -- bash -c \
+    'source scripts/funcs/kind_network && echo "${KIND_NETWORK_PREFIX}|${KIND_LB_PREFIX}|${KIND_METALLB_RANGE_SINGLE}"'
+  [ "${output}" = "10.9|10.9.255|10.9.255.200-10.9.255.250" ]
+
+  run_in_fake_repo_ok KIND_LB_PREFIX=172.16.34 -- bash -c \
+    'source scripts/funcs/kind_network && echo "${KIND_NETWORK_PREFIX}|${KIND_LB_PREFIX}|${KIND_METALLB_RANGE_SINGLE}"'
+  [ "${output}" = "172.18|172.16.34|172.16.34.200-172.16.34.250" ]
+}
