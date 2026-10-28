@@ -345,6 +345,23 @@ docker_create_kind_network() {
   fi
 }
 
+# What a worktree prefix is, for the usage of the recreate scripts.
+print_worktree_prefix_help() {
+  echo "WORKTREE PREFIX:
+  WORKTREE_PREFIX (in .generated/worktree-context, written by wt-ctl) is empty in a plain checkout. A worktree with a
+  prefix such as devc7- owns the kind clusters that carry it (devc7-kind, devc7-e2e-cluster-1, ...), its kubeconfig,
+  its namespace and its MetalLB row. It shares the docker daemon with the other worktrees, so it deletes only its own
+  clusters, prunes nothing and keeps the kind network. A plain checkout owns the whole docker daemon:
+  recreate_kind_clusters.sh deletes every kind cluster and prunes docker."
+}
+
+# Renames the contexts that `kind export kubeconfig` wrote for the clusters of a worktree with a prefix
+# (kind-<prefix><name>) to kind-<name>, which the tests and scripts expect. No-op without a prefix.
+kind_unprefix_contexts() {
+  [[ -n "${WORKTREE_PREFIX:-}" ]] || return 0
+  sed "s/kind-${WORKTREE_PREFIX}/kind-/g" "$1" >"$1.renamed" && mv "$1.renamed" "$1"
+}
+
 docker_network_connect_to_kind() {
 # connect the registry to the cluster network if not already connected
   if [ "$(docker inspect -f='{{json .NetworkSettings.Networks.kind}}' "${reg_name}")" = 'null' ]; then
