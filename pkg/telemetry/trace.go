@@ -55,9 +55,7 @@ func SetupTracingFromParent(ctx context.Context, traceIDHex, parentIDHex, endpoi
 
 	exporterOption := otlptracegrpc.WithEndpoint(endpoint)
 	if strings.Contains(endpoint, "://") {
-		// WithEndpoint takes a host:port and always uses TLS. WithEndpointURL
-		// reads the scheme, so an http:// endpoint selects a plaintext
-		// connection, such as the in-cluster collector in e2e runs.
+		// WithEndpointURL honors the scheme (http:// means plaintext). WithEndpoint is TLS-only host:port.
 		exporterOption = otlptracegrpc.WithEndpointURL(endpoint)
 	}
 
