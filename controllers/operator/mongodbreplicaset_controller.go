@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"path"
 	"strings"
 
 	"go.uber.org/zap"
@@ -855,7 +854,10 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	caFilePath := rs.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
+	caFilePath, clusterCAFilePath, err := databaseCAFilePaths(ctx, reconciler.client, rs.Spec.GetSecurity(), rs.Name, rs.Namespace)
+	if err != nil {
+		return workflow.Failed(err)
+	}
 
 	existingDeployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
@@ -898,7 +900,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, clusterCAFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
 		log)
 

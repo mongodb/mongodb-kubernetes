@@ -1,10 +1,10 @@
 import pytest
-from kubetester import read_configmap, read_secret, try_load
+from kubetester import read_secret, try_load
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.tls.managedcert_helper import managed_certificate_operator
+from tests.tls.managedcert_helper import managed_certificate_operator, read_ca_bundles
 
 MDB_RESOURCE = "test-tls-sc-managedcert"
 SHARD_COUNT = 2
@@ -67,13 +67,8 @@ def test_single_shared_ca_bundle_for_the_whole_cluster(sc: MongoDB, namespace: s
         ca_secret = read_secret(namespace, ca_secret_name)
         assert "tls.crt" in ca_secret, f"{ca_secret_name} missing tls.crt"
 
-    server_ca_cm = read_configmap(namespace, f"{MDB_RESOURCE}-managed-server-ca-bundle")
-    assert server_ca_cm.get("ca-pem", "").strip() != "", "ca-pem (server CA) missing/empty"
-    client_ca_cm = read_configmap(namespace, f"{MDB_RESOURCE}-managed-client-ca-bundle")
-    assert client_ca_cm.get("clusterca-pem", "").strip() != "", "clusterca-pem (client CA) missing/empty"
-    assert (
-        server_ca_cm["ca-pem"].strip() != client_ca_cm["clusterca-pem"].strip()
-    ), "server and client self-signed CAs should be distinct roots"
+    server_ca, client_ca = read_ca_bundles(MDB_RESOURCE, namespace)
+    assert server_ca != client_ca, "server and client self-signed CAs should be distinct roots"
 
 
 @pytest.mark.e2e_sharded_cluster_tls_managedcert
