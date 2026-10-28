@@ -21,6 +21,32 @@ export OPERATOR_NAME="mongodb-kubernetes-operator"
 export TEST_POD_CLUSTER="${CLUSTER_NAME}"
 
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
+
+# The kind docker network and the MetalLB pool of each kind cluster, see setup_kind_cluster.sh -l.
+export KIND_NETWORK_SUBNET="172.18.0.0/16"
+export KIND_METALLB_RANGE_SINGLE="172.18.255.200-172.18.255.250"
+export KIND_METALLB_RANGE_OPERATOR="172.18.255.200-172.18.255.210"
+export KIND_METALLB_RANGE_CLUSTER_1="172.18.255.210-172.18.255.220"
+export KIND_METALLB_RANGE_CLUSTER_2="172.18.255.220-172.18.255.230"
+export KIND_METALLB_RANGE_CLUSTER_3="172.18.255.230-172.18.255.240"
+export KIND_METALLB_RANGE_KIND="172.18.255.200-172.18.255.250"
+
+# The worktree prefix, such as devc7-, comes from .generated/worktree-context (written by wt-ctl, gitignored with
+# .generated/). A worktree with a prefix owns the kind clusters, the namespace and the MetalLB row that carry it, so
+# several worktrees can keep kind clusters on one docker daemon. Without the file a checkout has no prefix.
+export WORKTREE_PREFIX=""
+if [[ -f "${PROJECT_DIR}/.generated/worktree-context" ]]; then
+  source "${PROJECT_DIR}/.generated/worktree-context"
+fi
+if [[ ! "${WORKTREE_PREFIX}" =~ ^([a-z0-9]+-)?$ ]]; then
+  echo "WORKTREE_PREFIX='${WORKTREE_PREFIX}' (see ${PROJECT_DIR}/.generated/worktree-context) must be empty or end with '-', like 'ita-'" >&2
+  exit 1
+fi
+if [[ "${WATCH_NAMESPACE}" == "${NAMESPACE}" ]]; then
+  export WATCH_NAMESPACE="${WORKTREE_PREFIX}${NAMESPACE}"
+fi
+export NAMESPACE="${WORKTREE_PREFIX}${NAMESPACE}"
+
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
 export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
 export KUBECTL_MONGODB_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/kubectl-mongodb

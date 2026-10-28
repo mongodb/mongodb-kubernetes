@@ -36,7 +36,7 @@ export_kubeconfig=0
 recreate=0
 pod_network="10.244.0.0/16"
 service_network="10.96.0.0/16"
-metallb_ip_range="172.18.255.200-172.18.255.250"
+metallb_ip_range="${KIND_METALLB_RANGE_SINGLE}"
 install_registry=0
 configure_docker_network=0
 while getopts ':n:p:s:c:l:egrhk' opt; do
