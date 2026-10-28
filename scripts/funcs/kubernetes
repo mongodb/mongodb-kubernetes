@@ -296,8 +296,18 @@ docker_create_kind_network() {
   # We create docker network primarily so that all kind clusters use the same network.
   # The network must use KIND_NETWORK_SUBNET (root-context) because the MetalLB IP ranges
   # and the no-mesh tests assume addresses in it.
-  # In case of any errors, verify if any other subnet is not already using that subnet.
-  docker network create --subnet="${KIND_NETWORK_SUBNET}" kind || true
+  if docker network inspect kind >/dev/null 2>&1; then
+    local subnets
+    subnets="$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' kind)"
+    if [[ " ${subnets}" != *" ${KIND_NETWORK_SUBNET} "* ]]; then
+      echo "ERROR: docker network 'kind' has subnet(s) ${subnets}but KIND_NETWORK_SUBNET is ${KIND_NETWORK_SUBNET}." >&2
+      echo "       Remove the network with 'docker network rm kind' or change KIND_NETWORK_SUBNET." >&2
+      return 1
+    fi
+  else
+    # No '|| true': when another network already uses the subnet, stop here.
+    docker network create --subnet="${KIND_NETWORK_SUBNET}" kind
+  fi
 }
 
 docker_network_connect_to_kind() {
