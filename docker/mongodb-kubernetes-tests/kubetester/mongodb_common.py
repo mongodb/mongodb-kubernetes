@@ -46,14 +46,6 @@ class MongoDBCommon:
         span = trace.get_current_span()
         span.set_attribute("mck.wait.name", wait_name)
         span.set_attribute("mck.wait.timeout_s", initial_timeout)
-        _LAST_WAIT_PROPERTIES.clear()
-        _LAST_WAIT_PROPERTIES.update(
-            {
-                "mck.wait.name": str(wait_name),
-                "mck.wait.timeout_s": str(initial_timeout),
-            }
-        )
-
         wait = 3
         retries = 0
         attempts = 0
@@ -67,8 +59,7 @@ class MongoDBCommon:
             if fn(self):
                 retries += 1
                 if retries == persist_for:
-                    phase, message = self._observed_status()
-                    self._record_wait(span, attempts, phase, message)
+                    self._record_wait(span, wait_name, initial_timeout, attempts)
                     return True
             else:
                 retries = 0
@@ -83,8 +74,7 @@ class MongoDBCommon:
             pass
         attempts += 1
         if fn(self):
-            phase, message = self._observed_status()
-            self._record_wait(span, attempts, phase, message)
+            self._record_wait(span, wait_name, initial_timeout, attempts)
             return True
 
         phase, message = self._observed_status()
@@ -92,7 +82,7 @@ class MongoDBCommon:
             f"Timeout ({initial_timeout}) reached while waiting for {self} after {attempts} attempt(s) "
             f"(last observed phase: {phase}, message: {message})"
         )
-        self._record_wait(span, attempts, phase, message, error)
+        self._record_wait(span, wait_name, initial_timeout, attempts, error)
         if should_raise:
             raise Exception(error)
 
@@ -110,20 +100,23 @@ class MongoDBCommon:
             logger.debug(f"Could not read status while waiting: {e}")
         return phase, message
 
-    @staticmethod
-    def _record_wait(span, attempts, phase=None, message=None, error=None):
-        """Records a wait outcome on the current span as `mck.wait.*` attributes."""
-        span.set_attribute("mck.wait.attempts", attempts)
-        _LAST_WAIT_PROPERTIES["mck.wait.attempts"] = str(attempts)
+    def _record_wait(self, span, wait_name, timeout_s, attempts, error=None):
+        """Records a wait outcome on the span and for the JUnit report."""
+        phase, message = self._observed_status()
+        span_attrs = {
+            "mck.wait.name": wait_name,
+            "mck.wait.timeout_s": timeout_s,
+            "mck.wait.attempts": attempts,
+        }
         if phase is not None:
-            span.set_attribute("mck.wait.last_observed.phase", str(phase))
-            _LAST_WAIT_PROPERTIES["mck.wait.last_observed.phase"] = str(phase)
+            span_attrs["mck.wait.last_observed.phase"] = str(phase)
         if message is not None:
-            span.set_attribute("mck.wait.last_observed.message", str(message))
-            _LAST_WAIT_PROPERTIES["mck.wait.last_observed.message"] = str(message)
+            span_attrs["mck.wait.last_observed.message"] = str(message)
         if error is not None:
-            span.set_attribute("mck.wait.error", str(error))
-            _LAST_WAIT_PROPERTIES["mck.wait.error"] = str(error)
+            span_attrs["mck.wait.error"] = str(error)
+        span.set_attributes(span_attrs)
+        _LAST_WAIT_PROPERTIES.clear()
+        _LAST_WAIT_PROPERTIES.update({key: str(value) for key, value in span_attrs.items()})
 
     def get_generation(self) -> int:
         return self.backing_obj["metadata"]["generation"]

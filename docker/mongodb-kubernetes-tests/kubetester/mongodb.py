@@ -95,7 +95,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         def transition_changed(mdb: MongoDB):
             return mdb.get_status_last_transition_time() != last_transition
 
-        self.wait_for(transition_changed, timeout, should_raise=True, name="assert_state_transition_happens")
+        self.wait_for(transition_changed, timeout, should_raise=True)
 
     @TRACER.start_as_current_span("assert_reaches_phase")
     def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
