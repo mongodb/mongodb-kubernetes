@@ -62,6 +62,7 @@ def test_change_appdb(ops_manager: MongoDBOpsManager):
 
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
     # A stalled agent Stop step (10 min waitProcessDownTimeout) adds to the normal ~650s rolling restart.
+    # https://jira.mongodb.org/browse/CLOUDP-468416
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=2400)
 
 
