@@ -60,7 +60,7 @@ delete_projects_with_prefix() {
 delete_projects_with_prefix "${NAMESPACE}"
 
 if [[ "${WATCH_NAMESPACE:-}" != "" && "${WATCH_NAMESPACE:-}" != "*" ]]; then
-  for ns in ${WATCH_NAMESPACE/,// }; do
+  for ns in ${WATCH_NAMESPACE//,/ }; do
     delete_project "${ns}" || true
     delete_projects_with_prefix "${ns}" || true
   done
