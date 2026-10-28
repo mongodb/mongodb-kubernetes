@@ -18,6 +18,7 @@ fi
 
 # A worktree with a prefix shares the docker daemon, so it never deletes the network.
 if [[ -z "${WORKTREE_PREFIX}" && "${DELETE_KIND_NETWORK:-"false"}" == "true" ]]; then
+  refuse_to_delete_foreign_kind_clusters
   delete_kind_network
 fi
 
