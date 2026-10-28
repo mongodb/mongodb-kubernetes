@@ -6,6 +6,7 @@ csi kind-kind
 docker inspect -f {{.State.Running}} kind-registry
 docker network create --subnet=172.18.0.0/16 kind
 docker network inspect -f {{range .Containers}}{{.Name}} {{end}} kind
+docker network inspect kind
 docker network ls
 docker network rm kind
 docker rm -f kind-registry

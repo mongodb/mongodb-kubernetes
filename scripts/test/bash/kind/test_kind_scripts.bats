@@ -52,3 +52,28 @@ golden_run() {
     'source scripts/funcs/kind_network && echo "${KIND_NETWORK_PREFIX}|${KIND_LB_PREFIX}|${KIND_METALLB_RANGE_SINGLE}"'
   [ "${output}" = "172.18|172.16.34|172.16.34.200-172.16.34.250" ]
 }
+
+@test "docker_create_kind_network: a missing network is created with KIND_NETWORK_SUBNET" {
+  run_in_fake_repo_ok KIND_NETWORK_SUBNET=10.9.0.0/16 -- bash -c 'source scripts/funcs/kubernetes && docker_create_kind_network'
+  grep -qx 'docker network create --subnet=10.9.0.0/16 kind' "${CALL_LOG}"
+}
+
+@test "docker_create_kind_network: an existing kind network with the configured subnet is reused" {
+  run_in_fake_repo_ok DOCKER_STUB_NET_SUBNET="172.18.0.0/16 " -- bash -c 'source scripts/funcs/kubernetes && docker_create_kind_network'
+  [ "$(calls_matching '^docker network create')" -eq 0 ]
+}
+
+@test "docker_create_kind_network: an existing dual-stack kind network is reused" {
+  # kind creates its network with an IPv6 subnet too when it creates the network itself.
+  run_in_fake_repo_ok DOCKER_STUB_NET_SUBNET="172.18.0.0/16 fc00:f853:ccd:e793::/64 " -- bash -c 'source scripts/funcs/kubernetes && docker_create_kind_network'
+  [ "$(calls_matching '^docker network create')" -eq 0 ]
+}
+
+@test "docker_create_kind_network: an existing kind network with another subnet is an error that names it" {
+  run_in_fake_repo DOCKER_STUB_NET_SUBNET="172.19.0.0/16 " -- bash -c 'source scripts/funcs/kubernetes && docker_create_kind_network'
+
+  [ "$status" -ne 0 ]
+  [[ "${stderr}" == *"docker network 'kind' exists with subnet(s) '172.19.0.0/16' but KIND_NETWORK_SUBNET=172.18.0.0/16"* ]]
+  [[ "${stderr}" == *"docker network rm kind"* ]]
+  [ "$(calls_matching '^docker network create')" -eq 0 ]
+}

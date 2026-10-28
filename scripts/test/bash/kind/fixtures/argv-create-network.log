@@ -1,1 +1,2 @@
 docker network create --subnet=172.18.0.0/16 kind
+docker network inspect kind

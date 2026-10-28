@@ -298,11 +298,25 @@ docker_create_kind_network() {
   # drives the MetalLB IP ranges and the IPs the no-mesh tests assume. Override
   # KIND_NETWORK_SUBNET in the context to use a different /16; the bash scripts
   # and the Python test fixtures both derive their addresses from the same var.
-  # In case of any errors, verify if any other subnet is not already using that subnet.
   # shellcheck source=scripts/funcs/kind_network
   source "$(dirname "${BASH_SOURCE[0]}")/kind_network"
   local network="kind"
-  docker network create --subnet="${KIND_NETWORK_SUBNET}" "${network}" || true
+  if docker network inspect "${network}" >/dev/null 2>&1; then
+    # MetalLB ranges derived from KIND_NETWORK_SUBNET do not work on a network
+    # with another subnet, so fail here instead of later in the e2e tests.
+    local existing
+    existing="$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' "${network}" 2>/dev/null)"
+    case " ${existing} " in
+      *" ${KIND_NETWORK_SUBNET} "*) : ;;
+      *)
+        echo "ERROR: docker network '${network}' exists with subnet(s) '${existing% }' but KIND_NETWORK_SUBNET=${KIND_NETWORK_SUBNET}." >&2
+        echo "       Remove it (docker network rm ${network}) or align KIND_NETWORK_SUBNET." >&2
+        return 1
+        ;;
+    esac
+  else
+    docker network create --subnet="${KIND_NETWORK_SUBNET}" "${network}"
+  fi
 }
 
 docker_network_connect_to_kind() {

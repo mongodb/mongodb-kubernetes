@@ -32,6 +32,18 @@ recreate_setup() {
 echo "docker $*" >>"${CALL_LOG}"
 case "$1 $2" in
   "network ls") echo "abc123 kind bridge local" ;;
+  "network inspect")
+    if [[ "$3" == "-f" ]]; then
+      # The format tells the two callers apart: IPAM subnets or the containers.
+      case "$4" in
+        *IPAM*) echo "${DOCKER_STUB_NET_SUBNET:-}" ;;
+        *) [[ -z "${DOCKER_STUB_NET_CONTAINERS:-}" ]] || echo "${DOCKER_STUB_NET_CONTAINERS}" ;;
+      esac
+    else
+      # Absent network unless the test gives it a subnet.
+      [[ -n "${DOCKER_STUB_NET_SUBNET:-}" ]] || exit 1
+    fi
+    ;;
 esac
 exit 0
 STUB
