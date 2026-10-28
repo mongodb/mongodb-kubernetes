@@ -35,6 +35,9 @@ def _load_env_from_local_file_for_development():
         print(f"NAMESPACE already set, skipping loading environment variables from {env_file}")
         return
 
+    # The file of this side goes first: load_dotenv keeps the value a key already has.
+    side = "devc" if Path("/.dockerenv").exists() else "host"
+    load_dotenv(env_file.with_name(f"context.{side}.env"))
     load_dotenv(env_file)
     print(f"Loaded environment variables from file {env_file}")
 
