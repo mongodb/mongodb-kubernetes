@@ -256,6 +256,29 @@ variables:
         variant: release_om_and_agents
         patch_optional: true
 
+  - &base_om_dev_dependency
+    depends_on:
+      - name: build_om_dev_image
+        variant: build_om_dev_images
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
+
 parameters:
   - key: OVERRIDE_VERSION_ID
     value: ""
@@ -358,7 +381,7 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-community"
-  - variant_tags: [ "e2e_test_suite" ]
+  - variant_tags: [ "e2e_test_suite", "ops_manager_license" ]
     task: ".*"
     required_labels:
       - "evergreen:e2e-all"
@@ -764,6 +787,17 @@ tasks:
       - func: switch_context
       - func: setup_building_host
       - func: quay_staging_login
+      - func: pipeline
+        vars:
+          image_name: ops-manager
+
+  - name: build_om_dev_image
+    commands:
+      - func: clone
+      - func: switch_context
+      - func: setup_building_host
+      - func: quay_staging_login
+      - func: assume_om_dev_tarball_role
       - func: pipeline
         vars:
           image_name: ops-manager
@@ -1178,6 +1212,12 @@ task_groups:
       - e2e_appdb_tls_operator_upgrade_v1_32_to_mck
       - e2e_meko_mck_upgrade
       - e2e_standalone_to_replicaset_migration
+
+  - name: e2e_om_dev_task_group
+    max_hosts: -1
+    <<: [ *setup_group, *setup_and_teardown_task, *teardown_group ]
+    tasks:
+      - e2e_om_ops_manager_license
 
   # e2e_operator_race_with_telemetry_task_group includes the tests for testing the operator with race detector enabled
   # additionally, it sends telemetry to cloud-dev; more here: https://wiki.corp.mongodb.com/display/MMS/Telemetry
@@ -1856,6 +1896,15 @@ buildvariants:
       # so the AppDB monitoring agent resolves to an empty image tag.
       - name: e2e_ops_manager_kind_8_0_only_task_group
 
+  - name: e2e_om_dev_kind_ubi
+    display_name: e2e_om_dev_kind_ubi
+    tags: [ "staging", "ops_manager_license" ]
+    run_on:
+      - ubuntu2204-medium-high-memory
+    <<: [ *production_code_paths, *base_om_dev_dependency ]
+    tasks:
+      - name: e2e_om_dev_task_group
+
   - name: e2e_static_om90_kind_ubi
     display_name: e2e_static_om90_kind_ubi
     tags: [ "staging", "e2e_test_suite", "om9", "static" ]
@@ -2397,6 +2446,14 @@ buildvariants:
       - ubuntu2404-small
     tasks:
       - name: build_om_images
+
+  - name: build_om_dev_images
+    display_name: build_om_dev_images
+    tags: [ "staging", "ops_manager_license" ]
+    run_on:
+      - ubuntu2404-small
+    tasks:
+      - name: build_om_dev_image
 
   - name: build_om90_images
     display_name: build_om90_images

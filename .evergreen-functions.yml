@@ -662,7 +662,7 @@ functions:
       shell: bash
       include_expansions_in_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
       working_dir: src/github.com/mongodb/mongodb-kubernetes
-      command: scripts/evergreen/write-devprod-platforms-ecr-aws-profile.sh
+      command: scripts/evergreen/write-aws-profile.sh devprod-platforms-ecr
 
   pipeline:
     - *assume_devprod_platforms_ecr_role
@@ -684,6 +684,20 @@ functions:
           AGENT_VERSION_OVERRIDE: ${agent_version}
           AGENT_TOOLS_VERSION: ${agent_tools_version}
           MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
+
+  assume_om_dev_tarball_role:
+    - command: ec2.assume_role
+      display_name: Assume the Ops Manager dev tarball role
+      params:
+        role_arn: ${om_dev_tarball_role_arn}
+    - command: subprocess.exec
+      display_name: Write Ops Manager dev tarball AWS profile
+      type: setup
+      params:
+        shell: bash
+        include_expansions_in_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        command: scripts/evergreen/write-aws-profile.sh om-dev-tarball
 
   # Scans the images that were just built and pushed for known CVEs using trivy, and
   # notifies Slack with a single message listing the ones that have fixable vulnerabilities
