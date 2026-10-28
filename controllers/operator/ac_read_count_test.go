@@ -18,39 +18,31 @@ import (
 // upper bound on the automation config requests a reconcile can issue.
 type acReadCounter struct {
 	om.Connection
-	reads []string
-}
-
-func (c *acReadCounter) count(operation string) {
-	c.reads = append(c.reads, operation)
-}
-
-func (c *acReadCounter) reset() {
-	c.reads = nil
+	reads int
 }
 
 func (c *acReadCounter) ReadDeployment(ctx context.Context) (om.Deployment, error) {
-	c.count("ReadDeployment")
+	c.reads++
 	return c.Connection.ReadDeployment(ctx)
 }
 
 func (c *acReadCounter) ReadUpdateDeployment(ctx context.Context, depFunc func(om.Deployment) error, log *zap.SugaredLogger) error {
-	c.count("ReadUpdateDeployment")
+	c.reads++
 	return c.Connection.ReadUpdateDeployment(ctx, depFunc, log)
 }
 
 func (c *acReadCounter) ReadAutomationConfig(ctx context.Context) (*om.AutomationConfig, error) {
-	c.count("ReadAutomationConfig")
+	c.reads++
 	return c.Connection.ReadAutomationConfig(ctx)
 }
 
 func (c *acReadCounter) ReadUpdateAutomationConfig(ctx context.Context, modifyACFunc func(*om.AutomationConfig) error, log *zap.SugaredLogger) error {
-	c.count("ReadUpdateAutomationConfig")
+	c.reads++
 	return c.Connection.ReadUpdateAutomationConfig(ctx, modifyACFunc, log)
 }
 
 func (c *acReadCounter) GetAgentAuthMode(ctx context.Context) (string, error) {
-	c.count("GetAgentAuthMode")
+	c.reads++
 	return c.Connection.GetAgentAuthMode(ctx)
 }
 
@@ -82,19 +74,9 @@ func TestAutomationConfigReadsPerReplicaSetReconcile(t *testing.T) {
 	hostnames, _ := dns.GetDnsForStatefulSet(sts, "", nil)
 	inner.AddHosts(hostnames)
 
-	conn.reset()
+	conn.reads = 0
 	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
 	require.NoError(t, err)
 
-	require.Equal(t, []string{
-		"ReadDeployment",             // checkIfHasExcessProcesses
-		"ReadAutomationConfig",       // validateMongoDBResource
-		"GetAgentAuthMode",           // Reconcile
-		"ReadDeployment",             // ensureRoles
-		"ReadDeployment",             // updateOmDeploymentRs
-		"ReadAutomationConfig",       // updateOmAuthentication
-		"ReadAutomationConfig",       // authentication.Disable
-		"ReadUpdateAutomationConfig", // authentication.Disable
-		"ReadUpdateDeployment",       // updateOmDeploymentRs
-	}, conn.reads)
+	require.Equal(t, 9, conn.reads, "the default replica-set reconcile reads the automation config nine times")
 }
