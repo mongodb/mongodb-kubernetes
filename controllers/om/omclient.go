@@ -187,6 +187,16 @@ type HTTPOmConnection struct {
 	once       sync.Once
 	client     *api.Client
 	clientOpts []func(*api.Client) error // Additional options for the HTTP client (e.g., for testing)
+
+	// automationConfig caches the body of the last automationConfig read on this
+	// connection. Connections are created per reconcile
+	// (connection.PrepareOpsManagerConnection), so an entry lives for at most one
+	// reconcile. Any write to the automationConfig subtree through this connection
+	// clears the entry, so a read after a write observes the new state.
+	automationConfig struct {
+		sync.Mutex
+		body []byte
+	}
 }
 
 func (oc *HTTPOmConnection) ReadUpdateAgentsLogRotation(ctx context.Context, logRotateSetting mdbv1.AgentConfig, log *zap.SugaredLogger) error {
@@ -295,7 +305,7 @@ func (oc *HTTPOmConnection) ReadAuditLogRotation(ctx context.Context) (*automati
 }
 
 func (oc *HTTPOmConnection) GetAgentAuthMode(ctx context.Context) (string, error) {
-	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
+	ans, err := oc.automationConfigBody(ctx, false)
 	if err != nil {
 		return "", err
 	}
@@ -401,12 +411,23 @@ func (oc *HTTPOmConnection) OpsManagerVersion() versionutil.OpsManagerVersion {
 
 // UpdateDeployment updates a given deployment to the new deployment object passed as parameter.
 func (oc *HTTPOmConnection) UpdateDeployment(ctx context.Context, deployment Deployment) ([]byte, error) {
-	return oc.put(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()), deployment)
+	return oc.put(ctx, oc.automationConfigPath(), deployment)
 }
 
 // ReadDeployment returns a Deployment object for this group
 func (oc *HTTPOmConnection) ReadDeployment(ctx context.Context) (Deployment, error) {
-	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
+	return oc.buildDeployment(ctx, false)
+}
+
+// readDeploymentForUpdate returns the deployment that a read-modify-write
+// operation modifies. It always reads from Ops Manager, because a write must
+// build on the current state rather than on a body this connection read earlier.
+func (oc *HTTPOmConnection) readDeploymentForUpdate(ctx context.Context) (Deployment, error) {
+	return oc.buildDeployment(ctx, true)
+}
+
+func (oc *HTTPOmConnection) buildDeployment(ctx context.Context, refresh bool) (Deployment, error) {
+	ans, err := oc.automationConfigBody(ctx, refresh)
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +436,19 @@ func (oc *HTTPOmConnection) ReadDeployment(ctx context.Context) (Deployment, err
 }
 
 func (oc *HTTPOmConnection) ReadAutomationConfig(ctx context.Context) (*AutomationConfig, error) {
-	ans, err := oc.get(ctx, fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID()))
+	return oc.buildAutomationConfig(ctx, false)
+}
+
+// readAutomationConfigForUpdate returns the automation config that a
+// read-modify-write operation modifies. It always reads from Ops Manager, because
+// a write must build on the current state rather than on a body this connection
+// read earlier.
+func (oc *HTTPOmConnection) readAutomationConfigForUpdate(ctx context.Context) (*AutomationConfig, error) {
+	return oc.buildAutomationConfig(ctx, true)
+}
+
+func (oc *HTTPOmConnection) buildAutomationConfig(ctx context.Context, refresh bool) (*AutomationConfig, error) {
+	ans, err := oc.automationConfigBody(ctx, refresh)
 	if err != nil {
 		return nil, err
 	}
@@ -425,6 +458,40 @@ func (oc *HTTPOmConnection) ReadAutomationConfig(ctx context.Context) (*Automati
 	return ac, apierror.New(err)
 }
 
+// automationConfigPath returns the Ops Manager path of this project's automation config.
+func (oc *HTTPOmConnection) automationConfigPath() string {
+	return fmt.Sprintf("/api/public/v1.0/groups/%s/automationConfig", oc.GroupID())
+}
+
+// automationConfigBody returns the automationConfig response body. A refresh
+// always issues a new request and replaces the cached body. Read-modify-write
+// operations refresh so that the state they write is not older than a previous
+// write to the same project made through another connection. The lock is held
+// across the request, so concurrent reads issue one request.
+func (oc *HTTPOmConnection) automationConfigBody(ctx context.Context, refresh bool) ([]byte, error) {
+	oc.automationConfig.Lock()
+	defer oc.automationConfig.Unlock()
+
+	if !refresh && oc.automationConfig.body != nil {
+		return oc.automationConfig.body, nil
+	}
+	body, err := oc.get(ctx, oc.automationConfigPath())
+	if err != nil {
+		return nil, err
+	}
+	oc.automationConfig.body = body
+	return body, nil
+}
+
+// invalidateAutomationConfig drops the cached automationConfig body. Call it
+// before every write to the automationConfig subtree: a write makes all earlier
+// reads stale, and a failed write leaves the server state unknown.
+func (oc *HTTPOmConnection) invalidateAutomationConfig() {
+	oc.automationConfig.Lock()
+	oc.automationConfig.body = nil
+	oc.automationConfig.Unlock()
+}
+
 // ReadUpdateDeployment performs the "read-modify-update" operation on OpsManager Deployment.
 // Note, that the mutex locks infinitely (there is no built-in support for timeouts for locks in Go) which seems to be
 // ok as OM endpoints are not supposed to hang for long
@@ -432,7 +499,7 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(ctx context.Context, changeDepl
 	mutex := GetMutex(oc.GroupName(), oc.OrgID())
 	mutex.Lock()
 	defer mutex.Unlock()
-	deployment, err := oc.ReadDeployment(ctx)
+	deployment, err := oc.readDeploymentForUpdate(ctx)
 	if err != nil {
 		return err
 	}
@@ -484,7 +551,7 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(ctx context.Context, modi
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	ac, err := oc.ReadAutomationConfig(ctx)
+	ac, err := oc.readAutomationConfigForUpdate(ctx)
 	if err != nil {
 		log.Errorf("error reading automation config. %s", err)
 		return err
@@ -1083,11 +1150,21 @@ func (oc *HTTPOmConnection) httpVerb(ctx context.Context, method, path string, v
 	if err != nil {
 		return nil, err
 	}
+	if method != http.MethodGet && oc.isAutomationConfigPath(path) {
+		oc.invalidateAutomationConfig()
+	}
 
 	response, header, err := client.Request(ctx, method, oc.BaseURL(), path, v)
 	oc.setVersionFromHeader(header)
 
 	return response, err
+}
+
+// isAutomationConfigPath reports whether path addresses the automation config or
+// a sub-resource of it.
+func (oc *HTTPOmConnection) isAutomationConfigPath(path string) bool {
+	automationConfigPath := oc.automationConfigPath()
+	return path == automationConfigPath || strings.HasPrefix(path, automationConfigPath+"/")
 }
 
 func (oc *HTTPOmConnection) getWithAgentAuth(ctx context.Context, path string, agentApiKey string) ([]byte, error) {
