@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"testing"
 
 	"go.uber.org/zap"
@@ -19,38 +18,22 @@ import (
 // the GET requests. It removes TCP and server-goroutine noise from the
 // benchmarks, which measure the client-side allocation cost.
 type acFakeTransport struct {
-	mu      sync.Mutex
 	payload []byte
 	gets    int
 }
 
 func (t *acFakeTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	t.mu.Lock()
 	t.gets++
-	t.mu.Unlock()
 
-	status := http.StatusOK
 	body := t.payload
 	if req.Method == http.MethodPut {
 		body = nil
 	}
 	return &http.Response{
-		Status:        fmt.Sprintf("%d %s", status, http.StatusText(status)),
-		StatusCode:    status,
-		Proto:         "HTTP/1.1",
-		ProtoMajor:    1,
-		ProtoMinor:    1,
-		Request:       req,
-		Header:        http.Header{"X-Mongodb-Service-Version": []string{"versionString=8.0.0"}},
-		Body:          io.NopCloser(bytes.NewReader(body)),
-		ContentLength: int64(len(body)),
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Mongodb-Service-Version": []string{"versionString=8.0.0"}},
+		Body:       io.NopCloser(bytes.NewReader(body)),
 	}, nil
-}
-
-func (t *acFakeTransport) getCount() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.gets
 }
 
 // buildAutomationConfigPayload returns an automation config shaped JSON payload
@@ -63,21 +46,18 @@ func buildAutomationConfigPayload(size int) []byte {
 		`"storage":{"dbPath":"/data/db"},"setParameter":{"enableTestCommands":"false"}},` +
 		`"lastGoalVersionAchieved":5,"plan":[]}`
 
-	var processes strings.Builder
-	written := 0
-	for i := 0; written < size; i++ {
-		if i > 0 {
-			processes.WriteString(",")
-		}
-		n, _ := fmt.Fprintf(&processes, process, i, i)
-		written += n
-	}
-
 	var sb strings.Builder
 	sb.WriteString(`{"version":123,"auth":{"autoAuthMechanism":"SCRAM-SHA-256","usersWanted":[],"key":"`)
 	sb.WriteString(strings.Repeat("k", 64))
 	sb.WriteString(`"},"tls":{"clientCertificateMode":"OPTIONAL"},"processes":[`)
-	sb.WriteString(processes.String())
+	written := 0
+	for i := 0; written < size; i++ {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		n, _ := fmt.Fprintf(&sb, process, i, i)
+		written += n
+	}
 	sb.WriteString(`],"replicaSets":[{"_id":"rs","members":[{"_id":0,"host":"rs-0.svc:27017"}]}]}`)
 	return []byte(sb.String())
 }
@@ -101,6 +81,16 @@ func BenchmarkAutomationConfigReadSequence(b *testing.B) {
 	restore := zap.ReplaceGlobals(zap.NewNop())
 	defer restore()
 
+	prefix := func(ctx context.Context, conn *HTTPOmConnection) error {
+		if _, err := conn.ReadDeployment(ctx); err != nil {
+			return err
+		}
+		if _, err := conn.ReadAutomationConfig(ctx); err != nil {
+			return err
+		}
+		_, err := conn.GetAgentAuthMode(ctx)
+		return err
+	}
 	sequences := []struct {
 		name  string
 		reads func(ctx context.Context, conn *HTTPOmConnection) error
@@ -108,13 +98,7 @@ func BenchmarkAutomationConfigReadSequence(b *testing.B) {
 		{
 			name: "steady-state",
 			reads: func(ctx context.Context, conn *HTTPOmConnection) error {
-				if _, err := conn.ReadDeployment(ctx); err != nil {
-					return err
-				}
-				if _, err := conn.ReadAutomationConfig(ctx); err != nil {
-					return err
-				}
-				if _, err := conn.GetAgentAuthMode(ctx); err != nil {
+				if err := prefix(ctx, conn); err != nil {
 					return err
 				}
 				_, err := conn.ReadDeployment(ctx)
@@ -124,13 +108,7 @@ func BenchmarkAutomationConfigReadSequence(b *testing.B) {
 		{
 			name: "with-read-modify-write",
 			reads: func(ctx context.Context, conn *HTTPOmConnection) error {
-				if _, err := conn.ReadDeployment(ctx); err != nil {
-					return err
-				}
-				if _, err := conn.ReadAutomationConfig(ctx); err != nil {
-					return err
-				}
-				if _, err := conn.GetAgentAuthMode(ctx); err != nil {
+				if err := prefix(ctx, conn); err != nil {
 					return err
 				}
 				return conn.ReadUpdateDeployment(ctx, func(Deployment) error { return nil }, nopLogger())
@@ -146,14 +124,12 @@ func BenchmarkAutomationConfigReadSequence(b *testing.B) {
 
 				b.ReportAllocs()
 				b.SetBytes(int64(len(transport.payload)))
-				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
+				for b.Loop() {
 					if err := sequence.reads(ctx, transport.connection()); err != nil {
 						b.Fatal(err)
 					}
 				}
-				b.StopTimer()
-				b.ReportMetric(float64(transport.getCount())/float64(b.N), "ac-gets/op")
+				b.ReportMetric(float64(transport.gets)/float64(b.N), "ac-gets/op")
 			})
 		}
 	}
@@ -171,7 +147,7 @@ func BenchmarkAutomationConfigReads(b *testing.B) {
 
 	b.Run("cold", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			conn := transport.connection()
 			if _, err := conn.ReadDeployment(ctx); err != nil {
 				b.Fatal(err)
@@ -185,22 +161,8 @@ func BenchmarkAutomationConfigReads(b *testing.B) {
 		if _, err := conn.ReadDeployment(ctx); err != nil {
 			b.Fatal(err)
 		}
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			if _, err := conn.ReadDeployment(ctx); err != nil {
-				b.Fatal(err)
-			}
-		}
-	})
-
-	b.Run("cold_after_write", func(b *testing.B) {
-		b.ReportAllocs()
-		conn := transport.connection()
-		for i := 0; i < b.N; i++ {
-			if _, err := conn.ReadDeployment(ctx); err != nil {
-				b.Fatal(err)
-			}
-			if _, err := conn.UpdateDeployment(ctx, Deployment{"version": i}); err != nil {
 				b.Fatal(err)
 			}
 		}
