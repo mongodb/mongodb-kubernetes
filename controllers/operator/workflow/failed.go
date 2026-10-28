@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/apierrors"
 )
 
@@ -20,7 +21,17 @@ type failedStatus struct {
 }
 
 func Failed(err error, params ...any) *failedStatus {
-	return &failedStatus{commonStatus: newCommonStatus(err.Error(), params...), err: err, retryInSeconds: 10}
+	f := &failedStatus{commonStatus: newCommonStatus(err.Error(), params...), err: err, retryInSeconds: 10}
+	omErr := apierror.NewNonNil(err)
+	if !omErr.IsLicenseEnforced() {
+		return f
+	}
+	return f.
+		WithAdditionalOptions(
+			status.NewLicenseStatusOptionWithCondition(
+				status.LicenseEnforcedCondition(omErr.Detail),
+			),
+		)
 }
 
 func (f *failedStatus) WithWarnings(warnings []status.Warning) *failedStatus {
@@ -38,7 +49,7 @@ func (f *failedStatus) ReconcileResult() (reconcile.Result, error) {
 }
 
 func (f *failedStatus) WithAdditionalOptions(options ...status.Option) *failedStatus {
-	f.options = options
+	f.options = append(f.options, options...)
 	return f
 }
 
@@ -84,5 +95,6 @@ func mergedFailed(p1, p2 *failedStatus) *failedStatus {
 	msg := p1.msg + ", " + p2.msg
 	p := Failed(xerrors.Errorf(msg))
 	p.warnings = append(p1.warnings, p2.warnings...)
+	p.options = append(append(p.options, p1.options...), p2.options...)
 	return p
 }

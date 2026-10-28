@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,6 +33,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -2393,4 +2395,71 @@ func TestReconcile_ReleasedAppDBRoleCRDoesNotReclaimSecrets(t *testing.T) {
 		assert.Equal(t, types.UID("om-uid-1111"), s.OwnerReferences[0].UID,
 			"secret %s must stay OM-owned while the CR is released", name)
 	}
+}
+
+func TestMongoDBReplicaSet_NonLicenseMutationDoesNotSetLicenseCondition(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("license-rs-other-err").Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mocked := connection.(*om.MockedOmConnection)
+		mocked.Hostnames = calculateReplicaSetExternalHostnames(rs)
+		mocked.MutationErr = apierror.NewErrorWithCode(apierror.ProjectNotFound)
+	})
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+
+	result, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Second, result.RequeueAfter)
+
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	assert.Equal(t, status.PhaseFailed, rs.Status.Phase)
+	assert.Nil(t, meta.FindStatusCondition(rs.Status.Conditions, status.ConditionOpsManagerLicenseReady))
+}
+
+func TestReplicaSet_LicenseEnforcedBlocksAndRecoversWithoutRecreation(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	var mocked *om.MockedOmConnection
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mocked = connection.(*om.MockedOmConnection)
+		mocked.Hostnames = calculateReplicaSetExternalHostnames(rs)
+		mocked.MutationErr = &apierror.Error{ErrorCode: apierror.LicenseEnforced, Detail: "This Ops Manager is not licensed for this operation."}
+	})
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+
+	result, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Second, result.RequeueAfter)
+
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	crUID := rs.UID
+	assert.Equal(t, status.PhaseFailed, rs.Status.Phase)
+	assert.Contains(t, rs.Status.Message, "This Ops Manager is not licensed for this operation.")
+	ready := meta.FindStatusCondition(rs.Status.Conditions, status.ConditionOpsManagerLicenseReady)
+	require.NotNil(t, ready)
+	assert.Equal(t, metav1.ConditionFalse, ready.Status)
+	assert.Equal(t, status.ReasonLicenseEnforced, ready.Reason)
+	assert.Equal(t, "This Ops Manager is not licensed for this operation.", ready.Message)
+	assert.Equal(t, rs.GetGeneration(), ready.ObservedGeneration)
+
+	sts := appsv1.StatefulSet{}
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), &sts))
+	stsUID := sts.UID
+
+	require.NotNil(t, mocked)
+	mocked.MutationErr = nil
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	assert.Equal(t, crUID, rs.UID)
+	ready = meta.FindStatusCondition(rs.Status.Conditions, status.ConditionOpsManagerLicenseReady)
+	require.NotNil(t, ready)
+	assert.Equal(t, metav1.ConditionTrue, ready.Status)
+	assert.Equal(t, status.ReasonLicenseReady, ready.Reason)
+
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), &sts))
+	assert.Equal(t, stsUID, sts.UID)
 }

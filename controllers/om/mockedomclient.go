@@ -94,6 +94,7 @@ type MockedOmConnection struct {
 
 	// UpdateMonitoringAgentConfigFunc is delegated to if not nil when UpdateMonitoringAgentConfig is called
 	UpdateMonitoringAgentConfigFunc func(mac *MonitoringAgentConfig, log *zap.SugaredLogger) ([]byte, error)
+	MutationErr                     error
 	// AgentsDelayCount is the number of loops to wait until the agents reach the goal
 	AgentsDelayCount int
 	// mocked client keeps track of all implemented functions called - uses reflection Func for this to enable type-safety
@@ -308,6 +309,9 @@ func (c *CachedOMConnectionFactory) SetPostCreateHook(postCreateHook func(Connec
 func (oc *MockedOmConnection) UpdateDeployment(ctx context.Context, d Deployment) ([]byte, error) {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateDeployment))
 	oc.numRequestsSent++
+	if oc.MutationErr != nil {
+		return nil, oc.MutationErr
+	}
 	oc.deployment = d
 	return nil, nil
 }
@@ -327,6 +331,9 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(ctx context.Context, depFunc 
 	}
 	err := depFunc(oc.deployment)
 	oc.numRequestsSent++
+	if oc.MutationErr != nil {
+		return oc.MutationErr
+	}
 	return err
 }
 
@@ -346,6 +353,9 @@ func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(ctx context.Contex
 
 func (oc *MockedOmConnection) UpdateAutomationConfig(ctx context.Context, ac *AutomationConfig, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.UpdateAutomationConfig))
+	if oc.MutationErr != nil {
+		return oc.MutationErr
+	}
 	oc.deployment = ac.Deployment
 	oc.automationConfig = ac
 	return nil
@@ -379,6 +389,9 @@ func (oc *MockedOmConnection) ReadUpdateAutomationConfig(ctx context.Context, mo
 
 	_ = oc.automationConfig.Apply()
 	oc.deployment = oc.automationConfig.Deployment
+	if oc.MutationErr != nil {
+		return oc.MutationErr
+	}
 	return err
 }
 
