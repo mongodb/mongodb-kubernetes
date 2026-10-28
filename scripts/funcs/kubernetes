@@ -353,7 +353,18 @@ docker_run_local_registry() {
   running="$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
   if [ "${running}" != 'true' ]; then
     docker rm -f "${reg_name}" 2>/dev/null || true
-    docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2
+    if ! docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2; then
+      # Two setups on one docker host can start the registry at the same moment; the
+      # loser of that race is fine as long as the winner's container comes up.
+      local attempt
+      for attempt in 1 2 3; do
+        sleep 1
+        running="$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
+        [ "${running}" != 'true' ] || return 0
+      done
+      echo "ERROR: could not start the local registry ${reg_name}" >&2
+      return 1
+    fi
   fi
 }
 

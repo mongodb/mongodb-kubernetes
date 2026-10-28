@@ -112,6 +112,15 @@ case "$1 $2" in
       [[ -n "${DOCKER_STUB_NET_SUBNET:-}" ]] || exit 1
     fi
     ;;
+  "inspect -f")
+    # After a `docker run` the registry may be up (another setup won the start race).
+    if [[ -e "${CALL_LOG}.ran" ]]; then echo "${DOCKER_STUB_REGISTRY_RUNNING_AFTER_RUN:-${DOCKER_STUB_REGISTRY_RUNNING:-}}"
+    else echo "${DOCKER_STUB_REGISTRY_RUNNING:-}"; fi
+    ;;
+  "run -d")
+    touch "${CALL_LOG}.ran"
+    [[ "${DOCKER_STUB_RUN_FAILS:-}" != 1 ]] || { echo "name conflict" >&2; exit 125; }
+    ;;
 esac
 exit 0
 STUB

@@ -37,6 +37,27 @@ golden_run() {
   golden_run run-registry -- bash -c 'source scripts/funcs/kubernetes && docker_run_local_registry kind-registry 5000'
 }
 
+@test "docker_run_local_registry: a running registry is left alone" {
+  run_in_fake_repo_ok DOCKER_STUB_REGISTRY_RUNNING=true -- \
+    bash -c 'source scripts/funcs/kubernetes && docker_run_local_registry kind-registry 5000'
+
+  [ "$(calls_matching '^docker rm')" -eq 0 ]
+  [ "$(calls_matching '^docker run')" -eq 0 ]
+}
+
+@test "docker_run_local_registry: losing the start race is fine when the registry of the other setup is running" {
+  run_in_fake_repo_ok DOCKER_STUB_RUN_FAILS=1 DOCKER_STUB_REGISTRY_RUNNING_AFTER_RUN=true -- \
+    bash -c 'source scripts/funcs/kubernetes && docker_run_local_registry kind-registry 5000'
+}
+
+@test "docker_run_local_registry: a failed start with no registry running afterwards is an error" {
+  run_in_fake_repo DOCKER_STUB_RUN_FAILS=1 -- \
+    bash -c 'source scripts/funcs/kubernetes && docker_run_local_registry kind-registry 5000'
+
+  [ "$status" -ne 0 ]
+  [[ "${stderr}" == *"could not start the local registry kind-registry"* ]]
+}
+
 @test "golden: interconnect_kind_clusters issues the commands of the multi-cluster setup" {
   use_real scripts/dev/interconnect_kind_clusters.sh
 
