@@ -8,6 +8,43 @@ set +e
 
 source scripts/funcs/printing
 
+# run_with_timeout limits a command to 30 seconds, so a single hung kubectl call
+# cannot stall the rest of the dump. The Evergreen hosts provide coreutils timeout.
+run_with_timeout() {
+    if command -v timeout > /dev/null 2>&1; then
+        timeout 30 "$@"
+    else
+        "$@"
+    fi
+}
+
+# cp_from_pod copies a file from a Pod and prints the kubectl error when the copy
+# fails, so a missing artifact is distinguishable from a failed copy.
+cp_from_pod() {
+    local context="${1}"
+    local namespace="${2}"
+    local pod="${3}"
+    local container="${4}"
+    local remote_file="${5}"
+    local local_file="${6}"
+
+    local output
+    local rc=0
+    if [[ -n "${container}" ]]; then
+        output=$(run_with_timeout kubectl --context="${context}" cp -c "${container}" "${namespace}/${pod}:${remote_file}" "${local_file}" 2>&1) || rc=$?
+    else
+        output=$(run_with_timeout kubectl --context="${context}" cp "${namespace}/${pod}:${remote_file}" "${local_file}" 2>&1) || rc=$?
+    fi
+
+    if [[ ${rc} -eq 124 ]]; then
+        output="timed out after 30s"
+    fi
+
+    if [[ ${rc} -ne 0 ]]; then
+        echo "WARNING: kubectl cp failed for pod ${pod} container ${container:-default} file ${remote_file}: ${output//$'\n'/ }"
+    fi
+}
+
 _dump_all_non_default_namespaces() {
     local context="${1}"
     local original_context
@@ -161,29 +198,31 @@ dump_pod_logs() {
     if is_mdb_resource_pod "${context}" "${pod}" "${namespace}"; then
         # for MDB resource Pods, we dump the log files from the file system
         echo "Writing agent and mongodb logs for pod ${pod} to logs"
-        kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${prefix}${pod}-agent-verbose.log" &> /dev/null
-        kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/automation-agent.log" "logs/${prefix}${pod}-agent.log" &> /dev/null
-        kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/monitoring-agent-verbose.log" "logs/${prefix}${pod}-monitoring-agent-verbose.log" &> /dev/null
-        kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/monitoring-agent.log" "logs/${prefix}${pod}-monitoring-agent.log" &> /dev/null
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent-monitoring" > "logs/${prefix}${pod}-monitoring-agent-stdout.log" || true
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongod" > "logs/${prefix}${pod}-mongod-container.log" || true
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent" > "logs/${prefix}${pod}-mongodb-agent-container.log" || true
-        kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/mongodb.log" "logs/${prefix}${pod}-mongodb.log" &> /dev/null || true
+        cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/automation-agent-verbose.log" "logs/${prefix}${pod}-agent-verbose.log"
+        cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/automation-agent.log" "logs/${prefix}${pod}-agent.log"
+        cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/monitoring-agent-verbose.log" "logs/${prefix}${pod}-monitoring-agent-verbose.log"
+        cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/monitoring-agent.log" "logs/${prefix}${pod}-monitoring-agent.log"
+        run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent-monitoring" > "logs/${prefix}${pod}-monitoring-agent-stdout.log" || true
+        run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongod" > "logs/${prefix}${pod}-mongod-container.log" || true
+        run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent" > "logs/${prefix}${pod}-mongodb-agent-container.log" || true
+        cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/mongodb.log" "logs/${prefix}${pod}-mongodb.log"
 
         # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
+        run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
+    elif kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null | grep -q 'mongodb-agent'; then
+        echo "WARNING: pod ${pod} has an agent container but no agent log file; skipping agent log dump"
     fi
 
     for container in $(kubectl --context="${context}" get pods -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}'); do
         echo "Writing log file for pod ${pod} - container ${container} to logs/${prefix}${pod}-${container}.log"
-        kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}.log"
+        run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}.log"
 
         # Check if the container has restarted by examining its restart count
         restartCount=$(kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o jsonpath="{.status.containerStatuses[?(@.name=='${container}')].restartCount}")
 
         if [ "${restartCount}" -gt 0 ]; then
             echo "Writing log file for restarted ${pod} - container ${container} to logs/${prefix}${pod}-${container}-previous.log"
-            kubectl --context="${context}" logs --previous -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}-previous.log" || true
+            run_with_timeout kubectl --context="${context}" logs --previous -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}-previous.log" || true
         fi
 
     done
@@ -200,21 +239,21 @@ dump_pod_readiness_state() {
     # kubectl cp won't create any files if the file doesn't exist in the container
     agent_health_status="logs/${prefix}${pod}-agent-health-status.json"
     echo "Writing agent ${agent_health_status}"
-    kubectl --context="${context}" cp -c "mongodb-agent" "${namespace}/${pod}:/var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null
+    cp_from_pod "${context}" "${namespace}" "${pod}" "mongodb-agent" "/var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}"
     ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")
 
     if [[ ! -f "${agent_health_status}" ]]; then
-      kubectl --context="${context}" cp -c "mongodb-enterprise-database" "${namespace}/${pod}:/var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}" &> /dev/null
+      cp_from_pod "${context}" "${namespace}" "${pod}" "mongodb-enterprise-database" "/var/log/mongodb-mms-automation/agent-health-status.json" "${agent_health_status}"
       ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")
     fi
 
     if [[ ! -f "${agent_health_status}" ]]; then
       echo "Agent health status not found; trying community health status: "
-      kubectl --context="${context}" cp -c "mongodb-agent" "${namespace}/${pod}:/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json" "${agent_health_status}" &> /dev/null
+      cp_from_pod "${context}" "${namespace}" "${pod}" "mongodb-agent" "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json" "${agent_health_status}"
       ([[ -f "${agent_health_status}" ]] && jq . < "${agent_health_status}" > tmpfile && mv tmpfile "${agent_health_status}")
     fi
 
-    kubectl --context="${context}" cp "${namespace}/${pod}:/var/log/mongodb-mms-automation/readiness.log" "logs/${prefix}${pod}-readiness.log" &> /dev/null
+    cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/readiness.log" "logs/${prefix}${pod}-readiness.log"
 }
 
 # dump_pod_config dumps mongod configuration and cluster-config.
@@ -226,11 +265,11 @@ dump_pod_config() {
 
     # cluster-config.json is a mounted volume and the actual file is located in the "..data" directory
     pod_cluster_config="logs/${prefix}${pod}-cluster-config.json"
-    kubectl --context="${context}" cp "${namespace}/${pod}:/var/lib/mongodb-automation/..data/cluster-config.json" "${pod_cluster_config}" &> /dev/null
+    cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/lib/mongodb-automation/..data/cluster-config.json" "${pod_cluster_config}"
     ([[ -f "${pod_cluster_config}" ]] && jq . < "${pod_cluster_config}" > tmpfile && mv tmpfile "${pod_cluster_config}")
 
     # Mongodb Configuration
-    kubectl --context="${context}" cp "${namespace}/${pod}:data/automation-mongod.conf" "logs/${prefix}${pod}-automation-mongod.conf" &> /dev/null
+    cp_from_pod "${context}" "${namespace}" "${pod}" "" "data/automation-mongod.conf" "logs/${prefix}${pod}-automation-mongod.conf"
 }
 
 dump_configmaps() {
@@ -248,12 +287,31 @@ decode_secret() {
     kubectl --context="${context}" get secret "${secret}" -o json -n "${namespace}" | jq -r '.data | with_entries(.value |= @base64d)' 2> /dev/null
 }
 
+# redact_secret_values reads decoded Secret JSON from stdin and replaces the
+# value of every key that names a credential. Keys such as ca, ca-pem, tls.crt,
+# and user do not match the pattern, so certificate values and usernames stay.
+redact_secret_values() {
+    jq '
+      def redact:
+        if type == "object" then
+          with_entries(
+            if (.key | test("key|password|token|secret|credential"; "i"))
+            then .value = "<redacted>"
+            else .value |= redact
+            end
+          )
+        elif type == "array" then map(redact)
+        else . end;
+      redact
+    ' 2> /dev/null
+}
+
 dump_secrets() {
     local context="${1}"
     local namespace="${2}"
     local prefix="${3}"
     for secret in $(kubectl --context="${context}" get secrets -n "${namespace}" --no-headers | grep -v service-account-token | grep -v dockerconfigjson | awk '{ print $1 }'); do
-        decode_secret "${context}" "${secret}" "${namespace}" > "logs/${prefix}z_secret_${secret}.txt"
+        decode_secret "${context}" "${secret}" "${namespace}" | redact_secret_values > "logs/${prefix}z_secret_${secret}.txt"
     done
 }
 
@@ -331,12 +389,12 @@ download_test_results() {
     echo "Downloading test results from ${test_pod_name} pod"
 
     # Try to copy from shared volume using the keepalive container
-    if kubectl --context="${context}" cp "${namespace}/${test_pod_name}:/tmp/results/result.suite" "logs/result.suite" -c keepalive 2>/dev/null; then
+    if run_with_timeout kubectl --context="${context}" cp "${namespace}/${test_pod_name}:/tmp/results/result.suite" "logs/result.suite" -c keepalive 2>/dev/null; then
         echo "Successfully downloaded result.suite from test pod"
     else
         echo "Could not find result.suite via direct copy"
         # Get logs from the test container
-        kubectl --context="${context}" logs -n "${namespace}" "${test_pod_name}" -c e2e-test > "logs/result.suite" 2>/dev/null
+        run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${test_pod_name}" -c e2e-test > "logs/result.suite" 2>/dev/null
     fi
 }
 
@@ -367,7 +425,7 @@ dump_job_pod_logs() {
             echo "--- Pod: ${pod} ---" >> "${out_file}"
             for container in $(kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null); do
                 echo "---- container: ${container} ----" >> "${out_file}"
-                kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" >> "${out_file}" 2>&1 || true
+                run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" >> "${out_file}" 2>&1 || true
                 echo "" >> "${out_file}"
             done
         done
@@ -425,7 +483,7 @@ dump_namespace() {
     dump_objects "${context}" pvc "Persistent Volume Claims" "${namespace}" "get -o yaml" "logs/${prefix}z_persistent_volume_claims.txt"
     dump_objects "${context}" deploy "Deployments" "${namespace}" "get -o yaml" "logs/${prefix}z_deployments.txt"
     dump_objects "${context}" deploy "Deployments" "${namespace}" "describe" "logs/${prefix}z_deployments_describe.txt"
-    dump_objects "${context}" sts "StatefulSets" "${namespace}" "describe" "logs/${prefix}z_statefulsets.txt"
+    dump_objects "${context}" sts "StatefulSets" "${namespace}" "describe" "logs/${prefix}z_statefulsets_describe.txt"
     dump_objects "${context}" sts "StatefulSets Yaml" "${namespace}" "get -o yaml" "logs/${prefix}z_statefulsets.txt"
     dump_objects "${context}" serviceaccounts "ServiceAccounts" "${namespace}" "get -o yaml" "logs/${prefix}z_service_accounts.txt"
     dump_objects "${context}" clusterrolebindings "ClusterRoleBindings" "${namespace}" "get -o yaml" "logs/${prefix}z_clusterrolebindings.txt"
@@ -444,7 +502,10 @@ dump_namespace() {
     # shellcheck disable=SC2046
     mongodb_crds=$(kubectl --context="${context}" get crd -o name | grep mongodb)
     if [[ -n "${mongodb_crds}" ]]; then
-      kubectl --context="${context}" describe  > "logs/${prefix}z_mongodb_crds.log"
+      # Describe the CRDs themselves. The CRD status reports the serve and
+      # storage conditions, which a bare kubectl describe cannot report.
+      # shellcheck disable=SC2086
+      kubectl --context="${context}" describe ${mongodb_crds} > "logs/${prefix}z_mongodb_crds.log"
     fi
 
     kubectl --context="${context}" describe nodes > "logs/${prefix}z_nodes_detailed.log" || true
