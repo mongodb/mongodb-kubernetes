@@ -138,9 +138,9 @@ func TestAutomationConfigReadsShareOneGet(t *testing.T) {
 	assert.Equal(t, 1, gets, "four automation config reads on one connection should issue one GET")
 }
 
-// TestAutomationConfigReadUpdateReadsFreshState verifies that a read-update reads
-// from Ops Manager rather than from the cache, so a write made through another
-// connection is not lost.
+// TestAutomationConfigReadUpdateReadsFreshState verifies that a read-update
+// always reads from Ops Manager, that a no-op read-update does not write, and
+// that a write invalidates the cached body.
 func TestAutomationConfigReadUpdateReadsFreshState(t *testing.T) {
 	ctx := t.Context()
 	counter, conn := newACRequestCounter(t)
@@ -152,48 +152,29 @@ func TestAutomationConfigReadUpdateReadsFreshState(t *testing.T) {
 	// automation config after this connection cached it.
 	counter.setVersion(t, 8)
 
-	var updated Deployment
 	var putVersion any
 	require.NoError(t, conn.ReadUpdateDeployment(ctx, func(d Deployment) error {
 		putVersion = d["version"]
 		d["touched"] = true
-		updated = d
 		return nil
 	}, nopLogger()))
 	assert.Equal(t, float64(8), putVersion, "the read of a read-update must observe the latest state")
-	require.NotNil(t, updated)
 
 	gets, puts := counter.counts()
 	assert.Equal(t, 2, gets, "the read of a read-update must not reuse the cached body")
 	assert.Equal(t, 1, puts)
-}
 
-// TestAutomationConfigReadUpdateReusesCache verifies that a read-update that
-// changes nothing does not refetch, and that a change invalidates the cache.
-func TestAutomationConfigReadUpdateReusesCache(t *testing.T) {
-	ctx := t.Context()
-	counter, conn := newACRequestCounter(t)
-
-	_, err := conn.ReadDeployment(ctx)
-	require.NoError(t, err)
-
-	require.NoError(t, conn.ReadUpdateDeployment(ctx, func(Deployment) error { return nil }, nopLogger()))
-	gets, puts := counter.counts()
-	assert.Equal(t, 2, gets, "the read of a read-update goes to Ops Manager")
-	assert.Equal(t, 0, puts)
-
-	require.NoError(t, conn.ReadUpdateDeployment(ctx, func(d Deployment) error {
-		d["version"] = 8
-		return nil
-	}, nopLogger()))
-	gets, puts = counter.counts()
-	assert.Equal(t, 3, gets)
-	assert.Equal(t, 1, puts)
-
+	// A read after the write fetches again.
 	_, err = conn.ReadDeployment(ctx)
 	require.NoError(t, err)
 	gets, _ = counter.counts()
-	assert.Equal(t, 4, gets, "a read after an automation config write must fetch again")
+	assert.Equal(t, 3, gets, "a read after an automation config write must fetch again")
+
+	// A no-op read-update still refreshes, but does not write.
+	require.NoError(t, conn.ReadUpdateDeployment(ctx, func(Deployment) error { return nil }, nopLogger()))
+	gets, puts = counter.counts()
+	assert.Equal(t, 4, gets)
+	assert.Equal(t, 1, puts)
 }
 
 // TestAutomationConfigWriteInvalidatesCache verifies that UpdateDeployment, and a
