@@ -165,7 +165,7 @@ retry_with_sleep() {
 ssh_to_host() {
   shift 1
   # shellcheck disable=SC2029
-  ssh "$@" "${host_url}"
+  ssh "${host_url}" "$@"
 }
 
 upload-my-ssh-private-key() {
