@@ -67,7 +67,10 @@ if [[ -d "${venv_path}" ]]; then
         exit 1
     fi
     echo "Removing existing venv at ${venv_path}..." >&2
-    rm -rf "${venv_path}"
+    # Empty the directory before removing it: it is a mount point when the venv lives in a docker volume (the
+    # devcontainer), and rm -rf fails on a mount point with "Device or resource busy".
+    find "${venv_path}" -mindepth 1 -delete
+    rmdir "${venv_path}" 2>/dev/null || true
     echo "Existing venv removed" >&2
 else
     echo "No existing venv found" >&2
