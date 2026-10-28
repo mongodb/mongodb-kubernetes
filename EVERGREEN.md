@@ -188,6 +188,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
 | `evergreen:e2e-search-images` | `e2e_test_suite !static !om7 !om9 !race !cloudqa` | 9 Envoy/OTel Search tasks tagged `e2e_search_images`; added automatically to the Search image bump PR |
 | `evergreen:e2e-license`    | `ops_manager_license` | The licensing tests against an unreleased Ops Manager build (`build_om_dev_images`, `e2e_om_dev_kind_ubi`)     |
+| `evergreen:devcontainer`   | `devcontainer`       | Devcontainer worktrees variant `e2e_mck_devcontainer_local_kind`: the `wt-ctl` tests and two markers              |
 
 Task counts are rounded PR patch sizes: the tasks selected by the label, their dependencies and the always-on checks.
 They change as tasks are added or removed.
@@ -235,6 +236,7 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 | `race`       | Race detector variant                                         | With `evergreen:race` label           |
 | `smoke_test` | Smoke e2e suite (`patch-run` tasks)                           | No                                    |
 | `cloudqa`    | Cloud QA non-static variants                                  | With `evergreen:e2e-cloudqa` label    |
+| `devcontainer` | Devcontainer worktrees variant (`e2e_mck_devcontainer_local_kind`) | With `evergreen:devcontainer` label |
 
 ### Release & Housekeeping
 
