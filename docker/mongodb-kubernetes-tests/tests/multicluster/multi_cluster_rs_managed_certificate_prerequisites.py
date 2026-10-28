@@ -75,7 +75,11 @@ def test_cert_manager_missing(namespace: str, mongodb_multi: MongoDBMulti):
     _install_operator(namespace, managed_certificate_roles=False)
 
     mongodb_multi.update()
-    mongodb_multi.assert_reaches_phase(Phase.Failed, msg_regexp="cert-manager is not installed", timeout=300)
+    mongodb_multi.assert_reaches_phase(
+        Phase.Failed,
+        msg_regexp="It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC",
+        timeout=300,
+    )
 
 
 @mark.e2e_managed_certificate_multi_cluster_rs_prerequisites
@@ -85,7 +89,7 @@ def test_cert_manager_without_rbac(namespace: str, mongodb_multi: MongoDBMulti):
     install_cert_manager(cluster_client=get_central_cluster_client(), cluster_name=get_central_cluster_name())
     _install_operator(namespace, managed_certificate_roles=False).restart_operator_deployment()
 
-    mongodb_multi.assert_reaches_phase(Phase.Failed, msg_regexp="not allowed to", timeout=600)
+    mongodb_multi.assert_reaches_phase(Phase.Failed, msg_regexp="the operator is not allowed to", timeout=600)
 
 
 @mark.e2e_managed_certificate_multi_cluster_rs_prerequisites

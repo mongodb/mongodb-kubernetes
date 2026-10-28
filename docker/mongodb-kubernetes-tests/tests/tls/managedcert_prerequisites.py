@@ -41,11 +41,13 @@ def _install_operator(namespace: str, managed_certificates: bool) -> Operator:
     return get_default_operator(namespace, config)
 
 
+# managed_rs is managed certificate single cluster replicaset
 @pytest.fixture(scope="module")
 def managed_rs(namespace: str, custom_mdb_version: str) -> MongoDB:
     return managed_cert_replica_set(RS_RESOURCE, namespace, custom_mdb_version, {})
 
 
+# managed_sc is managed certificate enabled single cluster sharded cluster deployment
 @pytest.fixture(scope="module")
 def managed_sc(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-tls-sc-managedcert.yaml"), name=SC_RESOURCE, namespace=namespace)
@@ -54,6 +56,8 @@ def managed_sc(namespace: str) -> MongoDB:
     return resource
 
 
+# plain_rs is the replicaset installation that doesn't use managed cert, we have it here
+# to make sure that non managed cert resources are not affected by cert-manager issues.
 @pytest.fixture(scope="module")
 def plain_rs(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-no-tls-no-status.yaml"), name=PLAIN_RESOURCE, namespace=namespace)
@@ -68,16 +72,24 @@ def test_cert_manager_missing(namespace: str, managed_rs: MongoDB, managed_sc: M
     _install_operator(namespace, managed_certificates=False)
 
     managed_rs.update()
-    managed_rs.assert_reaches_phase(Phase.Failed, msg_regexp="cert-manager is not installed", timeout=300)
+    managed_rs.assert_reaches_phase(
+        Phase.Failed,
+        msg_regexp="It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC",
+        timeout=300,
+    )
 
     managed_sc.update()
-    managed_sc.assert_reaches_phase(Phase.Failed, msg_regexp="cert-manager is not installed", timeout=300)
+    managed_sc.assert_reaches_phase(
+        Phase.Failed,
+        msg_regexp="It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC",
+        timeout=300,
+    )
 
 
 @pytest.mark.e2e_managed_certificate_prerequisites
 def test_other_resources_are_unaffected(plain_rs: MongoDB):
     # A resource that does not use managedCertificate reconciles normally. Running it while the
-    # managed resources are failed proves a missing cert-manager does not wedge the operator.
+    # managed resources are failed proves a missing cert-manager does not have side effect on operator.
     plain_rs.update()
     plain_rs.assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -89,8 +101,8 @@ def test_cert_manager_without_rbac(namespace: str, managed_rs: MongoDB, managed_
     install_cert_manager(cluster_client=get_central_cluster_client(), cluster_name=get_central_cluster_name())
     _install_operator(namespace, managed_certificates=False).restart_operator_deployment()
 
-    managed_rs.assert_reaches_phase(Phase.Failed, msg_regexp="not allowed to", timeout=600)
-    managed_sc.assert_reaches_phase(Phase.Failed, msg_regexp="not allowed to", timeout=600)
+    managed_rs.assert_reaches_phase(Phase.Failed, msg_regexp="the operator is not allowed to", timeout=600)
+    managed_sc.assert_reaches_phase(Phase.Failed, msg_regexp="the operator is not allowed to", timeout=600)
 
 
 @pytest.mark.e2e_managed_certificate_prerequisites

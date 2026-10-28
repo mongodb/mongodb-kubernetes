@@ -33,8 +33,9 @@ type CertManagerReadiness struct {
 // []string{""} when it watches the whole cluster, otherwise the list of namespaces.
 func CertManagerReady(ctx context.Context, c kubernetesClient.Client, restMapper apimeta.RESTMapper, watchedNamespaces []string) CertManagerReadiness {
 	if !CertManagerCRDsInstalled(restMapper) {
-		return CertManagerReadiness{NotReadyReason: "It seems cert-manager is not installed in the cluster. Install cert-manager, then restart the operator."}
+		return CertManagerReadiness{NotReadyReason: "It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC (e.g. Helm value security.managedCertificate.enabled=true), then restart the operator."}
 	}
+
 	if allowed, reason := certManagerAccessAllowed(ctx, c, watchedNamespaces); !allowed {
 		return CertManagerReadiness{NotReadyReason: reason}
 	}
@@ -79,7 +80,7 @@ func certManagerAccessAllowed(ctx context.Context, c kubernetesClient.Client, wa
 					return false, fmt.Sprintf("the operator could not check whether it may manage cert-manager resources: %v", err)
 				}
 				if !review.Status.Allowed {
-					return false, fmt.Sprintf("the operator is not allowed to %s cert-manager %s in %s. Grant the operator the cert-manager RBAC, then restart the operator.", verb, resource, describeNamespace(namespace))
+					return false, fmt.Sprintf("the operator is not allowed to %s cert-manager %s in %s. Grant it the cert-manager RBAC (e.g. Helm value security.managedCertificate.enabled=true), then restart the operator.", verb, resource, describeNamespace(namespace))
 				}
 			}
 		}
