@@ -14,14 +14,39 @@ if [[ ! -f "${__devenv_root}/.generated/context.export.env" ]]; then
     return 1
 fi
 
+# The Go root that this side has of its own: the shared file may overwrite it with that of the other side.
+__devenv_goroot="${GOROOT:-}"
+
 set -a
-# shellcheck disable=SC1090,SC1091
-. "${__devenv_root}/.generated/context.export.env"
+if [[ "${__devenv_side}" == "devc" && -f "${__devenv_root}/.generated/context.host.env" ]]; then
+    # The shared file holds the whole environment of whoever ran `make switch` last. On an Evergreen task host that is
+    # the agent's TMPDIR and GOCACHE and the cache directories wt-ctl sets, and the container has none of those paths.
+    # switch_context.sh copies every line of the shared file that names a path of the checkout, of the Evergreen
+    # workdir or of $HOME (and PATH) to context.host.env, and the container's own file has its values for these. So a
+    # line that is also in context.host.env is the host's and is not loaded: the container keeps its own value, or none.
+    # (eval and not process substitution: bash 3.2 does not source that.)
+    eval "$(awk -v host="${__devenv_root}/.generated/context.host.env" \
+        'FILENAME == host { hostline[$0]; next } !(substr($0, 8) in hostline)' \
+        "${__devenv_root}/.generated/context.host.env" "${__devenv_root}/.generated/context.export.env")"
+else
+    # shellcheck disable=SC1090,SC1091
+    . "${__devenv_root}/.generated/context.export.env"
+fi
 if [[ -f "${__devenv_root}/.generated/context.${__devenv_side}.env" ]]; then
     # shellcheck disable=SC1090,SC1091
     . "${__devenv_root}/.generated/context.${__devenv_side}.env"
 fi
 set +a
+
+# The shared context can name a Go root that exists on the other side only. The container has its own: the go
+# devcontainer feature puts it in the environment of the image.
+if [[ -n "${GOROOT:-}" && ! -d "${GOROOT}" ]]; then
+    GOROOT="${__devenv_goroot}"
+    [[ -d "${GOROOT}" ]] || unset GOROOT
+fi
+
+# The container has no PROJECT_DIR until its own `make switch` has written context.devc.env.
+export PROJECT_DIR="${PROJECT_DIR:-${__devenv_root}}"
 
 # Activate the python venv here so consumer scripts don't each activate it.
 # Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
@@ -32,4 +57,4 @@ if [[ -f "${__devenv_venv}/bin/activate" ]]; then
 fi
 export PATH="${PROJECT_DIR}/bin:${PATH}"
 
-unset __devenv_root __devenv_side __devenv_venv
+unset __devenv_root __devenv_side __devenv_venv __devenv_goroot

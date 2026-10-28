@@ -59,6 +59,15 @@ shift "$((OPTIND - 1))"
 kubeconfig_path="${PROJECT_DIR}/.generated/kind-kubeconfigs/${cluster_name}"
 mkdir -p "$(dirname "${kubeconfig_path}")"
 
+# wt-ctl sets MCK_KIND_REGISTRY_AUTH_DIR to a directory with the worktree's own docker config. The nodes then
+# mount it as /.docker, which kubelet reads as config.json; without it they mount the user's file.
+node_registry_auth_container_path="/var/lib/kubelet/config.json"
+node_registry_auth_host_path="${HOME}/.docker/config.json"
+if [[ -n "${MCK_KIND_REGISTRY_AUTH_DIR:-}" ]]; then
+  node_registry_auth_container_path="/.docker"
+  node_registry_auth_host_path="${MCK_KIND_REGISTRY_AUTH_DIR}"
+fi
+
 metallb_version="v0.13.7"
 metrics_server_version="v0.7.2"
 
@@ -103,33 +112,33 @@ nodes:
 - role: control-plane
   image: ${kind_image}
   extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: ${HOME}/.docker/config.json
+  - containerPath: ${node_registry_auth_container_path}
+    hostPath: ${node_registry_auth_host_path}
 - role: control-plane
   image: ${kind_image}
   extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: ${HOME}/.docker/config.json
+  - containerPath: ${node_registry_auth_container_path}
+    hostPath: ${node_registry_auth_host_path}
 - role: control-plane
   image: ${kind_image}
   extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: ${HOME}/.docker/config.json
+  - containerPath: ${node_registry_auth_container_path}
+    hostPath: ${node_registry_auth_host_path}
 - role: worker
   image: ${kind_image}
   extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: ${HOME}/.docker/config.json
+  - containerPath: ${node_registry_auth_container_path}
+    hostPath: ${node_registry_auth_host_path}
 - role: worker
   image: ${kind_image}
   extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: ${HOME}/.docker/config.json
+  - containerPath: ${node_registry_auth_container_path}
+    hostPath: ${node_registry_auth_host_path}
 - role: worker
   image: ${kind_image}
   extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: ${HOME}/.docker/config.json
+  - containerPath: ${node_registry_auth_container_path}
+    hostPath: ${node_registry_auth_host_path}
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
@@ -151,8 +160,8 @@ nodes:
 - role: control-plane
   image: ${kind_image}
   extraMounts:
-  - containerPath: /var/lib/kubelet/config.json
-    hostPath: ${HOME}/.docker/config.json
+  - containerPath: ${node_registry_auth_container_path}
+    hostPath: ${node_registry_auth_host_path}
 networking:
   podSubnet: "${pod_network}"
   serviceSubnet: "${service_network}"
