@@ -7,8 +7,8 @@ same replica set (the config server RS, and each shard's RS) and must reach each
 in the automation config. Single-cluster only exposed mongos before the per-tier
 spec.<tier>.externalAccess fields, so this scenario was not workable at all.
 
-MetalLB assigns LoadBalancer IPs from 172.18.255.200 upwards on kind (see
-scripts/dev/recreate_kind_clusters.sh). Single-cluster external services are created inside
+MetalLB assigns LoadBalancer IPs from the single-cluster pool base upwards on kind (see
+tests/kind_network.py). Single-cluster external services are created inside
 create.DatabaseInKubernetes for the replicas of the current reconciliation step, and migration forces
 one-member-at-a-time scaling, so allocation is interleaved by scaling round: each reconcile grows
 every tier not yet at its target by one member, in tier order (config servers, then shards, then
@@ -26,6 +26,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import default_external_domain, update_coredns_hosts
+from tests.kind_network import KIND_LB_SLOT_OPERATOR, kind_lb_ip_str
 from tests.vm_migration.vm_migration_common_helper import (
     assert_max_voting_members_validation,
     assert_migration_data_exists,
@@ -72,7 +73,7 @@ VM_SHARD_RS_NAME = "vm-shard-0"
 VM_MONGOS_NAME = "vm-mongos"
 
 EXTERNAL_DOMAIN = default_external_domain()
-LB_IP_BASE = "172.18.255.200"
+LB_IP_BASE = kind_lb_ip_str(KIND_LB_SLOT_OPERATOR)
 
 # Single-cluster external services are created inside create.DatabaseInKubernetes for the replicas
 # of the current scaling step, one member per tier per reconcile round while external members force
@@ -353,7 +354,8 @@ def test_external_services_created(namespace: str, mdb_migration: MongoDB):
     Asserting IP equality identifies a MetalLB allocation shift as the cause of failure here. Two
     things can shift it: the service creation order changing (scaling rounds interleave tiers:
     config, shards, mongos), or another LoadBalancer service being live in the kind cluster and
-    taking .200 first -- MetalLB hands out the lowest free address in 172.18.255.200-250.
+    taking the pool base first -- MetalLB hands out the lowest free address in the
+    single-cluster pool (see tests/kind_network.py).
     """
     for service_name, expected_ip in zip(_external_service_names_in_allocation_order(), _predicted_lb_ips()):
         service = get_service(namespace, service_name)
@@ -365,7 +367,7 @@ def test_external_services_created(namespace: str, mdb_migration: MongoDB):
         assert ingress[0].ip == expected_ip, (
             f"{service_name} got IP {ingress[0].ip}, expected {expected_ip} (the address CoreDNS was seeded with). "
             f"Either the scaling-round service creation order changed (config, shards, mongos per round) "
-            f"or another LoadBalancer service consumed an address from the 172.18.255.200-250 pool first."
+            f"or another LoadBalancer service consumed an address from the single-cluster pool first."
         )
 
 

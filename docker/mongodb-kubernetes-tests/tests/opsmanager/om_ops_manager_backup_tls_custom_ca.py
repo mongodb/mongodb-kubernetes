@@ -12,6 +12,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.conftest import default_external_domain, external_domain_fqdns, is_multi_cluster, update_coredns_hosts
+from tests.kind_network import KIND_LB_SLOT_CLUSTER_1, KIND_LB_SLOT_OPERATOR, kind_lb_ip_str
 from tests.opsmanager.om_ops_manager_backup import BLOCKSTORE_RS_NAME, OPLOG_RS_NAME, S3_SECRET_NAME
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
@@ -156,17 +157,17 @@ def blockstore_replica_set(
 def test_update_coredns():
     if is_multi_cluster():
         hosts = [
-            ("172.18.255.211", "my-replica-set-0.mongodb.interconnected"),
-            ("172.18.255.212", "my-replica-set-1.mongodb.interconnected"),
-            ("172.18.255.213", "my-replica-set-2.mongodb.interconnected"),
-            ("172.18.255.214", "my-replica-set-3.mongodb.interconnected"),
+            (kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 1), "my-replica-set-0.mongodb.interconnected"),
+            (kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 2), "my-replica-set-1.mongodb.interconnected"),
+            (kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 3), "my-replica-set-2.mongodb.interconnected"),
+            (kind_lb_ip_str(KIND_LB_SLOT_CLUSTER_1, 4), "my-replica-set-3.mongodb.interconnected"),
         ]
     else:
         hosts = [
-            ("172.18.255.200", "my-replica-set-0.mongodb.interconnected"),
-            ("172.18.255.201", "my-replica-set-1.mongodb.interconnected"),
-            ("172.18.255.202", "my-replica-set-2.mongodb.interconnected"),
-            ("172.18.255.203", "my-replica-set-3.mongodb.interconnected"),
+            (kind_lb_ip_str(KIND_LB_SLOT_OPERATOR), "my-replica-set-0.mongodb.interconnected"),
+            (kind_lb_ip_str(KIND_LB_SLOT_OPERATOR, 1), "my-replica-set-1.mongodb.interconnected"),
+            (kind_lb_ip_str(KIND_LB_SLOT_OPERATOR, 2), "my-replica-set-2.mongodb.interconnected"),
+            (kind_lb_ip_str(KIND_LB_SLOT_OPERATOR, 3), "my-replica-set-3.mongodb.interconnected"),
         ]
 
     update_coredns_hosts(hosts)
