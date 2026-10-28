@@ -94,6 +94,9 @@ export KUBECONFIG
 
 if [[ "$(uname)" == "Linux" ]]; then
   export GOROOT=/opt/golang/go1.26
+  if [[ ! ${PATH} =~ .*${GOROOT}/bin.* ]]; then
+    export PATH=${GOROOT}/bin:${PATH}
+  fi
 fi
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
