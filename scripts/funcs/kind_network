@@ -6,13 +6,17 @@
 # Defaults to kind's own 172.18.0.0/16 subnet. Override by setting
 # KIND_NETWORK_SUBNET in the environment (or context) before sourcing this file.
 #
-# Conventions (within ${PREFIX}.255.0/24):
-#   .200-.210  kind-e2e-operator
-#   .210-.220  kind-e2e-cluster-1
-#   .220-.230  kind-e2e-cluster-2
-#   .230-.240  kind-e2e-cluster-3
-#   .200-.250  the single 'kind' cluster, and the extra 'kind' cluster created
-#              alongside the multi-cluster set
+# Conventions (disjoint 10-IP-wide slots within ${PREFIX}.255.0/24):
+#   .200-.209  kind-e2e-operator (and the single 'kind' cluster)
+#   .210-.219  kind-e2e-cluster-1
+#   .220-.229  kind-e2e-cluster-2
+#   .230-.239  kind-e2e-cluster-3
+#   .240-.249  the extra 'kind' cluster created alongside the multi-cluster set
+#
+# Single-cluster mode creates only one cluster, so its pool may span the whole
+# operator row (.200-.250): it never coexists with the multi-cluster pools.
+# All multi-cluster pools above are disjoint, so the MetalLB of one cluster
+# never hands out an address from another cluster's pool on the shared network.
 #
 # Sourcing this file is idempotent.
 
@@ -29,6 +33,8 @@ export KIND_LB_PREFIX="${KIND_LB_PREFIX:-${KIND_NETWORK_PREFIX}.255}"
 
 # Helper: IP within the metallb row at offset N.
 # kind_lb_ip <cluster_slot> <offset>
+#   cluster_slot: 200, 210, 220, 230 or 240
+#   offset:       0 to 9 inside a multi-cluster pool, up to 50 for the single-cluster pool
 kind_lb_ip() {
   local slot="$1" offset="$2"
   printf '%s.%d' "${KIND_LB_PREFIX}" "$((slot + offset))"
@@ -36,11 +42,14 @@ kind_lb_ip() {
 
 # Per-cluster metallb ranges as "<from>-<to>" strings (the format
 # setup_kind_cluster.sh -l expects).
-KIND_METALLB_RANGE_OPERATOR="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 10)"
-KIND_METALLB_RANGE_CLUSTER_1="$(kind_lb_ip 210 0)-$(kind_lb_ip 210 10)"
-KIND_METALLB_RANGE_CLUSTER_2="$(kind_lb_ip 220 0)-$(kind_lb_ip 220 10)"
-KIND_METALLB_RANGE_CLUSTER_3="$(kind_lb_ip 230 0)-$(kind_lb_ip 230 10)"
-KIND_METALLB_RANGE_KIND="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 50)"
+KIND_METALLB_RANGE_OPERATOR="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 9)"
+KIND_METALLB_RANGE_CLUSTER_1="$(kind_lb_ip 210 0)-$(kind_lb_ip 210 9)"
+KIND_METALLB_RANGE_CLUSTER_2="$(kind_lb_ip 220 0)-$(kind_lb_ip 220 9)"
+KIND_METALLB_RANGE_CLUSTER_3="$(kind_lb_ip 230 0)-$(kind_lb_ip 230 9)"
+# The extra 'kind' cluster in the multi-cluster set needs its own slot: it
+# coexists with the operator/cluster pools above on the shared docker network.
+KIND_METALLB_RANGE_KIND="$(kind_lb_ip 240 0)-$(kind_lb_ip 240 9)"
+# Single-cluster mode: only one cluster exists, so the full operator row is safe.
 KIND_METALLB_RANGE_SINGLE="$(kind_lb_ip 200 0)-$(kind_lb_ip 200 50)"
 export KIND_METALLB_RANGE_OPERATOR KIND_METALLB_RANGE_CLUSTER_1 KIND_METALLB_RANGE_CLUSTER_2 \
     KIND_METALLB_RANGE_CLUSTER_3 KIND_METALLB_RANGE_KIND KIND_METALLB_RANGE_SINGLE
