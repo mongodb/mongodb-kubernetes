@@ -25,6 +25,9 @@ docker_cleanup 2>&1| prepend "docker_cleanup"
 docker_create_kind_network
 docker_run_local_registry "kind-registry" "5000"
 
+# One login for the node image pulls of the parallel cluster creations below.
+ecr_login_for_kind_node_image 2>&1 | prepend "ecr_login"
+
 # To future maintainers: whenever modifying this bit, make sure you also update coredns.yaml
 cluster_pids=()
 (scripts/dev/setup_kind_cluster.sh -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "${KIND_METALLB_RANGE_OPERATOR}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-operator") &
