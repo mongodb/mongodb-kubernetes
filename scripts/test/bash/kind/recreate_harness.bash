@@ -31,14 +31,26 @@ recreate_setup() {
   printf '#!/usr/bin/env bash\necho "istioctl $*" >>"${CALL_LOG}"\n' >"${FAKE_REPO}/istio-1.16.1/bin/istioctl"
   chmod +x "${FAKE_REPO}/istio-1.16.1/bin/istioctl"
 
-  stub_logger aws kubectl make sleep
+  stub_logger aws make sleep
   cat >"${STUB_BIN}/kind" <<'STUB'
 #!/usr/bin/env bash
 echo "kind $*" >>"${CALL_LOG}"
 [[ "$1 $2" != "export kubeconfig" ]] || echo "${KUBECONFIG}" >>"${KUBECONFIG_LOG}"
+[[ "$1 $2" != "get nodes" ]] || echo "${4}-control-plane"
 exit 0
 STUB
-  chmod +x "${STUB_BIN}/kind"
+  # The answers interconnect_kind_clusters.sh and install_istio.sh parse.
+  cat >"${STUB_BIN}/kubectl" <<'STUB'
+#!/usr/bin/env bash
+echo "kubectl $*" >>"${CALL_LOG}"
+case "$*" in
+  *"get nodes -o=jsonpath"*) echo "ip route add 10.244.0.0/24 via 172.18.0.2" ;;
+  *"get configmap kubeadm-config"*) echo "  serviceSubnet: 10.96.0.0/16" ;;
+  *"get node "*) echo "172.18.0.5" ;;
+esac
+exit 0
+STUB
+  chmod +x "${STUB_BIN}/kind" "${STUB_BIN}/kubectl"
   cat >"${STUB_BIN}/docker" <<'STUB'
 #!/usr/bin/env bash
 echo "docker $*" >>"${CALL_LOG}"

@@ -1,0 +1,52 @@
+docker exec e2e-cluster-1-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-1-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-1-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-1-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-1-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-1-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-1-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-1-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-2-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-2-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-2-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-2-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-2-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-2-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-2-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-2-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-3-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-3-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-3-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-3-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-3-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-3-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-3-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-cluster-3-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-operator-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-operator-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-operator-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-operator-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-operator-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-operator-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-operator-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+docker exec e2e-operator-control-plane ip route add 10.244.0.0/24 via 172.18.0.2
+kind get nodes --name e2e-cluster-1
+kind get nodes --name e2e-cluster-2
+kind get nodes --name e2e-cluster-3
+kind get nodes --name e2e-operator
+kubectl --context kind-e2e-cluster-1 --namespace kube-system get configmap kubeadm-config -o=jsonpath={.data.ClusterConfiguration}
+kubectl --context kind-e2e-cluster-1 get nodes -o=jsonpath={range .items[*]}{"ip route add "}10.96.0.0/16{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}
+kubectl --context kind-e2e-cluster-1 get nodes -o=jsonpath={range .items[*]}{"ip route add "}{.spec.podCIDR}{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}
+kubectl --context kind-e2e-cluster-1 wait nodes --all --for=condition=ready
+kubectl --context kind-e2e-cluster-2 --namespace kube-system get configmap kubeadm-config -o=jsonpath={.data.ClusterConfiguration}
+kubectl --context kind-e2e-cluster-2 get nodes -o=jsonpath={range .items[*]}{"ip route add "}10.96.0.0/16{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}
+kubectl --context kind-e2e-cluster-2 get nodes -o=jsonpath={range .items[*]}{"ip route add "}{.spec.podCIDR}{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}
+kubectl --context kind-e2e-cluster-2 wait nodes --all --for=condition=ready
+kubectl --context kind-e2e-cluster-3 --namespace kube-system get configmap kubeadm-config -o=jsonpath={.data.ClusterConfiguration}
+kubectl --context kind-e2e-cluster-3 get nodes -o=jsonpath={range .items[*]}{"ip route add "}10.96.0.0/16{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}
+kubectl --context kind-e2e-cluster-3 get nodes -o=jsonpath={range .items[*]}{"ip route add "}{.spec.podCIDR}{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}
+kubectl --context kind-e2e-cluster-3 wait nodes --all --for=condition=ready
+kubectl --context kind-e2e-operator --namespace kube-system get configmap kubeadm-config -o=jsonpath={.data.ClusterConfiguration}
+kubectl --context kind-e2e-operator get nodes -o=jsonpath={range .items[*]}{"ip route add "}10.96.0.0/16{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}
+kubectl --context kind-e2e-operator get nodes -o=jsonpath={range .items[*]}{"ip route add "}{.spec.podCIDR}{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}
+kubectl --context kind-e2e-operator wait nodes --all --for=condition=ready

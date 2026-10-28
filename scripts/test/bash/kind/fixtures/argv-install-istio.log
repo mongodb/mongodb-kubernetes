@@ -1,0 +1,40 @@
+istioctl install --context=kind-e2e-cluster-1 --set components.cni.enabled=true -f cluster1.yaml -y
+istioctl install --context=kind-e2e-cluster-2 --set components.cni.enabled=true -f cluster2.yaml -y
+istioctl install --context=kind-e2e-cluster-3 --set components.cni.enabled=true -f cluster3.yaml -y
+istioctl x create-remote-secret --context=kind-e2e-cluster-1 -n istio-system --name=cluster1 --server https://172.18.0.5:6443
+istioctl x create-remote-secret --context=kind-e2e-cluster-1 -n istio-system --name=cluster1 --server https://172.18.0.5:6443
+istioctl x create-remote-secret --context=kind-e2e-cluster-2 -n istio-system --name=cluster2 --server https://172.18.0.5:6443
+istioctl x create-remote-secret --context=kind-e2e-cluster-2 -n istio-system --name=cluster2 --server https://172.18.0.5:6443
+istioctl x create-remote-secret --context=kind-e2e-cluster-3 -n istio-system --name=cluster3 --server https://172.18.0.5:6443
+istioctl x create-remote-secret --context=kind-e2e-cluster-3 -n istio-system --name=cluster3 --server https://172.18.0.5:6443
+istioctl x uninstall --context=kind-e2e-cluster-1 --purge --skip-confirmation
+istioctl x uninstall --context=kind-e2e-cluster-2 --purge --skip-confirmation
+istioctl x uninstall --context=kind-e2e-cluster-3 --purge --skip-confirmation
+kubectl --context=kind-e2e-cluster-1 create ns istio-system
+kubectl --context=kind-e2e-cluster-1 create secret generic cacerts -n istio-system --from-file=kind-e2e-cluster-1/ca-cert.pem --from-file=kind-e2e-cluster-1/ca-key.pem --from-file=kind-e2e-cluster-1/root-cert.pem --from-file=kind-e2e-cluster-1/cert-chain.pem
+kubectl --context=kind-e2e-cluster-1 delete ns istio-system
+kubectl --context=kind-e2e-cluster-1 get node e2e-cluster-1-control-plane -o=jsonpath={.status.addresses[?(@.type=="InternalIP")].address}
+kubectl --context=kind-e2e-cluster-1 label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
+kubectl --context=kind-e2e-cluster-1 label namespace istio-system istio-injection=disabled
+kubectl --context=kind-e2e-cluster-2 create ns istio-system
+kubectl --context=kind-e2e-cluster-2 create secret generic cacerts -n istio-system --from-file=kind-e2e-cluster-2/ca-cert.pem --from-file=kind-e2e-cluster-2/ca-key.pem --from-file=kind-e2e-cluster-2/root-cert.pem --from-file=kind-e2e-cluster-2/cert-chain.pem
+kubectl --context=kind-e2e-cluster-2 delete ns istio-system
+kubectl --context=kind-e2e-cluster-2 get node e2e-cluster-2-control-plane -o=jsonpath={.status.addresses[?(@.type=="InternalIP")].address}
+kubectl --context=kind-e2e-cluster-2 label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
+kubectl --context=kind-e2e-cluster-2 label namespace istio-system istio-injection=disabled
+kubectl --context=kind-e2e-cluster-3 create ns istio-system
+kubectl --context=kind-e2e-cluster-3 create secret generic cacerts -n istio-system --from-file=kind-e2e-cluster-3/ca-cert.pem --from-file=kind-e2e-cluster-3/ca-key.pem --from-file=kind-e2e-cluster-3/root-cert.pem --from-file=kind-e2e-cluster-3/cert-chain.pem
+kubectl --context=kind-e2e-cluster-3 delete ns istio-system
+kubectl --context=kind-e2e-cluster-3 get node e2e-cluster-3-control-plane -o=jsonpath={.status.addresses[?(@.type=="InternalIP")].address}
+kubectl --context=kind-e2e-cluster-3 label --overwrite ns istio-system pod-security.kubernetes.io/enforce=privileged
+kubectl --context=kind-e2e-cluster-3 label namespace istio-system istio-injection=disabled
+kubectl apply -f - --context=kind-e2e-cluster-1
+kubectl apply -f - --context=kind-e2e-cluster-1
+kubectl apply -f - --context=kind-e2e-cluster-2
+kubectl apply -f - --context=kind-e2e-cluster-2
+kubectl apply -f - --context=kind-e2e-cluster-3
+kubectl apply -f - --context=kind-e2e-cluster-3
+make -f ../tools/certs/Makefile.selfsigned.mk kind-e2e-cluster-1-cacerts
+make -f ../tools/certs/Makefile.selfsigned.mk kind-e2e-cluster-2-cacerts
+make -f ../tools/certs/Makefile.selfsigned.mk kind-e2e-cluster-3-cacerts
+make -f ../tools/certs/Makefile.selfsigned.mk root-ca

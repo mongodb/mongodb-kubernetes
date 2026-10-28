@@ -37,6 +37,20 @@ golden_run() {
   golden_run run-registry -- bash -c 'source scripts/funcs/kubernetes && docker_run_local_registry kind-registry 5000'
 }
 
+@test "golden: interconnect_kind_clusters issues the commands of the multi-cluster setup" {
+  use_real scripts/dev/interconnect_kind_clusters.sh
+
+  golden_run interconnect -- bash scripts/dev/interconnect_kind_clusters.sh -v \
+    e2e-cluster-1 e2e-cluster-2 e2e-cluster-3 e2e-operator
+}
+
+@test "golden: install_istio on kind contexts issues the commands of the multi-cluster setup" {
+  use_real multi_cluster/tools/install_istio.sh
+
+  golden_run install-istio VERSION=1.16.1 CTX_CLUSTER1=kind-e2e-cluster-1 CTX_CLUSTER2=kind-e2e-cluster-2 \
+    CTX_CLUSTER3=kind-e2e-cluster-3 -- bash multi_cluster/tools/install_istio.sh
+}
+
 @test "kind_network defaults: subnet 172.18.0.0/16 and the .255 row" {
   run_in_fake_repo_ok -- bash -c \
     'source scripts/funcs/kind_network && echo "${KIND_NETWORK_SUBNET}|${KIND_NETWORK_PREFIX}|${KIND_LB_PREFIX}|${KIND_METALLB_RANGE_SINGLE}"'
