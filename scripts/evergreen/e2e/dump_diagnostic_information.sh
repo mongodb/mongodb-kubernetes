@@ -9,7 +9,7 @@ set +e
 source scripts/funcs/printing
 
 # run_with_timeout limits a command to 30 seconds, so a single hung kubectl call
-# cannot stall the rest of the dump. The Evergreen hosts provide coreutils timeout.
+# cannot stall the rest of the dump. The fallback covers hosts without coreutils timeout.
 run_with_timeout() {
     if command -v timeout > /dev/null 2>&1; then
         timeout 30 "$@"
@@ -209,8 +209,6 @@ dump_pod_logs() {
 
         # note that this file may get empty if the logs have already grew too much - seems it's better to have it explicitly empty then just omit
         run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
-    elif kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null | grep -q 'mongodb-agent'; then
-        echo "WARNING: pod ${pod} has an agent container but no agent log file; skipping agent log dump"
     fi
 
     for container in $(kubectl --context="${context}" get pods -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}'); do
@@ -291,19 +289,7 @@ decode_secret() {
 # value of every key that names a credential. Keys such as ca, ca-pem, tls.crt,
 # and user do not match the pattern, so certificate values and usernames stay.
 redact_secret_values() {
-    jq '
-      def redact:
-        if type == "object" then
-          with_entries(
-            if (.key | test("key|password|token|secret|credential"; "i"))
-            then .value = "<redacted>"
-            else .value |= redact
-            end
-          )
-        elif type == "array" then map(redact)
-        else . end;
-      redact
-    ' 2> /dev/null
+    jq 'with_entries(if (.key | test("key|password|token|secret|credential"; "i")) then .value = "<redacted>" else . end)' 2> /dev/null
 }
 
 dump_secrets() {
@@ -502,8 +488,8 @@ dump_namespace() {
     # shellcheck disable=SC2046
     mongodb_crds=$(kubectl --context="${context}" get crd -o name | grep mongodb)
     if [[ -n "${mongodb_crds}" ]]; then
-      # Describe the CRDs themselves. The CRD status reports the serve and
-      # storage conditions, which a bare kubectl describe cannot report.
+      # Describe the CRD objects themselves. A bare kubectl describe names no
+      # resource and fails.
       # shellcheck disable=SC2086
       kubectl --context="${context}" describe ${mongodb_crds} > "logs/${prefix}z_mongodb_crds.log"
     fi

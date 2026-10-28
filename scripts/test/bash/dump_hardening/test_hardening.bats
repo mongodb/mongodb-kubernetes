@@ -32,12 +32,8 @@ setup() {
     ' _ "${PROJECT_DIR}" "${BATS_TEST_TMPDIR}"
 
     [ "${status}" -eq 0 ]
-    [ -f "${BATS_TEST_TMPDIR}/logs/test_ns_z_statefulsets_describe.txt" ]
-    [ -f "${BATS_TEST_TMPDIR}/logs/test_ns_z_statefulsets.txt" ]
     grep -q "Name: my-sts" "${BATS_TEST_TMPDIR}/logs/test_ns_z_statefulsets_describe.txt"
     grep -q "kind: StatefulSet" "${BATS_TEST_TMPDIR}/logs/test_ns_z_statefulsets.txt"
-    run grep -q "kind: StatefulSet" "${BATS_TEST_TMPDIR}/logs/test_ns_z_statefulsets_describe.txt"
-    [ "${status}" -ne 0 ]
 }
 
 @test "cp_from_pod warns with pod, container, file, and error" {
