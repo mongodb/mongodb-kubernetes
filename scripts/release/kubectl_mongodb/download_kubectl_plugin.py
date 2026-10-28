@@ -38,6 +38,8 @@ def download_kubectl_plugin_from_s3(
 
         if copy_to_bin_path:
             kubectl_mongodb_workdir_path = os.path.join(os.getenv("workdir", ""), KUBECTL_MONGODB_PLUGIN_BIN_PATH)
+            # bin/ is in .gitignore, so it does not exist in a fresh clone.
+            os.makedirs(os.path.dirname(kubectl_mongodb_workdir_path), exist_ok=True)
             # copy content, stat-info (mode too), timestamps..
             shutil.copy2(local_path, kubectl_mongodb_workdir_path)
             # preserve owner and group
