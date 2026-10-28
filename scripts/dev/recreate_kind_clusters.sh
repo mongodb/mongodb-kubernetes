@@ -36,6 +36,7 @@ docker_cleanup() {
   fi
 }
 
+refuse_to_delete_foreign_kind_clusters
 docker_cleanup 2>&1| prepend "docker_cleanup"
 
 docker_create_kind_network
