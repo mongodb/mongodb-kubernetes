@@ -1,0 +1,9 @@
+csi kind-kind
+docker inspect -f {{.State.Running}} kind-registry
+docker network create --subnet=172.18.0.0/16 kind
+docker network inspect -f {{range .Containers}}{{.Name}} {{end}} kind
+docker network ls
+docker network rm kind
+docker rm -f kind-registry
+docker run -d --restart=always -p 127.0.0.1:5000:5000 --name kind-registry registry:2
+scripts/dev/setup_kind_cluster.sh -r -e -n kind -l 172.18.255.200-172.18.255.250 -c cluster.local
