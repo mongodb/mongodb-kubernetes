@@ -10,11 +10,6 @@ source scripts/funcs/operator_deployment
 source scripts/funcs/multicluster
 source scripts/funcs/kubernetes
 
-if [[ "$(uname)" == "Linux" ]]; then
-  export PATH=/opt/golang/go1.26/bin:${PATH}
-  export GOROOT=/opt/golang/go1.26
-fi
-
 on_exit() {
   # shellcheck disable=SC2181
   error_code=$?
