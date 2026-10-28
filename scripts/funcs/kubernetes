@@ -282,6 +282,39 @@ delete_kind_network() {
   docker network rm kind
 }
 
+# Log docker in to the ECR registry that hosts the kind node image.
+#
+# The node image is pulled from an ECR mirror (kubernetes-versions.json), and the
+# recreate scripts rely on a docker login done earlier. A host without that login
+# or with an expired token, such as a fresh EVG spawn host, fails at the pull. The
+# login uses the AWS credentials of the sourced context. It does nothing for an
+# image that is not on ECR or is already cached locally. A failed login only warns:
+# the pull itself reports the real error if the image is missing.
+ecr_login_for_kind_node_image() {
+  local kind_node_image ecr_registry ecr_region
+  kind_node_image="${KIND_NODE_IMAGE:-$(scripts/get-kind-image.sh max)}"
+  if [[ ! "${kind_node_image}" =~ ^([0-9]+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com) ]]; then
+    return 0
+  fi
+  ecr_registry="${BASH_REMATCH[1]}"
+  ecr_region="${BASH_REMATCH[2]}"
+  if docker image inspect "${kind_node_image}" >/dev/null 2>&1; then
+    echo "Kind node image ${kind_node_image} already present locally; skipping ECR login"
+    return 0
+  fi
+  echo "Logging in to ECR registry ${ecr_registry} (region ${ecr_region}) for kind node image"
+  # The private context template sets the AWS keys to "undefined" for SSO users. Drop
+  # them as configure_container_auth.sh does, or aws would send them instead of the profile.
+  if ! (
+    [[ "${AWS_ACCESS_KEY_ID:-undefined}" != "undefined" ]] || unset AWS_ACCESS_KEY_ID
+    [[ "${AWS_SECRET_ACCESS_KEY:-undefined}" != "undefined" ]] || unset AWS_SECRET_ACCESS_KEY
+    aws ecr get-login-password --region "${ecr_region}" \
+      | docker login --username AWS --password-stdin "${ecr_registry}"
+  ); then
+    echo "WARN: ECR login failed; the node-image pull will fail unless the image is cached" >&2
+  fi
+}
+
 docker_run_local_registry() {
   reg_name="$1"
   reg_port="$2"
