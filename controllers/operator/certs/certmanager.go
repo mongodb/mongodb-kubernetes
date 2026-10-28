@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -783,7 +785,7 @@ func ensureIssuer(ctx context.Context, c kubernetesClient.Client, res Certificat
 
 // EnsureCAConfigMapFromIssuedSecret writes the operator-owned CA ConfigMaps that are later mounted to
 // workload pods. Each per-category trust bundle lives in its own ConfigMap wired to two distinct
-// mongod config fields, net.tls.CAFile (server CA) and net.tls.clsuterCAFile (client CA).
+// mongod config fields, net.tls.CAFile (server CA) and net.tls.clusterCAFile (client CA).
 // Each category's CA is the user issuer's CA (issued secret's ca.crt, or the category's `ca` input
 // (server/client.ca) when the issuer emits none) OR that category's operator self-signed CA cert,
 // plus any `additionalTrustedCAs` for that category.
@@ -804,13 +806,10 @@ func EnsureCAConfigMapFromIssuedSecret(
 	if !status.IsOK() {
 		return status
 	}
-	serverCM := configmap.Builder().
-		SetName(ManagedServerCABundleConfigMapName(res.GetName())).
-		SetNamespace(res.GetNamespace()).
-		SetOwnerReferences(kube.BaseOwnerReference(res)).
-		SetDataField(tls.CAConfigMapKey, serverBundle).
-		Build()
-	if err := configmap.CreateOrUpdate(ctx, c, serverCM); err != nil {
+	// The server bundle also keeps a stable ca-pem copy: it is the ConfigMap that client applications
+	// are pointed at (MongoDBUser.status.clientCertificate.serverCAConfigMapName), so they can mount a
+	// fixed key. mongod never uses it, the automation config points at the hash-named file.
+	if err := ensureHashedBundleConfigMap(ctx, c, res, ManagedServerCABundleConfigMapName(res.GetName()), serverBundle, tls.CAConfigMapKey); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -824,19 +823,87 @@ func EnsureCAConfigMapFromIssuedSecret(
 		if !status.IsOK() {
 			return status
 		}
-		clientCM := configmap.Builder().
-			SetName(ManagedClientCABundleConfigMapName(res.GetName())).
-			SetNamespace(res.GetNamespace()).
-			SetOwnerReferences(kube.BaseOwnerReference(res)).
-			SetDataField(tls.ClusterCAConfigMapKey, clientBundle).
-			Build()
-		if err := configmap.CreateOrUpdate(ctx, c, clientCM); err != nil {
+		if err := ensureHashedBundleConfigMap(ctx, c, res, ManagedClientCABundleConfigMapName(res.GetName()), clientBundle, ""); err != nil {
 			return workflow.Failed(err)
 		}
 	}
 
 	log.Debugf("Populated operator-managed CA ConfigMaps for %s (server always; client: %t)", res.GetName(), hasClientCerts)
 	return workflow.OK()
+}
+
+// ReadManagedCABundleHashes returns the hashes of the CA bundles currently published in the
+// operator-managed CA ConfigMaps (their latestHash key).
+func ReadManagedCABundleHashes(ctx context.Context, getter configmap.Getter, resourceName, namespace string, hasClientCerts bool) (string, string, error) {
+	var caFilePath, clusterCAFilePath string
+	var err error
+
+	if caFilePath, err = configmap.ReadKey(ctx, getter, util.LatestHashSecretKey, kube.ObjectKey(namespace, ManagedServerCABundleConfigMapName(resourceName))); err != nil {
+		return "", "", err
+	}
+
+	if hasClientCerts {
+		if clusterCAFilePath, err = configmap.ReadKey(ctx, getter, util.LatestHashSecretKey, kube.ObjectKey(namespace, ManagedClientCABundleConfigMapName(resourceName))); err != nil {
+			return "", "", err
+		}
+	}
+
+	return caFilePath, clusterCAFilePath, nil
+}
+
+// ensureHashedBundleConfigMap publishes a CA bundle in the ConfigMap with the given name under its
+// content hash, keeping the previously published bundle. When aliasKey is set
+// the current bundle is also stored under that fixed key. The ConfigMap is only written when its
+// data changes.
+func ensureHashedBundleConfigMap(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, name, bundle, aliasKey string) error {
+	hash := enterprisepem.HashBytes([]byte(bundle))
+
+	var existingData map[string]string
+	existing, err := c.GetConfigMap(ctx, kube.ObjectKey(res.GetNamespace(), name))
+	switch {
+	case err == nil:
+		existingData = existing.Data
+	case !apiErrors.IsNotFound(err):
+		return err
+	}
+
+	data := bundleDataWithPrevious(existingData, hash, bundle)
+	if aliasKey != "" {
+		data[aliasKey] = bundle
+	}
+	if err == nil && maps.Equal(existingData, data) {
+		return nil
+	}
+
+	cm := configmap.Builder().
+		SetName(name).
+		SetNamespace(res.GetNamespace()).
+		SetOwnerReferences(kube.BaseOwnerReference(res)).
+		SetData(data).
+		Build()
+	return configmap.CreateOrUpdate(ctx, c, cm)
+}
+
+// bundleDataWithPrevious returns the ConfigMap data for a bundle: the bundle under its hash, the
+// latestHash key and, after a change, the previous bundle under its hash with a previousHash key.
+func bundleDataWithPrevious(existing map[string]string, hash, bundle string) map[string]string {
+	data := map[string]string{hash: bundle, util.LatestHashSecretKey: hash}
+
+	oldHash, ok := existing[util.LatestHashSecretKey]
+	if !ok {
+		return data
+	}
+	if oldHash == hash {
+		// no rotation, keep whatever previous bundle is there
+		data = maps.Clone(existing)
+		data[hash] = bundle
+		return data
+	}
+	if oldBundle, ok := existing[oldHash]; ok {
+		data[util.PreviousHashSecretKey] = oldHash
+		data[oldHash] = oldBundle
+	}
+	return data
 }
 
 // resolveCategoryCA returns the primary CA cert for a category's trust bundle: the

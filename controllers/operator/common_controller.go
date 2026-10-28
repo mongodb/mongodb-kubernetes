@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -51,6 +52,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -1481,6 +1483,26 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
+// databaseCAFilePaths returns the CA file paths for the automation config: the server CA
+// (net.tls.CAFile) and the client CA (net.tls.clusterCAFile, empty unless the managed
+// deployment has clientAuth certs).
+func databaseCAFilePaths(ctx context.Context, getter configmap.Getter, security *mdbv1.Security, resourceName, namespace string) (string, string, error) {
+	if !security.IsManagedCertificateEnabled() {
+		return security.GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey)), "", nil
+	}
+
+	hasClientCerts := security.RequiresX509ClientCerts()
+	caFilePath, clusterCAFilePath, err := certs.ReadManagedCABundleHashes(ctx, getter, resourceName, namespace, hasClientCerts)
+	if err != nil {
+		return "", "", xerrors.Errorf("failed to read the operator-managed CA bundle hashes: %w", err)
+	}
+	if hasClientCerts {
+		clusterCAFilePath = path.Join(util.TLSClusterCaMountPath, clusterCAFilePath)
+	}
+
+	return path.Join(util.TLSCaMountPath, caFilePath), clusterCAFilePath, nil
+}
+
 func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om.Deployment) map[string]int {
 	processIds := map[string]int{}
 
@@ -1496,7 +1518,7 @@ func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om
 	return processIds
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]any, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]any, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath, clusterCAFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
@@ -1509,7 +1531,7 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, externalProcessNames, log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
-	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
+	d.ConfigureTLS(spec.GetSecurity(), caFilePath, clusterCAFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
 
 	// if we don't set up a prometheus connection, then we don't want to set up prometheus for instance because we do not support it yet.
