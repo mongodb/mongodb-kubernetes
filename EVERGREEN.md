@@ -121,6 +121,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:e2e-community`  | `e2e_mco_test_suite` | Community suites (`e2e_mdb_community`, `e2e_mco_tests`)                                                        |
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
+| `evergreen:devcontainer`   | `devcontainer`       | Devcontainer worktrees variant `e2e_mck_devcontainer_local_kind`: the `wt-ctl` tests and two markers              |
 
 OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
 the `staging` alias.
@@ -145,6 +146,7 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 | `race`       | Race detector variant                                         | With `evergreen:e2e-all` label        |
 | `smoke_test` | Smoke e2e suite (`patch-run` tasks)                           | No                                    |
 | `cloudqa`    | Cloud QA non-static variants                                  | With `evergreen:e2e-cloudqa` label    |
+| `devcontainer` | Devcontainer worktrees variant (`e2e_mck_devcontainer_local_kind`) | With `evergreen:devcontainer` label |
 
 ### Release & Housekeeping
 

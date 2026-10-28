@@ -29,6 +29,15 @@ def container_id(cluster):
     return run("docker", "inspect", "-f", "{{.Id}}", f"{cluster}-control-plane")
 
 
+def delete_cluster(name):
+    # `docker rm -f` waits 12 s for a killed node to report its exit and then fails with "could not kill: ... did not
+    # receive an exit event". On the busy CI host that hit one node of this module, so delete again after a pause.
+    for _ in range(3):
+        if subprocess.run(["kind", "delete", "cluster", "--name", name]).returncode == 0:
+            return
+        time.sleep(30)
+
+
 def kubectl(worktree, context, *args):
     return run("kubectl", "--kubeconfig", worktree / ".generated/current.kubeconfig", "--context", context, *args)
 
@@ -56,7 +65,7 @@ def worktrees():
         yield a, b
     finally:
         for name in CLUSTERS:
-            subprocess.run(["kind", "delete", "cluster", "--name", name])
+            delete_cluster(name)
         shutil.rmtree(tmp, ignore_errors=True)
         subprocess.run(["git", "-C", REPO, "worktree", "prune"])
     assert sorted(run("kind", "get", "clusters").split()) == before
