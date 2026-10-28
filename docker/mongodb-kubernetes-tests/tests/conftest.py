@@ -1629,31 +1629,20 @@ def coredns_config(tld: str, mappings: str, additional_rules: Optional[str] = No
 
 
 def _om_project_ids_from_cr_status(api_client: kubernetes.client.ApiClient, namespace: str) -> List[str]:
-    """Returns the Ops Manager project IDs recorded in the status of the namespace's CRs.
+    """Returns the Ops Manager project IDs recorded in the status of the namespace's MongoDB resources."""
+    try:
+        response = client.CustomObjectsApi(api_client=api_client).list_namespaced_custom_object(
+            group="mongodb.com", version="v1", namespace=namespace, plural="mongodb"
+        )
+    except Exception as e:
+        logging.debug(f"Failed to list MongoDB resources in namespace {namespace}: {e}")
+        return []
 
-    The operator writes the project ID to `status.projectId` of a MongoDB resource and to
-    `status.applicationDatabase.projectId` of a MongoDBOpsManager resource when a reconcile succeeds.
-    """
     project_ids: List[str] = []
-    custom_objects = client.CustomObjectsApi(api_client=api_client)
-    for plural in ("mongodb", "opsmanagers"):
-        try:
-            response = custom_objects.list_namespaced_custom_object(
-                group="mongodb.com", version="v1", namespace=namespace, plural=plural
-            )
-        except Exception as e:
-            logging.debug(f"Failed to list {plural} resources in namespace {namespace}: {e}")
-            continue
-
-        for resource in response.get("items", []):
-            status = resource.get("status") or {}
-            candidates = (
-                status.get("projectId"),
-                (status.get("applicationDatabase") or {}).get("projectId"),
-            )
-            for project_id in candidates:
-                if project_id and project_id not in project_ids:
-                    project_ids.append(project_id)
+    for resource in response.get("items", []):
+        project_id = (resource.get("status") or {}).get("projectId")
+        if project_id and project_id not in project_ids:
+            project_ids.append(project_id)
 
     return project_ids
 
@@ -1687,10 +1676,6 @@ def _om_project_ids_from_project_config_maps(api_client: kubernetes.client.ApiCl
     project_ids: List[str] = []
     for config_map in config_maps.items:
         data = config_map.data or {}
-        project_id = data.get("projectId")
-        if project_id and project_id not in project_ids:
-            project_ids.append(project_id)
-
         project_name = data.get("projectName")
         if not project_name or tester is None:
             continue
@@ -1711,11 +1696,11 @@ def get_om_project_ids() -> List[str]:
     `OM_PROJECT_ID` is authoritative when set. The e2e task environment does not always export it,
     so the IDs are derived from the CR status, then from the project names in the test namespace.
     """
-    project_ids: List[str] = []
-    for project_id in os.environ.get("OM_PROJECT_ID", "").split(","):
-        project_id = project_id.strip()
-        if project_id and project_id not in project_ids:
-            project_ids.append(project_id)
+    project_ids = list(
+        dict.fromkeys(
+            project_id.strip() for project_id in os.environ.get("OM_PROJECT_ID", "").split(",") if project_id.strip()
+        )
+    )
     if project_ids:
         return project_ids
 
