@@ -25,6 +25,7 @@ import (
 	runtime_cluster "sigs.k8s.io/controller-runtime/pkg/cluster"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
@@ -38,8 +39,9 @@ func TestMain(m *testing.M) {
 
 // Verifies the hot-reload path end to end against a real API server: a MemberCluster CR
 // registers a live cluster entry whose cache serves watches added after the manager has
-// started (Watch-after-start), and deleting the CR removes the entry and stops the
-// cluster's informers quietly.
+// started (Watch-after-start), rotating the credential Secret rebuilds the entry purely
+// via the Secret watch (no manual reconcile, no periodic requeue), and deleting the CR
+// removes the entry and stops the cluster's informers quietly.
 func TestReconcilerHotReload(t *testing.T) {
 	cfg := env.Shared(t).Config
 
@@ -58,9 +60,10 @@ func TestReconcilerHotReload(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var removed atomic.Int32
+	var added, removed atomic.Int32
 	provider.RegisterHooks(t.Context(), multicluster.Hooks{
 		OnAdd: func(_ context.Context, _ string, entry multicluster.Entry) {
+			added.Add(1)
 			err := c.Watch(source.Kind[client.Object](entry.Cluster.GetCache(), &corev1.ConfigMap{}, &handler.EnqueueRequestForObject{}))
 			assert.NoError(t, err)
 		},
@@ -85,7 +88,7 @@ func TestReconcilerHotReload(t *testing.T) {
 	}))
 	require.NoError(t, centralClient.Create(context.Background(), &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "mck-credential-cluster-a", Namespace: testNamespace},
-		Data:       map[string][]byte{credentialSecretKubeconfigKey: []byte(envtestKubeconfig(cfg))},
+		Data:       map[string][]byte{util.MemberClusterCredentialSecretKubeconfigKey: []byte(envtestKubeconfig(cfg, "admin"))},
 	}))
 	require.NoError(t, centralClient.Create(context.Background(), memberClusterCR("cluster-a", "cluster-a", "mck-credential-cluster-a")))
 
@@ -100,10 +103,24 @@ func TestReconcilerHotReload(t *testing.T) {
 	}))
 	require.Eventually(t, func() bool { return reconciled.Load() > 0 }, 10*time.Second, 50*time.Millisecond)
 
+	// Rotate the credential Secret in place: the changed kubeconfig hash must tear the
+	// entry down and rebuild it via the Secret watch alone — no manual reconcile.
+	secret := &corev1.Secret{}
+	require.NoError(t, centralClient.Get(context.Background(), types.NamespacedName{Name: "mck-credential-cluster-a", Namespace: testNamespace}, secret))
+	secret.Data[util.MemberClusterCredentialSecretKubeconfigKey] = []byte(envtestKubeconfig(cfg, "admin-rotated"))
+	require.NoError(t, centralClient.Update(context.Background(), secret))
+	require.Eventually(t, func() bool {
+		return removed.Load() == 1 && added.Load() == 2
+	}, 10*time.Second, 50*time.Millisecond)
+	require.Contains(t, provider.Entries(), "cluster-a")
+
+	// The rebuilt cluster's informer delivers the probe ConfigMap's initial-list add.
+	require.Eventually(t, func() bool { return reconciled.Load() >= 2 }, 10*time.Second, 50*time.Millisecond)
+
 	// Delete the CR: the entry goes away and the cluster's informers stop.
 	require.NoError(t, centralClient.Delete(context.Background(), memberClusterCR("cluster-a", "", "")))
 	require.Eventually(t, func() bool { return len(provider.Entries()) == 0 }, 10*time.Second, 50*time.Millisecond)
-	assert.Equal(t, int32(1), removed.Load())
+	assert.Equal(t, int32(2), removed.Load())
 
 	before := reconciled.Load()
 	cm := &corev1.ConfigMap{}
@@ -114,7 +131,10 @@ func TestReconcilerHotReload(t *testing.T) {
 	assert.Equal(t, before, reconciled.Load(), "no reconcile expected after the member cluster was removed")
 }
 
-func envtestKubeconfig(cfg *restclient.Config) string {
+// envtestKubeconfig builds a kubeconfig pointing at the envtest API server. The user
+// name is a parameter so tests can rotate the credential (changing the hash) while
+// keeping the kubeconfig parseable and connectable.
+func envtestKubeconfig(cfg *restclient.Config, user string) string {
 	return fmt.Sprintf(`apiVersion: v1
 kind: Config
 clusters:
@@ -125,16 +145,17 @@ clusters:
 contexts:
 - context:
     cluster: member
-    user: admin
+    user: %s
   name: member
 current-context: member
 users:
-- name: admin
+- name: %s
   user:
     client-certificate-data: %s
     client-key-data: %s
 `, cfg.Host,
 		base64.StdEncoding.EncodeToString(cfg.CAData),
+		user, user,
 		base64.StdEncoding.EncodeToString(cfg.CertData),
 		base64.StdEncoding.EncodeToString(cfg.KeyData))
 }
