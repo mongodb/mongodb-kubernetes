@@ -279,6 +279,23 @@ delete_kind_network() {
   docker network rm kind
 }
 
+# A recreate without a worktree prefix (no WORKTREE_PREFIX) deletes every kind cluster and volume, or the shared
+# network, on the docker daemon. Refuse when the daemon also holds clusters outside the five names of
+# a plain checkout, such as those of a worktree with a prefix, unless KIND_DELETE_ALL_CLUSTERS=true.
+# An Evergreen task (RUNNING_IN_EVG=true) is never refused.
+refuse_to_delete_foreign_kind_clusters() {
+  if [[ -n "${WORKTREE_PREFIX:-}" || "${RUNNING_IN_EVG:-}" == "true" || "${KIND_DELETE_ALL_CLUSTERS:-}" == "true" ]]; then
+    return 0
+  fi
+  local foreign
+  foreign="$(kind get clusters 2>/dev/null | grep -vxE 'kind|e2e-operator|e2e-cluster-[123]' | tr '\n' ' ' || true)"
+  if [[ -n "${foreign}" ]]; then
+    echo "ERROR: refusing to delete every kind cluster: the docker daemon also holds ${foreign}" >&2
+    echo "       Give this worktree a prefix (WORKTREE_PREFIX in .generated/worktree-context), or set KIND_DELETE_ALL_CLUSTERS=true to delete them too." >&2
+    return 1
+  fi
+}
+
 # Log docker in to the ECR registry that hosts the kind node image.
 #
 # The node image is pulled from an ECR mirror (kubernetes-versions.json), and the
