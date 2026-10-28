@@ -1,16 +1,18 @@
 """Shared helpers, fixtures, and constants for Ops Manager license E2E tests."""
 
 import time
+import uuid
 from typing import Optional
 
 import pytest
-from kubetester import try_load
+from kubetester import read_secret, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
 from tests import test_logger
 from tests.conftest import is_multi_cluster
+from tests.opsmanager.ea_license import GsaCredentials, artifact_id_of, mint_license, read_artifact_inventory
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
 
 logger = test_logger.get_test_logger(__name__)
@@ -18,8 +20,15 @@ logger = test_logger.get_test_logger(__name__)
 OM_NAME = "om-license-e2e"
 DEFAULT_TIMEOUT = 90
 
+GSA_SECRET_NAME = "om-license-gsa"
+
 
 RECOMPUTE_ANNOTATION = "mongodb.com/license-recompute"
+
+# The EA principal every license of this run is minted for, which scopes the inventory reads to this run.
+RUN_PRINCIPAL_ID = f"mck-ci-{uuid.uuid4()}"
+
+_current_artifact: Optional[str] = None
 
 
 @fixture(scope="module")
@@ -43,8 +52,42 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     return resource
 
 
+def current_artifact() -> str:
+    assert _current_artifact is not None, "no license minted yet"
+    return _current_artifact
+
+
+def current_artifact_id() -> str:
+    return artifact_id_of(current_artifact())
+
+
+def gsa_credentials(namespace: str) -> GsaCredentials:
+    data = read_secret(namespace, GSA_SECRET_NAME)
+    return GsaCredentials(client_id=data["GSA_CLIENT_ID"], client_secret=data["GSA_CLIENT_SECRET"])
+
+
 def om_holder_id(ops_manager: MongoDBOpsManager) -> str:
     return ops_manager.get_om_tester().api_read_license_identity()["holderId"]
+
+
+def _mint(ops_manager: MongoDBOpsManager) -> tuple[str, str]:
+    """Mints a license for this run, bound to this Ops Manager."""
+    return mint_license(
+        gsa_credentials(ops_manager.namespace),
+        principal_id=RUN_PRINCIPAL_ID,
+        holder_ids=[om_holder_id(ops_manager)],
+    )
+
+
+def mint_run_license(ops_manager: MongoDBOpsManager) -> str:
+    """Mints a license and makes it the current artifact."""
+    global _current_artifact
+    _current_artifact, artifact_id = _mint(ops_manager)
+    return artifact_id
+
+
+def ea_artifact_row(ops_manager: MongoDBOpsManager, artifact_id: str) -> dict:
+    return read_artifact_inventory(gsa_credentials(ops_manager.namespace), RUN_PRINCIPAL_ID).get(artifact_id) or {}
 
 
 def license_status(ops_manager: MongoDBOpsManager) -> dict:

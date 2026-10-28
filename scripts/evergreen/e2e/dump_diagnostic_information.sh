@@ -252,7 +252,9 @@ dump_secrets() {
     local context="${1}"
     local namespace="${2}"
     local prefix="${3}"
-    for secret in $(kubectl --context="${context}" get secrets -n "${namespace}" --no-headers | grep -v service-account-token | grep -v dockerconfigjson | awk '{ print $1 }'); do
+    # Secrets labelled mongodb.com/do-not-dump hold credentials that must not be copied into the
+    # task artifacts, see the fetch_gsa_credentials function in .evergreen-functions.yml.
+    for secret in $(kubectl --context="${context}" get secrets -n "${namespace}" --no-headers -l 'mongodb.com/do-not-dump!=true' | grep -v service-account-token | grep -v dockerconfigjson | awk '{ print $1 }'); do
         decode_secret "${context}" "${secret}" "${namespace}" > "logs/${prefix}z_secret_${secret}.txt"
     done
 }
