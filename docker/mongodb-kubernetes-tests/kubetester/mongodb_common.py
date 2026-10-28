@@ -8,6 +8,15 @@ from tests import test_logger
 logger = test_logger.get_test_logger(__name__)
 TRACER = trace.get_tracer("evergreen-agent")
 
+_LAST_WAIT_PROPERTIES: dict = {}
+
+
+def pop_last_wait_properties() -> dict:
+    """Returns and clears the wait properties recorded for the current test."""
+    properties = dict(_LAST_WAIT_PROPERTIES)
+    _LAST_WAIT_PROPERTIES.clear()
+    return properties
+
 
 class MongoDBCommon:
     backing_obj: dict
@@ -37,6 +46,13 @@ class MongoDBCommon:
         span = trace.get_current_span()
         span.set_attribute("mck.wait.name", wait_name)
         span.set_attribute("mck.wait.timeout_s", initial_timeout)
+        _LAST_WAIT_PROPERTIES.clear()
+        _LAST_WAIT_PROPERTIES.update(
+            {
+                "mck.wait.name": str(wait_name),
+                "mck.wait.timeout_s": str(initial_timeout),
+            }
+        )
 
         wait = 3
         retries = 0
@@ -98,12 +114,16 @@ class MongoDBCommon:
     def _record_wait(span, attempts, phase=None, message=None, error=None):
         """Records a wait outcome on the current span as `mck.wait.*` attributes."""
         span.set_attribute("mck.wait.attempts", attempts)
+        _LAST_WAIT_PROPERTIES["mck.wait.attempts"] = str(attempts)
         if phase is not None:
             span.set_attribute("mck.wait.last_observed.phase", str(phase))
+            _LAST_WAIT_PROPERTIES["mck.wait.last_observed.phase"] = str(phase)
         if message is not None:
             span.set_attribute("mck.wait.last_observed.message", str(message))
+            _LAST_WAIT_PROPERTIES["mck.wait.last_observed.message"] = str(message)
         if error is not None:
             span.set_attribute("mck.wait.error", str(error))
+            _LAST_WAIT_PROPERTIES["mck.wait.error"] = str(error)
 
     def get_generation(self) -> int:
         return self.backing_obj["metadata"]["generation"]
