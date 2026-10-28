@@ -1,0 +1,28 @@
+csi kind-e2e-cluster-1
+csi kind-e2e-cluster-2
+csi kind-e2e-cluster-3
+csi kind-e2e-operator
+csi kind-kind
+docker inspect -f {{.State.Running}} kind-registry
+docker network create --subnet=172.18.0.0/16 kind
+docker network inspect kind
+docker rm -f kind-registry
+docker run -d --restart=always -p 127.0.0.1:5000:5000 --name kind-registry registry:2
+kind delete cluster --name e2e-cluster-1
+kind delete cluster --name e2e-cluster-2
+kind delete cluster --name e2e-cluster-3
+kind delete cluster --name e2e-operator
+kind delete cluster --name kind
+kind export kubeconfig --name e2e-cluster-1
+kind export kubeconfig --name e2e-cluster-2
+kind export kubeconfig --name e2e-cluster-3
+kind export kubeconfig --name e2e-operator
+kind export kubeconfig --name kind
+multi_cluster/tools/install_istio.sh 
+multi_cluster/tools/install_istio_central.sh 
+scripts/dev/interconnect_kind_clusters.sh -v e2e-cluster-1 e2e-cluster-2 e2e-cluster-3 e2e-operator
+scripts/dev/setup_kind_cluster.sh -n e2e-cluster-1 -p 10.245.0.0/16 -s 10.97.0.0/16 -l 172.18.255.210-172.18.255.219 -c cluster.local
+scripts/dev/setup_kind_cluster.sh -n e2e-cluster-2 -p 10.246.0.0/16 -s 10.98.0.0/16 -l 172.18.255.220-172.18.255.229 -c cluster.local
+scripts/dev/setup_kind_cluster.sh -n e2e-cluster-3 -p 10.247.0.0/16 -s 10.99.0.0/16 -l 172.18.255.230-172.18.255.239 -c cluster.local
+scripts/dev/setup_kind_cluster.sh -n e2e-operator -p 10.244.0.0/16 -s 10.96.0.0/16 -l 172.18.255.200-172.18.255.209 -c cluster.local
+scripts/dev/setup_kind_cluster.sh -n kind -l 172.18.255.240-172.18.255.249 -c cluster.local

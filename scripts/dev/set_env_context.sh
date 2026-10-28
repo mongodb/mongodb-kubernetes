@@ -26,3 +26,10 @@ if [[ -f "${venv_path}/bin/activate" ]]; then
 fi
 
 export PATH="${PROJECT_DIR}/bin:${PATH}"
+
+# Scoped mode (MCK_DEVC_LOCAL_KIND=1) keeps the clusters it creates out of the user's
+# ~/.kube/config: every script that sources this file, and `kind export`, use the
+# kubeconfig of the checkout.
+if [[ "${MCK_DEVC_LOCAL_KIND:-}" == "1" ]]; then
+    export KUBECONFIG="${PROJECT_DIR}/.generated/current.kubeconfig"
+fi

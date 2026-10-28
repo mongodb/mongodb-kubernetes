@@ -8,6 +8,17 @@ source scripts/funcs/kubernetes
 source scripts/funcs/printing
 source scripts/funcs/kind_network
 
+# Scoped mode (MCK_DEVC_LOCAL_KIND=1): delete only the clusters this script creates and
+# prune nothing, because the docker host can run clusters and containers that belong to
+# somebody else.
+docker_cleanup_scoped() {
+  local name
+  for name in "e2e-operator" "e2e-cluster-1" "e2e-cluster-2" "e2e-cluster-3" "kind"; do
+    echo "Deleting kind cluster ${name}"
+    kind delete cluster --name "${name}"
+  done
+}
+
 docker_cleanup() {
   echo "Deleting all kind clusters"
   kind delete clusters --all
@@ -19,7 +30,11 @@ docker_cleanup() {
   fi
 }
 
-docker_cleanup 2>&1| prepend "docker_cleanup"
+if [[ "${MCK_DEVC_LOCAL_KIND:-}" == "1" ]]; then
+  docker_cleanup_scoped 2>&1 | prepend "docker_cleanup"
+else
+  docker_cleanup 2>&1 | prepend "docker_cleanup"
+fi
 
 docker_create_kind_network
 docker_run_local_registry "kind-registry" "5000"

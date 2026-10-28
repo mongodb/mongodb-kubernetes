@@ -12,6 +12,14 @@ if [[ -z ${cluster_name} ]]; then
   exit 1
 fi
 
+# Scoped mode (MCK_DEVC_LOCAL_KIND=1) never deletes the shared 'kind' docker network, which
+# stops every container on it. evg-private-context exports DELETE_KIND_NETWORK=true, so the
+# override has to be here. set_env_context.sh pins KUBECONFIG to the checkout's file in that
+# mode, so `kind export` leaves the user's ~/.kube/config alone.
+if [[ "${MCK_DEVC_LOCAL_KIND:-}" == "1" ]]; then
+  DELETE_KIND_NETWORK="false"
+fi
+
 if [[ "${DELETE_KIND_NETWORK:-"false"}" == "true" ]]; then
   delete_kind_network
 fi
