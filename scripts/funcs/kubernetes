@@ -303,8 +303,15 @@ delete_kind_network() {
 # login uses the AWS credentials of the sourced context. It does nothing for an
 # image that is not on ECR or is already cached locally. A failed login only warns:
 # the pull itself reports the real error if the image is missing.
+#
+# Scoped mode (MCK_DEVC_LOCAL_KIND=1): the login and a pull of the image use a private
+# docker config directory in the checkout, so the token never lands in the user's
+# ~/.docker/config.json. The pull leaves the image in the daemon's cache, which
+# `kind create` then uses without credentials. A swapped DOCKER_CONFIG loses the docker
+# context, so the daemon endpoint is passed explicitly. The token sits in
+# <checkout>/.generated/cache/docker-login/config.json (gitignored).
 ecr_login_for_kind_node_image() {
-  local kind_node_image ecr_registry ecr_region
+  local kind_node_image ecr_registry ecr_region docker_env=()
   kind_node_image="${KIND_NODE_IMAGE:-$(scripts/get-kind-image.sh max)}"
   if [[ ! "${kind_node_image}" =~ ^([0-9]+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com) ]]; then
     return 0
@@ -315,16 +322,28 @@ ecr_login_for_kind_node_image() {
     echo "Kind node image ${kind_node_image} already present locally; skipping ECR login"
     return 0
   fi
+  if [[ "${MCK_DEVC_LOCAL_KIND:-}" == "1" ]]; then
+    local docker_config="${PROJECT_DIR}/.generated/cache/docker-login" docker_host
+    mkdir -p "${docker_config}"
+    docker_host="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
+    docker_env=(DOCKER_CONFIG="${docker_config}")
+    [[ -z "${docker_host}" ]] || docker_env+=(DOCKER_HOST="${docker_host}")
+  fi
   echo "Logging in to ECR registry ${ecr_registry} (region ${ecr_region}) for kind node image"
   # The private context template sets the AWS keys to "undefined" for SSO users. Drop
   # them as configure_container_auth.sh does, or aws would send them instead of the profile.
   if ! (
     [[ "${AWS_ACCESS_KEY_ID:-undefined}" != "undefined" ]] || unset AWS_ACCESS_KEY_ID
     [[ "${AWS_SECRET_ACCESS_KEY:-undefined}" != "undefined" ]] || unset AWS_SECRET_ACCESS_KEY
+    [[ ${#docker_env[@]} -eq 0 ]] || export "${docker_env[@]}"
     aws ecr get-login-password --region "${ecr_region}" \
       | docker login --username AWS --password-stdin "${ecr_registry}"
   ); then
     echo "WARN: ECR login failed; the node-image pull will fail unless the image is cached" >&2
+  fi
+  if [[ ${#docker_env[@]} -gt 0 ]]; then
+    (export "${docker_env[@]}" && docker pull "${kind_node_image}") \
+      || echo "WARN: pulling ${kind_node_image} failed; kind create will try again" >&2
   fi
 }
 
