@@ -32,6 +32,7 @@ The goals apply to every component.
 ## Decision
 
 - **Version scheme:** Component image tags are MCK versions (`mongodb-proxy:1.16.0`). No separate semver.
+- **One MCK version:** The next MCK version is calculated once, by the existing `calculate_next_version`, from all changelog entries under `changelog/`, including `changelog/<component>/`. The highest kind decides the bump: breaking is a major, feature is a minor, anything else is a patch. A feature in a component therefore makes the MCK release a minor. Components never get their own version calculation.
 - **Release:** Every MCK release builds, signs and publishes all components at the MCK version, like the init images today. The release pipeline does not change.
 - **Versions in `release.json`:** Two fields per component. `proxyLatestVersion` always equals `mongodbOperator`. `proxyMinimumVersion` is the version used by default and can be older. Same for the reporter.
 - **Minimum:** Derived from the changelog: any component entry added since the last MCK tag moves the minimum to the next MCK version. Every entry bumps, whatever its kind.
@@ -83,7 +84,19 @@ proxyMinimumVersion = proxyLatestVersion if len(entries) > 0 else prev_minimum
 ```
 
 - Entries are counted from the last MCK tag, the same base MCK uses for its own version.
-- Component entries are already read by `version.py` and `release_notes.py`, because `changelog/` is read recursively. In a temporary clone, an entry in `changelog/proxy/` raised the next MCK version from 1.14.1 to 1.15.0 and appeared in the release notes, with no script changes.
+- Order: the hooks compute the next MCK version first, from all changelogs, and only then derive latest and minimum from it. Both are recomputed on every commit, so if a later PR raises the bump from patch to minor, a minimum equal to the next MCK version follows it.
+- Component entries need no script change for the MCK version or the release notes, because `changelog/` is read recursively by `version.py` and `release_notes.py`. Tested in a temporary clone, starting from tag 1.14.0 with no entries since:
+
+  | Entries since the tag | Next MCK version |
+  |---|---|
+  | none | 1.14.1 |
+  | component `fix` or `other` | 1.14.1 |
+  | component `feature` | 1.15.0 |
+  | component `breaking` | 2.0.0 |
+  | root `fix` and component `feature` | 1.15.0 |
+  | component `fix` and another component's `feature` | 1.15.0 |
+
+  Component entries also appear in the MCK release notes.
 - Bootstrap: with no previous minimum, the first release that includes the component sets both fields to its own version.
 
 ## Changelog and enforcement
@@ -174,7 +187,7 @@ Revisit if: the proxy's dependency graph grows or diverges from the operator's, 
 5. Register the component images in the build and release pipeline, like `init-database`: `build_info.json`, `build_info.py`, `pipeline.py`, `pipeline.sh`, Evergreen build and `cve_scan_images` tasks, `evg-private-context`, the Makefile and `update_go_version.sh`.
 6. Operator: version-based env vars per component, the global track-latest switch, and image resolution through `ContainerImage()`. `main.go`, `pkg/images`.
 7. Installation configs: env vars and values in `helm_chart/templates/operator.yaml`, `values.yaml` and `values-openshift.yaml`; `RELATED_IMAGE_*` entries for both minimum and latest per component; the yaml generated with track latest on; regenerate `public/*.yaml` and `config/manager/manager.yaml`; check the generated OLM bundle.
-8. Tests: derivation scenarios (no entry keeps the minimum, an entry moves it, a backport on a release branch) in `scripts/release/tests/conftest.py` and `testdata/test_git_repo.mmd`; operator unit tests for version resolution.
+8. Tests: derivation scenarios (no entry keeps the minimum, an entry moves it, a backport on a release branch, a component `feature` bumps the MCK version by a minor and a component `breaking` by a major) in `scripts/release/tests/conftest.py` and `testdata/test_git_repo.mmd`; operator unit tests for version resolution.
 9. Smoke test gate in Evergreen on merges to master: the operator at HEAD against the minimum component images.
 10. Docs: state the minimum component versions in each MCK release's notes and public docs, and document track latest and manual versions per installation method.
 11. Add the new env vars to the Installation Unification env-var migration inventory.
