@@ -7,10 +7,25 @@ source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Usage: recreate_kind_clusters.sh
+
+Recreates the five kind clusters of the multi-cluster set: <WORKTREE_PREFIX>e2e-operator, e2e-cluster-1 to 3 and kind.
+$(print_worktree_prefix_help)"
+  exit 0
+fi
+
 : "${KIND_NETWORK_SUBNET:?not in the context, run make switch}" "${WORKTREE_PREFIX?not in the context, run make switch}"
 P="${WORKTREE_PREFIX}"
 
 docker_cleanup() {
+  if [[ -n "${P}" ]]; then
+    # A worktree with a prefix shares the docker daemon: delete only its own clusters, prune nothing, keep the network.
+    for name in "e2e-operator" "e2e-cluster-1" "e2e-cluster-2" "e2e-cluster-3" "kind"; do
+      kind delete cluster --name "${P}${name}"
+    done
+    return
+  fi
   echo "Deleting all kind clusters"
   kind delete clusters --all
   echo "Pruning all docker resources"
@@ -46,11 +61,14 @@ echo "Waiting for all kind clusters to be created"
 for pid in "${cluster_pids[@]}"; do wait "${pid}" || { echo "Cluster creation PID ${pid} failed" >&2; exit 1; }; done
 
 # we do exports sequentially as setup_kind_cluster.sh is run in parallel and we hit kube config locks
-kind export kubeconfig --name "e2e-operator"
-kind export kubeconfig --name "e2e-cluster-1"
-kind export kubeconfig --name "e2e-cluster-2"
-kind export kubeconfig --name "e2e-cluster-3"
-kind export kubeconfig --name "kind"
+# The kubeconfig of a worktree with a prefix holds only its own clusters.
+[[ -z "${P}" ]] || rm -f "${KUBECONFIG}"
+kind export kubeconfig --name "${P}e2e-operator"
+kind export kubeconfig --name "${P}e2e-cluster-1"
+kind export kubeconfig --name "${P}e2e-cluster-2"
+kind export kubeconfig --name "${P}e2e-cluster-3"
+kind export kubeconfig --name "${P}kind"
+kind_unprefix_contexts "${KUBECONFIG}"
 
 echo "Interconnecting Kind clusters"
 scripts/dev/interconnect_kind_clusters.sh -v e2e-cluster-1 e2e-cluster-2 e2e-cluster-3 e2e-operator 2>&1 | prepend "interconnect_kind_clusters"
