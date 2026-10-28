@@ -129,6 +129,7 @@ config:
     pipelines:
       traces:
         receivers: [otlp]
+        processors: [ resource/k8s ]
         exporters: [otlp]
       metrics:
         processors: [ resource/k8s ]
