@@ -56,11 +56,13 @@ update_files() {
     for file in "${files[@]}"; do
         local filepath="${ROOT_DIR}/${file}"
         if [[ -f "${filepath}" ]]; then
-            # Use a temporary file for cross-platform compatibility
+            # Use a temporary file for cross-platform compatibility. Write the result back
+            # with cat instead of mv, so the file keeps its permissions (mktemp creates 0600).
             local tmpfile
             tmpfile=$(mktemp)
             sed "s|${pattern}|${new_value}|g" "${filepath}" > "${tmpfile}"
-            mv "${tmpfile}" "${filepath}"
+            cat "${tmpfile}" > "${filepath}"
+            rm -f "${tmpfile}"
             echo "Updated: ${file}"
         fi
     done
