@@ -72,12 +72,6 @@ class EnhancedOpenTelemetryPlugin(OpenTelemetryPlugin):
         current_span.set_attributes(prefixed_attributes)
         current_span.set_attribute(f"mck.pytest.outcome.{call.when}", report.outcome)
 
-        if call.when == "call":
-            from kubetester.mongodb_common import pop_last_wait_properties
-
-            for name, value in pop_last_wait_properties().items():
-                item.user_properties.append((name, value))
-
 
 def _configure_telemetry():
     # Get the existing tracer provider that was set up by pytest-opentelemetry

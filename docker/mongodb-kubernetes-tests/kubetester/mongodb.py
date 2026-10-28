@@ -114,7 +114,6 @@ class MongoDB(CustomObject, MongoDBCommon):
             ),
             timeout,
             should_raise=True,
-            name="assert_reaches_phase",
         )
 
         end_time = time.time()
@@ -134,7 +133,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         transitioning during the modification call before calling this method.
         """
         start_time = time.time()
-        self.wait_for(lambda s: s.get_status_phase() != phase, timeout, should_raise=True, name="assert_abandons_phase")
+        self.wait_for(lambda s: s.get_status_phase() != phase, timeout, should_raise=True)
         end_time = time.time()
         span = trace.get_current_span()
         span.set_attribute("mck.resource", self.__class__.__name__)
