@@ -6,6 +6,20 @@ source scripts/funcs/checks
 source scripts/funcs/errors
 source scripts/funcs/printing
 
+# Path of the kubeconfig `kind create cluster --kubeconfig` writes for one cluster:
+# ~/.kube/<name>, or in scoped mode (MCK_DEVC_LOCAL_KIND=1) a file in the checkout,
+# so that a scoped setup leaves no credentials in the home directory.
+kind_cluster_kubeconfig() {
+    local name="${1}"
+    if [[ "${MCK_DEVC_LOCAL_KIND:-}" != "1" ]]; then
+        echo "${HOME}/.kube/${name}"
+        return 0
+    fi
+    local dir="${PROJECT_DIR}/.generated/kind-kubeconfigs"
+    mkdir -p "${dir}"
+    echo "${dir}/${name}"
+}
+
 ensure_namespace() {
     local namespace="${1}"
     local tmp_file

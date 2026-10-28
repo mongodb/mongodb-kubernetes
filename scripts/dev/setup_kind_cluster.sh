@@ -16,8 +16,8 @@ Usage:
   setup_kind_cluster.sh [-n <cluster_name>] [-e] [-r]
 
 Options:
-  -n <cluster_name>    (optional) Set kind cluster name to <cluster_name>. Creates kubeconfig in ~/.kube/<cluster_name>. The default name is 'kind' if not set.
-  -e                   (optional) Export newly created kind cluster's credentials to ~/.kube/<cluster_name> and set current kubectl context.
+  -n <cluster_name>    (optional) Set kind cluster name to <cluster_name>. Creates kubeconfig in ~/.kube/<cluster_name>, in scoped mode (MCK_DEVC_LOCAL_KIND=1) in .generated/kind-kubeconfigs/<cluster_name>. The default name is 'kind' if not set.
+  -e                   (optional) Export newly created kind cluster's credentials into the current KUBECONFIG and set its current context.
   -h                   (optional) Shows this screen.
   -r                   (optional) Recreate cluster if needed
   -p <pod network>     (optional) Network reserved for Pods, e.g. 10.244.0.0/16
@@ -58,7 +58,7 @@ while getopts ':n:p:s:c:l:egrhk' opt; do
 done
 shift "$((OPTIND - 1))"
 
-kubeconfig_path="${HOME}/.kube/${cluster_name}"
+kubeconfig_path="$(kind_cluster_kubeconfig "${cluster_name}")"
 
 metallb_version="v0.13.7"
 metrics_server_version="v0.7.2"
