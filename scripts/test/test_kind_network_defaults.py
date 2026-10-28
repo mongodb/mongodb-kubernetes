@@ -38,7 +38,7 @@ BASH_PROBE = (
 
 
 def clean_env(**extra: str) -> dict:
-    env = {k: v for k, v in os.environ.items() if not k.startswith("KIND_")}
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("KIND_", "MCK_DEVC_"))}
     env.update(extra)
     return env
 
@@ -93,6 +93,14 @@ def test_bash_defaults_are_the_172_18_255_ranges_of_the_recreate_scripts():
 
 def test_python_and_bash_agree_without_overrides():
     assert range_starts(bash_ranges()["ranges"]) == python_addresses()["slots"]
+
+
+def test_python_and_bash_agree_for_stack_index_17():
+    bash = bash_ranges(MCK_DEVC_HOST_INDEX="17", MCK_DEVC_NET_X="16", MCK_DEVC_NET_Y_BASE="34")
+
+    assert bash["prefix"] == "172.16.34"
+    assert range_starts(bash["ranges"]) == python_addresses(KIND_LB_PREFIX=bash["prefix"])["slots"]
+    assert python_addresses(KIND_LB_PREFIX=bash["prefix"])["slots"][0] == "172.16.34.200"
 
 
 def test_kind_network_subnet_alone_moves_the_python_addresses_like_the_bash_ones():

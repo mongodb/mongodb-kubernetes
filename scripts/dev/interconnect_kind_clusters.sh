@@ -2,6 +2,7 @@
 set -Eeou pipefail
 
 source scripts/dev/set_env_context.sh
+source scripts/funcs/kind_network
 
 ####
 ## This script is based on https://gist.github.com/aojea/00bca6390f5f67c0a30db6acacf3ea91#multiple-clusters
@@ -44,8 +45,9 @@ for c in "${clusters[@]}"; do
   # Is there a better way to do it?
   service_cidr=$(kubectl --context "kind-${c}" --namespace kube-system get configmap kubeadm-config -o=jsonpath='{.data.ClusterConfiguration}' | grep "serviceSubnet" | cut -d\  -f4)
   service_route=$(kubectl --context "kind-${c}" get nodes -o=jsonpath='{range .items[*]}{"ip route add "}'"${service_cidr}"'{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}')
-  # shellcheck disable=SC2086
-  kind_node_in_docker=$(kind get nodes --name ${c})
+  # The clusters are called as the kubeconfig contexts say, except with a stack index, where
+  # the kind name carries devc<N>-.
+  kind_node_in_docker=$(kind get nodes --name "${KIND_NAME_PREFIX}${c}")
 
   if [ "${verbose}" -ne "0" ]; then
     echo "[${c}] [${kind_node_in_docker}] Pod Route: ${pod_route}"

@@ -44,6 +44,15 @@ assert_succeeded() {
   fi
 }
 
+# Fails when the pattern (a basic regex) is in the file. A bare `! grep` never fails a bats test.
+refute_in_file() {
+  if grep -q -- "$1" "$2"; then
+    echo "unexpected '$1' in $2:" >&2
+    cat "$2" >&2
+    return 1
+  fi
+}
+
 calls_matching() {
   grep -c -- "$1" "${CALL_LOG}" || true
 }

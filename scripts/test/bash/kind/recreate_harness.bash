@@ -9,8 +9,10 @@ load ../lib/fake_repo
 
 recreate_setup() {
   make_fake_repo scripts/dev/recreate_kind_cluster.sh scripts/dev/recreate_kind_clusters.sh
+  ENV_LOG="${BATS_TEST_TMPDIR}/env.log"
   KUBECONFIG_LOG="${BATS_TEST_TMPDIR}/kubeconfig.log"
   mkdir -p "${FAKE_REPO}/multi_cluster/tools" "${FAKE_HOME}/.kube" "${FAKE_REPO}/istio-1.16.1/bin"
+  : >"${ENV_LOG}"
   : >"${KUBECONFIG_LOG}"
   # What the last `make switch` baked. Like evg-private-context, the context exports
   # DELETE_KIND_NETWORK=true and, like root-context, the user's default KUBECONFIG.
@@ -18,12 +20,32 @@ recreate_setup() {
     "${FAKE_REPO}" "${FAKE_HOME}/.kube/config" >"${FAKE_REPO}/.generated/context.export.env"
 
   local helper
-  for helper in scripts/dev/setup_kind_cluster.sh scripts/dev/interconnect_kind_clusters.sh \
+  for helper in scripts/dev/interconnect_kind_clusters.sh \
     multi_cluster/tools/install_istio.sh multi_cluster/tools/install_istio_central.sh; do
     printf '#!/usr/bin/env bash\nsource scripts/dev/set_env_context.sh\necho "%s $*" >>"${CALL_LOG}"\necho "${KUBECONFIG}" >>"${KUBECONFIG_LOG}"\n' \
       "${helper}" >"${FAKE_REPO}/${helper}"
     chmod +x "${FAKE_REPO}/${helper}"
   done
+  # setup_kind_cluster.sh logs its argv and the KUBECONFIG it ends up with, and the docker
+  # network variable kind would read. It writes the per-cluster kubeconfig like kind create.
+  cat >"${FAKE_REPO}/scripts/dev/setup_kind_cluster.sh" <<'STUB'
+#!/usr/bin/env bash
+source scripts/dev/set_env_context.sh
+source scripts/funcs/kind_network
+echo "scripts/dev/setup_kind_cluster.sh $*" >>"${CALL_LOG}"
+echo "${KUBECONFIG}" >>"${KUBECONFIG_LOG}"
+echo "setup_kind_cluster.sh KIND_EXPERIMENTAL_DOCKER_NETWORK=${KIND_EXPERIMENTAL_DOCKER_NETWORK:-<unset>}" >>"${ENV_LOG}"
+while getopts "n:p:s:l:c:rek" opt; do
+  case "${opt}" in
+    n) name="${OPTARG}" ;;
+    *) ;;
+  esac
+done
+source scripts/funcs/kubernetes
+printf 'clusters:\n- cluster:\n    server: https://127.0.0.1:35765\n  name: kind-%s\ncurrent-context: kind-%s\n' \
+  "${name}" "${name}" >"$(kind_cluster_kubeconfig "${name}")"
+STUB
+  chmod +x "${FAKE_REPO}/scripts/dev/setup_kind_cluster.sh"
   printf '#!/usr/bin/env bash\n: # the istio download is a no-op in these tests\n' \
     >"${FAKE_REPO}/multi_cluster/tools/download_istio.sh"
   printf 'source scripts/dev/set_env_context.sh\ncsi_driver_download() { :; }\ncsi_driver_deploy() { echo "csi ${1}" >>"${CALL_LOG}"; echo "${KUBECONFIG}" >>"${KUBECONFIG_LOG}"; }\n' \
@@ -35,8 +57,28 @@ recreate_setup() {
   cat >"${STUB_BIN}/kind" <<'STUB'
 #!/usr/bin/env bash
 echo "kind $*" >>"${CALL_LOG}"
-[[ "$1 $2" != "export kubeconfig" ]] || echo "${KUBECONFIG}" >>"${KUBECONFIG_LOG}"
-[[ "$1 $2" != "get nodes" ]] || echo "${4}-control-plane"
+case "$1 $2" in
+  "get nodes") echo "${4}-control-plane" ;;
+  "export kubeconfig")
+    echo "${KUBECONFIG}" >>"${KUBECONFIG_LOG}"
+    # Kind merges the cluster, context and user entry called kind-<name> into $KUBECONFIG and
+    # makes it the current-context. The stub keeps the file in kind's layout and merges by section.
+    name="kind-$4"
+    section() { [[ -s "${KUBECONFIG}" ]] && awk -v s="$1:" '/^[a-z-]+:/ {cur=$1} cur==s && !/^[a-z-]+:/ {print}' "${KUBECONFIG}"; true; }
+    {
+      echo "apiVersion: v1"
+      echo "clusters:"; section clusters
+      printf -- '- cluster:\n    certificate-authority-data: LS0tQ0FEQVRB\n    server: https://127.0.0.1:35765\n  name: %s\n' "${name}"
+      echo "contexts:"; section contexts
+      printf -- '- context:\n    cluster: %s\n    user: %s\n  name: %s\n' "${name}" "${name}" "${name}"
+      echo "current-context: ${name}"
+      echo "kind: Config"
+      echo "users:"; section users
+      printf -- '- name: %s\n  user:\n    client-certificate-data: LS0tQ0VSVA==\n    client-key-data: LS0tS0VZ\n' "${name}"
+    } >"${KUBECONFIG}.new"
+    mv "${KUBECONFIG}.new" "${KUBECONFIG}"
+    ;;
+esac
 exit 0
 STUB
   # The answers interconnect_kind_clusters.sh and install_istio.sh parse.
@@ -89,7 +131,8 @@ run_in_fake_repo() {
   while [[ "$1" != "--" ]]; do assignments+=("$1"); shift; done
   shift
   run --separate-stderr env -u KIND_LB_PREFIX -u KIND_NETWORK_SUBNET -u MCK_DEVC_LOCAL_KIND \
-    PATH="${STUB_BIN}:${PATH}" CALL_LOG="${CALL_LOG}" KUBECONFIG_LOG="${KUBECONFIG_LOG}" HOME="${FAKE_HOME}" \
+    -u MCK_DEVC_HOST_INDEX -u MCK_DEVC_NET_X -u MCK_DEVC_NET_Y_BASE -u KIND_NAME_PREFIX -u KIND_EXPERIMENTAL_DOCKER_NETWORK \
+    PATH="${STUB_BIN}:${PATH}" CALL_LOG="${CALL_LOG}" ENV_LOG="${ENV_LOG}" KUBECONFIG_LOG="${KUBECONFIG_LOG}" HOME="${FAKE_HOME}" \
     KIND_NODE_IMAGE="ghcr.io/example/node:v1" \
     ${assignments[@]+"${assignments[@]}"} bash -c 'cd "'"${FAKE_REPO}"'" && "$@"' _ "$@"
 }

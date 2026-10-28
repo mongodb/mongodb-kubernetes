@@ -22,6 +22,42 @@
 #
 # Sourcing this file is idempotent.
 
+# Stack index (MCK_DEVC_HOST_INDEX=N): several kind setups, called stacks, share one
+# docker host, for example one per checkout, each with its own network, subnet and
+# cluster names. The caller picks the second and third octet of the stack's addresses
+# and sets them as MCK_DEVC_NET_X and MCK_DEVC_NET_Y_BASE; with the index set, those
+# two must be in the environment and everything derives from N, X and Y:
+#   KIND_NAME_PREFIX          devc<N>-       prefix of every kind cluster name
+#   KIND_DOCKER_NETWORK       devc<N>        docker network of the stack (no "kind" in it)
+#   KIND_NETWORK_SUBNET       172.X.Y.0/23   the stack's /23
+#   KIND_NETWORK_IP_RANGE     172.X.Y.0/25   node addresses; MetalLB takes .200-.250 of the same /24
+#   KIND_LB_PREFIX            172.X.Y        first three octets of the LB addresses
+# and KIND_EXPERIMENTAL_DOCKER_NETWORK makes kind join that network. With the index
+# unset the values are the ones this file always had: network "kind", no name
+# prefix, no ip range, LB addresses in <KIND_NETWORK_PREFIX>.255.
+if [[ -n "${MCK_DEVC_HOST_INDEX:-}" ]]; then
+  if [[ ! "${MCK_DEVC_HOST_INDEX}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: MCK_DEVC_HOST_INDEX='${MCK_DEVC_HOST_INDEX}' is not a stack index." >&2
+    return 1
+  fi
+  if [[ -z "${MCK_DEVC_NET_X:-}" || -z "${MCK_DEVC_NET_Y_BASE:-}" ]]; then
+    echo "ERROR: MCK_DEVC_HOST_INDEX=${MCK_DEVC_HOST_INDEX} needs MCK_DEVC_NET_X and MCK_DEVC_NET_Y_BASE, which give the second and third octet of the stack's addresses." >&2
+    return 1
+  fi
+  _kind_index=$((10#${MCK_DEVC_HOST_INDEX}))
+  export KIND_NAME_PREFIX="devc${_kind_index}-"
+  export KIND_DOCKER_NETWORK="devc${_kind_index}"
+  export KIND_LB_PREFIX="172.${MCK_DEVC_NET_X}.${MCK_DEVC_NET_Y_BASE}"
+  export KIND_NETWORK_SUBNET="${KIND_LB_PREFIX}.0/23"
+  export KIND_NETWORK_IP_RANGE="${KIND_LB_PREFIX}.0/25"
+  export KIND_EXPERIMENTAL_DOCKER_NETWORK="${KIND_DOCKER_NETWORK}"
+  unset _kind_index
+else
+  export KIND_NAME_PREFIX=""
+  export KIND_DOCKER_NETWORK="kind"
+  export KIND_NETWORK_IP_RANGE=""
+fi
+
 # Allow KIND_NETWORK_SUBNET to be set externally; default to kind's subnet.
 export KIND_NETWORK_SUBNET="${KIND_NETWORK_SUBNET:-172.18.0.0/16}"
 
@@ -29,9 +65,18 @@ export KIND_NETWORK_SUBNET="${KIND_NETWORK_SUBNET:-172.18.0.0/16}"
 KIND_NETWORK_PREFIX="$(printf '%s' "${KIND_NETWORK_SUBNET}" | awk -F'.' '{print $1"."$2}')"
 export KIND_NETWORK_PREFIX
 
-# Leading three octets of the LB addresses: ${PREFIX}.255 unless KIND_LB_PREFIX is set,
-# as the Python tests do.
+# Leading three octets of the LB addresses: ${PREFIX}.255 unless the stack index
+# (or the environment, as for the Python tests) says otherwise.
 export KIND_LB_PREFIX="${KIND_LB_PREFIX:-${KIND_NETWORK_PREFIX}.255}"
+
+# Scoped mode is the only safe one for a stack index: the unscoped cleanup of the
+# recreate scripts deletes every cluster and prunes the host. Call this first.
+kind_require_scoped_for_stack_index() {
+  if [[ -n "${MCK_DEVC_HOST_INDEX:-}" && "${MCK_DEVC_LOCAL_KIND:-}" != "1" ]]; then
+    echo "ERROR: MCK_DEVC_HOST_INDEX=${MCK_DEVC_HOST_INDEX} needs MCK_DEVC_LOCAL_KIND=1: the unscoped cleanup deletes every kind cluster on the host." >&2
+    return 1
+  fi
+}
 
 # Helper: IP within the metallb row at offset N.
 # kind_lb_ip <cluster_slot> <offset>

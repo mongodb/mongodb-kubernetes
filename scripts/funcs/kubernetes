@@ -363,9 +363,11 @@ docker_create_kind_network() {
   # drives the MetalLB IP ranges and the IPs the no-mesh tests assume. Override
   # KIND_NETWORK_SUBNET in the context to use a different /16; the bash scripts
   # and the Python test fixtures both derive their addresses from the same var.
+  # With a stack index (MCK_DEVC_HOST_INDEX) the network is devc<N> on the stack's
+  # own /23, with the nodes in its lower /25 and a label that names the stack.
   # shellcheck source=scripts/funcs/kind_network
   source "$(dirname "${BASH_SOURCE[0]}")/kind_network"
-  local network="kind"
+  local network="${KIND_DOCKER_NETWORK}"
   if docker network inspect "${network}" >/dev/null 2>&1; then
     # MetalLB ranges derived from KIND_NETWORK_SUBNET do not work on a network
     # with another subnet, so fail here instead of later in the e2e tests.
@@ -380,8 +382,26 @@ docker_create_kind_network() {
         ;;
     esac
   else
-    docker network create --subnet="${KIND_NETWORK_SUBNET}" "${network}"
+    local create_args=(--subnet="${KIND_NETWORK_SUBNET}")
+    [[ -z "${KIND_NETWORK_IP_RANGE}" ]] || create_args+=(--ip-range="${KIND_NETWORK_IP_RANGE}")
+    [[ -z "${MCK_DEVC_HOST_INDEX:-}" ]] || create_args+=(--label "mck.devc.index=${MCK_DEVC_HOST_INDEX}")
+    docker network create "${create_args[@]}" "${network}"
   fi
+}
+
+# Renames a kubeconfig written by `kind export kubeconfig` for the clusters of a
+# stack index (devc<N>-<name>) to the names every context, test and script
+# knows (kind-<name>): the cluster, context and user entries and the
+# current-context all carry the real name. Node names keep the prefix, they are
+# container names. No-op without a stack index. Call it on a file that holds only
+# this stack's entries: the old names would collide with a file from an earlier run.
+kind_logical_kubeconfig() {
+  local file="$1"
+  # shellcheck source=scripts/funcs/kind_network
+  source "$(dirname "${BASH_SOURCE[0]}")/kind_network"
+  [[ -n "${KIND_NAME_PREFIX}" ]] || return 0
+  sed "s/kind-${KIND_NAME_PREFIX}/kind-/g" "${file}" >"${file}.logical"
+  mv "${file}.logical" "${file}"
 }
 
 docker_network_connect_to_kind() {
