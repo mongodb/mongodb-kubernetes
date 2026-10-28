@@ -1466,6 +1466,7 @@ def run_periodically(fn, *args, **kwargs):
     Calls `fn` until it succeeds or until the `timeout` is reached, every `sleep_time` seconds.
     If `timeout` is negative or zero, it never times out.
     Callable fn can return single bool (condition result) or tuple[bool, str] ([condition result, status message]).
+    The `name` keyword sets `mck.wait.name`, and defaults to the callable name.
 
     >>> run_periodically(lambda: time.sleep(5), timeout=3, sleep_time=2)
     False
@@ -1475,11 +1476,16 @@ def run_periodically(fn, *args, **kwargs):
     sleep_time = kwargs.get("sleep_time", SLEEP_TIME)
     timeout = kwargs.get("timeout", INFINITY)
     msg = kwargs.get("msg", None)
+    wait_name = kwargs.get("name", None) or getattr(fn, "__name__", type(fn).__name__)
+
+    span = trace.get_current_span()
+    span.set_attribute("mck.wait.name", wait_name)
+    span.set_attribute("mck.wait.timeout_s", timeout)
 
     start_time = current_milliseconds()
     end = start_time + (timeout * 1000)
-    callable_name = fn.__name__
     attempts = 0
+    last_message = None
 
     while current_milliseconds() < end or timeout <= 0:
         attempts += 1
@@ -1496,20 +1502,27 @@ def run_periodically(fn, *args, **kwargs):
         if fn_condition:
             print(
                 "{} executed successfully after {} seconds and {} attempts".format(
-                    callable_name, (current_milliseconds() - start_time) / 1000, attempts
+                    wait_name, (current_milliseconds() - start_time) / 1000, attempts
                 )
             )
+            span.set_attribute("mck.wait.attempts", attempts)
+            if fn_condition_msg is not None:
+                span.set_attribute("mck.wait.last_observed.message", str(fn_condition_msg))
             return True
+        last_message = fn_condition_msg
         if msg is not None:
             condition_msg = f": {fn_condition_msg}" if fn_condition_msg is not None else ""
             print(f"waiting for {msg}{condition_msg}...")
         time.sleep(sleep_time)
 
-    raise AssertionError(
-        "Timed out executing {} after {} seconds and {} attempt(s)".format(
-            callable_name, (current_milliseconds() - start_time) / 1000, attempts
-        )
+    error = "Timed out executing {} after {} seconds and {} attempt(s)".format(
+        wait_name, (current_milliseconds() - start_time) / 1000, attempts
     )
+    span.set_attribute("mck.wait.attempts", attempts)
+    if last_message is not None:
+        span.set_attribute("mck.wait.last_observed.message", str(last_message))
+    span.set_attribute("mck.wait.error", error)
+    raise AssertionError(error)
 
 
 def get_env_var_or_fail(name):

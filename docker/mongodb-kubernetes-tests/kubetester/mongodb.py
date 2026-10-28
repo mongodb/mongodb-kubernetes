@@ -95,7 +95,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         def transition_changed(mdb: MongoDB):
             return mdb.get_status_last_transition_time() != last_transition
 
-        self.wait_for(transition_changed, timeout, should_raise=True)
+        self.wait_for(transition_changed, timeout, should_raise=True, name="assert_state_transition_happens")
 
     @TRACER.start_as_current_span("assert_reaches_phase")
     def assert_reaches_phase(self, phase: Phase, msg_regexp=None, timeout=None, ignore_errors=False):
@@ -114,6 +114,7 @@ class MongoDB(CustomObject, MongoDBCommon):
             ),
             timeout,
             should_raise=True,
+            name="assert_reaches_phase",
         )
 
         end_time = time.time()
@@ -133,7 +134,7 @@ class MongoDB(CustomObject, MongoDBCommon):
         transitioning during the modification call before calling this method.
         """
         start_time = time.time()
-        self.wait_for(lambda s: s.get_status_phase() != phase, timeout, should_raise=True)
+        self.wait_for(lambda s: s.get_status_phase() != phase, timeout, should_raise=True, name="assert_abandons_phase")
         end_time = time.time()
         span = trace.get_current_span()
         span.set_attribute("mck.resource", self.__class__.__name__)
