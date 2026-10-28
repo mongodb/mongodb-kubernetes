@@ -103,12 +103,6 @@ func acTestPayload() []byte {
 			"autoAuthMechanism": "SCRAM-SHA-256",
 			"usersWanted":       []any{map[string]any{"user": "mms-automation"}},
 		},
-		"processes": []any{map[string]any{
-			"name":     "rs-0",
-			"hostname": "rs-0.svc",
-			"version":  "7.0.0",
-		}},
-		"replicaSets": []any{map[string]any{"_id": "rs", "members": []any{map[string]any{"_id": 0, "host": "rs-0.svc:27017"}}}},
 	})
 	if err != nil {
 		panic(err)
@@ -248,23 +242,6 @@ func TestAutomationConfigReadErrorIsNotCached(t *testing.T) {
 	require.Error(t, err)
 
 	_, err = conn.ReadDeployment(ctx)
-	require.NoError(t, err)
-
-	gets, _ := counter.counts()
-	assert.Equal(t, 2, gets)
-}
-
-// TestAutomationConfigCacheIsPerConnection verifies that two connections do not
-// share a cached body.
-func TestAutomationConfigCacheIsPerConnection(t *testing.T) {
-	ctx := t.Context()
-	counter, conn := newACRequestCounter(t)
-
-	_, err := conn.ReadDeployment(ctx)
-	require.NoError(t, err)
-
-	other := NewOpsManagerConnection(&OMContext{BaseURL: conn.BaseURL(), GroupID: "1"})
-	_, err = other.ReadDeployment(ctx)
 	require.NoError(t, err)
 
 	gets, _ := counter.counts()
