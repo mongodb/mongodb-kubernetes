@@ -35,7 +35,7 @@ if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
   host_url=$(get_host_url)
 fi
 
-kubeconfig_path="${HOME}/.operator-dev/evg-host.kubeconfig"
+kubeconfig_path="${KUBECONFIG}"
 
 configure() {
   shift || true
@@ -71,7 +71,7 @@ configure() {
 
 sync() {
   rsync --verbose --archive --compress --human-readable --recursive --progress \
-  --delete --delete-excluded --max-size=1000000 --prune-empty-dirs \
+  --delete --max-size=1000000 --prune-empty-dirs \
   -e ssh \
   --include-from=.rsyncinclude \
   --exclude-from=.gitignore \
@@ -97,13 +97,13 @@ remote-prepare-local-e2e-run() {
     -e ssh \
     "${host_url}:/home/ubuntu/mongodb-kubernetes/.multi_cluster_local_test_files" \
     ./ &
-  scp "${host_url}:/home/ubuntu/.operator-dev/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
+  scp "${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
 
   wait
 }
 
 get-kubeconfig() {
-  remote_path="${host_url}:/home/ubuntu/.operator-dev/evg-host.kubeconfig"
+  remote_path="${host_url}:/home/ubuntu/mongodb-kubernetes/.generated/current.kubeconfig"
   echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
   scp "${remote_path}" "${kubeconfig_path}"
 }
@@ -202,7 +202,7 @@ COMMANDS:
   sync                                  rsync of project directory
   recreate-kind-cluster test-cluster    executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run          executes prepare-local-e2e on the remote evg host
-  get-kubeconfig                        copies remote kubeconfig locally to ~/.operator-dev/evg-host.kubeconfig
+  get-kubeconfig                        copies remote kubeconfig locally to .generated/current.kubeconfig
   tunnel [args]                         creates ssh session with tunneling to all API servers
   ssh [args]                            creates ssh session passing optional arguments to ssh
   cmd [command with args]               execute command as if being on evg host

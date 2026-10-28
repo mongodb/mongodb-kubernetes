@@ -16,8 +16,8 @@ Usage:
   setup_kind_cluster.sh [-n <cluster_name>] [-e] [-r]
 
 Options:
-  -n <cluster_name>    (optional) Set kind cluster name to <cluster_name>. Creates kubeconfig in ~/.kube/<cluster_name>. The default name is 'kind' if not set.
-  -e                   (optional) Export newly created kind cluster's credentials to ~/.kube/<cluster_name> and set current kubectl context.
+  -n <cluster_name>    (optional) Set kind cluster name to <cluster_name>. Creates kubeconfig in .generated/kind-kubeconfigs/<cluster_name>. The default name is 'kind' if not set.
+  -e                   (optional) Export newly created kind cluster's credentials to the kubeconfig of the checkout (KUBECONFIG) and set current kubectl context.
   -h                   (optional) Shows this screen.
   -r                   (optional) Recreate cluster if needed
   -p <pod network>     (optional) Network reserved for Pods, e.g. 10.244.0.0/16
@@ -56,7 +56,8 @@ while getopts ':n:p:s:c:l:egrhk' opt; do
 done
 shift "$((OPTIND - 1))"
 
-kubeconfig_path="${HOME}/.kube/${cluster_name}"
+kubeconfig_path="${PROJECT_DIR}/.generated/kind-kubeconfigs/${cluster_name}"
+mkdir -p "$(dirname "${kubeconfig_path}")"
 
 metallb_version="v0.13.7"
 metrics_server_version="v0.7.2"
@@ -66,6 +67,28 @@ reg_name='kind-registry'
 reg_port='5000'
 # kind image source
 kind_image="${KIND_NODE_IMAGE:-$(scripts/get-kind-image.sh max)}"
+
+# A container on a macOS laptop reaches each apiserver as host.docker.internal, and a client in it can verify that
+# name against the certificate (the operator's member cluster health check does, with the CA of the kubeconfig). Kind's
+# certificate covers only localhost, 127.0.0.1, the node name and address, and the kubernetes.* names, so add it.
+# A kubeadm patch replaces the certSANs list instead of extending it: repeat kind's own two entries, or the host
+# kubeconfig (127.0.0.1) stops verifying. Kind applies a patch only to the kubeadm config of its own apiVersion, which
+# is v1beta3 or v1beta4 depending on the kind release and the node image, so there is one patch for each.
+kubeadm_cert_sans_patches() {
+  local version
+  for version in v1beta3 v1beta4; do
+    cat <<EOF
+- |
+  apiVersion: kubeadm.k8s.io/${version}
+  kind: ClusterConfiguration
+  apiServer:
+    certSANs:
+    - localhost
+    - 127.0.0.1
+    - host.docker.internal
+EOF
+  done
+}
 
 kind_delete_cluster() {
   kind delete cluster --name "${cluster_name}" || true
@@ -116,6 +139,7 @@ kubeadmConfigPatches:
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
+$(kubeadm_cert_sans_patches)
 EOF
 }
 
@@ -138,6 +162,7 @@ kubeadmConfigPatches:
   kind: ClusterConfiguration
   networking:
     dnsDomain: "${cluster_domain}"
+$(kubeadm_cert_sans_patches)
 EOF
   echo "finished installing kind"
 }
