@@ -19,6 +19,8 @@ fi
 docker_create_kind_network
 docker_run_local_registry "kind-registry" "5000"
 
+ecr_login_for_kind_node_image
+
 scripts/dev/setup_kind_cluster.sh -r -e -n "${cluster_name}" -l "${KIND_METALLB_RANGE_SINGLE}" -c "${CLUSTER_DOMAIN}"
 
 source scripts/dev/install_csi_driver.sh

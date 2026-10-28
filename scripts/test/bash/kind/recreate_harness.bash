@@ -1,5 +1,5 @@
 # Shared by the bats suites of the kind scripts in this directory. The scripts run in a
-# scratch checkout with stubs for docker, kind, kubectl, istioctl, make and sleep on PATH
+# scratch checkout with stubs for docker, aws, kind, kubectl, istioctl, make and sleep on PATH
 # that log their argv to CALL_LOG, so no daemon runs. The helpers the recreate scripts call
 # (setup_kind_cluster.sh, interconnect, istio, csi) are stubs too.
 
@@ -26,11 +26,13 @@ recreate_setup() {
   printf '#!/usr/bin/env bash\necho "istioctl $*" >>"${CALL_LOG}"\n' >"${FAKE_REPO}/istio-1.16.1/bin/istioctl"
   chmod +x "${FAKE_REPO}/istio-1.16.1/bin/istioctl"
 
-  stub_logger kind kubectl make sleep
+  stub_logger aws kind kubectl make sleep
   cat >"${STUB_BIN}/docker" <<'STUB'
 #!/usr/bin/env bash
 echo "docker $*" >>"${CALL_LOG}"
 case "$1 $2" in
+  # The node image is never cached, so an ECR image always needs a login.
+  "image inspect") exit 1 ;;
   "network ls") echo "abc123 kind bridge local" ;;
   "network inspect")
     if [[ "$3" == "-f" ]]; then
@@ -59,6 +61,7 @@ run_in_fake_repo() {
   shift
   run --separate-stderr env -u KIND_LB_PREFIX -u KIND_NETWORK_SUBNET \
     PATH="${STUB_BIN}:${PATH}" CALL_LOG="${CALL_LOG}" HOME="${FAKE_HOME}" \
+    KIND_NODE_IMAGE="ghcr.io/example/node:v1" \
     ${assignments[@]+"${assignments[@]}"} bash -c 'cd "'"${FAKE_REPO}"'" && "$@"' _ "$@"
 }
 

@@ -84,3 +84,26 @@ golden_run() {
   grep -q -- 'setup_kind_cluster.sh .* -n foo ' "${CALL_LOG}"
   grep -qx 'csi kind-foo' "${CALL_LOG}"
 }
+
+# The node image comes from an ECR mirror. Both recreate scripts log in before kind pulls it.
+ECR_NODE_IMAGE="123456789012.dkr.ecr.eu-west-1.amazonaws.com/kind/node:v1"
+
+# first_call_line <pattern>: number of the first line of the call log that matches.
+first_call_line() {
+  grep -n -- "$1" "${CALL_LOG}" | head -1 | cut -d: -f1
+}
+
+@test "recreate_kind_cluster: an uncached ECR node image is logged in to before the cluster is created" {
+  run_in_fake_repo_ok KIND_NODE_IMAGE="${ECR_NODE_IMAGE}" -- bash scripts/dev/recreate_kind_cluster.sh kind
+
+  grep -qx 'aws ecr get-login-password --region eu-west-1' "${CALL_LOG}"
+  grep -qx 'docker login --username AWS --password-stdin 123456789012.dkr.ecr.eu-west-1.amazonaws.com' "${CALL_LOG}"
+  [ "$(first_call_line '^docker login')" -lt "$(first_call_line '^scripts/dev/setup_kind_cluster.sh')" ]
+}
+
+@test "recreate_kind_clusters: an uncached ECR node image is logged in to before any cluster is created" {
+  run_in_fake_repo_ok KIND_NODE_IMAGE="${ECR_NODE_IMAGE}" -- bash scripts/dev/recreate_kind_clusters.sh
+
+  [ "$(calls_matching '^docker login')" -eq 1 ]
+  [ "$(first_call_line '^docker login')" -lt "$(first_call_line '^scripts/dev/setup_kind_cluster.sh')" ]
+}
