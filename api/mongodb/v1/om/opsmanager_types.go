@@ -14,6 +14,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -67,7 +68,7 @@ type MongoDBOpsManager struct {
 
 func (om *MongoDBOpsManager) GetAppDBProjectConfig(ctx context.Context, client kubernetesClient.Client) (mdbv1.ProjectConfig, error) {
 	if om.IsTLSEnabled() {
-		opsManagerCA := om.Spec.GetOpsManagerCA()
+		opsManagerCA := om.GetOpsManagerCA()
 		cm, err := client.GetConfigMap(ctx, kube.ObjectKey(om.Namespace, opsManagerCA))
 		if err != nil {
 			return mdbv1.ProjectConfig{}, err
@@ -273,12 +274,32 @@ func (ms *ClusterSpecOMItem) GetBackupStatefulSetSpecOverride() *appsv1.Stateful
 	return nil
 }
 
+// +kubebuilder:validation:XValidation:rule="!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size() > 0 && has(self.managedCertificate))",message="security.certsSecretPrefix and security.managedCertificate are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.tls) && has(self.tls.secretRef) && has(self.tls.secretRef.name) && self.tls.secretRef.name.size() > 0 && has(self.managedCertificate))",message="security.tls.secretRef and security.managedCertificate are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!(has(self.tls) && has(self.tls.ca) && self.tls.ca.size() > 0 && has(self.managedCertificate))",message="security.tls.ca and security.managedCertificate are mutually exclusive"
 type MongoDBOpsManagerSecurity struct {
 	// +optional
 	TLS MongoDBOpsManagerTLS `json:"tls"`
 
 	// +optional
 	CertificatesSecretsPrefix string `json:"certsSecretPrefix"`
+
+	// ManagedCertificate makes the operator create and own the cert-manager
+	// Certificate for the Ops Manager app server, and the derived CA bundle.
+	// Setting it enables TLS on its own.
+	// +optional
+	ManagedCertificate *ManagedCertificate `json:"managedCertificate,omitempty"`
+}
+
+// ManagedCertificate configures operator-managed TLS certificates for one Ops Manager
+// component. Writing the block enables it; an empty block has the operator sign the
+// certificate with a self-signed CA it owns.
+type ManagedCertificate struct {
+	mdbv1.CertificateConfig `json:",inline"`
+
+	// Subject overrides the operator-computed X509 subject, for issuers that enforce a DN policy.
+	// +optional
+	Subject *mdbv1.X509Subject `json:"subject,omitempty"`
 }
 
 type MongoDBOpsManagerTLS struct {
@@ -308,13 +329,6 @@ func (ms MongoDBOpsManagerSpec) GetClusterDomain() string {
 		return ms.ClusterName
 	}
 	return "cluster.local"
-}
-
-func (ms MongoDBOpsManagerSpec) GetOpsManagerCA() string {
-	if ms.Security != nil {
-		return ms.Security.TLS.CA
-	}
-	return ""
 }
 
 func (ms *MongoDBOpsManagerSpec) IsMultiCluster() bool {
@@ -422,6 +436,7 @@ type MongoDBOpsManagerServiceDefinition struct {
 }
 
 // MongoDBOpsManagerBackup backup structure for Ops Manager resources
+// +kubebuilder:validation:XValidation:rule="!(has(self.queryableBackupSecretRef) && has(self.queryableBackupSecretRef.name) && self.queryableBackupSecretRef.name.size() > 0 && has(self.managedCertificate))",message="backup.queryableBackupSecretRef and backup.managedCertificate are mutually exclusive"
 type MongoDBOpsManagerBackup struct {
 	// Enabled indicates if Backups will be enabled for this Ops Manager.
 	Enabled                bool  `json:"enabled"`
@@ -454,6 +469,11 @@ type MongoDBOpsManagerBackup struct {
 	// for queryable backup. This will be mounted into the Ops Manager pod.
 	// +optional
 	QueryableBackupSecretRef SecretRef `json:"queryableBackupSecretRef,omitempty"`
+
+	// ManagedCertificate makes the operator create and own the cert-manager
+	// Certificate for the queryable backup daemon, and the derived queryable.pem Secret.
+	// +optional
+	ManagedCertificate *ManagedCertificate `json:"managedCertificate,omitempty"`
 
 	// Encryption settings
 	// +optional
@@ -499,6 +519,9 @@ type MongoDBOpsManagerStatus struct {
 	OpsManagerStatus OpsManagerStatus `json:"opsManager,omitempty"`
 	AppDbStatus      AppDbStatus      `json:"applicationDatabase,omitempty"`
 	BackupStatus     BackupStatus     `json:"backup,omitempty"`
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type OpsManagerStatus struct {
@@ -988,7 +1011,7 @@ func (om *MongoDBOpsManager) GetSchemePort() (corev1.URIScheme, int32) {
 }
 
 func (om *MongoDBOpsManager) IsTLSEnabled() bool {
-	return om.Spec.Security != nil && (om.Spec.Security.TLS.SecretRef.Name != "" || om.Spec.Security.CertificatesSecretsPrefix != "")
+	return om.Spec.Security != nil && (om.Spec.Security.TLS.SecretRef.Name != "" || om.Spec.Security.CertificatesSecretsPrefix != "" || om.IsManagedCertificateEnabled())
 }
 
 func (om *MongoDBOpsManager) TLSCertificateSecretName() string {
@@ -999,7 +1022,61 @@ func (om *MongoDBOpsManager) TLSCertificateSecretName() string {
 	if om.GetSecurity().CertificatesSecretsPrefix != "" {
 		return fmt.Sprintf("%s-%s-cert", om.GetSecurity().CertificatesSecretsPrefix, om.Name)
 	}
+	if om.IsManagedCertificateEnabled() {
+		return fmt.Sprintf("%s-managed-om-cert", om.Name)
+	}
 	return ""
+}
+
+// IsManagedCertificateEnabled reports whether the operator issues the Ops Manager
+// app server certificate (nil-safe). Presence of the block enables the feature.
+func (om *MongoDBOpsManager) IsManagedCertificateEnabled() bool {
+	return om.Spec.Security != nil && om.Spec.Security.ManagedCertificate != nil
+}
+
+// IsBackupManagedCertificateEnabled reports whether the operator issues the queryable
+// backup daemon certificate (nil-safe).
+func (om *MongoDBOpsManager) IsBackupManagedCertificateEnabled() bool {
+	return om.Spec.Backup != nil && om.Spec.Backup.ManagedCertificate != nil
+}
+
+// GetOpsManagerCA returns the ConfigMap holding the CA bundle that trusts the Ops Manager
+// app server certificate: the operator-managed bundle in managed mode, the user's otherwise.
+func (om *MongoDBOpsManager) GetOpsManagerCA() string {
+	if om.IsManagedCertificateEnabled() {
+		return fmt.Sprintf("%s-managed-om-ca-bundle", om.Name)
+	}
+	if om.Spec.Security != nil {
+		return om.Spec.Security.TLS.CA
+	}
+	return ""
+}
+
+// QueryableBackupTLSSecretName returns the Secret the backup daemon consumes, which holds
+// queryable.pem. In managed mode it is the operator-derived Secret, not the cert-manager output.
+func (om *MongoDBOpsManager) QueryableBackupTLSSecretName() string {
+	if om.IsBackupManagedCertificateEnabled() {
+		return fmt.Sprintf("%s-managed-backup-pem", om.Name)
+	}
+	if om.Spec.Backup == nil {
+		return ""
+	}
+	return om.Spec.Backup.QueryableBackupSecretRef.Name
+}
+
+// QueryableBackupCertificateSecretName returns the cert-manager output Secret for the backup
+// daemon certificate. It is empty outside managed mode.
+func (om *MongoDBOpsManager) QueryableBackupCertificateSecretName() string {
+	if !om.IsBackupManagedCertificateEnabled() {
+		return ""
+	}
+	return fmt.Sprintf("%s-managed-backup-cert", om.Name)
+}
+
+// SetStatusCondition adds or updates the condition of the same type in the root status.
+func (om *MongoDBOpsManager) SetStatusCondition(condition metav1.Condition) {
+	condition.ObservedGeneration = om.GetGeneration()
+	meta.SetStatusCondition(&om.Status.Conditions, condition)
 }
 
 func (om *MongoDBOpsManager) CentralURL() string {
