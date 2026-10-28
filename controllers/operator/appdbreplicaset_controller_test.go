@@ -1885,7 +1885,7 @@ func TestConfigureMonitoring_NonTLS(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
 	}
-	configureMonitoring(&ac, zap.S(), false, "myGroupId", "myApiKey", false, nil)
+	configureMonitoring(&ac, zap.S(), false, "myGroupId", "myApiKey", nil)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	params := ac.MonitoringVersions[0].AdditionalParams
@@ -1901,33 +1901,32 @@ func TestConfigureMonitoring_TLS(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
 	}
-	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", true, nil)
+	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", nil)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	params := ac.MonitoringVersions[0].AdditionalParams
 	assert.NotContains(t, params, "mmsGroupId")
 	assert.NotContains(t, params, "mmsApiKey")
 	assert.Equal(t, "true", params["useSslForAllConnections"])
-	assert.Equal(t, "true", params["sslRequireValidMMSServerCertificates"])
+	// additionalParams override agent flags, so forcing this would disable the agent's default
+	// validation of the Ops Manager certificate against -httpsCAFile.
+	assert.NotContains(t, params, "sslRequireValidMMSServerCertificates")
 	assert.Equal(t, appdbCAFilePath, params["sslTrustedServerCertificates"])
 	assertDefaultLogRotate(t, ac.MonitoringVersions[0].LogRotate)
 	assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
 }
 
-func TestConfigureMonitoring_TLS_RequireValidCertFalse(t *testing.T) {
+func TestConfigureMonitoring_TLS_DropsStaleRequireValidCertFalse(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
+		MonitoringVersions: []automationconfig.MonitoringVersion{
+			{Hostname: "host-0", AdditionalParams: map[string]string{"sslRequireValidMMSServerCertificates": "false"}},
+		},
 	}
-	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", false, nil)
+	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", nil)
 
 	require.Len(t, ac.MonitoringVersions, 1)
-	params := ac.MonitoringVersions[0].AdditionalParams
-	assert.NotContains(t, params, "mmsGroupId")
-	assert.NotContains(t, params, "mmsApiKey")
-	assert.Equal(t, "true", params["useSslForAllConnections"])
-	assert.Equal(t, "false", params["sslRequireValidMMSServerCertificates"])
-	assertDefaultLogRotate(t, ac.MonitoringVersions[0].LogRotate)
-	assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
+	assert.NotContains(t, ac.MonitoringVersions[0].AdditionalParams, "sslRequireValidMMSServerCertificates")
 }
 
 func TestConfigureMonitoring_ClearsWhenDisabled(t *testing.T) {
@@ -1938,7 +1937,7 @@ func TestConfigureMonitoring_ClearsWhenDisabled(t *testing.T) {
 		},
 	}
 	// called with empty credentials simulates monitoring disabled
-	configureMonitoring(&ac, zap.S(), false, "", "", false, nil)
+	configureMonitoring(&ac, zap.S(), false, "", "", nil)
 
 	assert.Empty(t, ac.MonitoringVersions)
 }

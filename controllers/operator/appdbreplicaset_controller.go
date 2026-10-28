@@ -1540,7 +1540,6 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 					rs.GetSecurity().IsTLSEnabled(),
 					podVars.ProjectID,
 					podVars.AgentAPIKey,
-					podVars.SSLRequireValidMMSServerCertificates,
 					opsManager.Spec.AppDB.AutomationAgent.MonitoringAgent.LogRotate,
 				)
 			} else {
@@ -1795,7 +1794,7 @@ func toMonitoringLogRotate(lr *mdbv1.LogRotateForBackupAndMonitoring) *automatio
 	}
 }
 
-func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, requireValidCert bool, logRotate *mdbv1.LogRotateForBackupAndMonitoring) {
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, logRotate *mdbv1.LogRotateForBackupAndMonitoring) {
 	if projectID == "" || agentAPIKey == "" {
 		ac.MonitoringVersions = []automationconfig.MonitoringVersion{}
 		return
@@ -1813,11 +1812,6 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 		params := map[string]string{}
 		if tls {
 			maps.Copy(params, om.NewTLSParams(appdbCAFilePath, pemKeyFile))
-			if requireValidCert {
-				params["sslRequireValidMMSServerCertificates"] = trueString
-			} else {
-				params["sslRequireValidMMSServerCertificates"] = "false"
-			}
 		} else {
 			om.ClearTLSParams(params)
 		}
