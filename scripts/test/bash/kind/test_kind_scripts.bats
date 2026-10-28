@@ -77,3 +77,10 @@ golden_run() {
   [[ "${stderr}" == *"docker network rm kind"* ]]
   [ "$(calls_matching '^docker network create')" -eq 0 ]
 }
+
+@test "recreate_kind_cluster: the CSI driver goes to the kind-<name> context of the new cluster" {
+  run_in_fake_repo_ok -- bash scripts/dev/recreate_kind_cluster.sh foo
+
+  grep -q -- 'setup_kind_cluster.sh .* -n foo ' "${CALL_LOG}"
+  grep -qx 'csi kind-foo' "${CALL_LOG}"
+}
