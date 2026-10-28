@@ -66,6 +66,7 @@ def assert_reachable_with_client_certificate(
     user.load()
     cert_status = user["status"]["clientCertificate"]
     cert = read_secret(namespace, cert_status["secretName"])
+    # Applications read the fixed ca-pem key the user status documents, not the hash-named copy mongod uses.
     server_ca = read_configmap(namespace, cert_status["serverCAConfigMapName"])["ca-pem"]
 
     with (
@@ -144,17 +145,29 @@ def assert_leaf_secrets_created(name: str, namespace: str):
         assert "tls.key" in secret, f"{secret_name} missing tls.key"
 
 
+def latest_ca_bundle(bundle_configmap: dict) -> str:
+    """Returns the current CA bundle from a managed CA bundle ConfigMap's data.
+
+    The bundle is stored under its content hash (the file name in the pod, and what the automation
+    config points at), and the `latestHash` key names the current one.
+    """
+    latest_hash = bundle_configmap.get("latestHash", "")
+    assert latest_hash != "", "latestHash missing/empty"
+    return bundle_configmap.get(latest_hash, "").strip()
+
+
 def read_ca_bundles(name: str, namespace: str) -> tuple[str, str]:
     """Returns the server and client CA bundles the operator writes for the pods to trust.
 
-    <name>-managed-server-ca-bundle (key ca-pem) is configured as net.tls.CAFile, and
-    <name>-managed-client-ca-bundle (key clusterca-pem) as net.tls.clusterCAFile. Both must exist
-    and be non-empty.
+    <name>-managed-server-ca-bundle is configured as net.tls.CAFile, and
+    <name>-managed-client-ca-bundle as net.tls.clusterCAFile. In both the bundle is stored under
+    its content hash, and the `latestHash` key says which one is current. Both must exist and be
+    non-empty.
     """
-    server_ca = read_configmap(namespace, f"{name}-managed-server-ca-bundle").get("ca-pem", "").strip()
-    client_ca = read_configmap(namespace, f"{name}-managed-client-ca-bundle").get("clusterca-pem", "").strip()
-    assert server_ca != "", "ca-pem (server CA) missing/empty"
-    assert client_ca != "", "clusterca-pem (client CA) missing/empty"
+    server_ca = latest_ca_bundle(read_configmap(namespace, f"{name}-managed-server-ca-bundle"))
+    client_ca = latest_ca_bundle(read_configmap(namespace, f"{name}-managed-client-ca-bundle"))
+    assert server_ca != "", "latest server CA bundle missing/empty"
+    assert client_ca != "", "latest client CA bundle missing/empty"
     return server_ca, client_ca
 
 
