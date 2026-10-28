@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 #
-# Single source of truth for the kind docker network subnet and the
-# per-cluster MetalLB IP ranges.
+# The kind docker network subnet and the per-cluster MetalLB IP ranges of the
+# kind scripts. docker/mongodb-kubernetes-tests/tests/kind_network.py mirrors it
+# for the e2e tests; scripts/test/test_kind_network_defaults.py checks that the
+# two agree.
 #
 # Defaults to kind's own 172.18.0.0/16 subnet. Override by setting
 # KIND_NETWORK_SUBNET in the environment (or context) before sourcing this file.
