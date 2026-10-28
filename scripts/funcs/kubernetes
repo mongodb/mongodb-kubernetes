@@ -276,7 +276,11 @@ delete_kind_network() {
       echo "Stopping containers ${containers} using kind network..."
       # shellcheck disable=SC2086
       docker stop ${containers}
-      docker container prune -f
+      # Remove just the containers stopped above (a stopped kind node still holds
+      # the network). Pruning all stopped containers would also delete ones that
+      # belong to other projects.
+      # shellcheck disable=SC2086
+      docker rm -f ${containers}
   fi
 
   docker network rm kind
