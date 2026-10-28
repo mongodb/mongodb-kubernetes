@@ -159,6 +159,24 @@ func TestMongoDB_ProcessValidationsOnReconcile_AgentAutoPEMKeyFilePath(t *testin
 	})
 }
 
+func TestAgentCertSecretRefNameMustBeValid(t *testing.T) {
+	// invalid name rejected
+	mdb := NewReplicaSetBuilder().SetName("my-rs").Build()
+	mdb.Spec.Security = &Security{Authentication: &Authentication{Enabled: false}}
+	mdb.Spec.Security.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = `x" }}{{ with secret "y" }}{{ end }}{{ "`
+	res := agentCertSecretRefNameMustBeValid(mdb)
+	assert.Equal(t, v1.ErrorLevel, res.Level)
+	assert.Contains(t, res.Msg, "clientCertificateSecretRef")
+
+	// valid name accepted (also with auth disabled — validation is auth-state-independent)
+	mdb.Spec.Security.Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = "my-agent-certs"
+	assert.Equal(t, v1.ValidationSuccess(), agentCertSecretRefNameMustBeValid(mdb))
+
+	// unset: default name is operator-generated, always valid
+	mdb.Spec.Security = &Security{}
+	assert.Equal(t, v1.ValidationSuccess(), agentCertSecretRefNameMustBeValid(mdb))
+}
+
 func TestMongoDB_ValidateCreate_Error(t *testing.T) {
 	replicaSetHorizons := []MongoDBHorizonConfig{
 		{"my-horizon": "my-db.com:12345"},
