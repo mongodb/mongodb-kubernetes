@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from typing import Dict, List, Optional, Tuple
 
 from tests import test_logger
@@ -16,6 +17,17 @@ logger = test_logger.get_test_logger(__name__)
 
 # LOCAL_CRDS_DIR is the dir where local helm chart's CRDs are copied in tests image
 LOCAL_CRDS_DIR = "helm_chart/crds"
+
+HELM_INSTALL_ATTEMPTS = 3
+HELM_INSTALL_RETRY_DELAY_SECONDS = 10
+# Network errors seen when fetching a chart from a public repo, worth retrying
+TRANSIENT_HELM_ERRORS = (
+    "context deadline exceeded",
+    "Client.Timeout",
+    "i/o timeout",
+    "connection reset",
+    "unexpected EOF",
+)
 
 
 def helm_template(
@@ -107,16 +119,23 @@ def helm_install_from_chart(
 
     helm_repo_add(custom_repo[0], custom_repo[1])
 
-    try:
-        # In shared clusters (Kops: e2e) multiple simultaneous cert-manager
-        # installations will fail. We tolerate errors in those cases.
-        process_run_and_check(args, capture_output=True)
-    except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr.decode("utf-8")
-        if "release: already exists" in stderr or "Error: UPGRADE FAILED: another operation" in stderr:
-            logger.info(f"Helm chart '{chart}' already installed in cluster.")
-        else:
-            raise
+    for attempt in range(1, HELM_INSTALL_ATTEMPTS + 1):
+        try:
+            # In shared clusters (Kops: e2e) multiple simultaneous cert-manager
+            # installations will fail. We tolerate errors in those cases.
+            process_run_and_check(args, capture_output=True)
+            return
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr.decode("utf-8")
+            if "release: already exists" in stderr or "Error: UPGRADE FAILED: another operation" in stderr:
+                logger.info(f"Helm chart '{chart}' already installed in cluster.")
+                return
+            if attempt == HELM_INSTALL_ATTEMPTS or not any(e in stderr for e in TRANSIENT_HELM_ERRORS):
+                raise
+            logger.warning(
+                f"Helm install of '{chart}' hit a transient error, retrying ({attempt}/{HELM_INSTALL_ATTEMPTS})"
+            )
+            time.sleep(HELM_INSTALL_RETRY_DELAY_SECONDS * attempt)
 
 
 def helm_repo_add(repo_name: str, url: str):
