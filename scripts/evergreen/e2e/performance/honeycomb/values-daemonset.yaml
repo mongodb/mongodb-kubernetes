@@ -1,5 +1,11 @@
 mode: daemonset
 
+# The chart does not create a Service for mode=daemonset unless it is enabled
+# explicitly. The e2e test pod and the operator export traces through this
+# Service, so it must exist.
+service:
+  enabled: true
+
 image:
   repository: otel/opentelemetry-collector-k8s
 

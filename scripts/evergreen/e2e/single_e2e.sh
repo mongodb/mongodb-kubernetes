@@ -49,6 +49,24 @@ create_test_pod_kubeconfig_secret() {
     rm -f "${secret_kubeconfig}"
 }
 
+# Resolve the OTLP collector endpoint for the test pod and the operator.
+# The tracing collector runs as the "otel-collector" release in the honeycomb
+# namespace and is reachable through its Service from the cluster that hosts
+# it. Fall back to OTEL_COLLECTOR_ENDPOINT when the Service is absent, for
+# local runs or a test pod on another cluster of a multi-cluster run.
+resolve_otel_endpoint() {
+    local context="${1}"
+    local service_name="otel-collector-opentelemetry-collector"
+    local namespace="honeycomb"
+    local cluster_domain="${CLUSTER_DOMAIN:-cluster.local}"
+
+    if kubectl --context "${context}" -n "${namespace}" get service "${service_name}" >/dev/null 2>&1; then
+        echo "http://${service_name}.${namespace}.svc.${cluster_domain}:4317"
+    else
+        echo "${OTEL_COLLECTOR_ENDPOINT:-}"
+    fi
+}
+
 deploy_test_app() {
     printenv
     title "Deploying test application"
@@ -246,6 +264,13 @@ run_tests() {
 
     echo "Operator running in cluster ${operator_context}"
     echo "Test pod running in cluster ${test_pod_context}"
+
+    # Resolve the endpoint once so the test pod and the operator export their
+    # spans to the same collector.
+    OTEL_COLLECTOR_ENDPOINT="$(resolve_otel_endpoint "${test_pod_context}")"
+    otel_collector_endpoint="${OTEL_COLLECTOR_ENDPOINT}"
+    export OTEL_COLLECTOR_ENDPOINT otel_collector_endpoint
+    echo "OTLP collector endpoint: ${OTEL_COLLECTOR_ENDPOINT:-<unset>}"
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 

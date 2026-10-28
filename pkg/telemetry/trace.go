@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -52,9 +53,17 @@ func SetupTracingFromParent(ctx context.Context, traceIDHex, parentIDHex, endpoi
 	Logger.Debugf("Created span context with TraceID: %s, SpanID: %s, Remote: %t",
 		spanCtx.TraceID().String(), spanCtx.SpanID().String(), spanCtx.IsRemote())
 
+	exporterOption := otlptracegrpc.WithEndpoint(endpoint)
+	if strings.Contains(endpoint, "://") {
+		// WithEndpoint takes a host:port and always uses TLS. WithEndpointURL
+		// reads the scheme, so an http:// endpoint selects a plaintext
+		// connection, such as the in-cluster collector in e2e runs.
+		exporterOption = otlptracegrpc.WithEndpointURL(endpoint)
+	}
+
 	exporter, err := otlptracegrpc.New(
 		context.Background(),
-		otlptracegrpc.WithEndpoint(endpoint),
+		exporterOption,
 	)
 	if err != nil {
 		Logger.Warnf("Failed to create OTLP exporter: %v", err)
