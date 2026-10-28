@@ -19,6 +19,7 @@ from tests.conftest import (
     read_deployment_state,
 )
 from tests.constants import LEGACY_CENTRAL_CLUSTER_NAME
+from tests.kind_network import kind_lb_ip
 from tests.multicluster.conftest import cluster_spec_list
 
 
@@ -66,23 +67,21 @@ def enable_multi_cluster_deployment(
 
 
 class ClusterInfo:
-    def __init__(self, cluster_name: str, cidr: IPv4Address, external_domain: str):
+    def __init__(self, cluster_name: str, pool: str, external_domain: str):
         self.cluster_name = cluster_name
-        self.cidr = cidr
+        self.pool = pool
         self.external_domain = external_domain
 
+    @property
+    def cidr(self) -> IPv4Address:
+        return IPv4Address(kind_lb_ip(self.pool))
 
-KIND_SINGLE_CLUSTER = ClusterInfo("kind-kind", IPv4Address("172.18.255.200"), "kind-kind.interconnected")
-KIND_E2E_CLUSTER_1 = ClusterInfo(
-    "kind-e2e-cluster-1", IPv4Address("172.18.255.210"), "kind-e2e-cluster-1.interconnected"
-)
-KIND_E2E_CLUSTER_2 = ClusterInfo(
-    "kind-e2e-cluster-2", IPv4Address("172.18.255.220"), "kind-e2e-cluster-2.interconnected"
-)
-KIND_E2E_CLUSTER_3 = ClusterInfo(
-    "kind-e2e-cluster-3", IPv4Address("172.18.255.230"), "kind-e2e-cluster-3.interconnected"
-)
-KIND_E2E_OPERATOR = ClusterInfo("kind-e2e-operator", IPv4Address("172.18.255.200"), "kind-e2e-operator.interconnected")
+
+KIND_SINGLE_CLUSTER = ClusterInfo("kind-kind", "SINGLE", "kind-kind.interconnected")
+KIND_E2E_CLUSTER_1 = ClusterInfo("kind-e2e-cluster-1", "CLUSTER_1", "kind-e2e-cluster-1.interconnected")
+KIND_E2E_CLUSTER_2 = ClusterInfo("kind-e2e-cluster-2", "CLUSTER_2", "kind-e2e-cluster-2.interconnected")
+KIND_E2E_CLUSTER_3 = ClusterInfo("kind-e2e-cluster-3", "CLUSTER_3", "kind-e2e-cluster-3.interconnected")
+KIND_E2E_OPERATOR = ClusterInfo("kind-e2e-operator", "OPERATOR", "kind-e2e-operator.interconnected")
 
 cluster_map = {
     KIND_E2E_CLUSTER_1.cluster_name: KIND_E2E_CLUSTER_1,
