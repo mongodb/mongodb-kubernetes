@@ -360,14 +360,29 @@ ENVTEST_ASSETS_DIR = $(shell pwd)/bin/envtest
 # setup-envtest (a downloader for the envtest binaries) is versioned independently of
 # controller-runtime; the module only publishes tags since v0.24.0.
 SETUP_ENVTEST_VERSION ?= v0.24.1
+# The envtest-based tests install cert-manager's CRDs into the test control plane. The version
+# is taken from go.mod, so the CRDs always match the cert-manager dependency.
+CERT_MANAGER_VERSION = $(shell go list -m -f '{{.Version}}' github.com/cert-manager/cert-manager)
+CERT_MANAGER_CRDS_FILE = $(ENVTEST_ASSETS_DIR)/crds/cert-manager.crds.yaml
 
 # Download setup-envtest locally if necessary
 setup-envtest:
 	$(call go-install-tool,$(SETUP_ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION))
 
-# Download the envtest binaries (etcd, kube-apiserver, kubectl); idempotent
-envtest-assets: setup-envtest
+# Download the envtest binaries (etcd, kube-apiserver, kubectl) and the cert-manager CRDs the
+# managed-certificate tests install; idempotent
+envtest-assets: setup-envtest cert-manager-crds
 	$(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(ENVTEST_ASSETS_DIR)
+
+# Download cert-manager's CRD bundle (the rendered release asset with all cert-manager CRDs) if it
+# is not there yet. The tests read it from bin/envtest/crds, so nothing is checked in.
+cert-manager-crds:
+	@[ -f $(CERT_MANAGER_CRDS_FILE) ] || { \
+	set -e ;\
+	mkdir -p $(dir $(CERT_MANAGER_CRDS_FILE)) ;\
+	echo "Downloading cert-manager CRDs $(CERT_MANAGER_VERSION)" ;\
+	curl -fsSL https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.crds.yaml -o $(CERT_MANAGER_CRDS_FILE) ;\
+	}
 
 # Print the envtest binaries path on stdout (used to set KUBEBUILDER_ASSETS)
 envtest-assets-path: setup-envtest

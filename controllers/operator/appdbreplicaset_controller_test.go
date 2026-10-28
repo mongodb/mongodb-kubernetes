@@ -54,6 +54,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	envtestenv "github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
 func init() {
@@ -84,7 +85,15 @@ func TestMain(m *testing.M) {
 	defer func(key string) {
 		_ = os.Unsetenv(key) // nolint:forbidigo
 	}(agentVersionManagement.MappingFilePathEnv)
-	code := m.Run()
+	// The managed-certificate migration test needs a real API server, so the package boots one
+	// shared envtest control plane. It installs the MongoDB and MongoDBSearch CRDs, because the
+	// replica set reconcile looks up the MongoDBSearch resource that references it, and
+	// cert-manager's CRDs, which the operator creates its Certificate and Issuer objects through.
+	// RunShared runs the package's tests and stops the control plane afterwards.
+	code := envtestenv.RunShared(m,
+		envtestenv.WithCRDs("mongodb.com_mongodb.yaml", "mongodb.com_mongodbsearch.yaml"),
+		envtestenv.WithCertManagerCRDs(),
+	)
 	os.Exit(code)
 }
 
