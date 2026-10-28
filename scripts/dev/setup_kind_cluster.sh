@@ -185,7 +185,7 @@ function kind_wait_for_rbac_bootstrap() {
 }
 
 function kind_install_metallb() {
-  echo "installing metallb"
+  echo "installing metallb with address pool ${metallb_ip_range}"
   kubectl get --kubeconfig "${kubeconfig_path}" nodes -owide
   kubectl_apply_retry --kubeconfig "${kubeconfig_path}" --timeout=600s -f https://raw.githubusercontent.com/metallb/metallb/${metallb_version}/config/manifests/metallb-native.yaml
 
