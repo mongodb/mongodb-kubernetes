@@ -362,6 +362,10 @@ func (oc *MockedOmConnection) ReadAutomationConfig(ctx context.Context) (*Automa
 	return oc.automationConfig, nil
 }
 
+func (oc *MockedOmConnection) ReadAutomationConfigFresh(ctx context.Context) (*AutomationConfig, error) {
+	return oc.ReadAutomationConfig(ctx)
+}
+
 func (oc *MockedOmConnection) ReadUpdateAutomationConfig(ctx context.Context, modifyACFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAutomationConfig))
 	if oc.automationConfig == nil {

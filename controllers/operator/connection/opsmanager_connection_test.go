@@ -31,6 +31,13 @@ func (m *mockConnWithReadFailure) ReadAutomationConfig(ctx context.Context) (*om
 	return m.Connection.ReadAutomationConfig(ctx)
 }
 
+func (m *mockConnWithReadFailure) ReadAutomationConfigFresh(ctx context.Context) (*om.AutomationConfig, error) {
+	if m.readErr != nil {
+		return nil, m.readErr
+	}
+	return m.Connection.ReadAutomationConfigFresh(ctx)
+}
+
 func testProjectConfig() mdbv1.ProjectConfig {
 	return mdbv1.ProjectConfig{
 		BaseURL:     om.TestURL,

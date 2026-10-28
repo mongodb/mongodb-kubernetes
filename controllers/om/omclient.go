@@ -130,9 +130,11 @@ type AutomationConfigConnection interface {
 	// Deployment wrapper (AutomationConfig) as a parameter
 	UpdateAutomationConfig(ctx context.Context, ac *AutomationConfig, log *zap.SugaredLogger) error
 	ReadAutomationConfig(ctx context.Context) (*AutomationConfig, error)
-	// ReadAutomationConfig reads the Automation Config from Ops Manager
+	// ReadAutomationConfigFresh reads the Automation Config from Ops Manager without using the
+	// per-connection response cache. Callers that must observe the current server state use it.
 	// Note, that this method calls *the same* api endpoint as the `OmConnection.ReadDeployment` - just wraps the answer
 	// to the different object
+	ReadAutomationConfigFresh(ctx context.Context) (*AutomationConfig, error)
 	ReadUpdateAutomationConfig(ctx context.Context, acFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error
 
 	// Calls the API to update all the MongoDB Agents in the project to the latest. Returns the new version
@@ -439,12 +441,18 @@ func (oc *HTTPOmConnection) ReadAutomationConfig(ctx context.Context) (*Automati
 	return oc.buildAutomationConfig(ctx, false)
 }
 
+// ReadAutomationConfigFresh reads the Automation Config from Ops Manager without
+// using the per-connection response cache.
+func (oc *HTTPOmConnection) ReadAutomationConfigFresh(ctx context.Context) (*AutomationConfig, error) {
+	return oc.buildAutomationConfig(ctx, true)
+}
+
 // readAutomationConfigForUpdate returns the automation config that a
 // read-modify-write operation modifies. It always reads from Ops Manager, because
 // a write must build on the current state rather than on a body this connection
 // read earlier.
 func (oc *HTTPOmConnection) readAutomationConfigForUpdate(ctx context.Context) (*AutomationConfig, error) {
-	return oc.buildAutomationConfig(ctx, true)
+	return oc.ReadAutomationConfigFresh(ctx)
 }
 
 func (oc *HTTPOmConnection) buildAutomationConfig(ctx context.Context, refresh bool) (*AutomationConfig, error) {

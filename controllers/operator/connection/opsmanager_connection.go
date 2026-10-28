@@ -93,7 +93,7 @@ func EnsureTargetAutomationConfigSeeded(ctx context.Context, targetConn om.Conne
 		return nil
 	}
 
-	targetAC, err := targetConn.ReadAutomationConfig(ctx)
+	targetAC, err := targetConn.ReadAutomationConfigFresh(ctx)
 	if err != nil {
 		return xerrors.Errorf("failed to read target project automation config: %w", err)
 	}
