@@ -1,0 +1,35 @@
+# shellcheck shell=bash
+# The single env source script from now on: `. scripts/dev/devenv` in a shell, and
+# scripts/dev/set_env_context.sh sources it for the scripts. It is built for a repository shared by two
+# sides, the host and a container that has the repo and its .generated/ mounted from the host. Each side
+# runs `make switch` and gets its own .generated/context.<side>.env, which is loaded after the shared files.
+# Sourced by bash or zsh, so there is no `set -e` that would change the calling shell.
+
+__devenv_root="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../.." && pwd)"
+__devenv_side=$([[ -f /.dockerenv ]] && echo devc || echo host)
+
+if [[ ! -f "${__devenv_root}/.generated/context.export.env" ]]; then
+    echo "File ${__devenv_root}/.generated/context.export.env not found! Run 'make switch context=<variant>' in ${__devenv_root} first." >&2
+    unset __devenv_root __devenv_side __devenv_venv
+    return 1
+fi
+
+set -a
+# shellcheck disable=SC1090,SC1091
+. "${__devenv_root}/.generated/context.export.env"
+if [[ -f "${__devenv_root}/.generated/context.${__devenv_side}.env" ]]; then
+    # shellcheck disable=SC1090,SC1091
+    . "${__devenv_root}/.generated/context.${__devenv_side}.env"
+fi
+set +a
+
+# Activate the python venv here so consumer scripts don't each activate it.
+# Per-worktree by default; opt into a shared venv by exporting PROJECT_VENV_PATH.
+__devenv_venv="${PROJECT_VENV_PATH:-${PROJECT_DIR}/venv}"
+if [[ -f "${__devenv_venv}/bin/activate" ]]; then
+    # shellcheck disable=SC1091
+    . "${__devenv_venv}/bin/activate"
+fi
+export PATH="${PROJECT_DIR}/bin:${PATH}"
+
+unset __devenv_root __devenv_side __devenv_venv
