@@ -21,6 +21,16 @@ export OPERATOR_NAME="mongodb-kubernetes-operator"
 export TEST_POD_CLUSTER="${CLUSTER_NAME}"
 
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
+
+# The kind docker network and the MetalLB pool of each kind cluster, see setup_kind_cluster.sh -l.
+export KIND_NETWORK_SUBNET="172.18.0.0/16"
+export KIND_METALLB_RANGE_SINGLE="172.18.255.200-172.18.255.250"
+export KIND_METALLB_RANGE_OPERATOR="172.18.255.200-172.18.255.210"
+export KIND_METALLB_RANGE_CLUSTER_1="172.18.255.210-172.18.255.220"
+export KIND_METALLB_RANGE_CLUSTER_2="172.18.255.220-172.18.255.230"
+export KIND_METALLB_RANGE_CLUSTER_3="172.18.255.230-172.18.255.240"
+export KIND_METALLB_RANGE_KIND="172.18.255.200-172.18.255.250"
+
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
 export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
 export KUBECTL_MONGODB_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/kubectl-mongodb

@@ -294,11 +294,10 @@ docker_run_local_registry() {
 
 docker_create_kind_network() {
   # We create docker network primarily so that all kind clusters use the same network.
-  # We hardcode 172.18/16 subnet in few places, so we must ensure the network uses that subnet:
-  #   - we set IP ranges for MetalLB
-  #   - we write into coredns config map with IP used for exposing pods externally and for no-mesh test
+  # The network must use KIND_NETWORK_SUBNET (root-context) because the MetalLB IP ranges
+  # and the no-mesh tests assume addresses in it.
   # In case of any errors, verify if any other subnet is not already using that subnet.
-  docker network create --subnet=172.18.0.0/16 kind || true
+  docker network create --subnet="${KIND_NETWORK_SUBNET}" kind || true
 }
 
 docker_network_connect_to_kind() {
