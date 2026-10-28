@@ -13,12 +13,6 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
-
-if [[ -z "${EVG_HOST_NAME}" ]]; then
-  echo "EVG_HOST_NAME env var is missing"
-  exit 1
-fi
-
 get_host_url() {
   host=$(evergreen host list --json | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name ")
   if [[ "${host}" == "" ]]; then
@@ -32,6 +26,10 @@ Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
 cmd=${1-""}
 
 if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
+  if [[ -z "${EVG_HOST_NAME:-}" ]]; then
+    echo "EVG_HOST_NAME env var is missing"
+    exit 1
+  fi
   host_url=$(get_host_url)
 fi
 
