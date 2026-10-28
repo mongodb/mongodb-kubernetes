@@ -117,10 +117,9 @@ def helm_install_from_chart(
     if helm_args is not None:
         args += _create_helm_args(helm_args)
 
-    helm_repo_add(custom_repo[0], custom_repo[1])
-
     for attempt in range(1, HELM_INSTALL_ATTEMPTS + 1):
         try:
+            helm_repo_add(custom_repo[0], custom_repo[1])
             # In shared clusters (Kops: e2e) multiple simultaneous cert-manager
             # installations will fail. We tolerate errors in those cases.
             process_run_and_check(args, capture_output=True)
