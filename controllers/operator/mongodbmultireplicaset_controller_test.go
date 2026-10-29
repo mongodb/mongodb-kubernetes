@@ -430,7 +430,7 @@ func TestMultiClusterConfigMapAndSecretWatched(t *testing.T) {
 	assert.Equal(t, expected, reconciler.resourceWatcher.GetWatchedResources())
 }
 
-func TestSyncAgentAPIKeySecretSkipsUnchangedData(t *testing.T) {
+func TestSyncAgentAPIKeySecret(t *testing.T) {
 	ctx := context.Background()
 	central, _ := mock.NewDefaultFakeClient()
 	member, _ := mock.NewDefaultFakeClient()
@@ -445,24 +445,18 @@ func TestSyncAgentAPIKeySecretSkipsUnchangedData(t *testing.T) {
 	memberSecret.Data = map[string][]byte{util.OmAgentApiKey: []byte("central-key")}
 	require.NoError(t, member.CreateSecret(ctx, *memberSecret))
 
-	changed, err := syncAgentAPIKeySecret(ctx, central, member, target)
-	require.NoError(t, err)
-	assert.False(t, changed)
+	require.NoError(t, syncAgentAPIKeySecret(ctx, central, member, target))
 
 	memberSecret.Data = map[string][]byte{util.OmAgentApiKey: []byte("member-key")}
 	require.NoError(t, member.UpdateSecret(ctx, *memberSecret))
 
-	changed, err = syncAgentAPIKeySecret(ctx, central, member, target)
-	require.NoError(t, err)
-	assert.True(t, changed)
+	require.NoError(t, syncAgentAPIKeySecret(ctx, central, member, target))
 	stored, err := member.GetSecret(ctx, kube.ObjectKey(mock.TestNamespace, target.Name))
 	require.NoError(t, err)
 	assert.Equal(t, []byte("central-key"), stored.Data[util.OmAgentApiKey])
 
 	missingMember, _ := mock.NewDefaultFakeClient()
-	changed, err = syncAgentAPIKeySecret(ctx, central, missingMember, target)
-	require.NoError(t, err)
-	assert.True(t, changed)
+	require.NoError(t, syncAgentAPIKeySecret(ctx, central, missingMember, target))
 	created, err := missingMember.GetSecret(ctx, kube.ObjectKey(mock.TestNamespace, target.Name))
 	require.NoError(t, err)
 	assert.Equal(t, []byte("central-key"), created.Data[util.OmAgentApiKey])

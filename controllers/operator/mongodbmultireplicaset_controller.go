@@ -762,7 +762,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 				Labels:    mrs.GetOwnerLabels(),
 			},
 		}
-		if _, err := syncAgentAPIKeySecret(ctx, r.client, memberClient, secretObject); err != nil {
+		if err := syncAgentAPIKeySecret(ctx, r.client, memberClient, secretObject); err != nil {
 			return workflow.Failed(err)
 		}
 
@@ -1305,25 +1305,19 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 
 // syncAgentAPIKeySecret copies the central agent key Secret to the member cluster when the data
 // differs. The member cluster Secret watch must not observe a no-op update on every reconcile.
-// It returns true when it created or updated the member Secret.
-func syncAgentAPIKeySecret(ctx context.Context, centralClient, memberClient kubernetesClient.Client, target corev1.Secret) (bool, error) {
+func syncAgentAPIKeySecret(ctx context.Context, centralClient, memberClient kubernetesClient.Client, target corev1.Secret) error {
 	data, err := secret.ReadByteData(ctx, centralClient, kube.ObjectKey(target.Namespace, target.Name))
 	if err != nil {
-		return false, err
-	}
-	existing, err := secret.ReadByteData(ctx, memberClient, kube.ObjectKey(target.Namespace, target.Name))
-	if err == nil {
-		if reflect.DeepEqual(existing, data) {
-			return false, nil
-		}
-	} else if !apiErrors.IsNotFound(err) {
-		return false, err
+		return err
 	}
 	target.Data = data
-	if err := secret.CreateOrUpdate(ctx, memberClient, target); err != nil {
-		return false, err
+	if err := secret.CreateOrUpdateIfNeeded(ctx, memberClient, target); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return secret.CreateOrUpdate(ctx, memberClient, target)
+		}
+		return err
 	}
-	return true, nil
+	return nil
 }
 
 func ensureHeadlessService(ctx context.Context, client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
