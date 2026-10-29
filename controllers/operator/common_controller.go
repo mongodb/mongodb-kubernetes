@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -37,6 +38,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -382,6 +384,82 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 	// Reset warnings so that they are not stale, will populate accurate warnings in reconciliation
 	resource.SetWarnings([]status.Warning{})
 
+	return reconcile.Result{}, nil
+}
+
+func (r *ReconcileCommonController) ensureFinalizer(ctx context.Context, obj client.Object, finalizer string, log *zap.SugaredLogger) error {
+	if controllerutil.ContainsFinalizer(obj, finalizer) {
+		return nil
+	}
+	// We use Patch to only add the finalizer. A full Update drops zero-valued
+	// fields such as members=0. The optimistic lock makes a concurrent
+	// metadata write fail the patch instead of replacing its finalizer list.
+	base := obj.DeepCopyObject().(client.Object)
+	controllerutil.AddFinalizer(obj, finalizer)
+	if err := r.client.Patch(ctx, obj, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return xerrors.Errorf("failed to add finalizer %s: %w", finalizer, err)
+	}
+	log.Infof("Added finalizer %s to %s", finalizer, obj.GetName())
+	return nil
+}
+
+// projectResource is a custom resource that references its Ops Manager project
+// through a ConfigMap and a credentials Secret.
+type projectResource interface {
+	client.Object
+	project.Reader
+}
+
+// prepareCleanupConnection returns a read-only Ops Manager connection for
+// deletion cleanup. A nil connection means the cleanup can skip Ops Manager.
+// Missing inputs release the finalizer with a warning, because the operator
+// cannot clean up without them. Without the finalizer, a cleanup error did not
+// block deletion. The finalizer makes cleanup failure block deletion, so
+// missing inputs must skip cleanup instead of trapping the CR in Terminating.
+func (r *ReconcileCommonController) prepareCleanupConnection(
+	ctx context.Context,
+	resource projectResource,
+	omConnectionFactory om.ConnectionFactory,
+	log *zap.SugaredLogger,
+) (om.Connection, error) {
+	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, resource, log)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			log.Warnf("Cleanup inputs are missing; skipping Ops Manager cleanup. External state may remain.")
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	conn, err := project.ReadProject(ctx, projectConfig, credsConfig, omConnectionFactory, log)
+	if err != nil {
+		return nil, err
+	}
+	if conn == nil {
+		log.Infof("Ops Manager project %q not found; skipping cleanup", projectConfig.ProjectName)
+		return nil, nil
+	}
+	return conn, nil
+}
+
+// finalize runs cleanup and releases the finalizer only after cleanup succeeds.
+// Reconcile calls it, so the workqueue serializes it with other changes for the
+// same resource.
+func (r *ReconcileCommonController) finalize(ctx context.Context, obj client.Object, finalizer string, deleter Deleter, log *zap.SugaredLogger) (reconcile.Result, error) {
+	if !controllerutil.ContainsFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := deleter.OnDelete(ctx, obj, log); err != nil {
+		return reconcile.Result{}, err
+	}
+	base := obj.DeepCopyObject().(client.Object)
+	if !controllerutil.RemoveFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := r.client.Patch(ctx, obj, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return reconcile.Result{}, xerrors.Errorf("failed to remove finalizer %s: %w", finalizer, err)
+	}
+	log.Infof("Removed finalizer %s from %s", finalizer, obj.GetName())
 	return reconcile.Result{}, nil
 }
 

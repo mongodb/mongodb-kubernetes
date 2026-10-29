@@ -848,6 +848,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
+	if !sc.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, sc, util.MongoDBFinalizer, r, log)
+	}
+
 	if sc.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s reconciliation disabled by %s annotation; skipping",
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
@@ -873,7 +877,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 	if err != nil {
 		return err
 	}
-	return reconcilerHelper.OnDelete(ctx, obj, log)
+	return reconcilerHelper.OnDelete(ctx, sc, log)
 }
 
 func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) (res reconcile.Result, e error) {
@@ -914,6 +918,9 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
 	if err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+	if err := r.commonController.ensureFinalizer(ctx, sc, util.MongoDBFinalizer, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 
@@ -1762,14 +1769,12 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 }
 
 func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
+	conn, err := r.commonController.prepareCleanupConnection(ctx, sc, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
-
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, true, log)
-	if err != nil {
-		return err
+	if conn == nil {
+		return nil
 	}
 
 	// A resource that still declares externalMembers is mid-migration from VMs: the sharded cluster in
@@ -1787,6 +1792,8 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		}
 		return nil
 	}
+
+	keepBackup := sc.Spec.Backup != nil && !sc.Spec.Backup.AutoTerminateOnDeletion
 
 	// Read before removing for legacy naming detection. Deletion is a single attempt with no retry,
 	// so a failed read only skips the wait for ready state instead of aborting the cleanup.
@@ -1829,7 +1836,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	hostsToRemove := r.getAllHosts(false)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
 
-	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
+	if err := host.StopMonitoring(ctx, conn, hostsToRemove, keepBackup, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
@@ -1868,8 +1875,7 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	}
 
 	// watch for changes to sharded cluster MongoDB resources
-	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ShardedCluster)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForMongoDB(mdbv1.ShardedCluster)))
 	if err != nil {
 		return err
 	}

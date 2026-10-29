@@ -96,6 +96,14 @@ func PredicatesForMongoDB(resourceType mdbv1.ResourceType) predicate.Funcs {
 			oldResource := e.ObjectOld.(*mdbv1.MongoDB)
 			newResource := e.ObjectNew.(*mdbv1.MongoDB)
 
+			// A deletion timestamp change must enqueue cleanup. The finalizer keeps
+			// the object until Reconcile removes it, so this update is the only
+			// delete notification for a Vault-backed resource with unchanged
+			// secret annotations.
+			if !newResource.DeletionTimestamp.IsZero() {
+				return newResource.Spec.ResourceType == resourceType
+			}
+
 			oldSpecAnnotation := oldResource.GetAnnotations()[util.LastAchievedSpec]
 			newSpecAnnotation := newResource.GetAnnotations()[util.LastAchievedSpec]
 

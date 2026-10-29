@@ -101,9 +101,10 @@ func StopBackupIfEnabled(ctx context.Context, readUpdater ConfigHostReadUpdater,
 			cluster, err := hostClusterReader.ReadHostCluster(ctx, config.ClusterId)
 			if err != nil {
 				l.Errorf("Failed to read information about HostCluster: %s", err)
-			} else {
-				l.Debugw("Read cluster information", "details", cluster)
+				// The host cluster is gone, so this config cannot match. Skip it instead of dereferencing nil.
+				continue
 			}
+			l.Debugw("Read cluster information", "details", cluster)
 			// We need to compare the returned backup type with the given type because for sharded_clusters we
 			// have 4 configs.
 			// Three replica_sets and one sharded_replica_set.

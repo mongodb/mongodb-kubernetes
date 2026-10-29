@@ -212,6 +212,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(err))
 	}
+	if err := reconciler.ensureFinalizer(ctx, rs, util.MongoDBFinalizer, log); err != nil {
+		return r.updateStatus(ctx, workflow.Failed(err))
+	}
 
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
 	if err != nil {
@@ -469,6 +472,10 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
+	if !rs.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, rs, util.MongoDBFinalizer, r, log)
+	}
+
 	if rs.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s reconciliation disabled by %s annotation; skipping",
 			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)
@@ -655,10 +662,8 @@ func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls
 		return err
 	}
 
-	// watch for changes to replica set MongoDB resources
-	eventHandler := ResourceEventHandler{deleter: reconciler}
 	// Watch for changes to primary resource MongoDbReplicaSet
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ReplicaSet)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForMongoDB(mdbv1.ReplicaSet)))
 	if err != nil {
 		return err
 	}
@@ -1156,16 +1161,15 @@ func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.O
 }
 
 func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.reconciler.client, r.reconciler.SecretClient, rs, log)
+	conn, err := r.reconciler.prepareCleanupConnection(ctx, rs, r.reconciler.omConnectionFactory, log)
 	if err != nil {
 		return err
+	}
+	if conn == nil {
+		return nil
 	}
 
 	log.Infow("Removing replica set from Ops Manager", "config", rs.Spec)
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.reconciler.SecretClient, projectConfig, credsConfig, r.reconciler.omConnectionFactory, rs.Namespace, true, log)
-	if err != nil {
-		return err
-	}
 
 	// A resource that still declares externalMembers is mid-migration from VMs: the replica set in
 	// Ops Manager is partly made of processes the operator does not own. Removing it from the
@@ -1183,12 +1187,13 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 		return nil
 	}
 
+	replicaSetName := rs.GetReplicaSetName()
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
-			processNames = d.GetProcessNames(om.ReplicaSet{}, rs.Name)
+			processNames = d.GetProcessNames(om.ReplicaSet{}, replicaSetName)
 
-			if e := d.RemoveReplicaSetByName(rs.Name, log); e != nil {
+			if e := d.RemoveReplicaSetByName(replicaSetName, log); e != nil {
 				log.Warnf("Failed to remove replica set from automation config: %s", e)
 			}
 
@@ -1203,12 +1208,14 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	// This ensures we attempt all cleanup operations even if some fail.
 	var errs error
 
+	keepBackup := rs.Spec.Backup != nil && !rs.Spec.Backup.AutoTerminateOnDeletion
+
 	if err := om.WaitForReadyState(ctx, conn, processNames, false, log); err != nil {
 		errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
 	}
 
 	if rs.Spec.Backup != nil && rs.Spec.Backup.AutoTerminateOnDeletion {
-		if err := backup.StopBackupIfEnabled(ctx, conn, conn, rs.Name, backup.ReplicaSetType, log); err != nil {
+		if err := backup.StopBackupIfEnabled(ctx, conn, conn, rs.GetReplicaSetName(), backup.ReplicaSetType, log); err != nil {
 			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
 		}
 	}
@@ -1217,8 +1224,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	// Reading from Status here is appropriate since this is outside the reconciliation loop.
 	hostsToRemove, _ := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), util.MaxInt(rs.Status.Members, rs.Spec.Members), rs.Spec.GetExternalDomain())
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
-
-	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
+	if err := host.StopMonitoring(ctx, conn, hostsToRemove, keepBackup, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
@@ -1241,6 +1247,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	return errs
 }
 
+// OnDelete cleans up Ops Manager state for a deleted resource.
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
 	if rs.IsReconciliationDisabled() {
@@ -1252,7 +1259,7 @@ func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.O
 	if err != nil {
 		return err
 	}
-	return helper.OnDelete(ctx, obj, log)
+	return helper.OnDelete(ctx, rs, log)
 }
 
 func getAllHostsForReplicas(rs *mdbv1.MongoDB, membersCount int) []string {

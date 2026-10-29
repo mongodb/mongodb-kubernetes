@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -62,6 +63,37 @@ func NewOMContext(config mdbv1.ProjectConfig, credentials mdbv1.Credentials) *om
 		// and not a location in disk, because each "project" will have its own CA cert.
 		CACertificate: config.SSLMMSCAConfigMapContents,
 	}
+}
+
+// ReadProject returns a configured connection when the Ops Manager project
+// exists. It never creates a project, changes tags, or ensures secrets, so
+// deletion cleanup can inspect state without creating it. A nil connection
+// means the project does not exist.
+func ReadProject(ctx context.Context, config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, log *zap.SugaredLogger) (om.Connection, error) {
+	conn := connectionFunc(NewOMContext(config, credentials))
+
+	organization, err := FindOrganization(ctx, config.OrgID, config.ProjectName, conn, log)
+	if err != nil {
+		var apiErr *apierror.Error
+		if errors.As(err, &apiErr) && apiErr.ErrorCode == apierror.OrganizationNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if organization == nil {
+		return nil, nil
+	}
+
+	project, err := FindProjectInsideOrganization(ctx, conn, config.ProjectName, organization, log)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, nil
+	}
+
+	conn.ConfigureProject(project)
+	return conn, nil
 }
 
 /*
