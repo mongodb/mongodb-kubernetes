@@ -298,6 +298,18 @@ functions:
         - ${workdir}/bin
       binary: scripts/evergreen/setup_prek.sh
 
+  setup_evergreen_cli: &setup_evergreen_cli
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      add_to_path:
+        - ${workdir}/bin
+      include_expansions_in_env:
+        - EVERGREEN_USER
+        - EVERGREEN_API_KEY
+      command: scripts/evergreen/setup_evergreen_cli.sh
+
   lint_repo:
     - command: subprocess.exec
       type: setup
@@ -308,16 +320,7 @@ functions:
         command: scripts/evergreen/setup_yq.sh
     - *setup_chart_testing_cli
     - *setup_prek
-    - command: subprocess.exec
-      type: setup
-      params:
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        add_to_path:
-          - ${workdir}/bin
-        include_expansions_in_env:
-          - EVERGREEN_USER
-          - EVERGREEN_API_KEY
-        command: scripts/evergreen/setup_evergreen_cli.sh
+    - *setup_evergreen_cli
     - command: subprocess.exec
       type: test
       params:
