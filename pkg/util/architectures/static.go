@@ -51,14 +51,12 @@ const (
 // The resource annotation takes precedence.
 // A nil map is equivalent to an empty map except that no elements may be added.
 func IsRunningStaticArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) bool {
-	if annotations != nil {
-		if architecture, ok := annotations[ArchitectureAnnotation]; ok {
-			if architecture == string(Static) {
-				return true
-			}
-			if architecture == string(NonStatic) {
-				return false
-			}
+	if architecture, ok := annotations[ArchitectureAnnotation]; ok {
+		if architecture == string(Static) {
+			return true
+		}
+		if architecture == string(NonStatic) {
+			return false
 		}
 	}
 
