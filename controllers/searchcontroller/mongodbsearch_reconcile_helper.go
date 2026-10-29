@@ -2160,6 +2160,50 @@ func ValidateX509AuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRes
 	return xerrors.New("x509 search authentication requires an X509 auth mode enabled on the source MongoDB (mongod disables the MONGODB-X509 mechanism otherwise)")
 }
 
+// ValidateSearchSourceAuth gates the pairing of a search auth mode with its source: a SCRAM
+// search needs a SCRAM mode on the source, an x509 search needs the X509 mode. Cross-resource,
+// so neither the CRD rules nor the source's own validators can see it. External sources are
+// unverifiable from the operator and get no check.
+func ValidateSearchSourceAuth(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if err := validateSCRAMAuthSource(search, db); err != nil {
+		return err
+	}
+	return ValidateX509AuthSource(search, db)
+}
+
+// validateSCRAMAuthSource requires SCRAM on the source for a SCRAM search. x509 searches
+// authenticate with a client certificate and never use the source's SCRAM modes, so the
+// requirement does not apply to them.
+func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if search.IsX509Auth() {
+		return nil
+	}
+
+	var modes []string
+	switch src := db.(type) {
+	case EnterpriseResourceSearchSource:
+		modes = src.Spec.GetSecurityAuthenticationModes()
+	case *ShardedInternalSearchSource:
+		modes = src.Spec.GetSecurityAuthenticationModes()
+	case *CommunitySearchSource:
+		for _, mode := range src.Spec.Security.Authentication.Modes {
+			modes = append(modes, string(mode))
+		}
+	default:
+		return nil
+	}
+
+	if len(modes) == 0 {
+		return nil
+	}
+	for _, mode := range modes {
+		if strings.HasPrefix(strings.ToUpper(mode), util.SCRAM) {
+			return nil
+		}
+	}
+	return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
+}
+
 // keyFilePasswordContentHash returns a hash of every configured keyFilePassword secret's content
 func (r *MongoDBSearchReconcileHelper) keyFilePasswordContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
 	var combined []byte

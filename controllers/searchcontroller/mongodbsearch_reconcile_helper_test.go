@@ -5364,3 +5364,113 @@ func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
 	require.NoError(t, clusterB.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
 }
+
+// ValidateSearchSourceAuth pairs the search's auth mode with the source's: a SCRAM search
+// needs a SCRAM mode on the source, an x509 search needs the X509 mode, and external sources
+// are unverifiable from the operator.
+func TestValidateSearchSourceAuth(t *testing.T) {
+	enterpriseSource := func(modes ...mdbv1.AuthMode) SearchSourceDBResource {
+		return NewEnterpriseResourceSearchSource(&mdbv1.MongoDB{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-mongodb", Namespace: "test-ns"},
+			Spec: mdbv1.MongoDbSpec{
+				DbCommonSpec: mdbv1.DbCommonSpec{
+					Security: &mdbv1.Security{
+						Authentication: &mdbv1.Authentication{Enabled: true, Modes: modes},
+					},
+				},
+			},
+		})
+	}
+	communitySource := func(modes ...mdbcv1.AuthMode) SearchSourceDBResource {
+		return NewCommunityResourceSearchSource(&mdbcv1.MongoDBCommunity{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-mongodb", Namespace: "test-ns"},
+			Spec: mdbcv1.MongoDBCommunitySpec{
+				Security: mdbcv1.Security{
+					Authentication: mdbcv1.Authentication{Modes: modes},
+				},
+			},
+		})
+	}
+	scramSearch := func() *searchv1.MongoDBSearch {
+		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.Username = new("search-user")
+			s.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
+		})
+	}
+	x509Search := func() *searchv1.MongoDBSearch {
+		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.X509 = &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}}
+		})
+	}
+
+	tests := []struct {
+		name          string
+		search        func() *searchv1.MongoDBSearch
+		source        func() SearchSourceDBResource
+		errorContains string
+	}{
+		{
+			name:   "SCRAM search with SCRAM source",
+			search: scramSearch,
+			source: func() SearchSourceDBResource { return enterpriseSource("SCRAM-SHA-256") },
+		},
+		{
+			name:   "SCRAM search with SCRAM among other modes",
+			search: scramSearch,
+			source: func() SearchSourceDBResource { return enterpriseSource("X509", "SCRAM-SHA-256") },
+		},
+		{
+			name:   "SCRAM search with modeless source",
+			search: scramSearch,
+			source: func() SearchSourceDBResource { return enterpriseSource() },
+		},
+		{
+			name:          "SCRAM search with x509-only source",
+			search:        scramSearch,
+			source:        func() SearchSourceDBResource { return enterpriseSource("X509") },
+			errorContains: "MongoDBSearch requires SCRAM authentication to be enabled",
+		},
+		{
+			name:   "x509 search with x509-only source",
+			search: x509Search,
+			source: func() SearchSourceDBResource { return enterpriseSource("X509") },
+		},
+		{
+			name:          "x509 search with SCRAM-only source",
+			search:        x509Search,
+			source:        func() SearchSourceDBResource { return enterpriseSource("SCRAM-SHA-256") },
+			errorContains: "x509 search authentication requires an X509 auth mode",
+		},
+		{
+			name:          "SCRAM search with x509-only community source",
+			search:        scramSearch,
+			source:        func() SearchSourceDBResource { return communitySource("X509") },
+			errorContains: "MongoDBSearch requires SCRAM authentication to be enabled",
+		},
+		{
+			name:          "x509 search with SCRAM-only community source",
+			search:        x509Search,
+			source:        func() SearchSourceDBResource { return communitySource("SCRAM-SHA-256") },
+			errorContains: "x509 search authentication requires an X509 auth mode",
+		},
+		{
+			name:   "SCRAM search with external source",
+			search: scramSearch,
+			source: func() SearchSourceDBResource {
+				return NewExternalSearchSource("test-ns", &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"host:27017"}})
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateSearchSourceAuth(tc.search(), tc.source())
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}

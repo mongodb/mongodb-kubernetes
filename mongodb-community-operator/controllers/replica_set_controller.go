@@ -718,8 +718,8 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	if len(searchList.Items) == 1 {
 		searchSource := searchcontroller.NewCommunityResourceSearchSource(&mdb)
 		if searchSource.Validate() == nil {
-			if err := searchcontroller.ValidateX509AuthSource(&searchList.Items[0], searchSource); err != nil {
-				zap.S().Warnf("MongoDBSearch %s x509 source check failed: %v", searchList.Items[0].NamespacedName(), err)
+			if err := searchcontroller.ValidateSearchSourceAuth(&searchList.Items[0], searchSource); err != nil {
+				zap.S().Warnf("MongoDBSearch %s source auth check failed: %v", searchList.Items[0].NamespacedName(), err)
 			} else {
 				search = &searchList.Items[0]
 			}
