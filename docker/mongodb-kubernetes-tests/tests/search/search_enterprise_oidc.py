@@ -57,7 +57,6 @@ _COGNITO_CONFIGURED = bool(
     and oidc.get_cognito_workload_url()
     and oidc.get_cognito_workload_user_id()
     and os.getenv("cognito_workload_federation_client_secret")
-    and oidc.get_cognito_workload_token_endpoint()
 )
 pytestmark = mark.skipif(
     not _COGNITO_CONFIGURED,
@@ -87,12 +86,12 @@ def _client_credentials_claims() -> dict:
     this token, so the source of truth is the IdP, not the user-flow fixtures.
     """
     token_endpoint = oidc.get_cognito_workload_token_endpoint()
-    # A configured non-HTTPS endpoint is a misconfiguration, not a reason to skip: fail
-    # before the token request sends the client secret over plain HTTP.
+    # A non-HTTPS endpoint is a misconfiguration, not a reason to skip: fail before the
+    # token request sends the client secret over plain HTTP.
     if not token_endpoint.startswith("https://"):
         fail(
-            f"cognito_workload_token_endpoint is configured but not HTTPS: {token_endpoint}. "
-            "Fix the expansion value.",
+            f"Derived token endpoint is not HTTPS: {token_endpoint}. "
+            "Check the cognito_workload_url expansion.",
             pytrace=False,
         )
     response = requests.post(
