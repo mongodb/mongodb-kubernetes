@@ -132,6 +132,7 @@ func TestAppDBAgentHostnameArguments(t *testing.T) {
 		{name: "per-cluster external domain", multiCluster: true, externalDomain: new("member.example.com"), hostname: "$(POD_NAME).member.example.com"},
 		{name: "generated hostname wins over customer", externalDomain: new("external.example.com"), parameters: mdbv1.StartupParameters{"overrideLocalHost": "customer.example.com"}, hostname: "$(POD_NAME).external.example.com"},
 		{name: "customer hostname without generated identity", parameters: mdbv1.StartupParameters{"overrideLocalHost": "customer.example.com"}, hostname: "customer.example.com"},
+		{name: "prefixed customer hostname", parameters: mdbv1.StartupParameters{"-overrideLocalHost": "customer.example.com"}, hostname: "customer.example.com"},
 		{name: "explicit empty hostname", parameters: mdbv1.StartupParameters{"overrideLocalHost": ""}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

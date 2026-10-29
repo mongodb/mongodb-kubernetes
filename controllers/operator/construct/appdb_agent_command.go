@@ -27,25 +27,15 @@ const (
 
 // AppDBAgentSettingsConfigMap preserves AppDB defaults independently of database defaults.
 func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, podVars *env.PodEnvVars) (corev1.ConfigMap, error) {
-	settings, err := appDBAgentSettings(sts, appDB, podVars)
-	if err != nil {
-		return corev1.ConfigMap{}, err
-	}
-	return agentSettingsConfigMap(sts, settings)
-}
-
-// appDBAgentSettings builds the complete AppDB agent settings map. It owns the map:
-// reserved keys are filtered before insertion, so callers do not delete them afterwards.
-func appDBAgentSettings(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, podVars *env.PodEnvVars) (mdbv1.StartupParameters, error) {
 	parameters := appDB.AutomationAgent.StartupParameters
 	agent := AgentContainer(sts)
 	// Reject a custom AGENT_FLAGS here too, so AppDB behaves like every other resource type.
 	if agent != nil {
 		if err := ValidateNoCustomAgentFlags(*agent); err != nil {
-			return nil, err
+			return corev1.ConfigMap{}, err
 		}
 		if err := ValidateNoRuntimeAgentSettingsEnv(*agent); err != nil {
-			return nil, err
+			return corev1.ConfigMap{}, err
 		}
 	}
 	var variables map[string]string
@@ -93,21 +83,7 @@ func appDBAgentSettings(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, podVars *
 	if (ShouldEnableMonitoring(podVars) || rawKeyOverride) && settings["mmsApiKeyExec"] == "" {
 		settings["mmsApiKeyExec"] = "cat '/mongodb-automation/agent-api-key/agentApiKey'"
 	}
-	return settings, nil
-}
-
-func AppDBOverrideLocalHostArg(parameters mdbv1.StartupParameters, externalDomain *string, multiCluster bool, namespace, clusterDomain string) (string, bool) {
-	if externalDomain != nil {
-		return "-overrideLocalHost=$(POD_NAME)." + *externalDomain, true
-	}
-	if multiCluster {
-		return "-overrideLocalHost=$(POD_NAME)-svc." + namespace + ".svc." + clusterDomain, true
-	}
-	hostname, overridden := AgentSettingsOverrides(parameters)["overrideLocalHost"]
-	if overridden {
-		return "-overrideLocalHost=" + hostname, false
-	}
-	return "", false
+	return agentSettingsConfigMap(sts, settings)
 }
 
 var shellVariableRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
