@@ -1411,8 +1411,8 @@ spec:
                   oidc:
                     description: |-
                       OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only).
-                      mongot obtains an access token from the identity provider's token endpoint instead of
-                      using username/password or x509. Mutually exclusive with PasswordSecretRef, Username, and X509.
+                      mongot obtains an access token from the identity provider's token endpoint instead of using
+                      username/password or x509; the source must have TLS enabled. Mutually exclusive with PasswordSecretRef, Username, and X509.
                     properties:
                       clientId:
                         description: ClientID is the OAuth2 client id mongot authenticates
@@ -1464,7 +1464,7 @@ spec:
                         x-kubernetes-validations:
                         - message: tokenEndpoint must be an absolute HTTPS URI with
                             a host and no userinfo or fragment
-                          rule: self.matches('^https://([a-zA-Z0-9._-]+|\\[[0-9a-fA-F:.]+\\])(:[0-9]{1,5})?([/?][^#]*)?$')
+                          rule: self.matches('^(?i)https://([a-zA-Z0-9._-]+|\\[[0-9a-fA-F:.]+\\])(:[0-9]{1,5})?([/?][^#]*)?$')
                     required:
                     - clientId
                     - clientSecretSecretRef

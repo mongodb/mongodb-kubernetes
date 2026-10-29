@@ -471,8 +471,8 @@ type MongoDBSource struct {
 	// +optional
 	X509 *X509Auth `json:"x509,omitempty"`
 	// OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only).
-	// mongot obtains an access token from the identity provider's token endpoint instead of
-	// using username/password or x509. Mutually exclusive with PasswordSecretRef, Username, and X509.
+	// mongot obtains an access token from the identity provider's token endpoint instead of using
+	// username/password or x509; the source must have TLS enabled. Mutually exclusive with PasswordSecretRef, Username, and X509.
 	// +optional
 	OIDC *OIDCAuth `json:"oidc,omitempty"`
 	// TLS configures TLS transport settings for the sync source SCRAM connection.
@@ -505,7 +505,7 @@ type OIDCAuth struct {
 	// "https://idp.example.com/realms/search/protocol/openid-connect/token".
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:XValidation:rule="self.matches('^https://([a-zA-Z0-9._-]+|\\\\[[0-9a-fA-F:.]+\\\\])(:[0-9]{1,5})?([/?][^#]*)?$')",message="tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment"
+	// +kubebuilder:validation:XValidation:rule="self.matches('^(?i)https://([a-zA-Z0-9._-]+|\\\\[[0-9a-fA-F:.]+\\\\])(:[0-9]{1,5})?([/?][^#]*)?$')",message="tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment"
 	TokenEndpoint string `json:"tokenEndpoint"`
 	// ClientID is the OAuth2 client id mongot authenticates as at the token endpoint.
 	// +kubebuilder:validation:Required

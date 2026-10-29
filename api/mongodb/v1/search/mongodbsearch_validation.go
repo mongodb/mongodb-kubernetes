@@ -497,10 +497,19 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// oidcTokenEndpointErr builds the shared tokenEndpoint rejection message; reason names the
+// specific check that failed.
+func oidcTokenEndpointErr(tokenEndpoint, reason string) v1.ValidationResult {
+	return v1.ValidationError(
+		"spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: %s",
+		tokenEndpoint, reason,
+	)
+}
+
 // validateOIDCAuthConfig validates that OIDC authentication is not configured alongside
-// the other authentication methods, and that the OIDC configuration is well-formed.
-// It mirrors the CRD CEL rules for stale-CRD installs whose schema predates the
-// spec.source.oidc markers.
+// the other authentication methods, and that the OIDC configuration is well-formed. It mirrors
+// the CRD CEL rules for objects the API server no longer gates: stored objects that survive a
+// CRD rollback, and schemas from releases with an older rule set.
 func validateOIDCAuthConfig(s *MongoDBSearch) v1.ValidationResult {
 	if s.Spec.Source == nil || s.Spec.Source.OIDC == nil {
 		return v1.ValidationSuccess()
@@ -524,19 +533,19 @@ func validateOIDCAuthConfig(s *MongoDBSearch) v1.ValidationResult {
 	}
 	u, err := url.Parse(tokenEndpoint)
 	if err != nil {
-		return v1.ValidationError("spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: %v", tokenEndpoint, err)
+		return oidcTokenEndpointErr(tokenEndpoint, err.Error())
 	}
 	if u.Scheme != "https" {
-		return v1.ValidationError("spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: scheme must be https", tokenEndpoint)
+		return oidcTokenEndpointErr(tokenEndpoint, "scheme must be https")
 	}
 	if u.Hostname() == "" {
-		return v1.ValidationError("spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: host is required", tokenEndpoint)
+		return oidcTokenEndpointErr(tokenEndpoint, "host is required")
 	}
 	if u.User != nil {
-		return v1.ValidationError("spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: userinfo is not allowed", tokenEndpoint)
+		return oidcTokenEndpointErr(tokenEndpoint, "userinfo is not allowed")
 	}
 	if u.Fragment != "" {
-		return v1.ValidationError("spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: fragment is not allowed", tokenEndpoint)
+		return oidcTokenEndpointErr(tokenEndpoint, "fragment is not allowed")
 	}
 
 	if s.Spec.Source.OIDC.ClientSecretRef.Name == "" {
