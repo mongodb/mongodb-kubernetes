@@ -1,8 +1,12 @@
 package construct
 
 import (
+	"fmt"
+	"maps"
+	"os"
 	"path"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +20,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -200,20 +205,16 @@ func TestDatabaseEnvVars(t *testing.T) {
 	envVars := defaultPodVars()
 	opts := DatabaseStatefulSetOptions{PodVars: envVars}
 	podEnv := databaseEnvVars(opts)
-	assert.Len(t, podEnv, 5)
+	assert.Len(t, podEnv, 2)
+	assert.Equal(t, corev1.EnvVar{Name: util.EnvVarBaseUrl, Value: "http://localhost:8080"}, podEnv[0])
+	assert.Equal(t, corev1.EnvVar{Name: util.EnvVarUser, Value: "user@some.com"}, podEnv[1])
 
-	envVars = defaultPodVars()
+	// Project, log level, TLS, and cluster mode come from the settings file.
 	envVars.SSLRequireValidMMSServerCertificates = true
-	opts = DatabaseStatefulSetOptions{PodVars: envVars}
-
+	envVars.SSLMMSCAConfigMap = "custom-ca"
 	podEnv = databaseEnvVars(opts)
-	assert.Len(t, podEnv, 6)
-	assert.Equal(t, podEnv[5], corev1.EnvVar{
-		Name:  util.EnvVarSSLRequireValidMMSCertificates,
-		Value: "true",
-	})
+	assert.Len(t, podEnv, 2)
 
-	envVars = defaultPodVars()
 	opts = DatabaseStatefulSetOptions{
 		PodVars:              envVars,
 		ExternalAgentVersion: "108.0.1.8800-1",
@@ -229,54 +230,352 @@ func TestDatabaseEnvVars(t *testing.T) {
 			assert.Equal(t, "108.0.1.8800-1", ev.Value)
 		}
 	}
+}
 
-	envVars = defaultPodVars()
-	envVars.SSLMMSCAConfigMap = "custom-ca"
-	v := &caVolumeSource{}
-	extraEnvs := v.GetEnvs()
+func TestDatabaseAgentSettings(t *testing.T) {
+	tests := []struct {
+		name           string
+		variables      map[string]string
+		parameters     mdbv1.StartupParameters
+		externalDomain *string
+		multiCluster   bool
+		want           mdbv1.StartupParameters
+		absent         []string
+	}{
+		{name: "OM defaults"},
+		{
+			name:      "headless",
+			variables: map[string]string{util.EnvVarBaseUrl: "", util.EnvVarProjectId: ""},
+			want:      mdbv1.StartupParameters{"mmsGroupId": "", "cluster": "/var/lib/mongodb-automation/cluster-config.json", "serveStatusPort": "5000"},
+			absent:    []string{"mmsBaseUrl", "mmsApiKeyExec"},
+		},
+		{
+			// An explicit empty value cannot mean "connect to an empty URL". It must not wipe the
+			// environment-derived mode, which would leave neither mmsBaseUrl nor the headless keys.
+			name:       "explicit empty mmsBaseUrl is treated as unset",
+			variables:  map[string]string{util.EnvVarBaseUrl: "https://ops-manager.example.com"},
+			parameters: mdbv1.StartupParameters{"mmsBaseUrl": ""},
+			want:       mdbv1.StartupParameters{"mmsBaseUrl": "https://ops-manager.example.com"},
+			absent:     []string{"cluster", "serveStatusPort"},
+		},
+		{
+			name:      "static binaries and download base",
+			variables: map[string]string{"MDB_STATIC_CONTAINERS_ARCHITECTURE": "true", DownloadBaseEnv: "/custom/download"},
+			want:      mdbv1.StartupParameters{"operatorMode": "true", "binariesFixedPath": "/custom/download/mongod/bin"},
+			absent:    []string{"useLocalMongoDbTools"},
+		},
+		{
+			name:       "customer settings win including unknown keys",
+			parameters: mdbv1.StartupParameters{"logLevel": "DEBUG", "logFile": "/custom logs/agent.log", "maxLogFileDurationHrs": "12", "futureAgentSetting": "one,two=three"},
+			want:       mdbv1.StartupParameters{"logLevel": "DEBUG", "logFile": "/custom logs/agent.log", "maxLogFileDurationHrs": "12", "futureAgentSetting": "one,two=three"},
+		},
+		{
+			name:       "raw credentials and identity stay outside the shared file",
+			parameters: mdbv1.StartupParameters{"mmsApiKey": "secret-api-key-value", "overrideLocalHost": "customer.example.com"},
+			absent:     []string{"mmsApiKey", "overrideLocalHost"},
+		},
+		{
+			name:       "customer credential command wins",
+			parameters: mdbv1.StartupParameters{"mmsApiKey": "secret-api-key-value", "mmsApiKeyExec": "cat /custom/key"},
+			want:       mdbv1.StartupParameters{"mmsApiKeyExec": "cat /custom/key"},
+			absent:     []string{"mmsApiKey"},
+		},
+		{
+			name:      "effective TLS and runtime directories",
+			variables: map[string]string{"MMS_HOME": "/custom/automation", "MMS_LOG_DIR": "/custom/logs", util.EnvVarSSLRequireValidMMSCertificates: "false", util.EnvVarSSLTrustedMMSServerCertificate: "/custom/ca.pem"},
+			want:      mdbv1.StartupParameters{"pidfilepath": "/custom/automation/mongodb-mms-automation-agent.pid", "healthCheckFilePath": "/custom/logs/agent-health-status.json", "tlsRequireValidMMSServerCertificates": "false", "httpsCAFile": path.Join(caCertMountPath, util.CaCertMMS), "mmsApiKeyExec": "cat '/mongodb-automation/agent-api-key/agentApiKey'"},
+		},
+		{
+			name:      "credential paths are shell quoted",
+			variables: map[string]string{"MMS_HOME": "/custom O'Reilly/$HOME"},
+			want:      mdbv1.StartupParameters{"pidfilepath": "/custom O'Reilly/$HOME/mongodb-mms-automation-agent.pid", "mmsApiKeyExec": "cat '/mongodb-automation/agent-api-key/agentApiKey'"},
+		},
+		{name: "external domain", externalDomain: new("example.com"), want: mdbv1.StartupParameters{"ephemeralPortOffset": "1"}},
+		{name: "multi cluster", multiCluster: true, want: mdbv1.StartupParameters{"ephemeralPortOffset": "1"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			variables := map[string]string{util.EnvVarBaseUrl: "https://ops-manager.example.com/", util.EnvVarProjectId: "project"}
+			maps.Copy(variables, tt.variables)
+			podVars := &env.PodEnvVars{
+				BaseURL:   variables[util.EnvVarBaseUrl],
+				ProjectID: variables[util.EnvVarProjectId],
+				LogLevel:  variables[util.EnvVarLogLevel],
+			}
+			podVars.SSLRequireValidMMSServerCertificates = true
+			if variables[util.EnvVarSSLRequireValidMMSCertificates] == "false" {
+				podVars.SSLRequireValidMMSServerCertificates = false
+			}
+			if variables[util.EnvVarSSLTrustedMMSServerCertificate] != "" {
+				podVars.SSLMMSCAConfigMap = "custom-ca"
+			}
+			opts := DatabaseStatefulSetOptions{
+				AgentConfig:      &mdbv1.AgentConfig{StartupParameters: tt.parameters},
+				MultiClusterMode: tt.multiCluster,
+				PodVars:          podVars,
+			}
+			if tt.externalDomain != nil {
+				opts.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: tt.externalDomain}
+			}
+			original := maps.Clone(tt.parameters)
+			settings := databaseAgentSettings(opts, variables)
+			assert.Equal(t, original, tt.parameters)
+			expected := mdbv1.StartupParameters{
+				"mmsBaseUrl":                           "https://ops-manager.example.com",
+				"mmsGroupId":                           "project",
+				"pidfilepath":                          "/mongodb-automation/mongodb-mms-automation-agent.pid",
+				"maxLogFileDurationHrs":                "24",
+				"logLevel":                             "INFO",
+				"logFile":                              "/var/log/mongodb-mms-automation/automation-agent.log",
+				"healthCheckFilePath":                  "/var/log/mongodb-mms-automation/agent-health-status.json",
+				"tlsRequireValidMMSServerCertificates": "true",
+				"useLocalMongoDbTools":                 "true",
+				"mmsApiKeyExec":                        "cat '/mongodb-automation/agent-api-key/agentApiKey'",
+			}
+			maps.Copy(expected, tt.want)
+			for _, key := range tt.absent {
+				delete(expected, key)
+			}
+			assert.Equal(t, expected, settings)
+			content, err := settings.ToSettingsFile()
+			require.NoError(t, err)
+			assert.NotContains(t, content, "secret-api-key-value")
+		})
+	}
+}
 
-	opts = DatabaseStatefulSetOptions{PodVars: envVars, ExtraEnvs: extraEnvs}
-	trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
-	podEnv = databaseEnvVars(opts)
-	assert.Len(t, podEnv, 6)
-	assert.Equal(t, podEnv[5], corev1.EnvVar{
-		Name:  util.EnvVarSSLTrustedMMSServerCertificate,
-		Value: trustedCACertLocation,
+func TestDatabaseAgentSettingsConfigMap(t *testing.T) {
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		t.Run(string(architecture), func(t *testing.T) {
+			mdb := mdbv1.NewReplicaSetBuilder().SetName("my-rs").SetNamespace("my-ns").SetAgentConfig(mdbv1.AgentConfig{
+				StartupParameters: mdbv1.StartupParameters{"logLevel": "DEBUG", "mmsApiKey": "secret-api-key-value", "overrideLocalHost": "customer.example.com"},
+			}).Build()
+			options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architecture))
+			sts := DatabaseStatefulSet(*mdb, options, zap.S())
+			cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+			require.NoError(t, err)
+			assert.Equal(t, "my-rs-agent-settings", cm.Name)
+			assert.Equal(t, sts.Namespace, cm.Namespace)
+			assert.Equal(t, sts.Labels, cm.Labels)
+			assert.Equal(t, sts.OwnerReferences, cm.OwnerReferences)
+			require.Len(t, cm.Data, 1)
+			content := cm.Data[AgentSettingsFileName]
+			assert.Contains(t, content, "logLevel=DEBUG\n")
+			assert.Contains(t, content, "mmsApiKeyExec=cat '/mongodb-automation/agent-api-key/agentApiKey'\n")
+			assert.NotContains(t, content, "secret-api-key-value")
+			assert.NotContains(t, content, "overrideLocalHost=")
+			if architecture == architectures.Static {
+				assert.Contains(t, content, "operatorMode=true\n")
+			} else {
+				assert.Contains(t, content, "useLocalMongoDbTools=true\n")
+			}
+		})
+	}
+	t.Run("invalid merged settings return no ConfigMap", func(t *testing.T) {
+		mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+			StartupParameters: mdbv1.StartupParameters{"logLevel": "INFO\nmmsApiKey=secret-api-key-value"},
+		}).Build()
+		options := ReplicaSetOptions(GetPodEnvOptions())
+		sts := DatabaseStatefulSet(*mdb, options, zap.S())
+		cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+		require.Error(t, err)
+		assert.Empty(t, cm.Data)
+		assert.NotContains(t, err.Error(), "secret-api-key-value")
 	})
-
-	envVars = defaultPodVars()
-	envVars.SSLRequireValidMMSServerCertificates = true
-	envVars.SSLMMSCAConfigMap = "custom-ca"
-	opts = DatabaseStatefulSetOptions{PodVars: envVars, ExtraEnvs: extraEnvs}
-	podEnv = databaseEnvVars(opts)
-	assert.Len(t, podEnv, 7)
-	assert.Equal(t, podEnv[6], corev1.EnvVar{
-		Name:  util.EnvVarSSLTrustedMMSServerCertificate,
-		Value: trustedCACertLocation,
+	for _, variable := range []corev1.EnvVar{
+		{Name: "AGENT_FLAGS", Value: "-mmsApiKey=secret-api-key-value,"},
+		{Name: "AGENT_FLAGS", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "flags"}, Key: "value"}}},
+	} {
+		t.Run("unresolved environment override "+variable.Name, func(t *testing.T) {
+			mdb := mdbv1.NewReplicaSetBuilder().Build()
+			options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic))
+			sts := DatabaseStatefulSet(*mdb, options, zap.S())
+			sts.Spec.Template.Spec.Containers[0].Env = append(sts.Spec.Template.Spec.Containers[0].Env, variable)
+			cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+			require.Error(t, err)
+			assert.Empty(t, cm.Data)
+			assert.NotContains(t, err.Error(), "secret-api-key-value")
+		})
+	}
+	t.Run("custom AGENT_FLAGS rejection names the supported surface", func(t *testing.T) {
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+		options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic))
+		sts := DatabaseStatefulSet(*mdb, options, zap.S())
+		sts.Spec.Template.Spec.Containers[0].Env = append(sts.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: "AGENT_FLAGS", Value: "-logLevel=DEBUG,"})
+		_, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "agent.startupOptions")
 	})
-	assert.Equal(t, podEnv[5], corev1.EnvVar{
-		Name:  util.EnvVarSSLRequireValidMMSCertificates,
-		Value: "true",
+	t.Run("settings path does not generate AGENT_FLAGS", func(t *testing.T) {
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+		options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic))
+		sts := DatabaseStatefulSet(*mdb, options, zap.S())
+		cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+		require.NoError(t, err)
+		assert.NotEmpty(t, cm.Data)
+		variables := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
+		assert.NotContains(t, variables, "AGENT_FLAGS")
+	})
+	// The cases above inject the environment directly. This one goes through the real customer
+	// surface: spec.podSpec.podTemplate, merged by DatabaseStatefulSet before the guard runs.
+	t.Run("customer pod template AGENT_FLAGS is rejected through the merge path", func(t *testing.T) {
+		mdb := mdbv1.NewReplicaSetBuilder().Build()
+		if mdb.Spec.PodSpec == nil {
+			mdb.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}
+		}
+		mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate = &corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name: util.DatabaseContainerName,
+					Env:  []corev1.EnvVar{{Name: "AGENT_FLAGS", Value: "-logLevel=DEBUG,"}},
+				}},
+			},
+		}
+		options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic))
+		sts := DatabaseStatefulSet(*mdb, options, zap.S())
+		cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+		require.Error(t, err)
+		assert.Empty(t, cm.Data)
+		assert.Contains(t, err.Error(), "agent.startupOptions")
 	})
 }
 
-func TestAgentFlags(t *testing.T) {
-	agentStartupParameters := mdbv1.StartupParameters{
-		"key1":    "Value1",
-		"key3":    "Value3",
-		"message": "Hello",
-		"key2":    "Value2",
-		// logFile is a default agent variable which we override for illustration in this test
-		"logFile": "/etc/agent.log",
+func TestDatabaseAgentBootstrapCA(t *testing.T) {
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		t.Run(string(architecture), func(t *testing.T) {
+			mdb := mdbv1.NewReplicaSetBuilder().Build()
+			options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architecture), func(opts *DatabaseStatefulSetOptions) {
+				opts.PodVars.SSLMMSCAConfigMap = "custom-ca"
+			})
+			sts := DatabaseStatefulSet(*mdb, options, zap.S())
+			agent := AgentContainer(sts)
+			require.NotNil(t, agent)
+			caPath := path.Join(caCertMountPath, util.CaCertMMS)
+			assert.Equal(t, caPath, env.ToMap(agent.Env...)[util.EnvVarSSLTrustedMMSServerCertificate])
+			assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: CaCertName, MountPath: caCertMountPath, ReadOnly: true})
+			assert.True(t, slices.ContainsFunc(sts.Spec.Template.Spec.Volumes, func(volume corev1.Volume) bool {
+				return volume.Name == CaCertName && volume.ConfigMap != nil && volume.ConfigMap.Name == "custom-ca"
+			}))
+			cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+			require.NoError(t, err)
+			assert.Contains(t, cm.Data[AgentSettingsFileName], "httpsCAFile="+caPath+"\n")
+		})
 	}
+}
 
-	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: agentStartupParameters}).Build()
-	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
-	variablesMap := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
-	val, ok := variablesMap["AGENT_FLAGS"]
-	assert.True(t, ok)
-	// AGENT_FLAGS environment variable is sorted
-	assert.Equal(t, val, "-key1=Value1,-key2=Value2,-key3=Value3,-logFile=/etc/agent.log,-message=Hello,")
+func TestDatabaseAgentSettingsPreservesLiteralVariables(t *testing.T) {
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		for _, tc := range []struct {
+			name  string
+			value string
+			env   []corev1.EnvVar
+		}{
+			{name: "unknown variable", value: "pa$word"},
+			{name: "literal environment", value: "$LOG_ROOT/agent.log", env: []corev1.EnvVar{{Name: "LOG_ROOT", Value: "/var/log/custom"}}},
+			{name: "braced literal environment", value: "${LOG_ROOT}/agent.log", env: []corev1.EnvVar{{Name: "LOG_ROOT", Value: "/var/log/custom"}}},
+			{name: "runtime environment", value: "$LOG_ROOT/agent.log", env: []corev1.EnvVar{{Name: "LOG_ROOT", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "runtime"}, Key: "root"}}}}},
+		} {
+			t.Run(string(architecture)+"/"+tc.name, func(t *testing.T) {
+				mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+					StartupParameters: mdbv1.StartupParameters{"logFile": tc.value},
+				}).Build()
+				options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architecture))
+				sts := DatabaseStatefulSet(*mdb, options, zap.S())
+				agent := AgentContainer(sts)
+				require.NotNil(t, agent)
+				container.WithEnvs(tc.env...)(agent)
+				cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+				require.NoError(t, err)
+				assert.Contains(t, cm.Data[AgentSettingsFileName], "logFile="+tc.value+"\n")
+			})
+		}
+	}
+}
+
+func TestDatabaseAgentRejectsRuntimeSettingsEnvironment(t *testing.T) {
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		for _, variableName := range []string{
+			util.EnvVarBaseUrl,
+			util.EnvVarProjectId,
+			util.EnvVarLogLevel,
+			"MMS_HOME",
+			"MMS_LOG_DIR",
+			"MDB_STATIC_CONTAINERS_ARCHITECTURE",
+			DownloadBaseEnv,
+			util.EnvVarMultiClusterMode,
+			util.EnvVarSSLRequireValidMMSCertificates,
+			util.EnvVarSSLTrustedMMSServerCertificate,
+		} {
+			for _, expression := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/expression=%t", architecture, variableName, expression), func(t *testing.T) {
+					mdb := mdbv1.NewReplicaSetBuilder().Build()
+					options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architecture), func(opts *DatabaseStatefulSetOptions) {
+						opts.PodVars.BaseURL = "https://ops-manager.example.com"
+					})
+					sts := DatabaseStatefulSet(*mdb, options, zap.S())
+					agent := container.GetByName(util.AgentContainerName, sts.Spec.Template.Spec.Containers)
+					if agent == nil {
+						agent = container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
+					}
+					variable := corev1.EnvVar{Name: variableName, Value: "$(RUNTIME_VALUE)"}
+					if !expression {
+						variable.Value = ""
+						variable.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "runtime"}, Key: "value"}}
+					}
+					container.WithEnvs(variable)(agent)
+					_, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), variableName)
+					assert.Contains(t, err.Error(), "agent.startupOptions")
+				})
+			}
+		}
+	}
+}
+
+func TestDatabaseAgentSettingsUseOperatorPodVars(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	options := ReplicaSetOptions(GetPodEnvOptions(),
+		WithDefaultArchitecture(architectures.NonStatic),
+		func(opts *DatabaseStatefulSetOptions) {
+			opts.PodVars.BaseURL = "https://operator.example.com"
+		})
+	sts := DatabaseStatefulSet(*mdb, options, zap.S())
+	agent := container.GetByName(util.AgentContainerName, sts.Spec.Template.Spec.Containers)
+	if agent == nil {
+		agent = container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
+	}
+	container.WithEnvs(corev1.EnvVar{Name: util.EnvVarBaseUrl, Value: "https://pod-template.example.com"})(agent)
+
+	cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+	require.NoError(t, err)
+	settings := cm.Data[AgentSettingsFileName]
+	assert.Contains(t, settings, "mmsBaseUrl=https://operator.example.com\n")
+	assert.NotContains(t, settings, "pod-template.example.com")
+}
+
+func TestDatabaseAgentCredentialCommandUsesFixedKeyPath(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	options := ReplicaSetOptions(GetPodEnvOptions(),
+		func(opts *DatabaseStatefulSetOptions) { opts.PodVars.BaseURL = "https://ops-manager.example.com" },
+		WithDefaultArchitecture(architectures.NonStatic))
+	sts := DatabaseStatefulSet(*mdb, options, zap.S())
+	agent := container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
+	container.WithEnvs(corev1.EnvVar{Name: "MMS_HOME", Value: "/custom/home"})(agent)
+	cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+	require.NoError(t, err)
+	var command string
+	for line := range strings.SplitSeq(cm.Data[AgentSettingsFileName], "\n") {
+		if value, ok := strings.CutPrefix(line, "mmsApiKeyExec="); ok {
+			command = value
+		}
+	}
+	require.NotEmpty(t, command)
+	// Both the generated key Secret and the override Secret mount at a fixed path.
+	// MMS_HOME controls the pidfile only.
+	assert.Contains(t, command, "cat '/mongodb-automation/agent-api-key/agentApiKey'")
+	assert.NotContains(t, command, "MMS_HOME")
+	assert.NotContains(t, command, `if [ -n "${BASE_URL%/}" ]; then`)
 }
 
 func TestLabelsAndAnotations(t *testing.T) {
@@ -378,6 +677,12 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 		envVars := getAutomationLogEnvVars(map[string]string{"logFile": "path/to/"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: "path/to/"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: "path/to/-verbose"})
+	})
+
+	t.Run("dash-prefixed logFile retargets the tailed log", func(t *testing.T) {
+		envVars := getAutomationLogEnvVars(map[string]string{"-logFile": "/custom/agent.log"})
+		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: "/custom/agent.log"})
+		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: "/custom/agent-verbose.log"})
 	})
 
 	t.Run("empty automation log file is falling back to default names", func(t *testing.T) {
@@ -651,4 +956,30 @@ func TestStandaloneOptionsWithoutExternalAccess(t *testing.T) {
 	opts := StandaloneOptions()(*st)
 
 	assert.Nil(t, opts.ExternalAccessConfiguration)
+}
+
+func TestStaticAgentContainerRunsLauncherShim(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
+
+	agent := AgentContainer(sts)
+	require.NotNil(t, agent)
+	assert.Equal(t, []string{"/usr/local/bin/agent-launcher-shim.sh"}, agent.Command)
+	assert.Empty(t, agent.Args)
+}
+
+func TestDatabaseLauncherSettingsPath(t *testing.T) {
+	script, err := os.ReadFile("../../../docker/mongodb-kubernetes-init-database/content/agent-launcher.sh")
+	require.NoError(t, err)
+	assert.Contains(t, string(script), "agentOpts=(-f "+path.Join(AgentSettingsPath, AgentSettingsFileName)+")")
+}
+
+// The non-static architecture execs the launcher script directly, so its command has no bash wrapper.
+func TestNonStaticAgentContainerRunsLauncherDirectly(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
+
+	agent := AgentContainer(sts)
+	require.NotNil(t, agent)
+	assert.Equal(t, []string{"/opt/scripts/agent-launcher.sh"}, agent.Command)
 }

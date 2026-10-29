@@ -69,6 +69,15 @@ def test_stateful_set_spec_updated(replica_set, namespace):
                     "recursive_read_only": None,
                 },
                 {
+                    "name": "agent-settings",
+                    "mount_path": "/etc/mongodb-agent",
+                    "sub_path": None,
+                    "sub_path_expr": None,
+                    "mount_propagation": None,
+                    "read_only": True,
+                    "recursive_read_only": None,
+                },
+                {
                     "name": "data",
                     "mount_path": "/data",
                     "sub_path": "data",
@@ -157,5 +166,8 @@ def test_stateful_set_spec_updated(replica_set, namespace):
     assert len(host_aliases) == 1
     assert alias.ip == "1.2.3.4"
     assert alias.hostnames[0] == "hostname"
-    assert len(sts.spec.template.metadata.annotations) == 1
+    # key1 is the user's annotation. The operator also sets the agent startup digest so a settings
+    # or credential change rolls the pods.
     assert sts.spec.template.metadata.annotations["key1"] == "val1"
+    assert len(sts.spec.template.metadata.annotations) == 2
+    assert "mongodb.com/agent-startup-config-hash" in sts.spec.template.metadata.annotations
