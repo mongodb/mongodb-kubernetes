@@ -394,11 +394,14 @@ func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShar
 			if topLevelPodSpecOverride != nil {
 				shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec.Template = merge.PodTemplateSpecs(*topLevelPodSpecOverride, shardOverrideClusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec.Template)
 			}
-			if (shardOverrideClusterSpecItem.PodSpec == nil || shardOverrideClusterSpecItem.PodSpec.Persistence == nil) &&
-				topLevelPersistenceOverride != nil {
-				shardOverrideClusterSpecItem.PodSpec = &mdbv1.MongoDbPodSpec{
-					Persistence: topLevelPersistenceOverride.DeepCopy(),
-				}
+			// Persistence falls back to the override level first, then to the top level
+			var inheritedPodSpec *mdbv1.MongoDbPodSpec
+			if topLevelPersistenceOverride != nil {
+				inheritedPodSpec = &mdbv1.MongoDbPodSpec{Persistence: topLevelPersistenceOverride.DeepCopy()}
+			}
+			inheritedPodSpec = overridePersistence(inheritedPodSpec, shardOverride.PodSpec)
+			if inheritedPodSpec != nil && (shardOverrideClusterSpecItem.PodSpec == nil || shardOverrideClusterSpecItem.PodSpec.Persistence == nil) {
+				shardOverrideClusterSpecItem.PodSpec = inheritedPodSpec
 			}
 			continue
 		}

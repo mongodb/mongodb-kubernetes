@@ -4128,6 +4128,20 @@ spec:
                   custom: label
         - clusterName: cluster-1
           members: 1`
+	persistenceOverrideAddingCluster := `
+    - shardNames: ["sh-0"]
+      podSpec:
+        persistence:
+          single:
+            storage: 30Gi
+            storageClass: ebs-fast
+      clusterSpecList:
+        - clusterName: cluster-0
+          members: 2
+        - clusterName: cluster-1
+          members: 1
+        - clusterName: cluster-2
+          members: 1`
 	persistenceOverride := `
     - shardNames: ["sh-0"]
       podSpec:
@@ -4173,6 +4187,12 @@ spec:
 			expectedOverriddenShardPVC: shardPodSpecPersistence,
 		},
 		{
+			name:                       "multi cluster override persistence applies to a cluster added by the override",
+			resource:                   multiCluster,
+			overrides:                  persistenceOverrideAddingCluster,
+			expectedOverriddenShardPVC: overridePersistence,
+		},
+		{
 			name:                       "multi cluster override with persistence replaces shardPodSpec persistence",
 			resource:                   multiCluster,
 			overrides:                  persistenceOverrideWithClusterSpecList,
@@ -4186,7 +4206,7 @@ spec:
 			require.NoError(t, yaml.Unmarshal(fmt.Appendf(nil, tt.resource, tt.overrides), sc))
 
 			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
-			memberClusterMap := getFakeMultiClusterMapWithClusters([]string{"cluster-0", "cluster-1"}, omConnectionFactory)
+			memberClusterMap := getFakeMultiClusterMapWithClusters([]string{"cluster-0", "cluster-1", "cluster-2"}, omConnectionFactory)
 			_, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
 			require.NoError(t, err)
 
