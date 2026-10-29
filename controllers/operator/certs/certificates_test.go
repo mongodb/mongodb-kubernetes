@@ -3,21 +3,118 @@ package certs
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
+
+func TestManagedIssuanceScopeOwnership(t *testing.T) {
+	ctx := context.Background()
+	om := managedTestOM()
+	c := newManagedCertTestClient(t)
+
+	_, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+	_, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, backupServerCertificateOptions(), managedTestLogger())
+	_, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+
+	certs := listManagedCertificates(t, ctx, c)
+	require.NotEmpty(t, certs)
+	for _, cert := range certs {
+		assertOwnedByManagedTestOM(t, cert.OwnerReferences)
+		assert.Equal(t, managedTestNamespace, cert.Namespace)
+	}
+
+	caChains := []string{
+		"example-managed-om-server-ca",
+		"example-managed-backup-server-ca",
+		"example-db-server-ca",
+		"example-db-client-ca",
+	}
+	seen := map[string]bool{}
+	for _, name := range caChains {
+		caCert := getManagedCertificate(t, ctx, c, name)
+		assert.True(t, caCert.Spec.IsCA, "%s must be a CA", name)
+		assert.False(t, seen[name], "CA chain %s is shared between scopes", name)
+		seen[name] = true
+	}
+	assert.NotEqual(t, caChains[0], caChains[1])
+	assert.NotEqual(t, caChains[0], caChains[2])
+	assert.NotEqual(t, caChains[1], caChains[2])
+	assert.NotEqual(t, caChains[2], caChains[3])
+
+	for _, name := range []string{"example-managed-om-cert", "example-managed-backup-cert"} {
+		cert := getManagedCertificate(t, ctx, c, name)
+		assert.Equal(t, memberServerCertUsages, cert.Spec.Usages)
+		assert.NotContains(t, cert.Spec.Usages, certmanagerv1.UsageClientAuth)
+	}
+
+	appDBLeaf := getManagedCertificate(t, ctx, c, "example-db-managed-cert")
+	require.NotNil(t, appDBLeaf.Spec.Subject)
+	assert.Equal(t, []string{"example-db-server"}, appDBLeaf.Spec.Subject.Organizations)
+	assert.Equal(t, []string{managedTestNamespace}, appDBLeaf.Spec.Subject.OrganizationalUnits)
+
+	issuers := listManagedIssuers(t, ctx, c)
+	require.NotEmpty(t, issuers)
+	for _, issuer := range issuers {
+		assertOwnedByManagedTestOM(t, issuer.OwnerReferences)
+	}
+}
+
+func TestManagedAppDBCertificateIdentity(t *testing.T) {
+	ctx := context.Background()
+	om := managedTestOM()
+
+	owner := appDBManagedCertificateOwner{om}
+	assert.Equal(t, "example-db", owner.GetName(), "issued objects are named after the AppDB")
+	assert.Same(t, om, owner.ownerResource(), "the Ops Manager owns the issued objects")
+	assert.Same(t, om.Spec.AppDB.GetSecurity(), owner.GetSecurity())
+
+	c := newManagedCertTestClient(t)
+	status, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	assert.False(t, status.IsOK(), "the certificates have not been reported ready")
+
+	for _, name := range []string{
+		"example-db-managed-cert",
+		"example-db-managed-clusterfile",
+		"example-db-managed-agent-certs",
+	} {
+		cert := getManagedCertificate(t, ctx, c, name)
+		assert.Equal(t, name, cert.Spec.SecretName)
+		assertOwnedByManagedTestOM(t, cert.OwnerReferences)
+	}
+
+	clusterFile := getManagedCertificate(t, ctx, c, "example-db-managed-clusterfile")
+	require.NotNil(t, clusterFile.Spec.Subject)
+	assert.Equal(t, []string{"example-db-server"}, clusterFile.Spec.Subject.Organizations)
+	assert.Contains(t, clusterFile.Spec.Usages, certmanagerv1.UsageClientAuth)
+	assert.Equal(t, "example-db-clusterfile", clusterFile.Spec.CommonName)
+
+	agent := getManagedCertificate(t, ctx, c, "example-db-managed-agent-certs")
+	require.NotNil(t, agent.Spec.Subject)
+	assert.Equal(t, []string{"example-db-agent"}, agent.Spec.Subject.Organizations)
+	assert.Equal(t, "example-db-agent", agent.Spec.CommonName)
+	assert.Contains(t, agent.Spec.Usages, certmanagerv1.UsageClientAuth)
+
+	for _, cert := range listManagedCertificates(t, ctx, c) {
+		assert.False(t, strings.HasPrefix(cert.Name, "example-managed-"),
+			"AppDB objects must derive their names from the AppDB, got %s", cert.Name)
+	}
+}
 
 func TestVerifyTLSSecretForStatefulSet(t *testing.T) {
 	//nolint
