@@ -95,8 +95,8 @@ def test_appdb_has_agent_flags(ops_manager: MongoDBOpsManager):
 
 @mark.e2e_om_appdb_flags_and_config
 def test_monitoring_reaches_om(ops_manager: MongoDBOpsManager):
-    """End-to-end check that the single agent (which receives the monitoring credentials as
-    -mmsGroupId/-mmsApiKey CLI flags, not via AC additionalParams) actually reports monitoring
+    """End-to-end check that the single agent (which receives monitoring settings through
+    its native settings file and mounted credentials, not via AC additionalParams) actually reports monitoring
     data to OM: here we query OM for the hosts in the AppDB project and assert every AppDB
     process hostname is present AND actively monitored (non-empty lastPing), then confirm real
     monitoring measurements have arrived.
@@ -133,6 +133,17 @@ def test_appdb_has_changed_agent_flags(ops_manager: MongoDBOpsManager, namespace
         "pgrep -f -a agent/mongodb-agent",
     ]
     for api_client, pod in ops_manager.read_appdb_pods():
+        settings = KubernetesTester.run_command_in_pod_container(
+            pod.metadata.name,
+            namespace,
+            ["cat", "/etc/mongodb-agent/automation-agent.conf"],
+            container="mongodb-agent",
+            api_client=api_client,
+        )
+        assert "logFile=/var/log/mongodb-mms-automation/customLogFile\n" in settings
+        assert "dialTimeoutSeconds=70\n" in settings
+        assert "mmsApiKeyExec=cat '/mongodb-automation/agent-api-key/agentApiKey'\n" in settings
+        assert "mmsApiKey=" not in settings
         result = KubernetesTester.run_command_in_pod_container(
             pod.metadata.name,
             namespace,
@@ -140,8 +151,10 @@ def test_appdb_has_changed_agent_flags(ops_manager: MongoDBOpsManager, namespace
             container="mongodb-agent",
             api_client=api_client,
         )
-        assert "-logFile=/var/log/mongodb-mms-automation/customLogFile" in result
-        assert "-dialTimeoutSeconds=70" in result
+        assert "-f /etc/mongodb-agent/automation-agent.conf" in result
+        assert "-mmsApiKey=" not in result
+        for legacy_flag in ("-logFile=", "-dialTimeoutSeconds=", "-mmsGroupId="):
+            assert legacy_flag not in result
 
 
 @mark.e2e_om_appdb_flags_and_config
