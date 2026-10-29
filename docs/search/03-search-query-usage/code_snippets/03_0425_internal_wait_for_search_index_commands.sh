@@ -1,5 +1,5 @@
 # MongoDBSearch reports phase Running as soon as mongot is ready. The source
-# mongod receives searchIndexManagementHostAndPort only after the operator
+# mongod receives searchIndexManagementHostAndPort config field only after the operator
 # pushes the Ops Manager automation config and the agent restarts mongod. Poll
 # the command the next snippets use, so index creation does not race that
 # restart.
