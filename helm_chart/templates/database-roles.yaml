@@ -1,4 +1,5 @@
-{{- $memberMode := (.Values.memberCluster | default dict).enabled | default false -}}
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false -}}
 {{- $rbacVersion := .Chart.Version | quote -}}
 
 {{- $namePrefix := "mongodb-kubernetes" -}}
@@ -12,7 +13,7 @@
            memberCluster.workloadNamespaces. "*" is rejected — cluster-wide operators
            use memberCluster.clusterScoped, which covers operator permissions;
            workload ServiceAccounts are always namespaced. */}}
-    {{- $watchNamespace = (.Values.memberCluster | default dict).workloadNamespaces | default $watchNamespace }}
+    {{- $watchNamespace = $memberCluster.workloadNamespaces | default $watchNamespace }}
 {{- else if .Values.operator.watchNamespace }}
     {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
 {{- end }}
