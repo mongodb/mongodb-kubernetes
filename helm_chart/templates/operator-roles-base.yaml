@@ -26,37 +26,38 @@ the binding namespace source branch on the mode.
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
 {{- $rbacVersion := .Chart.Version | quote -}}
+
 {{- $name := .Values.operator.name -}}
 {{- $bindingName := .Values.operator.name -}}
 {{- $saName := .Values.operator.name -}}
 {{- if $memberMode -}}
-{{- $memberPrefix := "mck-member" -}}
-{{- $name = printf "%s-role-base" $memberPrefix -}}
-{{- $bindingName = printf "%s-role-base-binding" $memberPrefix -}}
-{{- $saName = printf "%s-sa" $memberPrefix -}}
+    {{- $memberPrefix := "mck-member" -}}
+    {{- $name = printf "%s-role-base" $memberPrefix -}}
+    {{- $bindingName = printf "%s-role-base-binding" $memberPrefix -}}
+    {{- $saName = printf "%s-sa" $memberPrefix -}}
 {{- end -}}
 
 {{- $watchNamespace := list $operatorNamespace -}}
 {{- if $memberMode -}}
-{{- /* Member mode: the member SA is bound in memberCluster.workloadNamespaces plus the
-       operator namespace (which holds the SA and the token Secret). "*" is never a valid
-       entry — cluster-wide permission is expressed only via memberCluster.clusterScoped,
-       which renders a single ClusterRoleBinding. */ -}}
-{{- $workloadNamespaces := $memberCluster.workloadNamespaces | default (list $operatorNamespace) -}}
-{{- $watchNamespace = concat $workloadNamespaces (list $operatorNamespace) | uniq -}}
-{{- if $memberCluster.clusterScoped | default false -}}
-{{- $watchNamespace = list "*" -}}
-{{- end -}}
+    {{- /* Member mode: the member SA is bound in memberCluster.workloadNamespaces plus the
+           operator namespace (which holds the SA and the token Secret). "*" is never a valid
+           entry — cluster-wide permission is expressed only via memberCluster.clusterScoped,
+           which renders a single ClusterRoleBinding. */ -}}
+    {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default (list $operatorNamespace) -}}
+    {{- $watchNamespace = concat $workloadNamespaces (list $operatorNamespace) | uniq -}}
+    {{- if $memberCluster.clusterScoped | default false -}}
+        {{- $watchNamespace = list "*" -}}
+    {{- end -}}
 {{- else if .Values.operator.watchNamespace -}}
-{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 -}}
-{{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq -}}
+    {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 -}}
+    {{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq -}}
 {{- end -}}
 
 {{- /* One Role per watched namespace: only a cluster-wide watch ("*") renders a ClusterRole. */ -}}
 {{- $roleScope := "Role" -}}
 {{- if has "*" $watchNamespace -}}
-{{- $roleScope = "ClusterRole" -}}
-{{- $watchNamespace = list "*" -}}
+    {{- $roleScope = "ClusterRole" -}}
+    {{- $watchNamespace = list "*" -}}
 {{- end -}}
 {{- range $idx, $namespace := $watchNamespace }}
 ---

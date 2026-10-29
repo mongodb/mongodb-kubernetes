@@ -1,19 +1,20 @@
 {{- $memberMode := (.Values.memberCluster | default dict).enabled | default false -}}
+{{- $rbacVersion := .Chart.Version | quote -}}
+
 {{- $namePrefix := "mongodb-kubernetes" -}}
 {{- if $memberMode }}
-{{- $namePrefix = "mck-member" -}}
+    {{- $namePrefix = "mck-member" -}}
 {{- end }}
-{{- $rbacVersion := .Chart.Version | quote -}}
 
 {{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
 {{- if $memberMode }}
-{{- /* Member mode (generate-member-resources): workload RBAC is seeded exactly in
-       memberCluster.workloadNamespaces. "*" is rejected — cluster-wide operators
-       use memberCluster.clusterScoped, which covers operator permissions;
-       workload ServiceAccounts are always namespaced. */}}
-{{- $watchNamespace = (.Values.memberCluster | default dict).workloadNamespaces | default $watchNamespace }}
+    {{- /* Member mode (generate-member-resources): workload RBAC is seeded exactly in
+           memberCluster.workloadNamespaces. "*" is rejected — cluster-wide operators
+           use memberCluster.clusterScoped, which covers operator permissions;
+           workload ServiceAccounts are always namespaced. */}}
+    {{- $watchNamespace = (.Values.memberCluster | default dict).workloadNamespaces | default $watchNamespace }}
 {{- else if .Values.operator.watchNamespace }}
-{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
+    {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
 {{- end }}
 
 
@@ -21,7 +22,7 @@
 
 {{- $namespaceBlock := printf "namespace: %s" $namespace }}
 {{- if eq $namespace "*" }}
-{{- $namespaceBlock = include "mongodb-kubernetes-operator.namespace" $ | printf "namespace: %s"  }}
+    {{- $namespaceBlock = include "mongodb-kubernetes-operator.namespace" $ | printf "namespace: %s"  }}
 {{- end }}
 ---
 apiVersion: v1
