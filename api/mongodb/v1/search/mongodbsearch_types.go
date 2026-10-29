@@ -266,13 +266,9 @@ type ClusterSpec struct {
 	// reconcile loop, for customizations not exposed as first-class fields.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Service configures metadata on the Services the operator creates for this cluster:
-	// the mongot headless Services, the proxy Services and, for sharded sources, the
-	// cluster-level mongos proxy Service. shardOverrides[].service applies to the per-shard
-	// Services only; the mongos proxy Service always uses this cluster-level value.
-	// The operator-managed label keys app, component, shard, mongodb.com/search-name and
-	// mongodb.com/search-namespace are rejected.
-	// +kubebuilder:validation:XValidation:rule="!has(self.metadata) || !has(self.metadata.labels) || ['app', 'component', 'shard', 'mongodb.com/search-name', 'mongodb.com/search-namespace'].all(k, !(k in self.metadata.labels))",message="service.metadata.labels must not set operator-managed label keys: app, component, shard, mongodb.com/search-name, mongodb.com/search-namespace"
+	// Service sets labels and annotations on this cluster's Services. Labels must not use the
+	// operator-managed keys app, component, shard, mongodb.com/search-name or mongodb.com/search-namespace.
+	// +kubebuilder:validation:XValidation:rule="!has(self.metadata) || !has(self.metadata.labels) || ['app', 'component', 'shard', 'mongodb.com/search-name', 'mongodb.com/search-namespace'].all(k, !(k in self.metadata.labels))",message="service.metadata.labels must not set operator-managed label keys"
 	// +optional
 	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// +optional
@@ -334,10 +330,8 @@ type ShardOverride struct {
 	// StatefulSetConfiguration is deep-merged onto the cluster's StatefulSet override for these shards.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
-	// Service metadata merges per key onto the cluster's Service metadata for these
-	// shards' headless and proxy Services, shard values winning. It does not apply to
-	// the cluster-level mongos proxy Service. Operator-managed label keys set here are
-	// ignored: the operator's values always win.
+	// Service metadata overrides the cluster's per key for these shards' Services (not the
+	// mongos proxy). Operator-managed label keys are ignored.
 	// +optional
 	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// JVMFlags replaces the cluster's jvmFlags for these shards when non-empty.
