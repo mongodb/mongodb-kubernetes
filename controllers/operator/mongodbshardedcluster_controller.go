@@ -1198,10 +1198,6 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
 	}
 
-	if workflowStatus := ensureSupportedOpsManagerVersion(conn); workflowStatus.Phase() != mdbstatus.PhaseRunning {
-		return workflowStatus
-	}
-
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
 
 	reconcileResult := checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval, log)

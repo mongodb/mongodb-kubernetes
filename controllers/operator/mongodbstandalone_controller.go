@@ -179,10 +179,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
 
-	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
-		return r.updateStatus(ctx, s, status, log)
-	}
-
 	if !architectures.IsRunningStaticArchitecture(s.Annotations, r.defaultArchitecture) {
 		agents.UpgradeIfNeeded(ctx, s, conn)
 	}

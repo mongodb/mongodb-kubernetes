@@ -218,10 +218,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
 
-	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
-		return r.updateStatus(ctx, status)
-	}
-
 	if !architectures.IsRunningStaticArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
 		agents.UpgradeIfNeeded(ctx, rs, conn)
 	}
