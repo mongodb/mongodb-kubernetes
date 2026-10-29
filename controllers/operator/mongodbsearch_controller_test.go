@@ -736,61 +736,168 @@ func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 	require.True(t, res.RequeueAfter > 0, "must requeue when a customer-replicated secret is missing")
 }
 
-func TestMongoDBSearchReconcile_RegistersOperatorTLSSecretWatch(t *testing.T) {
+// One table covers every Secret the search controller must watch so auth-material rotation
+// triggers a reconcile: rows differ only in the source kind and the search's auth mode. The
+// expected map is the exact watch set for the reconcile, so an unexpected extra registration
+// fails the test.
+func TestMongoDBSearchReconcile_RegistersSourceAuthSecretWatches(t *testing.T) {
 	ctx := context.Background()
-	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-	search.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}}
-	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-	reconciler, c := newSearchReconciler(mdbc, search)
+	operatorConfig := searchcontroller.OperatorSearchConfig{
+		SearchRepo:      "testrepo",
+		SearchName:      "mongot",
+		SearchVersion:   "1.70.1",
+		ImagePullPolicy: corev1.PullIfNotPresent,
+	}
+	searchNN := types.NamespacedName{Name: "search", Namespace: mock.TestNamespace}
+	secretWatch := func(name string) watch.Object {
+		return watch.Object{ResourceType: watch.Secret, Resource: types.NamespacedName{Name: name, Namespace: mock.TestNamespace}}
+	}
+	keyfileSecret := func(mdbc *mdbcv1.MongoDBCommunity) *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: mdbc.GetAgentKeyfileSecretNamespacedName().Name, Namespace: mdbc.Namespace},
+			StringData: map[string]string{constants.AgentKeyfileKey: "keyfile"},
+		}
+	}
+	tlsSecret := func(name string) *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: mock.TestNamespace},
+			Data:       map[string][]byte{"tls.crt": []byte("dummy"), "tls.key": []byte("dummy")},
+		}
+	}
+	passwordSecret := func(name string) *corev1.Secret {
+		return &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: mock.TestNamespace},
+			Data:       map[string][]byte{"password": []byte("source-password")},
+		}
+	}
 
-	sourceTLS := search.TLSSecretNamespacedName()
-	require.NoError(t, c.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: sourceTLS.Name, Namespace: sourceTLS.Namespace},
-		Data: map[string][]byte{
-			"tls.crt": []byte("dummy"),
-			"tls.key": []byte("dummy"),
+	tests := []struct {
+		name     string
+		mutate   func(*searchv1.MongoDBSearch)
+		objects  func(*searchv1.MongoDBSearch) []client.Object
+		expected func(*searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName
+	}{
+		{
+			name: "operator TLS secret",
+			mutate: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Security = searchv1.Security{TLS: &searchv1.TLS{CertsSecretPrefix: "certs"}}
+			},
+			objects: func(s *searchv1.MongoDBSearch) []client.Object {
+				mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+				return []client.Object{mdbc, keyfileSecret(mdbc), tlsSecret(s.TLSSecretNamespacedName().Name), passwordSecret(s.SourceUserPasswordSecretRef().Name)}
+			},
+			expected: func(s *searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName {
+				return map[watch.Object][]types.NamespacedName{
+					{ResourceType: "MongoDBCommunity", Resource: types.NamespacedName{Name: "mdb", Namespace: mock.TestNamespace}}: {searchNN},
+					secretWatch(s.TLSSecretNamespacedName().Name):                                                                  {searchNN},
+					secretWatch(s.TLSOperatorSecretNamespacedName().Name):                                                          {searchNN},
+					secretWatch(s.SourceUserPasswordSecretRef().Name):                                                              {searchNN},
+				}
+			},
 		},
-	}))
+		{
+			name: "scram source password with explicit ref",
+			mutate: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source.Username = new("search-user")
+				s.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
+			},
+			objects: func(s *searchv1.MongoDBSearch) []client.Object {
+				mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+				return []client.Object{mdbc, keyfileSecret(mdbc), passwordSecret("source-user-password")}
+			},
+			expected: func(s *searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName {
+				return map[watch.Object][]types.NamespacedName{
+					{ResourceType: "MongoDBCommunity", Resource: types.NamespacedName{Name: "mdb", Namespace: mock.TestNamespace}}: {searchNN},
+					secretWatch("source-user-password"): {searchNN},
+				}
+			},
+		},
+		{
+			name: "scram source password with default name",
+			mutate: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source.Username = new("search-user")
+			},
+			objects: func(s *searchv1.MongoDBSearch) []client.Object {
+				mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
+				return []client.Object{mdbc, keyfileSecret(mdbc), passwordSecret(s.SourceUserPasswordSecretRef().Name)}
+			},
+			expected: func(s *searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName {
+				return map[watch.Object][]types.NamespacedName{
+					{ResourceType: "MongoDBCommunity", Resource: types.NamespacedName{Name: "mdb", Namespace: mock.TestNamespace}}: {searchNN},
+					secretWatch("search-search-user-password"): {searchNN},
+				}
+			},
+		},
+		{
+			name: "x509 client certificate",
+			mutate: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source.X509 = &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}}
+			},
+			objects: func(s *searchv1.MongoDBSearch) []client.Object {
+				return []client.Object{
+					newEnterpriseSearchSourceDB("mdb", mock.TestNamespace, "SCRAM", "X509"),
+					tlsSecret("x509-cert"),
+					passwordSecret(s.SourceUserPasswordSecretRef().Name),
+				}
+			},
+			expected: func(s *searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName {
+				return map[watch.Object][]types.NamespacedName{
+					{ResourceType: watch.MongoDB, Resource: types.NamespacedName{Name: "mdb", Namespace: mock.TestNamespace}}: {searchNN},
+					// The source's TLS config registers its CA ConfigMap unconditionally; a source
+					// with no custom CA (like this fixture) yields an empty-name watch entry.
+					{ResourceType: watch.ConfigMap, Resource: types.NamespacedName{Namespace: mock.TestNamespace}}: {searchNN},
+					secretWatch("x509-cert"): {searchNN},
+				}
+			},
+		},
+		{
+			name: "scram client certificate",
+			mutate: func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source.Username = new("search-user")
+				s.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
+				s.Spec.Source.TLS = &searchv1.SourceTLS{ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"}}
+			},
+			objects: func(s *searchv1.MongoDBSearch) []client.Object {
+				return []client.Object{
+					newEnterpriseSearchSourceDB("mdb", mock.TestNamespace, "SCRAM"),
+					passwordSecret("source-user-password"),
+					tlsSecret("scram-client-cert"),
+				}
+			},
+			expected: func(s *searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName {
+				return map[watch.Object][]types.NamespacedName{
+					{ResourceType: watch.MongoDB, Resource: types.NamespacedName{Name: "mdb", Namespace: mock.TestNamespace}}: {searchNN},
+					// The source's TLS config registers its CA ConfigMap unconditionally; a source
+					// with no custom CA (like this fixture) yields an empty-name watch entry.
+					{ResourceType: watch.ConfigMap, Resource: types.NamespacedName{Namespace: mock.TestNamespace}}: {searchNN},
+					secretWatch("source-user-password"): {searchNN},
+					secretWatch("scram-client-cert"):    {searchNN},
+				}
+			},
+		},
+	}
 
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
-	})
-	require.NoError(t, err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+			tc.mutate(search)
+			objects := append([]client.Object{search}, tc.objects(search)...)
+			c := mock.NewEmptyFakeClientBuilder().WithObjects(objects...).Build()
+			reconciler := newMongoDBSearchReconciler(c, operatorConfig, map[string]client.Client{}, "")
 
-	operatorTLS := search.TLSOperatorSecretNamespacedName()
-	watched := reconciler.watch.GetWatchedResources()
-	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: operatorTLS}], search.NamespacedName())
-}
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
+			})
+			require.NoError(t, err)
 
-// The SCRAM sync-source password secret must be registered in the
-// dependency watcher so rotating it triggers a reconcile that rolls
-// the mongot pods.
-func TestMongoDBSearchReconcile_RegistersSCRAMSourcePasswordWatch(t *testing.T) {
-	ctx := context.Background()
-	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-	search.Spec.Source.Username = new("search-user")
-	search.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
-	mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-	reconciler, c := newSearchReconciler(mdbc, search)
-
-	require.NoError(t, c.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "source-user-password", Namespace: mock.TestNamespace},
-		Data:       map[string][]byte{"password": []byte("source-password")},
-	}))
-
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
-	})
-	require.NoError(t, err)
-
-	passwordSecret := types.NamespacedName{Name: "source-user-password", Namespace: search.Namespace}
-	watched := reconciler.watch.GetWatchedResources()
-	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: passwordSecret}], search.NamespacedName())
+			assert.Equal(t, tc.expected(search), reconciler.watch.GetWatchedResources())
+		})
+	}
 }
 
 // newEnterpriseSearchSourceDB builds an enterprise MongoDB replica-set source
-// with TLS enabled, as x509 and SCRAM-mTLS sync sources require.
-func newEnterpriseSearchSourceDB(name, namespace string) *mdbv1.MongoDB {
+// with TLS enabled and the given auth modes, as x509 and SCRAM-mTLS sync sources require.
+func newEnterpriseSearchSourceDB(name, namespace string, modes ...mdbv1.AuthMode) *mdbv1.MongoDB {
 	return &mdbv1.MongoDB{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 		Spec: mdbv1.MongoDbSpec{
@@ -799,6 +906,10 @@ func newEnterpriseSearchSourceDB(name, namespace string) *mdbv1.MongoDB {
 				ResourceType: mdbv1.ReplicaSet,
 				Security: &mdbv1.Security{
 					TLSConfig: &mdbv1.TLSConfig{Enabled: true},
+					Authentication: &mdbv1.Authentication{
+						Enabled: true,
+						Modes:   modes,
+					},
 				},
 			},
 			Members: 1,
@@ -806,75 +917,31 @@ func newEnterpriseSearchSourceDB(name, namespace string) *mdbv1.MongoDB {
 	}
 }
 
-// The user-provided x509 client-cert secret must be registered in the
-// dependency watcher so cert rotation triggers a reconcile that renders
-// the new content-hash-named operator secret and rolls the pods.
-func TestMongoDBSearchReconcile_RegistersX509ClientCertWatch(t *testing.T) {
+// An x509 search against a source without an X509 auth mode fails in the search controller's
+// reconcile with a clear message (the same gate the DB controllers use to skip the wiring).
+func TestMongoDBSearchReconcile_FailsX509SearchWhenSourceLacksX509Mode(t *testing.T) {
 	ctx := context.Background()
 	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-	search.Spec.Source.X509 = &searchv1.X509Auth{
-		ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+	search.Spec.Source.X509 = &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}}
+	mdb := newEnterpriseSearchSourceDB("mdb", mock.TestNamespace, "SCRAM")
+	operatorConfig := searchcontroller.OperatorSearchConfig{
+		SearchRepo:      "testrepo",
+		SearchName:      "mongot",
+		SearchVersion:   "1.70.1",
+		ImagePullPolicy: corev1.PullIfNotPresent,
 	}
-	mdb := newEnterpriseSearchSourceDB("mdb", mock.TestNamespace)
 
-	builder := mock.NewEmptyFakeClientBuilder()
-	builder.WithObjects(mdb, search)
-	c := builder.Build()
-	reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
+	c := mock.NewEmptyFakeClientBuilder().WithObjects(
+		search,
+		mdb,
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: mock.TestNamespace},
+			Data: map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")}},
+		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.SourceUserPasswordSecretRef().Name, Namespace: mock.TestNamespace},
+			Data: map[string][]byte{"password": []byte("source-password")}},
+	).Build()
+	reconciler := newMongoDBSearchReconciler(c, operatorConfig, map[string]client.Client{}, "")
 
-	require.NoError(t, c.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: mock.TestNamespace},
-		Data: map[string][]byte{
-			"tls.crt": []byte("cert-data"),
-			"tls.key": []byte("key-data"),
-		},
-	}))
-
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
-	})
-	require.NoError(t, err)
-
-	watched := reconciler.watch.GetWatchedResources()
-	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: search.X509ClientCertSecret()}], search.NamespacedName())
-}
-
-// The user-provided SCRAM egress client-cert secret must be registered in
-// the dependency watcher so cert rotation triggers a reconcile.
-func TestMongoDBSearchReconcile_RegistersScramClientCertWatch(t *testing.T) {
-	ctx := context.Background()
-	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-	search.Spec.Source.Username = new("search-user")
-	search.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
-	search.Spec.Source.TLS = &searchv1.SourceTLS{
-		ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"},
-	}
-	mdb := newEnterpriseSearchSourceDB("mdb", mock.TestNamespace)
-
-	builder := mock.NewEmptyFakeClientBuilder()
-	builder.WithObjects(mdb, search)
-	c := builder.Build()
-	reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
-
-	require.NoError(t, c.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "source-user-password", Namespace: mock.TestNamespace},
-		Data:       map[string][]byte{"password": []byte("source-password")},
-	}))
-	require.NoError(t, c.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "scram-client-cert", Namespace: mock.TestNamespace},
-		Data: map[string][]byte{
-			"tls.crt": []byte("cert-data"),
-			"tls.key": []byte("key-data"),
-		},
-	}))
-
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
-	})
-	require.NoError(t, err)
-
-	watched := reconciler.watch.GetWatchedResources()
-	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: search.ScramClientCertSecret()}], search.NamespacedName())
+	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "x509 search authentication requires an X509 auth mode")
 }
 
 // pinnedCluster builds a spec.clusters[] entry with an explicit clusterIndex

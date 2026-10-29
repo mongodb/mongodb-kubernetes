@@ -230,13 +230,12 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
-	// Watch the user-provided SCRAM sync-source password secret so rotating it triggers a
-	// reconcile; the content hash fold in the helper then rolls the mongot pods to stage
-	// the new value.
-	if mdbSearch.Spec.Source != nil {
-		if ref := mdbSearch.Spec.Source.PasswordSecretRef; ref != nil {
-			r.watch.AddWatchedResourceIfNotAdded(ref.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
-		}
+	// Watch the SCRAM sync-source password secret (explicit passwordSecretRef or the
+	// default <name>-<user>-password) so rotating it triggers a reconcile; the content
+	// hash fold in the helper then rolls the mongot pods to stage the new value.
+	if mdbSearch.Spec.Source != nil && !mdbSearch.IsX509Auth() {
+		ref := mdbSearch.SourceUserPasswordSecretRef()
+		r.watch.AddWatchedResourceIfNotAdded(ref.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
 	}
 
 	// Watch the user-provided client certificates (x509 and SCRAM egress) so their rotation
