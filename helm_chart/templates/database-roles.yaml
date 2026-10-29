@@ -1,6 +1,5 @@
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $memberMode := $memberCluster.enabled | default false -}}
-{{- $rbacVersion := .Chart.Version | quote -}}
 
 {{- $namePrefix := "mongodb-kubernetes" -}}
 {{- if $memberMode }}
@@ -32,7 +31,7 @@ metadata:
   name: {{ $namePrefix }}-appdb
   {{ $namespaceBlock }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
   - name: {{ $.Values.registry.imagePullSecrets }}
@@ -45,7 +44,7 @@ metadata:
   name: {{ $namePrefix }}-database-pods
   {{ $namespaceBlock }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
   - name: {{ $.Values.registry.imagePullSecrets }}
@@ -58,7 +57,7 @@ metadata:
   name: {{ $namePrefix }}-ops-manager
   {{ $namespaceBlock }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
   - name: {{ $.Values.registry.imagePullSecrets }}
@@ -71,7 +70,7 @@ metadata:
   name: {{ $namePrefix }}-appdb
   {{ $namespaceBlock }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 rules:
   - apiGroups:
       - ''
@@ -95,7 +94,7 @@ metadata:
   name: {{ $namePrefix }}-appdb
   {{ $namespaceBlock }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

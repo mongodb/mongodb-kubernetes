@@ -18,7 +18,6 @@ retention policy), never by the operator.
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $memberMode := $memberCluster.enabled | default false -}}
 {{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
-{{- $rbacVersion := .Chart.Version | quote -}}
 
 {{- $name := printf "%s-pvc-resize" .Values.operator.name -}}
 {{- $bindingName := printf "%s-pvc-resize-binding" .Values.operator.name -}}
@@ -62,7 +61,7 @@ metadata:
   namespace: {{ $namespace }}
 {{- end }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 rules:
   - apiGroups:
       - ''
@@ -81,7 +80,7 @@ metadata:
   namespace: {{ $namespace }}
 {{- end }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: {{ $roleScope }}
