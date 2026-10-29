@@ -489,8 +489,7 @@ func memberMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSea
 		},
 		{
 			// Referenced user-provided ConfigMaps (e.g. the OIDC IdP CA) carry no
-			// search-owner labels; route them by name through the dependency watcher,
-			// same as the referenced Secrets above.
+			// search-owner labels; route them by name through the dependency watcher.
 			obj:     &corev1.ConfigMap{},
 			handler: &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch},
 		},
