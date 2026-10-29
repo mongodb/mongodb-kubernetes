@@ -674,9 +674,13 @@ class TestBackupForMongodb:
         # assert backup is orphaned
         om_tester_second.wait_until_backup_running()
 
-    def test_hosts_were_not_removed(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+    def test_only_backup_anchor_host_remains(self, ops_manager: MongoDBOpsManager, mdb_prev: MongoDB):
+        # Ops Manager refuses to remove the last host of a backed-up replica set, so the
+        # operator removes every other host and keeps that one to anchor the backup.
         om_tester_second = ops_manager.get_om_tester(project_name="secondProject")
-        om_tester_second.wait_until_hosts_are_not_empty()
+        hostnames = [h["hostname"] for h in om_tester_second.api_get_hosts()["results"]]
+        assert len(hostnames) == 1, hostnames
+        assert hostnames[0].startswith(f"{mdb_prev.name}-"), hostnames
 
 
 @mark.e2e_om_ops_manager_backup

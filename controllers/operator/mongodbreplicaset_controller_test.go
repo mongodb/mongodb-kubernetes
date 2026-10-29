@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -32,6 +34,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
@@ -2003,6 +2006,245 @@ func DefaultStatefulSetBuilder() *StatefulSetBuilder {
 	}}
 }
 
+func TestOnDelete_ReplicaSetNameOverrideStopsBackup(t *testing.T) {
+	ctx := context.Background()
+	rs := mdbv1.NewReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetConnectionSpec(testConnectionSpec()).
+		SetReplicaSetNameOverride("custom-rs").
+		SetBackup(mdbv1.Backup{Mode: "enabled", AutoTerminateOnDeletion: true}).
+		Build()
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	uuidStr := uuid.New().String()
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mocked := connection.(*om.MockedOmConnection)
+		mocked.Hostnames = calculateReplicaSetExternalHostnames(rs)
+		mocked.EnableBackup(rs.GetReplicaSetName(), backup.ReplicaSetType, uuidStr)
+		mocked.BackupConfigs[uuidStr].Status = backup.Inactive
+	})
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	// The Ops Manager backup config uses spec.replicaSetNameOverride, not metadata.name.
+	mockedOmConn.EnableBackup(rs.GetReplicaSetName(), backup.ReplicaSetType, uuidStr)
+	mockedOmConn.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+	assert.Equal(t, backup.Inactive, mockedOmConn.BackupConfigs[uuidStr].Status)
+}
+
+// TestOnDelete_KeptBackupKeepsLastHost checks that a kept backup still removes
+// all hosts that Ops Manager allows, and that the rejection of the last host,
+// which anchors the backup, does not block deletion.
+func TestOnDelete_KeptBackupKeepsLastHost(t *testing.T) {
+	ctx := context.Background()
+	rs := mdbv1.NewReplicaSetBuilder().
+		SetNamespace(mock.TestNamespace).
+		SetConnectionSpec(testConnectionSpec()).
+		SetBackup(mdbv1.Backup{Mode: "enabled", AutoTerminateOnDeletion: false}).
+		Build()
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	uuidStr := uuid.New().String()
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mocked := connection.(*om.MockedOmConnection)
+		mocked.EnableBackup(rs.Name, backup.ReplicaSetType, uuidStr)
+		mocked.BackupConfigs[uuidStr].Status = backup.Inactive
+	})
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	mockedOmConn.CleanHistory()
+	mockedOmConn.RemoveHostFunc = func(_ string, remainingHosts int) error {
+		if remainingHosts == 1 {
+			return apierror.NewErrorWithCode(apierror.CannotDeleteHostBackupEnabled)
+		}
+		return nil
+	}
+
+	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
+
+	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.UpdateBackupStatus))
+	hosts, err := mockedOmConn.GetHosts(ctx)
+	require.NoError(t, err)
+	assert.Len(t, hosts.Results, 1)
+}
+
+func TestReplicaSetFinalizerLifecycle(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-scram").EnableAuth().
+		SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	fetched := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), fetched))
+	require.Contains(t, fetched.Finalizers, util.MongoDBFinalizer)
+
+	require.NoError(t, fakeClient.Delete(ctx, fetched))
+
+	deleting := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), deleting))
+	require.False(t, deleting.DeletionTimestamp.IsZero(), "the finalizer must keep the resource until cleanup finishes")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the resource must be gone after cleanup")
+
+	ac, err := mockedOmConn.ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	assert.False(t, ac.Auth.IsEnabled())
+	assert.Empty(t, ac.Auth.DeploymentAuthMechanisms)
+	assert.Empty(t, ac.Auth.AutoAuthMechanisms)
+	assert.Empty(t, ac.Deployment.GetProcessNames(om.ReplicaSet{}, rs.Name))
+}
+
+func TestReplicaSetFinalizerRemovedWhenNeverDeployed(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-never-deployed").Build()
+	rs.Spec.Security.Authentication = nil
+	rs.Status.Members = 0
+	rs.Status.Phase = status.PhaseFailed
+	rs.Finalizers = []string{util.MongoDBFinalizer}
+
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	require.NoError(t, fakeClient.Delete(ctx, rs))
+
+	deleting := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), deleting))
+	require.False(t, deleting.DeletionTimestamp.IsZero())
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the resource must be gone after cleanup")
+
+	require.NotNil(t, omConnectionFactory.GetConnection(), "cleanup may use a read-only Ops Manager connection")
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	mockedOmConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedOmConn.CreateProject))
+}
+
+func TestReplicaSetFinalizerCleansUpWhenAuthEnabledAndNoMembers(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-auth-no-members").EnableAuth().
+		SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	rs.Status.Members = 0
+	rs.Status.Phase = status.PhaseFailed
+	rs.Finalizers = []string{util.MongoDBFinalizer}
+
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	require.NoError(t, fakeClient.Delete(ctx, rs))
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.NoError(t, err)
+	require.NotNil(t, omConnectionFactory.GetConnection(), "authentication cleanup must prepare an Ops Manager connection")
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the resource must be gone after cleanup")
+}
+
+func TestReplicaSetFinalizerKeptWhenCleanupFails(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-scram").EnableAuth().
+		SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+
+	fetched := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), fetched))
+	require.NoError(t, fakeClient.Delete(ctx, fetched))
+
+	mockedOmConn.ReadUpdateDeploymentError = fmt.Errorf("injected deployment update failure")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.Error(t, err)
+
+	stuck := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), stuck))
+	assert.Contains(t, stuck.Finalizers, util.MongoDBFinalizer, "the finalizer must stay until cleanup succeeds")
+	assert.False(t, stuck.DeletionTimestamp.IsZero())
+}
+
+func TestEnsureFinalizerPatchesOnlyMetadata(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set-zero-members").Build()
+	rs.Spec.Members = 0
+	rs.Finalizers = []string{"other.example.com/finalizer"}
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(rs).Build()
+	var patchData []byte
+	intercepted := kubernetesClient.NewClient(interceptor.NewClient(fakeClient, interceptor.Funcs{
+		Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			data, err := patch.Data(obj)
+			if err != nil {
+				return err
+			}
+			patchData = data
+			return cl.Patch(ctx, obj, patch, opts...)
+		},
+	}))
+	reconciler := &ReconcileCommonController{client: intercepted}
+
+	require.NoError(t, reconciler.ensureFinalizer(ctx, rs, util.MongoDBFinalizer, zap.S()))
+
+	var patch map[string]any
+	require.NoError(t, json.Unmarshal(patchData, &patch))
+	assert.Contains(t, patch, "metadata")
+	assert.NotContains(t, patch, "spec", "the finalizer write must not replace the spec")
+	metadata, ok := patch["metadata"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, metadata, "resourceVersion", "the finalizer patch must use an optimistic lock")
+
+	fetched := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), fetched))
+	assert.Contains(t, fetched.Finalizers, util.MongoDBFinalizer)
+	assert.Contains(t, fetched.Finalizers, "other.example.com/finalizer", "the patch must not drop another finalizer")
+}
+
+type noOpDeleter struct{}
+
+func (noOpDeleter) OnDelete(context.Context, runtime.Object, *zap.SugaredLogger) error {
+	return nil
+}
+
+func TestFinalizeKeepsFinalizerWhenPatchFails(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("my-replica-set").Build()
+	rs.Finalizers = []string{util.MongoDBFinalizer}
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(rs).Build()
+	require.NoError(t, fakeClient.Delete(ctx, rs))
+
+	patchAttempts := 0
+	intercepted := kubernetesClient.NewClient(interceptor.NewClient(fakeClient, interceptor.Funcs{
+		Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			patchAttempts++
+			return fmt.Errorf("injected finalizer removal failure")
+		},
+	}))
+	reconciler := &ReconcileCommonController{client: intercepted}
+
+	_, err := reconciler.finalize(ctx, rs, util.MongoDBFinalizer, noOpDeleter{}, zap.S())
+	require.Error(t, err)
+	require.Equal(t, 1, patchAttempts)
+
+	stuck := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), stuck))
+	assert.Contains(t, stuck.Finalizers, util.MongoDBFinalizer, "the finalizer must survive a failed removal update")
+	assert.False(t, stuck.DeletionTimestamp.IsZero())
+
+	plain := &ReconcileCommonController{client: kubernetesClient.NewClient(fakeClient)}
+	_, err = plain.finalize(ctx, stuck, util.MongoDBFinalizer, noOpDeleter{}, zap.S())
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the retry must remove the finalizer and delete the resource")
+}
+
 func (b *StatefulSetBuilder) SetName(name string) *StatefulSetBuilder {
 	b.sts.Name = name
 	return b
@@ -2393,4 +2635,80 @@ func TestReconcile_ReleasedAppDBRoleCRDoesNotReclaimSecrets(t *testing.T) {
 		assert.Equal(t, types.UID("om-uid-1111"), s.OwnerReferences[0].UID,
 			"secret %s must stay OM-owned while the CR is released", name)
 	}
+}
+
+func TestReplicaSetMissingInputsDoesNotAddFinalizer(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("missing-inputs").Build()
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(rs).Build()
+	omFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omFactory.GetConnectionFunc)
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.NoError(t, err)
+
+	fetched := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), fetched))
+	require.NotContains(t, fetched.Finalizers, util.MongoDBFinalizer)
+}
+
+func TestReplicaSetFinalizerCleansUpPartialDeployment(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("partial-deployment").Build()
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	mockedOmConn.CleanHistory()
+
+	fetched := &mdbv1.MongoDB{}
+	require.NoError(t, fakeClient.Get(ctx, rs.ObjectKey(), fetched))
+	fetched.Status.Members = 0
+	fetched.Status.Phase = status.PhaseFailed
+	fetched.Spec.Security.Authentication = nil
+	require.NoError(t, fakeClient.Update(ctx, fetched))
+	require.NoError(t, fakeClient.Delete(ctx, fetched))
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the resource must be gone after cleanup")
+
+	deployment, err := mockedOmConn.ReadDeployment(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, deployment.GetProcessNames(om.ReplicaSet{}, rs.Name), "the partial deployment must be removed")
+}
+
+func TestReplicaSetFinalizerReleasesFinalizerWhenInputsMissing(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("missing-inputs").Build()
+	rs.Finalizers = []string{util.MongoDBFinalizer}
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(rs).Build()
+	omFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omFactory.GetConnectionFunc)
+
+	require.NoError(t, fakeClient.Delete(ctx, rs))
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
+	require.NoError(t, err)
+
+	err = fakeClient.Get(ctx, rs.ObjectKey(), &mdbv1.MongoDB{})
+	require.True(t, apiErrors.IsNotFound(err), "the resource must be gone when cleanup inputs are missing")
+}
+
+func TestFinalizerExistsBeforeOpsManagerConnection(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName("finalizer-before-om").Build()
+	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	var sawFinalizer bool
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		fetched := &mdbv1.MongoDB{}
+		if err := fakeClient.Get(ctx, rs.ObjectKey(), fetched); err != nil {
+			return
+		}
+		sawFinalizer = sawFinalizer || slices.Contains(fetched.Finalizers, util.MongoDBFinalizer)
+	})
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
+	assert.True(t, sawFinalizer, "the finalizer must be stored before the first Ops Manager connection")
 }

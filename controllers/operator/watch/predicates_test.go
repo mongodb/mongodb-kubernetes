@@ -3,6 +3,7 @@ package watch
 import (
 	"maps"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -108,6 +109,16 @@ func TestPredicatesForMongoDB(t *testing.T) {
 		newMdb := oldMdb.DeepCopy()
 		newMdb.Spec.Version = "4.2.0"
 		assert.False(t, PredicatesForMongoDB(mdbv1.ShardedCluster).Update(
+			event.UpdateEvent{ObjectOld: oldMdb, ObjectNew: newMdb}),
+		)
+	})
+	t.Run("Vault deletion update is handled", func(t *testing.T) {
+		t.Setenv(vaultSecretBackendEnvVar, "VAULT_BACKEND")
+		oldMdb := mdbv1.NewReplicaSetBuilder().Build()
+		newMdb := oldMdb.DeepCopy()
+		deletionTimestamp := metav1.NewTime(time.Now())
+		newMdb.DeletionTimestamp = &deletionTimestamp
+		assert.True(t, PredicatesForMongoDB(mdbv1.ReplicaSet).Update(
 			event.UpdateEvent{ObjectOld: oldMdb, ObjectNew: newMdb}),
 		)
 	})
