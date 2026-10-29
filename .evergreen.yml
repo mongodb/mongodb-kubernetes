@@ -1950,6 +1950,15 @@ buildvariants:
     tasks:
       - name: e2e_static_ops_manager_kind_only_task_group
 
+  - name: e2e_static_om90_kind_ubi9_slim
+    display_name: e2e_static_om90_kind_ubi9_slim
+    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    run_on:
+      - ubuntu2404-large
+    <<: *base_om9_dependency
+    tasks:
+      - name: e2e_static_ops_manager_kind_only_task_group
+
   - name: e2e_om80_kind_ubi_large
     display_name: e2e_om80_kind_ubi_large
     tags: [ "staging", "e2e_test_suite", "non_static" ]
@@ -2209,7 +2218,7 @@ buildvariants:
     tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om8_dependency
+    <<: *base_om7_dependency
     tasks:
       - name: e2e_multi_cluster_2_clusters_task_group
 
@@ -2260,7 +2269,7 @@ buildvariants:
     tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
-    <<: *base_om8_dependency
+    <<: *base_om9_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
 
