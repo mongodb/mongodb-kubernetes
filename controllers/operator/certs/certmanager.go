@@ -72,6 +72,16 @@ type CertificateOwner interface {
 	GetSecurity() *mdbv1.Security
 }
 
+// certificateOwnerReferences returns the owner references of the objects issued for res. An adapter
+// can name certificates after one resource (e.g. the AppDB) while another (the Ops Manager
+// resource) owns them by implementing ownerResource.
+func certificateOwnerReferences(res CertificateOwner) []metav1.OwnerReference {
+	if o, ok := res.(interface{ ownerResource() v1.ObjectOwner }); ok {
+		return kube.BaseOwnerReference(o.ownerResource())
+	}
+	return kube.BaseOwnerReference(res)
+}
+
 var memberServerCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageDigitalSignature,
 	certmanagerv1.UsageKeyEncipherment,
@@ -177,22 +187,7 @@ func EnsureCertificatesAndCA(
 		return status, issuanceFailedCondition(status.Message())
 	}
 
-	// setup the operator managed per category (client/server) self signed CA(s) if it's not
-	// configured via user
 	hasClientCerts := res.GetSecurity().RequiresX509ClientCerts()
-
-	serverSelfSigned := !hasUserIssuer(res, categoryServer)
-	clientSelfSigned := hasClientCerts && !hasUserIssuer(res, categoryClient)
-	if serverSelfSigned {
-		if status := ensureSelfSignedCA(ctx, c, res, categoryServer); !status.IsOK() {
-			return status, issuanceFailedCondition(status.Message())
-		}
-	}
-	if clientSelfSigned {
-		if status := ensureSelfSignedCA(ctx, c, res, categoryClient); !status.IsOK() {
-			return status, issuanceFailedCondition(status.Message())
-		}
-	}
 
 	// figure out all the certificates that are required for the reconciling deployment
 	var required []certToEnsure
@@ -204,11 +199,55 @@ func EnsureCertificatesAndCA(
 		required = append(required, agentCert)
 	}
 
+	renewalFailures, status, condition := ensureCertificatesReady(ctx, c, res, required, hasClientCerts)
+	if !status.IsOK() {
+		return status, condition
+	}
+
+	// the member cert (server-signed) and the clusterFile cert (client-signed) must carry
+	// the same membership subject
+	if status := verifyMembershipSubjects(ctx, c, res, allOpts); !status.IsOK() {
+		return status, issuanceFailedCondition(status.Message())
+	}
+
+	// All certs Ready, populate the per-category CA trust bundle.
+	if status := EnsureCAConfigMapFromIssuedSecret(ctx, c, res, allOpts[0], hasClientCerts, log); !status.IsOK() {
+		return status, issuanceFailedCondition(status.Message())
+	}
+
+	return certificatesResult(renewalFailures)
+}
+
+// ensureCertificatesReady ensures the self-signed CA(s) when no user issuer is configured and the
+// required Certificates, then waits for all of them to be ready. It returns the certificates whose
+// renewal is failing, or a non-OK status when the caller must stop and return it.
+func ensureCertificatesReady(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	res CertificateOwner,
+	required []certToEnsure,
+	hasClientCerts bool,
+) ([]string, workflow.Status, metav1.Condition) {
+	// setup the operator managed per category (client/server) self signed CA(s) if it's not
+	// configured via user
+	serverSelfSigned := !hasUserIssuer(res, categoryServer)
+	clientSelfSigned := hasClientCerts && !hasUserIssuer(res, categoryClient)
+	if serverSelfSigned {
+		if status := ensureSelfSignedCA(ctx, c, res, categoryServer); !status.IsOK() {
+			return nil, status, issuanceFailedCondition(status.Message())
+		}
+	}
+	if clientSelfSigned {
+		if status := ensureSelfSignedCA(ctx, c, res, categoryClient); !status.IsOK() {
+			return nil, status, issuanceFailedCondition(status.Message())
+		}
+	}
+
 	// Ensure (create/patch) all required certs first, don't wait for certs to
 	// be ready immediately after creating them
 	for _, cert := range required {
 		if status := ensureCertificate(ctx, c, res, cert); !status.IsOK() {
-			return status, issuanceFailedCondition(status.Message())
+			return nil, status, issuanceFailedCondition(status.Message())
 		}
 	}
 
@@ -232,7 +271,7 @@ func EnsureCertificatesAndCA(
 	for _, name := range names {
 		insp, status := inspectCertificate(ctx, c, res.GetNamespace(), name)
 		if !status.IsOK() {
-			return status, issuanceFailedCondition(status.Message())
+			return nil, status, issuanceFailedCondition(status.Message())
 		}
 		switch {
 		case !insp.ready:
@@ -255,13 +294,7 @@ func EnsureCertificatesAndCA(
 		} else {
 			msg += " See 'kubectl describe certificate <name>' and its CertificateRequest for issuer detail."
 		}
-		return workflow.Pending("%s", msg), certificatesReadyCondition(metav1.ConditionFalse, reasonCertificatesIssuing, msg)
-	}
-
-	// the member cert (server-signed) and the clusterFile cert (client-signed) must carry
-	// the same membership subject
-	if status := verifyMembershipSubjects(ctx, c, res, allOpts); !status.IsOK() {
-		return status, issuanceFailedCondition(status.Message())
+		return nil, workflow.Pending("%s", msg), certificatesReadyCondition(metav1.ConditionFalse, reasonCertificatesIssuing, msg)
 	}
 
 	// every issued certificate must have the key usages it was requested with
@@ -269,11 +302,11 @@ func EnsureCertificatesAndCA(
 		return status, issuanceFailedCondition(status.Message())
 	}
 
-	// All certs Ready, populate the per-category CA trust bundle.
-	if status := EnsureCAConfigMapFromIssuedSecret(ctx, c, res, allOpts[0], hasClientCerts, log); !status.IsOK() {
-		return status, issuanceFailedCondition(status.Message())
-	}
+	return renewalFailures, workflow.OK(), metav1.Condition{}
+}
 
+// certificatesResult is the final CertificatesReady condition once all certificates are ready.
+func certificatesResult(renewalFailures []string) (workflow.Status, metav1.Condition) {
 	// the certificates that are failing renewals must be reflected in the status condition. This shouldn't set
 	// the overall resource phase to not ready because even though the renewal failed the already existing secret
 	// would still be valid
@@ -572,7 +605,7 @@ func ensureCertificate(ctx context.Context, c kubernetesClient.Client, res Certi
 	switch {
 	case err == nil:
 		existing.Spec = cert.spec
-		existing.OwnerReferences = kube.BaseOwnerReference(res)
+		existing.OwnerReferences = certificateOwnerReferences(res)
 		for k, v := range cert.annotations {
 			if existing.Annotations == nil {
 				existing.Annotations = map[string]string{}
@@ -590,7 +623,7 @@ func ensureCertificate(ctx context.Context, c kubernetesClient.Client, res Certi
 			ObjectMeta: metav1.ObjectMeta{
 				Name:            cert.certName,
 				Namespace:       res.GetNamespace(),
-				OwnerReferences: kube.BaseOwnerReference(res),
+				OwnerReferences: certificateOwnerReferences(res),
 				Annotations:     cert.annotations,
 			},
 			Spec: cert.spec,
@@ -756,7 +789,7 @@ func ensureIssuer(ctx context.Context, c kubernetesClient.Client, res Certificat
 	switch {
 	case err == nil:
 		existing.Spec = spec
-		existing.OwnerReferences = kube.BaseOwnerReference(res)
+		existing.OwnerReferences = certificateOwnerReferences(res)
 		if updateErr := c.Update(ctx, existing); updateErr != nil {
 			return workflow.Failed(updateErr)
 		}
@@ -768,7 +801,7 @@ func ensureIssuer(ctx context.Context, c kubernetesClient.Client, res Certificat
 			ObjectMeta: metav1.ObjectMeta{
 				Name:            name,
 				Namespace:       res.GetNamespace(),
-				OwnerReferences: kube.BaseOwnerReference(res),
+				OwnerReferences: certificateOwnerReferences(res),
 			},
 			Spec: spec,
 		}
@@ -807,7 +840,7 @@ func EnsureCAConfigMapFromIssuedSecret(
 	serverCM := configmap.Builder().
 		SetName(ManagedServerCABundleConfigMapName(res.GetName())).
 		SetNamespace(res.GetNamespace()).
-		SetOwnerReferences(kube.BaseOwnerReference(res)).
+		SetOwnerReferences(certificateOwnerReferences(res)).
 		SetDataField(tls.CAConfigMapKey, serverBundle).
 		Build()
 	if err := configmap.CreateOrUpdate(ctx, c, serverCM); err != nil {
@@ -827,7 +860,7 @@ func EnsureCAConfigMapFromIssuedSecret(
 		clientCM := configmap.Builder().
 			SetName(ManagedClientCABundleConfigMapName(res.GetName())).
 			SetNamespace(res.GetNamespace()).
-			SetOwnerReferences(kube.BaseOwnerReference(res)).
+			SetOwnerReferences(certificateOwnerReferences(res)).
 			SetDataField(tls.ClusterCAConfigMapKey, clientBundle).
 			Build()
 		if err := configmap.CreateOrUpdate(ctx, c, clientCM); err != nil {
