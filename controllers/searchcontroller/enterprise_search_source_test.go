@@ -175,13 +175,14 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		},
 		// Authentication mode tests
 		{
-			name:           "No SCRAM authentication",
-			version:        "8.2.0",
-			topology:       mdbv1.ClusterTopologySingleCluster,
-			resourceType:   mdbv1.ReplicaSet,
-			authModes:      []string{"X509"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			// Auth-mode pairing is gated by ValidateSearchSourceAuth, not by the source's own
+			// Validate: an x509-only source is valid for an x509 search.
+			name:         "X509 mode only",
+			version:      "8.2.0",
+			topology:     mdbv1.ClusterTopologySingleCluster,
+			resourceType: mdbv1.ReplicaSet,
+			authModes:    []string{"X509"},
+			expectError:  false,
 		},
 		{
 			name:         "Empty authentication modes",
