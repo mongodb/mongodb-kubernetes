@@ -29,11 +29,13 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	enterprisests "github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -2085,6 +2087,227 @@ func TestGetMatchingPVCTemplateFromSTS(t *testing.T) {
 	}
 }
 
+func TestAppDBNativeSettingsDelivery(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		for _, projectID := range []string{"", "project"} {
+			t.Run(string(architecture)+"/project="+projectID, func(t *testing.T) {
+				ctx := context.Background()
+				om := omv1.NewOpsManagerBuilderDefault().Build()
+				om.Spec.AppDB.AutomationAgent.StartupParameters = mdbv1.StartupParameters{"logLevel": "DEBUG", "overrideLocalHost": "custom.example.com"}
+				podVars := &env.PodEnvVars{ProjectID: projectID, AgentAPIKey: "unused-podvars-key"}
+				fakeClient, _ := mock.NewDefaultFakeClient()
+				if projectID != "" {
+					key := secret.Builder().SetName(projectID+"-group-secret").SetNamespace(om.Namespace).SetField(util.OmAgentApiKey, "mounted-key").Build()
+					require.NoError(t, fakeClient.CreateSecret(ctx, key))
+				}
+				sts, err := construct.AppDbStatefulSet(*om, podVars, construct.AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architecture, zap.S())
+				require.NoError(t, err)
+				created, err := AppDBInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, om, podVars, sts, "appdb", zap.S())
+				require.NoError(t, err)
+				cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
+				require.NoError(t, err)
+				settings := cm.Data[construct.AgentSettingsFileName]
+				assert.Contains(t, settings, "cluster=/var/lib/automation/config/cluster-config.json\n")
+				assert.Contains(t, settings, "skipMongoStart=true\n")
+				assert.Contains(t, settings, "noDaemonize=true\n")
+				assert.Contains(t, settings, "logLevel=DEBUG\n")
+				assert.NotContains(t, settings, "mounted-key")
+				assert.NotContains(t, settings, "overrideLocalHost")
+				agent := container.GetByName(util.AgentContainerName, created.Spec.Template.Spec.Containers)
+				assert.Equal(t, []string{"-f", "/etc/mongodb-agent/automation-agent.conf", "-overrideLocalHost=custom.example.com"}, agent.Args)
+				assert.NotContains(t, strings.Join(agent.Command, " "), "AGENT_API_KEY")
+				assert.Equal(t, projectID != "", strings.Contains(settings, "mmsApiKeyExec="))
+				assert.Equal(t, appsv1.OnDeleteStatefulSetStrategyType, created.Spec.UpdateStrategy.Type)
+				stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+				require.NoError(t, err)
+				_, err = AppDBInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, om, podVars, sts, "appdb", zap.S())
+				require.NoError(t, err)
+				repeated, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+				require.NoError(t, err)
+				assert.Equal(t, stored.Spec.Template, repeated.Spec.Template)
+				assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: construct.AgentSettingsVolume, MountPath: construct.AgentSettingsPath, ReadOnly: true})
+				if projectID != "" {
+					key, err := fakeClient.GetSecret(ctx, kube.ObjectKey(om.Namespace, projectID+"-group-secret"))
+					require.NoError(t, err)
+					key.Data["unrelated"] = []byte("noise")
+					require.NoError(t, fakeClient.UpdateSecret(ctx, key))
+					unchanged, err := AppDBInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, om, podVars, sts, "appdb", zap.S())
+					require.NoError(t, err)
+					assert.Equal(t, created.Spec.Template.Annotations[construct.AgentSettingsHash], unchanged.Spec.Template.Annotations[construct.AgentSettingsHash])
+					key, err = fakeClient.GetSecret(ctx, kube.ObjectKey(om.Namespace, key.Name))
+					require.NoError(t, err)
+					key.Data[util.OmAgentApiKey] = []byte("rotated-key")
+					require.NoError(t, fakeClient.UpdateSecret(ctx, key))
+					rotated, err := AppDBInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, om, podVars, sts, "appdb", zap.S())
+					require.NoError(t, err)
+					assert.NotEqual(t, created.Spec.Template.Annotations[construct.AgentSettingsHash], rotated.Spec.Template.Annotations[construct.AgentSettingsHash])
+				}
+			})
+		}
+	}
+}
+
+func TestAppDBAgentSettingsCredentialSources(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	for _, tt := range []struct {
+		name       string
+		projectID  string
+		parameters mdbv1.StartupParameters
+		wantError  bool
+		wantRawKey bool
+	}{
+		{name: "monitoring disabled needs no key"},
+		{name: "missing monitoring key blocks apply", projectID: "project", wantError: true},
+		{name: "empty command retains default key requirement", projectID: "project", parameters: mdbv1.StartupParameters{"mmsApiKeyExec": ""}, wantError: true},
+		{name: "raw key without monitoring", parameters: mdbv1.StartupParameters{"mmsApiKey": "customer-key"}, wantRawKey: true},
+		{name: "custom command wins over raw key", projectID: "project", parameters: mdbv1.StartupParameters{"mmsApiKey": "customer-key", "mmsApiKeyExec": "read-custom-credential"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			om := omv1.NewOpsManagerBuilderDefault().Build()
+			om.Spec.AppDB.AutomationAgent.StartupParameters = tt.parameters
+			podVars := &env.PodEnvVars{ProjectID: tt.projectID}
+			sts, err := construct.AppDbStatefulSet(*om, podVars, construct.AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+			require.NoError(t, err)
+			created, err := AppDBInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, om, podVars, sts, "appdb", zap.S())
+			if tt.wantError {
+				require.Error(t, err)
+				_, err = fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
+				assert.True(t, errors.IsNotFound(err))
+				_, err = fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+				assert.True(t, errors.IsNotFound(err))
+				return
+			}
+			require.NoError(t, err)
+			key, err := fakeClient.GetSecret(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-api-key"))
+			if tt.wantRawKey {
+				require.NoError(t, err)
+				assert.Equal(t, "customer-key", string(key.Data[util.OmAgentApiKey]))
+				agent := container.GetByName(util.AgentContainerName, created.Spec.Template.Spec.Containers)
+				assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: construct.AgentAPIKeyVolumeName, MountPath: construct.AgentAPIKeySecretPath, ReadOnly: true})
+				for _, volume := range created.Spec.Template.Spec.Volumes {
+					if volume.Name == construct.AgentAPIKeyVolumeName {
+						require.NotNil(t, volume.Secret)
+						assert.Equal(t, key.Name, volume.Secret.SecretName)
+					}
+				}
+			} else {
+				assert.True(t, errors.IsNotFound(err))
+			}
+			cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
+			require.NoError(t, err)
+			assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "customer-key")
+			for _, agent := range created.Spec.Template.Spec.Containers {
+				assert.NotContains(t, strings.Join(append(agent.Command, agent.Args...), " "), "customer-key")
+			}
+		})
+	}
+}
+
+func TestAppDBAgentSettingsConfigMapFailurePreservesStatefulSet(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	sts, err := construct.AppDbStatefulSet(*om, nil, construct.AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	require.NoError(t, fakeClient.CreateStatefulSet(ctx, sts))
+	stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+	require.NoError(t, err)
+	_, err = AppDBInKubernetes(ctx, agentSettingsWriteFailureClient{Client: fakeClient}, secrets.SecretClient{KubeClient: fakeClient}, om, nil, sts, "appdb", zap.S())
+	require.ErrorContains(t, err, "settings ConfigMap write failed")
+	after, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+	require.NoError(t, err)
+	assert.Equal(t, stored, after)
+}
+
+func TestAppDBAgentSettingsVaultCredentials(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	for _, rawOverride := range []bool{false, true} {
+		t.Run(fmt.Sprintf("rawOverride=%t", rawOverride), func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			om := omv1.NewOpsManagerBuilderDefault().SetNamespace("appdb-vault-tests").Build()
+			podVars := &env.PodEnvVars{ProjectID: "project"}
+			keyName := "project-group-secret"
+			if rawOverride {
+				podVars = nil
+				keyName = om.Spec.AppDB.Name() + "-agent-api-key"
+				om.Spec.AppDB.AutomationAgent.StartupParameters = mdbv1.StartupParameters{"mmsApiKey": "customer-vault-key"}
+			}
+			configuration := vault.VaultConfiguration{AppDBSecretPath: "appdb-config-tests", DatabaseSecretPath: "not-appdb"}
+			secretPath := "/secret/data/appdb-config-tests/" + om.Namespace + "/" + keyName
+			data := map[string]string{util.OmAgentApiKey: "vault-key-one"}
+			if rawOverride {
+				data = nil
+			}
+			var dataLock sync.Mutex
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1"+secretPath {
+					t.Errorf("unexpected credential path %s; expected /v1%s", r.URL.Path, secretPath)
+					http.NotFound(w, r)
+					return
+				}
+				dataLock.Lock()
+				defer dataLock.Unlock()
+				if r.Method == http.MethodGet {
+					if data == nil {
+						w.WriteHeader(http.StatusNotFound)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": data}})
+					return
+				}
+				var payload struct {
+					Data map[string]string `json:"data"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					http.Error(w, "invalid payload", http.StatusBadRequest)
+					return
+				}
+				data = payload.Data
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			t.Cleanup(server.Close)
+			vaultClient, err := vault.NewVaultClientForTesting(server.URL, "test-token", configuration)
+			require.NoError(t, err)
+			sts, err := construct.AppDbStatefulSet(*om, podVars, construct.AppDBStatefulSetOptions{VaultConfig: configuration}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+			require.NoError(t, err)
+			apply := func() string {
+				t.Helper()
+				created, err := AppDBInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient, VaultClient: vaultClient}, om, podVars, sts, "appdb", zap.S())
+				require.NoError(t, err)
+				assert.Equal(t, secretPath, created.Spec.Template.Annotations["vault.hashicorp.com/agent-inject-secret-agentApiKey"])
+				assert.Contains(t, created.Spec.Template.Annotations["vault.hashicorp.com/agent-inject-template-agentApiKey"], secretPath)
+				assert.Equal(t, construct.AgentAPIKeySecretPath, created.Spec.Template.Annotations["vault.hashicorp.com/secret-volume-path-agentApiKey"])
+				return created.Spec.Template.Annotations[construct.AgentSettingsHash]
+			}
+			original := apply()
+			dataLock.Lock()
+			if rawOverride {
+				assert.Equal(t, "customer-vault-key", data[util.OmAgentApiKey])
+			}
+			data["unrelated"] = "noise"
+			dataLock.Unlock()
+			assert.Equal(t, original, apply())
+			if !rawOverride {
+				dataLock.Lock()
+				data[util.OmAgentApiKey] = "vault-key-two"
+				dataLock.Unlock()
+				assert.NotEqual(t, original, apply())
+			}
+			_, err = fakeClient.GetSecret(ctx, kube.ObjectKey(sts.Namespace, keyName))
+			assert.True(t, errors.IsNotFound(err))
+			cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
+			require.NoError(t, err)
+			assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "customer-vault-key")
+		})
+	}
+}
+
 // TestAppDBInKubernetes_ServiceOwnerReference verifies that the headless service created by
 // AppDBInKubernetes has no ownerReference in multi-cluster mode.
 // In multi-cluster mode the MongoDBOpsManager CR only exists in the central cluster.
@@ -2118,7 +2341,7 @@ func TestAppDBInKubernetes_ServiceOwnerReference(t *testing.T) {
 
 		fakeClient, _ := mock.NewDefaultFakeClient()
 		sts := minimalSts(om.Namespace, "appdb-svc")
-		_, err := AppDBInKubernetes(ctx, fakeClient, om, sts, "appdb-0", zap.S())
+		_, err := AppDBInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, om, nil, sts, "appdb-0", zap.S())
 		assert.NoError(t, err)
 
 		svc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, "appdb-svc"))
@@ -2134,7 +2357,7 @@ func TestAppDBInKubernetes_ServiceOwnerReference(t *testing.T) {
 
 		fakeClient, _ := mock.NewDefaultFakeClient()
 		sts := minimalSts(om.Namespace, "appdb-svc")
-		_, err := AppDBInKubernetes(ctx, fakeClient, om, sts, "appdb-0", zap.S())
+		_, err := AppDBInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, om, nil, sts, "appdb-0", zap.S())
 		assert.NoError(t, err)
 
 		svc, err := fakeClient.GetService(ctx, kube.ObjectKey(om.Namespace, "appdb-svc"))
