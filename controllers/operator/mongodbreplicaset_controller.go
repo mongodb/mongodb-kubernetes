@@ -209,7 +209,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
-	if warning := architectures.ContainerImageTypeAnnotationWarning(rs.GetAnnotations(), reconciler.defaultArchitecture); warning != "" {
+	if warning := databaseContainerImageTypeAnnotationWarning(rs.GetAnnotations(), reconciler.defaultArchitecture); warning != "" {
 		log.Warn(warning)
 		rs.AddWarningIfNotExists(mdbstatus.Warning(warning))
 	}

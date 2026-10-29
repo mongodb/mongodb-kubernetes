@@ -885,7 +885,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err := sc.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.commonController.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
 	}
-	if warning := architectures.ContainerImageTypeAnnotationWarning(sc.GetAnnotations(), r.defaultArchitecture); warning != "" {
+	if warning := databaseContainerImageTypeAnnotationWarning(sc.GetAnnotations(), r.defaultArchitecture); warning != "" {
 		log.Warn(warning)
 		sc.AddWarningIfNotExists(mdbstatus.Warning(warning))
 	}

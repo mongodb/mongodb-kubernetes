@@ -1453,6 +1453,7 @@ task_groups:
     max_hosts: -1
     <<: [ *setup_group, *setup_and_teardown_task, *teardown_group ]
     tasks:
+      - e2e_om_appdb_container_image_type
       - e2e_om_appdb_external_connectivity
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_monitoring_tls
@@ -1497,6 +1498,7 @@ task_groups:
     max_hosts: -1
     <<: [ *setup_group, *setup_and_teardown_task, *teardown_group ]
     tasks:
+      - e2e_om_appdb_container_image_type
       - e2e_om_appdb_external_connectivity
       - e2e_om_appdb_flags_and_config
       - e2e_om_appdb_monitoring_tls

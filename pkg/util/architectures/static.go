@@ -72,22 +72,21 @@ func GetArchitecture(annotations map[string]string, defaultArchitecture DefaultA
 	return NonStatic
 }
 
+// GetImageType returns the official MongoDB container image type: the ContainerImageTypeAnnotation, then the operator
+// default, then ubi9 for static and ubi8 for non-static (MongoDB < 6.0.4 has no ubi9 builds).
 func GetImageType(annotations map[string]string, defaultArchitecture DefaultArchitecture, defaultImageType ImageType) ImageType {
-	if !IsRunningStaticArchitecture(annotations, defaultArchitecture) {
-		return ImageTypeUBI8
-	}
-
-	if annotations != nil {
-		if imageType := ImageType(annotations[ContainerImageTypeAnnotation]); IsSupportedImageType(imageType) {
-			return imageType
-		}
+	if imageType := ImageType(annotations[ContainerImageTypeAnnotation]); IsSupportedImageType(imageType) {
+		return imageType
 	}
 
 	if IsSupportedImageType(defaultImageType) {
 		return defaultImageType
 	}
 
-	return ImageTypeUBI9
+	if IsRunningStaticArchitecture(annotations, defaultArchitecture) {
+		return ImageTypeUBI9
+	}
+	return ImageTypeUBI8
 }
 
 func SupportedImageTypes() []ImageType {
@@ -98,33 +97,25 @@ func IsSupportedImageType(imageType ImageType) bool {
 	return slices.Contains(SupportedImageTypes(), imageType)
 }
 
-// ContainerImageTypeAnnotationWarning returns a user-facing warning when the ContainerImageTypeAnnotation is set
-// on a resource but cannot be honored, either because its value is unsupported or because the resource is not
-// running the static architecture. It returns an empty string when there is nothing to warn about.
-func ContainerImageTypeAnnotationWarning(annotations map[string]string, defaultArchitecture DefaultArchitecture) string {
+// ContainerImageTypeAnnotationWarning returns a user-facing warning when the ContainerImageTypeAnnotation is set to an
+// unsupported value, or an empty string when there is nothing to warn about.
+func ContainerImageTypeAnnotationWarning(annotations map[string]string) string {
 	value, ok := annotations[ContainerImageTypeAnnotation]
-	if !ok {
+	if !ok || IsSupportedImageType(ImageType(value)) {
 		return ""
 	}
 
-	if !IsRunningStaticArchitecture(annotations, defaultArchitecture) {
-		return fmt.Sprintf("Annotation %s=%q is ignored because the resource is not running the static architecture", ContainerImageTypeAnnotation, value)
-	}
-
-	if !IsSupportedImageType(ImageType(value)) {
-		return fmt.Sprintf("Annotation %s=%q is ignored because the value is not supported (supported values: %s); the operator default image type is used instead", ContainerImageTypeAnnotation, value, supportedImageTypesString())
-	}
-
-	return ""
+	return fmt.Sprintf("Annotation %s=%q is ignored because the value is not supported (supported values: %s); the operator default image type is used instead", ContainerImageTypeAnnotation, value, supportedImageTypesString())
 }
 
-// ValidateDefaultImageType returns the default image type to use for the given configured value. If the value is
-// unsupported, it falls back to ImageTypeUBI9 and returns a non-empty warning describing the fallback.
+// ValidateDefaultImageType returns the default image type to use for the given configured value. An empty value means
+// no default is configured and the architecture-specific default applies. An unsupported value is treated as empty
+// and returns a non-empty warning describing the fallback.
 func ValidateDefaultImageType(value string) (ImageType, string) {
-	if IsSupportedImageType(ImageType(value)) {
+	if value == "" || IsSupportedImageType(ImageType(value)) {
 		return ImageType(value), ""
 	}
-	return ImageTypeUBI9, fmt.Sprintf("Unsupported value %q for %s (supported values: %s); falling back to %q", value, DefaultEnvImageType, supportedImageTypesString(), ImageTypeUBI9)
+	return "", fmt.Sprintf("Unsupported value %q for %s (supported values: %s); falling back to the architecture default (%q for static, %q for non-static)", value, DefaultEnvImageType, supportedImageTypesString(), ImageTypeUBI9, ImageTypeUBI8)
 }
 
 func supportedImageTypesString() string {

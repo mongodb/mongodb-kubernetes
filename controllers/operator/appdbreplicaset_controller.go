@@ -757,7 +757,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	log.Infow("ReplicaSet.Spec", "spec", rs)
 	log.Infow("ReplicaSet.Status", "status", opsManager.Status.AppDbStatus)
 
-	if warning := architectures.ContainerImageTypeAnnotationWarning(opsManager.GetAnnotations(), r.defaultArchitecture); warning != "" {
+	if warning := architectures.ContainerImageTypeAnnotationWarning(opsManager.GetAnnotations()); warning != "" {
 		log.Warn(warning)
 		opsManager.AddAppDBWarningIfNotExists(status.Warning(warning))
 	}

@@ -71,20 +71,38 @@ func TestGetImageType(t *testing.T) {
 		want                ImageType
 	}{
 		{
-			name:                "non-static defaults to ubi8",
+			name:                "non-static without configuration defaults to ubi8",
 			defaultArchitecture: NonStatic,
-			defaultImageType:    ImageTypeUBI9Slim,
 			want:                ImageTypeUBI8,
 		},
 		{
-			name:                "non-static ignores annotation",
+			name:                "non-static uses configured default",
+			defaultArchitecture: NonStatic,
+			defaultImageType:    ImageTypeUBI9Slim,
+			want:                ImageTypeUBI9Slim,
+		},
+		{
+			name:                "non-static annotation takes precedence",
 			annotations:         map[string]string{ContainerImageTypeAnnotation: string(ImageTypeUBI9Slim)},
 			defaultArchitecture: NonStatic,
 			defaultImageType:    ImageTypeUBI9,
+			want:                ImageTypeUBI9Slim,
+		},
+		{
+			name:                "non-static architecture annotation honors image type annotation",
+			annotations:         map[string]string{ArchitectureAnnotation: string(NonStatic), ContainerImageTypeAnnotation: string(ImageTypeUBI9)},
+			defaultArchitecture: Static,
+			want:                ImageTypeUBI9,
+		},
+		{
+			name:                "non-static invalid annotation and default fall back to ubi8",
+			annotations:         map[string]string{ContainerImageTypeAnnotation: "invalid"},
+			defaultArchitecture: NonStatic,
+			defaultImageType:    "invalid",
 			want:                ImageTypeUBI8,
 		},
 		{
-			name:                "static defaults to ubi9",
+			name:                "static without configuration defaults to ubi9",
 			defaultArchitecture: Static,
 			want:                ImageTypeUBI9,
 		},
@@ -95,30 +113,29 @@ func TestGetImageType(t *testing.T) {
 			want:                ImageTypeUBI9Slim,
 		},
 		{
-			name:                "annotation takes precedence",
+			name:                "static annotation takes precedence",
 			annotations:         map[string]string{ContainerImageTypeAnnotation: string(ImageTypeUBI8)},
 			defaultArchitecture: Static,
 			defaultImageType:    ImageTypeUBI9Slim,
 			want:                ImageTypeUBI8,
 		},
 		{
-			name:                "architecture annotation enables static image type",
-			annotations:         map[string]string{ArchitectureAnnotation: string(Static), ContainerImageTypeAnnotation: string(ImageTypeUBI9Slim)},
-			defaultArchitecture: NonStatic,
-			defaultImageType:    ImageTypeUBI9,
-			want:                ImageTypeUBI9Slim,
-		},
-		{
-			name:                "invalid annotation falls back to configured default",
+			name:                "static invalid annotation falls back to configured default",
 			annotations:         map[string]string{ContainerImageTypeAnnotation: "invalid"},
 			defaultArchitecture: Static,
 			defaultImageType:    ImageTypeUBI9Slim,
 			want:                ImageTypeUBI9Slim,
 		},
 		{
-			name:                "invalid default falls back to ubi9",
+			name:                "static invalid default falls back to ubi9",
 			defaultArchitecture: Static,
 			defaultImageType:    "invalid",
+			want:                ImageTypeUBI9,
+		},
+		{
+			name:                "static architecture annotation falls back to ubi9",
+			annotations:         map[string]string{ArchitectureAnnotation: string(Static)},
+			defaultArchitecture: NonStatic,
 			want:                ImageTypeUBI9,
 		},
 	}
@@ -134,53 +151,31 @@ func TestGetImageType(t *testing.T) {
 
 func TestContainerImageTypeAnnotationWarning(t *testing.T) {
 	tests := []struct {
-		name                string
-		annotations         map[string]string
-		defaultArchitecture DefaultArchitecture
-		wantWarning         bool
+		name        string
+		annotations map[string]string
+		wantWarning bool
 	}{
 		{
-			name:                "no annotations",
-			defaultArchitecture: Static,
+			name: "no annotations",
 		},
 		{
-			name:                "no image type annotation",
-			annotations:         map[string]string{ArchitectureAnnotation: string(Static)},
-			defaultArchitecture: NonStatic,
+			name:        "supported annotation",
+			annotations: map[string]string{ContainerImageTypeAnnotation: string(ImageTypeUBI9Slim)},
 		},
 		{
-			name:                "supported annotation on static",
-			annotations:         map[string]string{ContainerImageTypeAnnotation: string(ImageTypeUBI9Slim)},
-			defaultArchitecture: Static,
+			name:        "supported annotation with non-static architecture annotation",
+			annotations: map[string]string{ArchitectureAnnotation: string(NonStatic), ContainerImageTypeAnnotation: string(ImageTypeUBI9Slim)},
 		},
 		{
-			name:                "supported annotation with static architecture annotation",
-			annotations:         map[string]string{ArchitectureAnnotation: string(Static), ContainerImageTypeAnnotation: string(ImageTypeUBI9Slim)},
-			defaultArchitecture: NonStatic,
-		},
-		{
-			name:                "unsupported annotation on static",
-			annotations:         map[string]string{ContainerImageTypeAnnotation: "ubi9slim"},
-			defaultArchitecture: Static,
-			wantWarning:         true,
-		},
-		{
-			name:                "annotation on non-static default",
-			annotations:         map[string]string{ContainerImageTypeAnnotation: string(ImageTypeUBI9Slim)},
-			defaultArchitecture: NonStatic,
-			wantWarning:         true,
-		},
-		{
-			name:                "annotation with non-static architecture annotation",
-			annotations:         map[string]string{ArchitectureAnnotation: string(NonStatic), ContainerImageTypeAnnotation: string(ImageTypeUBI9Slim)},
-			defaultArchitecture: Static,
-			wantWarning:         true,
+			name:        "unsupported annotation",
+			annotations: map[string]string{ContainerImageTypeAnnotation: "ubi9slim"},
+			wantWarning: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ContainerImageTypeAnnotationWarning(tt.annotations, tt.defaultArchitecture)
+			got := ContainerImageTypeAnnotationWarning(tt.annotations)
 			if tt.wantWarning && got == "" {
 				t.Errorf("ContainerImageTypeAnnotationWarning() returned no warning, want one")
 			}
@@ -200,8 +195,8 @@ func TestValidateDefaultImageType(t *testing.T) {
 		{value: "ubi8", want: ImageTypeUBI8},
 		{value: "ubi9", want: ImageTypeUBI9},
 		{value: "ubi9-slim", want: ImageTypeUBI9Slim},
-		{value: "ubi9slim", want: ImageTypeUBI9, wantWarning: true},
-		{value: "", want: ImageTypeUBI9, wantWarning: true},
+		{value: "ubi9slim", want: "", wantWarning: true},
+		{value: "", want: ""},
 	}
 
 	for _, tt := range tests {

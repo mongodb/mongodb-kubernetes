@@ -153,7 +153,7 @@ func run() error {
 	agentDebug := env.ReadBoolOrDefault(util.EnvVarDebug, false)
 	agentDebugImage := env.ReadOrDefault(util.EnvVarDebugImage, "")
 	defaultArchitecture := architectures.DefaultArchitecture(env.ReadOrDefault(architectures.DefaultEnvArchitecture, string(architectures.NonStatic)))
-	defaultImageType, imageTypeWarning := architectures.ValidateDefaultImageType(env.ReadOrDefault(architectures.DefaultEnvImageType, string(architectures.ImageTypeUBI9)))
+	defaultImageType, imageTypeWarning := architectures.ValidateDefaultImageType(env.ReadOrDefault(architectures.DefaultEnvImageType, ""))
 	if imageTypeWarning != "" {
 		log.Warn(imageTypeWarning)
 	}

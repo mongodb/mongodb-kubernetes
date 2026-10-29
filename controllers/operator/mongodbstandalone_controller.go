@@ -164,7 +164,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
 	}
-	if warning := architectures.ContainerImageTypeAnnotationWarning(s.GetAnnotations(), r.defaultArchitecture); warning != "" {
+	if warning := databaseContainerImageTypeAnnotationWarning(s.GetAnnotations(), r.defaultArchitecture); warning != "" {
 		log.Warn(warning)
 		s.AddWarningIfNotExists(mdbstatus.Warning(warning))
 	}

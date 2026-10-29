@@ -1439,6 +1439,15 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 	return false
 }
 
+// databaseContainerImageTypeAnnotationWarning also warns on non-static database pods, which don't run the official MongoDB image.
+func databaseContainerImageTypeAnnotationWarning(annotations map[string]string, defaultArchitecture architectures.DefaultArchitecture) string {
+	if value, ok := annotations[architectures.ContainerImageTypeAnnotation]; ok && !architectures.IsRunningStaticArchitecture(annotations, defaultArchitecture) {
+		return fmt.Sprintf("Annotation %s=%q is ignored because the resource is not running the static architecture", architectures.ContainerImageTypeAnnotation, value)
+	}
+
+	return architectures.ContainerImageTypeAnnotationWarning(annotations)
+}
+
 // completionMessage is just a general message printed in the logs after mongodb resource is created/updated
 func completionMessage(url, projectID string) string {
 	return fmt.Sprintf("Please check the link %s/v2/%s to see the status of the deployment", url, projectID)

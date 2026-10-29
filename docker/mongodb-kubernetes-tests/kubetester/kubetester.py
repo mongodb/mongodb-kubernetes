@@ -93,7 +93,13 @@ def get_default_architecture() -> str:
 
 
 def get_default_image_type() -> str:
-    return os.getenv("MDB_DEFAULT_IMAGE_TYPE", "ubi9")
+    return os.getenv("MDB_DEFAULT_IMAGE_TYPE") or "ubi9"
+
+
+def get_default_appdb_image_type() -> str:
+    """AppDB honours MDB_DEFAULT_IMAGE_TYPE in both architectures; when unset it falls back to ubi9 for static and
+    ubi8 for non-static."""
+    return os.getenv("MDB_DEFAULT_IMAGE_TYPE") or ("ubi9" if is_default_architecture_static() else "ubi8")
 
 
 def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):

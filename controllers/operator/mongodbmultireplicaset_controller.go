@@ -152,7 +152,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	if err := mrs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
 	}
-	if warning := architectures.ContainerImageTypeAnnotationWarning(mrs.GetAnnotations(), r.defaultArchitecture); warning != "" {
+	if warning := databaseContainerImageTypeAnnotationWarning(mrs.GetAnnotations(), r.defaultArchitecture); warning != "" {
 		log.Warn(warning)
 		mrs.AddWarningIfNotExists(mdbstatus.Warning(warning))
 	}
