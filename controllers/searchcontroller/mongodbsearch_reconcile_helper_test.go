@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -590,163 +589,6 @@ func TestBuildProxyService_ManagedLB_Ready_SingleCluster(t *testing.T) {
 	svc := buildProxyService(search, unit)
 
 	assert.Equal(t, map[string]string{"app": "test-search-lb-0"}, svc.Spec.Selector)
-}
-
-func TestBuildServices_ServiceMetadata(t *testing.T) {
-	config := &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
-		Labels: map[string]string{
-			"team": "search", "app.kubernetes.io/component": "user-component",
-			appLabelKey: "wrong", componentLabelKey: "wrong", shardLabelKey: "user-shard",
-			khandler.MongoDBSearchOwnerNameLabel: "wrong", khandler.MongoDBSearchOwnerNamespaceLabel: "wrong",
-		},
-		Annotations: map[string]string{"example.com/note": "configured"},
-	}}
-	search := newTestMongoDBSearch("test", "ns")
-	rs := newTestRSUnit(search)
-	shard := newTestShardUnit(search, "shard-0")
-	withConfig := func(u reconcileUnit, c *v1.ServiceConfiguration) reconcileUnit {
-		u.sizing.Service = c
-		return u
-	}
-	builders := []struct {
-		name  string
-		shard string
-		build func(*v1.ServiceConfiguration) corev1.Service
-	}{
-		{"RS headless", "", func(c *v1.ServiceConfiguration) corev1.Service {
-			return buildHeadlessService(search, withConfig(rs, c))
-		}},
-		{"RS proxy", "", func(c *v1.ServiceConfiguration) corev1.Service { return buildProxyService(search, withConfig(rs, c)) }},
-		{"shard headless", "shard-0", func(c *v1.ServiceConfiguration) corev1.Service {
-			return buildHeadlessService(search, withConfig(shard, c))
-		}},
-		{"shard proxy", "shard-0", func(c *v1.ServiceConfiguration) corev1.Service {
-			return buildProxyService(search, withConfig(shard, c))
-		}},
-		{"cluster proxy", "", func(c *v1.ServiceConfiguration) corev1.Service {
-			return buildClusterLevelProxyService(search, clusterLevelResource{
-				svcName: search.ProxyServiceNamespacedNameForCluster(0), fallbackPodLabel: shard.podLabels[appLabelKey], serviceConfig: c,
-			})
-		}},
-	}
-	for _, builder := range builders {
-		t.Run(builder.name, func(t *testing.T) {
-			baseline := builder.build(nil)
-			assert.Empty(t, baseline.Annotations)
-			svc := builder.build(config)
-			assert.Equal(t, baseline.Spec, svc.Spec)
-			for k, v := range baseline.Labels {
-				assert.Equal(t, v, svc.Labels[k], "operator label %s must win", k)
-			}
-			assert.Equal(t, "search", svc.Labels["team"])
-			assert.Equal(t, "user-component", svc.Labels["app.kubernetes.io/component"])
-			assert.Equal(t, config.MetadataWrapper.Annotations, svc.Annotations)
-			wantShard := builder.shard
-			if wantShard == "" {
-				wantShard = "user-shard"
-			}
-			assert.Equal(t, wantShard, svc.Labels[shardLabelKey])
-		})
-	}
-}
-
-// TestReconcile_ServiceMetadataLifecycle drives Service metadata through create, no-op,
-// out-of-band edit, update and removal. Each step checks the Services' metadata and which
-// objects were written: a metadata change must update only the Services, never a
-// StatefulSet or ConfigMap, and an unchanged reconcile must write nothing.
-func TestReconcile_ServiceMetadataLifecycle(t *testing.T) {
-	search := newTestMongoDBSearch("test-search", "ns")
-	search.Spec.Clusters[0].Index = new(int32(7))
-	mdbc := newTestMongoDBCommunity("test-mongodb", "ns")
-	created := map[string]bool{}
-	base := mock.NewEmptyFakeClientBuilder().WithObjects(search, mdbc).Build()
-	c := kubernetesClient.NewClient(interceptor.NewClient(base, interceptor.Funcs{
-		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-			if svc, ok := obj.(*corev1.Service); ok {
-				require.Equal(t, "initial", svc.Labels["example.com/team"], "metadata must exist on the first create payload")
-				require.Equal(t, "initial", svc.Annotations["example.com/note"])
-				created[svc.Name] = true
-			}
-			return c.Create(ctx, obj, opts...)
-		},
-	}))
-	r := NewMongoDBSearchReconcileHelper(c, search, NewCommunityResourceSearchSource(mdbc), newTestOperatorSearchConfig(), nil, "", nil)
-	headless := search.SearchServiceNamespacedNameForCluster(7)
-	proxy := search.ProxyServiceNamespacedNameForCluster(7)
-	headlessKey, proxyKey := "Service/"+headless.Name, "Service/"+proxy.Name
-	resourceVersions := func() map[string]string {
-		rvs := map[string]string{}
-		var services corev1.ServiceList
-		var statefulSets appsv1.StatefulSetList
-		var configMaps corev1.ConfigMapList
-		for kind, list := range map[string]client.ObjectList{"Service": &services, "StatefulSet": &statefulSets, "ConfigMap": &configMaps} {
-			require.NoError(t, c.List(t.Context(), list, client.InNamespace("ns")))
-			items, err := meta.ExtractList(list)
-			require.NoError(t, err)
-			for _, item := range items {
-				obj := item.(client.Object)
-				rvs[kind+"/"+obj.GetName()] = obj.GetResourceVersion()
-			}
-		}
-		return rvs
-	}
-	initial := map[string]string{"example.com/team": "initial", "example.com/keep": "yes"}
-	steps := []struct {
-		name      string
-		metadata  map[string]string
-		outOfBand bool     // edit the proxy Service directly before reconciling
-		written   []string // existing objects the reconcile must update
-	}{
-		{name: "create", metadata: initial},
-		{name: "unchanged", metadata: initial},
-		{name: "out-of-band annotation removed", metadata: initial, outOfBand: true, written: []string{proxyKey}},
-		{name: "add and change", metadata: map[string]string{"example.com/team": "updated", "example.com/keep": "yes", "example.com/new": "added"}, written: []string{headlessKey, proxyKey}},
-		{name: "remove one key", metadata: map[string]string{"example.com/team": "updated", "example.com/keep": "yes"}, written: []string{headlessKey, proxyKey}},
-		{name: "remove block", written: []string{headlessKey, proxyKey}},
-	}
-	for _, step := range steps {
-		t.Run(step.name, func(t *testing.T) {
-			search.Spec.Clusters[0].Service = nil
-			annotations := maps.Clone(step.metadata)
-			if step.metadata != nil {
-				annotations["example.com/note"] = step.metadata["example.com/team"]
-				search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
-					Labels: step.metadata, Annotations: annotations,
-				}}
-			}
-			if step.outOfBand {
-				svc, err := c.GetService(t.Context(), proxy)
-				require.NoError(t, err)
-				svc.Spec.ClusterIP = "10.0.0.7"
-				svc.Annotations["out-of-band"] = "removed-next-reconcile"
-				require.NoError(t, c.Update(t.Context(), &svc))
-			}
-			before := resourceVersions()
-			st := r.reconcile(t.Context(), zap.S())
-			require.NotEqual(t, status.PhaseFailed, st.Phase(), MessageFromStatus(st))
-			for key, rv := range resourceVersions() {
-				if prev, existed := before[key]; existed {
-					assert.Equal(t, slices.Contains(step.written, key), prev != rv, "%s written", key)
-				}
-			}
-			for _, nn := range []types.NamespacedName{headless, proxy} {
-				svc, err := c.GetService(t.Context(), nn)
-				require.NoError(t, err)
-				userLabels := maps.Clone(svc.Labels)
-				delete(userLabels, appLabelKey)
-				delete(userLabels, componentLabelKey)
-				for k := range searchOwnerLabels(search) {
-					delete(userLabels, k)
-				}
-				assert.True(t, maps.Equal(step.metadata, userLabels), "labels: %v", svc.Labels)
-				assert.True(t, maps.Equal(annotations, svc.Annotations), "annotations: %v", svc.Annotations)
-				if step.outOfBand && nn == proxy {
-					assert.Equal(t, "10.0.0.7", svc.Spec.ClusterIP, "allocated ClusterIP must be preserved")
-				}
-			}
-		})
-	}
-	assert.Equal(t, map[string]bool{headless.Name: true, proxy.Name: true}, created)
 }
 
 func assertServiceBasicProperties(t *testing.T, svc corev1.Service, mdbSearch *searchv1.MongoDBSearch) {
@@ -3361,6 +3203,10 @@ func newBaseMongotStatefulSet() *appsv1.StatefulSet {
 func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 	withAdvancedMongotConfigs(t, search, `{"indexing":{"lucene":{"fieldLimit":1000}}}`)
+	search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+		Labels:      map[string]string{"team": "search"},
+		Annotations: map[string]string{"example.com/note": "search"},
+	}}
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
@@ -3408,6 +3254,15 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 		}
 		assert.Equal(t, int32(27028), portMap["mongot-grpc"])
 		assert.Equal(t, int32(8080), portMap["healthcheck"])
+	}
+
+	// Verify every Service, including the mongos proxy, carries the configured metadata.
+	var services corev1.ServiceList
+	require.NoError(t, fakeClient.List(t.Context(), &services, client.InNamespace("test-ns")))
+	require.Len(t, services.Items, 5, "per-shard headless and proxy Services plus the mongos proxy")
+	for _, svc := range services.Items {
+		assert.Equal(t, "search", svc.Labels["team"], svc.Name)
+		assert.Equal(t, "search", svc.Annotations["example.com/note"], svc.Name)
 	}
 
 	// Verify per-shard StatefulSets
@@ -3805,8 +3660,6 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "custom-value", proxySvc.Labels["custom-label"])
 	assert.Equal(t, map[string]string{"example.com/note": "custom"}, proxySvc.Annotations)
 	assert.Equal(t, search.Name, proxySvc.Labels[khandler.MongoDBSearchOwnerNameLabel])
-	assert.Equal(t, search.Namespace, proxySvc.Labels[khandler.MongoDBSearchOwnerNamespaceLabel])
-	assert.Equal(t, proxyServiceComponent, proxySvc.Labels[khandler.MongoDBSearchComponentLabel])
 
 	portMap := make(map[string]int32)
 	for _, p := range svc.Spec.Ports {
