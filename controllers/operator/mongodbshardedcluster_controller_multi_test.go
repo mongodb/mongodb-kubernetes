@@ -4027,3 +4027,180 @@ func getVisualJsonDiff(expectedMap map[string]any, actualMap map[string]any) (st
 
 	return diffString, nil
 }
+
+// TestShardOverridePodSpecWithoutPersistenceKeepsShardPodSpecPersistence covers a shardOverrides[].podSpec
+// that only sets podTemplate. The shard must keep the persistence from shardPodSpec.
+func TestShardOverridePodSpecWithoutPersistenceKeepsShardPodSpecPersistence(t *testing.T) {
+	shardPodSpecPersistence := &v1.Persistence{
+		SingleConfig: &v1.PersistenceConfig{Storage: "20Gi", StorageClass: new("ebs-no-encrypt")},
+	}
+	overridePersistence := &v1.Persistence{
+		SingleConfig: &v1.PersistenceConfig{Storage: "30Gi", StorageClass: new("ebs-fast")},
+	}
+
+	singleCluster := `
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sh
+  namespace: my-namespace
+spec:
+  shardCount: 2
+  mongodsPerShardCount: 3
+  mongosCount: 1
+  configServerCount: 3
+  topology: SingleCluster
+  type: ShardedCluster
+  version: 7.0.12
+  cloudManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+  shardPodSpec:
+    persistence:
+      single:
+        storage: 20Gi
+        storageClass: ebs-no-encrypt
+  shardOverrides:
+%s
+`
+	multiCluster := `
+apiVersion: mongodb.com/v1
+kind: MongoDB
+metadata:
+  name: sh
+  namespace: my-namespace
+spec:
+  shardCount: 2
+  topology: MultiCluster
+  type: ShardedCluster
+  version: 7.0.12
+  cloudManager:
+    configMapRef:
+      name: my-project
+  credentials: my-credentials
+  persistent: true
+  shardPodSpec:
+    persistence:
+      single:
+        storage: 20Gi
+        storageClass: ebs-no-encrypt
+  shard:
+    clusterSpecList:
+      - clusterName: cluster-0
+        members: 2
+      - clusterName: cluster-1
+        members: 1
+  configSrv:
+    clusterSpecList:
+      - clusterName: cluster-0
+        members: 1
+  mongos:
+    clusterSpecList:
+      - clusterName: cluster-0
+        members: 1
+  shardOverrides:
+%s
+`
+	podTemplateOnlyOverride := `
+    - shardNames: ["sh-0"]
+      podSpec:
+        podTemplate:
+          metadata:
+            labels:
+              custom: label`
+	podTemplateOnlyOverrideWithClusterSpecList := podTemplateOnlyOverride + `
+      clusterSpecList:
+        - clusterName: cluster-0
+          members: 2
+        - clusterName: cluster-1
+          members: 1`
+	clusterSpecListPodTemplateOnlyOverride := `
+    - shardNames: ["sh-0"]
+      clusterSpecList:
+        - clusterName: cluster-0
+          members: 2
+          podSpec:
+            podTemplate:
+              metadata:
+                labels:
+                  custom: label
+        - clusterName: cluster-1
+          members: 1`
+	persistenceOverride := `
+    - shardNames: ["sh-0"]
+      podSpec:
+        persistence:
+          single:
+            storage: 30Gi
+            storageClass: ebs-fast`
+	persistenceOverrideWithClusterSpecList := persistenceOverride + `
+      clusterSpecList:
+        - clusterName: cluster-0
+          members: 2
+        - clusterName: cluster-1
+          members: 1`
+
+	tests := []struct {
+		name                       string
+		resource                   string
+		overrides                  string
+		expectedOverriddenShardPVC *v1.Persistence
+	}{
+		{
+			name:                       "single cluster override with only podTemplate keeps shardPodSpec persistence",
+			resource:                   singleCluster,
+			overrides:                  podTemplateOnlyOverride,
+			expectedOverriddenShardPVC: shardPodSpecPersistence,
+		},
+		{
+			name:                       "single cluster override with persistence replaces shardPodSpec persistence",
+			resource:                   singleCluster,
+			overrides:                  persistenceOverride,
+			expectedOverriddenShardPVC: overridePersistence,
+		},
+		{
+			name:                       "multi cluster override with only podTemplate keeps shardPodSpec persistence",
+			resource:                   multiCluster,
+			overrides:                  podTemplateOnlyOverrideWithClusterSpecList,
+			expectedOverriddenShardPVC: shardPodSpecPersistence,
+		},
+		{
+			name:                       "multi cluster clusterSpecList override with only podTemplate keeps shardPodSpec persistence",
+			resource:                   multiCluster,
+			overrides:                  clusterSpecListPodTemplateOnlyOverride,
+			expectedOverriddenShardPVC: shardPodSpecPersistence,
+		},
+		{
+			name:                       "multi cluster override with persistence replaces shardPodSpec persistence",
+			resource:                   multiCluster,
+			overrides:                  persistenceOverrideWithClusterSpecList,
+			expectedOverriddenShardPVC: overridePersistence,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			sc := &mdbv1.MongoDB{}
+			require.NoError(t, yaml.Unmarshal(fmt.Appendf(nil, tt.resource, tt.overrides), sc))
+
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
+			memberClusterMap := getFakeMultiClusterMapWithClusters([]string{"cluster-0", "cluster-1"}, omConnectionFactory)
+			_, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+			require.NoError(t, err)
+
+			shards := reconcilerHelper.prepareDesiredShardsConfiguration()
+
+			for _, clusterSpecItem := range shards[0].ClusterSpecList {
+				require.NotNil(t, clusterSpecItem.PodSpec, clusterSpecItem.ClusterName)
+				assert.Equal(t, tt.expectedOverriddenShardPVC, clusterSpecItem.PodSpec.Persistence, clusterSpecItem.ClusterName)
+			}
+			// the shard without an override always keeps shardPodSpec persistence
+			for _, clusterSpecItem := range shards[1].ClusterSpecList {
+				require.NotNil(t, clusterSpecItem.PodSpec, clusterSpecItem.ClusterName)
+				assert.Equal(t, shardPodSpecPersistence, clusterSpecItem.PodSpec.Persistence, clusterSpecItem.ClusterName)
+			}
+		})
+	}
+}

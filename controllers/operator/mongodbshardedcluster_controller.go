@@ -419,14 +419,12 @@ func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShar
 			shardOverrideClusterSpecItem.MemberConfig = finalShardConfigurationClusterSpecItem.MemberConfig
 		}
 
-		// The two if blocks below make sure that PodSpec (for persistence) defined at the override level applies to all
-		// clusters by default, except if it is set at shardOverride.ClusterSpecList.PodSpec level
+		// Persistence set at the override level applies to all clusters by default, unless
+		// shardOverride.ClusterSpecList.PodSpec sets it. Unset persistence falls back to the inherited one
 		if shardOverride.PodSpec != nil {
-			finalShardConfigurationClusterSpecItem.PodSpec = shardOverride.PodSpec
+			finalShardConfigurationClusterSpecItem.PodSpec = overridePersistence(finalShardConfigurationClusterSpecItem.PodSpec, shardOverride.PodSpec)
 		}
-		if shardOverrideClusterSpecItem.PodSpec == nil {
-			shardOverrideClusterSpecItem.PodSpec = finalShardConfigurationClusterSpecItem.PodSpec
-		}
+		shardOverrideClusterSpecItem.PodSpec = overridePersistence(finalShardConfigurationClusterSpecItem.PodSpec, shardOverrideClusterSpecItem.PodSpec)
 	}
 
 	// we reconstruct clusterSpecList from shardOverride list
@@ -492,7 +490,7 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 
 	// in single-cluster we need to override podspec of the first dummy member cluster, as we won't go into shardOverride.ClusterSpecList iteration below
 	if shardOverride.PodSpec != nil && !spec.IsMultiCluster() {
-		defaultShardConfiguration.ClusterSpecList[0].PodSpec = shardOverride.PodSpec
+		defaultShardConfiguration.ClusterSpecList[0].PodSpec = overridePersistence(defaultShardConfiguration.ClusterSpecList[0].PodSpec, shardOverride.PodSpec)
 	}
 
 	// The below loop makes the field ShardOverrides.StatefulSetConfiguration the default configuration for
@@ -515,6 +513,15 @@ func processShardOverride(spec *mdbv1.MongoDbSpec, shardOverride mdbv1.ShardOver
 	} else {
 		return defaultShardConfiguration
 	}
+}
+
+// overridePersistence returns the inherited PodSpec with the override's persistence applied on top.
+// The processed PodSpec only carries persistence, so an override without persistence keeps the inherited one.
+func overridePersistence(inherited *mdbv1.MongoDbPodSpec, override *mdbv1.MongoDbPodSpec) *mdbv1.MongoDbPodSpec {
+	if override == nil || override.Persistence == nil {
+		return inherited
+	}
+	return &mdbv1.MongoDbPodSpec{Persistence: override.Persistence.DeepCopy()}
 }
 
 func extractOverridesFromPodSpec(podSpec *mdbv1.MongoDbPodSpec) (*corev1.PodTemplateSpec, *v1.Persistence) {
