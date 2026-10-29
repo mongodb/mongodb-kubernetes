@@ -248,23 +248,35 @@ func ensureCertificatesReady(
 	// configured via user
 	serverSelfSigned := !hasUserIssuer(res, categoryServer)
 	clientSelfSigned := hasClientCerts && !hasUserIssuer(res, categoryClient)
+
+	// Keep the generation each write returned. A cached Get can still return the previous
+	// generation right after the operator wrote a new spec, so readiness must be checked
+	// against at least the generation this reconcile wrote, not just the cached object's
+	// own generation/observedGeneration pair.
+	writtenGenerations := make(map[string]int64, len(required)+2)
 	if serverSelfSigned {
-		if status := ensureSelfSignedCA(ctx, c, res, categoryServer); !status.IsOK() {
+		generation, status := ensureSelfSignedCA(ctx, c, res, categoryServer)
+		if !status.IsOK() {
 			return nil, status, issuanceFailedCondition(status.Message())
 		}
+		writtenGenerations[managedCACertName(res, categoryServer)] = generation
 	}
 	if clientSelfSigned {
-		if status := ensureSelfSignedCA(ctx, c, res, categoryClient); !status.IsOK() {
+		generation, status := ensureSelfSignedCA(ctx, c, res, categoryClient)
+		if !status.IsOK() {
 			return nil, status, issuanceFailedCondition(status.Message())
 		}
+		writtenGenerations[managedCACertName(res, categoryClient)] = generation
 	}
 
 	// Ensure (create/patch) all required certs first, don't wait for certs to
 	// be ready immediately after creating them
 	for _, cert := range required {
-		if status := ensureCertificate(ctx, c, res, cert); !status.IsOK() {
+		generation, status := ensureCertificate(ctx, c, res, cert)
+		if !status.IsOK() {
 			return nil, status, issuanceFailedCondition(status.Message())
 		}
+		writtenGenerations[cert.certName] = generation
 	}
 
 	// Collect names of all the certificates that we should expect to be ready. This would
@@ -285,7 +297,7 @@ func ensureCertificatesReady(
 	// and ready ones whose renewal is failing (a soft warning).
 	var notReady, issuanceFailures, renewalFailures []string
 	for _, name := range names {
-		insp, status := inspectCertificate(ctx, c, res.GetNamespace(), name)
+		insp, status := inspectCertificateAtGeneration(ctx, c, res.GetNamespace(), name, writtenGenerations[name])
 		if !status.IsOK() {
 			return nil, status, issuanceFailedCondition(status.Message())
 		}
@@ -313,9 +325,16 @@ func ensureCertificatesReady(
 		return nil, workflow.Pending("%s", msg), certificatesReadyCondition(metav1.ConditionFalse, reasonCertificatesIssuing, msg)
 	}
 
+	// A Ready condition and the issued Secret are written independently. Require every
+	// leaf's output Secret regardless of whether its CA is self-signed or user provided,
+	// so a deleted/not-yet-written leaf cannot be reported as current.
+	if status, condition := requireIssuedSecrets(ctx, c, res, required); !status.IsOK() {
+		return nil, status, condition
+	}
+
 	// every issued certificate must have the key usages it was requested with
 	if status := verifyKeyUsagesInIssuedCert(ctx, c, res, required); !status.IsOK() {
-		return status, issuanceFailedCondition(status.Message())
+		return nil, status, issuanceFailedCondition(status.Message())
 	}
 
 	return renewalFailures, workflow.OK(), metav1.Condition{}
@@ -332,6 +351,39 @@ func certificatesResult(renewalFailures []string) (workflow.Status, metav1.Condi
 	}
 
 	return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "All operator-managed certificates are issued and up to date")
+}
+
+// requireIssuedSecrets checks that cert-manager wrote the output Secret of every issued leaf
+// Certificate. Ready status and Secret visibility are independent writes, and Secret deletion
+// can precede the readiness update. This check is CA-source agnostic: self-signed certificates
+// need the leaf Secret just as much as user-issuer certificates do.
+func requireIssuedSecrets(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, required []certToEnsure) (workflow.Status, metav1.Condition) {
+	var missing []string
+	for _, cert := range required {
+		secretName := cert.spec.SecretName
+		if secretName == "" {
+			secretName = cert.certName
+		}
+		if _, err := c.GetSecret(ctx, types.NamespacedName{Name: secretName, Namespace: res.GetNamespace()}); err != nil {
+			if apiErrors.IsNotFound(err) {
+				missing = append(missing, secretName)
+				continue
+			}
+			return workflow.Failed(err), issuanceFailedCondition(err.Error())
+		}
+	}
+	if len(missing) == 0 {
+		return workflow.OK(), metav1.Condition{}
+	}
+	msg := waitingForIssuedSecretsMessage(missing)
+	return workflow.Pending("%s", msg), certificatesReadyCondition(metav1.ConditionFalse, reasonCertificatesIssuing, msg)
+}
+
+func waitingForIssuedSecretsMessage(secretNames []string) string {
+	if len(secretNames) == 1 {
+		return fmt.Sprintf("Waiting for cert-manager to write the certificate secret %s", secretNames[0])
+	}
+	return fmt.Sprintf("Waiting for cert-manager to write the certificate secrets %s", strings.Join(secretNames, ", "))
 }
 
 // certificatesReadyCondition builds a CertificatesReady condition. LastTransitionTime
@@ -369,6 +421,14 @@ type certInspection struct {
 // inspectCertificate reads one Certificate's status, whether it holds a usable (Ready) cert,
 // and whether an issuance/renewal attempt is failing.
 func inspectCertificate(ctx context.Context, c kubernetesClient.Client, namespace, name string) (certInspection, workflow.Status) {
+	return inspectCertificateAtGeneration(ctx, c, namespace, name, 0)
+}
+
+// inspectCertificateAtGeneration is inspectCertificate with a readiness floor. writtenGeneration
+// is the generation returned by the create/update this preparation pass made; the readiness check
+// must cover at least that generation even when the cache still serves an older object. Zero
+// means no floor beyond the Certificate's own current generation.
+func inspectCertificateAtGeneration(ctx context.Context, c kubernetesClient.Client, namespace, name string, writtenGeneration int64) (certInspection, workflow.Status) {
 	cert := &certmanagerv1.Certificate{}
 	if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, cert); err != nil {
 		if meta.IsNoMatchError(err) {
@@ -380,12 +440,19 @@ func inspectCertificate(ctx context.Context, c kubernetesClient.Client, namespac
 		}
 		return certInspection{}, workflow.Failed(err)
 	}
-	return inspectCertificateStatus(name, cert), workflow.OK()
+	return inspectCertificateStatusAtGeneration(name, cert, writtenGeneration), workflow.OK()
 }
 
 // inspectCertificateStatus classifies a fetched Certificate's readiness and failure state.
 func inspectCertificateStatus(name string, cert *certmanagerv1.Certificate) certInspection {
-	insp := certInspection{name: name, ready: certificateReady(cert)}
+	return inspectCertificateStatusAtGeneration(name, cert, 0)
+}
+
+// inspectCertificateStatusAtGeneration is inspectCertificateStatus with a readiness floor: the
+// Ready condition must cover at least writtenGeneration (0 means the Certificate's own current
+// generation only).
+func inspectCertificateStatusAtGeneration(name string, cert *certmanagerv1.Certificate, writtenGeneration int64) certInspection {
+	insp := certInspection{name: name, ready: certificateReadyAtGeneration(cert, writtenGeneration)}
 	// cert-manager sets LastFailureTime when an issuance attempt fails and clears it on the
 	// next success, so a non-nil value means the most recent attempt failed and has not yet
 	// been cleared. Surface it whether or not the cert is currently ready.
@@ -617,8 +684,10 @@ func mergeSubject(override *mdbv1.X509Subject, def *certmanagerv1.X509Subject, d
 }
 
 // ensureCertificate creates or updates a single operator-owned cert-manager
-// Certificate. It does not check readiness of the created certificate.
-func ensureCertificate(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cert certToEnsure) workflow.Status {
+// Certificate. It does not check readiness of the created certificate, but returns the
+// generation of the object that was actually written so the readiness check can require a
+// status that covers this write even when a cached read lags behind it.
+func ensureCertificate(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cert certToEnsure) (int64, workflow.Status) {
 	existing := &certmanagerv1.Certificate{}
 	err := c.Get(ctx, types.NamespacedName{Name: cert.certName, Namespace: res.GetNamespace()}, existing)
 	switch {
@@ -632,10 +701,11 @@ func ensureCertificate(ctx context.Context, c kubernetesClient.Client, res Certi
 			existing.Annotations[k] = v
 		}
 		if updateErr := c.Update(ctx, existing); updateErr != nil {
-			return workflow.Failed(updateErr)
+			return 0, workflow.Failed(updateErr)
 		}
+		return existing.Generation, workflow.OK()
 	case meta.IsNoMatchError(err):
-		return workflow.Failed(xerrors.Errorf(
+		return 0, workflow.Failed(xerrors.Errorf(
 			"cert-manager is required for operator-managed certificates but its CRDs are not installed in the cluster"))
 	case apiErrors.IsNotFound(err):
 		desired := &certmanagerv1.Certificate{
@@ -648,12 +718,12 @@ func ensureCertificate(ctx context.Context, c kubernetesClient.Client, res Certi
 			Spec: cert.spec,
 		}
 		if createErr := c.Create(ctx, desired); createErr != nil {
-			return workflow.Failed(createErr)
+			return 0, workflow.Failed(createErr)
 		}
+		return desired.Generation, workflow.OK()
 	default:
-		return workflow.Failed(err)
+		return 0, workflow.Failed(err)
 	}
-	return workflow.OK()
 }
 
 // resolveMembersToCover returns how many members the member cert's SANs must cover, what the
@@ -769,13 +839,13 @@ func coveredMembersPerCluster(ctx context.Context, c kubernetesClient.Client, re
 // sign a category's certs when user has not configured issuer for it. A SelfSigned Issuer
 // bootstraps a self-signed CA Certificate, and a CA Issuer signs the leaves from it.
 // All three objects are owned by the resource so they GC with it.
-func ensureSelfSignedCA(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cat certCategory) workflow.Status {
+func ensureSelfSignedCA(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cat certCategory) (int64, workflow.Status) {
 	if status := ensureIssuer(ctx, c, res, selfSignedIssuerName(res, cat), certmanagerv1.IssuerSpec{
 		IssuerConfig: certmanagerv1.IssuerConfig{
 			SelfSigned: &certmanagerv1.SelfSignedIssuer{},
 		},
 	}); !status.IsOK() {
-		return status
+		return 0, status
 	}
 
 	// Self-signed CA certificate (isCA).
@@ -788,17 +858,21 @@ func ensureSelfSignedCA(ctx context.Context, c kubernetesClient.Client, res Cert
 			IssuerRef:  cmmeta.ObjectReference{Name: selfSignedIssuerName(res, cat), Kind: certmanagerv1.IssuerKind},
 		},
 	}
-	if status := ensureCertificate(ctx, c, res, caCert); !status.IsOK() {
-		return status
+	generation, status := ensureCertificate(ctx, c, res, caCert)
+	if !status.IsOK() {
+		return 0, status
 	}
 
-	return ensureIssuer(ctx, c, res, managedCAIssuerName(res, cat), certmanagerv1.IssuerSpec{
+	if status := ensureIssuer(ctx, c, res, managedCAIssuerName(res, cat), certmanagerv1.IssuerSpec{
 		IssuerConfig: certmanagerv1.IssuerConfig{
 			CA: &certmanagerv1.CAIssuer{
 				SecretName: managedCACertName(res, cat),
 			},
 		},
-	})
+	}); !status.IsOK() {
+		return 0, status
+	}
+	return generation, workflow.OK()
 }
 
 // ensureIssuer creates or updates an operator-owned cert-manager Issuer.
@@ -1181,10 +1255,22 @@ func isMissingEKU(issued *x509.Certificate, usage certmanagerv1.KeyUsage) bool {
 }
 
 func certificateReady(cert *certmanagerv1.Certificate) bool {
+	return certificateReadyAtGeneration(cert, 0)
+}
+
+// certificateReadyAtGeneration reports whether the Certificate's Ready condition describes both
+// the Certificate's current spec and, when non-zero, the generation written by this preparation
+// pass. A cached read can still serve the previous, internally consistent generation pair right
+// after a write, so the written generation is a floor for both generations.
+func certificateReadyAtGeneration(cert *certmanagerv1.Certificate, writtenGeneration int64) bool {
 	for _, cond := range cert.Status.Conditions {
 		if cond.Type == certmanagerv1.CertificateConditionReady {
+			// A Ready condition from an older generation does not describe the Certificate's
+			// current spec (e.g. after a SAN or naming change), so it must not count as ready.
 			return cond.Status == cmmeta.ConditionTrue &&
-				cond.ObservedGeneration == cert.Generation
+				cert.Generation >= writtenGeneration &&
+				cond.ObservedGeneration >= writtenGeneration &&
+				cond.ObservedGeneration >= cert.Generation
 		}
 	}
 	return false
