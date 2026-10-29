@@ -1638,13 +1638,13 @@ def _om_project_ids_from_cr_status() -> str:
         logging.debug(f"Failed to list MongoDB resources: {e}")
         return ""
 
-    return ",".join(
-        {
-            (resource.get("status") or {}).get("projectId")
-            for resource in response.get("items", [])
-            if (resource.get("status") or {}).get("projectId")
-        }
-    )
+    project_ids: list[str] = []
+    for resource in response.get("items", []):
+        project_id = (resource.get("status") or {}).get("projectId")
+        if project_id and project_id not in project_ids:
+            project_ids.append(project_id)
+
+    return ",".join(project_ids)
 
 
 @hookimpl(tryfirst=True)
