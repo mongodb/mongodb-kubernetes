@@ -1628,153 +1628,77 @@ def coredns_config(tld: str, mappings: str, additional_rules: Optional[str] = No
 """
 
 
-def _om_project_ids_from_cr_status(api_client: kubernetes.client.ApiClient, namespace: str) -> List[str]:
-    """Returns the Ops Manager project IDs recorded in the status of the namespace's MongoDB resources."""
+def _om_project_ids_from_cr_status() -> str:
+    """Returns the Ops Manager project IDs recorded in the namespace's MongoDB resources."""
     try:
-        response = client.CustomObjectsApi(api_client=api_client).list_namespaced_custom_object(
-            group="mongodb.com", version="v1", namespace=namespace, plural="mongodb"
+        response = client.CustomObjectsApi(api_client=get_central_cluster_client()).list_namespaced_custom_object(
+            group="mongodb.com", version="v1", namespace=os.environ.get("NAMESPACE"), plural="mongodb"
         )
     except Exception as e:
-        logging.debug(f"Failed to list MongoDB resources in namespace {namespace}: {e}")
-        return []
+        logging.debug(f"Failed to list MongoDB resources: {e}")
+        return ""
 
-    project_ids: List[str] = []
-    for resource in response.get("items", []):
-        project_id = (resource.get("status") or {}).get("projectId")
-        if project_id and project_id not in project_ids:
-            project_ids.append(project_id)
-
-    return project_ids
-
-
-def _om_project_ids_from_project_config_maps(api_client: kubernetes.client.ApiClient, namespace: str) -> List[str]:
-    """Resolves the project names in the namespace's ConfigMaps against Ops Manager.
-
-    A test names its project in the `projectName` key of an Ops Manager connection ConfigMap.
-    The CR status stays empty when the reconcile fails before it writes the status, so the name
-    is the only link to the project.
-    """
-    org_id = os.environ.get("OM_ORGID", "")
-    base_url = os.environ.get("OM_HOST")
-
-    tester = None
-    if org_id and base_url:
-        tester = OMTester(
-            OMContext(
-                base_url=base_url,
-                user=os.environ.get("OM_USER"),
-                public_key=os.environ.get("OM_API_KEY"),
-            )
-        )
-
-    try:
-        config_maps = client.CoreV1Api(api_client=api_client).list_namespaced_config_map(namespace)
-    except Exception as e:
-        logging.debug(f"Failed to list ConfigMaps in namespace {namespace}: {e}")
-        return []
-
-    project_ids: List[str] = []
-    for config_map in config_maps.items:
-        data = config_map.data or {}
-        project_name = data.get("projectName")
-        if not project_name or tester is None:
-            continue
-        try:
-            project_id = tester.api_get_group_in_organization(org_id, project_name)
-        except Exception as e:
-            logging.debug(f"Failed to find Ops Manager project {project_name} in organization {org_id}: {e}")
-            continue
-        if project_id and project_id not in project_ids:
-            project_ids.append(project_id)
-
-    return project_ids
-
-
-def get_om_project_ids() -> List[str]:
-    """Returns the Ops Manager project IDs to collect diagnostics for.
-
-    `OM_PROJECT_ID` is authoritative when set. The e2e task environment does not always export it,
-    so the IDs are derived from the CR status, then from the project names in the test namespace.
-    """
-    project_ids = list(
-        dict.fromkeys(
-            project_id.strip() for project_id in os.environ.get("OM_PROJECT_ID", "").split(",") if project_id.strip()
-        )
+    return ",".join(
+        {
+            (resource.get("status") or {}).get("projectId")
+            for resource in response.get("items", [])
+            if (resource.get("status") or {}).get("projectId")
+        }
     )
-    if project_ids:
-        return project_ids
-
-    namespace = os.environ.get("NAMESPACE", "")
-    if not namespace:
-        logging.info("NAMESPACE is not set - cannot derive the Ops Manager project ID")
-        return []
-
-    api_client = get_central_cluster_client()
-    project_ids = _om_project_ids_from_cr_status(api_client, namespace)
-    if project_ids:
-        return project_ids
-
-    return _om_project_ids_from_project_config_maps(api_client, namespace)
 
 
 @hookimpl(tryfirst=True)
 def pytest_sessionfinish(session, exitstatus):
-    base_url = os.environ.get("OM_HOST")
-    if base_url is None:
-        return
-
-    try:
-        project_ids = get_om_project_ids()
-    except Exception as e:
-        logging.warning(f"Failed to determine the Ops Manager project IDs: {e}")
-        return
-
-    if not project_ids:
-        logging.info("No Ops Manager project ID found - not collecting events information")
-        return
-
-    user = os.environ.get("OM_USER")
-    key = os.environ.get("OM_API_KEY")
-    for project_id in project_ids:
-        try:
-            tester = OMTester(
-                OMContext(
-                    base_url=base_url,
-                    public_key=key,
-                    project_id=project_id,
-                    user=user,
+    project_id = os.environ.get("OM_PROJECT_ID", "") or _om_project_ids_from_cr_status()
+    if project_id:
+        base_url = os.environ.get("OM_HOST")
+        if base_url is None:
+            return
+        user = os.environ.get("OM_USER")
+        key = os.environ.get("OM_API_KEY")
+        ids = project_id.split(",")
+        for project_id in ids:
+            try:
+                tester = OMTester(
+                    OMContext(
+                        base_url=base_url,
+                        public_key=key,
+                        project_id=project_id,
+                        user=user,
+                    )
                 )
-            )
 
-            # let's only access om if its healthy and around.
-            status_code, _ = tester.request_health(base_url)
-            if status_code == HTTPStatus.OK:
-                ev = tester.get_project_events().json()["results"]
-                with open(f"/tmp/diagnostics/{project_id}-events.json", "w", encoding="utf-8") as f:
-                    json.dump(ev, f, ensure_ascii=False, indent=4)
+                # let's only access om if its healthy and around.
+                status_code, _ = tester.request_health(base_url)
+                if status_code == HTTPStatus.OK:
+                    ev = tester.get_project_events().json()["results"]
+                    with open(f"/tmp/diagnostics/{project_id}-events.json", "w", encoding="utf-8") as f:
+                        json.dump(ev, f, ensure_ascii=False, indent=4)
 
-                if exitstatus != 0:
-                    try:
-                        automation_config_tester = tester.get_automation_config_tester()
-                        automation_config = automation_config_tester.automation_config
-                        if not automation_config:
-                            continue
+                    if exitstatus != 0:
+                        try:
+                            automation_config_tester = tester.get_automation_config_tester()
+                            automation_config = automation_config_tester.automation_config
+                            if not automation_config:
+                                continue
 
-                        # Remove mongoDbVersions field as it's too large
-                        if "mongoDbVersions" in automation_config:
-                            del automation_config["mongoDbVersions"]
+                            # Remove mongoDbVersions field as it's too large
+                            if "mongoDbVersions" in automation_config:
+                                del automation_config["mongoDbVersions"]
 
-                        with open(f"/tmp/diagnostics/{project_id}-automation-config.json", "w", encoding="utf-8") as f:
-                            json.dump(automation_config, f, ensure_ascii=False, indent=4)
+                            with open(
+                                f"/tmp/diagnostics/{project_id}-automation-config.json", "w", encoding="utf-8"
+                            ) as f:
+                                json.dump(automation_config, f, ensure_ascii=False, indent=4)
 
-                        logging.info(f"Saved automation config for project {project_id}")
-                    except Exception as e:
-                        logging.warning(f"Failed to collect automation config for project {project_id}: {e}")
-            else:
-                logging.info("om is not healthy - not collecting events information")
+                            logging.info(f"Saved automation config for project {project_id}")
+                        except Exception as e:
+                            logging.warning(f"Failed to collect automation config for project {project_id}: {e}")
+                else:
+                    logging.info("om is not healthy - not collecting events information")
 
-        except Exception as e:
-            logging.warning(f"Failed to collect Ops Manager diagnostics for project {project_id}: {e}")
+            except Exception:
+                continue
 
 
 def install_multi_cluster_operator_cluster_scoped(
