@@ -1127,31 +1127,13 @@ func DatabaseAgentSettingsConfigMap(sts appsv1.StatefulSet, opts DatabaseStatefu
 	if agent == nil {
 		return corev1.ConfigMap{}, fmt.Errorf("agent container not found in StatefulSet %s", sts.Name)
 	}
-	var parameters mdbv1.StartupParameters
-	if opts.AgentConfig != nil {
-		parameters = opts.AgentConfig.StartupParameters
-	}
 	if err := ValidateNoCustomAgentFlags(*agent); err != nil {
 		return corev1.ConfigMap{}, err
 	}
 	if err := ValidateNoRuntimeAgentSettingsEnv(*agent); err != nil {
 		return corev1.ConfigMap{}, err
 	}
-	settings := databaseAgentSettings(opts, env.ToMap(agent.Env...))
-	overrides := effectiveAgentSettingsOverrides(parameters)
-	if overrides["mmsApiKeyExec"] == "" {
-		_, rawKey := overrides["mmsApiKey"]
-		baseURL, overridden := overrides["mmsBaseUrl"]
-		runtimeURL := AgentEnvironmentIsRuntime(*agent, util.EnvVarBaseUrl) && !overridden
-		if runtimeURL {
-			command := agentAPIKeyExecCommand()
-			if !rawKey && baseURL == "" {
-				command = `if [ -n "${BASE_URL%/}" ]; then ` + command + `; fi`
-			}
-			settings["mmsApiKeyExec"] = command
-		}
-	}
-	return agentSettingsConfigMap(sts, settings)
+	return agentSettingsConfigMap(sts, databaseAgentSettings(opts, env.ToMap(agent.Env...)))
 }
 
 // AgentEnvironmentIsRuntime includes kubelet expansion and EnvFrom values not shadowed by an explicit Env entry.
