@@ -386,8 +386,16 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture))
 	agentArgs := []string{"-f", path.Join(AgentSettingsPath, AgentSettingsFileName)}
-	if arg, _ := AppDBOverrideLocalHostArg(appDb.AutomationAgent.StartupParameters, externalDomain, appDb.IsMultiCluster(), "$(POD_NAMESPACE)", appDb.GetClusterDomain()); arg != "" {
-		agentArgs = append(agentArgs, arg)
+	overrideLocalHost, hasOverrideLocalHost := AgentSettingsOverrides(appDb.AutomationAgent.StartupParameters)["overrideLocalHost"]
+	if externalDomain != nil {
+		overrideLocalHost = "$(POD_NAME)." + *externalDomain
+		hasOverrideLocalHost = true
+	} else if appDb.IsMultiCluster() {
+		overrideLocalHost = "$(POD_NAME)-svc.$(POD_NAMESPACE).svc." + appDb.GetClusterDomain()
+		hasOverrideLocalHost = true
+	}
+	if hasOverrideLocalHost {
+		agentArgs = append(agentArgs, "-overrideLocalHost="+overrideLocalHost)
 	}
 
 	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
