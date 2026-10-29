@@ -51,6 +51,7 @@ retention policy), never by the operator.
     {{- $roleScope = "ClusterRole" -}}
     {{- $watchNamespace = list "*" -}}
 {{- end -}}
+
 {{- range $idx, $namespace := $watchNamespace }}
 ---
 kind: {{ $roleScope }}

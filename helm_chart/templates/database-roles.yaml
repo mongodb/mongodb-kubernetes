@@ -1,5 +1,6 @@
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $memberMode := $memberCluster.enabled | default false -}}
+{{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
 
 {{- $namePrefix := "mongodb-kubernetes" -}}
 {{- if $memberMode }}
@@ -17,19 +18,18 @@
     {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
 {{- end }}
 
-
 {{- range $idx, $namespace := $watchNamespace }}
-
-{{- $namespaceBlock := printf "namespace: %s" $namespace }}
 {{- if eq $namespace "*" }}
-    {{- $namespaceBlock = include "mongodb-kubernetes-operator.namespace" $ | printf "namespace: %s"  }}
+    {{- /* A cluster-wide operator ("*") still seeds the workload ServiceAccounts in
+           the operator namespace — they are namespaced objects. */}}
+    {{- $namespace = $operatorNamespace }}
 {{- end }}
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ $namePrefix }}-appdb
-  {{ $namespaceBlock }}
+  namespace: {{ $namespace }}
   annotations:
     mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 {{- if $.Values.registry.imagePullSecrets}}
@@ -42,7 +42,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ $namePrefix }}-database-pods
-  {{ $namespaceBlock }}
+  namespace: {{ $namespace }}
   annotations:
     mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 {{- if $.Values.registry.imagePullSecrets}}
@@ -55,7 +55,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ $namePrefix }}-ops-manager
-  {{ $namespaceBlock }}
+  namespace: {{ $namespace }}
   annotations:
     mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 {{- if $.Values.registry.imagePullSecrets}}
@@ -68,7 +68,7 @@ kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $namePrefix }}-appdb
-  {{ $namespaceBlock }}
+  namespace: {{ $namespace }}
   annotations:
     mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 rules:
@@ -92,7 +92,7 @@ kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $namePrefix }}-appdb
-  {{ $namespaceBlock }}
+  namespace: {{ $namespace }}
   annotations:
     mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 roleRef:
@@ -102,6 +102,6 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ $namePrefix }}-appdb
-    {{ $namespaceBlock }}
+    namespace: {{ $namespace }}
 
 {{- end }}

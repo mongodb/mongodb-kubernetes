@@ -44,17 +44,19 @@ Scope model (set exclusively by the plugin):
 */ -}}
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $memberMode := $memberCluster.enabled | default false -}}
+{{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
+
 {{- if $memberMode }}
     {{- $name := "mck-member" }}
-    {{- $namespace := include "mongodb-kubernetes-operator.namespace" . }}
     {{- $clusterScoped := $memberCluster.clusterScoped | default false }}
-    {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default ($namespace | list) }}
-    {{- $bindingNamespaces := concat $workloadNamespaces ($namespace | list) | uniq }}
+    {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default ($operatorNamespace | list) }}
+    {{- $bindingNamespaces := concat $workloadNamespaces ($operatorNamespace | list) | uniq }}
+
     {{- /* One Role per binding namespace: only a cluster-scoped member (clusterScoped) renders a ClusterRole. */ -}}
     {{- $roleScope := "Role" -}}
     {{- if $clusterScoped -}}
         {{- $roleScope = "ClusterRole" -}}
-        {{- $bindingNamespaces = list $namespace -}}
+        {{- $bindingNamespaces = list $operatorNamespace -}}
     {{- end }}
 
 ---
@@ -62,7 +64,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ $name }}-sa
-  namespace: {{ $namespace }}
+  namespace: {{ $operatorNamespace }}
   annotations:
     mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 ---
@@ -72,11 +74,12 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: {{ $name }}-token
-  namespace: {{ $namespace }}
+  namespace: {{ $operatorNamespace }}
   annotations:
     kubernetes.io/service-account.name: {{ $name }}-sa
     mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 type: kubernetes.io/service-account-token
+
 {{- range $idx, $ns := $bindingNamespaces }}
 ---
 kind: {{ $roleScope }}
@@ -126,6 +129,6 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ $name }}-sa
-    namespace: {{ $namespace }}
+    namespace: {{ $operatorNamespace }}
 {{- end }}
 {{- end }}
