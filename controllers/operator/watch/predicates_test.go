@@ -21,6 +21,34 @@ import (
 
 const vaultSecretBackendEnvVar = "SECRET_BACKEND"
 
+func TestPredicatesForMongoDBAgentKeyVersion(t *testing.T) {
+	t.Setenv(vaultSecretBackendEnvVar, "VAULT_BACKEND")
+	for _, tc := range []struct {
+		name          string
+		annotation    string
+		projectID     string
+		resourceType  mdbv1.ResourceType
+		wantReconcile bool
+	}{
+		{name: "replica set key version", annotation: "project-group-secret", projectID: "project", resourceType: mdbv1.ReplicaSet, wantReconcile: true},
+		{name: "standalone key version", annotation: "project-group-secret", projectID: "project", resourceType: mdbv1.Standalone, wantReconcile: true},
+		{name: "sharded key version", annotation: "project-group-secret", projectID: "project", resourceType: mdbv1.ShardedCluster, wantReconcile: true},
+		{name: "unrelated annotation", annotation: "unrelated", projectID: "project", resourceType: mdbv1.ReplicaSet},
+		{name: "old project", annotation: "old-project-group-secret", projectID: "project", resourceType: mdbv1.ReplicaSet},
+		{name: "headless", annotation: "-group-secret", resourceType: mdbv1.ReplicaSet},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			old := mdbv1.NewReplicaSetBuilder().Build()
+			old.Spec.ResourceType = tc.resourceType
+			old.Status.ProjectId = tc.projectID
+			old.Annotations = map[string]string{tc.annotation: "1"}
+			updated := old.DeepCopy()
+			updated.Annotations[tc.annotation] = "2"
+			assert.Equal(t, tc.wantReconcile, PredicatesForMongoDB(tc.resourceType).Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated}))
+		})
+	}
+}
+
 func TestPredicatesForUser(t *testing.T) {
 	t.Run("No reconciliation for MongoDBUser if statuses are not equal", func(t *testing.T) {
 		oldUser := &user.MongoDBUser{

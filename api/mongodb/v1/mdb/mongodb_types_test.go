@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +14,96 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
+
+func TestStartupParametersToSettingsFile(t *testing.T) {
+	tests := []struct {
+		name       string
+		parameters StartupParameters
+		expected   string
+		wantError  bool
+	}{
+		{name: "nil parameters"},
+		{name: "empty parameters", parameters: StartupParameters{}},
+		{
+			name: "sorted settings",
+			parameters: StartupParameters{
+				"serveStatusPort": "5000",
+				"logLevel":        "INFO",
+				"operatorMode":    "true",
+			},
+			expected: "logLevel=INFO\noperatorMode=true\nserveStatusPort=5000\n",
+		},
+		{
+			name:       "empty string value",
+			parameters: StartupParameters{"logFile": ""},
+			expected:   "logFile=\n",
+		},
+		{
+			name: "single line values need no shell escaping",
+			parameters: StartupParameters{
+				"mmsApiKeyExec": "cat '/path with spaces/key'",
+				"mmsBaseUrl":    "https://example.com/path?a=b,c=d#fragment",
+			},
+			expected: "mmsApiKeyExec=cat '/path with spaces/key'\nmmsBaseUrl=https://example.com/path?a=b,c=d#fragment\n",
+		},
+		{name: "empty key", parameters: StartupParameters{"": "do-not-disclose"}, wantError: true},
+		{name: "CLI prefix is not a settings name", parameters: StartupParameters{"-mmsApiKey": "do-not-disclose"}, wantError: true},
+		{name: "comment key", parameters: StartupParameters{"#logLevel": "do-not-disclose"}, wantError: true},
+		{name: "delimiter in key", parameters: StartupParameters{"logLevel=DEBUG": "do-not-disclose"}, wantError: true},
+		{name: "line feed in key", parameters: StartupParameters{"logLevel\noperatorMode": "do-not-disclose"}, wantError: true},
+		{name: "carriage return in key", parameters: StartupParameters{"logLevel\roperatorMode": "do-not-disclose"}, wantError: true},
+		{name: "NUL in key", parameters: StartupParameters{"logLevel\x00": "do-not-disclose"}, wantError: true},
+		{name: "leading key whitespace", parameters: StartupParameters{" logLevel": "do-not-disclose"}, wantError: true},
+		{name: "trailing key whitespace", parameters: StartupParameters{"logLevel\t": "do-not-disclose"}, wantError: true},
+		{name: "line feed in value", parameters: StartupParameters{"logFile": "do-not-disclose\noperatorMode=false"}, wantError: true},
+		{name: "carriage return in value", parameters: StartupParameters{"logFile": "do-not-disclose\roperatorMode=false"}, wantError: true},
+		{name: "NUL in value", parameters: StartupParameters{"logFile": "do-not-disclose\x00"}, wantError: true},
+		{name: "leading value whitespace", parameters: StartupParameters{"logFile": " do-not-disclose"}, wantError: true},
+		{name: "trailing value whitespace", parameters: StartupParameters{"logFile": "do-not-disclose\t"}, wantError: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := maps.Clone(tt.parameters)
+			content, err := tt.parameters.ToSettingsFile()
+			assert.Equal(t, original, tt.parameters)
+			if tt.wantError {
+				require.Error(t, err)
+				assert.Empty(t, content)
+				assert.NotContains(t, err.Error(), "do-not-disclose")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, content)
+		})
+	}
+}
+
+func TestDatabaseSecretNamesIncludeResolvedAgentProject(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		projectID    string
+		statusID     string
+		resourceType ResourceType
+	}{
+		{name: "headless", resourceType: ReplicaSet},
+		{name: "initial replica set", projectID: "resolved-project", resourceType: ReplicaSet},
+		{name: "standalone", projectID: "resolved-project", resourceType: Standalone},
+		{name: "sharded", projectID: "resolved-project", resourceType: ShardedCluster},
+		{name: "project migration uses connection not old status", projectID: "resolved-project", statusID: "old-project", resourceType: ReplicaSet},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mdb := NewReplicaSetBuilder().Build()
+			mdb.Spec.ResourceType = tc.resourceType
+			mdb.Status.ProjectId = tc.statusID
+			names := mdb.GetSecretsMountedIntoDBPod(tc.projectID)
+			if tc.projectID != "" {
+				assert.Contains(t, names, "resolved-project-group-secret")
+			}
+			assert.NotContains(t, names, "-group-secret")
+			assert.NotContains(t, names, "old-project-group-secret")
+		})
+	}
+}
 
 func TestEnsureSecurity_WithAllNilValues(t *testing.T) {
 	spec := &MongoDbSpec{

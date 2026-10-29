@@ -29,7 +29,7 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			StsLabels:                     mdbm.GetOwnerLabels(),
 			OwnerReference:                nil,
 			MultiClusterMode:              true,
-			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
+			HostNameOverrideConfigmapName: fmt.Sprintf("%s-hostname-override", mdbm.Name),
 			StatefulSetSpecOverride:       &stsSpec,
 			StsType:                       construct.MultiReplicaSet,
 			Annotations:                   handler.MultiClusterStatefulSetAnnotations(mdbm.Name),

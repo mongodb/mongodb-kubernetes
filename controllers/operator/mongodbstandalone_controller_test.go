@@ -278,10 +278,13 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, s, architectures.NonStatic)
 
 	checkReconcileSuccessful(ctx, t, reconciler, s, kubeClient)
+	require.NoError(t, kubeClient.Get(ctx, s.ObjectKey(), s))
+	require.NotEmpty(t, s.Status.ProjectId)
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, s.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:               {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}:   {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:                 {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Status.ProjectId+"-group-secret")}: {s.ObjectKey()},
 	}
 
 	actual := reconciler.resourceWatcher.GetWatchedResources()

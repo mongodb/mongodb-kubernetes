@@ -37,7 +37,7 @@ func WatchSecretChangeForMDB(ctx context.Context, log *zap.SugaredLogger, watchC
 				break
 			}
 
-			for _, secretName := range mdb.GetSecretsMountedIntoDBPod() {
+			for _, secretName := range mdb.GetSecretsMountedIntoDBPod(mdb.Status.ProjectId) {
 				path := fmt.Sprintf("%s/%s/%s", vaultClient.DatabaseSecretMetadataPath(), mdb.Namespace, secretName)
 				latestResourceVersion, currentResourceVersion := getCurrentAndLatestVersion(vaultClient, path, secretName, mdb.Annotations, log)
 

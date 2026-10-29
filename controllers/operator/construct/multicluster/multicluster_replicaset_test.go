@@ -58,6 +58,19 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMultiCluster {
 }
 
 func TestMultiClusterStatefulSet(t *testing.T) {
+	t.Run("hostname ConfigMap is mounted in both architectures", func(t *testing.T) {
+		for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+			mdbm := getMultiClusterMongoDB()
+			opts := MultiClusterReplicaSetOptions(WithClusterNum(0), WithMemberCount(3), construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture))
+			sts := MultiClusterStatefulSet(mdbm, opts)
+			assert.Equal(t, mdbm.Name+"-hostname-override", opts(mdbm).HostNameOverrideConfigmapName)
+			for _, containers := range [][]corev1.Container{sts.Spec.Template.Spec.Containers, sts.Spec.Template.Spec.InitContainers} {
+				for _, c := range containers {
+					assert.Contains(t, c.VolumeMounts, corev1.VolumeMount{Name: mdbm.Name + "-hostname-override", MountPath: "/opt/scripts/config"})
+				}
+			}
+		}
+	})
 	t.Run("No override provided", func(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()
 		opts := MultiClusterReplicaSetOptions(

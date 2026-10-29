@@ -122,6 +122,49 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 }
 
+func TestMultiReplicaSetHostnameConfigMaps(t *testing.T) {
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		for _, external := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/external=%t", architecture, external), func(t *testing.T) {
+				ctx := context.Background()
+				builder := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters)
+				if external {
+					builder.SetExternalAccess(mdb.ExternalAccessConfiguration{ExternalDomain: new("cluster-%d.testing")}, new("cluster-%d.testing"))
+				}
+				mrs := builder.Build()
+				reconciler, centralClient, memberClients, factory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architecture)
+				factory.SetPostCreateHook(func(connection om.Connection) {
+					connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+					connection.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(mrs)
+				})
+				checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, centralClient, false)
+				for _, item := range mrs.Spec.ClusterSpecList {
+					member := memberClients[item.ClusterName]
+					cm := corev1.ConfigMap{}
+					require.NoError(t, member.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name+"-hostname-override"), &cm))
+					assert.Equal(t, mrs.GetOwnerLabels(), cm.Labels)
+					assert.Empty(t, cm.OwnerReferences)
+					require.Len(t, cm.Data, item.Members)
+					for pod := range item.Members {
+						name := fmt.Sprintf("%s-%d-%d", mrs.Name, mrs.ClusterNum(item.ClusterName), pod)
+						hostname := name + "-svc." + mrs.Namespace + ".svc." + mrs.Spec.GetClusterDomain()
+						if domain := mrs.Spec.GetExternalDomainForMemberCluster(item.ClusterName); domain != nil {
+							hostname = name + "." + *domain
+						}
+						assert.Equal(t, hostname, cm.Data[name])
+					}
+					sts := appsv1.StatefulSet{}
+					require.NoError(t, member.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts))
+					for _, c := range sts.Spec.Template.Spec.Containers {
+						assert.Contains(t, c.VolumeMounts, corev1.VolumeMount{Name: cm.Name, MountPath: "/opt/scripts/config"})
+					}
+					assert.Empty(t, sts.Spec.Template.Spec.Containers[0].Args)
+				}
+			})
+		}
+	}
+}
+
 func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
@@ -374,9 +417,55 @@ func TestMultiClusterConfigMapAndSecretWatched(t *testing.T) {
 	expected := map[watch.Object][]types.NamespacedName{
 		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, mrs.Name)},
 		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, mrs.Spec.Credentials)}:             {kube.ObjectKey(mock.TestNamespace, mrs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "abcd1234-group-secret")}:          {kube.ObjectKey(mock.TestNamespace, mrs.Name)},
+	}
+	for clusterNum := range 3 {
+		key := watch.Object{
+			ResourceType: watch.ConfigMap,
+			Resource:     kube.ObjectKey(mock.TestNamespace, fmt.Sprintf("%s-%d-agent-settings", mrs.Name, clusterNum)),
+		}
+		expected[key] = []types.NamespacedName{kube.ObjectKey(mock.TestNamespace, mrs.Name)}
 	}
 
-	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
+	assert.Equal(t, expected, reconciler.resourceWatcher.GetWatchedResources())
+}
+
+func TestSyncAgentAPIKeySecretSkipsUnchangedData(t *testing.T) {
+	ctx := context.Background()
+	central, _ := mock.NewDefaultFakeClient()
+	member, _ := mock.NewDefaultFakeClient()
+	target := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent-key-sync-test", Namespace: mock.TestNamespace},
+	}
+	centralSecret := target.DeepCopy()
+	centralSecret.Data = map[string][]byte{util.OmAgentApiKey: []byte("central-key")}
+	require.NoError(t, central.CreateSecret(ctx, *centralSecret))
+
+	memberSecret := target.DeepCopy()
+	memberSecret.Data = map[string][]byte{util.OmAgentApiKey: []byte("central-key")}
+	require.NoError(t, member.CreateSecret(ctx, *memberSecret))
+
+	changed, err := syncAgentAPIKeySecret(ctx, central, member, target)
+	require.NoError(t, err)
+	assert.False(t, changed)
+
+	memberSecret.Data = map[string][]byte{util.OmAgentApiKey: []byte("member-key")}
+	require.NoError(t, member.UpdateSecret(ctx, *memberSecret))
+
+	changed, err = syncAgentAPIKeySecret(ctx, central, member, target)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	stored, err := member.GetSecret(ctx, kube.ObjectKey(mock.TestNamespace, target.Name))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("central-key"), stored.Data[util.OmAgentApiKey])
+
+	missingMember, _ := mock.NewDefaultFakeClient()
+	changed, err = syncAgentAPIKeySecret(ctx, central, missingMember, target)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	created, err := missingMember.GetSecret(ctx, kube.ObjectKey(mock.TestNamespace, target.Name))
+	require.NoError(t, err)
+	assert.Equal(t, []byte("central-key"), created.Data[util.OmAgentApiKey])
 }
 
 func TestServiceCreation_WithExternalName(t *testing.T) {
@@ -630,7 +719,7 @@ func TestResourceDeletion(t *testing.T) {
 						configMapList := corev1.ConfigMapList{}
 						err := c.List(ctx, &configMapList)
 						assert.NoError(t, err)
-						assert.Len(t, configMapList.Items, 1)
+						assert.Len(t, configMapList.Items, 2)
 					})
 					t.Run("Secrets in each member cluster have been created", func(t *testing.T) {
 						ctx := context.Background()
@@ -771,7 +860,7 @@ func TestOnDelete_AppDBRole_SkipsOMCleanup(t *testing.T) {
 					assert.Empty(t, secretList.Items)
 				} else {
 					assert.Len(t, serviceList.Items, item.Members+2)
-					assert.Len(t, configMapList.Items, 1)
+					assert.Len(t, configMapList.Items, 2)
 					assert.Len(t, secretList.Items, 1)
 				}
 			}
