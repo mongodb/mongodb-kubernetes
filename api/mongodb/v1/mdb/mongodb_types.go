@@ -3,6 +3,7 @@ package mdb
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -207,9 +208,17 @@ func (m *MongoDB) GetKind() string {
 	return "MongoDB"
 }
 
-// GetSecretsMountedIntoDBPod returns a list of all the optional secret names that are used by this resource.
-func (m *MongoDB) GetSecretsMountedIntoDBPod() []string {
+// AgentAPIKeySecretName returns the agent credential Secret name for a project.
+func AgentAPIKeySecretName(projectID string) string {
+	return fmt.Sprintf("%s-group-secret", projectID)
+}
+
+// GetSecretsMountedIntoDBPod includes the resolved project, which may not be in status yet.
+func (m *MongoDB) GetSecretsMountedIntoDBPod(projectID string) []string {
 	secrets := []string{}
+	if projectID != "" {
+		secrets = append(secrets, AgentAPIKeySecretName(projectID))
+	}
 	var tls string
 	if m.Spec.ResourceType == ShardedCluster {
 		for i := 0; i < m.Spec.ShardCount; i++ {
@@ -838,6 +847,25 @@ func (s StartupParameters) ToCommandLineArgs() string {
 		}
 	}
 	return sb.String()
+}
+
+// ToSettingsFile renders native agent settings without interpreting option types.
+func (s StartupParameters) ToSettingsFile() (string, error) {
+	var content strings.Builder
+	for _, key := range slices.Sorted(maps.Keys(s)) {
+		if key == "" || strings.TrimSpace(key) != key || strings.HasPrefix(key, "#") || strings.HasPrefix(key, "-") || strings.ContainsAny(key, "=\r\n\x00") {
+			return "", fmt.Errorf("invalid agent setting name %q", key)
+		}
+		value := s[key]
+		if strings.ContainsAny(value, "\r\n\x00") {
+			return "", fmt.Errorf("agent setting %q contains a line break or NUL byte", key)
+		}
+		if strings.TrimSpace(value) != value {
+			return "", fmt.Errorf("agent setting %q has leading or trailing whitespace", key)
+		}
+		content.WriteString(key + "=" + value + "\n")
+	}
+	return content.String(), nil
 }
 
 func (m *MongoDB) DesiredReplicas() int {
