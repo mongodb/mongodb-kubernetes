@@ -137,16 +137,6 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 			}}}},
 			errorContains: "must not set operator-managed label keys",
 		},
-		{
-			name: "shard override service labels reject operator-managed keys",
-			create: []searchv1.ClusterSpec{{ShardOverrides: []searchv1.ShardOverride{{
-				ShardNames: []string{"shard-0"},
-				Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
-					Labels: map[string]string{"mongodb.com/search-name": "other"},
-				}},
-			}}}},
-			errorContains: "must not set operator-managed label keys",
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

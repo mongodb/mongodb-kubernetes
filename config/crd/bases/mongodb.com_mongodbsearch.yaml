@@ -621,6 +621,8 @@ spec:
                         the mongot headless Services, the proxy Services and, for sharded sources, the
                         cluster-level mongos proxy Service. shardOverrides[].service applies to the per-shard
                         Services only; the mongos proxy Service always uses this cluster-level value.
+                        The operator-managed label keys app, component, shard, mongodb.com/search-name and
+                        mongodb.com/search-namespace are rejected.
                       properties:
                         metadata:
                           description: Metadata is merged onto the operator-generated
@@ -636,20 +638,18 @@ spec:
                             labels:
                               additionalProperties:
                                 type: string
-                              description: |-
-                                Labels to add to the Service. The operator-managed keys app, component, shard,
-                                mongodb.com/search-name and mongodb.com/search-namespace are rejected.
+                              description: Labels to add to the Service. Operator-managed
+                                label keys always keep the operator's values.
                               type: object
-                              x-kubernetes-validations:
-                              - message: 'service.metadata.labels must not set operator-managed
-                                  label keys: app, component, shard, mongodb.com/search-name,
-                                  mongodb.com/search-namespace'
-                                rule: '!(''app'' in self) && !(''component'' in self)
-                                  && !(''shard'' in self) && !(''mongodb.com/search-name''
-                                  in self) && !(''mongodb.com/search-namespace'' in
-                                  self)'
                           type: object
                       type: object
+                      x-kubernetes-validations:
+                      - message: 'service.metadata.labels must not set operator-managed
+                          label keys: app, component, shard, mongodb.com/search-name,
+                          mongodb.com/search-namespace'
+                        rule: '!has(self.metadata) || !has(self.metadata.labels) ||
+                          [''app'', ''component'', ''shard'', ''mongodb.com/search-name'',
+                          ''mongodb.com/search-namespace''].all(k, !(k in self.metadata.labels))'
                     shardOverrides:
                       description: |-
                         ShardOverrides applies per-shard sizing and metadata exceptions within this cluster,
@@ -989,7 +989,8 @@ spec:
                             description: |-
                               Service metadata merges per key onto the cluster's Service metadata for these
                               shards' headless and proxy Services, shard values winning. It does not apply to
-                              the cluster-level mongos proxy Service.
+                              the cluster-level mongos proxy Service. Operator-managed label keys set here are
+                              ignored: the operator's values always win.
                             properties:
                               metadata:
                                 description: Metadata is merged onto the operator-generated
@@ -1005,18 +1006,9 @@ spec:
                                   labels:
                                     additionalProperties:
                                       type: string
-                                    description: |-
-                                      Labels to add to the Service. The operator-managed keys app, component, shard,
-                                      mongodb.com/search-name and mongodb.com/search-namespace are rejected.
+                                    description: Labels to add to the Service. Operator-managed
+                                      label keys always keep the operator's values.
                                     type: object
-                                    x-kubernetes-validations:
-                                    - message: 'service.metadata.labels must not set
-                                        operator-managed label keys: app, component,
-                                        shard, mongodb.com/search-name, mongodb.com/search-namespace'
-                                      rule: '!(''app'' in self) && !(''component''
-                                        in self) && !(''shard'' in self) && !(''mongodb.com/search-name''
-                                        in self) && !(''mongodb.com/search-namespace''
-                                        in self)'
                                 type: object
                             type: object
                           shardNames:
@@ -1053,7 +1045,6 @@ spec:
                         required:
                         - shardNames
                         type: object
-                      maxItems: 100
                       type: array
                     statefulSet:
                       description: |-

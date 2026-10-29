@@ -270,6 +270,9 @@ type ClusterSpec struct {
 	// the mongot headless Services, the proxy Services and, for sharded sources, the
 	// cluster-level mongos proxy Service. shardOverrides[].service applies to the per-shard
 	// Services only; the mongos proxy Service always uses this cluster-level value.
+	// The operator-managed label keys app, component, shard, mongodb.com/search-name and
+	// mongodb.com/search-namespace are rejected.
+	// +kubebuilder:validation:XValidation:rule="!has(self.metadata) || !has(self.metadata.labels) || ['app', 'component', 'shard', 'mongodb.com/search-name', 'mongodb.com/search-namespace'].all(k, !(k in self.metadata.labels))",message="service.metadata.labels must not set operator-managed label keys: app, component, shard, mongodb.com/search-name, mongodb.com/search-namespace"
 	// +optional
 	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// +optional
@@ -285,7 +288,6 @@ type ClusterSpec struct {
 	// ShardOverrides applies per-shard sizing and metadata exceptions within this cluster,
 	// for external sharded sources only. Each entry layers its set fields
 	// onto this cluster's resolved values for the named shards.
-	// +kubebuilder:validation:MaxItems=100
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
 	// AdvancedMongotConfigs is an opaque block of mongot settings rendered verbatim
@@ -334,7 +336,8 @@ type ShardOverride struct {
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
 	// Service metadata merges per key onto the cluster's Service metadata for these
 	// shards' headless and proxy Services, shard values winning. It does not apply to
-	// the cluster-level mongos proxy Service.
+	// the cluster-level mongos proxy Service. Operator-managed label keys set here are
+	// ignored: the operator's values always win.
 	// +optional
 	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// JVMFlags replaces the cluster's jvmFlags for these shards when non-empty.
