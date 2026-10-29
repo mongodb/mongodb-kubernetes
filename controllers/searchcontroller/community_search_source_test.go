@@ -91,11 +91,12 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:           "X509 mode only",
-			version:        "8.2.0",
-			authModes:      []mdbcv1.AuthMode{"X509"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			// Auth-mode pairing is gated by ValidateSearchSourceAuth, not by the source's own
+			// Validate: an x509-only source is valid for an x509 search.
+			name:        "X509 mode only",
+			version:     "8.2.0",
+			authModes:   []mdbcv1.AuthMode{"X509"},
+			expectError: false,
 		},
 		{
 			name:        "X509 and SCRAM",
@@ -116,11 +117,10 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:           "Multiple non-SCRAM modes",
-			version:        "8.2.0",
-			authModes:      []mdbcv1.AuthMode{"PLAIN", "X509"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			name:        "Multiple non-SCRAM modes",
+			version:     "8.2.0",
+			authModes:   []mdbcv1.AuthMode{"PLAIN", "X509"},
+			expectError: false,
 		},
 		// SCRAM variant tests
 		{
@@ -162,11 +162,10 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 		},
 		// Edge case tests
 		{
-			name:           "PLAIN only",
-			version:        "8.2.0",
-			authModes:      []mdbcv1.AuthMode{"PLAIN"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			name:        "PLAIN only",
+			version:     "8.2.0",
+			authModes:   []mdbcv1.AuthMode{"PLAIN"},
+			expectError: false,
 		},
 		// Combined validation tests
 		{
@@ -177,11 +176,10 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 			expectedErrMsg: "MongoDB version must be 8.2.0 or higher",
 		},
 		{
-			name:           "Valid version with invalid auth",
-			version:        "8.2.0",
-			authModes:      []mdbcv1.AuthMode{"X509"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			name:        "Valid version with non-SCRAM auth",
+			version:     "8.2.0",
+			authModes:   []mdbcv1.AuthMode{"X509"},
+			expectError: false,
 		},
 		{
 			name:           "Invalid version with invalid auth",

@@ -1756,6 +1756,60 @@ func TestApplySearchOverrides_SkipsX509SearchWhenSourceLacksX509Mode(t *testing.
 	assert.Empty(t, maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "setParameter", "mongotHost"))
 }
 
+// An x509 search against an x509-only source gets wired: the absent SCRAM mode only matters
+// for SCRAM searches.
+func TestApplySearchOverrides_WiresX509SearchWhenSourceHasOnlyX509Mode(t *testing.T) {
+	ctx := context.Background()
+
+	x509Search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{}},
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"},
+				X509:               &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}},
+			},
+		},
+	}
+	c := mock.NewEmptyFakeClientBuilder().WithObjects(x509Search).Build()
+
+	rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").SetAuthModes([]mdbv1.AuthMode{"X509"}).Build()
+	reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c)}
+	helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
+
+	applied, err := helper.applySearchOverrides(ctx)
+	require.NoError(t, err)
+	assert.True(t, applied, "x509 search must be wired into an x509-only source")
+	assert.NotEmpty(t, maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "setParameter", "mongotHost"))
+}
+
+// A SCRAM search still requires a SCRAM mode on the source: x509-only modes fail the gate.
+func TestApplySearchOverrides_SkipsSCRAMSearchWhenSourceLacksSCRAMMode(t *testing.T) {
+	ctx := context.Background()
+
+	scramSearch := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{}},
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"},
+				Username:           new("search-user"),
+				PasswordSecretRef:  &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"},
+			},
+		},
+	}
+	c := mock.NewEmptyFakeClientBuilder().WithObjects(scramSearch).Build()
+
+	rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").SetAuthModes([]mdbv1.AuthMode{"X509"}).Build()
+	reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c)}
+	helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
+
+	applied, err := helper.applySearchOverrides(ctx)
+	require.NoError(t, err)
+	assert.False(t, applied, "SCRAM search must not be wired into a source without a SCRAM auth mode")
+	assert.Empty(t, maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "setParameter", "mongotHost"))
+}
+
 func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
 	ctx := context.Background()
 	rs := mdbv1.NewDefaultReplicaSetBuilder().

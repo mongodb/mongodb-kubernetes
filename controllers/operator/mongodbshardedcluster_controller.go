@@ -1186,10 +1186,10 @@ func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx co
 		return nil, nil
 	}
 
-	// An x509 search against a source without an X509 auth mode would only fail at
-	// runtime (mongod disables the MONGODB-X509 mechanism), so skip wiring it.
-	if err := searchcontroller.ValidateX509AuthSource(search, searchcontroller.NewShardedInternalSearchSource(sc, search)); err != nil {
-		zap.S().Warnf("MongoDBSearch %s x509 source check failed: %v", search.NamespacedName(), err)
+	// A search whose auth mode the source cannot serve would only fail at runtime
+	// (mongod disables the MONGODB-X509 mechanism without the mode), so skip wiring it.
+	if err := searchcontroller.ValidateSearchSourceAuth(search, searchcontroller.NewShardedInternalSearchSource(sc, search)); err != nil {
+		zap.S().Warnf("MongoDBSearch %s source auth check failed: %v", search.NamespacedName(), err)
 		return nil, nil
 	}
 
