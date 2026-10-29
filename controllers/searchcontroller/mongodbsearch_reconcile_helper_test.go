@@ -96,9 +96,10 @@ func newTestMongoDBCommunity(name, namespace string, modifications ...func(*mdbc
 
 func newTestOperatorSearchConfig() OperatorSearchConfig {
 	config := OperatorSearchConfig{
-		SearchRepo:    "test-repo",
-		SearchName:    "mongot",
-		SearchVersion: minSupportedSearchVersion,
+		SearchRepo: "test-repo",
+		SearchName: "mongot",
+		// At the OIDC floor: OIDC reconciles reject anything older.
+		SearchVersion: minOIDCMongotVersion,
 	}
 
 	return config
@@ -3629,6 +3630,7 @@ func TestValidateOIDCSource(t *testing.T) {
 			Spec: mdbv1.MongoDbSpec{
 				DbCommonSpec: mdbv1.DbCommonSpec{
 					Security: &mdbv1.Security{
+						TLSConfig: &mdbv1.TLSConfig{Enabled: true},
 						Authentication: &mdbv1.Authentication{
 							Enabled:             true,
 							Modes:               authModes,
@@ -3693,6 +3695,19 @@ func TestValidateOIDCSource(t *testing.T) {
 			newTestOperatorSearchConfig(), nil, "", nil)
 
 		assert.NoError(t, helper.validateOIDCSource())
+	})
+
+	t.Run("enterprise source without TLS rejected", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		noTLSSource := newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC"))
+		noTLSSource.Spec.Security.TLSConfig = nil
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewEnterpriseResourceSearchSource(noTLSSource),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		err := helper.validateOIDCSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires TLS to be enabled on the source MongoDB")
 	})
 
 	t.Run("sharded internal source without OIDC rejected", func(t *testing.T) {

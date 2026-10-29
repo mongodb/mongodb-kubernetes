@@ -55,7 +55,9 @@ const (
 	// minSupportedSearchVersion is the minimum MongoDBSearch (mongot) version supported by this
 	// operator. MCK GA only supports the search GA (1.70.1) release and later, which guarantees a single
 	// mongot config format and feature set (e.g. auto embeddings) to reason about.
-	minSupportedSearchVersion        = "1.70.1"
+	minSupportedSearchVersion = "1.70.1"
+	// minOIDCMongotVersion is the first mongot release that understands the oidc sync-source block.
+	minOIDCMongotVersion             = "1.78.0"
 	unsupportedSearchVersionErrorFmt = "MongoDBSearch version '%s' is not supported. " +
 		"This operator requires MongoDBSearch version '%s' or newer. " +
 		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
@@ -511,6 +513,10 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	version := r.getMongotVersion()
 
 	if err := r.ValidateSearchImageVersion(version); err != nil {
+		return workflow.Failed(err)
+	}
+
+	if err := r.validateOIDCMongotVersion(version); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -2039,8 +2045,8 @@ func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Contex
 	}
 
 	// Optional mTLS client certificate for the mongod connection, reusing spec.source.tls:
-	// ensureEgressTlsConfig already ensures the secret and mounts the volume, so only the
-	// path is recorded here.
+	// ensureEgressTlsConfig mounts the volume; the same secret is (re-)ensured here to derive
+	// the content-hash-named file the mount exposes.
 	var certPath string
 	if r.mdbSearch.HasScramClientCert() {
 		scramCertResource := &scramClientCertResource{MongoDBSearch: r.mdbSearch}
@@ -2627,6 +2633,24 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 	return nil
 }
 
+// validateOIDCMongotVersion rejects OIDC on a mongot that cannot parse the oidc sync-source
+// block: the default search version would accept the CR and then fail at mongot startup.
+// Non-semver versions (dev image tags) are let through, matching ValidateSearchImageVersion.
+func (r *MongoDBSearchReconcileHelper) validateOIDCMongotVersion(version string) error {
+	if !r.mdbSearch.IsOIDCAuth() {
+		return nil
+	}
+	searchVersion, err := semver.NewVersion(version)
+	if err != nil {
+		return nil
+	}
+	minVersion, _ := semver.NewVersion(minOIDCMongotVersion)
+	if searchVersion.LessThan(minVersion) {
+		return xerrors.Errorf("OIDC sync-source authentication requires mongot %s or later, got %s", minOIDCMongotVersion, version)
+	}
+	return nil
+}
+
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.TrimSpace(version) == "" {
 		// An empty version means we could not resolve a search version at all (neither from
@@ -2750,6 +2774,10 @@ func validateOIDCSource(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 	if mdb == nil {
 		return nil
 	}
+	// The sync leg needs TLS to the source; without it the search only fails at render.
+	if db.TLSConfig() == nil {
+		return xerrors.New("OIDC sync-source authentication requires TLS to be enabled on the source MongoDB")
+	}
 	// IsOIDCEnabled() only checks the enabled flag + modes: a source with modes
 	// [SCRAM, OIDC] but no oidcProviderConfigs entry accepts no token at all.
 	if !mdb.IsOIDCEnabled() || len(mdb.Spec.Security.Authentication.OIDCProviderConfigs) == 0 {
@@ -2758,13 +2786,9 @@ func validateOIDCSource(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 	return nil
 }
 
-// validateSCRAMAuthSource enforces the SCRAM source requirement at reconcile time.
-// The source adapters cannot see the search resource (they only wrap the source
-// MongoDB), so the requirement lives here where both are visible: a search resource
-// that authenticates to its source with SCRAM needs a SCRAM auth mode enabled on the
-// source MongoDB. Searches authenticating with x509 or OIDC are exempt — the source
-// needs no SCRAM for them. External sources are unverifiable from the operator and
-// get no check, as before.
+// validateSCRAMAuthSource requires a SCRAM mode on the source for a SCRAM search. The
+// adapters cannot see the search resource, so the pairing lives here where both are visible;
+// x509 and OIDC searches are exempt, and external sources are unverifiable and unchecked.
 func (r *MongoDBSearchReconcileHelper) validateSCRAMAuthSource() error {
 	return validateSCRAMAuthSource(r.mdbSearch, r.db)
 }
