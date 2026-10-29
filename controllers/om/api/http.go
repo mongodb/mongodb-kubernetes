@@ -14,6 +14,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	// mongodb-forks/digest implements RFC 7616 digest auth (MD5 and SHA-256) and
+	// replays request bodies. It replaces the hand-rolled MD5 client that ignored
+	// the stale=true challenge parameter.
+	"github.com/mongodb-forks/digest"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -53,6 +57,10 @@ const (
 	defaultRetryWaitMax = 10 * time.Second
 	defaultRetryMax     = 3
 
+	// maxRedirects is the net/http default redirect limit, kept because
+	// CheckRedirect replaces the default policy.
+	maxRedirects = 10
+
 	// defaultRequestTimeout bounds a single HTTP attempt (connection, response headers and body) against Ops Manager.
 	defaultRequestTimeout = 2 * time.Minute
 )
@@ -78,7 +86,43 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 		Client: newDefaultHTTPClient(),
 	}
 
-	return applyOptions(client, options...)
+	client, err := applyOptions(client, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	// If digest auth is configured, wrap the HTTP transport with the digest
+	// client, then wrap that with staleRetryTransport to retry on stale nonces
+	// (RFC 7616 §3.2). This runs after TLS options so they modify the
+	// *http.Transport first.
+	if client.username != "" && client.password != "" {
+		// The digest transport answers a challenge with credentials on whatever
+		// host sent it, so a cross-host redirect would send the OM credentials to
+		// an unrelated server. net/http only strips an existing Authorization
+		// header, and this transport adds one after the redirect.
+		client.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			// CheckRedirect replaces the net/http default policy, so keep its limit.
+			if len(via) >= maxRedirects {
+				return xerrors.Errorf("stopped after %d redirects", maxRedirects)
+			}
+			if req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host {
+				// Hand the 3xx response to sendRequest instead of failing the
+				// request: an error here makes retryablehttp replay a request that
+				// may not be idempotent.
+				return http.ErrUseLastResponse
+			}
+			return nil
+		}
+		client.HTTPClient.Transport = &staleRetryTransport{
+			transport: &digest.Transport{
+				Username:  client.username,
+				Password:  client.password,
+				Transport: client.HTTPClient.Transport,
+			},
+		}
+	}
+
+	return client, nil
 }
 
 func newDefaultHTTPClient() *retryablehttp.Client {
@@ -172,15 +216,6 @@ func (client *Client) Request(ctx context.Context, method, hostname, path string
 	if err != nil {
 		return nil, nil, apierror.New(err)
 	}
-
-	if client.username != "" && client.password != "" {
-		// Only add Digest auth when needed.
-		err = client.authorizeRequest(ctx, method, hostname, path, req)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
 	return client.sendRequest(method, url, path, req)
 }
 
@@ -200,48 +235,6 @@ func (client *Client) RequestWithAgentAuth(ctx context.Context, method, hostname
 	req.Header.Set("Authorization", agentAuth)
 
 	return client.sendRequest(method, url, path, req)
-}
-
-// authorizeRequest executes one request that's meant to be challenged by the
-// server in order to build the next one. The `request` parameter is aggregated
-// with the required `Authorization` header.
-func (client *Client) authorizeRequest(ctx context.Context, method, hostname, path string, request *retryablehttp.Request) error {
-	url := hostname + path
-
-	digestRequest, err := retryablehttp.NewRequestWithContext(ctx, method, url, nil)
-	if err != nil {
-		return err
-	}
-	resp, err := client.Do(digestRequest)
-	if err != nil {
-		return err
-	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
-
-	_, err = io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode != http.StatusUnauthorized {
-		return apierror.New(
-			xerrors.Errorf(
-				"Received status code '%v' (%v) but expected the '%d', requested url: %v",
-				resp.StatusCode,
-				resp.Status,
-				http.StatusUnauthorized,
-				digestRequest.URL,
-			),
-		)
-	}
-	digestParts := digestParts(resp)
-	digestAuth := getDigestAuthorization(digestParts, method, path, client.username, client.password)
-
-	request.Header.Set("Authorization", digestAuth)
-
-	return nil
 }
 
 // createHTTPRequest builds a retryable request bound to ctx, with 'v' serialized to JSON as the body.
@@ -294,8 +287,8 @@ func (client *Client) sendRequest(method, url, path string, req *retryablehttp.R
 
 	omClient.WithLabelValues(strconv.Itoa(resp.StatusCode), method, path).Inc()
 
-	// need to clear hooks, because otherwise they will be persisted for the subsequent calls
-	// resulting in logging authorizeRequest
+	// Clear the hooks, because otherwise they persist for the subsequent calls and log
+	// requests and responses that belong to other call sites.
 	client.RequestLogHook = nil
 	client.ResponseLogHook = nil
 
