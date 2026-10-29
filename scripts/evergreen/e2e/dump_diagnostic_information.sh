@@ -8,11 +8,13 @@ set +e
 
 source scripts/funcs/printing
 
-# run_with_timeout limits a command to 30 seconds, so a single hung kubectl call
+# run_with_timeout limits a command to 120 seconds, so a single hung kubectl call
 # cannot stall the rest of the dump. The fallback covers hosts without coreutils timeout.
+DUMP_COMMAND_TIMEOUT_SECONDS=120
+
 run_with_timeout() {
     if command -v timeout > /dev/null 2>&1; then
-        timeout 30 "$@"
+        timeout "${DUMP_COMMAND_TIMEOUT_SECONDS}" "$@"
     else
         "$@"
     fi
@@ -37,7 +39,7 @@ cp_from_pod() {
     fi
 
     if [[ ${rc} -eq 124 ]]; then
-        output="timed out after 30s"
+        output="timed out after ${DUMP_COMMAND_TIMEOUT_SECONDS}s"
     fi
 
     if [[ ${rc} -ne 0 ]]; then
@@ -288,8 +290,9 @@ decode_secret() {
 # redact_secret_values reads decoded Secret JSON from stdin and replaces the
 # value of every key that names a credential. Keys such as ca, ca-pem, tls.crt,
 # and user do not match the pattern, so certificate values and usernames stay.
+# A connection string embeds a password, so its key matches too.
 redact_secret_values() {
-    jq 'with_entries(if (.key | test("key|password|token|secret|credential"; "i")) then .value = "<redacted>" else . end)' 2> /dev/null
+    jq 'with_entries(if (.key | test("key|password|token|secret|credential|connection"; "i")) then .value = "<redacted>" else . end)' 2> /dev/null
 }
 
 dump_secrets() {
