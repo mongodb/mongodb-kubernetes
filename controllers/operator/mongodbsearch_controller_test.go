@@ -934,10 +934,14 @@ func TestMongoDBSearchReconcile_FailsX509SearchWhenSourceLacksX509Mode(t *testin
 	c := mock.NewEmptyFakeClientBuilder().WithObjects(
 		search,
 		mdb,
-		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: mock.TestNamespace},
-			Data: map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")}},
-		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: search.SourceUserPasswordSecretRef().Name, Namespace: mock.TestNamespace},
-			Data: map[string][]byte{"password": []byte("source-password")}},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: mock.TestNamespace},
+			Data:       map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")},
+		},
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: search.SourceUserPasswordSecretRef().Name, Namespace: mock.TestNamespace},
+			Data:       map[string][]byte{"password": []byte("source-password")},
+		},
 	).Build()
 	reconciler := newMongoDBSearchReconciler(c, operatorConfig, map[string]client.Client{}, "")
 
