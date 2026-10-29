@@ -2,12 +2,15 @@ package certs
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -361,6 +364,52 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		assert.Contains(t, status.Message(), "Waiting for cert-manager to write the certificate secret example-managed-om-cert")
 	})
 
+	t.Run("self-signed leaf without its output Secret remains pending", func(t *testing.T) {
+		ctx := context.Background()
+		c := newManagedCertTestClient(t)
+		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		markManagedCertificatesReady(t, ctx, c, nil)
+		// The self-signed CA Secret alone is enough to resolve the trust bundle, but not
+		// enough to prove that the leaf certificate material has been written.
+		require.NoError(t, c.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "example-managed-om-server-ca", Namespace: managedTestNamespace},
+			Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte("CA")},
+		}))
+
+		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		assert.Equal(t, apistatus.PhasePending, status.Phase())
+		assert.Contains(t, status.Message(), "Waiting for cert-manager to write the certificate secret example-managed-om-cert")
+		assert.Equal(t, metav1.ConditionFalse, condition.Status)
+		assert.Equal(t, reasonCertificatesIssuing, condition.Reason)
+	})
+
+	t.Run("output Secret read errors propagate", func(t *testing.T) {
+		ctx := context.Background()
+		failLeafSecretRead := false
+		leafSecretReadErr := errors.New("leaf secret read denied")
+		c := newManagedCertTestClientWithInterceptor(t, interceptor.Funcs{
+			Get: func(ctx context.Context, inner client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Secret); ok && failLeafSecretRead && key.Name == "example-managed-om-cert" {
+					return leafSecretReadErr
+				}
+				return inner.Get(ctx, key, obj, opts...)
+			},
+		})
+		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		markManagedCertificatesReady(t, ctx, c, nil)
+		require.NoError(t, c.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "example-managed-om-server-ca", Namespace: managedTestNamespace},
+			Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte("CA")},
+		}))
+
+		failLeafSecretRead = true
+		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		assert.Equal(t, apistatus.PhaseFailed, status.Phase())
+		assert.Contains(t, status.Message(), "leaf secret read denied")
+		assert.Equal(t, metav1.ConditionFalse, condition.Status)
+		assert.Equal(t, reasonCertificateIssuanceError, condition.Reason)
+	})
+
 	t.Run("renewal failure keeps the workflow OK and reports a false condition", func(t *testing.T) {
 		ctx := context.Background()
 		c := newManagedCertTestClient(t, fallback())
@@ -395,4 +444,80 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		assert.Contains(t, backupLeaf.Spec.SecretName, "example-managed-backup")
 		assertOwnedByManagedTestOM(t, backupLeaf.OwnerReferences)
 	})
+}
+
+// TestManagedServerCertificateWriteGenerationReadiness reproduces a cached read that lags the
+// Certificate write made during the same preparation pass. The Ready status for the previous
+// generation must not be accepted just because the cached object still reports
+// observedGeneration >= cached generation.
+func TestManagedServerCertificateWriteGenerationReadiness(t *testing.T) {
+	ctx := context.Background()
+	fallback := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "fallback-ca", Namespace: managedTestNamespace},
+		Data:       map[string]string{"ca.crt": "FALLBACK-CA"},
+	}
+	cfg := &omv1.ManagedCertificate{CertificateConfig: mdbv1.CertificateConfig{
+		IssuerRef: &mdbv1.IssuerRef{Name: "custom-issuer"},
+		CA:        &mdbv1.CARef{Name: "fallback-ca", Kind: "ConfigMap", Key: "ca.crt"},
+	}}
+
+	var cachedLeaf *certmanagerv1.Certificate
+	c := newManagedCertTestClientWithInterceptor(t, interceptor.Funcs{
+		Get: func(ctx context.Context, inner client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if cert, ok := obj.(*certmanagerv1.Certificate); ok && cachedLeaf != nil && key.Name == cachedLeaf.Name {
+				cachedLeaf.DeepCopyInto(cert)
+				return nil
+			}
+			return inner.Get(ctx, key, obj, opts...)
+		},
+		Update: func(ctx context.Context, inner client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if cert, ok := obj.(*certmanagerv1.Certificate); ok {
+				persisted := &certmanagerv1.Certificate{}
+				if err := inner.Get(ctx, client.ObjectKeyFromObject(cert), persisted); err != nil {
+					return err
+				}
+				if !reflect.DeepEqual(persisted.Spec, cert.Spec) {
+					cert.Generation = persisted.Generation + 1
+				}
+			}
+			return inner.Update(ctx, obj, opts...)
+		},
+	}, fallback)
+
+	opts := serverCertificateOptions()
+	opts.DNSNames = []string{"old.example.com"}
+	_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, opts, managedTestLogger())
+
+	leaf := getManagedCertificate(t, ctx, c, "example-managed-om-cert")
+	leaf.Generation = 1
+	leaf.Status.Conditions = []certmanagerv1.CertificateCondition{{
+		Type:               certmanagerv1.CertificateConditionReady,
+		Status:             cmmeta.ConditionTrue,
+		ObservedGeneration: 1,
+	}}
+	require.NoError(t, c.Update(ctx, leaf))
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "example-managed-om-cert", Namespace: managedTestNamespace},
+		Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte("OLD-CA")},
+	}))
+
+	// The informer cache still holds the generation-1 object while the write below bumps the
+	// Certificate to generation 2 with the new SAN.
+	cachedLeaf = leaf.DeepCopy()
+	opts.DNSNames = []string{"new.example.com"}
+	status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, opts, managedTestLogger())
+	cachedLeaf = nil
+
+	persisted := getManagedCertificate(t, ctx, c, "example-managed-om-cert")
+	assert.Equal(t, int64(2), persisted.Generation)
+	require.Len(t, persisted.Status.Conditions, 1)
+	assert.Equal(t, int64(1), persisted.Status.Conditions[0].ObservedGeneration)
+	assert.Equal(t, apistatus.PhasePending, status.Phase(), "cached Ready for the previous generation must not satisfy an updated desired Certificate")
+	assert.Contains(t, status.Message(), "example-managed-om-cert")
+	assert.Equal(t, metav1.ConditionFalse, condition.Status)
+	assert.Equal(t, reasonCertificatesIssuing, condition.Reason)
+
+	bundle := &corev1.ConfigMap{}
+	err := c.Get(ctx, types.NamespacedName{Name: "example-managed-om-ca-bundle", Namespace: managedTestNamespace}, bundle)
+	assert.True(t, apiErrors.IsNotFound(err), "the CA bundle must not be published before the newly written generation is ready")
 }
