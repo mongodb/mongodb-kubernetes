@@ -5,6 +5,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -12,6 +14,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -19,6 +23,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: Role
@@ -26,6 +32,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 rules:
   - apiGroups:
       - ''
@@ -48,6 +56,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
