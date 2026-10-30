@@ -817,6 +817,8 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithCustomAgentURL(r.customAgentURL),
 
 			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
+
+			WithMongodbProxyImage(r.imageUrls[util.MongodbProxyImageEnv]),
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
 			WithDefaultArchitecture(r.defaultArchitecture),
