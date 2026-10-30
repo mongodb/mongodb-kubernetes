@@ -7,13 +7,17 @@
 # rely on ambient/instance credentials via the default credential chain, so the assumed-role
 # credentials must be scoped to a named profile instead of polluting that chain.
 #
-# This script is the sole owner of the "devprod-platforms-ecr" section in these files, and is
+# Usage: write-aws-profile.sh <profile-name>
+#
+# This script is the sole owner of the "<profile-name>" section in these files, and is
 # written to be safe to run more than once against the same files (e.g. if a task retries on a
 # reused host): it removes any block it previously wrote before appending the current one, rather
 # than appending unconditionally, which would otherwise leave a duplicate "[profile ...]" section
 # that botocore's config parser rejects outright, breaking every AWS call in the task.
 
 set -euo pipefail
+
+profile="${1:?usage: write-aws-profile.sh <profile-name>}"
 
 : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID must be set}"
 : "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY must be set}"
@@ -35,16 +39,16 @@ remove_existing_section() {
     mv "${file}.tmp" "${file}"
 }
 
-remove_existing_section ~/.aws/credentials "[devprod-platforms-ecr]"
+remove_existing_section ~/.aws/credentials "[${profile}]"
 cat >>~/.aws/credentials <<EOF
-[devprod-platforms-ecr]
+[${profile}]
 aws_access_key_id = ${AWS_ACCESS_KEY_ID}
 aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
 aws_session_token = ${AWS_SESSION_TOKEN}
 EOF
 
-remove_existing_section ~/.aws/config "[profile devprod-platforms-ecr]"
+remove_existing_section ~/.aws/config "[profile ${profile}]"
 cat >>~/.aws/config <<EOF
-[profile devprod-platforms-ecr]
+[profile ${profile}]
 region = us-east-1
 EOF

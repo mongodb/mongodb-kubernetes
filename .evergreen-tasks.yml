@@ -903,6 +903,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_ops_manager_license
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_om_ops_manager_upgrade
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:

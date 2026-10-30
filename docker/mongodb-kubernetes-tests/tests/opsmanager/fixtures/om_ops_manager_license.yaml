@@ -1,0 +1,30 @@
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: om-license-e2e
+  labels:
+    e2e-test: "true"
+spec:
+  replicas: 1
+  version: 8.0.7
+  adminCredentials: ops-manager-admin-secret
+  backup:
+    enabled: false
+  configuration:
+    automation.versions.source: mongodb
+    mms.ignoreInitialUiSetup: "true"
+    mms.adminEmailAddr: admin@thecompany.com
+    mms.fromEmailAddr: admin@thecompany.com
+    mms.replyToEmailAddr: admin@thecompany.com
+    mms.mail.hostname: localhost
+    mms.mail.port: "25"
+    mms.mail.ssl: "false"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+  applicationDatabase:
+    members: 3
+    version: 6.0.5-ent
+    podSpec:
+      persistence:
+        single:
+          storage: 1G
