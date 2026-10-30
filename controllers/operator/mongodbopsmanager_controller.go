@@ -1102,6 +1102,34 @@ func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByBackup(ctx conte
 
 	r.watchMongoDBResourcesReferencedByKmip(ctx, opsManager, log)
 	r.watchCaReferencedByKmip(opsManager)
+	r.watchCaReferencedByS3Stores(opsManager)
+}
+
+// watchCaReferencedByS3Stores watches the Secrets and ConfigMaps holding S3 store CA certificates, so a changed CA is sent to Ops Manager
+func (r *OpsManagerReconciler) watchCaReferencedByS3Stores(opsManager *omv1.MongoDBOpsManager) {
+	s3Stores := append(slices.Clone(opsManager.Spec.Backup.S3Configs), opsManager.Spec.Backup.S3OplogStoreConfigs...)
+	for _, s3Store := range s3Stores {
+		for _, caRef := range s3Store.CustomCertificateSecretRefs {
+			if caRef.Name == "" {
+				continue
+			}
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(
+				caRef.Name,
+				opsManager.Namespace,
+				watch.Secret,
+				kube.ObjectKeyFromApiObject(opsManager))
+		}
+		for _, caRef := range s3Store.CustomCertificateConfigMapRefs {
+			if caRef.Name == "" {
+				continue
+			}
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(
+				caRef.Name,
+				opsManager.Namespace,
+				watch.ConfigMap,
+				kube.ObjectKeyFromApiObject(opsManager))
+		}
+	}
 }
 
 func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, log *zap.SugaredLogger) {
@@ -1896,7 +1924,13 @@ func (r *OpsManagerReconciler) readCustomCAFilePathsAndContents(ctx context.Cont
 	return customCertificates, nil
 }
 
-func getCAs(ctx context.Context, s3Config []omv1.S3Config, ns string, client secret.Getter) ([]backup.S3CustomCertificate, error) {
+// caGetter reads the Secrets and ConfigMaps that hold S3 store CA certificates
+type caGetter interface {
+	secret.Getter
+	configmap.Getter
+}
+
+func getCAs(ctx context.Context, s3Config []omv1.S3Config, ns string, client caGetter) ([]backup.S3CustomCertificate, error) {
 	var certificates []backup.S3CustomCertificate
 	for _, config := range s3Config {
 		for _, backupCert := range config.CustomCertificateSecretRefs {
@@ -1910,6 +1944,19 @@ func getCAs(ctx context.Context, s3Config []omv1.S3Config, ns string, client sec
 						CertString: cmContents,
 					})
 				}
+			}
+		}
+		for _, backupCert := range config.CustomCertificateConfigMapRefs {
+			if backupCert.Name != "" {
+				aliasName := "configmap/" + backupCert.Name + "/" + backupCert.Key
+				cmContents, err := configmap.ReadKey(ctx, client, backupCert.Key, kube.ObjectKey(ns, backupCert.Name))
+				if err != nil {
+					return []backup.S3CustomCertificate{}, xerrors.New(err.Error())
+				}
+				certificates = append(certificates, backup.S3CustomCertificate{
+					Filename:   aliasName,
+					CertString: cmContents,
+				})
 			}
 		}
 	}

@@ -8118,14 +8118,43 @@ spec:
                         customCertificate:
                           description: |-
                             Set this to "true" to use the appDBCa as a CA to access S3.
-                            Deprecated: This has been replaced by CustomCertificateSecretRefs,
+                            Deprecated: This has been replaced by CustomCertificateConfigMapRefs and CustomCertificateSecretRefs.
                             In the future all custom certificates, which includes the appDBCa
-                            for s3Config should be configured in CustomCertificateSecretRefs instead.
+                            for s3Config should be configured in CustomCertificateConfigMapRefs or CustomCertificateSecretRefs instead.
                           type: boolean
+                        customCertificateConfigMapRefs:
+                          description: |-
+                            CustomCertificateConfigMapRefs is a list of valid Certificate Authority certificate ConfigMaps
+                            that apply to the associated S3 bucket. Both fields can be used together.
+                          items:
+                            description: Selects a key from a ConfigMap.
+                            properties:
+                              key:
+                                description: The key to select.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the ConfigMap or its
+                                  key must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          type: array
                         customCertificateSecretRefs:
                           description: |-
                             CustomCertificateSecretRefs is a list of valid Certificate Authority certificate secrets
-                            that apply to the associated S3 bucket.
+                            that apply to the associated S3 bucket. A CA certificate holds only public data, so prefer
+                            CustomCertificateConfigMapRefs. Both fields can be used together.
                           items:
                             description: SecretKeySelector selects a key of a Secret.
                             properties:
@@ -8237,14 +8266,43 @@ spec:
                         customCertificate:
                           description: |-
                             Set this to "true" to use the appDBCa as a CA to access S3.
-                            Deprecated: This has been replaced by CustomCertificateSecretRefs,
+                            Deprecated: This has been replaced by CustomCertificateConfigMapRefs and CustomCertificateSecretRefs.
                             In the future all custom certificates, which includes the appDBCa
-                            for s3Config should be configured in CustomCertificateSecretRefs instead.
+                            for s3Config should be configured in CustomCertificateConfigMapRefs or CustomCertificateSecretRefs instead.
                           type: boolean
+                        customCertificateConfigMapRefs:
+                          description: |-
+                            CustomCertificateConfigMapRefs is a list of valid Certificate Authority certificate ConfigMaps
+                            that apply to the associated S3 bucket. Both fields can be used together.
+                          items:
+                            description: Selects a key from a ConfigMap.
+                            properties:
+                              key:
+                                description: The key to select.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the ConfigMap or its
+                                  key must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                          type: array
                         customCertificateSecretRefs:
                           description: |-
                             CustomCertificateSecretRefs is a list of valid Certificate Authority certificate secrets
-                            that apply to the associated S3 bucket.
+                            that apply to the associated S3 bucket. A CA certificate holds only public data, so prefer
+                            CustomCertificateConfigMapRefs. Both fields can be used together.
                           items:
                             description: SecretKeySelector selects a key of a Secret.
                             properties:
