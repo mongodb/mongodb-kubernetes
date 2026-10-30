@@ -1018,6 +1018,7 @@ task_groups:
       - e2e_search_replicaset_external_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
       - e2e_search_mongot_replicaset_x509_auth
+      - e2e_search_enterprise_oidc
 
   # VM migration tests (migrating an existing VM-hosted deployment into Kubernetes).
   # Kept separate from the search task groups since they share no setup with MongoDBSearch.

@@ -1,5 +1,7 @@
 import os
 
+import requests
+
 # Note: The project uses AWS Cognito in the mongodb-mms-testing AWS account to facilitate OIDC authentication testing.
 # This setup includes:
 
@@ -24,3 +26,14 @@ def get_cognito_workload_url() -> str:
 
 def get_cognito_workload_user_id() -> str:
     return os.getenv("cognito_workload_user_id", "")
+
+
+def get_cognito_workload_token_endpoint() -> str:
+    """Returns the Cognito app-client token endpoint URL, derived from the issuer's public
+    OIDC discovery document, e.g. https://<domain>.auth.<region>.amazoncognito.com/oauth2/token.
+    mongot's OIDC client-credentials grant posts to this endpoint, distinct from the
+    issuer URL (cognito_workload_url)."""
+    discovery_url = f"{get_cognito_workload_url().rstrip('/')}/.well-known/openid-configuration"
+    response = requests.get(discovery_url, timeout=30)
+    response.raise_for_status()
+    return response.json()["token_endpoint"]
