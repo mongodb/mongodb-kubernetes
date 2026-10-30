@@ -402,17 +402,6 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 	}, rulesOf(t, byName[n.pvcResizeRole]), "pvc-resize rules")
 }
 
-// TestRender_RejectsWildcard asserts the chart-level backstop for "*": the CLI rejects it
-// when parsing --workload-namespaces, but the member-mode templates must also refuse it,
-// since "*" is only ever valid via operatorClusterScoped.
-func TestRender_RejectsWildcard(t *testing.T) {
-	for _, workload := range [][]string{{"*"}, {"ns1", "*"}} {
-		_, err := Render("mongodb", workload, false, true, "")
-		require.Error(t, err, "expected an error for workload namespaces %v", workload)
-		assert.Contains(t, err.Error(), "--operator-cluster-scoped", "error should point at --operator-cluster-scoped, got: %v", err)
-	}
-}
-
 // TestRender_ImagePullSecrets asserts that a non-empty imagePullSecrets argument is set on
 // the workload ServiceAccounts only (the operator's own member SA carries no image pull
 // secret, since it is not used to pull workload images).

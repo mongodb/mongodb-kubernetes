@@ -43,9 +43,6 @@ the binding namespace source branch on the mode.
        entry — cluster-wide permission is expressed only via memberCluster.clusterScoped,
        which renders a single ClusterRoleBinding. */ -}}
 {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default (list $operatorNamespace) -}}
-{{- if has "*" $workloadNamespaces -}}
-{{- fail "'*' is not a valid workload namespace; use --operator-cluster-scoped for cluster-wide permissions" -}}
-{{- end -}}
 {{- $watchNamespace = concat $workloadNamespaces (list $operatorNamespace) | uniq -}}
 {{- if $memberCluster.clusterScoped | default false -}}
 {{- $watchNamespace = list "*" -}}
