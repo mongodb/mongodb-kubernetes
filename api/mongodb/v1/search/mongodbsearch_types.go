@@ -266,6 +266,11 @@ type ClusterSpec struct {
 	// reconcile loop, for customizations not exposed as first-class fields.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Service sets labels and annotations on this cluster's Services. Labels must not use the
+	// operator-managed keys app, component, shard, mongodb.com/search-name or mongodb.com/search-namespace.
+	// +kubebuilder:validation:XValidation:rule="!has(self.metadata) || !has(self.metadata.labels) || ['app', 'component', 'shard', 'mongodb.com/search-name', 'mongodb.com/search-namespace'].all(k, !(k in self.metadata.labels))",message="service.metadata.labels must not set operator-managed label keys"
+	// +optional
+	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// +optional
 	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
 	// LoadBalancer configures how mongod/mongos connect to this cluster's mongot
@@ -276,8 +281,8 @@ type ClusterSpec struct {
 	// JVMFlags sets the `--jvm-flags` option for this cluster's mongot pods.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
-	// ShardOverrides applies per-shard sizing exceptions within this cluster,
-	// for external sharded sources only. Each entry layers its set sizing fields
+	// ShardOverrides applies per-shard sizing and metadata exceptions within this cluster,
+	// for external sharded sources only. Each entry layers its set fields
 	// onto this cluster's resolved values for the named shards.
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
@@ -298,11 +303,11 @@ func (c ClusterSpec) ResolveIndex() int {
 	return int(*c.Index)
 }
 
-// ShardOverride sizes specific shards within the enclosing cluster differently
+// ShardOverride configures specific shards within the enclosing cluster differently
 // from the cluster default. Replicas, ResourceRequirements, Persistence,
 // JVMFlags and NodeAffinity replace the cluster value for the named shards when set;
-// StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
-// inherit the cluster value.
+// StatefulSetConfiguration is deep-merged and Service metadata is merged per key.
+// Unset fields inherit the cluster value.
 type ShardOverride struct {
 	// ShardNames are the shards (within this cluster) this override applies to.
 	// Each must exist in spec.source.external.shardedCluster.shards[].
@@ -325,6 +330,10 @@ type ShardOverride struct {
 	// StatefulSetConfiguration is deep-merged onto the cluster's StatefulSet override for these shards.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Service metadata overrides the cluster's per key for these shards' Services (not the
+	// mongos proxy). Operator-managed label keys are ignored.
+	// +optional
+	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// JVMFlags replaces the cluster's jvmFlags for these shards when non-empty.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
@@ -1132,11 +1141,11 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 	return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
 }
 
-// ResolveSizingForClusterShard returns the effective sizing for one
+// ResolveSizingForClusterShard returns the effective sizing and metadata for one
 // (cluster, shard) cell: the named cluster's ClusterSpec with the matching
 // shardOverride (if any) layered on top. Replicas, ResourceRequirements,
 // Persistence, NodeAffinity and JVMFlags are replaced when the override sets them;
-// StatefulSetConfiguration is deep-merged onto the cluster value. An empty
+// StatefulSetConfiguration is deep-merged; Service metadata is merged per key. An empty
 // shardName (replica-set sources) or a cluster without a matching override
 // returns the cluster spec.
 func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName string) (ClusterSpec, error) {
@@ -1173,6 +1182,9 @@ func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName stri
 	if override.StatefulSetConfiguration != nil {
 		resolved.StatefulSetConfiguration = mergeStatefulSetConfiguration(resolved.StatefulSetConfiguration, override.StatefulSetConfiguration)
 	}
+	if override.Service != nil {
+		resolved.Service = mergeServiceConfiguration(resolved.Service, override.Service)
+	}
 	return resolved, nil
 }
 
@@ -1198,6 +1210,19 @@ func mergeStatefulSetConfiguration(base, override *v1.StatefulSetConfiguration) 
 	merged.MetadataWrapper.Labels = merge.StringToStringMap(merged.MetadataWrapper.Labels, override.MetadataWrapper.Labels)
 	merged.MetadataWrapper.Annotations = merge.StringToStringMap(merged.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations)
 	return merged
+}
+
+// mergeServiceConfiguration merges override's labels and annotations onto base per key,
+// override winning. The result shares no maps with either input, so resolving never
+// mutates the CR's spec.
+func mergeServiceConfiguration(base, override *v1.ServiceConfiguration) *v1.ServiceConfiguration {
+	if base == nil {
+		return override.DeepCopy()
+	}
+	return &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+		Labels:      merge.StringToStringMap(base.MetadataWrapper.Labels, override.MetadataWrapper.Labels),
+		Annotations: merge.StringToStringMap(base.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations),
+	}}
 }
 
 // HasMultipleReplicas reports whether any cluster runs more than one mongot

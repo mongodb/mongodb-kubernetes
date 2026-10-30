@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -205,6 +206,7 @@ type clusterLevelResource struct {
 	svcName          types.NamespacedName
 	fallbackPodLabel string
 	ownerReferences  []metav1.OwnerReference
+	serviceConfig    *v1.ServiceConfiguration
 }
 
 // reconcilePlan is the full per-reconcile work description: a list of units plus the
@@ -296,6 +298,7 @@ type clusterWork struct {
 	ClusterName        string
 	ClusterIndex       int
 	SyncSourceSelector *searchv1.SyncSourceSelector
+	Service            *v1.ServiceConfiguration
 	Client             kubernetesClient.Client
 	Local              bool
 }
@@ -317,6 +320,7 @@ func (r *MongoDBSearchReconcileHelper) buildClusterWorkList() []clusterWork {
 			ClusterName:        c.Name,
 			ClusterIndex:       c.ResolveIndex(),
 			SyncSourceSelector: c.SyncSourceSelector,
+			Service:            c.Service,
 			Local:              c.Name == "" || c.Name == r.operatorClusterName,
 		}
 		if w.Local {
@@ -434,6 +438,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 				svcName:          r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex),
 				fallbackPodLabel: r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, shardNames[0]).Name,
 				ownerReferences:  w.ownerReferences(r.mdbSearch),
+				serviceConfig:    w.Service,
 			})
 		}
 	}
@@ -1498,6 +1503,16 @@ const (
 	operatorLabelValue = "mongodb-kubernetes-operator"
 )
 
+// serviceMetadata returns a Service's labels and annotations: the user metadata from cfg
+// with operatorLabels applied last, so user labels can never override the operator's
+// identity labels (which the resource sweep selects on).
+func serviceMetadata(cfg *v1.ServiceConfiguration, operatorLabels map[string]string) (map[string]string, map[string]string) {
+	if cfg == nil {
+		return operatorLabels, nil
+	}
+	return merge.StringToStringMap(cfg.MetadataWrapper.Labels, operatorLabels), merge.StringToStringMap(nil, cfg.MetadataWrapper.Annotations)
+}
+
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
 // behavior comes from the unit's explicit fields — no branching on "is this a shard?".
 func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
@@ -1507,11 +1522,13 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 	}
 	maps.Copy(svcLabels, unit.additionalSvcLabels)
 	maps.Copy(svcLabels, searchOwnerLabels(search))
+	svcLabels, annotations := serviceMetadata(unit.sizing.Service, svcLabels)
 
 	serviceBuilder := service.Builder().
 		SetName(unit.headlessSvc.Name).
 		SetNamespace(unit.headlessSvc.Namespace).
 		SetLabels(svcLabels).
+		SetAnnotations(annotations).
 		SetSelector(map[string]string{appLabelKey: unit.podLabels[appLabelKey]}).
 		SetClusterIP("None").
 		SetServiceType(corev1.ServiceTypeClusterIP).
@@ -1547,6 +1564,7 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 	}
 	maps.Copy(labels, unit.additionalSvcLabels)
 	maps.Copy(labels, searchOwnerLabels(search))
+	labels, annotations := serviceMetadata(unit.sizing.Service, labels)
 
 	targetPort := search.GetEffectiveMongotPort()
 
@@ -1554,6 +1572,7 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 		SetName(unit.proxySvc.Name).
 		SetNamespace(unit.proxySvc.Namespace).
 		SetLabels(labels).
+		SetAnnotations(annotations).
 		SetSelector(selector).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetOwnerReferences(unit.ownerReferences)
@@ -1588,6 +1607,7 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 		componentLabelKey: proxyServiceComponent,
 	}
 	maps.Copy(labels, searchOwnerLabels(search))
+	labels, annotations := serviceMetadata(res.serviceConfig, labels)
 
 	targetPort := search.GetEffectiveMongotPort()
 
@@ -1595,6 +1615,7 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 		SetName(res.svcName.Name).
 		SetNamespace(res.svcName.Namespace).
 		SetLabels(labels).
+		SetAnnotations(annotations).
 		SetSelector(selector).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetOwnerReferences(res.ownerReferences)

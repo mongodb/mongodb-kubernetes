@@ -595,6 +595,45 @@ func TestResolveSizingForClusterShard_StatefulSetDeepMerge(t *testing.T) {
 	})
 }
 
+func TestResolveSizingForClusterShard_ServiceMetadata(t *testing.T) {
+	config := func(labels, annotations map[string]string) *v1.ServiceConfiguration {
+		return &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{Labels: labels, Annotations: annotations}}
+	}
+	base := config(map[string]string{"team": "cluster", "keep": "yes"}, map[string]string{"note": "cluster", "keep": "yes"})
+	override := config(map[string]string{"team": "shard", "extra": "yes"}, map[string]string{"note": "shard", "extra": "yes"})
+	tests := []struct {
+		name     string
+		base     *v1.ServiceConfiguration
+		override *v1.ServiceConfiguration
+		want     *v1.ServiceConfiguration
+	}{
+		{"shard only", nil, override, override},
+		{"empty override inherits", base, &v1.ServiceConfiguration{}, base},
+		{"merge with shard precedence", base, override, config(
+			map[string]string{"team": "shard", "keep": "yes", "extra": "yes"},
+			map[string]string{"note": "shard", "keep": "yes", "extra": "yes"},
+		)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &MongoDBSearch{Spec: MongoDBSearchSpec{Clusters: []ClusterSpec{
+				{Name: "east", Service: tc.base, ShardOverrides: []ShardOverride{{ShardNames: []string{"shard-0"}, Service: tc.override}}},
+			}}}
+			before := s.DeepCopy()
+			got, err := s.ResolveSizingForClusterShard("east", "shard-0")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.Service)
+			other, err := s.ResolveSizingForClusterShard("east", "shard-1")
+			require.NoError(t, err)
+			assert.Equal(t, tc.base, other.Service)
+
+			got.Service.MetadataWrapper.Labels["mutation"] = "no-alias"
+			got.Service.MetadataWrapper.Annotations["mutation"] = "no-alias"
+			assert.Equal(t, before, s, "resolved maps must not alias the spec")
+		})
+	}
+}
+
 func TestUpdateStatus_MetricsForwarderPath(t *testing.T) {
 	s := &MongoDBSearch{}
 	partOpt := NewSearchPartOption(SearchPartMetricsForwarder)
