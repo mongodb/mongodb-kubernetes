@@ -58,6 +58,7 @@ the binding namespace source branch on the mode.
     {{- $roleScope = "ClusterRole" -}}
     {{- $watchNamespace = list "*" -}}
 {{- end -}}
+
 {{- range $idx, $namespace := $watchNamespace }}
 ---
 kind: {{ $roleScope }}
