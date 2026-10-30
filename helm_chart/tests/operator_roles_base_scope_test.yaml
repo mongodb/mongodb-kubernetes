@@ -21,6 +21,8 @@ tests:
           value: Role
         documentIndex: 1
 
+  # Documents interleave Role, RoleBinding per namespace (a RoleBinding cannot
+  # reference a Role in another namespace).
   - it: multi-namespace watchNamespace renders one Role per namespace and no ClusterRole
     set:
       operator.watchNamespace: "ns1,ns2"
@@ -31,11 +33,20 @@ tests:
           of: Role
         documentIndex: 0
       - isKind:
-          of: Role
+          of: RoleBinding
         documentIndex: 1
       - isKind:
           of: Role
         documentIndex: 2
+      - isKind:
+          of: RoleBinding
+        documentIndex: 3
+      - isKind:
+          of: Role
+        documentIndex: 4
+      - isKind:
+          of: RoleBinding
+        documentIndex: 5
       - equal:
           path: metadata.namespace
           value: ns1
@@ -43,28 +54,19 @@ tests:
       - equal:
           path: metadata.namespace
           value: ns2
-        documentIndex: 1
+        documentIndex: 2
       - equal:
           path: metadata.namespace
           value: NAMESPACE
-        documentIndex: 2
-      - isKind:
-          of: RoleBinding
-        documentIndex: 3
-      - isKind:
-          of: RoleBinding
         documentIndex: 4
-      - isKind:
-          of: RoleBinding
-        documentIndex: 5
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 1
       - equal:
           path: roleRef.kind
           value: Role
         documentIndex: 3
-      - equal:
-          path: roleRef.kind
-          value: Role
-        documentIndex: 4
       - equal:
           path: roleRef.kind
           value: Role

@@ -51,10 +51,8 @@ Scope model (set exclusively by the plugin):
 {{- $bindingNamespaces := concat $workloadNamespaces ($namespace | list) | uniq }}
 {{- /* One Role per binding namespace: only a cluster-scoped member (clusterScoped) renders a ClusterRole. */ -}}
 {{- $roleScope := "Role" -}}
-{{- $bindingKind := "RoleBinding" -}}
 {{- if $clusterScoped -}}
 {{- $roleScope = "ClusterRole" -}}
-{{- $bindingKind = "ClusterRoleBinding" -}}
 {{- $bindingNamespaces = list $namespace -}}
 {{- end }}
 {{- $rbacVersion := .Chart.Version | quote }}
@@ -111,11 +109,11 @@ rules:
     verbs:
       - deletecollection
 ---
-kind: {{ $bindingKind }}
+kind: {{ $roleScope }}Binding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $name }}-role-multicluster-binding
-{{- if not $clusterScoped }}
+{{- if eq $roleScope "Role" }}
   namespace: {{ $ns }}
 {{- end }}
   annotations:
