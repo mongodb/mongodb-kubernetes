@@ -25,8 +25,10 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
@@ -2968,4 +2970,78 @@ func dropLastShardFromShardingSection(t *testing.T, dep om.Deployment) {
 		result = append(result, s)
 	}
 	dep["sharding"] = result
+}
+
+// TestApplySearchParametersForShards_AuthGateAllRoutingModes pins the auth gate for every
+// internal sharded routing mode: an OIDC search referencing a sharded source without OIDC
+// enabled must write no search parameters, in no-LB, unmanaged-LB, and managed-LB mode.
+func TestApplySearchParametersForShards_AuthGateAllRoutingModes(t *testing.T) {
+	ctx := context.Background()
+
+	newSearch := func(lb *searchv1.LoadBalancerConfig, oidc bool) *searchv1.MongoDBSearch {
+		search := &searchv1.MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "search", Namespace: mock.TestNamespace},
+			Spec: searchv1.MongoDBSearchSpec{
+				Clusters: []searchv1.ClusterSpec{{LoadBalancer: lb}},
+				Source: &searchv1.MongoDBSource{
+					MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: test.SCBuilderDefaultName},
+				},
+			},
+		}
+		if oidc {
+			search.Spec.Source.OIDC = &searchv1.OIDCAuth{
+				TokenEndpoint:     "https://idp.example.com/token",
+				ClientID:          "mongot-client",
+				ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+				IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+			}
+		}
+		return search
+	}
+
+	run := func(t *testing.T, sc *mdbv1.MongoDB, search *searchv1.MongoDBSearch) *ShardedClusterReconcileHelper {
+		t.Helper()
+		kubeClient, _ := mock.NewDefaultFakeClient(sc)
+		require.NoError(t, kubeClient.Create(ctx, search))
+		shards := make(map[int]*mdbv1.ShardedClusterComponentSpec)
+		for i := 0; i < sc.Spec.ShardCount; i++ {
+			shards[i] = &mdbv1.ShardedClusterComponentSpec{}
+		}
+		helper := &ShardedClusterReconcileHelper{
+			sc:                         sc,
+			commonController:           NewReconcileCommonController(ctx, kubeClient),
+			desiredShardsConfiguration: shards,
+			desiredMongosConfiguration: &mdbv1.ShardedClusterComponentSpec{},
+		}
+		require.NoError(t, helper.applySearchParametersForShards(ctx, zap.S()))
+		return helper
+	}
+
+	wired := func(h *ShardedClusterReconcileHelper) bool {
+		for _, cfg := range h.desiredShardsConfiguration {
+			if cfg.AdditionalMongodConfig != nil {
+				return true
+			}
+		}
+		return false
+	}
+
+	sc := test.DefaultClusterBuilder().Build()
+	oidcModes := []struct {
+		name string
+		lb   *searchv1.LoadBalancerConfig
+	}{
+		{name: "no load balancer"},
+		{name: "unmanaged load balancer", lb: &searchv1.LoadBalancerConfig{Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"}}},
+		{name: "managed load balancer", lb: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}},
+	}
+	for _, mode := range oidcModes {
+		t.Run("OIDC search on a source without OIDC writes no search parameters ("+mode.name+")", func(t *testing.T) {
+			assert.False(t, wired(run(t, sc, newSearch(mode.lb, true))))
+		})
+	}
+
+	t.Run("SCRAM search on the same source is wired", func(t *testing.T) {
+		assert.True(t, wired(run(t, sc, newSearch(nil, false))))
+	})
 }

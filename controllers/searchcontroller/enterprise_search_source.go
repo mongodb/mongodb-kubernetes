@@ -2,7 +2,6 @@ package searchcontroller
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/blang/semver"
 	"golang.org/x/xerrors"
@@ -81,19 +80,8 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 		return err
 	}
 
-	authModes := r.Spec.GetSecurityAuthenticationModes()
-	foundScram := false
-	for _, authMode := range authModes {
-		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
-		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
-			foundScram = true
-			break
-		}
-	}
-
-	if !foundScram && len(authModes) > 0 {
-		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
-	}
-
+	// No auth-mode check here: this adapter wraps the source MongoDB only and cannot see the
+	// search resource's auth mode. The SCRAM-on-source requirement lives in the reconcile-level
+	// validateSCRAMAuthSource, which exempts x509/OIDC searches.
 	return nil
 }

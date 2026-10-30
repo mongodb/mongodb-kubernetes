@@ -37,6 +37,7 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -95,9 +96,10 @@ func newTestMongoDBCommunity(name, namespace string, modifications ...func(*mdbc
 
 func newTestOperatorSearchConfig() OperatorSearchConfig {
 	config := OperatorSearchConfig{
-		SearchRepo:    "test-repo",
-		SearchName:    "mongot",
-		SearchVersion: minSupportedSearchVersion,
+		SearchRepo: "test-repo",
+		SearchName: "mongot",
+		// At the OIDC floor: OIDC reconciles reject anything older.
+		SearchVersion: minOIDCMongotVersion,
 	}
 
 	return config
@@ -3105,77 +3107,746 @@ func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	assert.Contains(t, argsJoined, "x509-key-password")
 }
 
-func TestKeyFilePasswordContentHash(t *testing.T) {
-	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, secrets ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
+// newOIDCMongoDBSearch returns a test search resource authenticating to its source
+// with OIDC, with the client secret and IdP CA fixtures referenced by name.
+func newOIDCMongoDBSearch(name, namespace string, modifications ...func(*searchv1.MongoDBSearch)) *searchv1.MongoDBSearch {
+	return newTestMongoDBSearch(name, namespace, append(modifications, func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source.OIDC = &searchv1.OIDCAuth{
+			TokenEndpoint:     "https://idp.example.com/token",
+			ClientID:          "mongot-client",
+			ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+			IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+			Scope:             new("openid"),
+		}
+	})...)
+}
+
+// oidcTestFixtures returns the client secret and IdP CA ConfigMap referenced by
+// newOIDCMongoDBSearch.
+func oidcTestFixtures() (client.Object, client.Object) {
+	clientSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "oidc-client-secret", Namespace: "test-ns"},
+		Data:       map[string][]byte{"clientSecret": []byte("client-secret-value")},
+	}
+	idpCaConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: "test-ns"},
+		Data:       map[string]string{OIDCIdPCAConfigMapKey: "idp-ca-pem"},
+	}
+	return clientSecret, idpCaConfigMap
+}
+
+func TestEnsureOIDCClientConfig_NoopWhenNotConfigured(t *testing.T) {
+	search := newTestMongoDBSearch("test-search", "test-ns")
+
+	fakeClient := newTestFakeClient(search)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, nil, newTestOperatorSearchConfig(), nil, "", nil)
+
+	mongotMod, stsMod, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
+	require.NoError(t, err)
+
+	// Apply modifications and verify no changes
+	config := &mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "original-user",
+					PasswordFile: "/original/path",
+					AuthSource:   new("admin"),
+				},
+			},
+		},
+	}
+	mongotMod(config)
+
+	assert.Equal(t, "original-user", config.SyncSource.ReplicaSet.ScramAuth.Username)
+	assert.Equal(t, "/original/path", config.SyncSource.ReplicaSet.ScramAuth.PasswordFile)
+	assert.Equal(t, "admin", *config.SyncSource.ReplicaSet.ScramAuth.AuthSource)
+	assert.Nil(t, config.SyncSource.ReplicaSet.OIDC)
+
+	// Volumes and mounts left over from an OIDC→password auth switch must be cleaned up
+	sts := newBaseMongotStatefulSet()
+	sts.Spec.Template.Spec.Volumes = []corev1.Volume{
+		statefulset.CreateVolumeFromSecret("oidc-client-secret", "oidc-client-secret"),
+		statefulset.CreateVolumeFromConfigMap("oidc-idp-ca", "oidc-idp-ca"),
+	}
+	sts.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+		statefulset.CreateVolumeMount("oidc-client-secret", OIDCClientSecretMountPath),
+		statefulset.CreateVolumeMount("oidc-idp-ca", OIDCIdPCaMountPath),
+	}
+	stsMod(sts)
+	assert.Empty(t, sts.Spec.Template.Spec.Volumes)
+	assert.Empty(t, sts.Spec.Template.Spec.Containers[0].VolumeMounts)
+}
+
+func TestEnsureOIDCClientConfig_ErrorWhenTLSNotConfigured(t *testing.T) {
+	search := newOIDCMongoDBSearch("test-search", "test-ns")
+
+	dbSource := &mockShardedSource{tlsConfig: nil} // No TLS on source
+
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+
+	_, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tls must be enabled")
+}
+
+func TestEnsureOIDCClientConfig_MongotAndStsModification(t *testing.T) {
+	search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+	})
+
+	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+
+	mongotMod, stsMod, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
+	require.NoError(t, err)
+
+	// Apply mongot modification to a config with both ReplicaSet and Router (sharded scenario)
+	config := &mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "search-sync-source",
+					PasswordFile: TempSourceUserPasswordPath,
+					AuthSource:   new("admin"),
+				},
+			},
+			Router: &mongot.ConfigRouter{
+				HostAndPort: []string{"mongos-svc:27017"},
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "search-sync-source",
+					PasswordFile: TempSourceUserPasswordPath,
+				},
+			},
+		},
+	}
+	mongotMod(config)
+
+	// ReplicaSet: scramAuth cleared, OIDC config set with all file paths and scope passthrough
+	assert.Nil(t, config.SyncSource.ReplicaSet.ScramAuth)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC)
+	assert.Equal(t, mongot.ConfigOIDCEnvironmentCustom, config.SyncSource.ReplicaSet.OIDC.Environment)
+	assert.Equal(t, "https://idp.example.com/token", config.SyncSource.ReplicaSet.OIDC.TokenEndpoint)
+	assert.Equal(t, "mongot-client", config.SyncSource.ReplicaSet.OIDC.ClientID)
+	assert.Equal(t, TempOIDCClientSecretPath, config.SyncSource.ReplicaSet.OIDC.ClientSecretFile)
+	assert.Equal(t, OIDCIdPCaMountPath+"/"+OIDCIdPCAConfigMapKey, config.SyncSource.ReplicaSet.OIDC.IDPCaFile)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Scope)
+	assert.Equal(t, "openid", *config.SyncSource.ReplicaSet.OIDC.Scope)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.TLS)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile)
+	assert.Equal(t, tls.CAMountPath+"ca-pem", *config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile)
+	assert.Nil(t, config.SyncSource.ReplicaSet.OIDC.TLS.TLSCertificateKeyFile)
+
+	// Router: same OIDC modifications
+	assert.Nil(t, config.SyncSource.Router.ScramAuth)
+	require.NotNil(t, config.SyncSource.Router.OIDC)
+	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Scope, *config.SyncSource.Router.OIDC.Scope)
+	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile, *config.SyncSource.Router.OIDC.TLS.CertificateAuthorityFile)
+
+	// Apply STS modification and verify volumes
+	sts := newBaseMongotStatefulSet()
+	stsMod(sts)
+
+	var clientSecretVolume *corev1.Volume
+	for i := range sts.Spec.Template.Spec.Volumes {
+		if sts.Spec.Template.Spec.Volumes[i].Name == "oidc-client-secret" {
+			clientSecretVolume = &sts.Spec.Template.Spec.Volumes[i]
+		}
+	}
+	require.NotNil(t, clientSecretVolume, "oidc-client-secret volume should exist")
+	assert.Equal(t, "oidc-client-secret", clientSecretVolume.Secret.SecretName)
+
+	var idpCaVolume *corev1.Volume
+	for i := range sts.Spec.Template.Spec.Volumes {
+		if sts.Spec.Template.Spec.Volumes[i].Name == "oidc-idp-ca" {
+			idpCaVolume = &sts.Spec.Template.Spec.Volumes[i]
+		}
+	}
+	require.NotNil(t, idpCaVolume, "oidc-idp-ca volume should exist")
+	assert.Equal(t, "oidc-idp-ca", idpCaVolume.ConfigMap.Name)
+
+	// Verify mounts on the mongot container: the client secret is mounted with the
+	// secret key as subPath, the IdP CA as a directory
+	mongotContainer := sts.Spec.Template.Spec.Containers[0]
+	var clientSecretMount, idpCaMount *corev1.VolumeMount
+	for i := range mongotContainer.VolumeMounts {
+		switch mongotContainer.VolumeMounts[i].Name {
+		case "oidc-client-secret":
+			clientSecretMount = &mongotContainer.VolumeMounts[i]
+		case "oidc-idp-ca":
+			idpCaMount = &mongotContainer.VolumeMounts[i]
+		}
+	}
+	require.NotNil(t, clientSecretMount, "oidc-client-secret volume mount should exist")
+	assert.Equal(t, OIDCClientSecretMountPath, clientSecretMount.MountPath)
+	assert.Equal(t, "clientSecret", clientSecretMount.SubPath)
+	assert.True(t, clientSecretMount.ReadOnly)
+	require.NotNil(t, idpCaMount, "oidc-idp-ca volume mount should exist")
+	assert.Equal(t, OIDCIdPCaMountPath, idpCaMount.MountPath)
+	assert.True(t, idpCaMount.ReadOnly)
+
+	// Verify the /tmp 0600 workaround is prepended for the client secret (the IdP CA
+	// is public material and gets no workaround)
+	assert.True(t, len(mongotContainer.Args) > 0)
+	argsJoined := strings.Join(mongotContainer.Args, " ")
+	assert.Contains(t, argsJoined, OIDCClientSecretMountPath)
+	assert.Contains(t, argsJoined, TempOIDCClientSecretPath)
+	assert.Contains(t, argsJoined, "0600")
+	assert.NotContains(t, argsJoined, OIDCIdPCaMountPath)
+}
+
+func TestEnsureOIDCClientConfig_ScramClientCertMtls(t *testing.T) {
+	// spec.source.tls carries an optional mTLS client certificate for the mongod
+	// connection, reused by OIDC exactly as by SCRAM.
+	search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source.TLS = &searchv1.SourceTLS{
+			ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"},
+		}
+	})
+
+	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+
+	clientCert := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-client-cert", Namespace: "test-ns"},
+		Data: map[string][]byte{
+			"tls.crt": []byte("cert-data"),
+			"tls.key": []byte("key-data"),
+		},
+	}
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+	fakeClient := newTestFakeClient(search, clientCert, clientSecret, idpCaConfigMap)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+
+	mongotMod, stsMod, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
+	require.NoError(t, err)
+
+	config := &mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "search-sync-source",
+					PasswordFile: TempSourceUserPasswordPath,
+				},
+			},
+		},
+	}
+	mongotMod(config)
+
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.TLS.TLSCertificateKeyFile)
+	assert.True(t, strings.HasPrefix(*config.SyncSource.ReplicaSet.OIDC.TLS.TLSCertificateKeyFile, ScramClientCertOperatorMountPath))
+	assert.True(t, strings.HasSuffix(*config.SyncSource.ReplicaSet.OIDC.TLS.TLSCertificateKeyFile, ".pem"))
+
+	// The operator-managed client cert secret is ensured (idempotent; ensureEgressTlsConfig
+	// mounts the volume — this function must not add a duplicate mount).
+	operatorSecret, err := fakeClient.GetSecret(t.Context(), search.ScramClientCertOperatorManagedSecret())
+	require.NoError(t, err)
+	assert.Subset(t, operatorSecret.Labels, searchOwnerLabels(search))
+
+	sts := newBaseMongotStatefulSet()
+	stsMod(sts)
+	mongotContainer := sts.Spec.Template.Spec.Containers[0]
+	for i := range mongotContainer.VolumeMounts {
+		assert.NotEqual(t, "scram-client-cert", mongotContainer.VolumeMounts[i].Name,
+			"ensureOIDCClientConfig must not add its own scram-client-cert mount")
+	}
+}
+
+func TestEnsureOIDCClientConfig_ScramClientCertMtlsKeyPassword(t *testing.T) {
+	// spec.source.tls carries an mTLS client certificate whose key is password-encrypted:
+	// ensureEgressTlsConfig mounts the password secret and applies the /tmp workaround, so
+	// the rendered OIDC TLS block must reference both the cert and the key-password file.
+	search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.Spec.Source.TLS = &searchv1.SourceTLS{
+			ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"},
+			KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "scram-key-password-secret"},
+		}
+	})
+
+	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+
+	clientCert := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-client-cert", Namespace: "test-ns"},
+		Data: map[string][]byte{
+			"tls.crt": []byte("cert-data"),
+			"tls.key": []byte("key-data"),
+		},
+	}
+	keyPasswordSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-key-password-secret", Namespace: "test-ns"},
+		Data:       map[string][]byte{KeyFilePasswordSecretKey: []byte("my-key-password")},
+	}
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+	fakeClient := newTestFakeClient(search, clientCert, keyPasswordSecret, clientSecret, idpCaConfigMap)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+
+	mongotMod, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
+	require.NoError(t, err)
+
+	config := &mongot.Config{
+		SyncSource: mongot.ConfigSyncSource{
+			ReplicaSet: mongot.ConfigReplicaSet{
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "search-sync-source",
+					PasswordFile: TempSourceUserPasswordPath,
+				},
+			},
+			Router: &mongot.ConfigRouter{
+				HostAndPort: []string{"mongos-svc:27017"},
+				ScramAuth: &mongot.ConfigScramAuth{
+					Username:     "search-sync-source",
+					PasswordFile: TempSourceUserPasswordPath,
+				},
+			},
+		},
+	}
+	mongotMod(config)
+
+	for name, oidc := range map[string]*mongot.ConfigOIDC{
+		"replicaSet": config.SyncSource.ReplicaSet.OIDC,
+		"router":     config.SyncSource.Router.OIDC,
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NotNil(t, oidc)
+			require.NotNil(t, oidc.TLS)
+			require.NotNil(t, oidc.TLS.TLSCertificateKeyFile)
+			assert.True(t, strings.HasPrefix(*oidc.TLS.TLSCertificateKeyFile, ScramClientCertOperatorMountPath))
+			require.NotNil(t, oidc.TLS.TLSCertificateKeyFilePasswordFile,
+				"the OIDC TLS block must reference the key-password file for mongot to decrypt the client key")
+			assert.Equal(t, TempScramKeyPasswordPath, *oidc.TLS.TLSCertificateKeyFilePasswordFile)
+		})
+	}
+}
+
+// Each row loads the other fixture so the error proves it names the missing resource.
+func TestEnsureOIDCClientConfig_MissingResourceErrors(t *testing.T) {
+	search := newOIDCMongoDBSearch("test-search", "test-ns")
+	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+
+	tests := []struct {
+		name          string
+		objects       []client.Object
+		errorContains string
+	}{
+		{
+			name:          "client secret",
+			objects:       []client.Object{idpCaConfigMap},
+			errorContains: "reading OIDC client secret oidc-client-secret",
+		},
+		{
+			name:          "idp ca configmap",
+			objects:       []client.Object{clientSecret},
+			errorContains: "reading OIDC IdP CA configMap oidc-idp-ca",
+		},
+		{
+			name: "idp ca configmap without the ca.crt key",
+			objects: []client.Object{clientSecret, &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: "test-ns"},
+				Data:       map[string]string{"other-ca.crt": "idp-ca-pem"},
+			}},
+			errorContains: fmt.Sprintf(`key "%s" not present in the ConfigMap test-ns/oidc-idp-ca`, OIDCIdPCAConfigMapKey),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeClient := newTestFakeClient(append([]client.Object{search}, tc.objects...)...)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+
+			_, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, searchOwnerLabels(search), search.GetOwnerReferences())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
+
+// TestEnsureMongotConfig_OIDCRenderedBlock pins the exact rendered oidc mongot
+// config block: camelCase keys, no username/password leak.
+func TestEnsureMongotConfig_OIDCRenderedBlock(t *testing.T) {
+	search := newOIDCMongoDBSearch("test-search", "test-ns")
+
+	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap)
+	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+
+	oidcMod, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
+	require.NoError(t, err)
+
+	// Mirror the applyReconcileUnit mod order: base config (username/password), then OIDC
+	// clearing it.
+	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient,
+		search.MongotConfigConfigMapNamespacedName(),
+		search.StatefulSetNamespacedName().Name, "", search.GetOwnerReferences(), 1,
+		mongot.Apply(
+			baseMongotConfig(search, []string{"mongod-0.mongod-svc.test-ns.svc.cluster.local:27017"}),
+			oidcMod,
+		),
+	)
+	require.NoError(t, err)
+
+	cm, err := fakeClient.GetConfigMap(t.Context(), search.MongotConfigConfigMapNamespacedName())
+	require.NoError(t, err)
+
+	rendered := map[string]any{}
+	require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFilename]), &rendered))
+
+	assert.Equal(t, mongot.ConfigOIDCEnvironmentCustom, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "environment"))
+	assert.Equal(t, "https://idp.example.com/token", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tokenEndpoint"))
+	assert.Equal(t, "mongot-client", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientId"))
+	assert.Equal(t, TempOIDCClientSecretPath, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientSecretFile"))
+	assert.Equal(t, OIDCIdPCaMountPath+"/"+OIDCIdPCAConfigMapKey, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "idpCaFile"))
+	assert.Equal(t, "openid", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "scope"))
+	assert.Equal(t, tls.CAMountPath+"ca-pem", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tls", "caFile"))
+	assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "oidc", "tls", "tlsCertificateKeyFile"))
+	assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "scramAuth"),
+		"oidc must replace the scramAuth block, not leak the username/password")
+}
+
+// TestReferencedResourceContentHash covers the config-hash fold for every user-referenced
+// secret/ConfigMap (keyFilePassword, OIDC client secret, OIDC IdP CA): the content is mounted
+// rather than rendered into the mongot config, so the fold is what makes rotation roll the pods.
+func TestReferencedResourceContentHash(t *testing.T) {
+	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, objects ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
 		t.Helper()
-		objs := append([]client.Object{search}, secrets...)
+		objs := append([]client.Object{search}, objects...)
 		fakeClient := newTestFakeClient(objs...)
 		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
 		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil), fakeClient
 	}
 
-	passwordSecret := func(name, password string) *corev1.Secret {
-		return &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-ns"},
-			Data:       map[string][]byte{KeyFilePasswordSecretKey: []byte(password)},
-		}
+	tests := []struct {
+		name         string
+		unconfigured func() *searchv1.MongoDBSearch
+		configured   func() *searchv1.MongoDBSearch
+		fixture      func(content string) client.Object
+		hash         func(ctx context.Context, h *MongoDBSearchReconcileHelper, c kubernetesClient.Client) (string, error)
+	}{
+		{
+			name:         "keyFilePassword",
+			unconfigured: func() *searchv1.MongoDBSearch { return newTestMongoDBSearch("test-search", "test-ns") },
+			configured: func() *searchv1.MongoDBSearch {
+				return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+					s.Spec.Source.X509 = &searchv1.X509Auth{
+						ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+						KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
+					}
+				})
+			},
+			fixture: func(content string) client.Object {
+				return &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "x509-key-password-secret", Namespace: "test-ns"},
+					Data:       map[string][]byte{KeyFilePasswordSecretKey: []byte(content)},
+				}
+			},
+			hash: func(ctx context.Context, h *MongoDBSearchReconcileHelper, c kubernetesClient.Client) (string, error) {
+				return h.keyFilePasswordContentHash(ctx, c)
+			},
+		},
+		{
+			name:         "oidc client secret",
+			unconfigured: func() *searchv1.MongoDBSearch { return newTestMongoDBSearch("test-search", "test-ns") },
+			configured:   func() *searchv1.MongoDBSearch { return newOIDCMongoDBSearch("test-search", "test-ns") },
+			fixture: func(content string) client.Object {
+				return &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "oidc-client-secret", Namespace: "test-ns"},
+					Data:       map[string][]byte{"clientSecret": []byte(content)},
+				}
+			},
+			hash: func(ctx context.Context, h *MongoDBSearchReconcileHelper, c kubernetesClient.Client) (string, error) {
+				return h.oidcClientSecretContentHash(ctx, c)
+			},
+		},
+		{
+			name:         "oidc idp ca",
+			unconfigured: func() *searchv1.MongoDBSearch { return newTestMongoDBSearch("test-search", "test-ns") },
+			configured:   func() *searchv1.MongoDBSearch { return newOIDCMongoDBSearch("test-search", "test-ns") },
+			fixture: func(content string) client.Object {
+				return &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: "test-ns"},
+					Data:       map[string]string{OIDCIdPCAConfigMapKey: content},
+				}
+			},
+			hash: func(ctx context.Context, h *MongoDBSearchReconcileHelper, c kubernetesClient.Client) (string, error) {
+				return h.oidcIdpCaContentHash(ctx, c)
+			},
+		},
 	}
 
-	t.Run("empty when no password secret configured", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns")
-		helper, kubeClient := newHelper(t, search)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Run("empty when not configured", func(t *testing.T) {
+				helper, kubeClient := newHelper(t, tc.unconfigured())
 
-		hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.Empty(t, hash)
-	})
-
-	t.Run("non-empty and stable when configured", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
-			s.Spec.Source.X509 = &searchv1.X509Auth{
-				ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
-				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
-			}
-		})
-		helper, kubeClient := newHelper(t, search, passwordSecret("x509-key-password-secret", "pw-1"))
-
-		hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.NotEmpty(t, hash)
-
-		again, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
-		require.NoError(t, err)
-		assert.Equal(t, hash, again, "hash must be stable for unchanged content")
-	})
-
-	t.Run("changes when password content changes", func(t *testing.T) {
-		mk := func(password string) string {
-			search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
-				s.Spec.Source.X509 = &searchv1.X509Auth{
-					ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
-					KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "x509-key-password-secret"},
-				}
+				hash, err := tc.hash(t.Context(), helper, kubeClient)
+				require.NoError(t, err)
+				assert.Empty(t, hash)
 			})
-			helper, kubeClient := newHelper(t, search, passwordSecret("x509-key-password-secret", password))
-			hash, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
-			require.NoError(t, err)
-			return hash
-		}
 
-		assert.NotEqual(t, mk("pw-1"), mk("pw-2"), "different password content must yield a different hash")
+			t.Run("non-empty and stable when configured", func(t *testing.T) {
+				helper, kubeClient := newHelper(t, tc.configured(), tc.fixture("content-1"))
+
+				hash, err := tc.hash(t.Context(), helper, kubeClient)
+				require.NoError(t, err)
+				assert.NotEmpty(t, hash)
+
+				again, err := tc.hash(t.Context(), helper, kubeClient)
+				require.NoError(t, err)
+				assert.Equal(t, hash, again, "hash must be stable for unchanged content")
+			})
+
+			t.Run("changes when content changes", func(t *testing.T) {
+				mk := func(content string) string {
+					helper, kubeClient := newHelper(t, tc.configured(), tc.fixture(content))
+					hash, err := tc.hash(t.Context(), helper, kubeClient)
+					require.NoError(t, err)
+					return hash
+				}
+
+				assert.NotEqual(t, mk("content-1"), mk("content-2"), "different content must yield a different hash")
+			})
+
+			t.Run("errors when configured resource is missing", func(t *testing.T) {
+				helper, kubeClient := newHelper(t, tc.configured())
+
+				_, err := tc.hash(t.Context(), helper, kubeClient)
+				require.Error(t, err)
+			})
+		})
+	}
+}
+
+func TestValidateOIDCSource(t *testing.T) {
+	newEnterpriseMongoDB := func(providerConfigs []mdbv1.OIDCProviderConfig, authModes ...mdbv1.AuthMode) *mdbv1.MongoDB {
+		return &mdbv1.MongoDB{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-mongodb", Namespace: "test-ns"},
+			Spec: mdbv1.MongoDbSpec{
+				DbCommonSpec: mdbv1.DbCommonSpec{
+					Security: &mdbv1.Security{
+						TLSConfig: &mdbv1.TLSConfig{Enabled: true},
+						Authentication: &mdbv1.Authentication{
+							Enabled:             true,
+							Modes:               authModes,
+							OIDCProviderConfigs: providerConfigs,
+						},
+					},
+				},
+			},
+		}
+	}
+	providerConfigs := []mdbv1.OIDCProviderConfig{{ConfigurationName: "test-provider"}}
+
+	t.Run("no-op when not OIDC", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns")
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(nil, "SCRAM")),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		assert.NoError(t, helper.validateOIDCSource())
 	})
 
-	t.Run("errors when configured secret is missing", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+	t.Run("community source rejected", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewCommunityResourceSearchSource(newTestMongoDBCommunity("test-mongodb", "test-ns")),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		err := helper.validateOIDCSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "community MongoDB does not support MONGODB-OIDC")
+	})
+
+	t.Run("enterprise source without OIDC rejected", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"))),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		err := helper.validateOIDCSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires OIDC to be enabled on the source MongoDB")
+	})
+
+	t.Run("enterprise source with OIDC modes but no providers rejected", func(t *testing.T) {
+		// IsOIDCEnabled() only checks the enabled flag + modes; without an oidcProviderConfigs
+		// entry mongod cannot validate any token.
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(nil, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC"))),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		err := helper.validateOIDCSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires OIDC to be enabled on the source MongoDB")
+		assert.Contains(t, err.Error(), "non-empty oidcProviderConfigs")
+	})
+
+	t.Run("enterprise source with OIDC enabled passes", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC"))),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		assert.NoError(t, helper.validateOIDCSource())
+	})
+
+	t.Run("enterprise source without TLS rejected", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		noTLSSource := newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC"))
+		noTLSSource.Spec.Security.TLSConfig = nil
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewEnterpriseResourceSearchSource(noTLSSource),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		err := helper.validateOIDCSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires TLS to be enabled on the source MongoDB")
+	})
+
+	t.Run("sharded internal source without OIDC rejected", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewShardedInternalSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM")), search),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		err := helper.validateOIDCSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires OIDC to be enabled on the source MongoDB")
+	})
+
+	t.Run("sharded internal source with OIDC modes but no providers rejected", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewShardedInternalSearchSource(newEnterpriseMongoDB(nil, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC")), search),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		err := helper.validateOIDCSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires OIDC to be enabled on the source MongoDB")
+		assert.Contains(t, err.Error(), "non-empty oidcProviderConfigs")
+	})
+
+	t.Run("sharded internal source with OIDC enabled passes", func(t *testing.T) {
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		helper := NewMongoDBSearchReconcileHelper(nil, search,
+			NewShardedInternalSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC")), search),
+			newTestOperatorSearchConfig(), nil, "", nil)
+
+		assert.NoError(t, helper.validateOIDCSource())
+	})
+}
+
+func TestValidateSCRAMAuthSource(t *testing.T) {
+	newEnterpriseMongoDB := func(authModes ...mdbv1.AuthMode) *mdbv1.MongoDB {
+		return &mdbv1.MongoDB{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-mongodb", Namespace: "test-ns"},
+			Spec: mdbv1.MongoDbSpec{
+				DbCommonSpec: mdbv1.DbCommonSpec{
+					Security: &mdbv1.Security{
+						Authentication: &mdbv1.Authentication{
+							Enabled: true,
+							Modes:   authModes,
+						},
+					},
+				},
+			},
+		}
+	}
+	newCommunitySearchSource := func(authModes ...mdbcv1.AuthMode) *CommunitySearchSource {
+		return &CommunitySearchSource{
+			MongoDBCommunity: &mdbcv1.MongoDBCommunity{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-mongodb", Namespace: "test-ns"},
+				Spec: mdbcv1.MongoDBCommunitySpec{
+					Version: "8.2.0",
+					Security: mdbcv1.Security{
+						Authentication: mdbcv1.Authentication{Modes: authModes},
+					},
+				},
+			},
+		}
+	}
+	newHelper := func(search *searchv1.MongoDBSearch, db SearchSourceDBResource) *MongoDBSearchReconcileHelper {
+		return NewMongoDBSearchReconcileHelper(nil, search, db, newTestOperatorSearchConfig(), nil, "", nil)
+	}
+	newX509Search := func() *searchv1.MongoDBSearch {
+		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
 			s.Spec.Source.X509 = &searchv1.X509Auth{
 				ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
-				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "missing-secret"},
 			}
 		})
-		helper, kubeClient := newHelper(t, search)
+	}
 
-		_, err := helper.keyFilePasswordContentHash(t.Context(), kubeClient)
+	t.Run("no-op when the search uses x509 auth", func(t *testing.T) {
+		assert.NoError(t, newHelper(newX509Search(),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("X509")))).validateSCRAMAuthSource())
+	})
+
+	t.Run("no-op when the search uses OIDC auth", func(t *testing.T) {
+		assert.NoError(t, newHelper(newOIDCMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("OIDC")))).validateSCRAMAuthSource())
+	})
+
+	t.Run("no-op when the search uses x509 auth with a community source", func(t *testing.T) {
+		assert.NoError(t, newHelper(newX509Search(),
+			newCommunitySearchSource(mdbcv1.AuthMode("X509"))).validateSCRAMAuthSource())
+	})
+
+	t.Run("SCRAM-auth search with an enterprise source without SCRAM modes rejected", func(t *testing.T) {
+		err := newHelper(newTestMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("X509")))).validateSCRAMAuthSource()
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
+	})
+
+	t.Run("SCRAM-auth search with an enterprise source with SCRAM modes passes", func(t *testing.T) {
+		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("X509")))).validateSCRAMAuthSource())
+	})
+
+	t.Run("SCRAM-auth search with a sharded internal source without SCRAM modes rejected", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns")
+		err := newHelper(search,
+			NewShardedInternalSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("OIDC")), search)).validateSCRAMAuthSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
+	})
+
+	t.Run("SCRAM-auth search with a sharded internal source with SCRAM modes passes", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns")
+		assert.NoError(t, newHelper(search,
+			NewShardedInternalSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("SCRAM-SHA-256")), search)).validateSCRAMAuthSource())
+	})
+
+	t.Run("SCRAM-auth search with a community source without SCRAM modes rejected", func(t *testing.T) {
+		err := newHelper(newTestMongoDBSearch("test-search", "test-ns"),
+			newCommunitySearchSource(mdbcv1.AuthMode("X509"))).validateSCRAMAuthSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
+	})
+
+	t.Run("SCRAM-auth search with a community source with SCRAM modes passes", func(t *testing.T) {
+		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"),
+			newCommunitySearchSource(mdbcv1.AuthMode("SCRAM-SHA-256"))).validateSCRAMAuthSource())
+	})
+
+	t.Run("SCRAM-auth search with an empty-modes source passes", func(t *testing.T) {
+		// Mirrors the adapters' former len(modes) > 0 guard: auth not enabled on the
+		// source is not this validator's concern.
+		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB())).validateSCRAMAuthSource())
+	})
+
+	t.Run("SCRAM-auth search with an external source is not checked", func(t *testing.T) {
+		// External sources were never checked by the adapters — unverifiable from the operator.
+		external := NewExternalSearchSource("test-ns", &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mdb.example.com:27017"}})
+		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"), external).validateSCRAMAuthSource())
 	})
 }
 
@@ -3433,6 +4104,209 @@ func TestReconcile_RemovingLegacyClientCertificateSecretsUpdatesStatefulSet(t *t
 			assert.Contains(t, configMap.Data[MongotConfigFilename], TempSourceUserPasswordPath)
 			assert.NotContains(t, configMap.Data[MongotConfigFilename], X509ClientCertOperatorMountPath)
 			assert.NotContains(t, configMap.Data[MongotConfigFilename], ScramClientCertOperatorMountPath)
+		})
+	}
+}
+
+// TestReconcileSharded_OIDCAuthRemovesStalePasswordVolumeAndMount pins the SCRAM-to-OIDC
+// auth switch: StatefulSet modifications merge volumes/mounts, so the leftover password
+// volume must be removed explicitly or deleting the now-unused password Secret breaks
+// replacement pods.
+func TestReconcileSharded_OIDCAuthRemovesStalePasswordVolumeAndMount(t *testing.T) {
+	search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+	})
+	shardName := "shard-0"
+	labels := mongotOwnerLabels(search)
+	stsName := search.MongotStatefulSetForClusterShard(0, shardName)
+	existingSTS := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: stsName.Name, Namespace: stsName.Namespace, Labels: maps.Clone(labels)},
+		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: MongotContainerName,
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "password", MountPath: MongotSourceUserPasswordPath},
+					{Name: "user-volume", MountPath: "/user"},
+				},
+			}},
+			Volumes: []corev1.Volume{
+				statefulset.CreateVolumeFromSecret("password", "deleted-password-secret"),
+				statefulset.CreateVolumeFromEmptyDir("user-volume"),
+			},
+		}}},
+	}
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+	fakeClient := newTestFakeClient(search, existingSTS, clientSecret, idpCaConfigMap)
+	helper := NewMongoDBSearchReconcileHelper(
+		fakeClient,
+		search,
+		&mockShardedSource{
+			shardNames: []string{shardName},
+			hostSeeds:  map[string][]string{shardName: {"shard-0-0.test-ns.svc.cluster.local:27017"}},
+			tlsConfig: &TLSSourceConfig{
+				CAFileName: "ca-pem",
+				CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", "source-ca"),
+			},
+		},
+		newTestOperatorSearchConfig(),
+		nil, "",
+		nil,
+	)
+
+	helper.reconcile(t.Context(), zap.S())
+
+	updatedSTS, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+	require.NoError(t, err)
+	volumeNames, mountNames := stsVolumeAndMountNames(updatedSTS)
+	assert.False(t, volumeNames["password"], "the stale SCRAM password volume must be removed after the switch to OIDC")
+	assert.False(t, mountNames["password"], "the stale SCRAM password volume mount must be removed after the switch to OIDC")
+	assert.True(t, volumeNames["user-volume"])
+	assert.True(t, mountNames["user-volume"])
+
+	// The reconcile took the OIDC path (otherwise the stale password volume would linger).
+	assert.True(t, volumeNames["oidc-client-secret"])
+	assert.True(t, mountNames["oidc-client-secret"])
+	assert.True(t, volumeNames["oidc-idp-ca"])
+	assert.True(t, mountNames["oidc-idp-ca"])
+}
+
+// TestReconcileSharded_RemovingClientCertRemovesVolumeAndMount pins the transition: removing
+// spec.source.tls while TLS stays enabled on the source must remove the scram-client-cert
+// volume and mount; the shared CA volume stays.
+func TestReconcileSharded_RemovingClientCertRemovesVolumeAndMount(t *testing.T) {
+	search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+		s.UID = "search-uid"
+		s.Spec.Source.TLS = &searchv1.SourceTLS{
+			ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"},
+		}
+	})
+	shardName := "shard-0"
+	stsName := search.MongotStatefulSetForClusterShard(0, shardName)
+	clientSecret, idpCaConfigMap := oidcTestFixtures()
+	clientCert := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-client-cert", Namespace: "test-ns"},
+		Data:       map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")},
+	}
+	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap, clientCert)
+	helper := NewMongoDBSearchReconcileHelper(
+		fakeClient,
+		search,
+		&mockShardedSource{
+			shardNames: []string{shardName},
+			hostSeeds:  map[string][]string{shardName: {"shard-0-0.test-ns.svc.cluster.local:27017"}},
+			tlsConfig: &TLSSourceConfig{
+				CAFileName: "ca-pem",
+				CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", "source-ca"),
+			},
+		},
+		newTestOperatorSearchConfig(),
+		nil, "",
+		nil,
+	)
+
+	helper.reconcile(t.Context(), zap.S())
+	sts, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+	require.NoError(t, err)
+	volumeNames, mountNames := stsVolumeAndMountNames(sts)
+	require.True(t, volumeNames["scram-client-cert"])
+	require.True(t, mountNames["scram-client-cert"])
+
+	search.Spec.Source.TLS = nil
+	helper.reconcile(t.Context(), zap.S())
+	sts, err = fakeClient.GetStatefulSet(t.Context(), stsName)
+	require.NoError(t, err)
+	volumeNames, mountNames = stsVolumeAndMountNames(sts)
+	assert.False(t, volumeNames["scram-client-cert"], "the stale client-cert volume must be removed with the cert")
+	assert.False(t, mountNames["scram-client-cert"], "the stale client-cert mount must be removed with the cert")
+	assert.True(t, volumeNames["ca"], "the shared CA volume stays (source TLS is still enabled)")
+	assert.True(t, volumeNames["oidc-client-secret"])
+}
+
+func TestReconcileSharded_OIDCStatefulSetTemplateStableAcrossReconciles(t *testing.T) {
+	// Volume order must stay stable across reconciles: a reorder changes the pod template
+	// and rolls every mongot pod despite unchanged inputs. The client-cert variants merge
+	// through the same volume helpers, so the rows cover them too.
+	clientCert := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-client-cert", Namespace: "test-ns"},
+		Data: map[string][]byte{
+			"tls.crt": []byte("cert-data"),
+			"tls.key": []byte("key-data"),
+		},
+	}
+	keyPassword := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "scram-key-password-secret", Namespace: "test-ns"},
+		Data:       map[string][]byte{KeyFilePasswordSecretKey: []byte("my-key-password")},
+	}
+
+	for _, tc := range []struct {
+		name          string
+		sourceTLS     *searchv1.SourceTLS
+		extraFixtures []client.Object
+	}{
+		{name: "no client certificate"},
+		{
+			name:          "client certificate",
+			sourceTLS:     &searchv1.SourceTLS{ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"}},
+			extraFixtures: []client.Object{clientCert},
+		},
+		{
+			name: "client certificate with key password",
+			sourceTLS: &searchv1.SourceTLS{
+				ClientCertificateSecret: corev1.LocalObjectReference{Name: "scram-client-cert"},
+				KeyFilePasswordSecret:   corev1.LocalObjectReference{Name: "scram-key-password-secret"},
+			},
+			extraFixtures: []client.Object{clientCert, keyPassword},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newOIDCMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+				s.UID = "search-uid"
+				s.Spec.AutoEmbedding = &searchv1.EmbeddingConfig{
+					ProviderEndpoint: "http://voyage-embedding-svc.test-ns.svc.cluster.local:8080/embeddings",
+					EmbeddingModelAPIKeySecret: corev1.LocalObjectReference{
+						Name: "embedding-api-key",
+					},
+				}
+				s.Spec.Source.TLS = tc.sourceTLS
+			})
+			shardName := "shard-0"
+			stsName := search.MongotStatefulSetForClusterShard(0, shardName)
+			clientSecret, idpCaConfigMap := oidcTestFixtures()
+			apiKeySecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "embedding-api-key", Namespace: "test-ns"},
+				Data: map[string][]byte{
+					"indexing-key": []byte(""),
+					"query-key":    []byte(""),
+				},
+			}
+			fakeClient := newTestFakeClient(append([]client.Object{search, clientSecret, idpCaConfigMap, apiKeySecret}, tc.extraFixtures...)...)
+			helper := NewMongoDBSearchReconcileHelper(
+				fakeClient,
+				search,
+				&mockShardedSource{
+					shardNames: []string{shardName},
+					hostSeeds:  map[string][]string{shardName: {"shard-0-0.test-ns.svc.cluster.local:27017"}},
+					tlsConfig: &TLSSourceConfig{
+						CAFileName: "ca-pem",
+						CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", "source-ca"),
+					},
+				},
+				newTestOperatorSearchConfig(),
+				nil, "",
+				nil,
+			)
+
+			helper.reconcile(t.Context(), zap.S())
+			created, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+			require.NoError(t, err)
+			require.NoError(t, mock.MarkAllStatefulSetsAsReady(t.Context(), search.Namespace, fakeClient))
+
+			helper.reconcile(t.Context(), zap.S())
+			updated, err := fakeClient.GetStatefulSet(t.Context(), stsName)
+			require.NoError(t, err)
+
+			assert.Equal(t, created.Spec.Template, updated.Spec.Template,
+				"second reconcile must not change the pod template (a diff rolls every mongot pod)")
 		})
 	}
 }
