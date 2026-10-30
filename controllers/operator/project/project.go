@@ -65,10 +65,9 @@ func NewOMContext(config mdbv1.ProjectConfig, credentials mdbv1.Credentials) *om
 	}
 }
 
-// ReadProject returns a configured connection when the Ops Manager project
-// exists. It never creates a project, changes tags, or ensures secrets, so
-// deletion cleanup can inspect state without creating it. A nil connection
-// means the project does not exist.
+// ReadProject returns a configured connection for an existing Ops Manager
+// project, or nil when the project does not exist. Deletion cleanup uses it
+// instead of ReadOrCreateProject so cleanup cannot recreate a deleted project.
 func ReadProject(ctx context.Context, config mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, log *zap.SugaredLogger) (om.Connection, error) {
 	conn := connectionFunc(NewOMContext(config, credentials))
 

@@ -38,7 +38,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -401,45 +400,6 @@ func (r *ReconcileCommonController) ensureFinalizer(ctx context.Context, obj cli
 	}
 	log.Infof("Added finalizer %s to %s", finalizer, obj.GetName())
 	return nil
-}
-
-// projectResource is a custom resource that references its Ops Manager project
-// through a ConfigMap and a credentials Secret.
-type projectResource interface {
-	client.Object
-	project.Reader
-}
-
-// prepareCleanupConnection returns a read-only Ops Manager connection for
-// deletion cleanup. A nil connection means the cleanup can skip Ops Manager.
-// Missing inputs release the finalizer with a warning, because the operator
-// cannot clean up without them. Without the finalizer, a cleanup error did not
-// block deletion. The finalizer makes cleanup failure block deletion, so
-// missing inputs must skip cleanup instead of trapping the CR in Terminating.
-func (r *ReconcileCommonController) prepareCleanupConnection(
-	ctx context.Context,
-	resource projectResource,
-	omConnectionFactory om.ConnectionFactory,
-	log *zap.SugaredLogger,
-) (om.Connection, error) {
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, resource, log)
-	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			log.Warnf("Cleanup inputs are missing; skipping Ops Manager cleanup. External state may remain.")
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	conn, err := project.ReadProject(ctx, projectConfig, credsConfig, omConnectionFactory, log)
-	if err != nil {
-		return nil, err
-	}
-	if conn == nil {
-		log.Infof("Ops Manager project %q not found; skipping cleanup", projectConfig.ProjectName)
-		return nil, nil
-	}
-	return conn, nil
 }
 
 // finalize runs cleanup and releases the finalizer only after cleanup succeeds.

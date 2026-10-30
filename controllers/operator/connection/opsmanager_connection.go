@@ -8,12 +8,15 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
@@ -23,9 +26,9 @@ import (
 // Pass false for controllers where multiple namespaces share one project (e.g. MongoDBUser), because
 // Ops Manager enforces a hard limit of 10 tags per project and each namespace would otherwise consume one slot.
 func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClient, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, namespace string, tagNamespace bool, log *zap.SugaredLogger) (om.Connection, string, error) {
-	omProject, conn, err := project.ReadOrCreateProject(ctx, projectConfig, credentials, connectionFunc, log)
+	conn, omProject, err := resolveProject(ctx, projectConfig, credentials, connectionFunc, true, log)
 	if err != nil {
-		return nil, "", xerrors.Errorf("error reading or creating project in Ops Manager: %w", err)
+		return nil, "", err
 	}
 
 	omVersion := conn.OpsManagerVersion()
@@ -57,6 +60,50 @@ func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClien
 	} else {
 		return conn, agentAPIKey, err
 	}
+}
+
+// PrepareCleanupConnection returns a read-only Ops Manager connection for
+// deletion cleanup. A nil connection means the cleanup skips Ops Manager.
+//
+// A missing ConfigMap or Secret also returns nil. The operator cannot clean up
+// without them, and an error would keep the CR in Terminating.
+func PrepareCleanupConnection(ctx context.Context, cmGetter configmap.Getter, secretClient secrets.SecretClient, resource project.Reader, connectionFunc om.ConnectionFactory, log *zap.SugaredLogger) (om.Connection, error) {
+	projectConfig, credentials, err := project.ReadConfigAndCredentials(ctx, cmGetter, secretClient, resource, log)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			log.Warnf("Cleanup inputs are missing; skipping Ops Manager cleanup. External state may remain.")
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	conn, _, err := resolveProject(ctx, projectConfig, credentials, connectionFunc, false, log)
+	if err != nil {
+		return nil, err
+	}
+	if conn == nil {
+		log.Infof("Ops Manager project %q not found; skipping cleanup", projectConfig.ProjectName)
+	}
+	return conn, nil
+}
+
+// resolveProject returns a connection bound to the project. When create is true,
+// a missing project is created. When create is false, a nil connection means the
+// project does not exist.
+func resolveProject(ctx context.Context, projectConfig mdbv1.ProjectConfig, credentials mdbv1.Credentials, connectionFunc om.ConnectionFactory, create bool, log *zap.SugaredLogger) (om.Connection, *om.Project, error) {
+	if create {
+		omProject, conn, err := project.ReadOrCreateProject(ctx, projectConfig, credentials, connectionFunc, log)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("error reading or creating project in Ops Manager: %w", err)
+		}
+		return conn, omProject, nil
+	}
+
+	conn, err := project.ReadProject(ctx, projectConfig, credentials, connectionFunc, log)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn, nil, nil
 }
 
 // EnsureTagAdded makes sure that the given project has the provided tag

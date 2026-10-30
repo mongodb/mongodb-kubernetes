@@ -17,9 +17,8 @@ import (
 // per-host failure.
 //
 // When tolerateBackupRejection is true, a CANNOT_DELETE_HOST_BACKUP_ENABLED error
-// is logged and ignored. Ops Manager rejects only the last host of a backed-up
-// replica set, so that host stays to anchor the backup and the other hosts are
-// still removed.
+// is logged and ignored, because the host must stay in Ops Manager to anchor
+// the backup. The other hosts are still removed.
 func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []string, tolerateBackupRejection bool, log *zap.SugaredLogger) error {
 	if len(hostnames) == 0 {
 		return nil

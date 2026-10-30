@@ -1769,7 +1769,7 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 }
 
 func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	conn, err := r.commonController.prepareCleanupConnection(ctx, sc, r.omConnectionFactory, log)
+	conn, err := connection.PrepareCleanupConnection(ctx, r.commonController.client, r.commonController.SecretClient, sc, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}

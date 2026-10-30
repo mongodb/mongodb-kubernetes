@@ -1161,7 +1161,7 @@ func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.O
 }
 
 func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, rs *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	conn, err := r.reconciler.prepareCleanupConnection(ctx, rs, r.reconciler.omConnectionFactory, log)
+	conn, err := connection.PrepareCleanupConnection(ctx, r.reconciler.client, r.reconciler.SecretClient, rs, r.reconciler.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
@@ -1187,13 +1187,12 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 		return nil
 	}
 
-	replicaSetName := rs.GetReplicaSetName()
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
-			processNames = d.GetProcessNames(om.ReplicaSet{}, replicaSetName)
+			processNames = d.GetProcessNames(om.ReplicaSet{}, rs.Name)
 
-			if e := d.RemoveReplicaSetByName(replicaSetName, log); e != nil {
+			if e := d.RemoveReplicaSetByName(rs.Name, log); e != nil {
 				log.Warnf("Failed to remove replica set from automation config: %s", e)
 			}
 
@@ -1215,7 +1214,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	}
 
 	if rs.Spec.Backup != nil && rs.Spec.Backup.AutoTerminateOnDeletion {
-		if err := backup.StopBackupIfEnabled(ctx, conn, conn, rs.GetReplicaSetName(), backup.ReplicaSetType, log); err != nil {
+		if err := backup.StopBackupIfEnabled(ctx, conn, conn, rs.Name, backup.ReplicaSetType, log); err != nil {
 			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
 		}
 	}

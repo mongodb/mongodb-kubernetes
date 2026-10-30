@@ -52,7 +52,7 @@ func TestStopMonitoring_ToleratesBackupRejection(t *testing.T) {
 	f := newFake(rejectLastHost)
 
 	require.NoError(t, StopMonitoring(context.Background(), f, allHostnames, true, zap.S()))
-	assert.Len(t, f.hosts, 1, "Ops Manager keeps only the last host to anchor the backup")
+	assert.Len(t, f.hosts, 1, "the rejected host stays to anchor the backup")
 }
 
 func TestStopMonitoring_ReturnsOtherErrors(t *testing.T) {

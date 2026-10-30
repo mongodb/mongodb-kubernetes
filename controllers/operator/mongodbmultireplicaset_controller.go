@@ -1497,7 +1497,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(ctx context.Context, obj runt
 
 // cleanOpsManagerState removes the project configuration (processes, auth settings etc.) from the corresponding OM project.
 func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
-	conn, err := r.prepareCleanupConnection(ctx, &mrs, r.omConnectionFactory, log)
+	conn, err := connection.PrepareCleanupConnection(ctx, r.client, r.SecretClient, &mrs, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
@@ -1528,8 +1528,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	var errs error
 
 	// Stop the backup only when the user requested termination on deletion.
-	// Otherwise keep the backup; Ops Manager then keeps the last host of the
-	// replica set to anchor it.
+	// Otherwise keep the backup. Ops Manager can reject a host removal with
+	// CANNOT_DELETE_HOST_BACKUP_ENABLED while the backup is enabled. Tolerating
+	// that rejection lets the finalizer complete. The rejected host stays in
+	// Ops Manager to anchor the backup.
 	if mrs.Spec.Backup != nil && mrs.Spec.Backup.AutoTerminateOnDeletion {
 		if err := backup.StopBackupIfEnabled(ctx, conn, conn, mrs.Name, backup.ReplicaSetType, log); err != nil {
 			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))

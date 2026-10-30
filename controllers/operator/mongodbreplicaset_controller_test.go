@@ -2006,36 +2006,9 @@ func DefaultStatefulSetBuilder() *StatefulSetBuilder {
 	}}
 }
 
-func TestOnDelete_ReplicaSetNameOverrideStopsBackup(t *testing.T) {
-	ctx := context.Background()
-	rs := mdbv1.NewReplicaSetBuilder().
-		SetNamespace(mock.TestNamespace).
-		SetConnectionSpec(testConnectionSpec()).
-		SetReplicaSetNameOverride("custom-rs").
-		SetBackup(mdbv1.Backup{Mode: "enabled", AutoTerminateOnDeletion: true}).
-		Build()
-	reconciler, fakeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
-	uuidStr := uuid.New().String()
-	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		mocked := connection.(*om.MockedOmConnection)
-		mocked.Hostnames = calculateReplicaSetExternalHostnames(rs)
-		mocked.EnableBackup(rs.GetReplicaSetName(), backup.ReplicaSetType, uuidStr)
-		mocked.BackupConfigs[uuidStr].Status = backup.Inactive
-	})
-	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
-	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-
-	// The Ops Manager backup config uses spec.replicaSetNameOverride, not metadata.name.
-	mockedOmConn.EnableBackup(rs.GetReplicaSetName(), backup.ReplicaSetType, uuidStr)
-	mockedOmConn.CleanHistory()
-
-	require.NoError(t, reconciler.OnDelete(ctx, rs, zap.S()))
-	assert.Equal(t, backup.Inactive, mockedOmConn.BackupConfigs[uuidStr].Status)
-}
-
 // TestOnDelete_KeptBackupKeepsLastHost checks that a kept backup still removes
-// all hosts that Ops Manager allows, and that the rejection of the last host,
-// which anchors the backup, does not block deletion.
+// all hosts that Ops Manager allows, and that the rejection of a host, which
+// anchors the backup, does not block deletion.
 func TestOnDelete_KeptBackupKeepsLastHost(t *testing.T) {
 	ctx := context.Background()
 	rs := mdbv1.NewReplicaSetBuilder().

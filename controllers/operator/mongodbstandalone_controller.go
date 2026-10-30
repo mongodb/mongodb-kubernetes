@@ -413,7 +413,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	conn, err := r.prepareCleanupConnection(ctx, s, r.omConnectionFactory, log)
+	conn, err := connection.PrepareCleanupConnection(ctx, r.client, r.SecretClient, s, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
