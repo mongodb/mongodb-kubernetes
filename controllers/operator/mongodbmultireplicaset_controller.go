@@ -1546,7 +1546,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 
 	if len(hostsToRemove) > 0 {
 		log.Infow("Stop monitoring removed hosts in Ops Manager", "removedHosts", hostsToRemove)
-		if err := host.StopMonitoring(ctx, conn, hostsToRemove, keepBackup, log); err != nil {
+		maxRemainingHosts := 0
+		if keepBackup {
+			maxRemainingHosts = 1
+		}
+		if err := host.StopMonitoring(ctx, conn, hostsToRemove, maxRemainingHosts, log); err != nil {
 			// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 			errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 		}
