@@ -10,7 +10,8 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search import movies_search_helper
+from tests.common.search import movies_search_helper, search_resource_names
+from tests.common.search.connectivity import MongotPVCResize, resizable_persistence
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
@@ -29,6 +30,9 @@ USER_NAME = "mdb-user"
 USER_PASSWORD = f"{USER_NAME}-password"
 
 MDB_RESOURCE_NAME = "mdb-rs"
+
+INITIAL_STORAGE = "1Gi"
+RESIZED_STORAGE = "2Gi"
 
 
 @fixture(scope="function")
@@ -55,7 +59,8 @@ def mdb(namespace: str) -> MongoDB:
 @fixture(scope="function")
 def mdbs(namespace: str) -> MongoDBSearch:
     resource = MongoDBSearch.from_yaml(yaml_fixture("search-minimal.yaml"), namespace=namespace, name=MDB_RESOURCE_NAME)
-    try_load(resource)
+    if not try_load(resource):
+        resource["spec"]["clusters"][0]["persistence"] = resizable_persistence(INITIAL_STORAGE)
     return resource
 
 
@@ -159,3 +164,19 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
 @mark.e2e_search_enterprise_basic
 def test_search_assert_search_query(sample_movies_helper: SampleMoviesSearchHelper):
     sample_movies_helper.assert_search_query(retry_timeout=60)
+
+
+@mark.e2e_search_enterprise_basic
+def test_storage_increase_resizes_pvcs_in_place(
+    namespace: str, mdbs: MongoDBSearch, sample_movies_helper: SampleMoviesSearchHelper
+):
+    sts_name = search_resource_names.mongot_statefulset_name(mdbs.name)
+    resize = MongotPVCResize(namespace, sts_name)
+
+    mdbs["spec"]["clusters"][0]["persistence"] = resizable_persistence(RESIZED_STORAGE)
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+
+    assert "pvc" not in mdbs["status"]
+    resize.assert_resized(RESIZED_STORAGE)
+    sample_movies_helper.assert_search_query(retry_timeout=300)

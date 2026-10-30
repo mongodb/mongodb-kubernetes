@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"testing"
+	"testing/synctest"
 
 	"github.com/ghodss/yaml"
 	"github.com/stretchr/testify/assert"
@@ -30,6 +32,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
@@ -37,6 +40,7 @@ import (
 	mdbcv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
@@ -523,6 +527,12 @@ func TestMongoDBSearchReconcile_Success(t *testing.T) {
 			assert.NoError(t, err)
 			require.Len(t, sts.Spec.Template.Spec.Containers, 1)
 			assert.Equal(t, corev1.PullIfNotPresent, sts.Spec.Template.Spec.Containers[0].ImagePullPolicy)
+
+			if !tc.withWireproto {
+				updatedSearch.Spec.Clusters[0].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1G"}}
+				require.NoError(t, c.Update(ctx, updatedSearch))
+				checkSearchReconcileFailed(ctx, t, reconciler, c, search, "Can't update pvc and statefulset to a smaller storage, from: 16G - to:1G")
+			}
 		})
 	}
 
@@ -786,6 +796,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 		{
 			Name: "us-east", Index: new(int32(0)), Replicas: new(int32(1)),
 			LoadBalancer: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{ExternalHostname: "mongot-us-east.example.com"}},
+			Persistence:  &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "1Gi"}},
 		},
 		{
 			Name: "us-west", Index: new(int32(1)), Replicas: new(int32(1)),
@@ -841,6 +852,59 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 			// carry between clusters, so labels are the link back to the CR.
 			assertSearchOwnerLabels(t, search, false, sts, headlessSvc, proxySvc, cm)
 		})
+	}
+
+	t.Run("storage increase resizes only that cluster's PVCs through its client", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctx := t.Context()
+			eastStsName := search.StatefulSetNamespacedNameForCluster(0)
+			eastSts := &appsv1.StatefulSet{}
+			require.NoError(t, eastClient.Get(ctx, eastStsName, eastSts))
+			eastPVCs := createPVCs(t, *eastSts, eastClient)
+			westSts := &appsv1.StatefulSet{}
+			require.NoError(t, westClient.Get(ctx, search.StatefulSetNamespacedNameForCluster(1), westSts))
+			westPVCs := createPVCs(t, *westSts, westClient)
+
+			live := &searchv1.MongoDBSearch{}
+			require.NoError(t, centralClient.Get(ctx, search.NamespacedName(), live))
+			live.Spec.Clusters[0].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "2Gi"}}
+			require.NoError(t, centralClient.Update(ctx, live))
+
+			_, err := reconciler.Reconcile(ctx, requestFromObject(search))
+			require.NoError(t, err)
+			require.NoError(t, centralClient.Get(ctx, search.NamespacedName(), live))
+			assert.Equal(t, status.PhasePending, live.Status.Phase)
+			assert.Equal(t, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: eastStsName.Name}}, live.Status.PVCs)
+			assertPVCStorageRequests(t, eastClient, eastPVCs, "2Gi")
+			assertPVCStorageRequests(t, westClient, westPVCs, westPVCs[0].Spec.Resources.Requests.Storage().String())
+
+			for i := range eastPVCs {
+				setPVCWithUpdatedResource(ctx, t, eastClient, &eastPVCs[i])
+			}
+			_, err = reconciler.Reconcile(ctx, requestFromObject(search))
+			require.NoError(t, err)
+
+			recreated := &appsv1.StatefulSet{}
+			require.NoError(t, eastClient.Get(ctx, eastStsName, recreated))
+			assert.Equal(t, "2Gi", recreated.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String())
+			assert.Contains(t, recreated.Spec.Template.Annotations, statefulset.PVCSizeAnnotation)
+
+			got := driveSearchReconcileToRunning(ctx, t, reconciler, centralClient, search, 3, eastClient, westClient)
+			require.Equal(t, status.PhaseRunning, got.Status.Phase, got.Status.Message)
+			assert.Nil(t, got.Status.PVCs)
+			require.NoError(t, eastClient.Get(ctx, eastStsName, recreated))
+			assert.Contains(t, recreated.Spec.Template.Annotations, statefulset.PVCSizeAnnotation, "later updates must keep the annotation, or the pods restart again")
+		})
+	})
+}
+
+// assertPVCStorageRequests checks that every PVC exists and requests the given storage.
+func assertPVCStorageRequests(t *testing.T, c client.Client, pvcs []corev1.PersistentVolumeClaim, storage string) {
+	t.Helper()
+	for _, p := range pvcs {
+		live := &corev1.PersistentVolumeClaim{}
+		require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(&p), live))
+		assert.Equal(t, storage, live.Spec.Resources.Requests.Storage().String(), "PVC %s", p.Name)
 	}
 }
 
@@ -1380,6 +1444,30 @@ func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly
 
 			require.Equal(t, status.PhaseRunning, got.Status.Phase,
 				"projected sharded reconcile must reach Running; got %q (msg=%q)", got.Status.Phase, got.Status.Message)
+
+			// A shardOverrides storage increase resizes only that shard's PVCs.
+			pvcsByShard := map[string][]corev1.PersistentVolumeClaim{}
+			for _, shard := range []string{"sh-0", "sh-1"} {
+				sts := &appsv1.StatefulSet{}
+				require.NoError(t, c.Get(ctx, search.MongotStatefulSetForClusterShard(tc.wantIdx, shard), sts))
+				pvcsByShard[shard] = createPVCs(t, *sts, c)
+			}
+			live := &searchv1.MongoDBSearch{}
+			require.NoError(t, c.Get(ctx, search.NamespacedName(), live))
+			opIdx := slices.IndexFunc(live.Spec.Clusters, func(cs searchv1.ClusterSpec) bool { return cs.Name == tc.opCluster })
+			live.Spec.Clusters[opIdx].ShardOverrides = []searchv1.ShardOverride{{
+				ShardNames:  []string{"sh-1"},
+				Persistence: &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "32G"}},
+			}}
+			require.NoError(t, c.Update(ctx, live))
+
+			_, err = reconciler.Reconcile(ctx, requestFromObject(search))
+			require.NoError(t, err)
+			require.NoError(t, c.Get(ctx, search.NamespacedName(), live))
+			assert.Equal(t, status.PhasePending, live.Status.Phase)
+			assert.Equal(t, status.PVCS{{Phase: pvc.PhasePVCResize, StatefulsetName: search.MongotStatefulSetForClusterShard(tc.wantIdx, "sh-1").Name}}, live.Status.PVCs)
+			assertPVCStorageRequests(t, c, pvcsByShard["sh-1"], "32G")
+			assertPVCStorageRequests(t, c, pvcsByShard["sh-0"], util.DefaultMongodStorageSize)
 		})
 	}
 }
