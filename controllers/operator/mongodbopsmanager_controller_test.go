@@ -31,6 +31,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -1722,4 +1723,137 @@ func addOMTLSResources(ctx context.Context, client client.Client, secretName str
 
 	certSecret.Data = certs
 	_ = client.Create(ctx, certSecret)
+}
+
+func TestGetCAs_SecretAndConfigMapRefs(t *testing.T) {
+	ctx := context.Background()
+	caSecret := secret.Builder().SetName("s3-ca-secret").SetNamespace(mock.TestNamespace).SetField("ca.crt", "secret-ca").Build()
+	caConfigMap := configmap.Builder().SetName("s3-ca-configmap").SetNamespace(mock.TestNamespace).SetDataField("ca-pem", "configmap-ca").Build()
+	kubeClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(&caSecret, &caConfigMap).Build())
+
+	s3Configs := []omv1.S3Config{{
+		Name: "s3-store",
+		CustomCertificateSecretRefs: []corev1.SecretKeySelector{{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "s3-ca-secret"},
+			Key:                  "ca.crt",
+		}},
+		CustomCertificateConfigMapRefs: []corev1.ConfigMapKeySelector{{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "s3-ca-configmap"},
+			Key:                  "ca-pem",
+		}},
+	}}
+
+	certificates, err := getCAs(ctx, s3Configs, mock.TestNamespace, kubeClient)
+	require.NoError(t, err)
+	assert.Equal(t, []backup.S3CustomCertificate{
+		{Filename: "s3-ca-secret/ca.crt", CertString: "secret-ca"},
+		{Filename: "configmap/s3-ca-configmap/ca-pem", CertString: "configmap-ca"},
+	}, certificates)
+}
+
+func TestGetCAs_MissingConfigMapKeyFails(t *testing.T) {
+	ctx := context.Background()
+	caConfigMap := configmap.Builder().SetName("s3-ca-configmap").SetNamespace(mock.TestNamespace).SetDataField("ca-pem", "configmap-ca").Build()
+	kubeClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(&caConfigMap).Build())
+
+	s3Configs := []omv1.S3Config{{
+		Name: "s3-store",
+		CustomCertificateConfigMapRefs: []corev1.ConfigMapKeySelector{{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "s3-ca-configmap"},
+			Key:                  "missing",
+		}},
+	}}
+
+	_, err := getCAs(ctx, s3Configs, mock.TestNamespace, kubeClient)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `key "missing" not present in ConfigMap`)
+}
+
+func TestOpsManagerReconciler_WatchesS3StoreCASecretsAndConfigMaps(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.Backup.Enabled = true
+	testOm.Spec.Backup.S3Configs = []omv1.S3Config{{
+		Name: "s3-store",
+		CustomCertificateSecretRefs: []corev1.SecretKeySelector{{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "s3-store-ca-secret"},
+			Key:                  "ca.crt",
+		}},
+		CustomCertificateConfigMapRefs: []corev1.ConfigMapKeySelector{{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "s3-store-ca"},
+			Key:                  "ca-pem",
+		}},
+	}}
+	testOm.Spec.Backup.S3OplogStoreConfigs = []omv1.S3Config{{
+		Name: "s3-oplog",
+		CustomCertificateSecretRefs: []corev1.SecretKeySelector{{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "s3-oplog-ca-secret"},
+			Key:                  "ca.crt",
+		}},
+		CustomCertificateConfigMapRefs: []corev1.ConfigMapKeySelector{{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "s3-oplog-ca"},
+			Key:                  "ca-pem",
+		}},
+	}}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	reconciler.watchMongoDBResourcesReferencedByBackup(ctx, testOm, zap.S())
+
+	expected := []watch.Object{
+		{ResourceType: watch.Secret, Resource: types.NamespacedName{Name: "s3-store-ca-secret", Namespace: testOm.Namespace}},
+		{ResourceType: watch.Secret, Resource: types.NamespacedName{Name: "s3-oplog-ca-secret", Namespace: testOm.Namespace}},
+		{ResourceType: watch.ConfigMap, Resource: types.NamespacedName{Name: "s3-store-ca", Namespace: testOm.Namespace}},
+		{ResourceType: watch.ConfigMap, Resource: types.NamespacedName{Name: "s3-oplog-ca", Namespace: testOm.Namespace}},
+	}
+	for _, key := range expected {
+		assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources(), key)
+		assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources()[key], mock.ObjectKeyFromApiObject(testOm))
+	}
+}
+
+func TestOpsManagerBackupS3StoreCustomCertificatesFromSecretAndConfigMap(t *testing.T) {
+	ctx := context.Background()
+
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.19").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{
+			Name:        "s3-config",
+			S3SecretRef: &omv1.SecretRef{Name: "s3-secret"},
+			CustomCertificateSecretRefs: []corev1.SecretKeySelector{{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "s3-ca-secret"},
+				Key:                  "ca.crt",
+			}},
+			CustomCertificateConfigMapRefs: []corev1.ConfigMapKeySelector{{
+				LocalObjectReference: corev1.LocalObjectReference{Name: "s3-ca-configmap"},
+				Key:                  "ca-pem",
+			}},
+		}).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	configureBackupResources(ctx, client, testOm)
+
+	caSecret := secret.Builder().SetName("s3-ca-secret").SetNamespace(mock.TestNamespace).SetField("ca.crt", "secret-ca").Build()
+	caConfigMap := configmap.Builder().SetName("s3-ca-configmap").SetNamespace(mock.TestNamespace).SetDataField("ca-pem", "configmap-ca").Build()
+	require.NoError(t, client.Create(ctx, &caSecret))
+	require.NoError(t, client.Create(ctx, &caConfigMap))
+
+	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
+	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
+
+	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+
+	// when
+	reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
+	s3Configs, _ := mockedAdmin.ReadS3Configs(ctx)
+	// then
+	require.Len(t, s3Configs, 1)
+	assert.Equal(t, []backup.S3CustomCertificate{
+		{Filename: "s3-ca-secret/ca.crt", CertString: "secret-ca"},
+		{Filename: "configmap/s3-ca-configmap/ca-pem", CertString: "configmap-ca"},
+	}, s3Configs[0].CustomCertificates)
 }
