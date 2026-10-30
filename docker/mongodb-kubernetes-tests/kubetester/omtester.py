@@ -201,7 +201,12 @@ class OMTester(object):
     ):
         """waits until at least 'expected_count' backup snapshots is in complete state"""
         start_time = time.time()
-        cluster_id = self.get_backup_cluster_id(expected_config_count, is_sharded_cluster)
+        configs = self.api_read_backup_configs()
+        if expected_count == 0 and not configs:
+            # A terminated backup removes its config, so no snapshot can exist.
+            print(f"No backup config in project {self.context.group_name}: nothing to wait for")
+            return
+        cluster_id = self.get_backup_cluster_id(expected_config_count, is_sharded_cluster, configs=configs)
 
         if expected_count == 1:
             print(f"Waiting until 1 snapshot is ready (can take a while)")
@@ -216,12 +221,13 @@ class OMTester(object):
                 span = trace.get_current_span()
                 span.set_attribute(key="mck.snapshot_time", value=time.time() - start_time)
                 completed_snapshots = [s for s in snapshots if s.get("complete", False)]
-                latest_snapshot = max(completed_snapshots, key=lambda s: s["created"]["date"])
-                snapshot_timestamp = latest_snapshot["created"]["date"]
+                if completed_snapshots:
+                    latest_snapshot = max(completed_snapshots, key=lambda s: s["created"]["date"])
+                    snapshot_timestamp = latest_snapshot["created"]["date"]
+                    self.set_latest_backup_completion_time(
+                        time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "+00:00")))
+                    )
                 print(f"Current Backup Snapshots: {snapshots}")
-                self.set_latest_backup_completion_time(
-                    time_to_millis(datetime.fromisoformat(snapshot_timestamp.replace("Z", "+00:00")))
-                )
                 return
             time.sleep(3)
             timeout -= 3
@@ -260,8 +266,14 @@ class OMTester(object):
             f"project {self.context.group_name} "
         )
 
-    def get_backup_cluster_id(self, expected_config_count: int = 1, is_sharded_cluster: bool = False) -> str:
-        configs = self.api_read_backup_configs()
+    def get_backup_cluster_id(
+        self,
+        expected_config_count: int = 1,
+        is_sharded_cluster: bool = False,
+        configs: Optional[List] = None,
+    ) -> str:
+        if configs is None:
+            configs = self.api_read_backup_configs()
 
         assert len(configs) == expected_config_count
         if not is_sharded_cluster:
@@ -663,20 +675,20 @@ class OMTester(object):
     # https://github.com/10gen/mms/blob/bcec76f60fc10fd6b7de40ee0f57951b54a4b4a0/server/src/main/com/xgen/cloud/common/brs/_public/model/BackupConfigState.java#L8
     def wait_until_backup_deactivated(self, timeout=30, is_sharded_cluster=False, expected_config_count=1):
         def wait_until_backup_deactivated():
-            found_backup = False
+            configs = self.api_read_backup_configs()
+            # Backup does not exist, which we correlate with backup is deactivated
+            if not configs:
+                return True
             cluster_id = self.get_backup_cluster_id(
                 is_sharded_cluster=is_sharded_cluster,
                 expected_config_count=expected_config_count,
+                configs=configs,
             )
-            for config in self.api_read_backup_configs():
+            for config in configs:
                 if config["clusterId"] == cluster_id:
-                    found_backup = True
                     # Backup has been deactivated
                     if config["statusName"] in ["INACTIVE", "TERMINATING", "STOPPED"]:
                         return True
-                # Backup does not exist, which we correlate with backup is deactivated
-                if not found_backup:
-                    return True
             return False
 
         run_periodically(fn=wait_until_backup_deactivated, timeout=timeout)

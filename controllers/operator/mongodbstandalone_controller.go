@@ -62,8 +62,7 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 	}
 
 	// watch for changes to standalone MongoDB resources
-	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.Standalone)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForMongoDB(mdbv1.Standalone)))
 	if err != nil {
 		return err
 	}
@@ -159,6 +158,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return reconcileResult, err
 	}
 
+	if !s.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, s, util.MongoDBFinalizer, r, log)
+	}
+
 	log.Warn(mdbv1.StandaloneDeprecationMessage)
 
 	if err := s.ProcessValidationsOnReconcile(nil); err != nil {
@@ -173,14 +176,13 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}
+	if err := r.ensureFinalizer(ctx, s, util.MongoDBFinalizer, log); err != nil {
+		return r.updateStatus(ctx, s, workflow.Failed(err), log)
+	}
 
 	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
-	}
-
-	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
-		return r.updateStatus(ctx, s, status, log)
 	}
 
 	if !architectures.IsRunningStaticArchitecture(s.Annotations, r.defaultArchitecture) {
@@ -405,19 +407,18 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 	return workflow.OK()
 }
 
+// OnDelete cleans up Ops Manager state for a deleted resource.
 func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	s := obj.(*mdbv1.MongoDB)
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, s, log)
+	conn, err := connection.PrepareCleanupConnection(ctx, r.client, r.SecretClient, s, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
-
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, s.Namespace, true, log)
-	if err != nil {
-		return err
+	if conn == nil {
+		return nil
 	}
 
 	processNames := make([]string, 0)
@@ -445,7 +446,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 
 	hostsToRemove, _ := dns.GetDNSNames(s.Name, s.ServiceName(), s.Namespace, s.Spec.GetClusterDomain(), 1, nil)
 	log.Infow("Stop monitoring removed hosts", "removedHosts", hostsToRemove)
-	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
+	if err := host.StopMonitoring(ctx, conn, hostsToRemove, 0, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}

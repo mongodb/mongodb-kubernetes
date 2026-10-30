@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -10,11 +11,17 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// StopMonitoring will stop OM monitoring of hosts, which will then
-// make OM stop displaying old hosts from Processes view.
-// Note, that the method tries to delete as many hosts as possible and doesn't give up on errors, returns
-// the last error instead
-func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []string, log *zap.SugaredLogger) error {
+// StopMonitoring stops Ops Manager monitoring of hosts, which removes them from
+// the Processes view. It tries every host and returns an error that wraps every
+// per-host failure.
+//
+// Ops Manager refuses to remove the last host of a backed-up replica set. It
+// reports that refusal as a generic 500, so the response cannot identify it.
+// maxRemainingHosts is the number of matched hosts that must stay for the
+// operation to be complete: one per backed-up replica set on deletion, and zero
+// otherwise. When a removal fails, a matching count is the intended end state,
+// not a failure.
+func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []string, maxRemainingHosts int, log *zap.SugaredLogger) error {
 	if len(hostnames) == 0 {
 		return nil
 	}
@@ -23,19 +30,14 @@ func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []stri
 	if err != nil {
 		return err
 	}
-	errorHappened := false
+
+	matched := make([]Host, 0, len(hostnames))
 	for _, hostname := range hostnames {
 		found := false
 		for _, h := range hosts.Results {
 			if h.Hostname == hostname {
+				matched = append(matched, h)
 				found = true
-				err = getRemover.RemoveHost(ctx, h.Id)
-				if err != nil {
-					log.Warnf("Failed to remove host %s from monitoring in Ops Manager: %s", h.Hostname, err)
-					errorHappened = true
-				} else {
-					log.Debugf("Removed the host %s from monitoring in Ops Manager", h.Hostname)
-				}
 				break
 			}
 		}
@@ -44,10 +46,48 @@ func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []stri
 		}
 	}
 
-	if errorHappened {
-		return errors.New("failed to remove some hosts from monitoring in Ops manager")
+	var errs []error
+	for _, h := range matched {
+		if err := getRemover.RemoveHost(ctx, h.Id); err != nil {
+			log.Warnf("Failed to remove host %s from monitoring in Ops Manager: %s", h.Hostname, err)
+			errs = append(errs, fmt.Errorf("host %s: %w", h.Hostname, err))
+			continue
+		}
+		log.Debugf("Removed the host %s from monitoring in Ops Manager", h.Hostname)
 	}
-	return nil
+
+	if len(errs) == 0 {
+		return nil
+	}
+
+	remaining, verifyErr := remainingHosts(ctx, getRemover, matched)
+	if verifyErr != nil {
+		errs = append(errs, fmt.Errorf("failed to verify remaining hosts: %w", verifyErr))
+	} else if remaining <= maxRemainingHosts {
+		log.Infof("Host removal finished with %d of %d hosts still monitored", remaining, len(matched))
+		return nil
+	}
+
+	return fmt.Errorf("failed to remove some hosts from monitoring in Ops manager: %w", errors.Join(errs...))
+}
+
+// remainingHosts counts how many of the matched hosts are still monitored.
+func remainingHosts(ctx context.Context, getter Getter, matched []Host) (int, error) {
+	hosts, err := getter.GetHosts(ctx)
+	if err != nil {
+		return 0, err
+	}
+	present := make(map[string]struct{}, len(hosts.Results))
+	for _, h := range hosts.Results {
+		present[h.Hostname] = struct{}{}
+	}
+	var remaining int
+	for _, h := range matched {
+		if _, ok := present[h.Hostname]; ok {
+			remaining++
+		}
+	}
+	return remaining, nil
 }
 
 // stopMonitoringHosts removes monitoring for this list of hosts from Ops Manager.
@@ -56,7 +96,7 @@ func stopMonitoringHosts(ctx context.Context, getRemover GetRemover, hosts []str
 		return nil
 	}
 
-	if err := StopMonitoring(ctx, getRemover, hosts, log); err != nil {
+	if err := StopMonitoring(ctx, getRemover, hosts, 0, log); err != nil {
 		return xerrors.Errorf("Failed to stop monitoring on hosts %s: %w", hosts, err)
 	}
 

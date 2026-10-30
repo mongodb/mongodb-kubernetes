@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"testing"
 	"testing/synctest"
@@ -1470,6 +1471,68 @@ func TestBackupConfigurationReplicaSet(t *testing.T) {
 		assert.Equal(t, uuidStr, config.ClusterId)
 		assert.Equal(t, "PRIMARY", config.SyncSource)
 	})
+}
+
+func TestOnDeleteMultiClusterAutoTerminateStopsBackupBeforeHostRemoval(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetConnectionSpec(testConnectionSpec()).
+		Build()
+	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	uuidStr := uuid.New().String()
+	mockedOmConn.EnableBackup(mrs.Name, backup.ReplicaSetType, uuidStr)
+	mrs.Spec.Backup = &mdb.Backup{Mode: "enabled", AutoTerminateOnDeletion: true}
+	mockedOmConn.CleanHistory()
+
+	require.NoError(t, reconciler.OnDelete(ctx, mrs, zap.S()))
+
+	mockedOmConn.CheckOrderOfOperations(t,
+		reflect.ValueOf(mockedOmConn.ReadBackupConfigs),
+		reflect.ValueOf(mockedOmConn.ReadHostCluster),
+		reflect.ValueOf(mockedOmConn.UpdateBackupStatus),
+		reflect.ValueOf(mockedOmConn.GetHosts),
+		reflect.ValueOf(mockedOmConn.RemoveHost),
+	)
+	require.NotNil(t, mockedOmConn.BackupConfigs[uuidStr])
+	assert.Equal(t, backup.Inactive, mockedOmConn.BackupConfigs[uuidStr].Status)
+
+	hosts, err := mockedOmConn.GetHosts(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, hosts.Results)
+}
+
+func TestOnDeleteMultiClusterBackupStopFailureStillDisablesAuth(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetConnectionSpec(testConnectionSpec()).
+		SetSecurity(&mdb.Security{
+			Authentication: &mdb.Authentication{Enabled: true, Modes: []mdb.AuthMode{"SCRAM"}},
+		}).
+		Build()
+	reconciler, client, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+	mockedOmConn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	uuidStr := uuid.New().String()
+	mockedOmConn.EnableBackup(mrs.Name, backup.ReplicaSetType, uuidStr)
+	mrs.Spec.Backup = &mdb.Backup{Mode: "enabled", AutoTerminateOnDeletion: true}
+	mockedOmConn.UpdateBackupStatusFunc = func(string, backup.Status) error {
+		return fmt.Errorf("cannot stop backup")
+	}
+	mockedOmConn.CleanHistory()
+
+	err := reconciler.OnDelete(ctx, mrs, zap.S())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to stop backup")
+
+	ac, err := mockedOmConn.ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	assert.False(t, ac.Auth.IsEnabled())
 }
 
 func TestMultiClusterFailover(t *testing.T) {
