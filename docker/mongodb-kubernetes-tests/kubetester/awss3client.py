@@ -16,8 +16,13 @@ class AwsS3Client:
         self.tags = tags
 
     def create_s3_bucket(self, name: str):
-        self.s3_client.create_bucket(ACL="private", Bucket=name)
-        self.update_bucket_tags(name=name, **self.tags)
+        # Tags are passed at creation because bucket creation is denied when required tags are missing.
+        # In us-east-1 the configuration must not contain a LocationConstraint.
+        self.s3_client.create_bucket(
+            ACL="private",
+            Bucket=name,
+            CreateBucketConfiguration={"Tags": [{"Key": k, "Value": v} for k, v in self.tags.items()]},
+        )
 
     def update_bucket_tags(self, name: str, **tags):
         try:
