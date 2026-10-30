@@ -2,21 +2,57 @@ package commoncontroller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
+
+const (
+	commoncontrollerMongoDBName      = "mdb"
+	commoncontrollerMongoDBNamespace = "ns"
+)
+
+func newMongoDBForStatusTests(t *testing.T) *mdbv1.MongoDB {
+	t.Helper()
+	mdb := mdbv1.NewReplicaSetBuilder().
+		SetName(commoncontrollerMongoDBName).
+		SetNamespace(commoncontrollerMongoDBNamespace).
+		SetMembers(3).
+		Build()
+	mdb.ResourceVersion = "2"
+	mdb.UpdateStatus(status.PhaseRunning, status.ReplicaSetMembersOption{Members: 3})
+	return mdb
+}
+
+func newMongoDBStatusClient(t *testing.T, obj *mdbv1.MongoDB) kubernetesClient.Client {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	return kubernetesClient.NewClient(fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&mdbv1.MongoDB{}).
+		WithObjects(obj).
+		Build())
+}
 
 func TestStatusSubresourcePatchPaths(t *testing.T) {
 	tests := []struct {
@@ -104,4 +140,101 @@ func TestEnsureStatusSubresourceExists_DoesNotClobberExistingStatus(t *testing.T
 			}
 		})
 	}
+}
+
+func TestUpdateStatusOptimistic_ConflictLeavesServerStatusUntouched(t *testing.T) {
+	ctx := context.Background()
+	log := zap.NewNop().Sugar()
+	server := newMongoDBForStatusTests(t)
+	cl := newMongoDBStatusClient(t, server)
+	stale := server.DeepCopy()
+	stale.ResourceVersion = "1"
+	stale.UpdateStatus(status.PhasePending, status.ReplicaSetMembersOption{Members: 1})
+
+	_, err := UpdateStatusOptimistic(ctx, cl, stale, workflow.OK(), log)
+	require.Error(t, err)
+	assert.True(t, apiErrors.IsConflict(err))
+
+	got := &mdbv1.MongoDB{}
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{Name: commoncontrollerMongoDBName, Namespace: commoncontrollerMongoDBNamespace}, got))
+	assert.Equal(t, status.PhaseRunning, got.Status.Phase)
+	assert.Equal(t, 3, got.Status.Members)
+	assert.Equal(t, "2", got.ResourceVersion)
+}
+
+func TestUpdateStatusOptimistic_SucceedsWithCurrentVersionAndRefreshesObject(t *testing.T) {
+	ctx := context.Background()
+	log := zap.NewNop().Sugar()
+	server := newMongoDBForStatusTests(t)
+	cl := newMongoDBStatusClient(t, server)
+	current := &mdbv1.MongoDB{}
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{Name: commoncontrollerMongoDBName, Namespace: commoncontrollerMongoDBNamespace}, current))
+
+	current.Spec.Members = 4
+	current.UpdateStatus(status.PhasePending, status.ReplicaSetMembersOption{Members: 4})
+
+	_, err := UpdateStatusOptimistic(ctx, cl, current, workflow.Pending("scaling"), log, status.ReplicaSetMembersOption{Members: 4})
+	require.NoError(t, err)
+
+	got := &mdbv1.MongoDB{}
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{Name: commoncontrollerMongoDBName, Namespace: commoncontrollerMongoDBNamespace}, got))
+	assert.Equal(t, current.ResourceVersion, got.ResourceVersion)
+	assert.Equal(t, got.ResourceVersion, current.ResourceVersion)
+	assert.Equal(t, status.PhasePending, got.Status.Phase)
+	assert.Equal(t, 4, got.Status.Members)
+	assert.Equal(t, got.Status.Phase, current.Status.Phase)
+	assert.Equal(t, got.Status.Members, current.Status.Members)
+}
+
+func TestUpdateStatusOptimistic_SecondWriteOnSameObjectSucceeds(t *testing.T) {
+	ctx := context.Background()
+	log := zap.NewNop().Sugar()
+	server := newMongoDBForStatusTests(t)
+	cl := newMongoDBStatusClient(t, server)
+	current := &mdbv1.MongoDB{}
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{Name: commoncontrollerMongoDBName, Namespace: commoncontrollerMongoDBNamespace}, current))
+
+	current.Spec.Members = 4
+	current.UpdateStatus(status.PhasePending, status.ReplicaSetMembersOption{Members: 4})
+	_, err := UpdateStatusOptimistic(ctx, cl, current, workflow.Pending("scaling"), log, status.ReplicaSetMembersOption{Members: 4})
+	require.NoError(t, err)
+	firstRV := current.ResourceVersion
+
+	current.Spec.Members = 5
+	current.UpdateStatus(status.PhasePending, status.ReplicaSetMembersOption{Members: 5})
+	_, err = UpdateStatusOptimistic(ctx, cl, current, workflow.Pending("scaling"), log, status.ReplicaSetMembersOption{Members: 5})
+	require.NoError(t, err)
+	assert.NotEqual(t, firstRV, current.ResourceVersion)
+
+	got := &mdbv1.MongoDB{}
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{Name: commoncontrollerMongoDBName, Namespace: commoncontrollerMongoDBNamespace}, got))
+	assert.Equal(t, 5, got.Status.Members)
+	assert.Equal(t, status.PhasePending, got.Status.Phase)
+	assert.Equal(t, got.ResourceVersion, current.ResourceVersion)
+}
+
+func TestUpdateStatusOptimistic_ReturnsNonConflictError(t *testing.T) {
+	ctx := context.Background()
+	log := zap.NewNop().Sugar()
+	server := newMongoDBForStatusTests(t)
+	cl := newMongoDBStatusClient(t, server)
+	current := &mdbv1.MongoDB{}
+	require.NoError(t, cl.Get(ctx, types.NamespacedName{Name: commoncontrollerMongoDBName, Namespace: commoncontrollerMongoDBNamespace}, current))
+	current.UpdateStatus(status.PhasePending, status.ReplicaSetMembersOption{Members: 4})
+
+	failErr := fmt.Errorf("subresource update failed")
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(func() *runtime.Scheme {
+			scheme := runtime.NewScheme()
+			require.NoError(t, v1.AddToScheme(scheme))
+			return scheme
+		}()).
+		WithStatusSubresource(&mdbv1.MongoDB{}).
+		WithObjects(server.DeepCopy()).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+			return failErr
+		}}).
+		Build()
+	_, err := UpdateStatusOptimistic(ctx, kubernetesClient.NewClient(fakeClient), current, workflow.Pending("scaling"), log, status.ReplicaSetMembersOption{Members: 4})
+	require.EqualError(t, err, failErr.Error())
 }

@@ -6,6 +6,7 @@ import (
 	"maps"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
@@ -27,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
@@ -49,6 +51,7 @@ import (
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/recovery"
+	secrets "github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -57,6 +60,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
@@ -127,6 +131,20 @@ func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
 	}
 
 	return helper, nil
+}
+
+func (r *ReconcileMongoDbReplicaSet) updateStatus(ctx context.Context, reconciledResource v1.CustomResourceReadWriter, st workflow.Status, log *zap.SugaredLogger, statusOptions ...mdbstatus.Option) (reconcile.Result, error) {
+	return commoncontroller.UpdateStatusOptimistic(ctx, r.client, reconciledResource, st, log, statusOptions...)
+}
+
+func (r *ReconcileMongoDbReplicaSet) ensureBackupConfigurationAndUpdateStatus(ctx context.Context, conn om.Connection, mdb backup.ConfigReaderUpdater, secretsReader secrets.SecretClient, log *zap.SugaredLogger, backupEnableDelay time.Duration) workflow.Status {
+	statusOpt, opts := backup.EnsureBackupConfigurationInOpsManager(ctx, mdb, secretsReader, conn.GroupID(), conn, conn, conn, log, backupEnableDelay)
+	if len(opts) > 0 {
+		if _, err := r.updateStatus(ctx, mdb, statusOpt, log, opts...); err != nil {
+			return workflow.Failed(err)
+		}
+	}
+	return statusOpt
 }
 
 // readState abstract reading the state of the resource that we store on the cluster between reconciliations.
@@ -402,7 +420,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 	maps.Copy(annotationsToAdd, roleAnnotation)
 
-	if err := annotations.SetAnnotations(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
+	if err := annotations.SetAnnotationsOptimistic(ctx, r.resource, annotationsToAdd, r.reconciler.client); err != nil {
+		if errors.IsConflict(err) {
+			return reconcile.Result{}, err
+		}
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not update resource annotations: %w", err)))
 	}
 
@@ -464,6 +485,13 @@ type deploymentOptionsRS struct {
 // and what is in the MongoDbReplicaSet.Spec
 func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reconcile.Request) (res reconcile.Result, e error) {
 	log := zap.S().With("ReplicaSet", request.NamespacedName)
+	defer func() {
+		if errors.IsConflict(e) {
+			log.Debugf("conflict while reconciling %s, requeueing", request.NamespacedName)
+			res = reconcile.Result{Requeue: true}
+			e = nil
+		}
+	}()
 	rs := &mdbv1.MongoDB{}
 
 	if reconcileResult, err := r.prepareResourceForReconciliation(ctx, request, rs, log); err != nil {
