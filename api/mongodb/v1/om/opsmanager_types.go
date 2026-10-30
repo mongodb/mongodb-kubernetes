@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -174,6 +175,86 @@ type MongoDBOpsManagerSpec struct {
 	// When not set, the operator is using FQDN of Ops Manager's headless service `{name}-svc.{namespace}.svc.cluster.local` to connect to the instance. If that URL cannot be used, then URL in this field should be provided for the operator to connect to Ops Manager instances.
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
+
+	// License configures EA licensing. secretRef installs from Secret, releaseReceipts stores the
+	// release receipts of released artifacts. When omitted, the operator still observes OM licence
+	// state when the admin API is available.
+	// +optional
+	License *MongoDBOpsManagerLicense `json:"license,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, has(r.licenseSecretRef) && r.licenseSecretRef.name == self.licenseSecretRef.name)",message="licenseSecretRef must not also be listed in releaseReceipts"
+type MongoDBOpsManagerLicense struct {
+	// LicenseSecretRef is the signed licence artefact Secret (data key "license"). Removing it releases
+	// the artefact the operator installed from it.
+	// +optional
+	LicenseSecretRef *SecretRef `json:"licenseSecretRef,omitempty"`
+
+	// AutoReleaseReceipts turns on automatic release receipts, which only matter in air gapped
+	// deployments. The operator then writes the release receipt of every artifact it releases, on
+	// removal and on renewal, into a Secret it creates named <artifactId>-release-receipt. The
+	// Secret has no owner reference and is never deleted by the operator.
+	// +optional
+	AutoReleaseReceipts bool `json:"autoReleaseReceipts,omitempty"`
+
+	// ReleaseReceipts lists released artifacts whose release receipt the operator writes to a
+	// Secret it creates, named <artifactId>-release-receipt. Each entry names the artifact by id
+	// or by the Secret holding its licence payload. Listing an artifact never releases it. A
+	// receipt is written once Ops Manager no longer holds the artifact.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.artifactId) || self.filter(y, has(y.artifactId) && y.artifactId == x.artifactId).size() == 1)",message="releaseReceipts must not list the same artifactId twice"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.licenseSecretRef) || self.filter(y, has(y.licenseSecretRef) && y.licenseSecretRef.name == x.licenseSecretRef.name).size() == 1)",message="releaseReceipts must not list the same licenseSecretRef twice"
+	ReleaseReceipts []LicenseReleaseReceipt `json:"releaseReceipts,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="has(self.artifactId) != has(self.licenseSecretRef)",message="exactly one of artifactId or licenseSecretRef must be set"
+// +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
+type LicenseReleaseReceipt struct {
+	// ArtifactID is the id of the released artifact.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	ArtifactID string `json:"artifactId,omitempty"`
+
+	// LicenseSecretRef points at a Secret holding the old licence artefact, the operator reads
+	// the artifact id from its payload.
+	// +optional
+	LicenseSecretRef *SecretRef `json:"licenseSecretRef,omitempty"`
+}
+
+func (l *MongoDBOpsManagerLicense) InstallRequested() bool {
+	return l != nil && l.LicenseSecretRef != nil && l.LicenseSecretRef.Name != ""
+}
+
+// GetReleaseReceipts returns the artifacts whose release receipts the operator collects.
+func (l *MongoDBOpsManagerLicense) GetReleaseReceipts() []LicenseReleaseReceipt {
+	if l == nil {
+		return nil
+	}
+	return l.ReleaseReceipts
+}
+
+func (l *MongoDBOpsManagerLicense) ReceiptsRequested() bool {
+	return l != nil && len(l.ReleaseReceipts) > 0
+}
+
+func (l *MongoDBOpsManagerLicense) AutoReleaseReceiptsRequested() bool {
+	return l != nil && l.AutoReleaseReceipts
+}
+
+// HasReleaseReceipt reports whether artifactID is listed in releaseReceipts.
+func (l *MongoDBOpsManagerLicense) HasReleaseReceipt(artifactID string) bool {
+	if l == nil {
+		return false
+	}
+	for _, r := range l.ReleaseReceipts {
+		if r.ArtifactID == artifactID {
+			return true
+		}
+	}
+	return false
 }
 
 // ExternalAppDBRef references an MongoDB resource
@@ -513,6 +594,156 @@ type OpsManagerStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// License contains the typed response from Ops Manager's /admin/licenses API,
+	// together with operator-owned identity and install markers.
+	// +optional
+	License *OpsManagerLicenseStatus `json:"license,omitempty"`
+}
+
+type OpsManagerLicenseStatus struct {
+	// Enforcement contains the current license enforcement state.
+	// +optional
+	Enforcement *OpsManagerLicenseEnforcementStatus `json:"enforcement,omitempty"`
+	// Licenses contains the license artifacts reported by Ops Manager.
+	// +optional
+	Licenses []OpsManagerLicenseArtifactStatus `json:"licenses,omitempty"`
+	// ActiveEntitlements contains the active entitlements grouped by type.
+	// +optional
+	ActiveEntitlements map[string][]OpsManagerLicenseEntitlementStatus `json:"activeEntitlements,omitempty"`
+	// Identity is the Ops Manager enrollment identity bound to EA licenses.
+	// +optional
+	Identity *OpsManagerLicenseIdentityStatus `json:"identity,omitempty"`
+	// InstalledArtifactID is the artifact id of the last artefact installed from licenseSecretRef, as
+	// claimed by the artefact itself. It is kept when OM no longer holds the artefact, so it
+	// also acts as the install memory that prevents the same Secret content from being PUT
+	// again. It is cleared when the artefact is released.
+	// +optional
+	InstalledArtifactID string `json:"installedArtifactId,omitempty"`
+}
+
+// ArtifactIDs returns every artifact id the view lists, released rows included. It is for logging.
+func (s OpsManagerLicenseStatus) ArtifactIDs() []string {
+	artifactIDs := make([]string, 0, len(s.Licenses))
+	for _, license := range s.Licenses {
+		if license.ArtifactID != "" {
+			artifactIDs = append(artifactIDs, license.ArtifactID)
+		}
+	}
+	return artifactIDs
+}
+
+// LicenseArtifactStatusReleased marks an artifact Ops Manager no longer holds.
+const LicenseArtifactStatusReleased = "RELEASED"
+
+// ArtifactStatus returns the status Ops Manager reports for the artifact, and whether the view lists it at all.
+func (s OpsManagerLicenseStatus) ArtifactStatus(artifactID string) (string, bool) {
+	for _, license := range s.Licenses {
+		if license.ArtifactID == artifactID {
+			return license.Status, true
+		}
+	}
+	return "", false
+}
+
+// ListsArtifact reports whether the view carries a row for the artifact, whatever its status.
+func (s OpsManagerLicenseStatus) ListsArtifact(artifactID string) bool {
+	_, listed := s.ArtifactStatus(artifactID)
+	return listed
+}
+
+// HoldsArtifact reports whether Ops Manager holds the artifact. A released artifact keeps its row
+// and does not count as held, while a denied one is installed and does.
+func (s OpsManagerLicenseStatus) HoldsArtifact(artifactID string) bool {
+	status, listed := s.ArtifactStatus(artifactID)
+	return listed && status != LicenseArtifactStatusReleased
+}
+
+// HeldArtifactIDs returns the artifacts Ops Manager holds.
+func (s OpsManagerLicenseStatus) HeldArtifactIDs() []string {
+	ids := make([]string, 0, len(s.Licenses))
+	for _, license := range s.Licenses {
+		if license.ArtifactID != "" && license.Status != LicenseArtifactStatusReleased {
+			ids = append(ids, license.ArtifactID)
+		}
+	}
+	return ids
+}
+
+type OpsManagerLicenseEntitlementStatus struct {
+	Type        string                                    `json:"type"`
+	ProductName string                                    `json:"productName,omitempty"`
+	Active      bool                                      `json:"active"`
+	Window      *OpsManagerLicenseEntitlementWindowStatus `json:"window,omitempty"`
+}
+
+type OpsManagerLicenseEntitlementWindowStatus struct {
+	Start string `json:"start,omitempty"`
+	End   string `json:"end,omitempty"`
+}
+
+type OpsManagerLicenseEnforcementStatus struct {
+	EffectiveState string                                        `json:"effectiveState"`
+	Cause          string                                        `json:"cause"`
+	Enforced       bool                                          `json:"enforced"`
+	Transition     *OpsManagerLicenseEnforcementTransitionStatus `json:"transition,omitempty"`
+	Warnings       []OpsManagerLicenseWarningStatus              `json:"warnings,omitempty"`
+	Verdicts       []OpsManagerLicenseVerdictStatus              `json:"verdicts,omitempty"`
+}
+
+type OpsManagerLicenseEnforcementTransitionStatus struct {
+	EvaluatorID  string `json:"evaluatorId,omitempty"`
+	InStateUntil string `json:"inStateUntil,omitempty"`
+	NextState    string `json:"nextState,omitempty"`
+}
+
+type OpsManagerLicenseWarningStatus struct {
+	EvaluatorID string                                  `json:"evaluatorId,omitempty"`
+	Since       string                                  `json:"since,omitempty"`
+	Subjects    []OpsManagerLicenseWarningSubjectStatus `json:"subjects,omitempty"`
+}
+
+type OpsManagerLicenseWarningSubjectStatus struct {
+	ID    string `json:"id,omitempty"`
+	Since string `json:"since,omitempty"`
+}
+
+type OpsManagerLicenseVerdictStatus struct {
+	EvaluatorID  string                                    `json:"evaluatorId,omitempty"`
+	State        string                                    `json:"state,omitempty"`
+	BreachAt     string                                    `json:"breachAt,omitempty"`
+	WarningStart string                                    `json:"warningStart,omitempty"`
+	Transition   *OpsManagerLicenseVerdictTransitionStatus `json:"transition,omitempty"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Metadata *v1.MapWrapper `json:"metadata,omitempty"`
+}
+
+type OpsManagerLicenseVerdictTransitionStatus struct {
+	InStateUntil string `json:"inStateUntil,omitempty"`
+	NextState    string `json:"nextState,omitempty"`
+}
+
+type OpsManagerLicenseArtifactStatus struct {
+	ArtifactID   string                         `json:"artifactId"`
+	Usable       bool                           `json:"usable"`
+	GeneratedAt  string                         `json:"generatedAt,omitempty"`
+	InstalledAt  string                         `json:"installedAt,omitempty"`
+	Status       string                         `json:"status,omitempty"`
+	StatusCause  string                         `json:"statusCause,omitempty"`
+	StatusReason string                         `json:"statusReason,omitempty"`
+	TermEnd      string                         `json:"termEnd,omitempty"`
+	Grants       []OpsManagerLicenseGrantStatus `json:"grants,omitempty"`
+}
+
+type OpsManagerLicenseGrantStatus struct {
+	GrantType    string                               `json:"grantType,omitempty"`
+	GrantID      string                               `json:"grantId,omitempty"`
+	StartDate    string                               `json:"startDate,omitempty"`
+	EndDate      string                               `json:"endDate,omitempty"`
+	Entitlements []OpsManagerLicenseEntitlementStatus `json:"entitlements,omitempty"`
+}
+
+type OpsManagerLicenseIdentityStatus struct {
+	HolderID string `json:"holderId,omitempty"`
 }
 
 type AgentVersion struct {
@@ -558,6 +789,7 @@ func (f DataStoreConfig) Identifier() any {
 }
 
 type SecretRef struct {
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 }
 
@@ -834,6 +1066,12 @@ func (om *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOp
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		om.Status.OpsManagerStatus.Warnings = append(om.Status.OpsManagerStatus.Warnings, option.(status.WarningsOption).Warnings...)
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.OmLicenseReconciledStatusOption{}); exists {
+		c := option.(status.OmLicenseReconciledStatusOption).Condition
+		c.ObservedGeneration = om.GetGeneration()
+		_ = meta.SetStatusCondition(&om.Status.OpsManagerStatus.Conditions, c)
 	}
 
 	if phase == status.PhaseRunning {
@@ -1208,6 +1446,74 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 	return []metav1.OwnerReference{ownerReference}
 }
 
+// annotationTrue is the annotation value that turns the behaviour the annotation asks for on.
+const annotationTrue = "true"
+
 func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
-	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
+	return om.Annotations[util.DisableReconciliationAnnotation] == annotationTrue
+}
+
+func (om *MongoDBOpsManager) LicenseReleaseDueToRemovedInstallIntent() bool {
+	if om.Spec.License != nil && om.Spec.License.InstallRequested() {
+		return false
+	}
+	prev := om.Status.OpsManagerStatus.License
+	if prev == nil {
+		return false
+	}
+	return prev.InstalledArtifactID != ""
+}
+
+func (om *MongoDBOpsManager) GetInstalledArtifactID() string {
+	if license := om.Status.OpsManagerStatus.License; license != nil {
+		return license.InstalledArtifactID
+	}
+	return ""
+}
+
+func (om *MongoDBOpsManager) GetLicenseStatus() OpsManagerLicenseStatus {
+	if license := om.Status.OpsManagerStatus.License; license != nil {
+		return *license
+	}
+	return OpsManagerLicenseStatus{}
+}
+
+func (om *MongoDBOpsManager) SetInstalledArtifactID(artifactID string) {
+	if license := om.Status.OpsManagerStatus.License; license != nil {
+		license.InstalledArtifactID = artifactID
+	}
+}
+
+func (om *MongoDBOpsManager) SetLicenseStatus(next OpsManagerLicenseStatus) {
+	om.Status.OpsManagerStatus.License = &next
+}
+
+func (om *MongoDBOpsManager) SetLicenseIdentity(holderID string) {
+	if om.Status.OpsManagerStatus.License == nil {
+		om.Status.OpsManagerStatus.License = &OpsManagerLicenseStatus{}
+	}
+	om.Status.OpsManagerStatus.License.Identity = &OpsManagerLicenseIdentityStatus{HolderID: holderID}
+}
+
+func (om *MongoDBOpsManager) SetLicenseStatusFromState(state OpsManagerLicenseStatus) {
+	om.SetLicenseStatus(LicenseStatusFromState(state, om.Status.OpsManagerStatus.License))
+}
+
+// LicenseStatusFromState merges a state observed from Ops Manager with the previous status, which
+// keeps the marker of the artifact installed by the operator and the identity.
+func LicenseStatusFromState(state OpsManagerLicenseStatus, prev *OpsManagerLicenseStatus) OpsManagerLicenseStatus {
+	next := state
+	if prev != nil {
+		next.InstalledArtifactID = prev.InstalledArtifactID
+		next.Identity = prev.Identity
+	}
+	return next
+}
+
+func (om *MongoDBOpsManager) LicenseRotateIdentityDue() bool {
+	return om.Annotations[util.LicenseRotateIdentityAnnotation] == annotationTrue
+}
+
+func (om *MongoDBOpsManager) LicenseRecomputeDue() bool {
+	return om.Annotations[util.LicenseRecomputeAnnotation] == annotationTrue
 }
