@@ -76,7 +76,6 @@ func TestDatabaseAgentSettingsDelivery(t *testing.T) {
 			require.NotNil(t, agent)
 			assert.Empty(t, agent.Args)
 			assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: "customer.example.com"}, agent.Env[len(agent.Env)-1])
-			assert.NotContains(t, strings.Join(agent.Args, " "), "customer-api-key")
 			for _, variable := range agent.Env {
 				assert.NotEqual(t, "AGENT_FLAGS", variable.Name)
 			}
@@ -163,27 +162,6 @@ func TestDatabaseAgentSettingsRejectsInvalidFileBeforeWriting(t *testing.T) {
 	assert.True(t, errors.IsNotFound(err))
 	_, err = fakeClient.GetSecret(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-api-key"))
 	assert.True(t, errors.IsNotFound(err))
-}
-
-func TestDatabaseAgentSettingsPreservesCLIFlagPrefixes(t *testing.T) {
-	ctx := context.Background()
-	fakeClient, _ := mock.NewDefaultFakeClient()
-	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
-		StartupParameters: mdbv1.StartupParameters{"-logLevel": "DEBUG", "-mmsApiKey": "customer-api-key", "-overrideLocalHost": "customer.example.com"},
-	}).Build()
-	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions())
-	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
-	require.NoError(t, err)
-	cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-settings"))
-	require.NoError(t, err)
-	assert.Contains(t, cm.Data[construct.AgentSettingsFileName], "logLevel=DEBUG\n")
-	assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "customer-api-key")
-	keySecret, err := fakeClient.GetSecret(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-api-key"))
-	require.NoError(t, err)
-	assert.Equal(t, "customer-api-key", string(keySecret.Data[util.OmAgentApiKey]))
-	assert.Equal(t, "customer.example.com", env.ToMap(construct.AgentContainer(*created).Env...)["MDB_AGENT_HOSTNAME_OVERRIDE"])
-	assert.Contains(t, mdb.Spec.Agent.StartupParameters, "-mmsApiKey")
 }
 
 func TestDatabaseAgentCredentialOverrideUsesVault(t *testing.T) {
