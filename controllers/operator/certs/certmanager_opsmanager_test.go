@@ -55,9 +55,8 @@ func managedTestOM() *omv1.MongoDBOpsManager {
 				Security: &mdbv1.Security{
 					ManagedCertificate: &mdbv1.ManagedCertificate{},
 					Authentication: &mdbv1.Authentication{
-						Enabled:         true,
-						Modes:           []mdbv1.AuthMode{util.X509},
-						InternalCluster: util.X509,
+						Enabled: true,
+						Modes:   []mdbv1.AuthMode{util.SCRAM},
 					},
 				},
 			},
