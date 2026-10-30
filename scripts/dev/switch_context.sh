@@ -100,6 +100,25 @@ if ! echo "${current_envs}" | grep -q "^workdir="; then
   echo "workdir=\"${workdir:-.}\"" >> "${destination_envs_file}.env"
 fi
 
+# PATH and every path of the checkout or of $HOME depend on the side that runs the switch (the host, or a
+# container that mounts this checkout), so they also go to a file of the side, which devenv loads last.
+# The venv/bin of a checkout of this repo is left out of that PATH: it comes from the shell that ran the switch, which
+# can have another checkout's venv active, and devenv activates the venv of this checkout anyway. The bin/ of another
+# checkout stays, because that is where its tools (kind, helm, kubectl-mongodb) can be; devenv puts this checkout's bin/ first.
+side_path=""
+IFS=: read -ra path_entries <<< "${PATH}"
+for entry in "${path_entries[@]}"; do
+  if [[ "${entry}" == */venv/bin && -f "${entry%/venv/bin}/scripts/dev/switch_context.sh" ]]; then
+    continue
+  fi
+  side_path="${side_path:+${side_path}:}${entry}"
+done
+side=$([[ -f /.dockerenv ]] && echo devc || echo host)
+{
+  echo "${current_envs}" | grep -F -e "PATH=" -e "${PROJECT_DIR}" -e "${HOME}" | grep -v "^PATH=" || true
+  echo "PATH=\"${side_path}\""
+} > "${destination_envs_file}.${side}.env"
+
 # We need to tail +5 lines due to above generated comment.
 awk '{print "export " $0}' < "${destination_envs_file}".env | tail -n +5 > "${destination_envs_file}".export.env
 
