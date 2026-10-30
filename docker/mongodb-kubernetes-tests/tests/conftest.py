@@ -679,12 +679,19 @@ def get_multi_cluster_operator(
     member_cluster_names: List[str],
     apply_crds_first: bool = False,
     watched_resources: Optional[List[str]] = None,
+    create_managed_certificate_roles: bool = False,
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
     # when running with the local operator, this is executed by scripts/dev/prepare_local_e2e_run.sh
     if not local_operator():
-        run_kube_config_creation_tool(member_cluster_names, namespace, namespace, member_cluster_names)
+        run_kube_config_creation_tool(
+            member_cluster_names,
+            namespace,
+            namespace,
+            member_cluster_names,
+            create_managed_certificate_roles=create_managed_certificate_roles,
+        )
     helm_opts = {
         "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
         # override the serviceAccountName for the operator deployment
@@ -1359,6 +1366,7 @@ def run_kube_config_creation_tool(
     cluster_scoped: bool = False,
     service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
     operator_name: str = OPERATOR_NAME,
+    create_managed_certificate_roles: bool = False,
 ):
     central_cluster = _read_multi_cluster_config_value("central_cluster")
     member_clusters_str = ",".join(member_clusters)
@@ -1395,6 +1403,12 @@ def run_kube_config_creation_tool(
 
     if cluster_scoped:
         args.append("--cluster-scoped")
+
+    # In multi-cluster mode the chart does not create the operator RBAC (the operator is installed
+    # with operator.createOperatorServiceAccount=false), this tool does. So the cert-manager RBAC
+    # that operator-managed certificates need has to be asked for here.
+    if create_managed_certificate_roles:
+        args.append("--create-managed-certificate-roles")
 
     try:
         print(f"Running multi-cluster cli setup tool: {' '.join(args)}")

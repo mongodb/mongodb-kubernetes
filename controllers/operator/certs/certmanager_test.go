@@ -1,0 +1,771 @@
+package certs
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+)
+
+const (
+	resName      = "mdb"
+	resNamespace = "ns"
+)
+
+func newMongoDB(name string, mutate func(*mdbv1.MongoDB)) *mdbv1.MongoDB {
+	mdb := mdbv1.NewReplicaSetBuilder().SetName(name).SetNamespace(resNamespace).Build()
+	if mutate != nil {
+		mutate(mdb)
+	}
+	return mdb
+}
+
+func TestMergeSubject(t *testing.T) {
+	def := &certmanagerv1.X509Subject{
+		Organizations:       []string{"def-o"},
+		OrganizationalUnits: []string{"def-ou"},
+	}
+	tests := []struct {
+		name     string
+		override *mdbv1.X509Subject
+		defCN    string
+		expSub   *certmanagerv1.X509Subject
+		expCN    string
+	}{
+		{
+			name:     "nil override returns the default and defCN unchanged",
+			override: nil,
+			defCN:    "def-cn",
+			expSub:   def,
+			expCN:    "def-cn",
+		},
+		{
+			name:     "override Organization only keeps the default OU",
+			override: &mdbv1.X509Subject{Organizations: []string{"my-o"}},
+			defCN:    "def-cn",
+			expSub:   &certmanagerv1.X509Subject{Organizations: []string{"my-o"}, OrganizationalUnits: []string{"def-ou"}},
+			expCN:    "def-cn",
+		},
+		{
+			name:     "override adds Country and keeps O/OU defaults",
+			override: &mdbv1.X509Subject{Countries: []string{"US"}},
+			expSub:   &certmanagerv1.X509Subject{Organizations: []string{"def-o"}, OrganizationalUnits: []string{"def-ou"}, Countries: []string{"US"}},
+			expCN:    "",
+		},
+		{
+			name:     "override CommonName wins over defCN",
+			override: &mdbv1.X509Subject{CommonName: "my-cn"},
+			defCN:    "def-cn",
+			expSub:   &certmanagerv1.X509Subject{Organizations: []string{"def-o"}, OrganizationalUnits: []string{"def-ou"}},
+			expCN:    "my-cn",
+		},
+		{
+			name:     "empty override CommonName falls back to defCN",
+			override: &mdbv1.X509Subject{Organizations: []string{"my-o"}},
+			defCN:    "def-cn",
+			expSub:   &certmanagerv1.X509Subject{Organizations: []string{"my-o"}, OrganizationalUnits: []string{"def-ou"}},
+			expCN:    "def-cn",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotSub, gotCN := mergeSubject(tc.override, def, tc.defCN)
+			assert.Equal(t, tc.expSub, gotSub)
+			assert.Equal(t, tc.expCN, gotCN)
+		})
+	}
+}
+
+// TestSignerIssuerRef covers the per-category signer resolution: the user-configured issuer
+// when present, otherwise the operator's self-signed CA issuer. Also exercises hasUserIssuer.
+func TestSignerIssuerRef(t *testing.T) {
+	tests := []struct {
+		name           string
+		mc             *mdbv1.ManagedCertificate
+		category       certCategory
+		categoryIssuer cmmeta.ObjectReference
+	}{
+		{
+			name:           "server with a user issuer passes it through",
+			mc:             &mdbv1.ManagedCertificate{Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "my-issuer", Kind: "ClusterIssuer"}}},
+			category:       categoryServer,
+			categoryIssuer: cmmeta.ObjectReference{Name: "my-issuer", Kind: "ClusterIssuer"},
+		},
+		{
+			name:           "server without an issuer uses the self-signed CA issuer",
+			mc:             &mdbv1.ManagedCertificate{},
+			category:       categoryServer,
+			categoryIssuer: cmmeta.ObjectReference{Name: fmt.Sprintf("%s-server-ca-issuer", resName), Kind: certmanagerv1.IssuerKind},
+		},
+		{
+			name:           "client with a user issuer passes it through",
+			mc:             &mdbv1.ManagedCertificate{Client: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "client-issuer", Kind: "Issuer"}}},
+			category:       categoryClient,
+			categoryIssuer: cmmeta.ObjectReference{Name: "client-issuer", Kind: "Issuer"},
+		},
+		{
+			name:           "client without an issuer uses the self-signed CA issuer",
+			mc:             &mdbv1.ManagedCertificate{},
+			category:       categoryClient,
+			categoryIssuer: cmmeta.ObjectReference{Name: fmt.Sprintf("%s-client-ca-issuer", resName), Kind: certmanagerv1.IssuerKind},
+		},
+		{
+			name:           "an empty issuer name is treated as no issuer (self-signed)",
+			mc:             &mdbv1.ManagedCertificate{Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: ""}}},
+			category:       categoryServer,
+			categoryIssuer: cmmeta.ObjectReference{Name: fmt.Sprintf("%s-server-ca-issuer", resName), Kind: certmanagerv1.IssuerKind},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			owner := newMongoDB(resName, func(m *mdbv1.MongoDB) { m.Spec.Security.ManagedCertificate = tc.mc })
+			assert.Equal(t, tc.categoryIssuer, signerIssuerRef(owner, tc.category))
+		})
+	}
+}
+
+// TestVerifyAgentSubjectDistinct covers the guard that rejects an agent subject matching the
+// membership subject on both O and OU (which would make mongod treat the agent as a peer).
+func TestVerifyAgentSubjectDistinct(t *testing.T) {
+	auth := func(internalX509, agentX509 bool) *mdbv1.Authentication {
+		a := &mdbv1.Authentication{Enabled: true}
+		if internalX509 {
+			a.InternalCluster = util.X509
+		}
+		if agentX509 {
+			a.Modes = []mdbv1.AuthMode{mdbv1.AuthMode(util.X509)}
+		}
+		return a
+	}
+	tests := []struct {
+		name  string
+		auth  *mdbv1.Authentication
+		subs  *mdbv1.CertSubjects
+		expOK bool
+	}{
+		{name: "internal auth not x509 is a no-op", auth: auth(false, true), expOK: true},
+		{name: "agent auth not x509 is a no-op", auth: auth(true, false), expOK: true},
+		{
+			name:  "internal and agent auth are x509 with default subjects (created by operator) differ in O",
+			auth:  auth(true, true),
+			expOK: true,
+		},
+		{
+			name: "internal and agent auth x509 with the same O and OU (defaults to same between member and agent) is rejected",
+			auth: auth(true, true),
+			subs: &mdbv1.CertSubjects{
+				Membership: &mdbv1.X509Subject{Organizations: []string{"same"}},
+				Agent:      &mdbv1.X509Subject{Organizations: []string{"same"}},
+			},
+			expOK: false,
+		},
+		{
+			name: "internal and agent auth x509 with the same O but different OU is allowed",
+			auth: auth(true, true),
+			subs: &mdbv1.CertSubjects{
+				Membership: &mdbv1.X509Subject{Organizations: []string{"same"}, OrganizationalUnits: []string{"ou-a"}},
+				Agent:      &mdbv1.X509Subject{Organizations: []string{"same"}, OrganizationalUnits: []string{"ou-b"}},
+			},
+			expOK: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+				m.Spec.Security.Authentication = tc.auth
+				m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Subjects: tc.subs}
+			})
+			assert.Equal(t, tc.expOK, verifyAgentSubjectDistinct(owner).IsOK())
+		})
+	}
+}
+
+func TestComponentCertificates(t *testing.T) {
+	ctx := context.Background()
+	// No member Certificate is seeded, so readCoveredMembersCount returns 0; the SAN
+	// count comes straight from MembersToCover/Replicas. The never-shrink hold behaviour is
+	// covered by TestResolveMembersToCover.
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	baseOpts := Options{
+		ResourceName:   resName,
+		CertSecretName: fmt.Sprintf("%s-cert", resName),
+		Namespace:      resNamespace,
+		ServiceName:    fmt.Sprintf("%s-svc", resName),
+		Replicas:       1,
+		ClusterDomain:  "cluster.local",
+	}
+
+	t.Run("keyfile internal auth: only the member (serverAuth) cert, SAN-only subject", func(t *testing.T) {
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		})
+		got := componentCertificates(ctx, fakeClient, owner, baseOpts)
+		require.Len(t, got, 1)
+		assert.Equal(t, baseOpts.CertSecretName, got[0].certName)
+		assert.Equal(t, memberServerCertUsages, got[0].spec.Usages)
+		assert.Nil(t, got[0].spec.Subject, "member cert is SAN-only when internal auth is not x509")
+	})
+
+	t.Run("x509 internal auth: member + clusterfile, both carry the same membership subject", func(t *testing.T) {
+		opts := baseOpts
+		opts.InternalClusterSecretName = fmt.Sprintf("%s-clusterfile", resName)
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+			m.Spec.Security.Authentication = &mdbv1.Authentication{InternalCluster: util.X509}
+		})
+		got := componentCertificates(ctx, fakeClient, owner, opts)
+		require.Len(t, got, 2)
+
+		// member cert: serverAuth, membership subject
+		assert.Equal(t, baseOpts.CertSecretName, got[0].certName)
+		assert.Equal(t, memberServerCertUsages, got[0].spec.Usages)
+		require.NotNil(t, got[0].spec.Subject)
+		assert.Equal(t, []string{fmt.Sprintf("%s-server", resName)}, got[0].spec.Subject.Organizations)
+
+		// clusterfile cert: clientAuth, identical membership subject
+		assert.Equal(t, opts.InternalClusterSecretName, got[1].certName)
+		assert.Equal(t, clientAuthCertUsages, got[1].spec.Usages)
+		assert.Equal(t, got[0].spec.Subject, got[1].spec.Subject, "member and clusterfile must share the membership subject")
+
+		// The clusterfile carries no SANs (mongod matches it by subject, not SAN), so it must
+		// carry a common name instead - cert-manager rejects a Certificate with neither.
+		assert.Empty(t, got[1].spec.DNSNames, "clusterfile cert must not have per-member SANs")
+		assert.NotEmpty(t, got[1].spec.CommonName, "clusterfile cert needs a common name when it has no SANs")
+	})
+
+	t.Run("member cert SANs cover MembersToCover and the count is recorded in the annotation", func(t *testing.T) {
+		opts := baseOpts
+		opts.Replicas = 3
+		opts.MembersToCover = 5
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		})
+		got := componentCertificates(ctx, fakeClient, owner, opts)
+		require.Len(t, got, 1)
+		sans := strings.Join(got[0].spec.DNSNames, " ")
+		for i := range 5 {
+			assert.Contains(t, sans, fmt.Sprintf("%s-%d.", resName, i), "member %d SAN must be present", i)
+		}
+		// The count is remembered in the annotation so a later reconcile can hold the SANs steady.
+		assert.Equal(t, "5", got[0].annotations[coveredMembersAnnotation])
+	})
+}
+
+func TestResolveMembersToCover(t *testing.T) {
+	tests := []struct {
+		name           string
+		opts           Options
+		coveredMembers int
+		expected       int
+	}{
+		{
+			name:     "steady state uses MembersToCover",
+			opts:     Options{Replicas: 3, MembersToCover: 3},
+			expected: 3,
+		},
+		{
+			name:     "scale-up jumps to the target immediately",
+			opts:     Options{Replicas: 4, MembersToCover: 5},
+			expected: 5,
+		},
+		{
+			name:           "scale-down holds the covered count, it does not shrink",
+			opts:           Options{Replicas: 4, MembersToCover: 4},
+			coveredMembers: 5,
+			expected:       5,
+		},
+		{
+			name:           "settled below a past peak still holds it (never shrink)",
+			opts:           Options{Replicas: 3, MembersToCover: 3},
+			coveredMembers: 5,
+			expected:       5,
+		},
+		{
+			name:           "scale-up beyond the covered count grows to the target",
+			opts:           Options{Replicas: 6, MembersToCover: 6},
+			coveredMembers: 5,
+			expected:       6,
+		},
+		{
+			name:     "no MembersToCover falls back to Replicas",
+			opts:     Options{Replicas: 3},
+			expected: 3,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, resolveMembersToCover(tc.opts, tc.coveredMembers))
+		})
+	}
+}
+
+// TestAgentCertificate covers that the agent cert is issued only under x509 agent auth, with
+// clientAuth usages and the agent subject.
+func TestAgentCertificate(t *testing.T) {
+	t.Run("agent auth x509: issued with clientAuth and the agent subject", func(t *testing.T) {
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+			m.Spec.Security.Authentication = &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{mdbv1.AuthMode(util.X509)}}
+		})
+		cert, ok := agentCertificate(owner)
+		require.True(t, ok)
+		assert.Equal(t, fmt.Sprintf("%s-managed-agent-certs", resName), cert.certName)
+		assert.Equal(t, clientAuthCertUsages, cert.spec.Usages)
+		require.NotNil(t, cert.spec.Subject)
+		assert.Equal(t, []string{fmt.Sprintf("%s-agent", resName)}, cert.spec.Subject.Organizations)
+	})
+
+	t.Run("agent auth not x509: no agent cert", func(t *testing.T) {
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		})
+		_, ok := agentCertificate(owner)
+		assert.False(t, ok)
+	})
+}
+
+// TestResolveUserCA covers how the operator finds the CA that verifies a category's certs when
+// that category is signed by a user issuer.
+func TestResolveUserCA(t *testing.T) {
+	ctx := context.Background()
+	issuedName := fmt.Sprintf("%s-cert", resName)
+
+	newSecret := func(name string, data map[string][]byte) *corev1.Secret {
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: resNamespace}, Data: data}
+	}
+	newConfigMap := func(name string, data map[string]string) *corev1.ConfigMap {
+		return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: resNamespace}, Data: data}
+	}
+
+	tests := []struct {
+		name             string
+		objects          []client.Object
+		userConfiguredCA *mdbv1.CARef
+		expCA            string
+		expOK            bool
+		expMessage       string
+	}{
+		{
+			name:    "configured issuer emits its ca.crt so it is used directly",
+			objects: []client.Object{newSecret(issuedName, map[string][]byte{corev1.ServiceAccountRootCAKey: []byte("issuer-ca")})},
+			expCA:   "issuer-ca",
+			expOK:   true,
+		},
+		{
+			name:       "issued certificate secret does not exist yet so we wait",
+			objects:    nil,
+			expOK:      false,
+			expMessage: "Waiting for cert-manager to write the certificate secret",
+		},
+		{
+			name: "no ca.crt key in certificate secret, so we read the CA from the ConfigMap the user configured",
+			objects: []client.Object{
+				newSecret(issuedName, map[string][]byte{corev1.TLSCertKey: []byte("leaf")}),
+				newConfigMap("user-ca", map[string]string{"ca.crt": "configmap-ca"}),
+			},
+			userConfiguredCA: &mdbv1.CARef{Name: "user-ca", Kind: "ConfigMap", Key: "ca.crt"},
+			expCA:            "configmap-ca",
+			expOK:            true,
+		},
+		{
+			name: "no ca.crt key in certificate secret, so we read the CA from the Secret the user configured",
+			objects: []client.Object{
+				newSecret(issuedName, map[string][]byte{}),
+				newSecret("user-ca", map[string][]byte{"ca.crt": []byte("secret-ca")}),
+			},
+			userConfiguredCA: &mdbv1.CARef{Name: "user-ca", Kind: "Secret", Key: "ca.crt"},
+			expCA:            "secret-ca",
+			expOK:            true,
+		},
+		{
+			name:       "no ca.crt in certificate secret and the user gave no CA using CR so we fail",
+			objects:    []client.Object{newSecret(issuedName, map[string][]byte{})},
+			expOK:      false,
+			expMessage: "issuer did not populate ca.crt in the certificate secret and no CA was provided via security.managedCertificate",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+				m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{
+					Server: &mdbv1.CertificateConfig{CA: tc.userConfiguredCA},
+				}
+			})
+			fakeClient, _ := mock.NewDefaultFakeClient(tc.objects...)
+
+			ca, status := resolveUserCA(ctx, fakeClient, owner, categoryServer, issuedName)
+
+			assert.Equal(t, tc.expOK, status.IsOK())
+			if tc.expOK {
+				assert.Equal(t, tc.expCA, ca)
+			} else {
+				assert.Empty(t, ca)
+				assert.Contains(t, status.Message(), tc.expMessage)
+			}
+		})
+	}
+}
+
+func TestCertificateReady(t *testing.T) {
+	withReady := func(status cmmeta.ConditionStatus, observedGen int64) certmanagerv1.CertificateStatus {
+		return certmanagerv1.CertificateStatus{
+			Conditions: []certmanagerv1.CertificateCondition{
+				{Type: certmanagerv1.CertificateConditionReady, Status: status, ObservedGeneration: observedGen},
+			},
+		}
+	}
+	tests := []struct {
+		name       string
+		generation int64
+		status     certmanagerv1.CertificateStatus
+		expected   bool
+	}{
+		{name: "certificate ready for the current generation", generation: 3, status: withReady(cmmeta.ConditionTrue, 3), expected: true},
+		{name: "ready but for a previous generation, is stale", generation: 3, status: withReady(cmmeta.ConditionTrue, 2), expected: false},
+		{name: "not ready", generation: 3, status: withReady(cmmeta.ConditionFalse, 3), expected: false},
+		{name: "no ready status condition", generation: 1, status: certmanagerv1.CertificateStatus{}, expected: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cert := &certmanagerv1.Certificate{
+				ObjectMeta: metav1.ObjectMeta{Generation: tc.generation},
+				Status:     tc.status,
+			}
+			assert.Equal(t, tc.expected, certificateReady(cert))
+		})
+	}
+}
+
+func TestInspectCertificateStatus(t *testing.T) {
+	certName := fmt.Sprintf("%s-cert", resName)
+	now := metav1.Now()
+	attempts := 3
+
+	newCert := func(ready bool, lastFailure *metav1.Time, failedAttempts *int) *certmanagerv1.Certificate {
+		status := cmmeta.ConditionFalse
+		if ready {
+			status = cmmeta.ConditionTrue
+		}
+		return &certmanagerv1.Certificate{
+			ObjectMeta: metav1.ObjectMeta{Name: certName, Namespace: resNamespace, Generation: 1},
+			Status: certmanagerv1.CertificateStatus{
+				Conditions: []certmanagerv1.CertificateCondition{
+					{Type: certmanagerv1.CertificateConditionReady, Status: status, ObservedGeneration: 1},
+				},
+				LastFailureTime:        lastFailure,
+				FailedIssuanceAttempts: failedAttempts,
+			},
+		}
+	}
+
+	tests := []struct {
+		name               string
+		cert               *certmanagerv1.Certificate
+		expReady           bool
+		expRenewalFailed   bool
+		expIssuanceFailing bool
+	}{
+		{name: "ready, no failure", cert: newCert(true, nil, nil), expReady: true},
+		{name: "ready but a renewal is failing is a soft warning", cert: newCert(true, &now, &attempts), expReady: true, expRenewalFailed: true},
+		{name: "not ready and issuance is failing is surfaced", cert: newCert(false, &now, &attempts), expReady: false, expIssuanceFailing: true},
+		{name: "not ready with no recorded failure is just not ready", cert: newCert(false, nil, nil), expReady: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			insp := inspectCertificateStatus(certName, tc.cert)
+			assert.Equal(t, tc.expReady, insp.ready)
+			assert.Equal(t, tc.expRenewalFailed, insp.renewalFailed)
+			assert.Equal(t, tc.expIssuanceFailing, insp.issuanceFailing)
+			if tc.expRenewalFailed || tc.expIssuanceFailing {
+				assert.Contains(t, insp.detail, certName)
+				assert.Contains(t, insp.detail, "failed attempt")
+			}
+		})
+	}
+}
+
+func TestBuildDNSNamesExternalDomain(t *testing.T) {
+	ext := "example.com"
+	opts := Options{
+		ResourceName:   resName,
+		ServiceName:    fmt.Sprintf("%s-svc", resName),
+		Namespace:      resNamespace,
+		ClusterDomain:  "cluster.local",
+		Replicas:       3,
+		ExternalDomain: &ext,
+	}
+
+	dnsNames := buildDNSNames(opts)
+
+	for _, n := range dnsNames {
+		assert.NotContains(t, n, "*", "external SANs must be absolute URLs with no wildcards")
+	}
+	for i := range 3 {
+		assert.Contains(t, dnsNames, fmt.Sprintf("%s-%d.%s", resName, i, ext), "external FQDN for member %d must be present", i)
+	}
+
+	t.Run("no external domain contributes no external SANs", func(t *testing.T) {
+		noExt := opts
+		noExt.ExternalDomain = nil
+		assert.Nil(t, GetExternalDNSNames(noExt))
+	})
+}
+
+type fakeScaler struct {
+	current int
+	desired int
+}
+
+func (f fakeScaler) DesiredReplicas() int          { return f.desired }
+func (f fakeScaler) CurrentReplicas() int          { return f.current }
+func (f fakeScaler) ForcedIndividualScaling() bool { return false }
+func (f fakeScaler) ScalingFirstTime() bool        { return false }
+func (f fakeScaler) TargetReplicas() int           { return f.desired }
+func (f fakeScaler) MemberClusterName() string     { return "" }
+func (f fakeScaler) MemberClusterNum() int         { return 0 }
+func (f fakeScaler) ScalerDescription() string     { return "" }
+
+// TestShardedComponentConfigsSetMembersToCover covers that the sharded cert Options builders set
+// the never-shrink MembersToCover count (max of current and desired), like the replica set does.
+// Without it the shared member cert would reissue on every one-at-a-time scale step.
+func TestShardedComponentConfigsSetMembersToCover(t *testing.T) {
+	mdb := newMongoDB(resName, nil)
+	scaler := fakeScaler{current: 3, desired: 5}
+
+	builders := map[string]Options{
+		"shard":  ShardConfig(*mdb, 0, nil, scaler),
+		"mongos": MongosConfig(*mdb, nil, scaler),
+		"config": ConfigSrvConfig(*mdb, nil, scaler),
+	}
+	for name, opts := range builders {
+		assert.Equal(t, 5, opts.MembersToCover, "%s cert Options must set MembersToCover to max(current, desired)", name)
+	}
+}
+
+// TestComponentsDoNotShareCoveredMembers covers what the certificate code sees for a sharded
+// cluster: every component is a separate certificate, and each one keeps its own covered-members
+// count. A shard with 7 mongods must not make the mongos certificate cover 7 mongos.
+func TestComponentsDoNotShareCoveredMembers(t *testing.T) {
+	ctx := context.Background()
+	sc := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	})
+
+	mongosOpts := Options{
+		ResourceName:   resName + "-mongos",
+		CertSecretName: resName + "-mongos-managed-cert",
+		Namespace:      resNamespace,
+		ServiceName:    resName + "-mongos-svc",
+		Replicas:       3,
+		MembersToCover: 3,
+	}
+	shardOpts := Options{
+		ResourceName:   resName + "-0",
+		CertSecretName: resName + "-0-managed-cert",
+		Namespace:      resNamespace,
+		ServiceName:    resName + "-0-svc",
+		Replicas:       7,
+		MembersToCover: 7,
+	}
+
+	// The shard's certificate already covers 9 members, more than its own 7.
+	// The client is built here rather than with the mock helper, which doesn't register
+	// cert-manager types in its scheme.
+	scheme := runtime.NewScheme()
+	require.NoError(t, certmanagerv1.AddToScheme(scheme))
+	fakeClient := kubernetesClient.NewClient(fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&certmanagerv1.Certificate{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        shardOpts.CertSecretName,
+				Namespace:   resNamespace,
+				Annotations: map[string]string{coveredMembersAnnotation: "9"},
+			},
+		}).
+		Build())
+
+	mongosMember := memberCert(t, componentCertificates(ctx, fakeClient, sc, mongosOpts))
+	shardMember := memberCert(t, componentCertificates(ctx, fakeClient, sc, shardOpts))
+
+	assert.NotEqual(t, mongosMember.certName, shardMember.certName)
+	// Each certificate carries its own count: the shard reads its own annotation, the mongos its own.
+	assert.Equal(t, "3", mongosMember.annotations[coveredMembersAnnotation])
+	assert.Equal(t, "9", shardMember.annotations[coveredMembersAnnotation])
+	assert.Len(t, mongosMember.spec.DNSNames, 3)
+	assert.Len(t, shardMember.spec.DNSNames, 9)
+}
+
+// memberCert returns the member (server) certificate of one component, which is the one that
+// carries the covered-members annotation.
+func memberCert(t *testing.T, certs []certToEnsure) certToEnsure {
+	t.Helper()
+	for _, cert := range certs {
+		if cert.annotations[coveredMembersAnnotation] != "" {
+			return cert
+		}
+	}
+	t.Fatalf("no member certificate among %d certificates", len(certs))
+	return certToEnsure{}
+}
+
+// TestResolveMultiClusterMembersToCover covers the per-cluster never-shrink rule for the
+// multi-cluster member certificate: each cluster covers max(desired, previously covered) members.
+func TestResolveMultiClusterMembersToCover(t *testing.T) {
+	ext := "example.com"
+	mk := func(name string, num, members int, external *string) MemberCluster {
+		return MemberCluster{ClusterName: name, ClusterNum: num, Members: members, ExternalDomain: external}
+	}
+
+	tests := []struct {
+		name       string
+		clusters   []MemberCluster
+		covered    map[string]int
+		expMembers map[string]int
+	}{
+		{
+			name:       "first reconcile covers the desired members and covered would be empty",
+			clusters:   []MemberCluster{mk("a", 0, 3, nil), mk("b", 1, 3, &ext)},
+			covered:    map[string]int{},
+			expMembers: map[string]int{"a": 3, "b": 3},
+		},
+		{
+			name:       "scale-up in one cluster jumps to the target and doesn't go one by one",
+			clusters:   []MemberCluster{mk("a", 0, 5, nil), mk("b", 1, 3, nil)},
+			covered:    map[string]int{"a": 3, "b": 3},
+			expMembers: map[string]int{"a": 5, "b": 3},
+		},
+		{
+			name:       "scale-down holds the previously covered count",
+			clusters:   []MemberCluster{mk("a", 0, 3, nil), mk("b", 1, 3, nil)},
+			covered:    map[string]int{"a": 5, "b": 3},
+			expMembers: map[string]int{"a": 5, "b": 3},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resolved, annotation := resolveMultiClusterMembersToCover(tc.clusters, tc.covered)
+			gotMembers := map[string]int{}
+			for _, m := range resolved {
+				gotMembers[m.ClusterName] = m.Members
+			}
+			assert.Equal(t, tc.expMembers, gotMembers)
+			// The annotation records the same per-cluster counts.
+			assert.Equal(t, tc.expMembers, annotation)
+			// External domains are carried through untouched.
+			assert.Equal(t, tc.clusters[0].ExternalDomain, resolved[0].ExternalDomain)
+		})
+	}
+}
+
+// TestMultiShardedComponentManagedCertConfig covers the builder for one sharded component of a
+// multi-cluster sharded cluster: one certificate per component, named after the component's
+// hostname base, covering every member cluster that runs that component.
+func TestMultiShardedComponentManagedCertConfig(t *testing.T) {
+	sc := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		m.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"extra.example.org"}
+	})
+	ext := "c0.example.com"
+	clusters := []MemberCluster{
+		{ClusterNum: 0, ClusterName: "cluster-0", Members: 2, ExternalDomain: &ext},
+		{ClusterNum: 1, ClusterName: "cluster-1", Members: 3},
+	}
+
+	opts := MultiShardedComponentManagedCertConfig(*sc, "mdb-0", clusters)
+
+	assert.Equal(t, "mdb-0", opts.ResourceName, "the hostname base, not the per-cluster StatefulSet name")
+	assert.Equal(t, "mdb-0-managed-cert", opts.CertSecretName)
+	assert.Equal(t, "mdb-0-managed-clusterfile", opts.InternalClusterSecretName)
+	assert.Equal(t, resNamespace, opts.Namespace)
+	assert.Equal(t, mdbv1.ClusterTopologyMultiCluster, opts.Topology)
+	assert.Equal(t, clusters, opts.MultiClusterMembers)
+	assert.Equal(t, []string{"extra.example.org"}, opts.additionalCertificateDomains)
+}
+
+// TestMultiShardedComponentManagedCertSANs covers the SANs of one sharded component's certificate:
+// the union of the internal per-pod service names and the external hostnames of every member
+// cluster that runs the component, plus the additional certificate domains. The sharded check asks
+// for the additional domains, so a component's certificate has to carry them.
+// TestMultiShardedComponentManagedCertSANs covers the names of one sharded component's managed
+// certificate: the internal names of every member in every cluster, the external names of the
+// clusters that are exposed, each under its own external domain, and the additional certificate
+// domains, which every member gets.
+func TestMultiShardedComponentManagedCertSANs(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	ext0 := "c0.example.com"
+	ext2 := "c2.example.com"
+	sc := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		m.Spec.Security.Authentication = &mdbv1.Authentication{InternalCluster: util.X509}
+		m.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"extra.example.org"}
+	})
+
+	opts := MultiShardedComponentManagedCertConfig(*sc, resName, []MemberCluster{
+		{ClusterNum: 0, ClusterName: "cluster-0", Members: 2, ExternalDomain: &ext0},
+		{ClusterNum: 1, ClusterName: "cluster-1", Members: 1},
+		{ClusterNum: 2, ClusterName: "cluster-2", Members: 1, ExternalDomain: &ext2},
+	})
+
+	got := componentCertificates(ctx, fakeClient, sc, opts)
+	require.Len(t, got, 2, "x509 internal auth adds the clusterfile certificate")
+
+	assert.ElementsMatch(t, []string{
+		// cluster 0, internally and externally exposed
+		"mdb-0-0-svc.ns.svc.cluster.local",
+		"mdb-0-1-svc.ns.svc.cluster.local",
+		"mdb-0-0.c0.example.com",
+		"mdb-0-1.c0.example.com",
+		// cluster 1, internal only
+		"mdb-1-0-svc.ns.svc.cluster.local",
+		// cluster 2, exposed under its own external domain
+		"mdb-2-0-svc.ns.svc.cluster.local",
+		"mdb-2-0.c2.example.com",
+		// the additional certificate domains, for the members of every cluster
+		"mdb-0-0.extra.example.org",
+		"mdb-0-1.extra.example.org",
+		"mdb-1-0.extra.example.org",
+		"mdb-2-0.extra.example.org",
+	}, got[0].spec.DNSNames)
+}
+
+// TestMemberClusterDNSNames covers the per-cluster SAN generation for the multi-cluster member
+// cert, the internal per-pod service FQDNs, plus the external hostnames when the cluster is exposed.
+func TestMemberClusterDNSNames(t *testing.T) {
+	opts := Options{ResourceName: "mrs", Namespace: "ns", ClusterDomain: "cluster.local"}
+
+	t.Run("internal FQDNs only when the cluster is not externally exposed", func(t *testing.T) {
+		names := memberClusterDNSNames(opts, 0, 2, nil)
+		assert.ElementsMatch(t, []string{
+			"mrs-0-0-svc.ns.svc.cluster.local",
+			"mrs-0-1-svc.ns.svc.cluster.local",
+		}, names)
+	})
+
+	t.Run("internal and external hostnames when the cluster is externally exposed", func(t *testing.T) {
+		ext := "example.com"
+		names := memberClusterDNSNames(opts, 1, 1, &ext)
+		assert.ElementsMatch(t, []string{
+			"mrs-1-0-svc.ns.svc.cluster.local",
+			"mrs-1-0.example.com",
+		}, names)
+	})
+}
