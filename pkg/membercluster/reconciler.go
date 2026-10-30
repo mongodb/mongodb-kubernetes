@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -50,6 +51,10 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("membercluster").
+		// One worker by design: reconciles are cheap and infrequent.
+		// This makes providerManager's implementation a little simpler,
+		// but it still needs locking internally to manage concurrent access to its entries.
+		WithOptions(controller.Options{MaxConcurrentReconciles: 1}).
 		For(&operatorv1.MemberCluster{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapCredentialSecretToMemberClusters)).
 		Complete(r)
@@ -92,10 +97,8 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 		return ctrl.Result{}, err
 	}
-	if err := r.reconcile(ctx, mc, log); err != nil {
-		return ctrl.Result{}, err
-	}
-	return ctrl.Result{}, nil
+
+	return ctrl.Result{}, r.reconcile(ctx, mc, log)
 }
 
 func (r *Reconciler) reconcile(ctx context.Context, mc *operatorv1.MemberCluster, log *zap.SugaredLogger) error {

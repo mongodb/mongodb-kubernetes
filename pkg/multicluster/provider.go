@@ -36,8 +36,7 @@ type Hooks struct {
 
 // Provider is the operator's registry of member clusters, keyed by the MemberCluster CR's
 // spec.clusterName (the logical name referenced by workload CRs' clusterSpecList[].clusterName).
-// Controllers snapshot it once per reconcile via Entries and thread the snapshot through,
-// instead of holding a startup-built map.
+// Controllers snapshot it once per reconcile via Entries and thread the snapshot through.
 type Provider struct {
 	mu      sync.RWMutex
 	entries map[string]Entry
@@ -76,13 +75,17 @@ func (p *Provider) Set(ctx context.Context, clusterName string, entry Entry) {
 	}
 }
 
-// Delete removes the entry for clusterName and fires OnRemove hooks. It is a no-op when the
-// cluster is not registered.
-func (p *Provider) Delete(ctx context.Context, clusterName string) {
+// Delete removes the entry for clusterName only if it is still owned by the MemberCluster
+// CR named resourceName, and fires OnRemove hooks only when a deletion actually happened.
+// Entry ownership can transfer between the caller's state check and the delete, so the
+// comparison must be atomic with it.
+func (p *Provider) Delete(ctx context.Context, clusterName, resourceName string) {
 	p.mu.Lock()
 	entry, ok := p.entries[clusterName]
-	if ok {
+	if ok && entry.ResourceName == resourceName {
 		delete(p.entries, clusterName)
+	} else {
+		ok = false
 	}
 	hooks := slices.Clone(p.hooks)
 	p.mu.Unlock()
