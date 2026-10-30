@@ -457,9 +457,16 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	opsManagerImage := images.ContainerImage(r.imageUrls, util.OpsManagerImageUrl, opsManager.Spec.Version)
 
 	// 2. Reconcile Ops Manager
-	status, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConfig, initOpsManagerImage, opsManagerImage, log)
-	if !status.IsOK() {
-		return r.updateStatus(ctx, opsManager, status, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
+	opsManagerStatus, omAdmin := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConfig, initOpsManagerImage, opsManagerImage, log)
+	if !opsManagerStatus.IsOK() {
+		return r.updateStatus(ctx, opsManager, opsManagerStatus, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
+	}
+
+	licenseStatus := r.ensureOpsManagerLicense(ctx, opsManager, omAdmin, log)
+
+	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
+	if _, err := r.updateStatus(ctx, opsManager, licenseStatus, log, statusOptions...); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	// the AppDB still needs to configure monitoring, now that Ops Manager has been created
@@ -470,8 +477,8 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// 3. Reconcile Backup Daemon
-	if status := r.reconcileBackupDaemon(ctx, opsManagerReconcilerHelper, opsManager, omAdmin, appDBConfig, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
-		return r.updateStatus(ctx, opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
+	if backupStatus := r.reconcileBackupDaemon(ctx, opsManagerReconcilerHelper, opsManager, omAdmin, appDBConfig, initOpsManagerImage, opsManagerImage, log); !backupStatus.IsOK() {
+		return r.updateStatus(ctx, opsManager, backupStatus, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
 	}
 
 	annotationsToAdd, err := getAnnotationsForOpsManagerResource(opsManager)
@@ -500,8 +507,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 	// All statuses are updated by now - we don't need to update any others - just return
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
-	// success
-	return workflow.OK().ReconcileResult()
+	return licenseStatus.ReconcileResult()
 }
 
 func (r *OpsManagerReconciler) createAppDBReconcile(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (AppDBReconciler, error) {
@@ -626,12 +632,7 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 		return workflow.Failed(err), nil
 	}
 
-	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManagerURL)}
-	if _, err := r.updateStatus(ctx, opsManager, workflow.OK(), log, statusOptions...); err != nil {
-		return workflow.Failed(err), nil
-	}
-
-	return status, omAdmin
+	return workflow.OK(), omAdmin
 }
 
 // triggerOmChangedEventIfNeeded triggers upgrade process for all the MongoDB agents in the system if the major/minor version upgrade
@@ -1011,6 +1012,29 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 	}
 
 	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
+	r.watchLicenseSecrets(opsManager)
+}
+
+func (r *OpsManagerReconciler) watchLicenseSecrets(opsManager *omv1.MongoDBOpsManager) {
+	spec := opsManager.Spec.License
+	if spec == nil {
+		return
+	}
+	key := kube.ObjectKeyFromApiObject(opsManager)
+	watchSecret := func(name string) {
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(name, opsManager.Namespace, watch.Secret, key)
+	}
+	if spec.InstallRequested() {
+		watchSecret(spec.LicenseSecretRef.Name)
+	}
+	for _, entry := range spec.ReleaseReceipts {
+		if entry.LicenseSecretRef != nil {
+			watchSecret(entry.LicenseSecretRef.Name)
+		}
+		if entry.ArtifactID != "" {
+			watchSecret(releaseReceiptSecretName(entry.ArtifactID))
+		}
+	}
 }
 
 func (r *OpsManagerReconciler) watchMongoDBResourcesReferencedByKmip(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) {
@@ -1301,11 +1325,7 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 }
 
 func (r *OpsManagerReconciler) getOpsManagerAPIKeySecretName(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, workflow.Status) {
-	var operatorVaultSecretPath string
-	if r.VaultClient != nil {
-		operatorVaultSecretPath = r.VaultClient.OperatorSecretPath()
-	}
-	APISecretName, err := opsManager.APIKeySecretName(ctx, r.SecretClient, operatorVaultSecretPath)
+	APISecretName, err := opsManager.APIKeySecretName(ctx, r.SecretClient, r.VaultClient.OperatorSecretPathOrEmpty())
 	if err != nil {
 		return "", workflow.Failed(xerrors.Errorf("failed to get ops-manager API key secret name: %w", err)).WithRetry(10)
 	}
@@ -1329,11 +1349,7 @@ func detailedAPIErrorMsg(adminKeySecretName types.NamespacedName) string {
 func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager *omv1.MongoDBOpsManager, centralURL string, log *zap.SugaredLogger) (workflow.Status, api.OpsManagerAdmin) {
 	// We won't support cross-namespace secrets until CLOUDP-46636 is resolved
 	adminObjectKey := kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AdminSecret)
-
-	var operatorVaultPath string
-	if r.VaultClient != nil {
-		operatorVaultPath = r.VaultClient.OperatorSecretPath()
-	}
+	operatorVaultPath := r.VaultClient.OperatorSecretPathOrEmpty()
 
 	// 1. Read the admin secret
 	userData, err := r.ReadSecret(ctx, adminObjectKey, operatorVaultPath)
@@ -1740,12 +1756,7 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 // readS3Credentials reads the access and secret keys from the awsCredentials secret specified
 // in the resource
 func (r *OpsManagerReconciler) readS3Credentials(ctx context.Context, s3SecretName, namespace string) (*backup.S3Credentials, error) {
-	var operatorSecretPath string
-	if r.VaultClient != nil {
-		operatorSecretPath = r.VaultClient.OperatorSecretPath()
-	}
-
-	s3SecretData, err := r.ReadSecret(ctx, kube.ObjectKey(namespace, s3SecretName), operatorSecretPath)
+	s3SecretData, err := r.ReadSecret(ctx, kube.ObjectKey(namespace, s3SecretName), r.VaultClient.OperatorSecretPathOrEmpty())
 	if err != nil {
 		return nil, xerrors.New(err.Error())
 	}
