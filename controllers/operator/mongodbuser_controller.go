@@ -99,7 +99,7 @@ func newMongoDBUserReconciler(ctx context.Context, kubeClient client.Client, omF
 		}
 	}
 	return &MongoDBUserReconciler{
-		ReconcileCommonController:     NewReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController:     NewReconcileCommonController(ctx, kubeClient, nil),
 		omConnectionFactory:           omFunc,
 		memberClusterClientsMap:       clientsMap,
 		memberClusterSecretClientsMap: secretClientsMap,

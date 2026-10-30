@@ -105,7 +105,7 @@ var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
 func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
-		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient, nil),
 		omConnectionFactory:        omFunc,
 		omInitializer:              initializer,
 		omAdminProvider:            adminProvider,
