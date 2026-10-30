@@ -270,15 +270,30 @@ func TestDatabaseAgentSettings(t *testing.T) {
 			want:       mdbv1.StartupParameters{"logLevel": "DEBUG", "logFile": "/custom logs/agent.log", "maxLogFileDurationHrs": "12", "futureAgentSetting": "one,two=three"},
 		},
 		{
+			name:       "intentional empty setting is preserved",
+			parameters: mdbv1.StartupParameters{"futureAgentSetting": ""},
+			want:       mdbv1.StartupParameters{"futureAgentSetting": ""},
+		},
+		{
 			name:       "raw credentials and identity stay outside the shared file",
 			parameters: mdbv1.StartupParameters{"mmsApiKey": "secret-api-key-value", "overrideLocalHost": "customer.example.com"},
 			absent:     []string{"mmsApiKey", "overrideLocalHost"},
+		},
+		{
+			name:       "empty API key override still selects credential delivery",
+			parameters: mdbv1.StartupParameters{"mmsApiKey": ""},
+			want:       mdbv1.StartupParameters{"mmsApiKeyExec": "cat '/mongodb-automation/agent-api-key/agentApiKey'"},
 		},
 		{
 			name:       "customer credential command wins",
 			parameters: mdbv1.StartupParameters{"mmsApiKey": "secret-api-key-value", "mmsApiKeyExec": "cat /custom/key"},
 			want:       mdbv1.StartupParameters{"mmsApiKeyExec": "cat /custom/key"},
 			absent:     []string{"mmsApiKey"},
+		},
+		{
+			name:       "empty credential command falls back to generated command",
+			parameters: mdbv1.StartupParameters{"mmsApiKeyExec": ""},
+			want:       mdbv1.StartupParameters{"mmsApiKeyExec": "cat '/mongodb-automation/agent-api-key/agentApiKey'"},
 		},
 		{
 			name:      "effective TLS and runtime directories",
@@ -382,30 +397,6 @@ func TestDatabaseAgentSettingsConfigMap(t *testing.T) {
 		assert.Empty(t, cm.Data)
 		assert.NotContains(t, err.Error(), "secret-api-key-value")
 	})
-	for _, variable := range []corev1.EnvVar{
-		{Name: "AGENT_FLAGS", Value: "-mmsApiKey=secret-api-key-value,"},
-		{Name: "AGENT_FLAGS", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "flags"}, Key: "value"}}},
-	} {
-		t.Run("unresolved environment override "+variable.Name, func(t *testing.T) {
-			mdb := mdbv1.NewReplicaSetBuilder().Build()
-			options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic))
-			sts := DatabaseStatefulSet(*mdb, options, zap.S())
-			sts.Spec.Template.Spec.Containers[0].Env = append(sts.Spec.Template.Spec.Containers[0].Env, variable)
-			cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
-			require.Error(t, err)
-			assert.Empty(t, cm.Data)
-			assert.NotContains(t, err.Error(), "secret-api-key-value")
-		})
-	}
-	t.Run("custom AGENT_FLAGS rejection names the supported surface", func(t *testing.T) {
-		mdb := mdbv1.NewReplicaSetBuilder().Build()
-		options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic))
-		sts := DatabaseStatefulSet(*mdb, options, zap.S())
-		sts.Spec.Template.Spec.Containers[0].Env = append(sts.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: "AGENT_FLAGS", Value: "-logLevel=DEBUG,"})
-		_, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "agent.startupOptions")
-	})
 	t.Run("settings path does not generate AGENT_FLAGS", func(t *testing.T) {
 		mdb := mdbv1.NewReplicaSetBuilder().Build()
 		options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic))
@@ -415,28 +406,6 @@ func TestDatabaseAgentSettingsConfigMap(t *testing.T) {
 		assert.NotEmpty(t, cm.Data)
 		variables := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
 		assert.NotContains(t, variables, "AGENT_FLAGS")
-	})
-	// The cases above inject the environment directly. This one goes through the real customer
-	// surface: spec.podSpec.podTemplate, merged by DatabaseStatefulSet before the guard runs.
-	t.Run("customer pod template AGENT_FLAGS is rejected through the merge path", func(t *testing.T) {
-		mdb := mdbv1.NewReplicaSetBuilder().Build()
-		if mdb.Spec.PodSpec == nil {
-			mdb.Spec.PodSpec = &mdbv1.MongoDbPodSpec{}
-		}
-		mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate = &corev1.PodTemplateSpec{
-			Spec: corev1.PodSpec{
-				Containers: []corev1.Container{{
-					Name: util.DatabaseContainerName,
-					Env:  []corev1.EnvVar{{Name: "AGENT_FLAGS", Value: "-logLevel=DEBUG,"}},
-				}},
-			},
-		}
-		options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic))
-		sts := DatabaseStatefulSet(*mdb, options, zap.S())
-		cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
-		require.Error(t, err)
-		assert.Empty(t, cm.Data)
-		assert.Contains(t, err.Error(), "agent.startupOptions")
 	})
 }
 
@@ -677,12 +646,6 @@ func TestGetAutomationLogEnvVars(t *testing.T) {
 		envVars := getAutomationLogEnvVars(map[string]string{"logFile": "path/to/"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: "path/to/"})
 		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: "path/to/-verbose"})
-	})
-
-	t.Run("dash-prefixed logFile retargets the tailed log", func(t *testing.T) {
-		envVars := getAutomationLogEnvVars(map[string]string{"-logFile": "/custom/agent.log"})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: "/custom/agent.log"})
-		assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentVerboseEnv, Value: "/custom/agent-verbose.log"})
 	})
 
 	t.Run("empty automation log file is falling back to default names", func(t *testing.T) {

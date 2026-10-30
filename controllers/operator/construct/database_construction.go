@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -975,15 +974,6 @@ func defaultAgentParameters() mdbv1.StartupParameters {
 	return map[string]string{"logFile": path.Join(util.PvcMountPathLogs, "automation-agent.log")}
 }
 
-// AgentSettingsOverrides normalizes optional CLI prefixes while preserving sorted override precedence.
-func AgentSettingsOverrides(parameters mdbv1.StartupParameters) mdbv1.StartupParameters {
-	overrides := mdbv1.StartupParameters{}
-	for _, key := range slices.Sorted(maps.Keys(parameters)) {
-		overrides[strings.TrimPrefix(key, "-")] = parameters[key]
-	}
-	return overrides
-}
-
 func databaseAgentSettings(opts DatabaseStatefulSetOptions, variables map[string]string) mdbv1.StartupParameters {
 	home := cmp.Or(variables["MMS_HOME"], "/mongodb-automation")
 	settings := databaseAgentBaseSettings(opts, variables, home)
@@ -995,23 +985,17 @@ func databaseAgentSettings(opts DatabaseStatefulSetOptions, variables map[string
 func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, variables map[string]string, home string) mdbv1.StartupParameters {
 	logDirectory := cmp.Or(variables["MMS_LOG_DIR"], util.PvcMountPathLogs)
 	settings := defaultAgentParameters()
-	projectID := ""
-	baseURL := ""
-	logLevel := ""
-	requireValidCerts := false
+	podVars := env.PodEnvVars{}
 	if opts.PodVars != nil {
-		projectID = opts.PodVars.ProjectID
-		baseURL = opts.PodVars.BaseURL
-		logLevel = opts.PodVars.LogLevel
-		requireValidCerts = opts.PodVars.SSLRequireValidMMSServerCertificates
+		podVars = *opts.PodVars
 	}
-	settings["mmsGroupId"] = projectID
+	settings["mmsGroupId"] = podVars.ProjectID
 	settings["pidfilepath"] = path.Join(home, "mongodb-mms-automation-agent.pid")
 	settings["maxLogFileDurationHrs"] = "24"
-	settings["logLevel"] = cmp.Or(logLevel, "INFO")
+	settings["logLevel"] = cmp.Or(podVars.LogLevel, "INFO")
 	settings["healthCheckFilePath"] = path.Join(logDirectory, "agent-health-status.json")
-	settings["tlsRequireValidMMSServerCertificates"] = strconv.FormatBool(requireValidCerts)
-	baseURL = strings.TrimSuffix(baseURL, "/")
+	settings["tlsRequireValidMMSServerCertificates"] = strconv.FormatBool(podVars.SSLRequireValidMMSServerCertificates)
+	baseURL := strings.TrimSuffix(podVars.BaseURL, "/")
 	if baseURL != "" {
 		settings["mmsBaseUrl"] = baseURL
 	} else {
@@ -1033,30 +1017,23 @@ func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, variables map[st
 	return settings
 }
 
-// effectiveAgentSettingsOverrides returns customer overrides after dropping values that cannot
-// mean "set this to empty". An empty mmsBaseUrl cannot select an empty URL, so it is treated as
-// absent for merging, runtime key selection, and credential delivery.
-func effectiveAgentSettingsOverrides(parameters mdbv1.StartupParameters) mdbv1.StartupParameters {
-	overrides := AgentSettingsOverrides(parameters)
-	if baseURL, ok := overrides["mmsBaseUrl"]; ok && baseURL == "" {
-		delete(overrides, "mmsBaseUrl")
-	}
-	if exec, ok := overrides["mmsApiKeyExec"]; ok && exec == "" {
-		delete(overrides, "mmsApiKeyExec")
-	}
-	return overrides
-}
-
 func mergeAgentSettingsOverrides(settings mdbv1.StartupParameters, agentConfig *mdbv1.AgentConfig) bool {
 	if agentConfig == nil {
 		return false
 	}
-	overrides := effectiveAgentSettingsOverrides(agentConfig.StartupParameters)
 	// Mode selection in databaseAgentBaseSettings runs on the environment, before this merge.
 	// An empty mmsBaseUrl must not leave the settings file with neither mmsBaseUrl nor the
 	// headless cluster/serveStatusPort keys, because the agent would have no usable mode.
-	maps.Copy(settings, overrides)
-	_, hasAPIKeyOverride := overrides["mmsApiKey"]
+	hasAPIKeyOverride := false
+	for key, value := range agentConfig.StartupParameters {
+		if value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec") {
+			continue
+		}
+		settings[key] = value
+		if key == "mmsApiKey" {
+			hasAPIKeyOverride = true
+		}
+	}
 	return hasAPIKeyOverride
 }
 
@@ -1088,23 +1065,6 @@ func AgentContainer(sts appsv1.StatefulSet) *corev1.Container {
 	return container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
 }
 
-// ValidateNoCustomAgentFlags rejects any explicit AGENT_FLAGS on the agent container.
-//
-// The operator delivers startup settings through the native settings file. An explicit
-// AGENT_FLAGS is always customer-supplied. The -f launcher path ignores it, so reject it rather
-// than let the setting silently do nothing.
-//
-// Limit: only an explicit Env entry is inspected. An AGENT_FLAGS supplied solely through EnvFrom
-// is not detected here, and the -f launcher path ignores it.
-func ValidateNoCustomAgentFlags(agent corev1.Container) error {
-	for _, variable := range agent.Env {
-		if variable.Name == "AGENT_FLAGS" {
-			return fmt.Errorf("custom AGENT_FLAGS is not supported, set agent settings through agent.startupOptions")
-		}
-	}
-	return nil
-}
-
 // AgentSettingsConfigMapName returns the name of the ConfigMap that holds the agent settings file.
 func AgentSettingsConfigMapName(sts appsv1.StatefulSet) string {
 	return sts.Name + "-agent-settings"
@@ -1126,9 +1086,6 @@ func DatabaseAgentSettingsConfigMap(sts appsv1.StatefulSet, opts DatabaseStatefu
 	agent := AgentContainer(sts)
 	if agent == nil {
 		return corev1.ConfigMap{}, fmt.Errorf("agent container not found in StatefulSet %s", sts.Name)
-	}
-	if err := ValidateNoCustomAgentFlags(*agent); err != nil {
-		return corev1.ConfigMap{}, err
 	}
 	if err := ValidateNoRuntimeAgentSettingsEnv(*agent); err != nil {
 		return corev1.ConfigMap{}, err
@@ -1231,10 +1188,7 @@ func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) cor
 
 func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar {
 	automationLogFile := path.Join(util.PvcMountPathLogs, "automation-agent.log")
-	// Normalize the same way the settings file does. The launcher tails these environment paths,
-	// not the settings file, so a dash-prefixed "-logFile" must retarget both or kubectl logs
-	// streams the wrong file.
-	if logFileValue, ok := AgentSettingsOverrides(parameters)["logFile"]; ok && len(logFileValue) > 0 {
+	if logFileValue, ok := parameters["logFile"]; ok && len(logFileValue) > 0 {
 		automationLogFile = logFileValue
 	}
 
