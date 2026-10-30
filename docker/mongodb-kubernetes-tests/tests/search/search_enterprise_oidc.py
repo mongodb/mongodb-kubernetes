@@ -5,10 +5,8 @@ import os
 
 import kubetester.oidc as oidc
 import requests
-import yaml
 from kubetester import create_or_update_configmap, create_or_update_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs
-from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
@@ -18,8 +16,9 @@ from kubetester.phase import Phase
 from pytest import fail, fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
-from tests.common.search import movies_search_helper
+from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
+from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -49,19 +48,23 @@ COGNITO_CLIENT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-cognito-client-secret"
 # certificate (spec.source.oidc.idpCAConfigMapRef) -- Amazon Root CA 1.
 COGNITO_IDP_CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-cognito-idp-ca"
 
-# Requires the Cognito test environment (the cognito_* expansions). The tests
-# are collected and skipped (not deselected) when it is not configured, so the
-# Evergreen launcher's `pytest -m e2e_search_enterprise_oidc` run exits 0.
+# Requires the Cognito test environment (the cognito_* expansions). Tests fail when it is
+# not configured rather than silently skipping: the expansions come from project variables,
+# so a miss is a misconfiguration that should read red, not green.
 _COGNITO_CONFIGURED = bool(
     oidc.get_cognito_workload_client_id()
     and oidc.get_cognito_workload_url()
-    and oidc.get_cognito_workload_user_id()
     and os.getenv("cognito_workload_federation_client_secret")
 )
-pytestmark = mark.skipif(
-    not _COGNITO_CONFIGURED,
-    reason="Cognito OIDC test environment is not configured (cognito_* expansions missing)",
-)
+
+
+@fixture(autouse=True)
+def _require_cognito_env():
+    if not _COGNITO_CONFIGURED:
+        fail(
+            "Cognito OIDC test environment is not configured (cognito_* expansions missing)",
+            pytrace=False,
+        )
 
 
 def _decode_jwt_payload(token: str) -> dict:
@@ -90,8 +93,7 @@ def _client_credentials_claims() -> dict:
     # token request sends the client secret over plain HTTP.
     if not token_endpoint.startswith("https://"):
         fail(
-            f"Derived token endpoint is not HTTPS: {token_endpoint}. "
-            "Check the cognito_workload_url expansion.",
+            f"Derived token endpoint is not HTTPS: {token_endpoint}. " "Check the cognito_workload_url expansion.",
             pytrace=False,
         )
     response = requests.post(
@@ -123,10 +125,7 @@ def _client_credentials_claims() -> dict:
 def _cc_token_audience() -> str:
     """Audience of the token the app client actually mints (for oidcProviderConfigs)."""
     claims = _client_credentials_claims()
-    # mongod validates the configured audience against the token's aud claim only — the
-    # server's JWT parser drops client_id/azp, so an aud-less token cannot authenticate.
-    # Cognito access tokens carry aud only when the pool runs a V3_0 pre-token-generation
-    # Lambda that adds it, so fail clearly here instead of surfacing as a mongot auth failure.
+    # aud must come from the client-credentials token; see the docstring above.
     audience = claims.get("aud")
     if isinstance(audience, list):
         if len(audience) != 1:
@@ -144,6 +143,17 @@ def _cc_token_audience() -> str:
             pytrace=False,
         )
     return audience
+
+
+@fixture(scope="session")
+def cc_claims() -> dict:
+    """The client-credentials token's claims, fetched once per session. A Cognito outage
+    surfaces here with a clear message instead of as a fixture error on the first test
+    to request mdb."""
+    try:
+        return _client_credentials_claims()
+    except requests.RequestException as e:
+        fail(f"Could not fetch a client-credentials token from Cognito: {e}", pytrace=False)
 
 
 def _cc_token_subject() -> str:
@@ -168,7 +178,7 @@ def helper(namespace: str) -> SearchDeploymentHelper:
 
 
 @fixture(scope="function")
-def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
+def mdb(namespace: str, issuer_ca_configmap: str, cc_claims: dict) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("enterprise-replicaset-sample-mflix.yaml"),
         name=MDB_RESOURCE_NAME,
@@ -184,9 +194,7 @@ def mdb(namespace: str, issuer_ca_configmap: str) -> MongoDB:
         "modes": ["SCRAM", "OIDC"],
         "oidcProviderConfigs": [
             {
-                # audience is derived from the client-credentials token the app
-                # client actually mints (see _cc_token_audience), so mongod's
-                # audience validation matches the tokens mongot presents.
+                # audience must match the token the app client mints (see _cc_token_audience).
                 "audience": _cc_token_audience(),
                 "clientId": oidc.get_cognito_workload_client_id(),
                 "issuerURI": oidc.get_cognito_workload_url(),
@@ -220,6 +228,10 @@ def mdbs(namespace: str) -> MongoDBSearch:
         },
     }
 
+    # The OIDC sync-source block needs mongot >= 1.78.0 (the operator's OIDC floor as well);
+    # the chart default is community content that cannot parse it.
+    resource["spec"]["version"] = "1.78.0"
+
     try_load(resource)
     return resource
 
@@ -235,7 +247,7 @@ def user(helper: SearchDeploymentHelper) -> MongoDBUser:
 
 
 @fixture(scope="function")
-def oidc_mongot_user(namespace: str, helper: SearchDeploymentHelper) -> MongoDBUser:
+def oidc_mongot_user(namespace: str, helper: SearchDeploymentHelper, cc_claims: dict) -> MongoDBUser:
     resource = MongoDBUser.from_yaml(
         yaml_fixture("mongodbuser-search-sync-source-user.yaml"),
         namespace=namespace,
@@ -244,8 +256,7 @@ def oidc_mongot_user(namespace: str, helper: SearchDeploymentHelper) -> MongoDBU
     if try_load(resource):
         return resource
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    # the $external principal matches the sub of the client-credentials token the
-    # app client actually mints (see _cc_token_subject), not the workload user id
+    # the $external principal matches the minted token's sub (see _cc_token_subject).
     resource["spec"]["username"] = f"{CONFIGURATION_NAME}/{_cc_token_subject()}"
     resource["spec"]["db"] = "$external"
     # OIDC users don't use password auth -- remove passwordSecretKeyRef if present
@@ -323,24 +334,8 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 
 @mark.e2e_search_enterprise_oidc
 def test_wait_for_database_resource_ready(mdb: MongoDB):
-    # The mongot wiring is applied as an in-memory automation-config override and does not bump
-    # the MongoDB generation, so there is no phase/generation transition to wait on; poll the
-    # mongods for the search parameters directly.
-    def mongot_params_wired(m: MongoDB) -> bool:
-        if m.get_status_phase() != Phase.Running:
-            return False
-        for idx in range(m.get_members()):
-            mongod_config = yaml.safe_load(
-                KubernetesTester.run_command_in_pod_container(
-                    f"{m.name}-{idx}", m.namespace, ["cat", "/data/automation-mongod.conf"]
-                )
-            )
-            set_parameter = mongod_config.get("setParameter", {})
-            if "mongotHost" not in set_parameter or "searchIndexManagementHostAndPort" not in set_parameter:
-                return False
-        return True
-
-    mdb.wait_for(mongot_params_wired, timeout=600, should_raise=True)
+    expected_host = search_resource_names.mongot_pod_fqdn(MDBS_RESOURCE_NAME, mdb.namespace, 27028)
+    verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members(), expected_host)
 
 
 @fixture(scope="function")
