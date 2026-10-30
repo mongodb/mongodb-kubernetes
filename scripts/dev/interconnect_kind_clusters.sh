@@ -44,8 +44,7 @@ for c in "${clusters[@]}"; do
   # Is there a better way to do it?
   service_cidr=$(kubectl --context "kind-${c}" --namespace kube-system get configmap kubeadm-config -o=jsonpath='{.data.ClusterConfiguration}' | grep "serviceSubnet" | cut -d\  -f4)
   service_route=$(kubectl --context "kind-${c}" get nodes -o=jsonpath='{range .items[*]}{"ip route add "}'"${service_cidr}"'{" via "}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}')
-  # shellcheck disable=SC2086
-  kind_node_in_docker=$(kind get nodes --name ${c})
+  kind_node_in_docker=$(kind get nodes --name "${WORKTREE_PREFIX:-}${c}")
 
   if [ "${verbose}" -ne "0" ]; then
     echo "[${c}] [${kind_node_in_docker}] Pod Route: ${pod_route}"

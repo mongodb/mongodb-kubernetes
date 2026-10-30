@@ -183,6 +183,10 @@ spec:
       value: "{{ .Values.mdbDefaultArchitecture }}"
     - name: CLUSTER_DOMAIN
       value: "{{ .Values.clusterDomain }}"
+    {{- range $pool, $range := .Values.kindMetallbRanges }}
+    - name: KIND_METALLB_RANGE_{{ upper $pool }}
+      value: "{{ $range }}"
+    {{- end }}
     {{ if .Values.omDebugHttp }}
     - name: OM_DEBUG_HTTP
       value: "{{ .Values.omDebugHttp }}"

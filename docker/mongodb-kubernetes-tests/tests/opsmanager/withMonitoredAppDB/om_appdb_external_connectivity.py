@@ -10,6 +10,7 @@ from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
 from tests.common.placeholders import placeholders
 from tests.conftest import default_external_domain, external_domain_fqdns, update_coredns_hosts
+from tests.kind_network import kind_lb_ip
 
 OM_NAME = "om-appdb-external"
 APPDB_NAME = f"{OM_NAME}-db"
@@ -79,15 +80,15 @@ def ops_manager(
 def test_configure_dns():
     host_mappings = [
         (
-            "172.18.255.200",
+            kind_lb_ip("SINGLE"),
             APPDB_EXTERNAL_DOMAINS[0],
         ),
         (
-            "172.18.255.201",
+            kind_lb_ip("SINGLE", 1),
             APPDB_EXTERNAL_DOMAINS[1],
         ),
         (
-            "172.18.255.202",
+            kind_lb_ip("SINGLE", 2),
             APPDB_EXTERNAL_DOMAINS[2],
         ),
     ]

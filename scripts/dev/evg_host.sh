@@ -13,12 +13,6 @@ test "${MDB_BASH_DEBUG:-0}" -eq 1 && set -x
 source scripts/dev/set_env_context.sh
 source scripts/funcs/printing
 
-
-if [[ -z "${EVG_HOST_NAME}" ]]; then
-  echo "EVG_HOST_NAME env var is missing"
-  exit 1
-fi
-
 get_host_url() {
   host=$(evergreen host list --json | jq -r ".[] | select (.name==\"${EVG_HOST_NAME}\") | .host_name ")
   if [[ "${host}" == "" ]]; then
@@ -32,10 +26,17 @@ Run evergreen host list --json or visit https://spruce.mongodb.com/spawn/host."
 cmd=${1-""}
 
 if [[ "${cmd}" != "" && "${cmd}" != "help" ]]; then
+  if [[ -z "${EVG_HOST_NAME:-}" ]]; then
+    echo "EVG_HOST_NAME env var is missing"
+    exit 1
+  fi
   host_url=$(get_host_url)
 fi
 
-kubeconfig_path="${HOME}/.operator-dev/evg-host.kubeconfig"
+kubeconfig_path="${KUBECONFIG}"
+# A worktree with a prefix (see "WORKTREE PREFIX" in the usage) keeps its checkout in a directory of its own, so that
+# the worktrees that share a host do not overwrite each other.
+remote_dir="/home/ubuntu/${WORKTREE_PREFIX:+${WORKTREE_PREFIX%-}/}mongodb-kubernetes"
 
 configure() {
   shift || true
@@ -56,6 +57,11 @@ configure() {
     esac
   done
 
+  if [[ "${auto_recreate}" == "true" && -n "${WORKTREE_PREFIX:-}" ]]; then
+    echo "--auto-recreate is not available for a worktree with a prefix (${WORKTREE_PREFIX}): the boot service recreates every cluster of the host, also those of the other worktrees that share it" >&2
+    exit 1
+  fi
+
   echo "Configuring EVG host ${EVG_HOST_NAME} (${host_url}) (auto_recreate: ${auto_recreate})"
 
   ssh -T -q "${host_url}" "sudo chown ubuntu:ubuntu ~/.docker || true; mkdir -p ~/.docker"
@@ -66,17 +72,26 @@ configure() {
 
   sync | prepend "sync"
 
-  ssh -T -q "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${auto_recreate}"
+  ssh -T -q "${host_url}" "cd ${remote_dir}; scripts/dev/switch_context.sh root-context; scripts/dev/setup_evg_host.sh ${auto_recreate}"
 }
 
 sync() {
+  ssh -T -q "${host_url}" "mkdir -p ${remote_dir}/.generated"
   rsync --verbose --archive --compress --human-readable --recursive --progress \
-  --delete --delete-excluded --max-size=1000000 --prune-empty-dirs \
+  --delete --max-size=1000000 --prune-empty-dirs \
   -e ssh \
   --include-from=.rsyncinclude \
   --exclude-from=.gitignore \
   --exclude-from=.rsyncignore \
-  ./ "${host_url}:/home/ubuntu/mongodb-kubernetes/"
+  ./ "${host_url}:${remote_dir}/"
+
+  # The rsync above leaves .generated/ alone (kubeconfigs and contexts of this side), but the host has to see the
+  # worktree prefix of this checkout, and to lose it when this checkout has none.
+  if [[ -f .generated/worktree-context ]]; then
+    rsync -e ssh .generated/worktree-context "${host_url}:${remote_dir}/.generated/worktree-context"
+  else
+    ssh -T -q "${host_url}" "rm -f ${remote_dir}/.generated/worktree-context"
+  fi
 
   rsync --verbose --no-links --recursive --prune-empty-dirs --archive --compress --human-readable \
     --max-size=1000000 \
@@ -95,15 +110,15 @@ remote-prepare-local-e2e-run() {
   rsync --verbose --no-links --recursive --prune-empty-dirs --archive --compress --human-readable \
     --max-size=1000000 \
     -e ssh \
-    "${host_url}:/home/ubuntu/mongodb-kubernetes/.multi_cluster_local_test_files" \
+    "${host_url}:${remote_dir}/.multi_cluster_local_test_files" \
     ./ &
-  scp "${host_url}:/home/ubuntu/.operator-dev/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
+  scp "${host_url}:${remote_dir}/.generated/multicluster_kubeconfig" "${KUBE_CONFIG_PATH}" &
 
   wait
 }
 
 get-kubeconfig() {
-  remote_path="${host_url}:/home/ubuntu/.operator-dev/evg-host.kubeconfig"
+  remote_path="${host_url}:${remote_dir}/.generated/current.kubeconfig"
   echo "Copying remote kubeconfig from ${remote_path} to ${kubeconfig_path}"
   scp "${remote_path}" "${kubeconfig_path}"
 }
@@ -112,8 +127,7 @@ recreate-kind-clusters() {
   DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK:-"false"}
   configure 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind clusters on ${EVG_HOST_NAME} (${host_url})..."
-  # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
+  ssh -T "${host_url}" "cd ${remote_dir}; DELETE_KIND_NETWORK=${DELETE_KIND_NETWORK} scripts/dev/recreate_kind_clusters.sh"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig 2>&1| prepend "evg_host.sh configure"
 }
@@ -123,8 +137,7 @@ recreate-kind-cluster() {
   cluster_name=$1
   configure 2>&1| prepend "evg_host.sh configure"
   echo "Recreating kind cluster ${cluster_name} on ${EVG_HOST_NAME} (${host_url})..."
-  # shellcheck disable=SC2088
-  ssh -T "${host_url}" "cd ~/mongodb-kubernetes; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
+  ssh -T "${host_url}" "cd ${remote_dir}; scripts/dev/recreate_kind_cluster.sh ${cluster_name}"
   echo "Copying kubeconfig to ${kubeconfig_path}"
   get-kubeconfig
 }
@@ -167,7 +180,7 @@ retry_with_sleep() {
 ssh_to_host() {
   shift 1
   # shellcheck disable=SC2029
-  ssh "$@" "${host_url}"
+  ssh "${host_url}" "$@"
 }
 
 upload-my-ssh-private-key() {
@@ -182,7 +195,7 @@ cmd() {
     shift 1
   fi
 
-  cmd="cd ~/mongodb-kubernetes; $*"
+  cmd="cd ${remote_dir}; $*"
   ssh -T -q "${host_url}" "${cmd}"
 }
 
@@ -196,13 +209,20 @@ PREREQUISITES:
   - define in context EVG_HOST_NAME
   - VPN connection
 
+WORKTREE PREFIX:
+  A worktree that wt-ctl created has a prefix such as devc7- (WORKTREE_PREFIX, in .generated/worktree-context).
+  The worktree owns what carries its prefix: its kind clusters, its namespace, its MetalLB row, its devcontainer
+  and, on an Evergreen host, its directory /home/ubuntu/devc7/. A host is either exclusive to one worktree or
+  shared by several worktrees with different prefixes. A checkout without a prefix has the whole host:
+  recreate-kind-clusters then deletes every kind cluster on it.
+
 COMMANDS:
   recreate-kind-clusters                all-you-need to configure host and kind clusters; deletes and recreates all kind clusters (for single and multi runs)
-  configure [--auto-recreate]           installs on a host: calls sync, switches context, installs necessary software
-  sync                                  rsync of project directory
+  configure [--auto-recreate]           installs on a host: calls sync, switches context, installs necessary software (--auto-recreate not with a worktree prefix)
+  sync                                  rsync of project directory to /home/ubuntu/[<worktree prefix without the dash>/]mongodb-kubernetes (a worktree prefix has its own directory)
   recreate-kind-cluster test-cluster    executes scripts/dev/recreate_kind_cluster.sh test-cluster and executes get-kubeconfig
   remote-prepare-local-e2e-run          executes prepare-local-e2e on the remote evg host
-  get-kubeconfig                        copies remote kubeconfig locally to ~/.operator-dev/evg-host.kubeconfig
+  get-kubeconfig                        copies remote kubeconfig locally to .generated/current.kubeconfig
   tunnel [args]                         creates ssh session with tunneling to all API servers
   ssh [args]                            creates ssh session passing optional arguments to ssh
   cmd [command with args]               execute command as if being on evg host
