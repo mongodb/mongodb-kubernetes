@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"regexp"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -26,6 +27,13 @@ const (
 	// keep in sync with MmsMongoUri constant from github.com/mongodb/mongodb-kubernetes/pkg/util
 	appDbUriKey = "mongo.mongoUri"
 )
+
+// stockHeapFlagRegexes match a value such as -Xmx${MMS_HEAP_SIZE}m in the stock mms.conf, either after
+// a space or right after the opening quote together with the space that follows it.
+var stockHeapFlagRegexes = map[string][2]*regexp.Regexp{
+	"-Xmx": {regexp.MustCompile(`\s-Xmx[^\s"]+`), regexp.MustCompile(`"-Xmx[^\s"]+\s?`)},
+	"-Xms": {regexp.MustCompile(`\s-Xms[^\s"]+`), regexp.MustCompile(`"-Xms[^\s"]+\s?`)},
+}
 
 func updateConfFile(confFile string) error {
 	confFilePropertyName := mmsJvmParamsVar
@@ -55,7 +63,50 @@ func updateConfFile(confFile string) error {
 	newMmsJvmParams := fmt.Sprintf(propOverwriteFmt, confFilePropertyName, confFilePropertyName, jvmParams)
 	fmt.Printf("Writing %s to %s\n", newMmsJvmParams, confFile)
 
-	return writeJvmParamsToFile(confFile, getJvmParamDocString()+newMmsJvmParams+lineBreak)
+	// any -Xmx makes the JVM ignore MaxRAMPercentage, and any -Xms makes it ignore InitialRAMPercentage.
+	// Without a max heap flag the operator still passes -Xmx, so the stock one can stay.
+	stripXmx := hasAnyFlag(jvmParams, "-XX:MaxRAMPercentage=")
+	stripXms := stripXmx || hasAnyFlag(jvmParams, "-XX:InitialRAMPercentage=")
+	if stripXms {
+		fmt.Printf("RAM percentage flag found, removing stock heap flags from %s\n", confFilePropertyName)
+	}
+
+	return writeJvmParamsToFile(confFile, getJvmParamDocString()+newMmsJvmParams+lineBreak, confFilePropertyName, stripXmx, stripXms)
+}
+
+func hasAnyFlag(jvmParams string, prefixes ...string) bool {
+	for param := range strings.FieldsSeq(jvmParams) {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(param, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// removeStockHeapFlags drops -Xmx and/or -Xms from the stock lines that set confFilePropertyName.
+// It must run after removeOperatorJvmBlocks so the user's own flags are left alone.
+func removeStockHeapFlags(content string, confFilePropertyName string, stripXmx, stripXms bool) string {
+	lines := strings.Split(content, lineBreak)
+	for i, line := range lines {
+		if !strings.HasPrefix(strings.TrimSpace(line), confFilePropertyName+"=") {
+			continue
+		}
+		if stripXmx {
+			line = removeStockHeapFlag(line, "-Xmx")
+		}
+		if stripXms {
+			line = removeStockHeapFlag(line, "-Xms")
+		}
+		lines[i] = line
+	}
+	return strings.Join(lines, lineBreak)
+}
+
+func removeStockHeapFlag(line string, flag string) string {
+	regexes := stockHeapFlagRegexes[flag]
+	return regexes[1].ReplaceAllString(regexes[0].ReplaceAllString(line, ""), `"`)
 }
 
 // getHostnameFQDN returns the FQDN name for this Pod, which is the Pod's hostname
@@ -155,13 +206,16 @@ func writeLinesToFile(name string, lines []string) error {
 // writeJvmParamsToFile strips any previously written operator JVM blocks from
 // the conf file, then writes the cleaned content back together with the new
 // block. This ensures the file stays idempotent across multiple pod cycles.
-func writeJvmParamsToFile(name string, block string) error {
+func writeJvmParamsToFile(name string, block string, confFilePropertyName string, stripXmx, stripXms bool) error {
 	existing, err := os.ReadFile(name)
 	if err != nil {
 		return xerrors.Errorf("error reading file %s: %w", name, err)
 	}
 
 	cleaned := removeOperatorJvmBlocks(string(existing))
+	if stripXmx || stripXms {
+		cleaned = removeStockHeapFlags(cleaned, confFilePropertyName, stripXmx, stripXms)
+	}
 
 	err = os.WriteFile(name, []byte(cleaned+block), 0o644) // nolint:gosec
 	if err != nil {
