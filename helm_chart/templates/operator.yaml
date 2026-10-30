@@ -77,6 +77,25 @@ spec:
             requests:
               cpu: {{ .Values.operator.resources.requests.cpu }}
               memory: {{ .Values.operator.resources.requests.memory }}
+          {{- with .Values.operator.probes }}
+          ports:
+            - name: health
+              containerPort: {{ .port }}
+          {{- if .liveness }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            {{- toYaml .liveness | nindent 12 }}
+          {{- end }}
+          {{- if .readiness }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            {{- toYaml .readiness | nindent 12 }}
+          {{- end }}
+          {{- end }}
           {{- if and (not .Values.managedSecurityContext) .Values.operator.securityContext }}
           securityContext:
             {{- toYaml .Values.operator.securityContext | nindent 12 }}
@@ -84,6 +103,10 @@ spec:
           env:
             - name: OPERATOR_ENV
               value: {{ .Values.operator.env }}
+          {{- with .Values.operator.probes }}
+            - name: MDB_OPERATOR_HEALTH_PROBE_PORT
+              value: {{ .port | quote }}
+          {{- end }}
             - name: MDB_DEFAULT_ARCHITECTURE
               value: {{ .Values.operator.mdbDefaultArchitecture }}
             - name: NAMESPACE
