@@ -120,8 +120,11 @@ type DatabaseStatefulSetOptions struct {
 	InitDatabaseImage      string
 	DatabaseNonStaticImage string
 	MongodbImage           string
-	AgentImage             string
-	CustomAgentURL         string
+	// MongodbProxyImage is the full reference of the mongodb-proxy image. The proxy runs mongod/mongos only
+	// for resources that carry MongodbProxyAnnotation.
+	MongodbProxyImage string
+	AgentImage        string
+	CustomAgentURL    string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -429,6 +432,8 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 	extraEnvs = append(extraEnvs, ReadDatabaseProxyVarsFromEnv()...)
 	stsOpts.ExtraEnvs = extraEnvs
 
+	stsOpts.warnIfMongodbProxyIsIgnored(mdb, log)
+
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts, mdb)
 	sts := statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts, log))
 	return sts
@@ -549,8 +554,12 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	var databaseImage string
 	var staticMods []podtemplatespec.Modification
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
-		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
+		// The proxy is PID 1 of its container and parent of mongod, and the agent reaches it over HTTP, so the
+		// containers must not share a process namespace in that mode.
+		if !opts.usesMongodbProxy(mdb) {
+			shareProcessNs = func(sts *appsv1.StatefulSet) {
+				sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
+			}
 		}
 		// Add volume mounts to all containers in static architecture
 		// This runs after all containers have been added to the spec
@@ -820,6 +829,25 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithCommand([]string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"}),
 		configureContainerSecurityContext,
 	)}
+
+	if opts.usesMongodbProxy(mdb) {
+		volumes = append(volumes,
+			imageVolume(mongodbProxyVolumeName, opts.MongodbProxyImage),
+			imageVolume(mongodbBinariesVolumeName, opts.MongodbImage),
+		)
+		agentContainerModifications = append(agentContainerModifications,
+			container.WithEnvs(
+				corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress},
+				corev1.EnvVar{Name: mongodRootEnv, Value: mongodbBinariesMountPath},
+			),
+			container.WithVolumeMounts([]corev1.VolumeMount{readOnlyMount(mongodbBinariesVolumeName, mongodbBinariesMountPath)}),
+		)
+		// The proxy replaces the marker command: it starts mongod/mongos only when the agent asks for it.
+		mongodContainerModifications = append(mongodContainerModifications,
+			container.WithCommand([]string{mongodbProxyBinaryPath}),
+			container.WithVolumeMounts([]corev1.VolumeMount{readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath)}),
+		)
+	}
 
 	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerUtilitiesName),

@@ -139,6 +139,10 @@ if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   agentOpts+=("-useLocalMongoDbTools=true")
 else
   agentOpts+=("-operatorMode=true")
+  # With the mongodb-proxy the agent starts and stops mongod/mongos through the proxy instead of running them.
+  if [ -n "${MDB_MONGODB_PROXY_ADDRESS:-}" ]; then
+    agentOpts+=("-mongodProxyAddress=${MDB_MONGODB_PROXY_ADDRESS}")
+  fi
 fi
 
 
@@ -186,28 +190,39 @@ rm /tmp/mongodb-mms-automation-cluster-backup.json &> /dev/null || true
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   echo "Skipping creating symlinks because this is not Static Containers Architecture"
 else
-  WAIT_TIME=5
-  MAX_WAIT=300
-  ELAPSED_TIME=0
+  MONGOD_ROOT=""
+  if [ -n "${MDB_MONGOD_ROOT:-}" ]; then
+    # The MongoDB image is mounted into this container (mongodb-proxy mode). There is no shared process
+    # namespace in that mode, so the binaries cannot be reached through /proc/<pid>/root.
+    MONGOD_ROOT="${MDB_MONGOD_ROOT}"
+    echo "Using the MongoDB binaries mounted at ${MONGOD_ROOT}"
+  else
+    WAIT_TIME=5
+    MAX_WAIT=300
+    ELAPSED_TIME=0
 
-  # Polling loop to wait for the PID value to be non-zero
-  while [ ${ELAPSED_TIME} -lt ${MAX_WAIT} ]; do
-    script_log "waiting for mongod_pid being available"
-    # shellcheck disable=SC2009
-    MONGOD_PID=$(ps aux | grep "mongodb_marker" | grep -v grep | awk '{print $2}') || true
+    # Polling loop to wait for the PID value to be non-zero
+    while [ ${ELAPSED_TIME} -lt ${MAX_WAIT} ]; do
+      script_log "waiting for mongod_pid being available"
+      # shellcheck disable=SC2009
+      MONGOD_PID=$(ps aux | grep "mongodb_marker" | grep -v grep | awk '{print $2}') || true
 
+      if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
+      break
+      fi
+
+      sleep ${WAIT_TIME}
+      ELAPSED_TIME=$((ELAPSED_TIME + WAIT_TIME))
+    done
+
+    # Check if a non-zero PID value is found
     if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
-    break
+      echo "Mongod PID: ${MONGOD_PID}"
+      MONGOD_ROOT="/proc/${MONGOD_PID}/root"
     fi
+  fi
 
-    sleep ${WAIT_TIME}
-    ELAPSED_TIME=$((ELAPSED_TIME + WAIT_TIME))
-  done
-
-  # Check if a non-zero PID value is found
-  if [ -n "${MONGOD_PID}" ] && [ "${MONGOD_PID}" -ne 0 ]; then
-    echo "Mongod PID: ${MONGOD_PID}"
-    MONGOD_ROOT="/proc/${MONGOD_PID}/root"
+  if [ -n "${MONGOD_ROOT}" ]; then
     mkdir -p "${MMS_DOWNLOAD_BASE}/mongod"
     mkdir -p "${MMS_DOWNLOAD_BASE}/mongod/bin"
     ln -sf "${MONGOD_ROOT}/bin/mongo" "${MMS_DOWNLOAD_BASE}/mongod/bin/mongo"
