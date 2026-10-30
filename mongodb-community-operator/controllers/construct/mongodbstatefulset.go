@@ -9,6 +9,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
@@ -301,6 +302,30 @@ func DefaultReadiness() probes.Modification {
 	)
 }
 
+// MongodStartupProbe holds off the liveness probe of the mongod container until mongod accepts
+// connections. Before that the container waits for the configuration the agent writes, sleeps and may
+// run the version upgrade hook, so the threshold is generous: ten minutes.
+func MongodStartupProbe(port int) probes.Modification {
+	return probes.Apply(
+		probes.WithHandler(corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(int32(port))}}),
+		probes.WithPeriodSeconds(10),
+		probes.WithTimeoutSeconds(5),
+		probes.WithFailureThreshold(60),
+	)
+}
+
+// MongodLivenessProbe restarts the mongod container when mongod is still running but has stopped
+// accepting connections, which a crash restart doesn't cover. The timings are conservative, five
+// minutes, so that a busy member is never restarted.
+func MongodLivenessProbe(port int) probes.Modification {
+	return probes.Apply(
+		probes.WithHandler(corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(int32(port))}}),
+		probes.WithPeriodSeconds(30),
+		probes.WithTimeoutSeconds(5),
+		probes.WithFailureThreshold(10),
+	)
+}
+
 func dataPvc(dataVolumeName string) persistentvolumeclaim.Modification {
 	return persistentvolumeclaim.Apply(
 		persistentvolumeclaim.WithName(dataVolumeName),
@@ -433,6 +458,8 @@ func mongodbContainer(mongodbImage string, volumeMounts []corev1.VolumeMount, ad
 		// The official image provides both CMD and ENTRYPOINT. We're reusing the former and need to replace
 		// the latter with an empty string.
 		container.WithArgs([]string{""}),
+		container.WithStartupProbe(MongodStartupProbe(additionalMongoDBConfig.GetDBPort())),
+		container.WithLivenessProbe(MongodLivenessProbe(additionalMongoDBConfig.GetDBPort())),
 		containerSecurityContext,
 		container.WithEnvs(
 			collectEnvVars()...,
