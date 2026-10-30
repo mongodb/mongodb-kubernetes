@@ -28,6 +28,23 @@ find_init_container() {
   return 1
 }
 
+# find_init_root prints the root directory of the init-database container.
+# Usually it is reached through the shared process namespace. With the mongodb-proxy the containers of the pod
+# do not share one, so the operator mounts the init-database image into this container and sets MDB_INIT_ROOT.
+find_init_root() {
+  if [[ -n "${MDB_INIT_ROOT:-}" ]]; then
+    echo "${MDB_INIT_ROOT}"
+    return 0
+  fi
+
+  local pid
+  if pid=$(find_init_container); then
+    echo "/proc/${pid}/root"
+    return 0
+  fi
+  return 1
+}
+
 link_agent_scripts() {
   local init_scripts_dir="${1}"
 
@@ -43,10 +60,9 @@ link_agent_scripts() {
 main() {
   setup_dummy_probes
 
-  if init_pid=$(find_init_container); then
-    echo "Found init container with PID: ${init_pid}"
+  if init_root=$(find_init_root); then
+    echo "Found init container root: ${init_root}"
 
-    init_root="/proc/${init_pid}/root"
     init_scripts="${init_root}/scripts"
     init_probes="${init_root}/probes"
 

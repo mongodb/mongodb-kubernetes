@@ -19,6 +19,7 @@ import (
 const (
 	testProxyImage   = "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy:1.0.0"
 	testMongodbImage = "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
+	testInitImage    = "quay.io/mongodb/mongodb-kubernetes-init-database:1.0.0"
 )
 
 func proxyTestStatefulSet(annotations map[string]string, arch architectures.DefaultArchitecture, proxyImage string) appsv1.StatefulSet {
@@ -30,6 +31,7 @@ func proxyTestStatefulSet(annotations map[string]string, arch architectures.Defa
 		func(o *DatabaseStatefulSetOptions) {
 			o.MongodbProxyImage = proxyImage
 			o.MongodbImage = testMongodbImage
+			o.InitDatabaseImage = testInitImage
 		},
 	), zap.S())
 }
@@ -72,6 +74,13 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "127.0.0.1:8099"})
 		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGOD_ROOT", Value: "/mnt/mongodb"})
 		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-binaries", MountPath: "/mnt/mongodb", ReadOnly: true})
+		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_INIT_ROOT", Value: "/mnt/init-database"})
+		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-init-database", MountPath: "/mnt/init-database", ReadOnly: true})
+
+		initVolume, found := volumeByName(sts, "mongodb-init-database")
+		require.True(t, found)
+		require.NotNil(t, initVolume.Image)
+		assert.Equal(t, testInitImage, initVolume.Image.Reference)
 
 		volume, found := volumeByName(sts, "mongodb-binaries")
 		require.True(t, found)
@@ -104,12 +113,15 @@ func TestMongodbProxyIsOffUnlessAllConditionsHold(t *testing.T) {
 
 			_, hasProxyVolume := volumeByName(sts, "mongodb-proxy")
 			_, hasBinariesVolume := volumeByName(sts, "mongodb-binaries")
+			_, hasInitVolume := volumeByName(sts, "mongodb-init-database")
 			assert.False(t, hasProxyVolume)
 			assert.False(t, hasBinariesVolume)
+			assert.False(t, hasInitVolume)
 			for _, c := range sts.Spec.Template.Spec.Containers {
 				assert.NotContains(t, c.Command, "/mnt/proxy/proxy")
 				for _, e := range c.Env {
 					assert.NotEqual(t, "MDB_MONGODB_PROXY_ADDRESS", e.Name)
+					assert.NotEqual(t, "MDB_INIT_ROOT", e.Name)
 				}
 			}
 		})
