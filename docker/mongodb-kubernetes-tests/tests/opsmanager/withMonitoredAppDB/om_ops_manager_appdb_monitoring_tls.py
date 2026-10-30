@@ -69,6 +69,22 @@ def test_appdb_group_is_monitored(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_appdb_monitoring_tls
+def test_monitoring_agent_requires_valid_certificates(ops_manager: MongoDBOpsManager):
+    """The agent's own default is to require valid Ops Manager certificates. The operator must
+    not override it: monitoring additionalParams take precedence over agent flags, so writing
+    sslRequireValidMMSServerCertificates there (e.g. a stale "false") would silently disable
+    the validation of the Ops Manager certificate against -httpsCAFile."""
+    monitoring_versions = ops_manager.get_automation_config_tester().get_monitoring_versions()
+    assert len(monitoring_versions) > 0, "the AppDB automation config must configure monitoring"
+    for monitoring_version in monitoring_versions:
+        additional_params = monitoring_version.get("additionalParams") or {}
+        assert "sslRequireValidMMSServerCertificates" not in additional_params, (
+            "monitoring additionalParams must not override sslRequireValidMMSServerCertificates: "
+            "the agent default (require valid Ops Manager certificates) must apply"
+        )
+
+
+@mark.e2e_om_appdb_monitoring_tls
 def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
     # Change the Secret containing the password
     data = {"password": "Hello-World!-new"}
