@@ -32,10 +32,8 @@ kind: ServiceAccount
 metadata:
   name: {{ $namePrefix }}-appdb
   {{ $namespaceBlock }}
-{{- if $memberMode }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
-{{- end }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
   - name: {{ $.Values.registry.imagePullSecrets }}
@@ -47,10 +45,8 @@ kind: ServiceAccount
 metadata:
   name: {{ $namePrefix }}-database-pods
   {{ $namespaceBlock }}
-{{- if $memberMode }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
-{{- end }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
   - name: {{ $.Values.registry.imagePullSecrets }}
@@ -62,10 +58,8 @@ kind: ServiceAccount
 metadata:
   name: {{ $namePrefix }}-ops-manager
   {{ $namespaceBlock }}
-{{- if $memberMode }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
-{{- end }}
 {{- if $.Values.registry.imagePullSecrets}}
 imagePullSecrets:
   - name: {{ $.Values.registry.imagePullSecrets }}
@@ -77,10 +71,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $namePrefix }}-appdb
   {{ $namespaceBlock }}
-{{- if $memberMode }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
-{{- end }}
 rules:
   - apiGroups:
       - ''
@@ -103,10 +95,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $namePrefix }}-appdb
   {{ $namespaceBlock }}
-{{- if $memberMode }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
-{{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

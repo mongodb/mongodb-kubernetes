@@ -124,13 +124,11 @@ rules:
       - watch
       - delete
       - deletecollection
-
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mck-member-role-base-binding
-  
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 roleRef:
@@ -157,13 +155,11 @@ rules:
       - list
       - watch
       - update
-
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mck-member-pvc-resize-binding
-  
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 roleRef:

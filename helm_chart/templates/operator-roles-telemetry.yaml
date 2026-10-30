@@ -26,10 +26,8 @@ kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $clusterRoleName }}
-{{- if $memberMode }}
   annotations:
     mongodb.com/rbac-version: {{ .Chart.Version | quote }}
-{{- end }}
 rules:
   # Non-resource URL permissions
   - nonResourceURLs:
@@ -57,10 +55,8 @@ kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $bindingName }}
-{{- if $memberMode }}
   annotations:
     mongodb.com/rbac-version: {{ .Chart.Version | quote }}
-{{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
