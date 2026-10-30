@@ -30,9 +30,16 @@ const (
 	mongodbBinariesVolumeName = "mongodb-binaries"
 	mongodbBinariesMountPath  = "/mnt/mongodb"
 
-	// Environment variables of the agent container, read by agent-launcher.sh.
+	// The init-database image is mounted into the agent container as well. Its scripts and probes used to be
+	// reached through /proc/<pid>/root of the utilities container, which needs a shared process namespace.
+	mongodbInitDatabaseVolumeName = "mongodb-init-database"
+	mongodbInitDatabaseMountPath  = "/mnt/init-database"
+
+	// Environment variables of the agent container, read by agent-launcher.sh and by the scripts of the agent
+	// image (setup-agent-files.sh and the probes).
 	mongodbProxyAddressEnv = "MDB_MONGODB_PROXY_ADDRESS"
 	mongodRootEnv          = "MDB_MONGOD_ROOT"
+	initRootEnv            = "MDB_INIT_ROOT"
 )
 
 // usesMongodbProxy reports whether the StatefulSet runs mongod/mongos through the proxy.
