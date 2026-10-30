@@ -108,7 +108,7 @@ remove_old_buckets() {
 
   echo "Removing buckets older than ${bucket_date}"
 
-  bucket_list=$(aws s3api list-buckets --query "sort_by(Buckets[?starts_with(Name,'test-')], &CreationDate)" | jq -c --raw-output '.[]')
+  bucket_list=$(aws s3api list-buckets --query "sort_by(Buckets[?starts_with(Name,'test-') || starts_with(Name,'ext-appdb-bnr')], &CreationDate)" | jq -c --raw-output '.[]')
   if [[ -z ${bucket_list} ]]; then
     echo "Bucket list is empty, nothing to do"
     return 0
