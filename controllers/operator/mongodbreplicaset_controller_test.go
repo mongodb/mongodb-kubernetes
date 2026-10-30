@@ -1730,6 +1730,34 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
 }
 
+// An x509 search pointing at a source without an X509 auth mode must not
+// be wired into the mongod config: mongod disables the MONGODB-X509
+// mechanism without the mode, so the deployment would fail at runtime.
+func TestApplySearchOverrides_SkipsX509SearchWhenSourceLacksX509Mode(t *testing.T) {
+	ctx := context.Background()
+
+	x509Search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
+		Spec: searchv1.MongoDBSearchSpec{
+			Clusters: []searchv1.ClusterSpec{{}},
+			Source: &searchv1.MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"},
+				X509:               &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}},
+			},
+		},
+	}
+	c := mock.NewEmptyFakeClientBuilder().WithObjects(x509Search).Build()
+
+	rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
+	reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c)}
+	helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
+
+	applied, err := helper.applySearchOverrides(ctx)
+	require.NoError(t, err)
+	assert.False(t, applied, "x509 search must not be wired into a source without an X509 auth mode")
+	assert.Empty(t, maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "setParameter", "mongotHost"))
+}
+
 func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
 	ctx := context.Background()
 	rs := mdbv1.NewDefaultReplicaSetBuilder().

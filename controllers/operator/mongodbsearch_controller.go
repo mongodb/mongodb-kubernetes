@@ -230,6 +230,24 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
+	// Watch the SCRAM sync-source password secret (explicit passwordSecretRef or the
+	// default <name>-<user>-password) so rotating it triggers a reconcile; the content
+	// hash fold in the helper then rolls the mongot pods to stage the new value.
+	if mdbSearch.Spec.Source != nil && !mdbSearch.IsX509Auth() {
+		ref := mdbSearch.SourceUserPasswordSecretRef()
+		r.watch.AddWatchedResourceIfNotAdded(ref.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
+
+	// Watch the user-provided client certificates (x509 and SCRAM egress) so their rotation
+	// triggers a reconcile; the render then picks up the new content-hash-named operator
+	// secret and rolls the mongot pods (see tls.OperatorSecretFileName).
+	if mdbSearch.IsX509Auth() {
+		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.X509ClientCertSecret().Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
+	if mdbSearch.HasScramClientCert() {
+		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.ScramClientCertSecret().Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
+
 	// The no-op mutation reads the state and, as a side effect, repairs legacy
 	// owner labels on the state ConfigMap.
 	state, err := searchcontroller.MutateSearchState(ctx, r.kubeClient, mdbSearch, func(*searchcontroller.SearchDeploymentState) bool {

@@ -45,6 +45,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
@@ -776,6 +777,15 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	}
 	if keyPasswordHash != "" {
 		configHash = hashBytes([]byte(configHash + keyPasswordHash))
+	}
+
+	// Same fold for the SCRAM sync-source password secret (spec.source.passwordSecretRef).
+	sourcePasswordHash, err := r.scramSourcePasswordContentHash(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	if sourcePasswordHash != "" {
+		configHash = hashBytes([]byte(configHash + sourcePasswordHash))
 	}
 
 	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
@@ -1881,6 +1891,10 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		return nil, nil, xerrors.New("tls must be enabled for syncSource to enable x509 auth for search resource")
 	}
 
+	if err := ValidateX509AuthSource(r.mdbSearch, r.db); err != nil {
+		return nil, nil, err
+	}
+
 	x509Resource := &x509AuthResource{MongoDBSearch: r.mdbSearch}
 	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, x509Resource, labels, ownerReferences)
 	if err != nil {
@@ -2111,6 +2125,41 @@ func hashBytes(bytes []byte) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
+// ValidateX509AuthSource enforces the x509 source requirement at reconcile time: a search
+// authenticating with x509 needs an X509 auth mode on the source MongoDB, because mongod
+// disables the MONGODB-X509 SASL mechanism otherwise and the deployment would only fail at
+// runtime. External sources are unverifiable from the operator and get no check.
+func ValidateX509AuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if !search.IsX509Auth() {
+		return nil
+	}
+
+	var modes []string
+	switch src := db.(type) {
+	case EnterpriseResourceSearchSource:
+		modes = src.Spec.GetSecurityAuthenticationModes()
+	case *ShardedInternalSearchSource:
+		modes = src.Spec.GetSecurityAuthenticationModes()
+	case *CommunitySearchSource:
+		for _, mode := range src.Spec.Security.Authentication.Modes {
+			modes = append(modes, string(mode))
+		}
+	case *externalSearchResource:
+		// The operator knows nothing about an external deployment's auth
+		// configuration; mongod rejects the SASL attempt at runtime.
+		return nil
+	default:
+		// A new internal source implementation must add an explicit case
+		// above instead of relying on this pass-through.
+		return nil
+	}
+
+	if slices.Contains(modes, util.X509) {
+		return nil
+	}
+	return xerrors.New("x509 search authentication requires an X509 auth mode enabled on the source MongoDB (mongod disables the MONGODB-X509 mechanism otherwise)")
+}
+
 // keyFilePasswordContentHash returns a hash of every configured keyFilePassword secret's content
 func (r *MongoDBSearchReconcileHelper) keyFilePasswordContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
 	var combined []byte
@@ -2132,6 +2181,27 @@ func (r *MongoDBSearchReconcileHelper) keyFilePasswordContentHash(ctx context.Co
 		return "", nil
 	}
 	return hashBytes(combined), nil
+}
+
+// scramSourcePasswordContentHash folds the sync-source user password secret's content into
+// the config hash: the password is subPath-mounted and staged to /tmp at pod start, so a
+// rotated value only reaches mongot when the pod rolls. The accessor covers both the explicit
+// passwordSecretRef and the operator-default <name>-<user>-password secret; the default secret
+// is created by the sync user's owner and may lag the search, so a missing one folds nothing
+// while an explicit ref must exist.
+func (r *MongoDBSearchReconcileHelper) scramSourcePasswordContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
+	if r.mdbSearch.Spec.Source == nil || r.mdbSearch.IsX509Auth() {
+		return "", nil
+	}
+	ref := r.mdbSearch.SourceUserPasswordSecretRef()
+	pw, err := secret.ReadKey(ctx, kubeClient, ref.Key, types.NamespacedName{Name: ref.Name, Namespace: r.mdbSearch.Namespace})
+	if err != nil {
+		if r.mdbSearch.Spec.Source.PasswordSecretRef == nil && apierrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", xerrors.Errorf("reading sync-source password secret %s: %w", ref.Name, err)
+	}
+	return hashBytes([]byte(ref.Name + ":" + pw)), nil
 }
 
 // baseMongotConfig sets up the common mongot configuration fields shared by all deployment types:
