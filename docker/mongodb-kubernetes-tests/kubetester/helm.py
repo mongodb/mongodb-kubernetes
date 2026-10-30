@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from typing import Dict, List, Optional, Tuple
 
 from tests import test_logger
@@ -16,6 +17,16 @@ logger = test_logger.get_test_logger(__name__)
 
 # LOCAL_CRDS_DIR is the dir where local helm chart's CRDs are copied in tests image
 LOCAL_CRDS_DIR = "helm_chart/crds"
+HELM_REPO_ADD_MAX_ATTEMPTS = 2
+HELM_REPO_ADD_RETRY_DELAY_SECONDS = 5
+TRANSIENT_HELM_REPO_ERRORS = (
+    "context deadline exceeded",
+    "client.timeout exceeded",
+    "tls handshake timeout",
+    "i/o timeout",
+    "connection reset by peer",
+    "unexpected eof",
+)
 
 
 def helm_template(
@@ -125,7 +136,29 @@ def helm_repo_add(repo_name: str, url: str):
     """
     helm_repo = f"helm repo add {repo_name} {url}".split()
     logger.info(helm_repo)
-    process_run_and_check(helm_repo, capture_output=True)
+    for attempt in range(1, HELM_REPO_ADD_MAX_ATTEMPTS + 1):
+        try:
+            process_run_and_check(helm_repo, capture_output=True)
+            if attempt > 1:
+                logger.info(f"Helm repository {repo_name} added on retry {attempt}/{HELM_REPO_ADD_MAX_ATTEMPTS}.")
+            return
+        except subprocess.CalledProcessError as exc:
+            error_output = "\n".join(
+                output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output
+                for output in (exc.stdout, exc.stderr)
+                if output
+            )
+            lowered_output = error_output.lower()
+            is_transient = any(error in lowered_output for error in TRANSIENT_HELM_REPO_ERRORS)
+            if not is_transient or attempt == HELM_REPO_ADD_MAX_ATTEMPTS:
+                raise
+
+            logger.warning(
+                f"Transient failure adding Helm repository {repo_name} "
+                f"(attempt {attempt}/{HELM_REPO_ADD_MAX_ATTEMPTS}); "
+                f"retrying in {HELM_REPO_ADD_RETRY_DELAY_SECONDS}s: {error_output.strip()}"
+            )
+            time.sleep(HELM_REPO_ADD_RETRY_DELAY_SECONDS)
 
 
 def process_run_and_check(args, **kwargs):
