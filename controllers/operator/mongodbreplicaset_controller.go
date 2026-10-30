@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -94,10 +93,9 @@ type ReconcileMongoDbReplicaSet struct {
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
 
-	// certManagerReady is decided once at startup, it makes sure that the cert-manager CRDs are installed,
-	// the chart installed the managed-certificate RBAC, and the operator has authz to manage certificates and issuers.
-	// It gates both the Certificate watch and the managed-certificate path in the reconcile.
-	certManagerReady bool
+	// certManagerReadiness is used to make sure the managed-certificate path fails with
+	// a clear message when certmanager is not ready, instead of trying and getting a permission error.
+	certManagerReadiness certs.CertManagerReadiness
 }
 
 type replicaSetDeploymentState struct {
@@ -297,9 +295,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if rs.GetSecurity().IsManagedCertificateEnabled() {
 		// make sure cert-manager is installed and operator has appropriate authz before
 		// doing anything related to cert-manager resources.
-		if !r.reconciler.certManagerReady {
-			return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf(
-				"It looks like the operator doesn't have authz to manage cert-manager resources, it's required for managedCertificate feature to work.")))
+		if !r.reconciler.certManagerReadiness.Ready {
+			return r.updateStatus(ctx, workflow.Failed(xerrors.New(
+				r.reconciler.certManagerReadiness.UnavailableMessage())))
 		}
 
 		status, certsCondition := certs.EnsureCertificatesAndCA(
@@ -462,7 +460,7 @@ func newReplicaSetReconciler(
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
 	omFunc om.ConnectionFactory,
-	certManagerReady bool,
+	certManagerReadiness certs.CertManagerReadiness,
 ) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
@@ -474,10 +472,10 @@ func newReplicaSetReconciler(
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
 
-		agentDebug:          agentDebug,
-		agentDebugImage:     agentDebugImage,
-		defaultArchitecture: defaultArchitecture,
-		certManagerReady:    certManagerReady,
+		agentDebug:           agentDebug,
+		agentDebugImage:      agentDebugImage,
+		defaultArchitecture:  defaultArchitecture,
+		certManagerReadiness: certManagerReadiness,
 	}
 }
 
@@ -715,10 +713,10 @@ func AddReplicaSetController(
 ) error {
 	// make sure cert-manager resources are registered and operator has authz to access them, before actually registering
 	// watches or doing anything with cert-manager resources.
-	certManagerReady := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
 
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, certManagerReady)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, certManagerReadiness)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -759,10 +757,8 @@ func AddReplicaSetController(
 
 	// Watch operator-owned cert-manager Certificates so a Ready-status transition
 	// re-triggers reconcile of the owning MongoDB.
-	if certManagerReady {
-		err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &certmanagerv1.Certificate{},
-			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &mdbv1.MongoDB{}, handler.OnlyControllerOwner())))
-		if err != nil {
+	if certManagerReadiness.Ready {
+		if err := watch.Certificates(mgr, c, &mdbv1.MongoDB{}); err != nil {
 			return err
 		}
 	} else {

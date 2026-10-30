@@ -99,14 +99,12 @@ type ReconcileMongoDbShardedCluster struct {
 	backupEnableDelay   time.Duration
 	defaultArchitecture architectures.DefaultArchitecture
 
-	// certManagerReady is decided once at startup: the cert-manager CRDs are installed, the chart
-	// installed the managed-certificate RBAC, and the operator has authz to manage certificates and
-	// issuers. The managed-certificate path fails with a clear message when it is false, instead of
-	// trying and getting a permission error.
-	certManagerReady bool
+	// certManagerReadiness is used to make sure the managed-certificate path fails with
+	// a clear message when certmanager is not ready, instead of trying and getting a permission error.
+	certManagerReadiness certs.CertManagerReadiness
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, certManagerReady bool) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -123,7 +121,7 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 		backupEnableDelay:   backupEnableDelay,
 		defaultArchitecture: defaultArchitecture,
 
-		certManagerReady: certManagerReady,
+		certManagerReadiness: certManagerReadiness,
 	}
 }
 
@@ -653,9 +651,9 @@ type ShardedClusterReconcileHelper struct {
 	// This parameter helps us decide whether write operations should be conducted in the constructor.
 	readOnly bool
 
-	// certManagerReady is decided once at startup, see ReconcileMongoDbShardedCluster. The managed
-	// certificate path fails with a clear message when it is false.
-	certManagerReady bool
+	// certManagerReadiness is decided once at startup, see ReconcileMongoDbShardedCluster. The
+	// managed-certificate path fails with a clear message when it is not ready.
+	certManagerReadiness certs.CertManagerReadiness
 }
 
 func NewReadOnlyClusterReconcilerHelper(
@@ -666,10 +664,10 @@ func NewReadOnlyClusterReconcilerHelper(
 	log *zap.SugaredLogger,
 	backupEnableDelay time.Duration,
 ) (*ShardedClusterReconcileHelper, error) {
-	// This helper only reads the deployment state, it never issues certificates, so certManagerReady
-	// stays false.
+	// This helper only reads the deployment state, it never issues certificates, so the readiness
+	// stays not ready.
 	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false, false, false, "",
-		architectures.NonStatic, sc, globalMemberClustersMap, nil, log, true, backupEnableDelay, false)
+		architectures.NonStatic, sc, globalMemberClustersMap, nil, log, true, backupEnableDelay, certs.CertManagerReadiness{})
 }
 
 func NewShardedClusterReconcilerHelper(
@@ -688,10 +686,10 @@ func NewShardedClusterReconcilerHelper(
 	omConnectionFactory om.ConnectionFactory,
 	log *zap.SugaredLogger,
 	backupEnableDelay time.Duration,
-	certManagerReady bool,
+	certManagerReadiness certs.CertManagerReadiness,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
-		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay, certManagerReady)
+		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay, certManagerReadiness)
 }
 
 func newShardedClusterReconcilerHelper(
@@ -711,7 +709,7 @@ func newShardedClusterReconcilerHelper(
 	log *zap.SugaredLogger,
 	readOnly bool,
 	backupEnableDelay time.Duration,
-	certManagerReady bool,
+	certManagerReadiness certs.CertManagerReadiness,
 ) (*ShardedClusterReconcileHelper, error) {
 	// It's a workaround for single cluster topology to add there __default cluster.
 	// With the multi-cluster sharded refactor, we went so far with the multi-cluster first approach so we have very few places with conditional single/multi logic.
@@ -735,8 +733,8 @@ func newShardedClusterReconcilerHelper(
 		backupEnableDelay:   backupEnableDelay,
 		defaultArchitecture: defaultArchitecture,
 
-		readOnly:         readOnly,
-		certManagerReady: certManagerReady,
+		readOnly:             readOnly,
+		certManagerReadiness: certManagerReadiness,
 	}
 
 	helper.sc = sc
@@ -874,7 +872,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 	// warn if managedCertificate.client is set but not really required/used by the operator
 	sc.SetWarnings(certs.UnusedClientConfigured(sc))
 
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReady)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReadiness)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -889,7 +887,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
 		return nil
 	}
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReady)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReadiness)
 	if err != nil {
 		return err
 	}
@@ -1253,9 +1251,8 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	// every sharded component (mongos, config server, each shard). EnsureCertificatesAndCA loops
 	// over all component Options and populates the single per-resource CA trust bundle.
 	if sc.GetSecurity().IsManagedCertificateEnabled() {
-		if !r.certManagerReady {
-			return workflow.Failed(xerrors.Errorf(
-				"It looks like the operator doesn't have authz to manage cert-manager resources, it's required for managedCertificate feature to work."))
+		if !r.certManagerReadiness.Ready {
+			return workflow.Failed(xerrors.New(r.certManagerReadiness.UnavailableMessage()))
 		}
 
 		status, certsCondition := certs.EnsureCertificatesAndCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log)
@@ -1913,8 +1910,8 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	// Make sure cert-manager is installed and the operator has the RBAC the managed-certificate
 	// feature needs. It is checked once here, at startup, and the reconcile path fails with a clear
 	// message when it is false.
-	certManagerReady := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, certManagerReady)
+	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, certManagerReadiness)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -1944,6 +1941,16 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	if err != nil {
 		return err
 	}
+
+	// Watch operator-owned cert-manager Certificates so a Ready-status transition of certificate resources re-triggers
+	// reconcile of the owning MongoDB. This is mainly helpful when the renewal of the certificate fails becausae in that
+	//  case only certificate's status is changed.
+	if certManagerReadiness.Ready {
+		if err := watch.Certificates(mgr, c, &mdbv1.MongoDB{}); err != nil {
+			return err
+		}
+	}
+
 	// if vault secret backend is enabled watch for Vault secret change and  reconcile
 	if vault.IsVaultSecretBackend() {
 		eventChannel := make(chan event.GenericEvent)
