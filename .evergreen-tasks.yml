@@ -786,6 +786,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_appdb_monitoring_no_appdb_tls
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_om_appdb_multi_change
     tags: [ "patch-run" ]
     commands:
