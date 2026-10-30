@@ -2289,7 +2289,7 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSet(ctx context.Context, opsMan
 			return workflow.Failed(xerrors.Errorf("can't construct AppDB Statefulset: %w", err))
 		}
 
-		mutatedSts, deployStatus := r.deployStatefulSetInMemberCluster(ctx, opsManager, appDbSts, memberCluster.Name, log)
+		mutatedSts, deployStatus := r.deployStatefulSetInMemberCluster(ctx, opsManager, &podVars, appDbSts, memberCluster.Name, log)
 		if !deployStatus.IsOK() {
 			return deployStatus
 		}
@@ -2375,7 +2375,7 @@ func (r *ReconcileAppDbReplicaSet) createServices(ctx context.Context, opsManage
 }
 
 // deployStatefulSetInMemberCluster updates the StatefulSet spec and returns its status (if it's ready or not)
-func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, appDbSts appsv1.StatefulSet, memberClusterName string, log *zap.SugaredLogger) (*appsv1.StatefulSet, workflow.Status) {
+func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, appDbSts appsv1.StatefulSet, memberClusterName string, log *zap.SugaredLogger) (*appsv1.StatefulSet, workflow.Status) {
 	workflowStatus := create.HandlePVCResize(ctx, r.helper.getMemberCluster(memberClusterName).Client, &appDbSts, log)
 	if !workflowStatus.IsOK() {
 		return nil, workflowStatus
@@ -2388,7 +2388,9 @@ func (r *ReconcileAppDbReplicaSet) deployStatefulSetInMemberCluster(ctx context.
 	}
 
 	serviceSelectorLabel := opsManager.Spec.AppDB.HeadlessServiceSelectorAppLabel(r.helper.getMemberCluster(memberClusterName).Index)
-	mutatedSts, err := create.AppDBInKubernetes(ctx, r.helper.getMemberCluster(memberClusterName).Client, opsManager, appDbSts, serviceSelectorLabel, log)
+	memberCluster := r.helper.getMemberCluster(memberClusterName)
+	secretClient := memberCluster.SecretClient.WithVaultClient(r.VaultClient)
+	mutatedSts, err := create.AppDBInKubernetes(ctx, memberCluster.Client, secretClient, opsManager, podVars, appDbSts, serviceSelectorLabel, log)
 	if err != nil {
 		return nil, workflow.Failed(xerrors.Errorf("failed to create AppDB StatefulSet in cluster %s: %w", memberClusterName, err))
 	}
