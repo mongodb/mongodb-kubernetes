@@ -125,7 +125,7 @@ func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient
 	}
 	var parameters mdbv1.StartupParameters
 	if opts.AgentConfig != nil {
-		parameters = construct.AgentSettingsOverrides(opts.AgentConfig.StartupParameters)
+		parameters = opts.AgentConfig.StartupParameters
 	}
 	baseURL := env.ToMap(agent.Env...)[util.EnvVarBaseUrl]
 	needsCredential := baseURL != "" && !construct.AgentEnvironmentIsRuntime(*agent, util.EnvVarBaseUrl)

@@ -158,6 +158,12 @@ func TestMultiReplicaSetHostnameConfigMaps(t *testing.T) {
 					for _, c := range sts.Spec.Template.Spec.Containers {
 						assert.Contains(t, c.VolumeMounts, corev1.VolumeMount{Name: cm.Name, MountPath: "/opt/scripts/config"})
 					}
+					if architecture == architectures.NonStatic {
+						require.NotEmpty(t, sts.Spec.Template.Spec.InitContainers)
+						for _, c := range sts.Spec.Template.Spec.InitContainers {
+							assert.Contains(t, c.VolumeMounts, corev1.VolumeMount{Name: cm.Name, MountPath: "/opt/scripts/config"})
+						}
+					}
 					assert.Empty(t, sts.Spec.Template.Spec.Containers[0].Args)
 				}
 			})
