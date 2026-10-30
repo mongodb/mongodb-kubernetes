@@ -32,4 +32,4 @@ main() {
   start_agent_launcher
 }
 
-main "$@"
+main

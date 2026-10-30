@@ -2,8 +2,12 @@ package create
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -23,19 +27,584 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	enterprisests "github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 func init() {
 	mock.InitDefaultEnvVariables()
+}
+
+func TestDatabaseAgentSettingsDelivery(t *testing.T) {
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		t.Run(string(architecture), func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			secretClient := secrets.SecretClient{KubeClient: fakeClient}
+			mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+				StartupParameters: mdbv1.StartupParameters{"logLevel": "DEBUG", "mmsApiKey": "customer-api-key", "overrideLocalHost": "customer.example.com"},
+			}).Build()
+			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture))
+			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+			sts.Spec.UpdateStrategy.Type = appsv1.OnDeleteStatefulSetStrategyType
+			created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+			require.NoError(t, err)
+			assert.Equal(t, sts.Spec.UpdateStrategy, created.Spec.UpdateStrategy)
+			cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-settings"))
+			require.NoError(t, err)
+			assert.Contains(t, cm.Data[construct.AgentSettingsFileName], "logLevel=DEBUG\n")
+			assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "customer-api-key")
+			assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "overrideLocalHost=")
+			keySecret, err := fakeClient.GetSecret(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-api-key"))
+			require.NoError(t, err)
+			assert.Equal(t, "customer-api-key", string(keySecret.Data[util.OmAgentApiKey]))
+			agent := container.GetByName(util.AgentContainerName, created.Spec.Template.Spec.Containers)
+			if agent == nil {
+				agent = container.GetByName(util.DatabaseContainerName, created.Spec.Template.Spec.Containers)
+			}
+			require.NotNil(t, agent)
+			assert.Empty(t, agent.Args)
+			assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: "customer.example.com"}, agent.Env[len(agent.Env)-1])
+			for _, variable := range agent.Env {
+				assert.NotEqual(t, "AGENT_FLAGS", variable.Name)
+			}
+			assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: construct.AgentSettingsVolume, MountPath: construct.AgentSettingsPath, ReadOnly: true})
+			assert.NotEmpty(t, created.Spec.Template.Annotations[construct.AgentSettingsHash])
+			stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
+			require.NoError(t, err)
+			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+			require.NoError(t, err)
+			repeated, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
+			require.NoError(t, err)
+			assert.Equal(t, stored.Spec.Template, repeated.Spec.Template)
+		})
+	}
+}
+
+func TestDatabaseAgentCredentialOverrideWithSecretProjection(t *testing.T) {
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		t.Run(string(architecture), func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			secretClient := secrets.SecretClient{KubeClient: fakeClient}
+			mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+				StartupParameters: mdbv1.StartupParameters{"mmsApiKey": "customer-api-key"},
+			}).Build()
+			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture))
+			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+			defaultMode, fileMode := int32(0o440), int32(0o400)
+			optional := true
+			for i := range sts.Spec.Template.Spec.Volumes {
+				volume := &sts.Spec.Template.Spec.Volumes[i]
+				if volume.Name == construct.AgentAPIKeyVolumeName {
+					volume.Secret.SecretName = "customer-credential"
+					volume.Secret.DefaultMode = &defaultMode
+					volume.Secret.Optional = &optional
+					volume.Secret.Items = []corev1.KeyToPath{{Key: "custom-key", Path: util.OmAgentApiKey, Mode: &fileMode}}
+				}
+			}
+			created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+			require.NoError(t, err)
+			keySecret, err := fakeClient.GetSecret(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-api-key"))
+			require.NoError(t, err)
+			for _, volume := range created.Spec.Template.Spec.Volumes {
+				if volume.Name != construct.AgentAPIKeyVolumeName {
+					continue
+				}
+				assert.Equal(t, keySecret.Name, volume.Secret.SecretName)
+				assert.Equal(t, &defaultMode, volume.Secret.DefaultMode)
+				assert.Equal(t, &optional, volume.Secret.Optional)
+				require.Len(t, volume.Secret.Items, 1)
+				item := volume.Secret.Items[0]
+				assert.Equal(t, util.OmAgentApiKey, item.Path)
+				assert.Equal(t, &fileMode, item.Mode)
+				assert.Equal(t, "customer-api-key", string(keySecret.Data[item.Key]), "projected key must exist in generated credential Secret")
+			}
+			credential, err := databaseAgentCredential(ctx, secretClient, *created)
+			require.NoError(t, err)
+			assert.Equal(t, "customer-api-key", credential)
+			stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
+			require.NoError(t, err)
+			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+			require.NoError(t, err)
+			repeated, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
+			require.NoError(t, err)
+			assert.Equal(t, stored.Spec.Template, repeated.Spec.Template)
+		})
+	}
+}
+
+func TestDatabaseAgentSettingsRejectsInvalidFileBeforeWriting(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+		StartupParameters: mdbv1.StartupParameters{"logLevel": "INFO\nmmsApiKey=secret-api-key-value", "mmsApiKey": "customer-api-key"},
+	}).Build()
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions())
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "secret-api-key-value")
+	_, err = fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
+	assert.True(t, errors.IsNotFound(err))
+	_, err = fakeClient.GetConfigMap(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-settings"))
+	assert.True(t, errors.IsNotFound(err))
+	_, err = fakeClient.GetSecret(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-api-key"))
+	assert.True(t, errors.IsNotFound(err))
+}
+
+func TestDatabaseAgentCredentialOverrideUsesVault(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+		StartupParameters: mdbv1.StartupParameters{"mmsApiKey": "customer-api-key"},
+	}).Build()
+	configuration := vault.VaultConfiguration{DatabaseSecretPath: "agent-config-tests"}
+	secretPath := "/secret/data/agent-config-tests/" + mdb.Namespace + "/" + mdb.Name + "-agent-api-key"
+	writes := make(chan map[string]string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1"+secretPath {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var payload struct {
+			Data map[string]string `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		writes <- payload.Data
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	vaultClient, err := vault.NewVaultClientForTesting(server.URL, "test-token", configuration)
+	require.NoError(t, err)
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) { opts.VaultConfig = configuration })
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient, VaultClient: vaultClient}, *mdb, sts, options, zap.S())
+	require.NoError(t, err)
+	select {
+	case data := <-writes:
+		assert.Equal(t, map[string]string{util.OmAgentApiKey: "customer-api-key"}, data)
+	default:
+		t.Fatal("credential override was not written to Vault")
+	}
+	_, err = fakeClient.GetSecret(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name+"-agent-api-key"))
+	assert.True(t, errors.IsNotFound(err), "Vault credentials must not also be stored in Kubernetes")
+	assert.Equal(t, secretPath, created.Spec.Template.Annotations["vault.hashicorp.com/agent-inject-secret-agentApiKey"])
+	assert.Contains(t, created.Spec.Template.Annotations["vault.hashicorp.com/agent-inject-template-agentApiKey"], secretPath)
+	cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(mdb.Namespace, mdb.Name+"-agent-settings"))
+	require.NoError(t, err)
+	assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "customer-api-key")
+}
+
+// A member cluster SecretClient carries no Vault client by design. Vault is not supported for
+// multi-cluster databases, so the agent credential must come from the Kubernetes Secret in the
+// member cluster. This is the sharded-cluster path: shards are built from a member cluster list.
+func TestDatabaseAgentCredentialFallsBackToKubernetesSecretWithoutVaultClient(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+		StartupParameters: mdbv1.StartupParameters{"mmsBaseUrl": "https://cloud-qa.mongodb.com"},
+	}).Build()
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.PodVars.AgentAPIKey = "unused-pod-vars-key"
+	})
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	keySecret := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: agents.ApiKeySecretName(options(*mdb).PodVars.ProjectID), Namespace: sts.Namespace},
+		Data:       map[string][]byte{util.OmAgentApiKey: []byte("member-cluster-key")},
+	}
+	require.NotEmpty(t, keySecret.Name)
+	require.NoError(t, fakeClient.CreateSecret(ctx, keySecret))
+
+	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+
+	require.NoError(t, err)
+	assert.Len(t, created.Spec.Template.Annotations[construct.AgentSettingsHash], 64)
+}
+
+func TestDatabaseAgentSettingsHashTracksConsumedCredentials(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.PodVars.BaseURL = "https://ops-manager.example.com"
+		opts.PodVars.AgentAPIKey = "unused-pod-vars-key"
+	})
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	var keySecret corev1.Secret
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == construct.AgentAPIKeyVolumeName {
+			keySecret = corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: volume.Secret.SecretName, Namespace: sts.Namespace}, Data: map[string][]byte{util.OmAgentApiKey: []byte("consumed-key-one")}}
+		}
+	}
+	require.NotEmpty(t, keySecret.Name)
+	require.NoError(t, fakeClient.CreateSecret(ctx, keySecret))
+	secretClient := secrets.SecretClient{KubeClient: fakeClient}
+	apply := func() string {
+		t.Helper()
+		created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+		require.NoError(t, err)
+		hash := created.Spec.Template.Annotations[construct.AgentSettingsHash]
+		assert.Len(t, hash, 64)
+		return hash
+	}
+	original := apply()
+	keySecret, err := fakeClient.GetSecret(ctx, kube.ObjectKey(sts.Namespace, keySecret.Name))
+	require.NoError(t, err)
+	keySecret.Labels = map[string]string{"unrelated": "change"}
+	keySecret.Data["unrelated"] = []byte("not-consumed")
+	require.NoError(t, fakeClient.UpdateSecret(ctx, keySecret))
+	assert.Equal(t, original, apply(), "unrelated Secret data and metadata must not alter startup inputs")
+	keySecret, err = fakeClient.GetSecret(ctx, kube.ObjectKey(sts.Namespace, keySecret.Name))
+	require.NoError(t, err)
+	keySecret.Data[util.OmAgentApiKey] = []byte("consumed-key-two")
+	require.NoError(t, fakeClient.UpdateSecret(ctx, keySecret))
+	assert.NotEqual(t, original, apply(), "rotating the consumed key must change the startup digest")
+}
+
+func TestDatabaseAgentSettingsCredentialSources(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		baseURL    string
+		parameters mdbv1.StartupParameters
+		wantError  bool
+	}{
+		{name: "headless needs no credential"},
+		{name: "missing OM credential blocks apply", baseURL: "https://ops-manager.example.com", wantError: true},
+		{name: "customer command takes precedence over raw key", baseURL: "https://ops-manager.example.com", parameters: mdbv1.StartupParameters{"mmsApiKey": "unused-raw-key", "mmsApiKeyExec": "cat /custom/key"}},
+		{name: "empty URL override needs no credential", baseURL: "https://ops-manager.example.com", parameters: mdbv1.StartupParameters{"mmsBaseUrl": ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: tc.parameters}).Build()
+			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) { opts.PodVars.BaseURL = tc.baseURL })
+			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+			_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+			if tc.wantError {
+				require.Error(t, err)
+				_, err = fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+				assert.True(t, errors.IsNotFound(err))
+				_, err = fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
+				assert.True(t, errors.IsNotFound(err))
+			} else {
+				require.NoError(t, err)
+				cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
+				require.NoError(t, err)
+				assert.NotContains(t, cm.Data[construct.AgentSettingsFileName], "unused-raw-key")
+			}
+			_, err = fakeClient.GetSecret(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-api-key"))
+			assert.True(t, errors.IsNotFound(err), "do not generate credentials that the agent will not consume")
+		})
+	}
+}
+
+func TestDatabaseAgentRuntimeEnvironmentIsRejected(t *testing.T) {
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		t.Run(string(architecture), func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			mdb := mdbv1.NewReplicaSetBuilder().Build()
+			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture))
+			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+			agent := container.GetByName(util.AgentContainerName, sts.Spec.Template.Spec.Containers)
+			if agent == nil {
+				agent = container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
+			}
+			container.WithEnvs(corev1.EnvVar{Name: util.EnvVarBaseUrl, Value: "$(RUNTIME_URL)"})(agent)
+			_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "agent.startupOptions")
+		})
+	}
+}
+
+func TestDatabaseAgentEmptyBaseURLOverrideKeepsConfiguredMode(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	mdb.Spec.Agent.StartupParameters = mdbv1.StartupParameters{"mmsBaseUrl": ""}
+	options := construct.ReplicaSetOptions(
+		construct.GetPodEnvOptions(),
+		func(opts *construct.DatabaseStatefulSetOptions) {
+			opts.PodVars.BaseURL = "https://ops-manager.example.com"
+		},
+		construct.WithDefaultArchitecture(architectures.NonStatic),
+	)
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	require.NoError(t, err)
+	cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
+	require.NoError(t, err)
+	settings := cm.Data[construct.AgentSettingsFileName]
+	assert.Contains(t, settings, "mmsBaseUrl=https://ops-manager.example.com\n")
+	assert.NotContains(t, settings, "cluster=")
+	assert.NotContains(t, settings, "serveStatusPort=")
+}
+
+func TestReconcileAgentCredentialFailsOnTransientVaultRead(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
+	ctx := context.Background()
+	configuration := vault.VaultConfiguration{DatabaseSecretPath: "agent-config-tests"}
+	var failMu sync.Mutex
+	fail := true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		failMu.Lock()
+		shouldFail := fail
+		failMu.Unlock()
+		if shouldFail {
+			http.Error(w, "transient", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": map[string]string{util.OmAgentApiKey: "vault-key"}}})
+	}))
+	t.Cleanup(server.Close)
+	vaultClient, err := vault.NewVaultClientForTesting(server.URL, "test-token", configuration)
+	require.NoError(t, err)
+	sts := appsv1.StatefulSet{}
+	sts.Name = "test-sts"
+	sts.Namespace = "test-ns"
+	sts.Spec.Template.Annotations = map[string]string{
+		"vault.hashicorp.com/agent-inject-secret-agentApiKey": "agent-config-tests/test-ns/test-sts-agent-api-key",
+	}
+	agent := corev1.Container{}
+	secretClient := secrets.SecretClient{VaultClient: vaultClient}
+	settings := "mmsApiKeyExec=cat '/mongodb-automation/agent-api-key/agentApiKey'\n"
+	_, err = reconcileAgentCredential(ctx, secretClient, &sts, &agent, mdbv1.StartupParameters{}, "", false, settings)
+	require.Error(t, err)
+	failMu.Lock()
+	fail = false
+	failMu.Unlock()
+	credential, err := reconcileAgentCredential(ctx, secretClient, &sts, &agent, mdbv1.StartupParameters{}, "", false, settings)
+	require.NoError(t, err)
+	assert.Equal(t, "vault-key", credential)
+}
+
+func TestReconcileDatabaseAgentSettingsMultiCluster(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.MultiClusterMode = true
+		opts.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("example.com")}
+		opts.PodVars.BaseURL = "https://ops-manager.example.com"
+	})
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	keySecretName := agents.ApiKeySecretName(options(*mdb).PodVars.ProjectID)
+	require.NoError(t, fakeClient.CreateSecret(ctx, corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: keySecretName, Namespace: sts.Namespace},
+		Data:       map[string][]byte{util.OmAgentApiKey: []byte("member-cluster-key")},
+	}))
+
+	require.NoError(t, ReconcileDatabaseAgentSettings(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, &sts, options(*mdb)))
+
+	agent := construct.AgentContainer(sts)
+	require.NotNil(t, agent)
+	assert.Empty(t, agent.Args)
+	variables := env.ToMap(agent.Env...)
+	assert.NotContains(t, variables, "AGENT_FLAGS")
+	assert.NotContains(t, variables, "POD_NAME")
+	assert.NotContains(t, variables, "MDB_AGENT_HOSTNAME_OVERRIDE")
+
+	cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, construct.AgentSettingsConfigMapName(sts)))
+	require.NoError(t, err)
+	settings := cm.Data[construct.AgentSettingsFileName]
+	assert.Contains(t, settings, "ephemeralPortOffset=1\n")
+	assert.NotContains(t, settings, "overrideLocalHost")
+	assert.Len(t, sts.Spec.Template.Annotations[construct.AgentSettingsHash], 64)
+}
+
+func TestDatabaseAgentSettingsHashTracksVaultCredential(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	configuration := vault.VaultConfiguration{DatabaseSecretPath: "agent-config-tests"}
+	data := map[string]string{util.OmAgentApiKey: "vault-key-one"}
+	var dataLock sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/secret/data/agent-config-tests/"+mdb.Namespace+"/abcd-group-secret" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		dataLock.Lock()
+		defer dataLock.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": data}})
+	}))
+	t.Cleanup(server.Close)
+	vaultClient, err := vault.NewVaultClientForTesting(server.URL, "test-token", configuration)
+	require.NoError(t, err)
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.VaultConfig = configuration
+		opts.PodVars.BaseURL = "https://ops-manager.example.com"
+	})
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	secretClient := secrets.SecretClient{KubeClient: fakeClient, VaultClient: vaultClient}
+	created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+	require.NoError(t, err)
+	original := created.Spec.Template.Annotations[construct.AgentSettingsHash]
+	dataLock.Lock()
+	data["unrelated"] = "not-consumed"
+	dataLock.Unlock()
+	created, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+	require.NoError(t, err)
+	assert.Equal(t, original, created.Spec.Template.Annotations[construct.AgentSettingsHash])
+	dataLock.Lock()
+	data[util.OmAgentApiKey] = "vault-key-two"
+	dataLock.Unlock()
+	created, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+	require.NoError(t, err)
+	assert.NotEqual(t, original, created.Spec.Template.Annotations[construct.AgentSettingsHash])
+}
+
+func TestDatabaseAgentSettingsHostname(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		domain   *string
+		multi    bool
+		override *string
+	}{
+		{name: "default keeps native hostname"},
+		{name: "external domain", domain: new("example.com")},
+		{name: "multicluster service identity", multi: true},
+		{name: "customer hostname wins", domain: new("example.com"), multi: true, override: new("customer.example.com")},
+		{name: "empty customer hostname is preserved", domain: new("example.com"), override: new("")},
+		{name: "runtime customer hostname", override: new("$(POD_NAME).example.com")},
+		{name: "custom hostname bypasses file validation", override: new(" custom\nhostname ")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			parameters := mdbv1.StartupParameters{}
+			if tc.override != nil {
+				parameters["overrideLocalHost"] = *tc.override
+			}
+			mdb := mdbv1.NewReplicaSetBuilder().SetNamespace(mock.TestNamespace).SetAgentConfig(mdbv1.AgentConfig{StartupParameters: parameters}).Build()
+			mdb.Spec.ClusterDomain = "custom.local"
+			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) {
+				opts.MultiClusterMode = tc.multi
+				if tc.multi || tc.domain != nil {
+					opts.HostNameOverrideConfigmapName = "hostname-override"
+				}
+				if tc.domain != nil {
+					opts.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: tc.domain}
+				}
+			})
+			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+			created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+			require.NoError(t, err)
+			agent := &created.Spec.Template.Spec.Containers[0]
+			assert.Empty(t, agent.Args)
+			variables := env.ToMap(agent.Env...)
+			assert.NotContains(t, variables, "POD_NAME")
+			if tc.override != nil {
+				assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: *tc.override}, agent.Env[len(agent.Env)-1])
+			} else {
+				assert.NotContains(t, variables, "MDB_AGENT_HOSTNAME_OVERRIDE")
+			}
+			if tc.multi || tc.domain != nil {
+				assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "hostname-override", MountPath: "/opt/scripts/config"})
+				assert.Contains(t, created.Spec.Template.Spec.Volumes, enterprisests.CreateVolumeFromConfigMap("hostname-override", "hostname-override"))
+			}
+		})
+	}
+}
+
+func TestDatabaseAgentHostnameEnvFollowsMergedEnvironment(t *testing.T) {
+	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
+		t.Run(string(architecture), func(t *testing.T) {
+			ctx := context.Background()
+			fakeClient, _ := mock.NewDefaultFakeClient()
+			mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+				StartupParameters: mdbv1.StartupParameters{"overrideLocalHost": "$(POD_NAME).$(Z_DOMAIN)"},
+			}).Build()
+			name := util.DatabaseContainerName
+			if architecture == architectures.Static {
+				name = util.AgentContainerName
+			}
+			customEnv := []corev1.EnvVar{
+				{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: "discarded"},
+				{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}},
+				{Name: "Z_DOMAIN", Value: "example.com"},
+			}
+			mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate = &corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: name, Env: customEnv}}}}
+			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture), func(opts *construct.DatabaseStatefulSetOptions) {
+				opts.HostNameOverrideConfigmapName = "hostname-override"
+			})
+			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+			reconcile := func() {
+				t.Helper()
+				created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+				require.NoError(t, err)
+				stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+				require.NoError(t, err)
+				assert.Equal(t, construct.AgentContainer(*created).Env, construct.AgentContainer(stored).Env)
+				sts = *created
+			}
+			reconcile()
+			agent := construct.AgentContainer(sts)
+			require.NotNil(t, agent)
+			assert.Empty(t, agent.Args)
+			assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: "$(POD_NAME).$(Z_DOMAIN)"}, agent.Env[len(agent.Env)-1])
+			assert.Contains(t, agent.Env[:len(agent.Env)-1], customEnv[1])
+			assert.Contains(t, agent.Env[:len(agent.Env)-1], customEnv[2])
+			assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "hostname-override", MountPath: "/opt/scripts/config"})
+			expected := append([]corev1.EnvVar(nil), agent.Env...)
+			reconcile()
+			assert.Equal(t, expected, construct.AgentContainer(sts).Env, "repeated reconciliation must not reorder or duplicate environment entries")
+			delete(mdb.Spec.Agent.StartupParameters, "overrideLocalHost")
+			reconcile()
+			agent = construct.AgentContainer(sts)
+			assert.NotContains(t, env.ToMap(agent.Env...), "MDB_AGENT_HOSTNAME_OVERRIDE")
+			assert.Contains(t, agent.Env, customEnv[1], "customer POD_NAME must remain intact")
+		})
+	}
+}
+
+type agentSettingsWriteFailureClient struct {
+	kubernetesClient.Client
+}
+
+func (c agentSettingsWriteFailureClient) UpdateConfigMap(context.Context, corev1.ConfigMap) error {
+	return fmt.Errorf("settings ConfigMap write failed")
+}
+
+func TestDatabaseAgentSettingsConfigMapFailurePreservesStatefulSet(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions())
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	require.NoError(t, fakeClient.CreateStatefulSet(ctx, sts))
+	stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+	require.NoError(t, err)
+	_, err = DatabaseInKubernetes(ctx, agentSettingsWriteFailureClient{Client: fakeClient}, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	require.ErrorContains(t, err, "settings ConfigMap write failed")
+	after, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+	require.NoError(t, err)
+	assert.Equal(t, stored, after)
 }
 
 func TestBuildService(t *testing.T) {
@@ -805,7 +1374,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 	mdb.Spec.ExternalAccessConfiguration = &externalAccessConfiguration
 
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
-	_, err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	// we only test a subset of fields from service spec, which are the most relevant for external services
@@ -828,7 +1397,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 
 	// disable external access -> remove external services
 	mdb.Spec.ExternalAccessConfiguration = nil
-	_, err = DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err = DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, construct.ReplicaSetOptions(), log)
 	assert.NoError(t, err)
 
 	for _, expectedService := range expectedServices {
@@ -895,7 +1464,7 @@ func TestDatabaseInKubernetesExternalServicesShardedPerTier(t *testing.T) {
 		withReplicas := func(options *construct.DatabaseStatefulSetOptions) { options.Replicas = 1 }
 		opts := construct.ShardOptions(0, shardSpec, memberCluster.Name, withReplicas)
 		sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(0, shardSpec, memberCluster.Name, withReplicas, construct.GetPodEnvOptions()), log)
-		mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, opts, log)
+		mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, opts, log)
 		require.NoError(t, err)
 		require.NotNil(t, mutatedSts)
 	}
@@ -935,7 +1504,7 @@ func TestDatabaseInKubernetesExternalServicesShardedPerTier(t *testing.T) {
 
 		opts := construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas)
 		sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas, construct.GetPodEnvOptions()), log)
-		_, err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, opts, log)
+		_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, opts, log)
 		require.NoError(t, err)
 
 		svc, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-0-svc-external", Namespace: "my-namespace"})
@@ -992,7 +1561,7 @@ func TestDatabaseInKubernetesSkipsServicesForMultiClusterSharded(t *testing.T) {
 	// pass for the wrong reason.
 	require.NotNil(t, opts(*mdb).ExternalAccessConfiguration)
 
-	mutatedSts, err := DatabaseInKubernetes(ctx, fakeClient, *mdb, sts, opts, log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, opts, log)
 	require.NoError(t, err)
 	require.NotNil(t, mutatedSts)
 
@@ -1029,7 +1598,7 @@ func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
 func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, mdb)
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), log)
-	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
 	assert.NoError(t, err)
 	assert.NotNil(t, mutatedSts)
 }
@@ -1040,7 +1609,7 @@ func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log 
 		options.Replicas = mdb.Spec.MongosCount
 	}
 	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions(), withReplicas), log)
-	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas), log)
 	assert.NoError(t, err)
 	assert.NotNil(t, mutatedSts)
 }
