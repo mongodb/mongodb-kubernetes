@@ -1,12 +1,17 @@
 package backup
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	"golang.org/x/xerrors"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
@@ -119,4 +124,101 @@ func TestGetDesiredStatus(t *testing.T) {
 		}
 		assert.Equal(t, Started, getDesiredStatus(&desired, &current))
 	})
+}
+
+// fakeBackupClient is an in-memory Ops Manager backup API that records the updates sent to it.
+type fakeBackupClient struct {
+	configs      []*Config
+	hostClusters map[string]*HostCluster
+	updated      []*Config
+}
+
+func (f *fakeBackupClient) ReadBackupConfigs(_ context.Context) (*ConfigsResponse, error) {
+	return &ConfigsResponse{Configs: f.configs}, nil
+}
+
+func (f *fakeBackupClient) ReadBackupConfig(_ context.Context, clusterID string) (*Config, error) {
+	for _, c := range f.configs {
+		if c.ClusterId == clusterID {
+			return c, nil
+		}
+	}
+	return nil, xerrors.Errorf("no backup config for cluster %s", clusterID)
+}
+
+func (f *fakeBackupClient) ReadSnapshotSchedule(_ context.Context, clusterID string) (*SnapshotSchedule, error) {
+	return &SnapshotSchedule{ClusterID: clusterID}, nil
+}
+
+func (f *fakeBackupClient) UpdateBackupConfig(_ context.Context, config *Config) (*Config, error) {
+	f.updated = append(f.updated, config)
+	return config, nil
+}
+
+func (f *fakeBackupClient) UpdateBackupStatus(context.Context, string, Status) error { return nil }
+
+func (f *fakeBackupClient) UpdateSnapshotSchedule(context.Context, string, *SnapshotSchedule) error {
+	return nil
+}
+
+func (f *fakeBackupClient) ReadHostCluster(_ context.Context, clusterID string) (*HostCluster, error) {
+	return f.hostClusters[clusterID], nil
+}
+
+func replicaSetWithBackupMode(mode mdbv1.BackupMode) *mdbv1.MongoDB {
+	rs := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "my-rs", Namespace: "ns"}}
+	rs.Spec.ResourceType = mdbv1.ReplicaSet
+	rs.Spec.Backup = &mdbv1.Backup{Mode: mode}
+	return rs
+}
+
+func backupStatusOf(opts []status.Option) (string, bool) {
+	option, exists := status.GetOption(opts, status.BackupStatusOption{})
+	if !exists {
+		return "", false
+	}
+	return option.(status.BackupStatusOption).Value().(string), true
+}
+
+func TestEnsureBackupConfigStatuses_ReportsStatusWhenOpsManagerAlreadyInDesiredState(t *testing.T) {
+	tests := []struct {
+		name           string
+		mode           mdbv1.BackupMode
+		statusInOM     Status
+		expectedStatus string
+	}{
+		{name: "backup started outside of the operator", mode: "enabled", statusInOM: Started, expectedStatus: "STARTED"},
+		{name: "backup disabled and never started", mode: "disabled", statusInOM: Inactive, expectedStatus: "INACTIVE"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := replicaSetWithBackupMode(tt.mode)
+			client := &fakeBackupClient{
+				configs:      []*Config{{ClusterId: "cluster-1", Status: tt.statusInOM}},
+				hostClusters: map[string]*HostCluster{"cluster-1": {ClusterName: "my-rs", TypeName: "REPLICA_SET"}},
+			}
+
+			result, opts := ensureBackupConfigStatuses(t.Context(), rs, client.configs, getMongoDBBackupConfig(rs.GetBackupSpec(), "project-id"), zap.S(), client, 0)
+
+			assert.True(t, result.IsOK())
+			statusName, exists := backupStatusOf(opts)
+			assert.True(t, exists, "status.backup must be reported")
+			assert.Equal(t, tt.expectedStatus, statusName)
+			assert.Empty(t, client.updated, "nothing has to be changed in Ops Manager")
+		})
+	}
+}
+
+func TestEnsureBackupConfigStatuses_DoesNotReportStatusOfOtherDeployments(t *testing.T) {
+	rs := replicaSetWithBackupMode("enabled")
+	client := &fakeBackupClient{
+		configs:      []*Config{{ClusterId: "cluster-1", Status: Started}},
+		hostClusters: map[string]*HostCluster{"cluster-1": {ClusterName: "another-rs", TypeName: "REPLICA_SET"}},
+	}
+
+	result, opts := ensureBackupConfigStatuses(t.Context(), rs, client.configs, getMongoDBBackupConfig(rs.GetBackupSpec(), "project-id"), zap.S(), client, 0)
+
+	assert.True(t, result.IsOK())
+	_, exists := backupStatusOf(opts)
+	assert.False(t, exists)
 }
