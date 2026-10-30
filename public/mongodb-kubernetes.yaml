@@ -469,9 +469,9 @@ spec:
             - name: MDB_SEARCH_VERSION
               value: "1.70.1"
             - name: MDB_ENVOY_IMAGE
-              value: "envoyproxy/envoy:v1.37-latest"
+              value: "envoyproxy/envoy:v1.37.11"
             - name: MDB_SEARCH_METRICS_FORWARDER_IMAGE
-              value: "otel/opentelemetry-collector-contrib:0.152.0"
+              value: "otel/opentelemetry-collector-contrib:0.163.2"
             - name: MDB_VOYAGEAI_REPO_URL
               value: "quay.io/mongodb/voyageai"
       volumes:
