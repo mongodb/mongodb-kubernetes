@@ -1,0 +1,18 @@
+name: Conditional review trigger
+
+# Fork pull request reviews run with a read-only token and cannot write commit
+# statuses. This no-op workflow exists only so "Conditional review
+# requirement" can re-evaluate on review events through workflow_run, which
+# runs from the default branch with a write token.
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions: {}
+
+jobs:
+  trigger:
+    name: Conditional review trigger
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
