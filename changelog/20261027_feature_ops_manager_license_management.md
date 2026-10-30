@@ -8,3 +8,4 @@ date: 2026-10-27
   * In air gapped deployments, `spec.license.releaseReceipts` and `spec.license.autoReleaseReceipts` make the operator write the release receipt of a released license to a Secret named `<artifactId>-release-receipt`.
   * The `mongodb.com/license-recompute` and `mongodb.com/license-rotate-identity` annotations ask Ops Manager to recompute its license state or rotate its license identity.
   * `status.opsManager.license` reports the licenses, entitlements, enforcement state and identity Ops Manager holds, and the `LicenseReconciled` condition reports whether the license configuration was applied.
+* **MongoDB**, **MongoDBMultiCluster**: When Ops Manager rejects a change because of license enforcement, the resource reports it through the `OpsManagerLicenseReady` condition with the `LicenseEnforced` reason. The condition clears once Ops Manager accepts changes again.

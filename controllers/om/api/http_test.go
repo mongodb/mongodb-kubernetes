@@ -55,6 +55,16 @@ func hangingServer(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	return srv, &requests
 }
 
+func TestParseAPIError_LicenseEnforcedBody(t *testing.T) {
+	body := []byte(`{"error":403,"reason":"Forbidden","detail":"This Ops Manager is not licensed for this operation.","errorCode":"LICENSE_ENFORCED"}`)
+	err := parseAPIError(http.StatusForbidden, "PUT", "http://om/api/public/v1.0/groups/1/automationConfig", body)
+	require.NotNil(t, err)
+	require.NotNil(t, err.Status)
+	assert.Equal(t, http.StatusForbidden, *err.Status)
+	assert.Equal(t, "LICENSE_ENFORCED", err.ErrorCode)
+	assert.Contains(t, err.Detail, "not licensed for this operation")
+}
+
 func TestParseAPIError_StandardBodyNotOverwritten(t *testing.T) {
 	body := []byte(`{"error":403,"reason":"Forbidden","errorCode":"SOME_CODE","detail":"canonical detail","message":"must not replace detail"}`)
 	err := parseAPIError(http.StatusForbidden, "PUT", "http://om/x", body)

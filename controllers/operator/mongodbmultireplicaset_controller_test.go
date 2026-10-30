@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -120,6 +122,37 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 
 	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+}
+
+func TestMultiReplicaSet_LicenseEnforcedBlocksAndRecoversWithoutRecreation(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	reconciler, kubeClient, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	var mocked *om.MockedOmConnection
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		mocked = connection.(*om.MockedOmConnection)
+		mocked.MutationErr = &apierror.Error{ErrorCode: apierror.LicenseEnforced, Detail: "This Ops Manager is not licensed for this operation."}
+	})
+
+	result, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Second, result.RequeueAfter)
+
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), mrs))
+	assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
+	ready := meta.FindStatusCondition(mrs.Status.Conditions, status.ConditionOpsManagerLicenseReady)
+	require.NotNil(t, ready)
+	assert.Equal(t, metav1.ConditionFalse, ready.Status)
+	assert.Equal(t, status.ReasonLicenseEnforced, ready.Reason)
+
+	require.NotNil(t, mocked)
+	mocked.MutationErr = nil
+
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+	ready = meta.FindStatusCondition(mrs.Status.Conditions, status.ConditionOpsManagerLicenseReady)
+	require.NotNil(t, ready)
+	assert.Equal(t, metav1.ConditionTrue, ready.Status)
+	assert.Equal(t, status.ReasonLicenseReady, ready.Reason)
 }
 
 func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {

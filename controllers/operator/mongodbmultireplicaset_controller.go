@@ -220,13 +220,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", mrs.Namespace, mrs.Name, mrs.Status.Phase, mrs.Status.LastTransition)
-		automationConfigError := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, true, log)
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, true, log)
 		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
 		}
-		if automationConfigError != nil {
-			log.Errorf("Recovery failed because of Automation Config update errors, %w", automationConfigError)
+		if !automationConfigStatus.IsOK() {
+			log.Errorf("Recovery failed because of Automation Config update errors, %v", automationConfigStatus)
 		}
 	}
 
@@ -237,10 +237,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			if err := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, false, log); err != nil {
-				return workflow.Failed(err)
-			}
-			return workflow.OK()
+			return r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, false, log)
 		},
 		func() workflow.Status {
 			return r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
@@ -976,12 +973,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) workflow.Status {
 	reachableHostnames := make([]string, 0)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
 	if err != nil {
-		return err
+		return workflow.Failed(err)
 	}
 	failedClusterNames, err := mrs.GetFailedClusterNames()
 	if err != nil {
@@ -1004,12 +1001,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	err = agents.WaitForRsAgentsToRegisterSpecifiedHostnames(ctx, conn, reachableHostnames, log)
 	if err != nil && !isRecovering {
-		return err
+		return workflow.Failed(err)
 	}
 
 	existingDeployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
-		return err
+		return workflow.Failed(err)
 	}
 
 	processIds := getReplicaSetProcessIdsFromReplicaSets(mrs.GetName(), existingDeployment)
@@ -1019,14 +1016,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	if len(processIds) == 0 {
 		processIds, err = getReplicaSetProcessIdsFromAnnotation(mrs)
 		if err != nil {
-			return xerrors.Errorf("failed to get member ids from annotation: %w", err)
+			return workflow.Failed(xerrors.Errorf("failed to get member ids from annotation: %w", err))
 		}
 	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
 	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath, r.defaultArchitecture, true)
 	if err != nil && !isRecovering {
-		return err
+		return workflow.Failed(err)
 	}
 
 	if len(processes) != len(mrs.Spec.GetMemberOptions()) {
@@ -1038,7 +1035,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertPath, caFilePath, internalClusterCertPath, mrs.Spec.GetDownloadBase(), isRecovering, log)
 	if !status.IsOK() && !isRecovering {
-		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
+		return status
 	}
 
 	lastMongodbConfig := mrs.GetLastAdditionalMongodConfig()
@@ -1050,30 +1047,30 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		log)
 
 	if err != nil && !isRecovering {
-		return err
+		return workflow.Failed(err)
 	}
 
 	if mrs.IsRoleAppDB() {
 		if err := r.ensureAppDBRoleUser(ctx, &mrs, conn); err != nil {
-			return err
+			return workflow.Failed(err)
 		}
 		if err := r.ensureAppDBRoleKeyfile(ctx, &mrs, conn); err != nil {
-			return err
+			return workflow.Failed(err)
 		}
 	}
 
-	reconcileResult, err := ReconcileLogRotateSetting(ctx, conn, mrs.Spec.Agent, log)
+	reconcileResult, _ := ReconcileLogRotateSetting(ctx, conn, mrs.Spec.Agent, log)
 	if !reconcileResult.IsOK() {
-		return xerrors.Errorf("failed to configure logrotation for MongoDBMultiCluster RS, err: %w", err)
+		return reconcileResult
 	}
 
 	if additionalReconciliationRequired {
-		return xerrors.Errorf("failed to complete reconciliation")
+		return workflow.Failed(xerrors.Errorf("failed to complete reconciliation"))
 	}
 
 	status = r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, &mrs, r.SecretClient, log, 0)
 	if !status.IsOK() && !isRecovering {
-		return xerrors.Errorf("failed to configure backup for MongoDBMultiCluster RS")
+		return status
 	}
 
 	reachableProcessNames := make([]string, 0)
@@ -1083,9 +1080,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		}
 	}
 	if err := om.WaitForReadyState(ctx, conn, reachableProcessNames, isRecovering, log); err != nil && !isRecovering {
-		return err
+		return workflow.Failed(err)
 	}
-	return nil
+	return workflow.OK()
 }
 
 func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) (map[string]int, error) {

@@ -13,6 +13,7 @@ const (
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
 	DuplicateWhitelistEntry    = "DUPLICATE_GLOBAL_WHITELIST_ENTRY"
+	LicenseEnforced            = "LICENSE_ENFORCED"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the
@@ -94,6 +95,10 @@ func (e *Error) ErrorBackupDaemonConfigIsNotFound() bool {
 	}
 
 	return false
+}
+
+func (e *Error) IsLicenseEnforced() bool {
+	return e != nil && e.ErrorCode == LicenseEnforced
 }
 
 // IsNotFound returns whether Ops Manager answered with a 404.
