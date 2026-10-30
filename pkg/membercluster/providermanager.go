@@ -44,15 +44,12 @@ type providerManager struct {
 	baseCtx context.Context
 
 	mu sync.Mutex
-	// entries tracks the live entry per MemberCluster CR (keyed by metadata.name): its
-	// logical cluster name, its context cancel func, and the synced generation and
-	// credential hash, so spec changes and credential rotation rebuild the entry while
-	// status writes and resyncs leave it untouched.
+	// entries tracks the live entry per MemberCluster CR (keyed by metadata.name).
 	entries map[string]entryState
-	// wg tracks the running per-entry cluster goroutines so Start can drain them on
-	// manager shutdown.
+	// wg tracks the running per-entry cluster goroutines so on manager shutdown
+	// we can wait to ensure all goroutines have finished.
 	wg sync.WaitGroup
-	// stopped is set by Start before draining; ensure refuses new work once set.
+	// stopped is set before manager shutdown; ensure refuses new work once set.
 	stopped bool
 }
 
@@ -140,8 +137,13 @@ func (m *providerManager) ensure(ctx context.Context, mc *operatorv1.MemberClust
 	}
 	entryCtx, cancel := context.WithCancel(m.baseCtx)
 	m.entries[mc.Name] = entryState{clusterName: mc.Spec.ClusterName, cancel: cancel, generation: mc.Generation, kubeconfigHash: creds.kubeconfigHash}
-	// wg.Go stays inside the critical section: its Add then happens-before the wg.Wait in
-	// Start's drain, which a WaitGroup Add racing a Wait at counter zero would panic.
+
+	// WaitGroup is required to track the per-entry cluster goroutines
+	// so that manager can wait for them to finish during graceful shutdown.
+	//
+	// WaitGroup requires that its counter is incremented from zero before a Wait.
+	// To statisfy this requirement we start the goroutine under the lock
+	// before any potential shutdown when Wait is called.
 	m.wg.Go(func() {
 		if err := memberCluster.Start(entryCtx); err != nil {
 			log.Errorf("Member cluster %q stopped with error: %s", mc.Spec.ClusterName, err)
@@ -152,8 +154,6 @@ func (m *providerManager) ensure(ctx context.Context, mc *operatorv1.MemberClust
 	// Provider hooks (OnAdd/OnRemove) may block on channel sends, so they must fire
 	// outside the lock.
 	if exists {
-		// The old clusterName may have been re-registered by another CR since the commit;
-		// Delete's ownership comparison is atomic with the delete.
 		m.provider.Delete(ctx, state.clusterName, mc.Name)
 	}
 	m.provider.Set(ctx, mc.Spec.ClusterName, multicluster.Entry{
@@ -166,9 +166,7 @@ func (m *providerManager) ensure(ctx context.Context, mc *operatorv1.MemberClust
 }
 
 // remove deregisters the entry built from the MemberCluster CR named resourceName (if any)
-// and cancels its context, stopping the cluster's informers. The clusterName may have been
-// re-registered by another CR since the entry was removed under mu; Delete's ownership
-// comparison is atomic with the delete.
+// and cancels its context, stopping the cluster's informers.
 func (m *providerManager) remove(ctx context.Context, resourceName string, log *zap.SugaredLogger) {
 	m.mu.Lock()
 	state, exists := m.entries[resourceName]
@@ -187,9 +185,7 @@ func (m *providerManager) remove(ctx context.Context, resourceName string, log *
 
 // Start implements manager.Runnable: it blocks until the manager stops, then stops every
 // live entry and waits for the per-entry cluster goroutines to drain, so the manager's
-// graceful shutdown covers member-cluster teardown. stopped is set under the lock before
-// draining, so an ensure still building its cluster cannot register or start a goroutine
-// once the drain begins.
+// graceful shutdown covers member-cluster teardown.
 func (m *providerManager) Start(ctx context.Context) error {
 	<-ctx.Done()
 
