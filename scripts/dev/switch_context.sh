@@ -77,7 +77,9 @@ else
   fi
   # Execute the command in a clean environment and capture exported variables
   # Let's use our PATH as a base to have utilities available.
-  current_envs=$(env -i PWD="${PWD}" PATH="${PATH}" CURRENT_VARIANT_CONTEXT="${context}" bash -c "${base_command} && export -p")
+  # The sourced files may print (evg-private-context does, and it is the private-context of an Evergreen host): their
+  # output goes to stderr, or `eval` below would run it as commands.
+  current_envs=$(env -i PWD="${PWD}" PATH="${PATH}" CURRENT_VARIANT_CONTEXT="${context}" bash -c "{ ${base_command}; } >&2 && export -p")
 
   # `export -p` instead of `env` ensures we can safely re-source variables which we rely on further
   # below like our operator.print.env script
@@ -100,8 +102,10 @@ if ! echo "${current_envs}" | grep -q "^workdir="; then
   echo "workdir=\"${workdir:-.}\"" >> "${destination_envs_file}.env"
 fi
 
-# PATH and every path of the checkout or of $HOME depend on the side that runs the switch (the host, or a
-# container that mounts this checkout), so they also go to a file of the side, which devenv loads last.
+# PATH and every path of the checkout, of the Evergreen workdir (the agent's TMPDIR and GOCACHE, which are not under the
+# checkout) or of $HOME depend on the side that runs the switch (the host, or a container that mounts this checkout),
+# so they also go to a file of the side, which devenv loads last. A container does not load the lines of the host file
+# from the shared file.
 # The venv/bin of a checkout of this repo is left out of that PATH: it comes from the shell that ran the switch, which
 # can have another checkout's venv active, and devenv activates the venv of this checkout anyway. The bin/ of another
 # checkout stays, because that is where its tools (kind, helm, kubectl-mongodb) can be; devenv puts this checkout's bin/ first.
@@ -114,8 +118,12 @@ for entry in "${path_entries[@]}"; do
   side_path="${side_path:+${side_path}:}${entry}"
 done
 side=$([[ -f /.dockerenv ]] && echo devc || echo host)
+side_patterns=(-e "PATH=" -e "${PROJECT_DIR}" -e "${HOME}")
+if [[ "${workdir:-}" == /* ]]; then
+  side_patterns+=(-e "${workdir}")
+fi
 {
-  echo "${current_envs}" | grep -F -e "PATH=" -e "${PROJECT_DIR}" -e "${HOME}" | grep -v "^PATH=" || true
+  echo "${current_envs}" | grep -F "${side_patterns[@]}" | grep -v "^PATH=" || true
   echo "PATH=\"${side_path}\""
 } > "${destination_envs_file}.${side}.env"
 

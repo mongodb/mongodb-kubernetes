@@ -19,6 +19,10 @@ docker/mongodb-kubernetes-tests/kubectl-mongodb
 my-*
 .vscode
 .env
+/.devcontainer/compose.generated.yml
+/.devcontainer/compose.user.yml
+/.devcontainer/scripts/*/*.user.sh
+/.devcontainer/devcontainer-lock.json
 data
 cache
 **/__pycache__
