@@ -5,7 +5,8 @@ Prerequisites, none of which the default e2e environment provides:
   * Kubernetes 1.36 or newer (the proxy and the MongoDB binaries are mounted as OCI image volumes).
   * MDB_MONGODB_PROXY_IMAGE: the full reference of a mongodb-proxy image the cluster can pull,
     for example the result of `make mongodb-proxy-image` pushed to a registry.
-  * An agent image whose /agent/mongodb-agent supports --mongodProxyAddress. Until a release has it, build one:
+  * An agent image whose /agent/mongodb-agent supports --mongodProxyAddress. Set MDB_PROXY_TEST_AGENT_IMAGE to its
+    reference and the test overrides the agent image of the resource with it. Until a release has it, build one:
     `task build` in mms-automation (GOOS/GOARCH of the cluster nodes), copy the binary over /agent/mongodb-agent
     of the released agent image, push the result to a registry the cluster can pull from and point the operator
     at it (registry.agent, agent.name, agent.version). MDB_CUSTOM_AGENT_URL does not help: the launcher only
@@ -16,8 +17,10 @@ The test is skipped when MDB_MONGODB_PROXY_IMAGE is not set.
 
 import json
 import os
+import time
 from typing import Optional
 
+from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
@@ -25,7 +28,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark, skip
-from tests.conftest import get_default_operator
+from tests.conftest import get_default_operator, local_operator
 
 PROXY_ANNOTATION = "mongodb.com/v1.mongodbProxy"
 PROXY_ADDRESS = "127.0.0.1:8099"
@@ -37,6 +40,18 @@ def proxy_image() -> Optional[str]:
     return os.environ.get("MDB_MONGODB_PROXY_IMAGE") or None
 
 
+def run_operator_in_cluster(namespace: str, timeout_seconds: int = 180):
+    apps = KubernetesTester.clients("appsv1")
+    name = "mongodb-kubernetes-operator"
+    apps.patch_namespaced_deployment_scale(name, namespace, {"spec": {"replicas": 1}})
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if apps.read_namespaced_deployment(name, namespace).status.ready_replicas == 1:
+            return
+        time.sleep(2)
+    raise Exception(f"The operator did not become ready in {timeout_seconds}s")
+
+
 @fixture(scope="module")
 def operator_with_proxy(namespace: str, operator_installation_config: dict[str, str]) -> Operator:
     image = proxy_image()
@@ -44,7 +59,13 @@ def operator_with_proxy(namespace: str, operator_installation_config: dict[str, 
         skip("MDB_MONGODB_PROXY_IMAGE is not set")
     config = dict(operator_installation_config)
     config["customEnvVars"] = config.get("customEnvVars", "") + f"\\&MDB_MONGODB_PROXY_IMAGE={image}"
-    return get_default_operator(namespace, config)
+    operator = get_default_operator(namespace, config)
+    if local_operator():
+        # A test run from a workstation cannot resolve the in-cluster name of the webhook, so it sets
+        # LOCAL_OPERATOR=true, and Operator then installs the chart with 0 replicas. This test needs the operator in
+        # the cluster, because the proxy image reaches it through its environment.
+        run_operator_in_cluster(namespace)
+    return operator
 
 
 @fixture(scope="module")
@@ -58,6 +79,12 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
             PROXY_ANNOTATION: "true",
         }
     )
+    agent_image = os.environ.get("MDB_PROXY_TEST_AGENT_IMAGE")
+    if agent_image:
+        # Overriding the agent image makes the operator skip the agent version it would take from Ops Manager.
+        resource["spec"]["podSpec"] = {
+            "podTemplate": {"spec": {"containers": [{"name": AGENT_CONTAINER, "image": agent_image}]}}
+        }
     try_load(resource)
     return resource
 
@@ -123,9 +150,20 @@ def test_pod_runs_the_proxy_in_the_database_container(replica_set: MongoDB, name
 
 @mark.e2e_replica_set_mongodb_proxy
 def test_agent_was_started_with_the_proxy_flag(replica_set: MongoDB, namespace: str):
-    logs = KubernetesTester.read_pod_logs(namespace, f"{replica_set.name}-0", container=AGENT_CONTAINER)
+    # The command line holds the API key, so only the names of the matching processes are read. The bracket in the
+    # pattern keeps grep and its parent shell, whose command lines contain the pattern itself, from matching.
+    out = KubernetesTester.run_command_in_pod_container(
+        f"{replica_set.name}-0",
+        namespace,
+        [
+            "bash",
+            "-c",
+            "grep -la -e '-mongodProxyAddress=127.0.0.1:80[9]9' /proc/[0-9]*/cmdline 2>/dev/null | head -n 1",
+        ],
+        container=AGENT_CONTAINER,
+    )
 
-    assert f"-mongodProxyAddress={PROXY_ADDRESS}" in logs
+    assert out.strip(), "no process of the agent container runs with -mongodProxyAddress=" + PROXY_ADDRESS
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -150,10 +188,40 @@ def test_mongod_runs_in_its_own_container(replica_set: MongoDB, namespace: str):
         assert "proxy" in in_database_container
 
 
+def wait_for_replaced_pod(pod: str, namespace: str, old_uid: str, timeout_seconds: int = 600):
+    """Waits until the pod has been recreated (another uid) and all its containers are ready."""
+    corev1 = KubernetesTester.clients("corev1")
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            current = corev1.read_namespaced_pod(pod, namespace)
+        except ApiException as e:
+            if e.status != 404:
+                raise
+            current = None
+        if current is not None and current.metadata.uid != old_uid:
+            statuses = current.status.container_statuses or []
+            if statuses and all(c.ready for c in statuses):
+                return
+        time.sleep(3)
+    raise Exception(f"{pod} was not recreated and ready in {timeout_seconds}s")
+
+
 @mark.e2e_replica_set_mongodb_proxy
 def test_replica_set_is_still_running_after_a_pod_restart(replica_set: MongoDB, namespace: str):
     """Deleting a pod exercises the stop path: SIGTERM reaches the proxy and the proxy stops mongod."""
-    KubernetesTester.clients("corev1").delete_namespaced_pod(f"{replica_set.name}-2", namespace)
+    pod = f"{replica_set.name}-2"
+    corev1 = KubernetesTester.clients("corev1")
+    old_uid = corev1.read_namespaced_pod(pod, namespace).metadata.uid
 
+    corev1.delete_namespaced_pod(pod, namespace)
+    wait_for_replaced_pod(pod, namespace, old_uid)
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
-    assert query_proxy(f"{replica_set.name}-2", namespace)["state"] == "running"
+
+    # The new pod has a new proxy, which is idle until the agent has started mongod again.
+    deadline = time.time() + 300
+    status = query_proxy(pod, namespace)
+    while status["state"] != "running" and time.time() < deadline:
+        time.sleep(3)
+        status = query_proxy(pod, namespace)
+    assert status["state"] == "running", status
