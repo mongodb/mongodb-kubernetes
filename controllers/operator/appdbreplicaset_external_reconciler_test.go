@@ -67,7 +67,7 @@ func mergeAppDBStatefulSetLabels(base, extra map[string]string) map[string]strin
 
 func newOpsManagerReconcilerForValidation(objects ...client.Object) *OpsManagerReconciler {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(objects...)
-	return NewOpsManagerReconciler(context.Background(), kubeClient, map[string]client.Client{}, images.ImageUrls{}, "", "", architectures.Static, omConnectionFactory.GetConnectionFunc, nil, nil)
+	return NewOpsManagerReconciler(context.Background(), kubeClient, map[string]client.Client{}, images.ImageUrls{}, "", "", architectures.Static, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, nil)
 }
 
 func TestValidateExternalAppDBReference(t *testing.T) {

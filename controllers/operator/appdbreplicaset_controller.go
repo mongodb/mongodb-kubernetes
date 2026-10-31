@@ -120,9 +120,10 @@ type ReconcileAppDbReplicaSet struct {
 	initDatabaseVersion string
 
 	defaultArchitecture architectures.DefaultArchitecture
+	defaultImageType    architectures.ImageType
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]client.Client, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]client.Client, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	helper, err := NewAppDBReconcilerHelper(ctx, opsManager, commonController, globalMemberClustersMap, log)
 	if err != nil {
 		return nil, err
@@ -135,6 +136,7 @@ func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrl
 		imageUrls:                 imageUrls,
 		initDatabaseVersion:       initDatabaseVersion,
 		defaultArchitecture:       defaultArchitecture,
+		defaultImageType:          defaultImageType,
 	}, nil
 }
 
@@ -856,6 +858,11 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	log.Infow("ReplicaSet.Spec", "spec", rs)
 	log.Infow("ReplicaSet.Status", "status", opsManager.Status.AppDbStatus)
 
+	if warning := architectures.ContainerImageTypeAnnotationWarning(opsManager.GetAnnotations(), r.defaultArchitecture); warning != "" {
+		log.Warn(warning)
+		opsManager.AddAppDBWarningIfNotExists(status.Warning(warning))
+	}
+
 	// Ops Manager must own the AppDB StatefulSet before touching anything: a StatefulSet
 	// still owned by a MongoDB CR (reverse migration) is asked to be released and waited for.
 	appDBStatefulsetOwnershipStatus := r.ensureAppDBStatefulSetOwnership(ctx, opsManager, log)
@@ -933,7 +940,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
 		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
-		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture),
+		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture, r.defaultImageType),
 		CustomAgentURL: r.customAgentURL,
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations, r.defaultArchitecture) {

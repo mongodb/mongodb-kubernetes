@@ -92,6 +92,10 @@ def get_default_architecture() -> str:
     return "static" if is_default_architecture_static() else "non-static"
 
 
+def get_default_image_type() -> str:
+    return os.getenv("MDB_DEFAULT_IMAGE_TYPE", "ubi9")
+
+
 def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):
     """
     Asserts that the statefulset is configured with the expected architecture.

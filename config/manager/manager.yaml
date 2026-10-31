@@ -51,6 +51,8 @@ spec:
               value: prod
             - name: MDB_DEFAULT_ARCHITECTURE
               value: non-static
+            - name: MDB_DEFAULT_IMAGE_TYPE
+              value: ubi9
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
@@ -384,10 +386,16 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-server:6.0.4-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_6_0_5_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:6.0.5-ubi8"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_6_0_27_ubi9_slim
+              value: "quay.io/mongodb/mongodb-enterprise-server:6.0.27-ubi9-slim"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_7_0_30_ubi9_slim
+              value: "quay.io/mongodb/mongodb-enterprise-server:7.0.30-ubi9-slim"
             - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi8
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi8"
             - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_0_ubi9
               value: "quay.io/mongodb/mongodb-enterprise-server:8.0.0-ubi9"
+            - name: RELATED_IMAGE_MONGODB_IMAGE_8_0_19_ubi9_slim
+              value: "quay.io/mongodb/mongodb-enterprise-server:8.0.19-ubi9-slim"
             - name: RELATED_IMAGE_MDB_SEARCH_IMAGE_1_70_1
               value: "quay.io/mongodb/mongodb-search:1.70.1"
             - name: RELATED_IMAGE_MDB_ENVOY_IMAGE

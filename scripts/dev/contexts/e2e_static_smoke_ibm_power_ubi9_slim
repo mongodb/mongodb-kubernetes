@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/e2e_static_smoke_ibm_power"
+
+export MDB_DEFAULT_IMAGE_TYPE=ubi9-slim
+# same major.minor as the counterpart, on patches that have ubi9-slim builds
+export CUSTOM_MDB_VERSION=8.0.34-ent
+export CUSTOM_MDB_PREV_VERSION=8.0.32
