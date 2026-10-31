@@ -88,6 +88,13 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		assert.Equal(t, testMongodbImage, volume.Image.Reference)
 	})
 
+	t.Run("the utilities container is not part of the pod", func(t *testing.T) {
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			assert.NotEqual(t, util.AgentContainerUtilitiesName, c.Name)
+		}
+		assert.Len(t, sts.Spec.Template.Spec.Containers, 2)
+	})
+
 	t.Run("the proxy image is not mounted into the agent container", func(t *testing.T) {
 		for _, m := range containerByName(t, sts, util.AgentContainerName).VolumeMounts {
 			assert.NotEqual(t, "mongodb-proxy", m.Name)
@@ -135,4 +142,6 @@ func TestStaticArchitectureWithoutTheProxyKeepsTheSharedProcessNamespace(t *test
 	assert.True(t, *sts.Spec.Template.Spec.ShareProcessNamespace)
 	assert.Equal(t, []string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"},
 		containerByName(t, sts, util.DatabaseContainerName).Command)
+	// the container that the agent finds through /proc stays in this mode
+	assert.Equal(t, util.AgentContainerUtilitiesName, containerByName(t, sts, util.AgentContainerUtilitiesName).Name)
 }

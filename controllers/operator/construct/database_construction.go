@@ -891,7 +891,12 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
 		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
-		podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...),
+	}
+	// The utilities container only holds the init-database image, which the agent reached through /proc/<pid>/root.
+	// With the proxy that image is mounted into the agent container, and a container that is PID 1 of its own
+	// namespace and runs `tail -F` ignores SIGTERM, so the pod would wait out its whole termination grace period.
+	if !opts.usesMongodbProxy(mdb) {
+		mods = append(mods, podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...))
 	}
 
 	return podtemplatespec.Apply(mods...)
