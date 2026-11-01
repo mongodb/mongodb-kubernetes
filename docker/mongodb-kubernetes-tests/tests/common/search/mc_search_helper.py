@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 import kubernetes
@@ -479,21 +480,22 @@ def patch_mongot_host_via_ac(
     """
     om_tester = mdb.get_om_tester()
     ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
-    ac = om_tester.om_request("get", ac_path).json()
-    patched: List[str] = []
-    for process in ac.get("processes", []):
-        host = resolve_host(process.get("name", ""))
-        if host is None:
-            continue
-        sp = process.setdefault("args2_6", {}).setdefault("setParameter", {})
-        sp["mongotHost"] = host
-        sp["searchIndexManagementHostAndPort"] = host
-        patched.append(f"{process.get('name', '')}->{host}")
-    assert patched, f"{no_match_detail}; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
-    log.info(f"patched {len(patched)} processes: {patched}")
-    ac["version"] = ac.get("version", 0) + 1
-    _put_automation_config_past_lock(om_tester, ac_path, ac)
-    log.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
+
+    def wire(ac: dict) -> None:
+        patched: List[str] = []
+        for process in ac.get("processes", []):
+            host = resolve_host(process.get("name", ""))
+            if host is None:
+                continue
+            sp = process.setdefault("args2_6", {}).setdefault("setParameter", {})
+            sp["mongotHost"] = host
+            sp["searchIndexManagementHostAndPort"] = host
+            patched.append(f"{process.get('name', '')}->{host}")
+        assert patched, f"{no_match_detail}; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+        log.info(f"patched {len(patched)} processes: {patched}")
+
+    update_automation_config_past_lock(om_tester, ac_path, wire)
+    log.info("PUT automation config with per-cluster mongotHost")
     om_tester.wait_agents_ready(timeout=timeout)
 
 
@@ -507,35 +509,47 @@ def remove_mongot_host_via_ac(mdb, log=logger, timeout: int = 900) -> None:
     """
     om_tester = mdb.get_om_tester()
     ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
-    ac = om_tester.om_request("get", ac_path).json()
-    unwired: List[str] = []
-    for process in ac.get("processes", []):
-        sp = process.get("args2_6", {}).get("setParameter", {})
-        removed = [key for key in ("mongotHost", "searchIndexManagementHostAndPort") if sp.pop(key, None) is not None]
-        if removed:
-            unwired.append(f"{process.get('name', '')}: {removed}")
-    assert (
-        unwired
-    ), f"no AC process carried mongot routing keys; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
-    log.info(f"unwired {len(unwired)} processes: {unwired}")
-    ac["version"] = ac.get("version", 0) + 1
-    _put_automation_config_past_lock(om_tester, ac_path, ac)
-    log.info(f"PUT automation config v{ac['version']} without mongot routing keys")
+
+    def unwire(ac: dict) -> None:
+        unwired: List[str] = []
+        for process in ac.get("processes", []):
+            sp = process.get("args2_6", {}).get("setParameter", {})
+            removed = [
+                key for key in ("mongotHost", "searchIndexManagementHostAndPort") if sp.pop(key, None) is not None
+            ]
+            if removed:
+                unwired.append(f"{process.get('name', '')}: {removed}")
+        assert (
+            unwired
+        ), f"no AC process carried mongot routing keys; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+        log.info(f"unwired {len(unwired)} processes: {unwired}")
+
+    update_automation_config_past_lock(om_tester, ac_path, unwire)
+    log.info("PUT automation config without mongot routing keys")
     om_tester.wait_agents_ready(timeout=timeout)
 
 
-def _put_automation_config_past_lock(om_tester, ac_path: str, ac: dict, attempts: int = 3) -> None:
-    """clear_feature_controls + PUT, retried on 401 — the operator can re-assert
-    EXTERNALLY_MANAGED_LOCK between the clear and the PUT."""
+def update_automation_config_past_lock(
+    om_tester, ac_path: str, mutate: Callable[[dict], None], attempts: int = 5
+) -> None:
+    """GET, mutate and PUT the automation config past EXTERNALLY_MANAGED_LOCK.
+
+    The PUT keeps the version from the GET: Ops Manager treats it as a precondition, rejects
+    any other version with 409 AUTOMATION_CONFIG_CONCURRENT_MODIFICATION and advances it on
+    publish. Retried with a fresh GET on 401 (the operator re-asserted the lock after the
+    clear) and on 409 (another writer published between the GET and the PUT)."""
     for attempt in range(1, attempts + 1):
+        ac = om_tester.om_request("get", ac_path).json()
+        mutate(ac)
         om_tester.clear_feature_controls()
         try:
             om_tester.om_request("put", ac_path, json_object=ac)
             return
         except requests.HTTPError as e:
-            if e.response is None or e.response.status_code != 401 or attempt == attempts:
+            if e.response is None or e.response.status_code not in (401, 409) or attempt == attempts:
                 raise
-            logger.warning(f"automationConfig PUT got 401 (operator re-locked); retry {attempt}/{attempts - 1}")
+            logger.warning(f"automationConfig PUT got {e.response.status_code}; retry {attempt}/{attempts - 1}")
+            time.sleep(5 * attempt)
 
 
 def patch_per_cluster_mongot_host_via_om(
