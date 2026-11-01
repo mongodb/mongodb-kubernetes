@@ -510,7 +510,10 @@ def remove_mongot_host_via_ac(mdb, log=logger, timeout: int = 900) -> None:
     om_tester = mdb.get_om_tester()
     ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
 
+    routing_keys_found = False
+
     def unwire(ac: dict) -> None:
+        nonlocal routing_keys_found
         unwired: List[str] = []
         for process in ac.get("processes", []):
             sp = process.get("args2_6", {}).get("setParameter", {})
@@ -519,8 +522,9 @@ def remove_mongot_host_via_ac(mdb, log=logger, timeout: int = 900) -> None:
             ]
             if removed:
                 unwired.append(f"{process.get('name', '')}: {removed}")
+        routing_keys_found = routing_keys_found or bool(unwired)
         assert (
-            unwired
+            routing_keys_found
         ), f"no AC process carried mongot routing keys; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
         log.info(f"unwired {len(unwired)} processes: {unwired}")
 
@@ -532,15 +536,16 @@ def remove_mongot_host_via_ac(mdb, log=logger, timeout: int = 900) -> None:
 def update_automation_config_past_lock(
     om_tester, ac_path: str, mutate: Callable[[dict], None], attempts: int = 5
 ) -> None:
-    """GET, mutate and PUT the automation config past EXTERNALLY_MANAGED_LOCK.
-
-    The PUT keeps the version from the GET: Ops Manager treats it as a precondition, rejects
-    any other version with 409 AUTOMATION_CONFIG_CONCURRENT_MODIFICATION and advances it on
-    publish. Retried with a fresh GET on 401 (the operator re-asserted the lock after the
-    clear) and on 409 (another writer published between the GET and the PUT)."""
+    """GET, mutate and PUT the automation config past EXTERNALLY_MANAGED_LOCK, retried on 401 and 409.
+    The PUT keeps the version from the GET, Ops Manager rejects any other version with 409.
+    Skips the PUT when mutate changes nothing, so a retry after a lost response is a no-op."""
     for attempt in range(1, attempts + 1):
         ac = om_tester.om_request("get", ac_path).json()
+        original = json.dumps(ac, sort_keys=True)
         mutate(ac)
+        if json.dumps(ac, sort_keys=True) == original:
+            logger.info("automation config already up to date, skipping the PUT")
+            return
         om_tester.clear_feature_controls()
         try:
             om_tester.om_request("put", ac_path, json_object=ac)
