@@ -48,9 +48,6 @@ Scope model (set exclusively by the plugin):
 {{- $memberCluster := .Values.memberCluster | default dict }}
 {{- $clusterScoped := $memberCluster.clusterScoped | default false }}
 {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default ($namespace | list) }}
-{{- if has "*" $workloadNamespaces }}
-{{- fail "'*' is not a valid workload namespace; use --operator-cluster-scoped for cluster-wide permissions" }}
-{{- end }}
 {{- $bindingNamespaces := concat $workloadNamespaces ($namespace | list) | uniq }}
 {{- /* One Role per binding namespace: only a cluster-scoped member (clusterScoped) renders a ClusterRole. */ -}}
 {{- $roleScope := "Role" -}}
