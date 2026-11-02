@@ -27,6 +27,12 @@ def is_transient_read_error(error: Exception) -> bool:
     if isinstance(error, (requests.exceptions.SSLError, requests.exceptions.ProxyError, urllib3_errors.SSLError)):
         return False
     if isinstance(error, urllib3_errors.MaxRetryError):
+        # urllib3 discards the response on exhaustion and records its status in ResponseError.
+        if isinstance(error.reason, urllib3_errors.ResponseError):
+            return any(
+                str(error.reason) == urllib3_errors.ResponseError.SPECIFIC_ERROR.format(status_code=status)
+                for status in RETRYABLE_HTTP_STATUSES
+            )
         return isinstance(error.reason, Exception) and is_transient_read_error(error.reason)
     return isinstance(
         error,

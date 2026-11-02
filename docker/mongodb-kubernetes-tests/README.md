@@ -183,6 +183,35 @@ In this run `pytest` was able to find our e2e test with the name
 and it run by finding our Kubernetes environment by reading `kubectl`
 configuration.
 
+### Deadline-aware polling ###
+
+The shared poller is an opt-in pilot; existing waits keep their legacy
+behavior. For a `MongoDBCommon` resource, use
+`resource.wait_for(condition, timeout=600, use_shared_poller=True,
+description="...")` to reload before every condition check. Only recognized
+transient read failures are retried by the poller; authorization and
+unexpected failures are propagated. The Kubernetes client may perform its
+own retries before the poller receives an error.
+
+A `KubernetesTester` action can opt in with a positive timeout and a
+deadline-aware condition, for example:
+
+```yaml
+delete:
+  file: replica-set.yaml
+  wait_until: mongo_resource_deleted
+  timeout: 600
+  use_shared_poller: true
+```
+
+In this mode, deletion requires a Kubernetes 404 and cleaned Ops Manager
+state (or an explicit `GROUP_NOT_FOUND` response). The same remaining
+budget is passed through group discovery and each cleanup read.
+The deadline counts observation time and bounds sleeps, while request
+timeouts bound individual connect/read operations. It is not a strict
+wall-clock cutoff: DNS, client or authentication retries, and a response
+that keeps delivering data can exceed the remaining budget.
+
 ### Make sure your test resources are removed! ###
 
 There are a few handy functions to have your MDB resources removed,
