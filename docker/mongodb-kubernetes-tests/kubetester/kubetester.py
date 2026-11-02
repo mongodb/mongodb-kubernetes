@@ -78,7 +78,11 @@ def is_multi_cluster():
 
 
 def is_default_architecture_static() -> bool:
-    return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
+    return get_default_architecture() in {"static", "static-ga"}
+
+
+def should_skip_static_containers() -> bool:
+    return get_default_architecture() == "static"
 
 
 def assert_container_count_with_static(current_container_count: int, expected_counter_without_static: int):
@@ -89,32 +93,100 @@ def assert_container_count_with_static(current_container_count: int, expected_co
 
 
 def get_default_architecture() -> str:
-    return "static" if is_default_architecture_static() else "non-static"
+    return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static")
+
+
+def get_migration_target_architecture() -> str:
+    architecture = get_default_architecture()
+    if architecture == "non-static":
+        return "static-ga"
+    if architecture in {"static", "static-ga"}:
+        return "non-static"
+    raise ValueError(f"unsupported default architecture: {architecture}")
 
 
 def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):
     """
     Asserts that the statefulset is configured with the expected architecture.
     """
-    agent_container = next((c for c in statefulset.spec.template.spec.containers if c.name == "mongodb-agent"), None)
+    pod_spec = statefulset.spec.template.spec
+    containers = pod_spec.containers
+    agent_container = next((c for c in containers if c.name == "mongodb-agent"), None)
+    database_container = next((c for c in containers if c.name == "mongodb"), None)
     if architecture == "non-static":
-        # In non-static architecture expect agent container to not be present
         assert agent_container is None
-    else:
-        # In static architecture we expect agent container to be present
-        # and contain static environment variable which
-        # instructs the agent launcher script to not download binaries
-        assert agent_container is not None
-        static_env_var = next(
-            (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
-        )
-        assert static_env_var is not None and static_env_var.value == "true"
+        assert database_container is not None
+        assert database_container.command == ["/opt/scripts/agent-launcher.sh"]
+        assert not any(volume.name == "mongodb-proxy" for volume in pod_spec.volumes or [])
+        return
+
+    assert architecture in {"static", "static-ga"}
+    assert agent_container is not None
+    static_env_var = next(
+        (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
+    )
+    assert static_env_var is not None and static_env_var.value == "true"
+    assert database_container is not None
+
+    if architecture == "static-ga":
+        assert database_container.command == ["/mnt/proxy/proxy"]
+        assert pod_spec.share_process_namespace is not True
+        proxy_volume = next((volume for volume in pod_spec.volumes or [] if volume.name == "mongodb-proxy"), None)
+        assert proxy_volume is not None and proxy_volume.image is not None
+        assert proxy_volume.image.reference
+        proxy_address = next((env for env in agent_container.env if env.name == "MDB_MONGODB_PROXY_ADDRESS"), None)
+        assert proxy_address is not None and proxy_address.value == "127.0.0.1:8099"
+        return
+
+    assert database_container.command == ["bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"]
+    assert pod_spec.share_process_namespace is True
 
 
-skip_if_static_containers = pytest.mark.skipif(
-    is_default_architecture_static(),
-    reason="Skip if this test is executed using the Static Containers architecture",
-)
+def assert_appdb_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):
+    pod_spec = statefulset.spec.template.spec
+    containers = pod_spec.containers
+    agent_container = next((container for container in containers if container.name == "mongodb-agent"), None)
+    database_container = next((container for container in containers if container.name == "mongod"), None)
+    assert agent_container is not None
+    assert database_container is not None
+
+    proxy_volume = next((volume for volume in pod_spec.volumes or [] if volume.name == "mongodb-proxy"), None)
+    if architecture == "static-ga":
+        assert database_container.command == ["/mnt/proxy/proxy"]
+        assert pod_spec.share_process_namespace is not True
+        assert proxy_volume is not None and proxy_volume.image is not None
+        assert proxy_volume.image.reference
+        proxy_address = next((env for env in agent_container.env if env.name == "MDB_MONGODB_PROXY_ADDRESS"), None)
+        assert proxy_address is not None and proxy_address.value == "127.0.0.1:8099"
+        return
+
+    assert proxy_volume is None
+    if architecture == "non-static":
+        assert pod_spec.share_process_namespace is not True
+        assert database_container.command is not None
+        assert len(database_container.command) == 3
+        assert "exec mongod -f " in database_container.command[2]
+        init_container_names = {container.name for container in pod_spec.init_containers or []}
+        assert {"mongod-posthook", "mongodb-agent-readinessprobe"}.issubset(init_container_names)
+        return
+
+    assert architecture == "static"
+    assert pod_spec.share_process_namespace is True
+    assert database_container.command is not None
+    assert len(database_container.command) == 3
+    assert "MONGOD_PID=$!" in database_container.command[2]
+    assert any(container.name == "mongodb-agent-operator-utilities" for container in containers)
+
+
+def _static_container_skip_marker():
+    return pytest.mark.skipif(
+        should_skip_static_containers(),
+        reason="Skip if this test is executed using the legacy Static Containers architecture",
+    )
+
+
+skip_if_static_containers = _static_container_skip_marker()
+
 
 skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
 skip_if_multi_cluster = pytest.mark.skipif(is_multi_cluster(), reason="Only run in Kubernetes single cluster")

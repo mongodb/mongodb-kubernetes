@@ -1,6 +1,10 @@
 package construct
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,6 +20,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -24,6 +29,80 @@ import (
 func init() {
 	logger, _ := zap.NewDevelopment()
 	zap.ReplaceGlobals(logger)
+}
+
+func TestAppDBProxyAgentLocalBinaries(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		missingFile string
+		blockWrites bool
+		wantError   string
+	}{
+		{name: "local binaries without legacy mongo shell"},
+		{name: "missing mongod", missingFile: "mongodb/bin/mongod", wantError: "MongoDB binary"},
+		{name: "missing mongos", missingFile: "mongodb/bin/mongos", wantError: "MongoDB binary"},
+		{name: "missing tool", missingFile: "tools/mongorestore", wantError: "MongoDB tool"},
+		{name: "downloads directory is a file", blockWrites: true, wantError: "mkdir"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			for _, name := range []string{
+				"mongodb/bin/mongod", "mongodb/bin/mongos",
+				"tools/mongoimport", "tools/mongodump", "tools/mongorestore", "tools/mongoexport",
+			} {
+				if name == tt.missingFile {
+					continue
+				}
+				path := filepath.Join(root, name)
+				require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+				require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755))
+			}
+			downloads := filepath.Join(root, "downloads")
+			if tt.blockWrites {
+				require.NoError(t, os.WriteFile(downloads, nil, 0o644))
+			}
+			agentPath := filepath.Join(root, "agent")
+			require.NoError(t, os.WriteFile(agentPath, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$ST1_AGENT_ARGS\"\n"), 0o755))
+			argsPath := filepath.Join(root, "agent-args")
+			command := AutomationAgentCommand(true, true, false, v1.LogLevel("INFO"), "/dev/stdout", 24)
+			script := strings.NewReplacer(
+				"/usr/local/bin/setup-agent-files.sh", "true",
+				util.AgentDownloadsDir, downloads,
+				"/tools/", filepath.Join(root, "tools")+"/",
+			).Replace(command[2])
+			cmd := exec.Command(command[0], command[1], script)
+			cmd.Env = []string{
+				"PATH=/usr/bin:/bin",
+				"MDB_MONGOD_ROOT=" + filepath.Join(root, "mongodb"),
+				"agent_binary=" + agentPath,
+				"ST1_AGENT_ARGS=" + argsPath,
+			}
+			output, err := cmd.CombinedOutput()
+			if tt.wantError != "" {
+				require.Error(t, err, string(output))
+				assert.Contains(t, string(output), tt.wantError)
+				_, err = os.Stat(argsPath)
+				assert.True(t, os.IsNotExist(err), "Agent must not start after binary preparation fails")
+				return
+			}
+			require.NoError(t, err, string(output))
+			args, err := os.ReadFile(argsPath)
+			require.NoError(t, err)
+			assert.Contains(t, string(args), "-cluster="+appdbClusterFilePath+"\n")
+			assert.Contains(t, string(args), "-binariesFixedPath="+downloads+"/mongod/bin\n")
+			assert.NotContains(t, string(args), "-skipMongoStart")
+			for _, name := range []string{"mongod", "mongos", "mongoimport", "mongodump", "mongorestore", "mongoexport"} {
+				path := filepath.Join(downloads, "mongod", "bin", name)
+				target, err := os.Readlink(path)
+				require.NoError(t, err)
+				if name == "mongod" || name == "mongos" {
+					assert.Equal(t, filepath.Join(root, "mongodb", "bin", name), target)
+				} else {
+					assert.Equal(t, filepath.Join(root, "tools", name), target)
+				}
+			}
+		})
+	}
 }
 
 func TestAppDBAgentFlags(t *testing.T) {
@@ -369,6 +448,101 @@ func TestCustomAgentURL(t *testing.T) {
 	})
 }
 
+func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
+	t.Setenv(util.ImagePullPolicyEnv, string(corev1.PullIfNotPresent))
+
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	opts := AppDBStatefulSetOptions{
+		InitAppDBImage:                  "init-database:1.0.0",
+		MongodbImage:                    "mongodb-enterprise-server:8.0.0",
+		MongodbProxyImage:               "mongodb-proxy:1.0.0",
+		AgentImage:                      "mongodb-agent:1000.2.0.11583-1",
+		CustomAgentURL:                  "https://example.com/agent.tar.gz",
+		ProxyAgentCompatibilityVerified: true,
+	}
+	sts, err := AppDbStatefulSet(*om, nil, opts,
+		scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+		appsv1.OnDeleteStatefulSetStrategyType, architectures.StaticGA, zap.S())
+	require.NoError(t, err)
+
+	podSpec := sts.Spec.Template.Spec
+	assert.Nil(t, podSpec.ShareProcessNamespace)
+	assert.Empty(t, podSpec.InitContainers)
+	assert.Equal(t, -1, getContainerIndexByName(podSpec.Containers, util.AgentContainerUtilitiesName))
+
+	agent := findContainerByName(t, podSpec.Containers, util.AgentContainerName)
+	agentCommand := agent.Command[len(agent.Command)-1]
+	assert.Contains(t, agentCommand, "-cluster=/var/lib/automation/config/cluster-config.json")
+	assert.Contains(t, agentCommand, "-operatorMode")
+	assert.Contains(t, agentCommand, "-mongodProxyAddress="+MongodbProxyAddress)
+	assert.Contains(t, agentCommand, "-binariesFixedPath="+util.AgentDownloadsDir+"/mongod/bin")
+	assert.Contains(t, agentCommand, `ln -sf "${MDB_MONGOD_ROOT}/bin/${binary}"`)
+	assert.NotContains(t, agentCommand, "-skipMongoStart")
+	assert.NotContains(t, agentCommand, "-mmsBaseUrl")
+	assert.NotContains(t, agentCommand, "-mmsGroupId=")
+	assert.Contains(t, agent.Env, corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress})
+	assert.Contains(t, agent.Env, corev1.EnvVar{Name: mongodRootEnv, Value: mongodbBinariesMountPath})
+	assert.Contains(t, agent.Env, corev1.EnvVar{Name: initRootEnv, Value: mongodbInitDatabaseMountPath})
+	assert.True(t, containerMountsVolume(agent.VolumeMounts, mongodbBinariesVolumeName))
+	assert.True(t, containerMountsVolume(agent.VolumeMounts, mongodbInitDatabaseVolumeName))
+	assert.Contains(t, agent.VolumeMounts, statefulset.CreateVolumeMount("agent-downloads", util.AgentDownloadsDir, statefulset.WithReadOnly(false)))
+
+	database := findContainerByName(t, podSpec.Containers, util.MongodbContainerName)
+	assert.Equal(t, []string{mongodbProxyBinaryPath}, database.Command)
+	assert.Empty(t, database.Args)
+	assert.True(t, containerMountsVolume(database.VolumeMounts, mongodbProxyVolumeName))
+
+	for _, expected := range []struct {
+		name      string
+		reference string
+	}{
+		{name: mongodbProxyVolumeName, reference: opts.MongodbProxyImage},
+		{name: mongodbBinariesVolumeName, reference: opts.MongodbImage},
+		{name: mongodbInitDatabaseVolumeName, reference: opts.InitAppDBImage},
+	} {
+		volume := findVolumeByName(podSpec.Volumes, expected.name)
+		require.NotNil(t, volume)
+		require.NotNil(t, volume.Image)
+		assert.Equal(t, expected.reference, volume.Image.Reference)
+	}
+	downloadsVolume := findVolumeByName(podSpec.Volumes, "agent-downloads")
+	require.NotNil(t, downloadsVolume)
+	assert.NotNil(t, downloadsVolume.EmptyDir)
+
+	assert.True(t, containerMountsVolume(agent.VolumeMounts, "automation-config"))
+}
+
+func TestAppDbStatefulSet_StaticGARejectsUnverifiedAgent(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	opts := AppDBStatefulSetOptions{
+		InitAppDBImage:    "init-database:1.0.0",
+		MongodbImage:      "mongodb-enterprise-server:8.0.0",
+		MongodbProxyImage: "mongodb-proxy:1.0.0",
+		CustomAgentURL:    "https://example.com/agent.tar.gz",
+	}
+
+	_, err := AppDbStatefulSet(*om, nil, opts,
+		scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+		appsv1.OnDeleteStatefulSetStrategyType, architectures.StaticGA, zap.S())
+	require.ErrorContains(t, err, "Agent proxy compatibility is not verified")
+}
+
+func TestAppDbStatefulSet_LegacyStaticPreservesSharedProcessNamespace(t *testing.T) {
+	t.Setenv(util.ImagePullPolicyEnv, string(corev1.PullIfNotPresent))
+
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{},
+		scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil),
+		appsv1.OnDeleteStatefulSetStrategyType, architectures.Static, zap.S())
+	require.NoError(t, err)
+
+	require.NotNil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
+	assert.True(t, *sts.Spec.Template.Spec.ShareProcessNamespace)
+	assert.NotEqual(t, -1, getContainerIndexByName(sts.Spec.Template.Spec.Containers, util.AgentContainerUtilitiesName))
+	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
+	assert.Contains(t, agent.Command[len(agent.Command)-1], "-skipMongoStart")
+}
+
 func TestAppDbStatefulSet_ImagePullPolicy(t *testing.T) {
 	// mongod and the single non-static init container have no explicit policy
 	unmanaged := map[string]bool{util.MongodbContainerName: true, InitAppDbContainerName: true}
@@ -403,7 +577,7 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 	maxLogFileDurationHours := 24
 
 	t.Run("non-static includes download snippet", func(t *testing.T) {
-		cmd := AutomationAgentCommand(false, false, logLevel, logFile, maxLogFileDurationHours)
+		cmd := AutomationAgentCommand(false, false, false, logLevel, logFile, maxLogFileDurationHours)
 		assert.Equal(t, "/bin/bash", cmd[0])
 		assert.Equal(t, "-c", cmd[1])
 		assert.Contains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
@@ -412,12 +586,21 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 	})
 
 	t.Run("static excludes download snippet", func(t *testing.T) {
-		cmd := AutomationAgentCommand(true, false, logLevel, logFile, maxLogFileDurationHours)
+		cmd := AutomationAgentCommand(true, false, false, logLevel, logFile, maxLogFileDurationHours)
 		assert.Equal(t, "/bin/bash", cmd[0])
 		assert.Equal(t, "-c", cmd[1])
 		assert.NotContains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
 		assert.NotContains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
+	})
+
+	t.Run("proxy static uses local Agent config", func(t *testing.T) {
+		cmd := AutomationAgentCommand(true, true, false, logLevel, logFile, maxLogFileDurationHours)
+		assert.Contains(t, cmd[2], "-cluster="+appdbClusterFilePath)
+		assert.Contains(t, cmd[2], "-operatorMode")
+		assert.Contains(t, cmd[2], "-mongodProxyAddress="+MongodbProxyAddress)
+		assert.NotContains(t, cmd[2], "-skipMongoStart")
+		assert.NotContains(t, cmd[2], "-mmsBaseUrl")
 	})
 }
 

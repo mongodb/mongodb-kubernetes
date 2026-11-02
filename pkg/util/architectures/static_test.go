@@ -23,6 +23,11 @@ func TestIsRunningStaticArchitecture(t *testing.T) {
 			want:                true,
 		},
 		{
+			name:                "only default and is static-ga",
+			defaultArchitecture: StaticGA,
+			want:                true,
+		},
+		{
 			name:                "only default and is non-static",
 			defaultArchitecture: NonStatic,
 			want:                false,
@@ -30,6 +35,12 @@ func TestIsRunningStaticArchitecture(t *testing.T) {
 		{
 			name:                "only annotation and is static",
 			annotations:         map[string]string{ArchitectureAnnotation: string(Static)},
+			defaultArchitecture: "",
+			want:                true,
+		},
+		{
+			name:                "only annotation and is static-ga",
+			annotations:         map[string]string{ArchitectureAnnotation: string(StaticGA)},
 			defaultArchitecture: "",
 			want:                true,
 		},
@@ -62,6 +73,28 @@ func TestIsRunningStaticArchitecture(t *testing.T) {
 	}
 }
 
+func TestGetArchitecture(t *testing.T) {
+	tests := []struct {
+		name                string
+		annotations         map[string]string
+		defaultArchitecture DefaultArchitecture
+		want                DefaultArchitecture
+	}{
+		{name: "default static-ga", defaultArchitecture: StaticGA, want: StaticGA},
+		{name: "annotation static-ga", annotations: map[string]string{ArchitectureAnnotation: string(StaticGA)}, defaultArchitecture: Static, want: StaticGA},
+		{name: "legacy static annotation", annotations: map[string]string{ArchitectureAnnotation: string(Static)}, defaultArchitecture: StaticGA, want: Static},
+		{name: "unknown annotation uses default", annotations: map[string]string{ArchitectureAnnotation: "brokenValue"}, defaultArchitecture: StaticGA, want: StaticGA},
+		{name: "empty default is non-static", want: NonStatic},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetArchitecture(tt.annotations, tt.defaultArchitecture); got != tt.want {
+				t.Errorf("GetArchitecture() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetMongoVersion(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -86,6 +119,13 @@ func TestGetMongoVersion(t *testing.T) {
 			forceEnterprise: false,
 			architecture:    Static,
 			want:            "8.0.0-ent",
+		},
+		{
+			name:         "static-ga enterprise repo",
+			mongoDBImage: "quay.io/mongodb/mongodb-enterprise-server",
+			version:      "8.0.0",
+			architecture: StaticGA,
+			want:         "8.0.0-ent",
 		},
 		{
 			name:            "community repo",

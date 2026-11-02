@@ -22,16 +22,23 @@ const (
 	testInitImage    = "quay.io/mongodb/mongodb-kubernetes-init-database:1.0.0"
 )
 
-func proxyTestStatefulSet(annotations map[string]string, arch architectures.DefaultArchitecture, proxyImage string) appsv1.StatefulSet {
+func proxyTestStatefulSet(
+	annotations map[string]string,
+	arch architectures.DefaultArchitecture,
+	proxyImage, mongodbImage, initDatabaseImage, customAgentURL string,
+	agentCompatibilityVerified bool,
+) (appsv1.StatefulSet, error) {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
 	mdb.Annotations = annotations
-	return DatabaseStatefulSet(*mdb, ReplicaSetOptions(
+	return DatabaseStatefulSetWithError(*mdb, ReplicaSetOptions(
 		GetPodEnvOptions(),
 		WithDefaultArchitecture(arch),
 		func(o *DatabaseStatefulSetOptions) {
 			o.MongodbProxyImage = proxyImage
-			o.MongodbImage = testMongodbImage
-			o.InitDatabaseImage = testInitImage
+			o.MongodbImage = mongodbImage
+			o.InitDatabaseImage = initDatabaseImage
+			o.CustomAgentURL = customAgentURL
+			o.ProxyAgentCompatibilityVerified = agentCompatibilityVerified
 		},
 	), zap.S())
 }
@@ -52,7 +59,16 @@ func volumeByName(sts appsv1.StatefulSet, name string) (corev1.Volume, bool) {
 }
 
 func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
-	sts := proxyTestStatefulSet(map[string]string{MongodbProxyAnnotation: "true"}, architectures.Static, testProxyImage)
+	sts, err := proxyTestStatefulSet(
+		nil,
+		architectures.StaticGA,
+		testProxyImage,
+		testMongodbImage,
+		testInitImage,
+		"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
+		true,
+	)
+	require.NoError(t, err)
 
 	t.Run("the pods do not share a process namespace", func(t *testing.T) {
 		assert.Nil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
@@ -102,41 +118,146 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 	})
 }
 
-func TestMongodbProxyIsOffUnlessAllConditionsHold(t *testing.T) {
+func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 	for name, tc := range map[string]struct {
 		annotations map[string]string
 		arch        architectures.DefaultArchitecture
-		proxyImage  string
+		wantProxy   bool
 	}{
-		"no annotation":                {nil, architectures.Static, testProxyImage},
-		"annotation is not true":       {map[string]string{MongodbProxyAnnotation: "false"}, architectures.Static, testProxyImage},
-		"no proxy image configured":    {map[string]string{MongodbProxyAnnotation: "true"}, architectures.Static, ""},
-		"non-static architecture":      {map[string]string{MongodbProxyAnnotation: "true"}, architectures.NonStatic, testProxyImage},
-		"resource opts out of static":  {map[string]string{MongodbProxyAnnotation: "true", architectures.ArchitectureAnnotation: string(architectures.NonStatic)}, architectures.Static, testProxyImage},
-		"annotation true, image empty": {map[string]string{MongodbProxyAnnotation: "true"}, architectures.Static, ""},
+		"static-ga default": {
+			annotations: nil,
+			arch:        architectures.StaticGA,
+			wantProxy:   true,
+		},
+		"legacy static remains unchanged": {
+			annotations: nil,
+			arch:        architectures.Static,
+			wantProxy:   false,
+		},
+		"non-static remains unchanged": {
+			annotations: nil,
+			arch:        architectures.NonStatic,
+			wantProxy:   false,
+		},
+		"resource annotation opts out": {
+			annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)},
+			arch:        architectures.StaticGA,
+			wantProxy:   false,
+		},
+		"legacy static annotation overrides static-ga default": {
+			annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)},
+			arch:        architectures.StaticGA,
+			wantProxy:   false,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			sts := proxyTestStatefulSet(tc.annotations, tc.arch, tc.proxyImage)
+			sts, err := proxyTestStatefulSet(
+				tc.annotations,
+				tc.arch,
+				testProxyImage,
+				testMongodbImage,
+				testInitImage,
+				"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
+				true,
+			)
+			require.NoError(t, err)
 
 			_, hasProxyVolume := volumeByName(sts, "mongodb-proxy")
 			_, hasBinariesVolume := volumeByName(sts, "mongodb-binaries")
 			_, hasInitVolume := volumeByName(sts, "mongodb-init-database")
-			assert.False(t, hasProxyVolume)
-			assert.False(t, hasBinariesVolume)
-			assert.False(t, hasInitVolume)
-			for _, c := range sts.Spec.Template.Spec.Containers {
-				assert.NotContains(t, c.Command, "/mnt/proxy/proxy")
-				for _, e := range c.Env {
-					assert.NotEqual(t, "MDB_MONGODB_PROXY_ADDRESS", e.Name)
-					assert.NotEqual(t, "MDB_INIT_ROOT", e.Name)
+			assert.Equal(t, tc.wantProxy, hasProxyVolume)
+			assert.Equal(t, tc.wantProxy, hasBinariesVolume)
+			assert.Equal(t, tc.wantProxy, hasInitVolume)
+			if tc.wantProxy {
+				mongodb := containerByName(t, sts, util.DatabaseContainerName)
+				agent := containerByName(t, sts, util.AgentContainerName)
+				assert.Equal(t, []string{"/mnt/proxy/proxy"}, mongodb.Command)
+				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "127.0.0.1:8099"})
+			} else {
+				for _, c := range sts.Spec.Template.Spec.Containers {
+					assert.NotEqual(t, []string{"/mnt/proxy/proxy"}, c.Command)
+					for _, e := range c.Env {
+						assert.NotEqual(t, "MDB_MONGODB_PROXY_ADDRESS", e.Name)
+						assert.NotEqual(t, "MDB_INIT_ROOT", e.Name)
+					}
 				}
 			}
 		})
 	}
 }
 
+func TestStaticGAProxyPrerequisitesFailClosed(t *testing.T) {
+	for name, tc := range map[string]struct {
+		proxyImage   string
+		mongodbImage string
+		initImage    string
+		customURL    string
+		compatible   bool
+		wantError    string
+	}{
+		"proxy image missing": {
+			proxyImage:   "",
+			mongodbImage: testMongodbImage,
+			initImage:    testInitImage,
+			customURL:    "https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
+			compatible:   true,
+			wantError:    "requires a MongoDB proxy image",
+		},
+		"custom agent URL missing": {
+			proxyImage:   testProxyImage,
+			mongodbImage: testMongodbImage,
+			initImage:    testInitImage,
+			compatible:   true,
+			wantError:    "requires MDB_CUSTOM_AGENT_URL",
+		},
+		"database image missing": {
+			proxyImage: testProxyImage,
+			initImage:  testInitImage,
+			customURL:  "https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
+			compatible: true,
+			wantError:  "requires MongoDB and init-database images",
+		},
+		"init database image missing": {
+			proxyImage:   testProxyImage,
+			mongodbImage: testMongodbImage,
+			customURL:    "https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
+			compatible:   true,
+			wantError:    "requires MongoDB and init-database images",
+		},
+		"agent compatibility not verified": {
+			proxyImage:   testProxyImage,
+			mongodbImage: testMongodbImage,
+			initImage:    testInitImage,
+			customURL:    "https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
+			wantError:    "Agent proxy compatibility is not verified",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := proxyTestStatefulSet(
+				nil,
+				architectures.StaticGA,
+				tc.proxyImage,
+				tc.mongodbImage,
+				tc.initImage,
+				tc.customURL,
+				tc.compatible,
+			)
+			require.ErrorContains(t, err, tc.wantError)
+		})
+	}
+}
+
 func TestStaticArchitectureWithoutTheProxyKeepsTheSharedProcessNamespace(t *testing.T) {
-	sts := proxyTestStatefulSet(nil, architectures.Static, testProxyImage)
+	sts, err := proxyTestStatefulSet(
+		nil,
+		architectures.Static,
+		testProxyImage,
+		testMongodbImage,
+		testInitImage,
+		"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
+		true,
+	)
+	require.NoError(t, err)
 
 	require.NotNil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
 	assert.True(t, *sts.Spec.Template.Spec.ShareProcessNamespace)

@@ -3,8 +3,9 @@ from typing import Optional
 
 from dateutil.parser import parse
 from kubetester import try_load
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, assert_appdb_statefulset_architecture
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import get_default_architecture, get_migration_target_architecture
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -33,8 +34,19 @@ class TestOpsManagerOmMigration:
         # Backup is not fully configured so we wait until Pending phase
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
+        assert_appdb_statefulset_architecture(
+            ops_manager.read_appdb_statefulset(),
+            get_default_architecture(),
+        )
 
     def test_migrate_architecture(self, ops_manager: MongoDBOpsManager):
+        target_architecture = get_migration_target_architecture()
         ops_manager.trigger_architecture_migration()
+        ops_manager.load()
+        assert ops_manager["metadata"]["annotations"]["mongodb.com/v1.architecture"] == target_architecture
         ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=1000)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1000)
+        assert_appdb_statefulset_architecture(
+            ops_manager.read_appdb_statefulset(),
+            target_architecture,
+        )
