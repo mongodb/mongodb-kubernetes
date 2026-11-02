@@ -8,7 +8,11 @@ FROM registry.access.redhat.com/ubi9/ubi-micro AS micro
 # Runs on the target platform because RPMs and their scriptlets are architecture specific.
 FROM registry.access.redhat.com/ubi9/ubi AS rootfs_builder
 COPY --from=micro / /mnt/rootfs
-# - nss_wrapper, hostname, procps-ng, curl, jq, tar, gzip, findutils, grep, sed, gawk: agent launcher scripts
+# Only libraries are installed for the MongoDB dependencies, not the daemons/CLIs from the same source packages
+# (net-snmp, cyrus-sasl/saslauthd, openssl), which would pull in systemd, perl and more without being used.
+# - nss_wrapper-libs (libnss_wrapper.so for OpenShift random UIDs), hostname, procps-ng, curl, jq, tar, gzip,
+#   findutils, grep, sed, gawk: agent launcher scripts
+# - util-linux-core: mount, referenced by the agent
 # - the rest: MongoDB runtime libraries
 #   (https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/ "RHEL 9" tab)
 RUN dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
@@ -17,9 +21,9 @@ RUN dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releas
     && dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
         --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
         install \
-        nss_wrapper hostname procps-ng curl jq tar gzip findutils grep sed gawk \
-        cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs libcurl lm_sensors-libs \
-        net-snmp net-snmp-agent-libs openldap openssl xz-libs \
+        nss_wrapper-libs hostname procps-ng curl jq tar gzip findutils grep sed gawk util-linux-core \
+        cyrus-sasl-lib cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs libcurl lm_sensors-libs \
+        net-snmp-libs net-snmp-agent-libs openldap openssl-libs xz-libs \
     && dnf --installroot=/mnt/rootfs clean all \
     # rpm-libs (needed by net-snmp-agent-libs, linked by MongoDB 6.0) requires the rpm package manager itself.
     # Erase it so that no package manager ends up in the image, while keeping the rpm database accurate for scanners.
@@ -33,7 +37,6 @@ ENV MMS_LOG_DIR=/var/log/mongodb-mms-automation
 
 COPY --from=rootfs_builder /mnt/rootfs/ /
 
-RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
 # Set the required perms
 RUN mkdir -p "${MMS_LOG_DIR}" \
         && chmod 0775 "${MMS_LOG_DIR}" \
