@@ -520,3 +520,16 @@ def test_replica_set_deletion_uses_shared_poller():
     assert action["wait_until"] == "mongo_resource_deleted"
     assert action["timeout"] == 600
     assert action["use_shared_poller"] is True
+
+
+def test_get_hosts_validates_ops_manager_host_before_group_lookup(monkeypatch):
+    monkeypatch.delenv("OM_HOST", raising=False)
+    monkeypatch.delenv("NAMESPACE", raising=False)
+    monkeypatch.setattr(KubernetesTester, "group_id", None)
+    group_lookup = MagicMock()
+    monkeypatch.setattr(KubernetesTester, "get_om_group_id", group_lookup)
+
+    with pytest.raises(Exception, match="OM_HOST"):
+        KubernetesTester.get_hosts()
+
+    group_lookup.assert_not_called()
