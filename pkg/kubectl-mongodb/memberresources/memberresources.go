@@ -57,8 +57,6 @@ var memberTemplates = []string{
 //     role is rendered as a namespaced Role once per binding namespace — the union of the
 //     workload namespaces and the member namespace — with a RoleBinding per namespace pointing
 //     at the co-located Role (a RoleBinding cannot reference a Role in another namespace).
-//     The caller (the CLI) is expected to have normalised and validated the list — the
-//     templates reject "*" as a backstop.
 //   - operatorClusterScoped: grant the member SA cluster-wide permissions (ClusterRole + a single
 //     ClusterRoleBinding); use when the operator watches all namespaces. This is the only mode
 //     that renders cluster-scoped operator-permission resources.
