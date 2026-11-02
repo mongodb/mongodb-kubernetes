@@ -308,6 +308,10 @@ parameters:
     value: ""
     description: "Image tag override for the Ops Manager image. Required with om_download_url, otherwise the image is tagged with the build's OM version. Without a URL it must be a released OM version, whose release tarball is downloaded."
 
+  - key: isolated_image_namespace
+    value: ""
+    description: "Patch-only. Set to a namespace (or 'auto' for exp-<version_id>) to always rebuild the agent and Ops Manager images into <patch registry>/<namespace>/ and run e2e tests against them, without touching the shared, version-tagged images."
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
