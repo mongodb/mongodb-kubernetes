@@ -56,7 +56,7 @@ Scope model (set exclusively by the plugin):
         {{- $roleScope = "ClusterRole" -}}
         {{- $bindingNamespaces = list $namespace -}}
     {{- end }}
-    {{- $rbacVersion := .Chart.Version | quote }}
+
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -64,7 +64,7 @@ metadata:
   name: {{ $name }}-sa
   namespace: {{ $namespace }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 ---
 # Long-lived token for the member ServiceAccount. Since Kubernetes 1.24 these are no
 # longer auto-created, so we create one explicitly for the operator to authenticate with.
@@ -75,7 +75,7 @@ metadata:
   namespace: {{ $namespace }}
   annotations:
     kubernetes.io/service-account.name: {{ $name }}-sa
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 type: kubernetes.io/service-account-token
 {{- range $idx, $ns := $bindingNamespaces }}
 ---
@@ -87,7 +87,7 @@ metadata:
   namespace: {{ $ns }}
 {{- end }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 rules:
   # deletecollection is required only for multi-cluster operation: owner references
   # don't work across clusters, so removing a multi-cluster workload (or a whole member
@@ -118,7 +118,7 @@ metadata:
   namespace: {{ $ns }}
 {{- end }}
   annotations:
-    mongodb.com/rbac-version: {{ $rbacVersion }}
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: {{ $roleScope }}
