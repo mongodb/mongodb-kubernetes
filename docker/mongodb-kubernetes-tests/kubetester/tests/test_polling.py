@@ -529,7 +529,7 @@ def test_get_hosts_validates_ops_manager_host_before_group_lookup(monkeypatch):
     group_lookup = MagicMock()
     monkeypatch.setattr(KubernetesTester, "get_om_group_id", group_lookup)
 
-    with pytest.raises(Exception, match="OM_HOST"):
+    with pytest.raises(ValueError, match="OM_HOST"):
         KubernetesTester.get_hosts()
 
     group_lookup.assert_not_called()
