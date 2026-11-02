@@ -113,11 +113,12 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 			}
 			return nil
 		}
+		base := client.HTTPClient.Transport
 		client.HTTPClient.Transport = &staleRetryTransport{
 			transport: &digest.Transport{
 				Username:  client.username,
 				Password:  client.password,
-				Transport: client.HTTPClient.Transport,
+				Transport: &challengeLegTransport{transport: base},
 			},
 		}
 	}
