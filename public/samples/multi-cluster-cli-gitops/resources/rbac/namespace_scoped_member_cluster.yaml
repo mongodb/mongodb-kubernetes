@@ -117,7 +117,6 @@ rules:
       - watch
       - delete
       - deletecollection
-
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -151,7 +150,6 @@ rules:
       - list
       - watch
       - update
-
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1

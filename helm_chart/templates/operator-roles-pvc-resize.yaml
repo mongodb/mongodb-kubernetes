@@ -63,10 +63,8 @@ metadata:
 {{- if eq $roleScope "Role" }}
   namespace: {{ $namespace }}
 {{- end }}
-{{- if $memberMode }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
-{{- end }}
 rules:
   - apiGroups:
       - ''
@@ -94,10 +92,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $bindingName }}
   {{ $namespaceBlock }}
-{{- if $memberMode }}
   annotations:
     mongodb.com/rbac-version: {{ $rbacVersion }}
-{{- end }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: {{ $roleScope }}
