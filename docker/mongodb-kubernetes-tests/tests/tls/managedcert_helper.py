@@ -8,9 +8,12 @@ live here and the test files only keep what is specific to their scenario.
 import tempfile
 from typing import List, Optional
 
+from cryptography import x509
+from cryptography.x509.oid import NameOID
 from kubetester import read_configmap, read_secret, try_load
 from kubetester.certs import Certificate
 from kubetester.crypto import cert_signed_by_bundle
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
@@ -193,3 +196,82 @@ def scale_and_assert_member_cert_issuance(mdb: MongoDB, name: str, namespace: st
     else:
         assert revision_after == revision_before, "member cert must not be reissued"
         assert cert_after == cert_before, "member cert must not change"
+
+
+# Turns off the operator's automatic recovery. Tests of the legacy to managedCertificate migration
+# need it off: recovery writes every automation config change at once after 20 minutes, which would
+# hide a migration that deadlocks. The helm command runs in a shell, so the & that separates the
+# variables in customEnvVars is escaped.
+RECOVERY_OFF_ENV_VAR = "\\&MDB_AUTOMATIC_RECOVERY_ENABLE=false"
+
+# The subject attributes a certificate can carry, mapped from the name the API uses to its OID.
+_SUBJECT_ATTRIBUTES = {
+    "commonName": NameOID.COMMON_NAME,
+    "organizations": NameOID.ORGANIZATION_NAME,
+    "organizationalUnits": NameOID.ORGANIZATIONAL_UNIT_NAME,
+    "countries": NameOID.COUNTRY_NAME,
+    "provinces": NameOID.STATE_OR_PROVINCE_NAME,
+    "localities": NameOID.LOCALITY_NAME,
+}
+
+
+def subject_from_certificate(namespace: str, secret_name: str, api_client=None) -> dict:
+    """The subject of the certificate a secret holds, in the shape managedCertificate.subjects expects.
+
+    It reads the certificate the legacy deployment actually uses, so the migration keeps the subject
+    that is in use, instead of repeating what the test used to create it.
+    """
+    certificate = read_secret(namespace, secret_name, api_client=api_client)["tls.crt"]
+    subject = x509.load_pem_x509_certificate(certificate.encode()).subject
+
+    # Only the attributes the certificate carries, so the operator keeps its defaults for the rest.
+    attributes = {
+        api_name: [attribute.value for attribute in subject.get_attributes_for_oid(oid)]
+        for api_name, oid in _SUBJECT_ATTRIBUTES.items()
+    }
+    attributes = {name: value for name, value in attributes.items() if value}
+    # commonName is a single value in the API, the other attributes are lists.
+    if "commonName" in attributes:
+        attributes["commonName"] = attributes["commonName"][0]
+    return attributes
+
+
+def migration_managed_certificate(membership: dict, agent: dict) -> dict:
+    """The managedCertificate block a legacy deployment migrates to, without a CA change.
+
+    Both categories are signed by the issuer that signed the legacy certificates (ca-issuer), and the
+    subjects are the ones the legacy certificates carry, so the members keep trusting each other and
+    recognising each other as peers while the pods restart one at a time.
+    """
+    return {
+        "server": CA_ISSUER_REF,
+        "client": CA_ISSUER_REF,
+        "subjects": {"membership": membership, "agent": agent},
+    }
+
+
+def assert_automation_config_names_files(agent_hash: str, member_hashes: dict, clusterfile_hashes: dict):
+    """The automation config has to name exactly the certificate files the pods have.
+
+    The file names are the hashes in each -pem secret's latestHash key. member_hashes and
+    clusterfile_hashes map a process name prefix (the StatefulSet the process runs in) to the hash of
+    that StatefulSet's -pem secret, because a sharded cluster has one secret per component.
+    """
+    ac = KubernetesTester.get_automation_config()
+    assert ac["tls"]["autoPEMKeyFilePath"].endswith(agent_hash), ac["tls"]["autoPEMKeyFilePath"]
+    for process in ac["processes"]:
+        name = process["name"]
+        tls = process["args2_6"]["net"]["tls"]
+        prefix = _longest_matching_prefix(name, member_hashes)
+        assert tls["certificateKeyFile"].endswith(member_hashes[prefix]), f"{name}: {tls['certificateKeyFile']}"
+        if "clusterFile" in tls:
+            assert tls["clusterFile"].endswith(clusterfile_hashes[prefix]), f"{name}: {tls['clusterFile']}"
+
+
+def _longest_matching_prefix(process_name: str, by_prefix: dict) -> str:
+    # Process names look like <statefulset>-<index>, sometimes after a k8s/<namespace>/ prefix, and
+    # one StatefulSet name can be a prefix of another, so the longest match is the right one.
+    pod_name = process_name.split("/")[-1]
+    matches = [prefix for prefix in by_prefix if pod_name.startswith(prefix + "-")]
+    assert matches, f"no certificate secret matches process {process_name}: {sorted(by_prefix)}"
+    return max(matches, key=len)
