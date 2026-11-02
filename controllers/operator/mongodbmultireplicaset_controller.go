@@ -547,7 +547,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithDefaultArchitecture(r.defaultArchitecture),
 		)
 
-		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
+		sts, err := mconstruct.MultiClusterStatefulSetWithError(*mrs, opts)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to construct StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
+		}
 		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
