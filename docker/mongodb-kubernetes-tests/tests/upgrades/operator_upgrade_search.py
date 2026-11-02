@@ -372,12 +372,11 @@ class TestDeployOnOfficialOperator:
             namespace, ga_operator, GA_MONGOT_VERSION, "pre-upgrade"
         )
 
-    def test_wait_for_database_resource_ready(self, mdb: MongoDB, namespace: str):
-        # The search wiring is applied after the MongoDB is already Running and the resource may never leave Running,
-        # so wait for it on the mongods directly instead of for a phase transition.
-        verify_rs_mongod_parameters(namespace, mdb.name, mdb.get_members(), None)
-        mdb.get_om_tester().wait_agents_ready()
-        mdb.assert_reaches_phase(Phase.Running, timeout=600)
+    def test_wait_for_database_resource_ready(self, mdb: MongoDB, mongot_user: MongoDBUser):
+        mongot_user.assert_reaches_phase(Phase.Updated, timeout=300)
+        verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members(), None, timeout=300)
+        mdb.get_om_tester().wait_agents_ready(timeout=300)
+        mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
     def test_restore_sample_database(self, sample_movies_helper: SampleMoviesSearchHelper):
         sample_movies_helper.restore_sample_database()

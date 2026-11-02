@@ -59,6 +59,23 @@ func init() {
 
 var clusters = []string{"api1.kube.com", "api2.kube.com", "api3.kube.com"}
 
+func TestMultiReplicaSetHostnameConfigMapUsesStableClusterIndexes(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs.Spec.Mapping = map[string]int{clusters[0]: 5, clusters[1]: 3, clusters[2]: 8}
+	mrs.Spec.ClusterSpecList[0], mrs.Spec.ClusterSpecList[2] = mrs.Spec.ClusterSpecList[2], mrs.Spec.ClusterSpecList[0]
+	reconciler, _, members, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	require.NoError(t, reconciler.reconcileHostnameOverrideConfigMap(ctx, zap.S(), *mrs))
+	for _, item := range mrs.Spec.ClusterSpecList {
+		cm := corev1.ConfigMap{}
+		require.NoError(t, members[item.ClusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name+"-hostname-override"), &cm))
+		for pod := range item.Members {
+			name := fmt.Sprintf("%s-%d-%d", mrs.Name, mrs.Spec.Mapping[item.ClusterName], pod)
+			assert.Equal(t, name+"-svc."+mrs.Namespace+".svc.cluster.local", cm.Data[name])
+		}
+	}
+}
+
 func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMultiCluster, client client.Client, shouldRequeue bool) {
 	err := client.Update(ctx, m)
 	assert.NoError(t, err)

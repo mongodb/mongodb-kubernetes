@@ -1628,9 +1628,28 @@ def coredns_config(tld: str, mappings: str, additional_rules: Optional[str] = No
 """
 
 
+def _om_project_ids_from_cr_status() -> str:
+    """Returns the Ops Manager project IDs recorded in the namespace's MongoDB resources."""
+    try:
+        response = client.CustomObjectsApi(api_client=get_central_cluster_client()).list_namespaced_custom_object(
+            group="mongodb.com", version="v1", namespace=os.environ.get("NAMESPACE"), plural="mongodb"
+        )
+    except Exception as e:
+        logging.debug(f"Failed to list MongoDB resources: {e}")
+        return ""
+
+    project_ids: list[str] = []
+    for resource in response.get("items", []):
+        project_id = (resource.get("status") or {}).get("projectId")
+        if project_id and project_id not in project_ids:
+            project_ids.append(project_id)
+
+    return ",".join(project_ids)
+
+
 @hookimpl(tryfirst=True)
 def pytest_sessionfinish(session, exitstatus):
-    project_id = os.environ.get("OM_PROJECT_ID", "")
+    project_id = os.environ.get("OM_PROJECT_ID", "") or _om_project_ids_from_cr_status()
     if project_id:
         base_url = os.environ.get("OM_HOST")
         if base_url is None:
@@ -1678,7 +1697,7 @@ def pytest_sessionfinish(session, exitstatus):
                 else:
                     logging.info("om is not healthy - not collecting events information")
 
-            except Exception as e:
+            except Exception:
                 continue
 
 

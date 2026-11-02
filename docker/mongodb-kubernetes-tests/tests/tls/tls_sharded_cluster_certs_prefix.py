@@ -101,8 +101,15 @@ def test_sharded_cluster_has_no_connectivity_without_tls(sc: MongoDB):
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_rotate_tls_certificate(sc: MongoDB, namespace: str):
-    # The resource can stay Running through the rotation, so waiting for a status transition would never return.
     rotate_and_assert_certificates(sc, namespace, f"prefix-{MDB_RESOURCE}-0-cert")
+
+
+@mark.e2e_tls_sharded_cluster_certs_prefix
+@skip_if_local
+def test_sharded_cluster_has_connectivity_after_rotation(sc: MongoDB, ca_path: str):
+    service_names = get_mongos_service_names(sc)
+    tester = sc.tester(ca_path=ca_path, use_ssl=True, service_names=service_names)
+    tester.assert_connectivity()
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix

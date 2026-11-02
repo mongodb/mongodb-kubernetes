@@ -1337,7 +1337,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(ctx
 		log.Warnf("failed retrieving list of failed clusters: %s", err.Error())
 	}
 
-	for i, e := range clusterSpecList {
+	for _, e := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, e.ClusterName) {
 			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is marked as failed", e.ClusterName))
 			continue
@@ -1348,7 +1348,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(ctx
 			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is missing from client map", e.ClusterName))
 			continue
 		}
-		cm := getHostnameOverrideConfigMap(mrs, i, e.ClusterName, e.Members)
+		cm := getHostnameOverrideConfigMap(mrs, mrs.ClusterNum(e.ClusterName), e.ClusterName, e.Members)
 
 		err = configmap.CreateOrUpdate(ctx, client, cm)
 		if err != nil && !apiErrors.IsAlreadyExists(err) {
