@@ -146,9 +146,9 @@ CLUSTER_1_ADDITIONAL_OPTS=""
 CLUSTER_2_ADDITIONAL_OPTS=""
 CLUSTER_3_ADDITIONAL_OPTS=""
 if [[ ${IS_KIND} == "true" ]]; then
-  CLUSTER_1_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER1}" get node e2e-cluster-1-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
-  CLUSTER_2_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER2}" get node e2e-cluster-2-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
-  CLUSTER_3_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER3}" get node e2e-cluster-3-control-plane -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
+  CLUSTER_1_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER1}" get node "${WORKTREE_PREFIX:-}e2e-cluster-1-control-plane" -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
+  CLUSTER_2_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER2}" get node "${WORKTREE_PREFIX:-}e2e-cluster-2-control-plane" -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
+  CLUSTER_3_ADDITIONAL_OPTS="--server https://$(kubectl --context="${CTX_CLUSTER3}" get node "${WORKTREE_PREFIX:-}e2e-cluster-3-control-plane" -o=jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):6443"
 fi
 
 # enable endpoint discovery

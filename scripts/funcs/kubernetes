@@ -271,10 +271,29 @@ delete_kind_network() {
       echo "Stopping containers ${containers} using kind network..."
       # shellcheck disable=SC2086
       docker stop ${containers}
-      docker container prune -f
+      # Remove only these containers: a prune would also delete other projects' stopped containers.
+      # shellcheck disable=SC2086
+      docker rm -f ${containers}
   fi
 
   docker network rm kind
+}
+
+# A recreate without a worktree prefix (no WORKTREE_PREFIX) deletes every kind cluster and volume, or the shared
+# network, on the docker daemon. Refuse when the daemon also holds clusters outside the five names of
+# a plain checkout, such as those of a worktree with a prefix, unless KIND_DELETE_ALL_CLUSTERS=true.
+# An Evergreen task (RUNNING_IN_EVG=true) is never refused.
+refuse_to_delete_foreign_kind_clusters() {
+  if [[ -n "${WORKTREE_PREFIX:-}" || "${RUNNING_IN_EVG:-}" == "true" || "${KIND_DELETE_ALL_CLUSTERS:-}" == "true" ]]; then
+    return 0
+  fi
+  local foreign
+  foreign="$(kind get clusters 2>/dev/null | grep -vxE 'kind|e2e-operator|e2e-cluster-[123]' | tr '\n' ' ' || true)"
+  if [[ -n "${foreign}" ]]; then
+    echo "ERROR: refusing to delete every kind cluster: the docker daemon also holds ${foreign}" >&2
+    echo "       Give this worktree a prefix (WORKTREE_PREFIX in .generated/worktree-context), or set KIND_DELETE_ALL_CLUSTERS=true to delete them too." >&2
+    return 1
+  fi
 }
 
 # Log docker in to the ECR registry that hosts the kind node image.
@@ -321,17 +340,45 @@ docker_run_local_registry() {
   running="$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
   if [ "${running}" != 'true' ]; then
     docker rm -f "${reg_name}" 2>/dev/null || true
-    docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2
+    # Another setup can start the registry at the same moment. Losing that race is fine if its container comes up.
+    docker run -d --restart=always -p "127.0.0.1:${reg_port}:5000" --name "${reg_name}" registry:2 ||
+      { sleep 2; [ "$(docker inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null)" = 'true' ]; }
   fi
 }
 
 docker_create_kind_network() {
   # We create docker network primarily so that all kind clusters use the same network.
-  # We hardcode 172.18/16 subnet in few places, so we must ensure the network uses that subnet:
-  #   - we set IP ranges for MetalLB
-  #   - we write into coredns config map with IP used for exposing pods externally and for no-mesh test
-  # In case of any errors, verify if any other subnet is not already using that subnet.
-  docker network create --subnet=172.18.0.0/16 kind || true
+  # The network must use KIND_NETWORK_SUBNET (root-context) because the MetalLB IP ranges
+  # and the no-mesh tests assume addresses in it.
+  if docker network inspect kind >/dev/null 2>&1; then
+    local subnets
+    subnets="$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' kind)"
+    if [[ " ${subnets}" != *" ${KIND_NETWORK_SUBNET} "* ]]; then
+      echo "ERROR: docker network 'kind' has subnet(s) ${subnets}but KIND_NETWORK_SUBNET is ${KIND_NETWORK_SUBNET}." >&2
+      echo "       Remove the network with 'docker network rm kind' or change KIND_NETWORK_SUBNET." >&2
+      return 1
+    fi
+  else
+    # No '|| true': when another network already uses the subnet, stop here.
+    docker network create --subnet="${KIND_NETWORK_SUBNET}" kind
+  fi
+}
+
+# What a worktree prefix is, for the usage of the recreate scripts.
+print_worktree_prefix_help() {
+  echo "WORKTREE PREFIX:
+  WORKTREE_PREFIX (in .generated/worktree-context, written by wt-ctl) is empty in a plain checkout. A worktree with a
+  prefix such as devc7- owns the kind clusters that carry it (devc7-kind, devc7-e2e-cluster-1, ...), its kubeconfig,
+  its namespace and its MetalLB row. It shares the docker daemon with the other worktrees, so it deletes only its own
+  clusters, prunes nothing and keeps the kind network. A plain checkout owns the whole docker daemon:
+  recreate_kind_clusters.sh deletes every kind cluster and prunes docker."
+}
+
+# Renames the contexts that `kind export kubeconfig` wrote for the clusters of a worktree with a prefix
+# (kind-<prefix><name>) to kind-<name>, which the tests and scripts expect. No-op without a prefix.
+kind_unprefix_contexts() {
+  [[ -n "${WORKTREE_PREFIX:-}" ]] || return 0
+  sed "s/kind-${WORKTREE_PREFIX}/kind-/g" "$1" >"$1.renamed" && mv "$1.renamed" "$1"
 }
 
 docker_network_connect_to_kind() {
