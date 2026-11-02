@@ -11,6 +11,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -24,6 +26,7 @@ type Supervisor struct {
 	binDir string
 	stdout io.Writer
 	stderr io.Writer
+	log    *zap.SugaredLogger
 
 	mu          sync.Mutex
 	current     *Execution
@@ -42,9 +45,14 @@ func WithOutput(stdout, stderr io.Writer) Option {
 	return func(s *Supervisor) { s.stdout, s.stderr = stdout, stderr }
 }
 
+// WithLogger sets the logger of the supervisor. Without it nothing is logged.
+func WithLogger(log *zap.SugaredLogger) Option {
+	return func(s *Supervisor) { s.log = log }
+}
+
 // NewSupervisor creates a Supervisor that forwards the child's output to the proxy's stdout/stderr.
 func NewSupervisor(opts ...Option) *Supervisor {
-	s := &Supervisor{stdout: os.Stdout, stderr: os.Stderr}
+	s := &Supervisor{stdout: os.Stdout, stderr: os.Stderr, log: zap.NewNop().Sugar()}
 	for _, o := range opts {
 		o(s)
 	}
@@ -173,6 +181,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		done:       make(chan struct{}),
 	}
 	s.current = e
+	s.log.Infow("process started", "role", e.role, "configPath", e.configPath, "pid", cmd.Process.Pid)
 	go s.wait(e)
 	return e, nil
 }
@@ -186,6 +195,7 @@ func (s *Supervisor) wait(e *Execution) {
 	if ws, ok := e.cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		e.signal = ws.Signal().String()
 	}
+	s.log.Infow("process exited", "role", e.role, "configPath", e.configPath, "exitCode", e.exitCode, "signal", e.signal)
 	close(e.done)
 }
 
@@ -221,6 +231,7 @@ func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration,
 		return s.kill(ctx, e)
 	}
 
+	s.log.Infow("sending SIGTERM", "role", e.role, "timeout", timeout.String(), "force", force)
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("signalling the process: %w", err)
 	}
@@ -240,6 +251,7 @@ func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration,
 }
 
 func (s *Supervisor) kill(ctx context.Context, e *Execution) error {
+	s.log.Warnw("sending SIGKILL", "role", e.role)
 	if err := e.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("killing the process: %w", err)
 	}
@@ -263,6 +275,7 @@ func (s *Supervisor) Terminate(ctx context.Context) error {
 	if e == nil || e.finished() {
 		return nil
 	}
+	s.log.Infow("forwarding SIGTERM to the child", "role", e.role)
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("forwarding SIGTERM: %w", err)
 	}

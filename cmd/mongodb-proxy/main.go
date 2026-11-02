@@ -23,9 +23,10 @@ import (
 func main() {
 	listen := flag.String("listen", "127.0.0.1:8099", "address of the process API; must be a loopback address")
 	binDir := flag.String("bin-dir", "", "directory with mongod/mongos; PATH is used when empty")
+	debug := flag.Bool("debug", false, "log the status requests too")
 	flag.Parse()
 
-	log := newLogger()
+	log := newLogger(*debug)
 	defer func() { _ = log.Sync() }()
 
 	if err := run(log, *listen, *binDir); err != nil {
@@ -44,6 +45,7 @@ func run(log *zap.SugaredLogger, listen, binDir string) error {
 	if binDir != "" {
 		opts = append(opts, mongodbproxy.WithBinDir(binDir))
 	}
+	opts = append(opts, mongodbproxy.WithLogger(log))
 	sup := mongodbproxy.NewSupervisor(opts...)
 
 	srv := &http.Server{
@@ -93,9 +95,13 @@ func requireLoopback(addr string) error {
 	return nil
 }
 
-func newLogger() *zap.SugaredLogger {
+func newLogger(debug bool) *zap.SugaredLogger {
+	level := zapcore.InfoLevel
+	if debug {
+		level = zapcore.DebugLevel
+	}
 	encCfg := zap.NewProductionEncoderConfig()
 	encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
-	core := zapcore.NewCore(zapcore.NewJSONEncoder(encCfg), zapcore.AddSync(os.Stdout), zapcore.InfoLevel)
+	core := zapcore.NewCore(zapcore.NewJSONEncoder(encCfg), zapcore.AddSync(os.Stdout), level)
 	return zap.New(core, zap.Fields(zap.String("component", "proxy"))).Sugar()
 }

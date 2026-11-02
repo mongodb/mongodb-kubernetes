@@ -35,7 +35,9 @@ type handler struct {
 }
 
 func (h *handler) get(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, h.s.Status())
+	status := h.s.Status()
+	h.log.Debugw("status requested", "state", status.State, "role", status.Role)
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (h *handler) start(w http.ResponseWriter, r *http.Request) {
@@ -43,12 +45,12 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	h.log.Infow("start requested", "role", req.Role, "configPath", req.ConfigPath, "waitForExit", req.WaitForExit)
 	e, err := h.s.Start(req)
 	if err != nil {
 		h.fail(w, err)
 		return
 	}
-	h.log.Infow("process started", "role", req.Role, "configPath", req.ConfigPath, "waitForExit", req.WaitForExit)
 
 	if req.WaitForExit {
 		// If the client goes away we stop waiting but leave the child alone.
@@ -71,6 +73,7 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	timeout := time.Duration(req.TimeoutSeconds * float64(time.Second))
+	h.log.Infow("stop requested", "role", req.Role, "timeout", timeout.String(), "force", req.Force)
 	if err := h.s.Stop(r.Context(), req.Role, timeout, req.Force); err != nil {
 		h.fail(w, err)
 		return
