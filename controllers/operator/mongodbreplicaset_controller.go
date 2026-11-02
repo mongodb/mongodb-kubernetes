@@ -564,7 +564,10 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 
 	// Build the replica set config
 	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	sts, err := construct.DatabaseStatefulSetWithError(*rs, rsConfig, log)
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to construct replica set StatefulSet: %w", err))
+	}
 
 	// Handle PVC resize if needed
 	if workflowStatus := r.handlePVCResize(ctx, &sts); !workflowStatus.IsOK() {
@@ -862,7 +865,10 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // returning Err) use workflow.Failed and requeue after 10s (failedStatus default).
 func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []mdbv1.ExternalMember, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	sts, err := construct.DatabaseStatefulSetWithError(*rs, rsConfig, log)
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to construct connectivity validation StatefulSet: %w", err)))
+	}
 	replicaSetName := rs.Spec.ReplicaSetNameOverride
 	if replicaSetName == "" {
 		replicaSetName = rs.Name
