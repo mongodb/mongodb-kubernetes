@@ -9,6 +9,7 @@ from kubetester import (
     get_statefulset,
     scale_statefulset,
     try_load,
+    wait_for_statefulset_ready,
     wait_for_statefulset_replicas,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
@@ -366,8 +367,8 @@ class TestReplicaSetScaleUp(KubernetesTester):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts
 
-    @pytest.mark.flaky(reruns=10, reruns_delay=3)
     def test_sts_update(self):
+        wait_for_statefulset_ready(self.namespace, RESOURCE_NAME)
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
         assert sts.api_version == "apps/v1"
