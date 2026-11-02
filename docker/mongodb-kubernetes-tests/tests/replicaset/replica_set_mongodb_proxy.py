@@ -17,6 +17,7 @@ The test is skipped when MDB_MONGODB_PROXY_IMAGE is not set.
 
 import json
 import os
+import re
 import time
 from typing import Optional
 
@@ -225,3 +226,186 @@ def test_replica_set_is_still_running_after_a_pod_restart(replica_set: MongoDB, 
         time.sleep(3)
         status = query_proxy(pod, namespace)
     assert status["state"] == "running", status
+
+
+def mongod_identity(pod: str, namespace: str) -> str:
+    """Returns "<pid>:<start time>" of mongod in the database container, empty when it is not running.
+
+    The proxy does not report a pid, and the pid alone can repeat after a restart, so the start time is part of it.
+    """
+    out = KubernetesTester.run_command_in_pod_container(
+        pod,
+        namespace,
+        [
+            "bash",
+            "-c",
+            'for p in /proc/[0-9]*; do if [ "$(cat "$p/comm" 2>/dev/null)" = mongod ]; then '
+            'echo "${p#/proc/}:$(cut -d" " -f22 "$p/stat")"; fi; done',
+        ],
+        container=DATABASE_CONTAINER,
+    )
+    return out.strip()
+
+
+def pod_members(replica_set: MongoDB) -> list[str]:
+    return [f"{replica_set.name}-{i}" for i in range(replica_set["spec"]["members"])]
+
+
+def wait_until(description: str, check, timeout_seconds: int = 600, interval_seconds: int = 3):
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if check():
+            return
+        time.sleep(interval_seconds)
+    raise Exception(f"Timed out after {timeout_seconds}s waiting for: {description}")
+
+
+def proxy_log(pod: str, namespace: str) -> list[dict]:
+    """Returns the log entries of the proxy in the current database container (the mongod lines are left out)."""
+    raw = KubernetesTester.clients("corev1").read_namespaced_pod_log(pod, namespace, container=DATABASE_CONTAINER)
+    entries = []
+    for line in raw.splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if entry.get("component") == "proxy":
+            entries.append(entry)
+    return entries
+
+
+def proxy_events(pod: str, namespace: str, message: str) -> list[dict]:
+    return [e for e in proxy_log(pod, namespace) if e["msg"] == message]
+
+
+def restart_counts(pod: str, namespace: str) -> dict[str, int]:
+    current = KubernetesTester.clients("corev1").read_namespaced_pod(pod, namespace)
+    return {c.name: c.restart_count for c in current.status.container_statuses}
+
+
+def pod_uids(replica_set: MongoDB, namespace: str) -> dict[str, str]:
+    corev1 = KubernetesTester.clients("corev1")
+    return {pod: corev1.read_namespaced_pod(pod, namespace).metadata.uid for pod in pod_members(replica_set)}
+
+
+def wait_for_new_mongod(pod: str, namespace: str, old_identity: str, timeout_seconds: int = 600):
+    """Waits until the pod runs a mongod other than old_identity and the proxy reports it running."""
+
+    def restarted() -> bool:
+        identity = mongod_identity(pod, namespace)
+        return bool(identity) and identity != old_identity and query_proxy(pod, namespace)["state"] == "running"
+
+    wait_until(f"{pod} to run a new mongod", restarted, timeout_seconds)
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_agent_restarts_mongod_through_the_proxy_on_a_config_change(replica_set: MongoDB, namespace: str):
+    """A changed mongod option is an automation config change, not a pod template change.
+
+    The pods stay as they are, so a new mongod can only come from the agent: the driver `shutdown` command, the
+    process-down check against the proxy and a new `start` request.
+    """
+    pods = pod_members(replica_set)
+    identities = {pod: mongod_identity(pod, namespace) for pod in pods}
+    uids = pod_uids(replica_set, namespace)
+    restarts = {pod: restart_counts(pod, namespace) for pod in pods}
+    assert all(identities.values()), identities
+
+    # A different value than the one mongod runs with. The resource does not tell it: the processes of an earlier run
+    # can stay in the Ops Manager project, and the operator merges a new process into the existing one.
+    running = KubernetesTester.run_command_in_pod_container(
+        pods[0], namespace, ["cat", "/data/automation-mongod.conf"], container=AGENT_CONTAINER
+    )
+    match = re.search(r"maxIncomingConnections: (\d+)", running)
+    new_limit = int(match.group(1)) + 1 if match else 1234
+    replica_set["spec"]["additionalMongodConfig"] = {"net": {"maxIncomingConnections": new_limit}}
+    replica_set.update()
+
+    for pod in pods:
+        wait_for_new_mongod(pod, namespace, identities[pod], timeout_seconds=900)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+
+    assert pod_uids(replica_set, namespace) == uids, "a pod was replaced, so the agent did not restart mongod"
+    assert {pod: restart_counts(pod, namespace) for pod in pods} == restarts, "a container was restarted"
+
+    for pod in pods:
+        config = KubernetesTester.run_command_in_pod_container(
+            pod, namespace, ["cat", "/data/automation-mongod.conf"], container=AGENT_CONTAINER
+        )
+        assert f"maxIncomingConnections: {new_limit}" in config, config
+        assert "fork" not in config, config
+
+    # The proxy log tells how the old mongod went down: it exited by itself (the driver `shutdown` command) and the
+    # proxy never had to kill it.
+    for pod in pods:
+        exits = proxy_events(pod, namespace, "process exited")
+        assert exits, f"{pod}: the proxy did not log the exit of the old mongod"
+        assert exits[0]["exitCode"] == 0 and not exits[0].get("signal"), exits[0]
+        assert len(proxy_events(pod, namespace, "process started")) >= 2, pod
+        assert not proxy_events(pod, namespace, "sending SIGKILL"), pod
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_agent_starts_mongod_again_after_it_was_killed(replica_set: MongoDB, namespace: str):
+    """A crash of mongod leaves the proxy alive with an exit status, and the agent's replan loop starts it again."""
+    pod = f"{replica_set.name}-1"
+    identity = mongod_identity(pod, namespace)
+    restarts = restart_counts(pod, namespace)
+    assert identity
+
+    KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["bash", "-c", f"kill -9 {identity.split(':')[0]}"], container=DATABASE_CONTAINER
+    )
+
+    wait_for_new_mongod(pod, namespace, identity, timeout_seconds=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+    assert restart_counts(pod, namespace) == restarts, "the container was restarted, the proxy must have survived"
+
+    # The proxy saw the crash and the agent's new start request.
+    assert any(e.get("signal") == "killed" for e in proxy_events(pod, namespace, "process exited"))
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_agent_starts_mongod_again_after_the_database_container_restarted(replica_set: MongoDB, namespace: str):
+    """A restarted proxy is idle and starts nothing by itself, so the agent has to notice and start mongod."""
+    pod = f"{replica_set.name}-1"
+    identity = mongod_identity(pod, namespace)
+    before = restart_counts(pod, namespace)[DATABASE_CONTAINER]
+    assert identity
+
+    # SIGTERM to the proxy, PID 1: it stops mongod and exits, and the kubelet restarts the container.
+    KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["bash", "-c", "kill -TERM 1"], container=DATABASE_CONTAINER
+    )
+
+    wait_until(
+        "the database container to restart",
+        lambda: restart_counts(pod, namespace)[DATABASE_CONTAINER] > before,
+        timeout_seconds=120,
+    )
+    wait_for_new_mongod(pod, namespace, identity, timeout_seconds=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_agent_container_restart_does_not_restart_mongod(replica_set: MongoDB, namespace: str):
+    """The proxy and mongod keep running while the agent restarts, and the agent must not restart mongod for it."""
+    pod = f"{replica_set.name}-0"
+    identity = mongod_identity(pod, namespace)
+    before = restart_counts(pod, namespace)[AGENT_CONTAINER]
+    assert identity
+
+    KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["bash", "-c", "kill -TERM 1"], container=AGENT_CONTAINER
+    )
+
+    wait_until(
+        "the agent container to restart",
+        lambda: restart_counts(pod, namespace)[AGENT_CONTAINER] > before,
+        timeout_seconds=180,
+    )
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+    # Give the restarted agent time to plan: it must find mongod running and leave it alone.
+    time.sleep(60)
+    assert mongod_identity(pod, namespace) == identity
+    assert query_proxy(pod, namespace)["state"] == "running"

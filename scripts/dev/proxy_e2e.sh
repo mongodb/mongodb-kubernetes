@@ -284,7 +284,9 @@ cmd_namespace() {
 
 cmd_clean() {
   log "Cleaning the leftovers in ${NAMESPACE_NAME}"
-  kube -n "${NAMESPACE_NAME}" delete mdb my-replica-set --ignore-not-found --wait=false || true
+  # wait for the resource to disappear: the test loads an existing resource, and one that is still being deleted
+  # brings the spec of the earlier run into the new one
+  kube -n "${NAMESPACE_NAME}" delete mdb my-replica-set --ignore-not-found --timeout=180s || true
   kube -n "${NAMESPACE_NAME}" delete pod my-replica-set-0 my-replica-set-1 my-replica-set-2 \
     --grace-period=0 --force --ignore-not-found 2>&1 | grep -v "^Warning" || true
   # logs and data live on the PVCs and survive pod restarts
