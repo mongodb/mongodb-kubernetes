@@ -22,8 +22,8 @@ The shared workload-management rules are intentionally written once, uncondition
 both modes render them identically. Only naming, annotations, central-only gating and
 the binding namespace source branch on the mode.
 */ -}}
-{{- $memberMode := (.Values.memberCluster | default dict).enabled | default false -}}
 {{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false -}}
 {{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
 {{- $rbacVersion := .Chart.Version | quote -}}
 

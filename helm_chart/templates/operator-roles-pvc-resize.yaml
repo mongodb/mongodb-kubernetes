@@ -15,8 +15,8 @@ client lazily starts a PVC informer on first list. PVC creation and deletion are
 performed by the Kubernetes StatefulSet controller from volumeClaimTemplates (and its
 retention policy), never by the operator.
 */ -}}
-{{- $memberMode := (.Values.memberCluster | default dict).enabled | default false -}}
 {{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false -}}
 {{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
 {{- $rbacVersion := .Chart.Version | quote -}}
 
