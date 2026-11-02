@@ -26,6 +26,7 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 from kubetester.crypto import wait_for_certs_to_be_issued
+from kubetester.kube_proxy import cluster_proxy_url
 from opentelemetry import trace
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 from tests import test_logger
@@ -123,6 +124,12 @@ skip_if_single_cluster = pytest.mark.skipif(not is_multi_cluster(), reason="Only
 SLEEP_TIME = 2
 # no timeout (loop forever)
 INFINITY = -1
+
+
+def kube_config_proxy_url(config_file: str, context: Optional[str] = None) -> Optional[str]:
+    "The proxy-url of the cluster of a context in a kubeconfig file (or a list of them), which the client ignores."
+    merger = config.kube_config.KubeConfigMerger(config_file)
+    return next(filter(None, (cluster_proxy_url(raw, context) for raw in merger.config_files.values())), None)
 
 
 class KubernetesTester(object):
@@ -403,6 +410,11 @@ class KubernetesTester(object):
             config.load_kube_config()
         except Exception:
             config.load_incluster_config()
+        else:
+            if proxy_url := kube_config_proxy_url(config.kube_config.KUBE_CONFIG_DEFAULT_LOCATION):
+                configuration = client.Configuration.get_default_copy()
+                configuration.proxy = proxy_url
+                client.Configuration.set_default(configuration)
 
     @staticmethod
     def get_namespace():

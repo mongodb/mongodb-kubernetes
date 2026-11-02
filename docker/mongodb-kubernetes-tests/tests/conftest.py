@@ -35,6 +35,9 @@ def _load_env_from_local_file_for_development():
         print(f"NAMESPACE already set, skipping loading environment variables from {env_file}")
         return
 
+    # The file of this side goes first: load_dotenv keeps the value a key already has.
+    side = "devc" if Path("/.dockerenv").exists() else "host"
+    load_dotenv(env_file.with_name(f"context.{side}.env"))
     load_dotenv(env_file)
     print(f"Loaded environment variables from file {env_file}")
 
@@ -61,7 +64,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import kube_config_proxy_url, running_locally
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -85,10 +88,7 @@ from tests.constants import (
 )
 from tests.multicluster import prepare_multi_cluster_namespaces
 
-try:
-    kubernetes.config.load_kube_config()
-except Exception:
-    kubernetes.config.load_incluster_config()
+KubernetesTester.load_configuration()
 
 from urllib3.util.retry import Retry
 
@@ -1227,11 +1227,13 @@ def _get_client_for_cluster(
         raise ValueError(f"No token found for cluster {cluster_name}")
 
     configuration = kubernetes.client.Configuration()
+    kube_config_file = os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH)
     kubernetes.config.load_kube_config(
         context=cluster_name,
-        config_file=os.environ.get("KUBECONFIG", KUBECONFIG_FILEPATH),
+        config_file=kube_config_file,
         client_configuration=configuration,
     )
+    configuration.proxy = kube_config_proxy_url(kube_config_file, cluster_name)
     configuration.host = CLUSTER_HOST_MAPPING.get(cluster_name, configuration.host)
 
     configuration.verify_ssl = False
