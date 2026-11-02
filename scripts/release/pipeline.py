@@ -233,6 +233,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         agent_tools_version=agent_tools_version,
         custom_agent_url=args.custom_agent_url,
         om_download_url=args.om_download_url,
+        isolated=bool(isolated_namespace),
     )
 
 
