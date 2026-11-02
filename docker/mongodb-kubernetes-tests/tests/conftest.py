@@ -255,7 +255,13 @@ def aws_s3_client(evergreen_task_id: str) -> AwsS3Client:
 
 
 def get_aws_s3_client(evergreen_task_id: str = ""):
-    tags = {"environment": "mongodb-enterprise-operator-tests"}
+    # mongodb-owner and mongodb-env are required tags for AWS resources.
+    # environment and evg_task are used by scripts/evergreen/prepare_aws.sh to clean up buckets.
+    tags = {
+        "environment": "mongodb-enterprise-operator-tests",
+        "mongodb-owner": "kubernetes-hosted-team@mongodb.com",
+        "mongodb-env": "test",
+    }
 
     if evergreen_task_id != "":
         tags["evg_task"] = evergreen_task_id
