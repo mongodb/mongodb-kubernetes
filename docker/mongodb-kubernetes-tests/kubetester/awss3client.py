@@ -3,7 +3,15 @@ from typing import Dict, Optional
 
 import boto3
 from botocore.exceptions import ClientError
+from kubetester import random_k8s_name
 from kubetester.kubetester import get_env_var_or_fail
+
+# All e2e buckets share this prefix so they are recognisable as MCK test buckets (and cleaned up by prepare_aws.sh).
+E2E_BUCKET_PREFIX = "mck-e2e-"
+
+
+def e2e_bucket_name(prefix: str) -> str:
+    return random_k8s_name(E2E_BUCKET_PREFIX + prefix)
 
 
 class AwsS3Client:
