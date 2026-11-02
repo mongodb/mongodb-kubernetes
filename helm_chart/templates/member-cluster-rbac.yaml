@@ -42,10 +42,11 @@ Scope model (set exclusively by the plugin):
     namespace — narrowed renders contain no cluster-scoped resources. "*" is never a
     valid entry — cluster-wide permission is expressed only via clusterScoped.
 */ -}}
-{{- if (.Values.memberCluster | default dict).enabled }}
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false -}}
+{{- if $memberMode }}
     {{- $name := "mck-member" }}
     {{- $namespace := include "mongodb-kubernetes-operator.namespace" . }}
-    {{- $memberCluster := .Values.memberCluster | default dict }}
     {{- $clusterScoped := $memberCluster.clusterScoped | default false }}
     {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default ($namespace | list) }}
     {{- $bindingNamespaces := concat $workloadNamespaces ($namespace | list) | uniq }}

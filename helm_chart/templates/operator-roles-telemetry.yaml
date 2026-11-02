@@ -1,4 +1,5 @@
-{{- $memberMode := (.Values.memberCluster | default dict).enabled | default false }}
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false }}
 {{- $telemetry := default dict .Values.operator.telemetry }}
 
 {{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
