@@ -600,6 +600,18 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	reconciler := r.reconciler
 	log := r.log
 
+	// When migrating to managed certificates from legacy TLS management, keep the legacy certificate files in the new -pem secrets,
+	// so the restarted pods still have the files the automation config (old) names until it is updated.
+	if lastSpec := r.deploymentState.LastAchievedSpec; lastSpec != nil && mdbv1.IsMigratingToManagedCertificate(lastSpec.GetSecurity(), rs.GetSecurity()) {
+		// Refuse a migration that would change the subjects MongoDB uses to identify the deployment.
+		if status := certs.VerifyMigrationSubjects(ctx, reconciler.client, rs, lastSpec.GetSecurity(), rs.Name, log); !status.IsOK() {
+			return status
+		}
+		if err := certs.SeedManagedPEMSecretsFromLegacy(ctx, reconciler.SecretClient, rs.Namespace, rs.Name, rs.Name, lastSpec.GetSecurity(), rs.GetSecurity(), log); err != nil {
+			return workflow.Failed(err)
+		}
+	}
+
 	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: reconciler.SecretClient}
 	status := reconciler.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, deploymentOptions.currentAgentAuthMode, log)
 	if !status.IsOK() {

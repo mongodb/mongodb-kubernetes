@@ -716,6 +716,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 	// stateful-sets in parallel.
 	scalingFirstTime := len(processes) == 0
 
+	// When migrating to managed certificates from legacy TLS management, make sure the correct membership/agent subject
+	// is configured in the CR. Configured subjects must match the subject of legacy certificates to make sure mongod membership
+	// identification works as expected. If the condition is not met, an error is returned with expected subject values.
+	// The certificates are read from the  central cluster, where the user created them.
+	if lastSpec, err := mrs.ReadLastAchievedSpec(); err != nil {
+		return workflow.Failed(err)
+	} else if lastSpec != nil && mdb.IsMigratingToManagedCertificate(lastSpec.GetSecurity(), mrs.GetSecurity()) {
+		if status := certs.VerifyMigrationSubjects(ctx, r.client, mrs, lastSpec.GetSecurity(), mrs.Name, log); !status.IsOK() {
+			return status
+		}
+	}
+
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, item := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, item.ClusterName) {
@@ -748,6 +760,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 
 			if err != nil && !apiErrors.IsAlreadyExists(err) {
 				return workflow.Failed(xerrors.Errorf("Failed to sync CA ConfigMap in cluster: %s, err: %w", item.ClusterName, err))
+			}
+		}
+
+		// When migrating to managed certificates from legacy TLS management, keep the legacy certificate files in the new -pem secrets,
+		// so the restarted pods still have the files the automation config (old) names until it is updated.
+		lastSpec, err := mrs.ReadLastAchievedSpec()
+		if err != nil {
+			return workflow.Failed(err)
+		}
+		if lastSpec != nil && mdb.IsMigratingToManagedCertificate(lastSpec.GetSecurity(), mrs.GetSecurity()) {
+			if err := certs.SeedManagedPEMSecretsFromLegacy(ctx, secretMemberClient, mrs.Namespace, mrs.Name, mrs.Name, lastSpec.GetSecurity(), mrs.GetSecurity(), log); err != nil {
+				return workflow.Failed(err)
 			}
 		}
 

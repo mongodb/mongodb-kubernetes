@@ -3,6 +3,7 @@ package certs
 import (
 	"context"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -1022,22 +1023,35 @@ func verifyMembershipSubjects(ctx context.Context, c kubernetesClient.Client, re
 // its subject Organization and OrganizationalUnit — the attributes mongod compares for
 // cluster membership.
 func readCertOrgUnits(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, secretName string) ([]string, []string, workflow.Status) {
-	s, err := c.GetSecret(ctx, types.NamespacedName{Name: secretName, Namespace: res.GetNamespace()})
+	subject, found, status := readCertSubject(ctx, c, res.GetNamespace(), secretName)
+	if !status.IsOK() {
+		return nil, nil, status
+	}
+	if !found {
+		return nil, nil, workflow.Pending("Waiting for cert-manager to write the certificate secret %s", secretName)
+	}
+	return subject.Organization, subject.OrganizationalUnit, workflow.OK()
+}
+
+// readCertSubject reads the subject of the leaf certificate a secret holds. found is false when the
+// secret is not there.
+func readCertSubject(ctx context.Context, c kubernetesClient.Client, namespace, secretName string) (pkix.Name, bool, workflow.Status) {
+	s, err := c.GetSecret(ctx, types.NamespacedName{Name: secretName, Namespace: namespace})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			return nil, nil, workflow.Pending("Waiting for cert-manager to write the certificate secret %s", secretName)
+			return pkix.Name{}, false, workflow.OK()
 		}
-		return nil, nil, workflow.Failed(err)
+		return pkix.Name{}, false, workflow.Failed(err)
 	}
 	block, _ := pem.Decode(s.Data[corev1.TLSCertKey])
 	if block == nil {
-		return nil, nil, workflow.Failed(xerrors.Errorf("could not PEM-decode tls.crt in secret %s", secretName))
+		return pkix.Name{}, false, workflow.Failed(xerrors.Errorf("could not PEM-decode tls.crt in secret %s", secretName))
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return nil, nil, workflow.Failed(xerrors.Errorf("could not parse certificate in secret %s: %w", secretName, err))
+		return pkix.Name{}, false, workflow.Failed(xerrors.Errorf("could not parse certificate in secret %s: %w", secretName, err))
 	}
-	return cert.Subject.Organization, cert.Subject.OrganizationalUnit, workflow.OK()
+	return cert.Subject, true, workflow.OK()
 }
 
 func certificateReady(cert *certmanagerv1.Certificate) bool {

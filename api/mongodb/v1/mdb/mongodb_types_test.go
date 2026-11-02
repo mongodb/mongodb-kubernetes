@@ -1103,3 +1103,62 @@ func TestInitDefaults_AppDBAuthDefaults(t *testing.T) {
 		assert.Nil(t, mdb.Spec.Security.Authentication)
 	})
 }
+
+func TestIsMigratingToManagedCertificate(t *testing.T) {
+	legacyTLS := &Security{TLSConfig: &TLSConfig{Enabled: true, CA: "issuer-ca"}}
+	legacyPrefix := &Security{CertificatesSecretsPrefix: "prefix"}
+	noTLS := &Security{}
+	managed := &Security{ManagedCertificate: &ManagedCertificate{}}
+
+	tests := []struct {
+		name         string
+		lastAchieved *Security
+		current      *Security
+		expected     bool
+	}{
+		{name: "tls.enabled to managedCertificate is a migration", lastAchieved: legacyTLS, current: managed, expected: true},
+		{name: "certsSecretPrefix to managedCertificate is a migration", lastAchieved: legacyPrefix, current: managed, expected: true},
+		{name: "TLS off to managedCertificate is not a migration", lastAchieved: noTLS, current: managed, expected: false},
+		{name: "no security block to managedCertificate is not a migration", lastAchieved: nil, current: managed, expected: false},
+		{name: "managedCertificate that stays on is not a migration", lastAchieved: managed, current: managed, expected: false},
+		{name: "legacy TLS that stays legacy is not a migration", lastAchieved: legacyTLS, current: legacyTLS, expected: false},
+		{name: "removing managedCertificate is not a migration to it", lastAchieved: managed, current: nil, expected: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsMigratingToManagedCertificate(tc.lastAchieved, tc.current))
+		})
+	}
+}
+
+// The last applied spec arrives as JSON in the lastSuccessfulConfiguration annotation,
+// not as a struct, so the fields the migration check reads have to survive that round trip. If one of
+// them stops being written or read back, the check would quietly never see a migration.
+func TestIsMigratingToManagedCertificate_FieldsSurviveTheLastAppliedSpecAnnotation(t *testing.T) {
+	tests := []struct {
+		name     string
+		security *Security
+		expected bool
+	}{
+		{name: "tls.enabled", security: &Security{TLSConfig: &TLSConfig{Enabled: true}}, expected: true},
+		{name: "certsSecretPrefix only", security: &Security{CertificatesSecretsPrefix: "prefix"}, expected: true},
+		{name: "TLS off", security: &Security{}, expected: false},
+		{name: "managedCertificate", security: &Security{ManagedCertificate: &ManagedCertificate{}}, expected: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := NewReplicaSetBuilder().Build()
+			rs.Spec.Security = tc.security
+			specBytes, err := json.Marshal(rs.Spec)
+			require.NoError(t, err)
+			rs.Annotations = map[string]string{util.LastAchievedSpec: string(specBytes)}
+
+			lastSpec, err := rs.GetLastSpec()
+			require.NoError(t, err)
+			require.NotNil(t, lastSpec)
+
+			current := &Security{ManagedCertificate: &ManagedCertificate{}}
+			assert.Equal(t, tc.expected, IsMigratingToManagedCertificate(lastSpec.GetSecurity(), current))
+		})
+	}
+}

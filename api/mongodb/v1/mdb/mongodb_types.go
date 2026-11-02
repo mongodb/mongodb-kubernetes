@@ -959,6 +959,18 @@ func (s *Security) IsManagedCertificateEnabled() bool {
 	return s != nil && s.ManagedCertificate != nil
 }
 
+// IsMigratingToManagedCertificate reports whether the resource is being moved from legacy way of
+// configuring certificates (user created cert secrets provided to CR) to operator-managed certificates.
+// lastAchieved is the security of the last spec the operator applied successfully, current is the security in the spec
+// now. The last applied spec is only saved when a reconcile succeeds, so this stays true on every
+// reconcile until the migration has finished.
+//
+// A resource that had TLS off is not migrating: it had no certificate files, so turning on
+// managedCertificate is the same as turning on TLS.
+func IsMigratingToManagedCertificate(lastAchieved, current *Security) bool {
+	return lastAchieved.IsTLSEnabled() && !lastAchieved.IsManagedCertificateEnabled() && current.IsManagedCertificateEnabled()
+}
+
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
 func (s *Security) MemberCertificateSecretName(defaultName string) string {
 	if s.CertificatesSecretsPrefix != "" {
