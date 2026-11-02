@@ -49,6 +49,18 @@ func replaceImageTagOrDigestToTag(image string, newVersion string) string {
 // ImageUrls is a map of image names to their corresponding image URLs.
 type ImageUrls map[string]string
 
+const defaultMongodbProxyImage = "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-mongodb-proxy"
+
+func MongodbProxyImage(imageUrls ImageUrls, operatorVersion string) string {
+	if image := imageUrls[util.MongodbProxyImageEnv]; image != "" {
+		return image
+	}
+	if operatorVersion == "" {
+		operatorVersion = "latest"
+	}
+	return fmt.Sprintf("%s:%s", defaultMongodbProxyImage, operatorVersion)
+}
+
 // LoadImageUrlsFromEnv reads all environment variables and selects
 // the ones that are related to images for workloads. This includes env vars
 // with RELATED_IMAGE_ prefix.

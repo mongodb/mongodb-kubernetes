@@ -24,6 +24,7 @@ from scripts.release.atomic_pipeline import (
     build_init_om_image,
     build_mco_tests_image,
     build_meko_tests_image,
+    build_mongodb_proxy_image,
     build_om_image,
     build_operator_image,
     build_readiness_probe_image,
@@ -39,6 +40,7 @@ from scripts.release.build.build_info import (
     MEKO_TESTS_IBM_POWER_IMAGE,
     MEKO_TESTS_IBM_Z_IMAGE,
     MEKO_TESTS_IMAGE,
+    MONGODB_PROXY_IMAGE,
     OPERATOR_IMAGE,
     OPERATOR_RACE_IMAGE,
     OPS_MANAGER_IMAGE,
@@ -75,6 +77,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         UPGRADE_HOOK_IMAGE: build_upgrade_hook_image,
         DATABASE_IMAGE: build_database_image,
         AGENT_IMAGE: build_agent,
+        MONGODB_PROXY_IMAGE: build_mongodb_proxy_image,
         # Init images
         INIT_DATABASE_IMAGE: build_init_database_image,
         INIT_OPS_MANAGER_IMAGE: build_init_om_image,

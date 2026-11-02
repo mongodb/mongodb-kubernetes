@@ -279,6 +279,13 @@ def build_upgrade_hook_image(build_configuration: ImageBuildConfiguration):
     )
 
 
+def build_mongodb_proxy_image(build_configuration: ImageBuildConfiguration):
+    """Builds the image that supplies the proxy binary through an image volume."""
+    build_image(
+        build_configuration=build_configuration,
+    )
+
+
 def build_agent(build_configuration: ImageBuildConfiguration):
     """Build the agent image(s). Validation happens in pipeline.py."""
     version = build_configuration.version

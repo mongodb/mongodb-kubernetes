@@ -38,6 +38,11 @@ def test_load_build_info_development():
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
             ),
+            "mongodb-proxy": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-mongodb-proxy",
+                platforms=["linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-mongodb-proxy/Dockerfile",
+            ),
             "mco-tests": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests",
                 platforms=["linux/amd64"],
@@ -137,6 +142,11 @@ def test_load_build_info_patch():
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-database",
                 platforms=["linux/amd64"],
                 dockerfile_path="docker/mongodb-kubernetes-database/Dockerfile",
+            ),
+            "mongodb-proxy": ImageInfo(
+                repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-mongodb-proxy",
+                platforms=["linux/amd64", "linux/arm64", "linux/s390x", "linux/ppc64le"],
+                dockerfile_path="docker/mongodb-kubernetes-mongodb-proxy/Dockerfile",
             ),
             "mco-tests": ImageInfo(
                 repository="268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-community-tests",

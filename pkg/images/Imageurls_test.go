@@ -53,6 +53,40 @@ func TestContainerImage(t *testing.T) {
 	assert.Equal(t, "mongodb:1.2.3", ContainerImage(imageUrls, util.OpsManagerImageUrl, "1.2.3"))
 }
 
+func TestMongodbProxyImage(t *testing.T) {
+	tests := []struct {
+		name            string
+		imageUrls       ImageUrls
+		operatorVersion string
+		want            string
+	}{
+		{
+			name:            "uses the patch image for the operator version",
+			imageUrls:       ImageUrls{},
+			operatorVersion: "1.2.3",
+			want:            "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-mongodb-proxy:1.2.3",
+		},
+		{
+			name:            "uses latest for development builds",
+			imageUrls:       ImageUrls{},
+			operatorVersion: "",
+			want:            "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-mongodb-proxy:latest",
+		},
+		{
+			name:            "honors an explicit full image reference",
+			imageUrls:       ImageUrls{util.MongodbProxyImageEnv: "registry.example/proxy@sha256:abc"},
+			operatorVersion: "1.2.3",
+			want:            "registry.example/proxy@sha256:abc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, MongodbProxyImage(tt.imageUrls, tt.operatorVersion))
+		})
+	}
+}
+
 func TestGetAppDBImage(t *testing.T) {
 	// Note: if no DefaultImageType is given, we will default to ubi8
 	tests := []struct {
