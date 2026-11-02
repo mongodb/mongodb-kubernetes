@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 import pytest
 from freezegun import freeze_time
 from kubeobject import CustomObject
+from kubernetes import client
+from kubernetes.client.rest import RESTClientObject
 
 yaml_data0 = """
 ---
@@ -66,6 +68,33 @@ def mocked_crd_return_value():
             names=SimpleNamespace(plural="dummies", kind="Dummy"),
         )
     )
+
+
+def test_reload_passes_request_timeout_to_kubernetes():
+    custom = CustomObject(name="mock", namespace="mock", plural="mock", kind="mock", group="mock", version="v1")
+    custom.api.get_namespaced_custom_object = MagicMock(return_value={"metadata": {"name": "mock"}})
+
+    assert custom.reload(request_timeout=2.5) is custom
+    custom.api.get_namespaced_custom_object.assert_called_once_with(
+        "mock", "v1", "mock", "mock", "mock", _request_timeout=(2.5, 2.5)
+    )
+
+
+def test_reload_timeout_is_understood_by_kubernetes_rest_client():
+    rest = RESTClientObject(client.Configuration())
+    rest.pool_manager.request = MagicMock(return_value=SimpleNamespace(status=200))
+    custom = CustomObject(name="mock", namespace="mock", plural="mock", kind="mock", group="mock", version="v1")
+
+    def get_object(*args, _request_timeout):
+        rest.request("GET", "https://example.invalid", _preload_content=False, _request_timeout=_request_timeout)
+        return {"metadata": {"name": "mock"}}
+
+    custom.api.get_namespaced_custom_object = get_object
+    custom.reload(request_timeout=2.5)
+
+    timeout = rest.pool_manager.request.call_args.kwargs["timeout"]
+    assert timeout.connect_timeout == 2.5
+    assert timeout.read_timeout == 2.5
 
 
 @mock.patch("kubeobject.customobject.client.CustomObjectsApi")

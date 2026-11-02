@@ -2,6 +2,7 @@ import pytest
 import requests
 from kubernetes.client.rest import ApiException
 from kubetester import polling
+from kubetester.mongodb_common import MongoDBCommon
 from kubetester.polling import PollTimeoutError, poll_until
 from urllib3.exceptions import ConnectTimeoutError, ReadTimeoutError
 
@@ -167,3 +168,46 @@ def test_timeout_without_raise_returns_none_and_logs(clock, caplog):
         is None
     )
     assert "still present" in caplog.text
+
+
+class FakeMongoDB(MongoDBCommon):
+    def __init__(self, observations, cached_members):
+        self.observations = iter(observations)
+        self.members = cached_members
+        self.request_timeouts = []
+
+    def reload(self, *, request_timeout=None):
+        self.request_timeouts.append(request_timeout)
+        observation = next(self.observations)
+        if isinstance(observation, Exception):
+            raise observation
+        self.members = observation
+
+
+def test_shared_resource_wait_never_checks_cached_state_after_failed_reload(clock):
+    resource = FakeMongoDB([requests.exceptions.Timeout(), None, 3], cached_members=3)
+    observed_members = []
+
+    def members_present(mdb):
+        observed_members.append(mdb.members)
+        return mdb.members is not None
+
+    assert resource.wait_for(members_present, timeout=10, use_shared_poller=True, description="members")
+    assert observed_members == [None, 3]
+    assert resource.request_timeouts == [10, 7, 4]
+
+
+def test_shared_resource_wait_fails_fast_on_forbidden_reload(clock):
+    resource = FakeMongoDB([ApiException(status=403)], cached_members=3)
+    observed_members = []
+
+    with pytest.raises(ApiException) as error:
+        resource.wait_for(
+            lambda mdb: observed_members.append(mdb.members) or True,
+            timeout=10,
+            use_shared_poller=True,
+            description="members",
+        )
+
+    assert error.value.status == 403
+    assert observed_members == []
