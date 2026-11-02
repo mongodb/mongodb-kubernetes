@@ -228,6 +228,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         architecture_suffix=architecture_suffix,
         agent_tools_version=agent_tools_version,
         custom_agent_url=args.custom_agent_url,
+        isolated=bool(isolated_namespace),
     )
 
 
