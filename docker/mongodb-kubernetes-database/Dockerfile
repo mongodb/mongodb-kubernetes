@@ -2,39 +2,38 @@ FROM scratch AS base
 
 COPY ./docker/mongodb-kubernetes-database/LICENSE /data/licenses/mongodb-kubernetes-database
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal
+FROM registry.access.redhat.com/ubi9/ubi-micro AS micro
+
+# ubi-micro has no package manager: packages are installed into a copy of its rootfs from a full UBI image.
+# Runs on the target platform because RPMs and their scriptlets are architecture specific.
+FROM registry.access.redhat.com/ubi9/ubi AS rootfs_builder
+COPY --from=micro / /mnt/rootfs
+# - nss_wrapper, hostname, procps-ng, curl, jq, tar, gzip, findutils, grep, sed, gawk: agent launcher scripts
+# - the rest: MongoDB runtime libraries
+#   (https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/ "RHEL 9" tab)
+RUN dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
+        --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
+        upgrade \
+    && dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
+        --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
+        install \
+        nss_wrapper hostname procps-ng curl jq tar gzip findutils grep sed gawk \
+        cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs libcurl lm_sensors-libs \
+        net-snmp net-snmp-agent-libs openldap openssl xz-libs \
+    && dnf --installroot=/mnt/rootfs clean all \
+    # rpm-libs (needed by net-snmp-agent-libs, linked by MongoDB 6.0) requires the rpm package manager itself.
+    # Erase it so that no package manager ends up in the image, while keeping the rpm database accurate for scanners.
+    && rpm --root=/mnt/rootfs --erase --nodeps rpm \
+    && rm -rf /mnt/rootfs/var/cache/dnf /mnt/rootfs/var/log/dnf* /mnt/rootfs/var/log/hawkey.log
+
+FROM registry.access.redhat.com/ubi9/ubi-micro
 
 ENV MMS_HOME=/mongodb-automation
 ENV MMS_LOG_DIR=/var/log/mongodb-mms-automation
 
-RUN microdnf update -y && rm -rf /var/cache/yum
-
-# these are the packages needed for the agent
-RUN microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper
-RUN microdnf install -y --disableplugin=subscription-manager \
-        hostname \
-        procps
-
-# these are the packages needed for MongoDB
-# (https://docs.mongodb.com/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/ "RHEL/CentOS 8" tab)
-RUN microdnf install -y --disableplugin=subscription-manager \
-        cyrus-sasl \
-        cyrus-sasl-gssapi \
-        cyrus-sasl-plain \
-        krb5-libs \
-        libcurl \
-        lm_sensors-libs \
-        net-snmp \
-        net-snmp-agent-libs \
-        openldap \
-        openssl \
-        jq \
-        tar \
-        xz-libs \
-        findutils
+COPY --from=rootfs_builder /mnt/rootfs/ /
 
 RUN ln -s /usr/lib64/libsasl2.so.3 /usr/lib64/libsasl2.so.2
-
 # Set the required perms
 RUN mkdir -p "${MMS_LOG_DIR}" \
         && chmod 0775 "${MMS_LOG_DIR}" \
