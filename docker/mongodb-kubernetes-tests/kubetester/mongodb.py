@@ -42,6 +42,8 @@ INTERMEDIATE_EVENTS = (
     # Ops Manager must be recovering from an Upgrade, and it is
     # currently DOWN.
     "connect: connection refused",
+    # Ops Manager can close the connection during a write; a later reconcile can recover.
+    "write: broken pipe",
     # tests that restart OM might cause the operator to hit "no such host" due to NXDOMAIN from headless fqdn
     "no such host",
     "MongoDB version information is not yet available",

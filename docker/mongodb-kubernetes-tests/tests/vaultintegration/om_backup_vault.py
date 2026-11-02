@@ -13,7 +13,7 @@ from kubetester import (
     read_secret,
     try_load,
 )
-from kubetester.awss3client import AwsS3Client, s3_endpoint
+from kubetester.awss3client import AwsS3Client, e2e_bucket_name, s3_endpoint
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
 from kubetester.http import https_endpoint_is_reachable
 from kubetester.kubetester import KubernetesTester, assert_container_count_with_static
@@ -89,7 +89,7 @@ def create_aws_secret(
 
 def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
     """creates a s3 bucket and a s3 config"""
-    bucket_prefix = KubernetesTester.random_k8s_name(bucket_prefix)
+    bucket_prefix = e2e_bucket_name(bucket_prefix)
     aws_s3_client.create_s3_bucket(bucket_prefix)
     print("Created S3 bucket", bucket_prefix)
 
