@@ -54,27 +54,38 @@ RUN tar xfz /agent/mongodb_agent.tgz \
     && rm /agent/mongodb_agent.tgz \
     && rm -r mongodb-mms-automation-agent-*
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal
+FROM registry.access.redhat.com/ubi9/ubi-micro AS micro
 
-# Replace libcurl-minimal and curl-minimal with the full versions
-# https://bugzilla.redhat.com/show_bug.cgi?id=1994521
-RUN  microdnf install -y libssh libpsl libbrotli \
-    && microdnf download curl libcurl \
-    && rpm -Uvh --nodeps --replacefiles "*curl*$( uname -i ).rpm" \
-    && microdnf remove -y libcurl-minimal curl-minimal
+# ubi-micro has no package manager: packages are installed into a copy of its rootfs from a full UBI image.
+# Runs on the target platform because RPMs and their scriptlets are architecture specific.
+FROM registry.access.redhat.com/ubi9/ubi AS rootfs_builder
+COPY --from=micro / /mnt/rootfs
+# - nss_wrapper: LD_PRELOADed by agent-launcher.sh for OpenShift random UIDs
+# - cyrus-sasl*, krb5-libs, openldap, openssl, xz-libs, libcurl: mongod runtime libraries
+#   (https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/), used by the
+#   mongod binary of the static architecture which runs in this container
+# - net-snmp*: agent and MongoDB 6.0 SNMP support
+# - the rest: commands used by the agent launcher scripts
+RUN dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
+        --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
+        upgrade \
+    && dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
+        --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
+        install \
+        curl libcurl \
+        nss_wrapper \
+        cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs openldap openssl xz-libs \
+        net-snmp net-snmp-agent-libs \
+        hostname tar gzip procps-ng jq findutils grep sed gawk \
+    && dnf --installroot=/mnt/rootfs clean all \
+    # rpm-libs (needed by net-snmp-agent-libs, linked by MongoDB 6.0) requires the rpm package manager itself.
+    # Erase it so that no package manager ends up in the image, while keeping the rpm database accurate for scanners.
+    && rpm --root=/mnt/rootfs --erase --nodeps rpm \
+    && rm -rf /mnt/rootfs/var/cache/dnf /mnt/rootfs/var/log/dnf* /mnt/rootfs/var/log/hawkey.log
 
-RUN microdnf install -y --disableplugin=subscription-manager --setopt=install_weak_deps=0 nss_wrapper
-# Copy-pasted from https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/
-RUN microdnf install -y --disableplugin=subscription-manager \
- cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs openldap openssl xz-libs
-# Dependencies for the Agent
-RUN microdnf install -y --disableplugin=subscription-manager  --setopt=install_weak_deps=0 \
-        net-snmp \
-        net-snmp-agent-libs
-RUN microdnf install -y --disableplugin=subscription-manager \
-    hostname tar gzip procps jq \
-    && microdnf upgrade -y  \
-    && rm -rf /var/lib/apt/lists/*
+FROM registry.access.redhat.com/ubi9/ubi-micro
+
+COPY --from=rootfs_builder /mnt/rootfs/ /
 
 RUN mkdir -p /agent \
     && mkdir -p /var/lib/mongodb-mms-automation \
