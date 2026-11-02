@@ -5,6 +5,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.common.ops_manager.cloud_manager import is_cloud_qa
 
 USER_NAME = "mms-user-1"
 PASSWORD = "my-password"
@@ -66,7 +67,7 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
 @mark.usefixtures("ldap_mongodb_agent_user", "ldap_user_mongodb")
 def test_replica_set(replica_set: MongoDB):
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600 if is_cloud_qa() else 400)
 
 
 @mark.e2e_replica_set_ldap_agent_auth

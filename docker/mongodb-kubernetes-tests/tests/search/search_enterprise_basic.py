@@ -10,6 +10,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
+from tests.common.ops_manager.cloud_manager import is_cloud_qa
 from tests.common.search import movies_search_helper
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
@@ -93,7 +94,7 @@ def test_create_ops_manager(namespace: str):
 @mark.e2e_search_enterprise_basic
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600 if is_cloud_qa() else 300)
 
 
 @mark.e2e_search_enterprise_basic
