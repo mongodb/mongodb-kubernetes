@@ -2,9 +2,9 @@ package mongodbproxy
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 const binaryNumactl = "numactl"
@@ -14,11 +14,12 @@ var replSetName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // launchSpec is a validated StartRequest turned into what exec needs.
 type launchSpec struct {
-	binary     string
-	args       []string
-	env        []string
-	numactl    bool
-	disableTHP bool
+	binary       string
+	args         []string
+	envOverrides []string
+	numactl      bool
+	numaPolicy   NumaPolicy
+	disableTHP   bool
 }
 
 func (r StartRequest) validate() (launchSpec, error) {
@@ -27,6 +28,9 @@ func (r StartRequest) validate() (launchSpec, error) {
 	}
 	if r.Role != RoleMain && r.Role != RoleEphemeral {
 		return launchSpec{}, fmt.Errorf("%w: role must be %q or %q", ErrInvalidRequest, RoleMain, RoleEphemeral)
+	}
+	if r.WaitForExit && strings.TrimSpace(r.OperationID) == "" {
+		return launchSpec{}, fmt.Errorf("%w: operationId is required when waitForExit is true", ErrInvalidRequest)
 	}
 	o := r.Other
 	// The executable name is picked from constants instead of being validated and reused: the string
@@ -42,6 +46,9 @@ func (r StartRequest) validate() (launchSpec, error) {
 	}
 	if o.ShardMaintenanceReplSet != "" && !replSetName.MatchString(o.ShardMaintenanceReplSet) {
 		return launchSpec{}, fmt.Errorf("%w: shardMaintenanceReplSet %q is not a valid replica set name", ErrInvalidRequest, o.ShardMaintenanceReplSet)
+	}
+	if o.NumaPolicy != "" && o.NumaPolicy != NumaPolicyAuto {
+		return launchSpec{}, fmt.Errorf("%w: numaPolicy must be %q", ErrInvalidRequest, NumaPolicyAuto)
 	}
 	for field, path := range map[string]string{"kerberosKeytab": o.KerberosKeytab, "ldapCaPath": o.LdapCaPath} {
 		if path != "" && !filepath.IsAbs(path) {
@@ -63,26 +70,29 @@ func (r StartRequest) validate() (launchSpec, error) {
 		args = append(args, "--configOnly")
 	}
 
-	env := os.Environ()
+	var envOverrides []string
 	if o.KerberosKeytab != "" {
-		env = append(env, "KRB5_KTNAME="+o.KerberosKeytab)
+		envOverrides = append(envOverrides, "KRB5_KTNAME="+o.KerberosKeytab)
 	}
 	if o.LdapCaPath != "" {
-		env = append(env, "LDAPTLS_CACERT="+o.LdapCaPath)
+		envOverrides = append(envOverrides, "LDAPTLS_CACERT="+o.LdapCaPath)
 	}
 	if o.RseqDisabled {
-		env = append(env, "GLIBC_TUNABLES=glibc.pthread.rseq=0")
+		envOverrides = append(envOverrides, "GLIBC_TUNABLES=glibc.pthread.rseq=0")
 	}
 	if o.DisableTHP {
-		env = append(env, "SET_THP_DISABLED=yes")
+		envOverrides = append(envOverrides, "SET_THP_DISABLED=yes")
 	}
 
-	return launchSpec{binary: binary, args: args, env: env, numactl: o.NumaInterleave, disableTHP: o.DisableTHP}, nil
+	return launchSpec{
+		binary: binary, args: args, envOverrides: envOverrides, numactl: o.NumaInterleave,
+		numaPolicy: o.NumaPolicy, disableTHP: o.DisableTHP,
+	}, nil
 }
 
 func (r StopRequest) validate() error {
-	if r.Role != "" && r.Role != RoleMain && r.Role != RoleEphemeral {
-		return fmt.Errorf("%w: role must be empty, %q or %q", ErrInvalidRequest, RoleMain, RoleEphemeral)
+	if r.Role != RoleMain && r.Role != RoleEphemeral {
+		return fmt.Errorf("%w: role must be %q or %q", ErrInvalidRequest, RoleMain, RoleEphemeral)
 	}
 	if r.TimeoutSeconds < 0 {
 		return fmt.Errorf("%w: timeoutSeconds must not be negative", ErrInvalidRequest)

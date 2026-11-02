@@ -53,11 +53,12 @@ func NewSupervisor(opts ...Option) *Supervisor {
 
 // Execution is one launched child.
 type Execution struct {
-	role       Role
-	configPath string
-	cmd        *exec.Cmd
-	output     *tailBuffer
-	done       chan struct{}
+	role        Role
+	configPath  string
+	operationID string
+	cmd         *exec.Cmd
+	output      *tailBuffer
+	done        chan struct{}
 
 	// set under Supervisor.mu before done is closed
 	exitCode int
@@ -102,7 +103,7 @@ func (s *Supervisor) statusLocked(e *Execution) Status {
 	if e == nil {
 		return Status{State: StateIdle}
 	}
-	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath}
+	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath, OperationID: e.operationID}
 	if e.finished() {
 		code := e.exitCode
 		st.State = StateExited
@@ -128,8 +129,19 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		return nil, ErrShuttingDown
 	}
 	if cur := s.current; cur != nil && !cur.finished() {
+		if cur.operationID != req.OperationID || cur.role != req.Role || cur.configPath != req.ConfigPath {
+			if cur.operationID != "" || req.OperationID != "" {
+				return nil, ErrOperationMismatch
+			}
+		}
 		if cur.role != req.Role {
 			return nil, ErrRoleConflict
+		}
+		return cur, nil
+	}
+	if cur := s.current; cur != nil && req.OperationID != "" && cur.operationID == req.OperationID {
+		if cur.role != req.Role || cur.configPath != req.ConfigPath {
+			return nil, ErrOperationMismatch
 		}
 		return cur, nil
 	}
@@ -140,7 +152,11 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 
 	name, args := path, spec.args
-	if spec.numactl {
+	useNumactl := spec.numactl
+	if spec.numaPolicy == NumaPolicyAuto {
+		useNumactl = s.numactlAvailable()
+	}
+	if useNumactl {
 		numactl, err := s.resolve(binaryNumactl)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrSpawn, err)
@@ -152,7 +168,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	// The program is mongod/mongos (optionally behind numactl) and every argument is built by
 	// validate() from typed fields; nothing from the request reaches a shell or is used as a flag verbatim.
 	cmd := exec.Command(name, args...) //nolint:gosec
-	cmd.Env = spec.env
+	cmd.Env = append(cmd.Environ(), spec.envOverrides...)
 	cmd.Stdout = io.MultiWriter(s.stdout, output)
 	cmd.Stderr = io.MultiWriter(s.stderr, output)
 	cmd.WaitDelay = waitDelay
@@ -166,11 +182,12 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 
 	e := &Execution{
-		role:       req.Role,
-		configPath: req.ConfigPath,
-		cmd:        cmd,
-		output:     output,
-		done:       make(chan struct{}),
+		role:        req.Role,
+		configPath:  req.ConfigPath,
+		operationID: req.OperationID,
+		cmd:         cmd,
+		output:      output,
+		done:        make(chan struct{}),
 	}
 	s.current = e
 	go s.wait(e)
@@ -196,46 +213,74 @@ func (s *Supervisor) resolve(binary string) (string, error) {
 	return exec.LookPath(binary)
 }
 
+func (s *Supervisor) numactlAvailable() bool {
+	path, err := s.resolve(binaryNumactl)
+	if err != nil {
+		return false
+	}
+	cmd := exec.Command(path, "--show") //nolint:gosec
+	return cmd.Run() == nil
+}
+
 // Stop sends SIGTERM to the running child and waits for it to exit.
 //   - already down: success
 //   - role set and different from the running child's role: ErrRoleMismatch, nothing is signalled
 //   - timeout elapsed without force: ErrStopTimeout, the child is left alone
 //   - timeout elapsed with force: SIGKILL, then wait for exit
 //   - timeout 0 with force: SIGKILL right away
-func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration, force bool) error {
+func (s *Supervisor) Stop(ctx context.Context, req StopRequest) (*Execution, error) {
+	if err := req.validate(); err != nil {
+		return nil, err
+	}
+
 	s.mu.Lock()
 	e := s.current
+	if e != nil && (req.OperationID != e.operationID || req.Role != e.role) {
+		s.mu.Unlock()
+		if req.OperationID != "" || e.operationID != "" {
+			return nil, ErrOperationMismatch
+		}
+		return nil, ErrRoleMismatch
+	}
+	if e == nil && req.OperationID != "" {
+		s.mu.Unlock()
+		return nil, ErrOperationMismatch
+	}
 	s.mu.Unlock()
 
 	if e == nil || e.finished() {
-		return nil
-	}
-	if role != "" && role != e.role {
-		return ErrRoleMismatch
+		return e, nil
 	}
 
+	timeout := time.Duration(req.TimeoutSeconds * float64(time.Second))
 	if timeout <= 0 {
-		if !force {
-			return fmt.Errorf("%w: timeout must be > 0 unless force is set", ErrInvalidRequest)
+		if !req.Force {
+			return nil, fmt.Errorf("%w: timeout must be > 0 unless force is set", ErrInvalidRequest)
 		}
-		return s.kill(ctx, e)
+		if err := s.kill(ctx, e); err != nil {
+			return nil, err
+		}
+		return e, nil
 	}
 
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("signalling the process: %w", err)
+		return nil, fmt.Errorf("signalling the process: %w", err)
 	}
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case <-e.done:
-		return nil
+		return e, nil
 	case <-timer.C:
-		if !force {
-			return ErrStopTimeout
+		if !req.Force {
+			return nil, ErrStopTimeout
 		}
-		return s.kill(ctx, e)
+		if err := s.kill(ctx, e); err != nil {
+			return nil, err
+		}
+		return e, nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 

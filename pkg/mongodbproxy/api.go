@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	"go.uber.org/zap"
 )
@@ -70,13 +69,13 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	timeout := time.Duration(req.TimeoutSeconds * float64(time.Second))
-	if err := h.s.Stop(r.Context(), req.Role, timeout, req.Force); err != nil {
+	e, err := h.s.Stop(r.Context(), req)
+	if err != nil {
 		h.fail(w, err)
 		return
 	}
 	h.log.Infow("process stopped", "role", req.Role, "force", req.Force)
-	writeJSON(w, http.StatusOK, h.s.Status())
+	writeJSON(w, http.StatusOK, h.s.StatusOf(e))
 }
 
 func (h *handler) fail(w http.ResponseWriter, err error) {
@@ -88,6 +87,8 @@ func (h *handler) fail(w http.ResponseWriter, err error) {
 		status, code = http.StatusConflict, "role_conflict"
 	case errors.Is(err, ErrRoleMismatch):
 		status, code = http.StatusConflict, "role_mismatch"
+	case errors.Is(err, ErrOperationMismatch):
+		status, code = http.StatusConflict, "operation_mismatch"
 	case errors.Is(err, ErrShuttingDown):
 		status, code = http.StatusServiceUnavailable, "shutting_down"
 	case errors.Is(err, ErrStopTimeout):

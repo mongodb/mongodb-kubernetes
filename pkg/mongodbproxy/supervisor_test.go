@@ -26,7 +26,7 @@ const fakeMongod = `#!/bin/sh
 mode=$(cat "$2")
 case "$mode" in
   exit:*) echo "exiting with ${mode#exit:}"; exit "${mode#exit:}";;
-  env) echo "KRB5_KTNAME=$KRB5_KTNAME LDAPTLS_CACERT=$LDAPTLS_CACERT GLIBC_TUNABLES=$GLIBC_TUNABLES SET_THP_DISABLED=$SET_THP_DISABLED"; exit 0;;
+  env) echo "KRB5_KTNAME=$KRB5_KTNAME LDAPTLS_CACERT=$LDAPTLS_CACERT GLIBC_TUNABLES=$GLIBC_TUNABLES SET_THP_DISABLED=$SET_THP_DISABLED ST1_INHERITED_ENV=$ST1_INHERITED_ENV"; exit 0;;
   args) echo "ARGS: $*"; exit 0;;
   run) trap 'exit 0' TERM;;
   ignoreterm) trap '' TERM;;
@@ -37,6 +37,9 @@ while true; do sleep 0.1; done
 
 // fakeNumactl announces itself, drops "--interleave=all" and runs the rest of the command line.
 const fakeNumactl = `#!/bin/sh
+if [ "$1" = "--show" ]; then
+  exit "${FAKE_NUMACTL_SHOW_EXIT:-0}"
+fi
 echo "numactl $1"
 shift
 exec "$@"
@@ -77,8 +80,14 @@ func newFixture(t *testing.T) *fixture {
 	stdout := &syncBuffer{}
 	sup := NewSupervisor(WithBinDir(dir), WithOutput(stdout, stdout))
 	t.Cleanup(func() {
-		// make sure no child outlives the test
-		_ = sup.Stop(context.Background(), "", 0, true)
+		status := sup.Status()
+		role := status.Role
+		if role == "" {
+			role = RoleMain
+		}
+		_, _ = sup.Stop(context.Background(), StopRequest{
+			Role: role, OperationID: status.OperationID, Force: true,
+		})
 	})
 	return &fixture{t: t, sup: sup, dir: dir, stdout: stdout}
 }
@@ -140,6 +149,84 @@ func TestStartWhileRunningIsNoOp(t *testing.T) {
 	assert.Same(t, first, second)
 }
 
+func TestOperationIdentityBindsRoleAndConfig(t *testing.T) {
+	f := newFixture(t)
+	cfg := f.config("main", "run")
+	first, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, OperationID: "op-1"})
+	require.NoError(t, err)
+	f.waitReady(cfg)
+
+	for _, req := range []StartRequest{
+		{ConfigPath: cfg, Role: RoleMain, OperationID: "op-2"},
+		{ConfigPath: f.config("other", "run"), Role: RoleMain, OperationID: "op-1"},
+		{ConfigPath: cfg, Role: RoleEphemeral, OperationID: "op-1"},
+		{ConfigPath: cfg, Role: RoleMain},
+	} {
+		_, err := f.sup.Start(req)
+		assert.ErrorIs(t, err, ErrOperationMismatch)
+	}
+
+	retry, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, OperationID: "op-1"})
+	require.NoError(t, err)
+	assert.Same(t, first, retry)
+	assert.Equal(t, "op-1", f.sup.Status().OperationID)
+}
+
+func TestCompletedOperationIdentityIsIdempotentAndAllowsNextOperation(t *testing.T) {
+	f := newFixture(t)
+	first, err := f.sup.Start(StartRequest{
+		ConfigPath: f.config("first", "exit:7"), Role: RoleEphemeral, OperationID: "op-1", WaitForExit: true,
+	})
+	require.NoError(t, err)
+	waitDone(t, first)
+
+	retry, err := f.sup.Start(StartRequest{
+		ConfigPath: first.configPath, Role: RoleEphemeral, OperationID: "op-1", WaitForExit: true,
+	})
+	require.NoError(t, err)
+	assert.Same(t, first, retry)
+	assert.Equal(t, StateExited, f.sup.Status().State)
+	require.NotNil(t, f.sup.Status().ExitCode)
+	assert.Equal(t, 7, *f.sup.Status().ExitCode)
+	_, err = f.sup.Start(StartRequest{
+		ConfigPath: f.config("wrong-config", "exit:0"), Role: RoleEphemeral, OperationID: "op-1", WaitForExit: true,
+	})
+	assert.ErrorIs(t, err, ErrOperationMismatch)
+	_, err = f.sup.Start(StartRequest{
+		ConfigPath: first.configPath, Role: RoleMain, OperationID: "op-1", WaitForExit: true,
+	})
+	assert.ErrorIs(t, err, ErrOperationMismatch)
+
+	next, err := f.sup.Start(StartRequest{
+		ConfigPath: f.config("second", "exit:0"), Role: RoleEphemeral, OperationID: "op-2", WaitForExit: true,
+	})
+	require.NoError(t, err)
+	waitDone(t, next)
+	assert.Equal(t, "op-2", f.sup.Status().OperationID)
+}
+
+func TestOperationIdentityProtectsSameRoleReplacementFromStaleStop(t *testing.T) {
+	f := newFixture(t)
+	first, err := f.sup.Start(StartRequest{
+		ConfigPath: f.config("first", "exit:0"), Role: RoleMain, OperationID: "op-1",
+	})
+	require.NoError(t, err)
+	waitDone(t, first)
+
+	second, err := f.sup.Start(StartRequest{
+		ConfigPath: f.config("second", "run"), Role: RoleMain, OperationID: "op-2",
+	})
+	require.NoError(t, err)
+	f.waitReady(second.configPath)
+
+	_, err = f.sup.Stop(context.Background(), StopRequest{
+		Role: RoleMain, OperationID: "op-1", Force: true,
+	})
+	assert.ErrorIs(t, err, ErrOperationMismatch)
+	assert.Equal(t, StateRunning, f.sup.Status().State)
+	assert.Equal(t, "op-2", f.sup.Status().OperationID)
+}
+
 func TestStartWithOtherRoleWhileRunningIsRejected(t *testing.T) {
 	f := newFixture(t)
 	f.start(RoleMain, "run")
@@ -199,6 +286,7 @@ func TestStartFailures(t *testing.T) {
 
 func TestTypedSettingsAreTurnedIntoEnvironment(t *testing.T) {
 	f := newFixture(t)
+	t.Setenv("ST1_INHERITED_ENV", "preserved")
 	e, err := f.sup.Start(StartRequest{
 		ConfigPath: f.config("main", "env"),
 		Role:       RoleMain,
@@ -212,6 +300,7 @@ func TestTypedSettingsAreTurnedIntoEnvironment(t *testing.T) {
 	waitDone(t, e)
 	assert.Contains(t, f.sup.Status().Output,
 		"KRB5_KTNAME=/data/krb5.keytab LDAPTLS_CACERT=/data/ldap-ca.pem GLIBC_TUNABLES=glibc.pthread.rseq=0 SET_THP_DISABLED=")
+	assert.Contains(t, f.sup.Status().Output, "ST1_INHERITED_ENV=preserved")
 }
 
 func TestTypedSettingsAreTurnedIntoFlags(t *testing.T) {
@@ -247,11 +336,65 @@ func TestNumaInterleaveWithoutNumactlFailsToStart(t *testing.T) {
 	assert.Equal(t, StateIdle, f.sup.Status().State)
 }
 
+func TestNumaPolicyAuto(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		showExit    string
+		interleaved bool
+	}{
+		{name: "available", showExit: "0", interleaved: true},
+		{name: "unavailable", showExit: "1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			require.NoError(t, os.WriteFile(filepath.Join(f.dir, binaryNumactl), []byte(fakeNumactl), 0o755)) //nolint:gosec
+			t.Setenv("FAKE_NUMACTL_SHOW_EXIT", tt.showExit)
+			cfg := f.config("main", "args")
+			e, err := f.sup.Start(StartRequest{
+				ConfigPath: cfg,
+				Role:       RoleMain,
+				Other:      Other{NumaPolicy: NumaPolicyAuto},
+			})
+			require.NoError(t, err)
+			waitDone(t, e)
+			if tt.interleaved {
+				assert.Contains(t, f.sup.Status().Output, "numactl --interleave=all")
+			} else {
+				assert.NotContains(t, f.sup.Status().Output, "numactl --interleave=all")
+			}
+			assert.Contains(t, f.sup.Status().Output, "ARGS: -f "+cfg)
+		})
+	}
+}
+
+func TestNumaPolicyAutoSkipsUnavailableNumactl(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, os.Remove(filepath.Join(f.dir, binaryNumactl)))
+	cfg := f.config("main", "args")
+	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaPolicy: NumaPolicyAuto}})
+	require.NoError(t, err)
+	waitDone(t, e)
+	assert.NotContains(t, f.sup.Status().Output, "numactl --interleave=all")
+	assert.Contains(t, f.sup.Status().Output, "ARGS: -f "+cfg)
+}
+
+func TestNumaInterleaveFalseDoesNotRequireNumactl(t *testing.T) {
+	f := newFixture(t)
+	require.NoError(t, os.Remove(filepath.Join(f.dir, binaryNumactl)))
+	cfg := f.config("main", "args")
+	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaInterleave: false}})
+	require.NoError(t, err)
+	waitDone(t, e)
+	assert.NotContains(t, f.sup.Status().Output, "numactl --interleave=all")
+	assert.Contains(t, f.sup.Status().Output, "ARGS: -f "+cfg)
+}
+
 func TestStopSendsSIGTERMAndWaits(t *testing.T) {
 	f := newFixture(t)
 	e := f.start(RoleMain, "run")
 
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 5*time.Second, false))
+	_, err := f.sup.Stop(context.Background(), StopRequest{Role: RoleMain, TimeoutSeconds: 5})
+	require.NoError(t, err)
 	waitDone(t, e)
 	st := f.sup.Status()
 	assert.Equal(t, StateExited, st.State)
@@ -260,26 +403,40 @@ func TestStopSendsSIGTERMAndWaits(t *testing.T) {
 
 func TestStopWhenDownIsNoOp(t *testing.T) {
 	f := newFixture(t)
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, time.Second, false), "idle")
+	_, err := f.sup.Stop(context.Background(), StopRequest{Role: RoleMain, TimeoutSeconds: 1})
+	require.NoError(t, err, "idle")
 
 	waitDone(t, f.start(RoleMain, "exit:0"))
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, time.Second, false), "exited")
+	_, err = f.sup.Stop(context.Background(), StopRequest{Role: RoleMain, TimeoutSeconds: 1})
+	require.NoError(t, err, "exited")
 }
 
 func TestStopWithOtherRoleDoesNotTouchTheChild(t *testing.T) {
-	f := newFixture(t)
-	f.start(RoleMain, "run")
+	for _, tt := range []struct {
+		name        string
+		activeRole  Role
+		requestRole Role
+	}{
+		{name: "main is not stopped as ephemeral", activeRole: RoleMain, requestRole: RoleEphemeral},
+		{name: "ephemeral is not stopped as main", activeRole: RoleEphemeral, requestRole: RoleMain},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.start(tt.activeRole, "run")
 
-	err := f.sup.Stop(context.Background(), RoleEphemeral, time.Second, true)
-	assert.ErrorIs(t, err, ErrRoleMismatch)
-	assert.Equal(t, StateRunning, f.sup.Status().State)
+			_, err := f.sup.Stop(context.Background(), StopRequest{Role: tt.requestRole, Force: true})
+			assert.ErrorIs(t, err, ErrRoleMismatch)
+			assert.Equal(t, StateRunning, f.sup.Status().State)
+			assert.Equal(t, tt.activeRole, f.sup.Status().Role)
+		})
+	}
 }
 
 func TestStopTimeoutWithoutForceLeavesTheChildAlive(t *testing.T) {
 	f := newFixture(t)
 	f.start(RoleMain, "ignoreterm")
 
-	err := f.sup.Stop(context.Background(), RoleMain, 300*time.Millisecond, false)
+	_, err := f.sup.Stop(context.Background(), StopRequest{Role: RoleMain, TimeoutSeconds: 0.3})
 	assert.ErrorIs(t, err, ErrStopTimeout)
 	assert.Equal(t, StateRunning, f.sup.Status().State)
 }
@@ -288,7 +445,8 @@ func TestStopTimeoutWithForceKills(t *testing.T) {
 	f := newFixture(t)
 	e := f.start(RoleMain, "ignoreterm")
 
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 300*time.Millisecond, true))
+	_, err := f.sup.Stop(context.Background(), StopRequest{Role: RoleMain, TimeoutSeconds: 0.3, Force: true})
+	require.NoError(t, err)
 	waitDone(t, e)
 	st := f.sup.Status()
 	assert.Equal(t, StateExited, st.State)
@@ -301,7 +459,8 @@ func TestStopZeroTimeoutWithForceKillsImmediately(t *testing.T) {
 	e := f.start(RoleMain, "ignoreterm")
 
 	begin := time.Now()
-	require.NoError(t, f.sup.Stop(context.Background(), "", 0, true))
+	_, err := f.sup.Stop(context.Background(), StopRequest{Role: RoleMain, Force: true})
+	require.NoError(t, err)
 	waitDone(t, e)
 	assert.Less(t, time.Since(begin), 2*time.Second)
 	assert.Equal(t, "killed", f.sup.Status().Signal)
@@ -310,7 +469,7 @@ func TestStopZeroTimeoutWithForceKillsImmediately(t *testing.T) {
 func TestStopZeroTimeoutWithoutForceIsInvalid(t *testing.T) {
 	f := newFixture(t)
 	f.start(RoleMain, "run")
-	err := f.sup.Stop(context.Background(), "", 0, false)
+	_, err := f.sup.Stop(context.Background(), StopRequest{Role: RoleMain})
 	assert.ErrorIs(t, err, ErrInvalidRequest)
 }
 

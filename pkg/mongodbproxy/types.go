@@ -17,6 +17,12 @@ const (
 	RoleEphemeral Role = "ephemeral"
 )
 
+type NumaPolicy string
+
+const (
+	NumaPolicyAuto NumaPolicy = "auto"
+)
+
 type State string
 
 const (
@@ -41,6 +47,8 @@ var (
 	ErrRoleConflict = errors.New("a process with a different role is already running")
 	// ErrRoleMismatch is returned by stop when the running child has a different role than requested.
 	ErrRoleMismatch = errors.New("running process has a different role")
+	// ErrOperationMismatch is returned when a request does not match the identified execution.
+	ErrOperationMismatch = errors.New("request does not match the process operation")
 	// ErrStopTimeout is returned by stop when the child is still alive after the timeout and force is not set.
 	ErrStopTimeout = errors.New("timed out waiting for the process to exit")
 	// ErrShuttingDown is returned by start once the proxy has received a termination signal.
@@ -80,13 +88,16 @@ type Other struct {
 	DisableTHP bool `json:"disableTHP,omitempty"`
 	// NumaInterleave runs the child under "numactl --interleave=all".
 	NumaInterleave bool `json:"numaInterleave,omitempty"`
+	// NumaPolicyAuto probes numactl in the database container and interleaves when supported.
+	NumaPolicy NumaPolicy `json:"numaPolicy,omitempty"`
 }
 
 // StartRequest is the body of POST /v1/process/start.
 type StartRequest struct {
 	ConfigPath  string `json:"configPath"`
 	Role        Role   `json:"role"`
-	Other       Other  `json:"other,omitempty"`
+	OperationID string `json:"operationId,omitempty"`
+	Other       Other  `json:"other,omitzero"`
 	WaitForExit bool   `json:"waitForExit,omitempty"`
 }
 
@@ -96,15 +107,17 @@ type StopRequest struct {
 	TimeoutSeconds float64 `json:"timeoutSeconds"`
 	// Force sends SIGKILL after the timeout (immediately when the timeout is 0).
 	Force bool `json:"force,omitempty"`
-	// Role restricts the stop to an execution with this role. Empty matches any.
-	Role Role `json:"role,omitempty"`
+	// Role restricts the stop to an execution with this role.
+	Role        Role   `json:"role"`
+	OperationID string `json:"operationId,omitempty"`
 }
 
 // Status is the response of GET /v1/process and of start/stop.
 type Status struct {
-	State      State  `json:"state"`
-	Role       Role   `json:"role,omitempty"`
-	ConfigPath string `json:"configPath,omitempty"`
+	State       State  `json:"state"`
+	Role        Role   `json:"role,omitempty"`
+	ConfigPath  string `json:"configPath,omitempty"`
+	OperationID string `json:"operationId,omitempty"`
 	// ExitCode is set once the child has exited. It is -1 when the child was killed by a signal.
 	ExitCode *int `json:"exitCode,omitempty"`
 	// Signal is the name of the signal that terminated the child, if any.
