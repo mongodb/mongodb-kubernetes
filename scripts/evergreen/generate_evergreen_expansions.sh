@@ -8,8 +8,9 @@
 yaml_file=evergreen_expansions.yaml
 
 # add additional variables when needed
+mongodb_operator_from_release=$(jq -r .mongodbOperator < release.json)
 cat <<EOF >"${yaml_file}"
-mongodbOperator: $(jq -r .mongodbOperator < release.json)
+mongodbOperator: ${OPERATOR_VERSION:-${mongodb_operator_from_release}}
 EOF
 
 echo "Generated ${yaml_file} file from release.json"

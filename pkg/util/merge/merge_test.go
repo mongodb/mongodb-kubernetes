@@ -666,3 +666,34 @@ func TestMergeHostAliases(t *testing.T) {
 	assert.Equal(t, "1.2.3.5", merged[1].IP)
 	assert.Equal(t, []string{"abc"}, merged[1].Hostnames)
 }
+
+func TestMergePersistentVolumeClaim(t *testing.T) {
+	defaultPvc := corev1.PersistentVolumeClaim{
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+		},
+	}
+
+	t.Run("VolumeAttributesClassName is taken from the override", func(t *testing.T) {
+		overridePvc := corev1.PersistentVolumeClaim{
+			Spec: corev1.PersistentVolumeClaimSpec{
+				StorageClassName:          new("gp3"),
+				VolumeAttributesClassName: new("gold"),
+			},
+		}
+
+		merged := PersistentVolumeClaim(defaultPvc, overridePvc)
+
+		assert.Equal(t, new("gp3"), merged.Spec.StorageClassName)
+		assert.Equal(t, new("gold"), merged.Spec.VolumeAttributesClassName)
+	})
+
+	t.Run("VolumeAttributesClassName is kept when the override does not set it", func(t *testing.T) {
+		pvc := defaultPvc
+		pvc.Spec.VolumeAttributesClassName = new("silver")
+
+		merged := PersistentVolumeClaim(pvc, corev1.PersistentVolumeClaim{})
+
+		assert.Equal(t, new("silver"), merged.Spec.VolumeAttributesClassName)
+	})
+}

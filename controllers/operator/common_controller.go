@@ -391,11 +391,17 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 // resource to another project (as recommended by the migration instructions).
 // If there are any externalMembers set, we will ignore the excess processes which appear in this list, as those are expected to be there and should not block the reconciliation.
 func checkIfHasExcessProcesses(ctx context.Context, conn om.Connection, resourceName string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
+	return checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, resourceName, externalMembers, nil, log)
+}
+
+// checkIfHasExcessProcessesWithShardsInRemoval is checkIfHasExcessProcesses for a sharded cluster that does not count
+// the processes of shardsInRemoval as excess.
+func checkIfHasExcessProcessesWithShardsInRemoval(ctx context.Context, conn om.Connection, resourceName string, externalMembers []string, shardsInRemoval []string, log *zap.SugaredLogger) workflow.Status {
 	deployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
-	excessProcesses := deployment.GetNumberOfExcessProcesses(resourceName, externalMembers)
+	excessProcesses := deployment.GetNumberOfExcessProcessesWithShardsInRemoval(resourceName, externalMembers, shardsInRemoval)
 	if excessProcesses == 0 {
 		// cluster is empty or this resource is the only one living on it
 		return workflow.OK()

@@ -10,8 +10,8 @@ github.com/fsnotify/fsnotify,v1.8.0,https://github.com/fsnotify/fsnotify/blob/v1
 github.com/fxamacker/cbor/v2,v2.9.0,https://github.com/fxamacker/cbor/blob/v2.9.0/LICENSE,MIT
 github.com/ghodss/yaml,v1.0.0,https://github.com/ghodss/yaml/blob/v1.0.0/LICENSE,BSD-3-Clause
 github.com/ghodss/yaml,v1.0.0,https://github.com/ghodss/yaml/blob/v1.0.0/LICENSE,MIT
-github.com/go-jose/go-jose/v4,v4.1.4,https://github.com/go-jose/go-jose/blob/v4.1.4/LICENSE,Apache-2.0
-github.com/go-jose/go-jose/v4/json,v4.1.4,https://github.com/go-jose/go-jose/blob/v4.1.4/json/LICENSE,BSD-3-Clause
+github.com/go-jose/go-jose/v4,v4.1.6,https://github.com/go-jose/go-jose/blob/v4.1.6/LICENSE,Apache-2.0
+github.com/go-jose/go-jose/v4/json,v4.1.6,https://github.com/go-jose/go-jose/blob/v4.1.6/json/LICENSE,BSD-3-Clause
 github.com/go-logr/logr,v1.4.4,https://github.com/go-logr/logr/blob/v1.4.4/LICENSE,Apache-2.0
 github.com/go-openapi/jsonpointer,v1.0.0,https://github.com/go-openapi/jsonpointer/blob/v1.0.0/LICENSE,Apache-2.0
 github.com/go-openapi/jsonreference,v1.0.0,https://github.com/go-openapi/jsonreference/blob/v1.0.0/LICENSE,Apache-2.0

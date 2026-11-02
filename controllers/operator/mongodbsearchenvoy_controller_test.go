@@ -262,7 +262,7 @@ func TestBuildEnvoyPodSpec_DefaultResources(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 	}
 	resources := envoyResourceRequirements(search.GetManagedLBForCluster(""))
-	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", resources, false)
+	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", corev1.PullAlways, resources, false)
 
 	assert.Len(t, podSpec.Containers, 1)
 	assert.Equal(t, "envoy", podSpec.Containers[0].Name)
@@ -322,7 +322,7 @@ func TestBuildEnvoyPodSpec_ConfigMapVolumePerCluster(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			podSpec := buildEnvoyPodSpec(search, tc.clusterIndex, nil, false, "envoy:latest", resources, false)
+			podSpec := buildEnvoyPodSpec(search, tc.clusterIndex, nil, false, "envoy:latest", corev1.PullAlways, resources, false)
 
 			var found *corev1.Volume
 			for i := range podSpec.Volumes {
@@ -355,6 +355,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 												{Key: "dedicated", Value: "search", Effect: corev1.TaintEffectNoSchedule},
 											},
 											NodeSelector: map[string]string{"node-type": "search"},
+											Containers:   []corev1.Container{{Name: "envoy", ImagePullPolicy: corev1.PullNever}},
 										},
 									},
 								},
@@ -372,7 +373,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 
 	// Build the base pod spec as the controller would
 	resources := envoyResourceRequirements(search.GetManagedLBForCluster(""))
-	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", resources, false)
+	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", corev1.PullAlways, resources, false)
 
 	// Verify base spec has no tolerations
 	assert.Empty(t, podSpec.Tolerations)
@@ -408,6 +409,7 @@ func TestBuildEnvoyPodSpec_WithDeploymentConfigurationOverride(t *testing.T) {
 	// Original container preserved
 	assert.Len(t, dep.Spec.Template.Spec.Containers, 1)
 	assert.Equal(t, "envoy:latest", dep.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, corev1.PullNever, dep.Spec.Template.Spec.Containers[0].ImagePullPolicy)
 }
 
 func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *testing.T) {
@@ -453,7 +455,7 @@ func TestDeploymentConfigurationOverride_ResourceRequirementsComposition(t *test
 	resources := envoyResourceRequirements(search.GetManagedLBForCluster(""))
 	assert.Equal(t, resource.MustParse("200m"), resources.Requests[corev1.ResourceCPU])
 
-	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", resources, false)
+	podSpec := buildEnvoyPodSpec(search, 0, nil, false, "envoy:latest", corev1.PullAlways, resources, false)
 
 	dep := appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
@@ -865,7 +867,7 @@ func TestNewMongoDBSearchEnvoyReconciler_AcceptsMemberClusters(t *testing.T) {
 		"eu-west-k8s": memberB,
 	}
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", members, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, members, "")
 	require.NotNil(t, r)
 	assert.NotNil(t, r.memberClients["us-east-k8s"])
 	assert.NotNil(t, r.memberClients["eu-west-k8s"])
@@ -874,7 +876,7 @@ func TestNewMongoDBSearchEnvoyReconciler_AcceptsMemberClusters(t *testing.T) {
 
 func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
 	central := fake.NewClientBuilder().Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "")
 	require.NotNil(t, r)
 	wl := r.buildClusterWorkList(&searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{Clusters: []searchv1.ClusterSpec{{Name: "any-cluster"}}},
@@ -890,7 +892,7 @@ func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
 func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 	centralRaw := fake.NewClientBuilder().Build()
 	memberARaw := fake.NewClientBuilder().Build()
-	r := newMongoDBSearchEnvoyReconciler(centralRaw, "envoy:latest", map[string]client.Client{"a": memberARaw}, "")
+	r := newMongoDBSearchEnvoyReconciler(centralRaw, "envoy:latest", corev1.PullAlways, map[string]client.Client{"a": memberARaw}, "")
 
 	// Single-cluster: Client must be the central client.
 	singleSearch := &searchv1.MongoDBSearch{}
@@ -979,7 +981,7 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
 	memberB := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{
 		"a": memberA,
 		"b": memberB,
 	}, "")
@@ -1013,7 +1015,7 @@ func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{"a": memberA}, "")
 
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
@@ -1032,7 +1034,7 @@ func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
 // --- reconcile loop + per-cluster status --------------------------------------
 
 func TestBuildClusterWorkList_SingleClusterDegenerate(t *testing.T) {
-	r := newMongoDBSearchEnvoyReconciler(fake.NewClientBuilder().Build(), "envoy:latest", nil, "")
+	r := newMongoDBSearchEnvoyReconciler(fake.NewClientBuilder().Build(), "envoy:latest", corev1.PullAlways, nil, "")
 	search := &searchv1.MongoDBSearch{}
 	wl := r.buildClusterWorkList(search)
 	require.Len(t, wl, 1)
@@ -1042,7 +1044,7 @@ func TestBuildClusterWorkList_SingleClusterDegenerate(t *testing.T) {
 
 func TestBuildClusterWorkList_EmptySpecClusters_TreatedAsSingle(t *testing.T) {
 	central := fake.NewClientBuilder().Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{
 		"a": fake.NewClientBuilder().Build(),
 	}, "")
 	search := &searchv1.MongoDBSearch{}
@@ -1054,7 +1056,7 @@ func TestBuildClusterWorkList_EmptySpecClusters_TreatedAsSingle(t *testing.T) {
 
 func TestBuildClusterWorkList_MultiCluster_OneItemPerSpecEntry(t *testing.T) {
 	central := fake.NewClientBuilder().Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{
 		"a": fake.NewClientBuilder().Build(),
 		"b": fake.NewClientBuilder().Build(),
 	}, "")
@@ -1076,7 +1078,7 @@ func TestBuildClusterWorkList_MultiCluster_OneItemPerSpecEntry(t *testing.T) {
 
 func TestBuildClusterWorkList_UnpinnedEntry_IndexZero(t *testing.T) {
 	central := fake.NewClientBuilder().Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{
 		"a": fake.NewClientBuilder().Build(),
 	}, "")
 	search := &searchv1.MongoDBSearch{
@@ -1105,7 +1107,7 @@ func TestReconcileForCluster_UnknownClusterPending(t *testing.T) {
 	}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 	// "missing-cluster" is absent from the members map → no client → Pending.
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{
 		"a": fake.NewClientBuilder().WithScheme(scheme).Build(),
 	}, "")
 
@@ -1139,7 +1141,7 @@ func TestReconcile_RegistersSearchStateConfigMapWatch(t *testing.T) {
 	}
 	search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(search).WithObjects(search).Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
 	require.NoError(t, err)
@@ -1154,7 +1156,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{"a": memberA}, "")
 
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
@@ -1176,6 +1178,8 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	dep := &appsv1.Deployment{}
 	require.NoError(t, memberA.Get(context.Background(),
 		types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}, dep))
+	assert.Equal(t, "envoy:latest", dep.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, corev1.PullAlways, dep.Spec.Template.Spec.Containers[0].ImagePullPolicy)
 	cm := &corev1.ConfigMap{}
 	require.NoError(t, memberA.Get(context.Background(),
 		types.NamespacedName{Name: search.LoadBalancerConfigMapNameForCluster(0), Namespace: "ns"}, cm))
@@ -1190,7 +1194,7 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
 	memberA := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA}, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{"a": memberA}, "")
 
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
@@ -1264,7 +1268,7 @@ func TestReconcile_WorstOfPhase_Aggregated(t *testing.T) {
 				}).Build()
 			}
 			central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB}, "")
+			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{"a": memberA, "b": memberB}, "")
 
 			result, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: search.NamespacedName()})
 			require.NoError(t, err)
@@ -1303,7 +1307,7 @@ func TestReconcile_AllClustersFailed_TopLevelPhaseIsFailed(t *testing.T) {
 	memberA := failingWriteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), message: "injected cluster-a failure"}
 	memberB := failingWriteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), message: "injected cluster-b failure"}
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB}, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{"a": memberA, "b": memberB}, "")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"},
@@ -1359,7 +1363,7 @@ func TestReconcile_NoStateCM_RendersFromPins(t *testing.T) {
 
 	// No state CM seeded — index resolution comes entirely from the CRD pins.
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"cluster-a": memberA, "cluster-b": memberB}, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{"cluster-a": memberA, "cluster-b": memberB}, "")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"},
@@ -1420,7 +1424,7 @@ func TestReconcile_UsesPinnedIndices(t *testing.T) {
 		}
 	}
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{
 		"cluster-a": memberA,
 		"cluster-b": memberB,
 	}, "")
@@ -1562,7 +1566,7 @@ func TestReconcile_StableIndexAcrossClusterRemovals(t *testing.T) {
 
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{
 		"a": memberA,
 		"b": memberB,
 	}, "")
@@ -1687,7 +1691,7 @@ func TestDeleteEnvoyResources(t *testing.T) {
 					Name: search.LoadBalancerConfigMapNameForCluster(o.index), Namespace: "ns", Labels: maps.Clone(labels),
 				}}))
 			}
-			r := newMongoDBSearchEnvoyReconciler(clients[""], "envoy:latest", memberClients, "")
+			r := newMongoDBSearchEnvoyReconciler(clients[""], "envoy:latest", corev1.PullAlways, memberClients, "")
 			workList := make([]clusterWorkItem, 0, len(tc.work))
 			for _, w := range tc.work {
 				item := clusterWorkItem{ClusterName: w.cluster, ClusterIndex: w.index}
@@ -1754,7 +1758,7 @@ func TestEnvoyReconcile_HubRemovedClusterCleansManagedMemberResources(t *testing
 			}
 
 			central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{
+			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{
 				"cluster-a": memberA,
 				"cluster-b": memberB,
 			}, "")
@@ -1877,7 +1881,7 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 	// sh-0 switched routing-ready; sh-1 never ready → fallback.
 	seedSearchStateCM(t, ctx, central, "mdb-search", "ns", []string{"sh-0"})
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "cluster-a")
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
 
@@ -1957,7 +1961,7 @@ func TestBuildClusterWorkList_OperatorPerCluster_UsesProjectedIndex(t *testing.T
 	// Operator-per-cluster with unified CR: members map empty; LocalizeToCluster already narrowed
 	// spec.Clusters to one entry whose projected clusterIndex must be honoured.
 	central := fake.NewClientBuilder().Build()
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "kind-e2e-cluster-2")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "kind-e2e-cluster-2")
 	search := &searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{
 			Clusters: []searchv1.ClusterSpec{
@@ -2103,7 +2107,7 @@ func TestEnvoyReconcile_LBCleanup_DeletesAtPinnedIndex(t *testing.T) {
 				Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns", Labels: maps.Clone(labels),
 			}}))
 
-			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
+			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "cluster-a")
 			otherSearch := types.NamespacedName{Name: "other-search", Namespace: search.Namespace}
 			for _, owner := range []types.NamespacedName{search.NamespacedName(), otherSearch} {
 				r.watch.AddWatchedResourceIfNotAdded(dependency.Name, dependency.Namespace, watch.Secret, owner)
@@ -2152,7 +2156,7 @@ func TestEnvoyReconcile_MultiCluster_FailedFirstThenOK_AggregatesFailed(t *testi
 	memberA := failingWriteClient{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
 	memberB := fake.NewClientBuilder().WithScheme(scheme).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"a": memberA, "b": memberB}, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{"a": memberA, "b": memberB}, "")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
@@ -2173,7 +2177,7 @@ func TestEnvoyReconcile_OperatorPerCluster_Match_RendersAtPinnedIndex(t *testing
 	search.Spec.Source.ExternalMongoDBSource.TLS = &searchv1.ExternalMongodTLS{CA: &corev1.LocalObjectReference{Name: "source-ca"}}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 	// members map empty: operator-per-cluster with unified CR falls back to kubeClient (= central).
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-b")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "cluster-b")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
@@ -2235,7 +2239,7 @@ func TestEnvoyReconcile_OperatorPerCluster_MissingClusterIndex_Invalid(t *testin
 	search := newMCEnvoySearch("mdb-search", "ns", "", searchv1.ClusterSpec{Name: "cluster-a"})
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "cluster-a")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err, "workflow.Invalid returns nil error; assert via status.loadBalancer")
@@ -2259,7 +2263,7 @@ func TestEnvoyReconcile_UnregisteredCluster_SkippedAndNoCentralWrites(t *testing
 		t.Helper()
 		search := newMCEnvoySearch("mdb-search", "ns", "", pinnedCluster("cluster-a", 0), pinnedCluster("cluster-b", 1))
 		central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-		return newMongoDBSearchEnvoyReconciler(central, "envoy:latest", members, ""), central, search
+		return newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, members, ""), central, search
 	}
 
 	t.Run("registered cluster reconciles while the unregistered one is skipped", func(t *testing.T) {
@@ -2319,7 +2323,7 @@ func TestEnvoyReconcile_ValidationFailure_NoLBConfigured_NoLBStatusWrite(t *test
 	}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "cluster-a")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "cluster-a")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
@@ -2334,7 +2338,7 @@ func TestReconcileForCluster_OperatorPerCluster_ShardedSource_RendersToProvidedC
 	scheme := envoyTestScheme(t)
 	central := fake.NewClientBuilder().WithScheme(scheme).Build()
 	// members map is nil (operator-per-cluster with unified CR: one operator per member cluster).
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "")
 
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},
@@ -2434,7 +2438,7 @@ func TestReconcile_LBConfigSurvivesClusterRemoval(t *testing.T) {
 
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", map[string]client.Client{"cluster-b": memberB}, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, map[string]client.Client{"cluster-b": memberB}, "")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
@@ -2463,7 +2467,7 @@ func TestEnsureDeployment_PreservesRolloutRestartAnnotation(t *testing.T) {
 		},
 	}).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", nil, "")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, nil, "")
 
 	search := &searchv1.MongoDBSearch{
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"},

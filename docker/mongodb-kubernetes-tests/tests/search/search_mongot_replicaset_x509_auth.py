@@ -10,6 +10,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
+from tests.common.search.replicaset_search_helper import verify_rs_mongod_parameters
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.tls_utils import create_keyfile_password_secret, encrypt_tls_key_with_password
@@ -248,13 +249,21 @@ def test_wait_for_agents_ready(mdb: MongoDB):
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
+@mark.e2e_search_mongot_replicaset_x509_auth
+def test_wait_for_mongod_parameters(mdb: MongoDB, namespace: str):
+    # The mongot wiring is applied after the MongoDB is already Running, so wait for it on the mongods directly.
+    verify_rs_mongod_parameters(namespace, mdb.name, mdb.get_members(), None)
+    # The parameters appear in the config before mongod restarts with them; the goal version covers the restart.
+    mdb.get_om_tester().wait_agents_ready()
+
+
 @fixture(scope="function")
 def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester.for_replicaset(
             mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True, ca_path=get_issuer_ca_filepath()
         ),
-        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace, mdb.get_version()),
     )
 
 
