@@ -554,7 +554,7 @@ def update_automation_config_past_lock(
             if e.response is None or e.response.status_code not in (401, 409) or attempt == attempts:
                 raise
             logger.warning(f"automationConfig PUT got {e.response.status_code}; retry {attempt}/{attempts - 1}")
-            time.sleep(5 * attempt)
+            time.sleep(attempt)
 
 
 def patch_per_cluster_mongot_host_via_om(
