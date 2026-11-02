@@ -12,7 +12,7 @@ operator:
 
   # Default MongoDB image type for static architecture resources and for AppDB in both architectures.
   # Values are "ubi8", "ubi9", and "ubi9-slim". When empty, static uses "ubi9" and non-static AppDB uses "ubi8".
-  mdbDefaultImageType: ""
+  mdbDefaultImageType: ''
 
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
   name: mongodb-kubernetes-operator
