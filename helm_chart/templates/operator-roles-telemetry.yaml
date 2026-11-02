@@ -1,3 +1,7 @@
+{{- /*
+Template used directly by Helm and by kubectl plugin when rendering RBAC for member clusters.
+*/ -}}
+
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $memberMode := $memberCluster.enabled | default false }}
 {{- $telemetry := default dict .Values.operator.telemetry }}
@@ -7,10 +11,10 @@
 {{- $bindingName := printf "%s-%s-cluster-telemetry-binding" .Values.operator.name $operatorNamespace }}
 {{- $saName := .Values.operator.name }}
 {{- if $memberMode }}
-    {{- /* Member mode (rendered only by `kubectl mongodb multicluster generate-member-resources`):
-           same rules bound to the member ServiceAccount, using the unified mck-member-*
-           naming (identical on every member cluster) so they are additive to the base
-           installation RBAC. */}}
+    {{- /*
+    In member mode, change resource names. Member RBAC must never
+    override RBAC from base installation (usually managed by Helm or OLM).
+    */ -}}
     {{- $memberPrefix := "mck-member" }}
     {{- $clusterRoleName = printf "%s-cluster-telemetry" $memberPrefix }}
     {{- $bindingName = printf "%s-cluster-telemetry-binding" $memberPrefix }}
