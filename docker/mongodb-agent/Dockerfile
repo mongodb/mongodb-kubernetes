@@ -60,11 +60,14 @@ FROM registry.access.redhat.com/ubi9/ubi-micro AS micro
 # Runs on the target platform because RPMs and their scriptlets are architecture specific.
 FROM registry.access.redhat.com/ubi9/ubi AS rootfs_builder
 COPY --from=micro / /mnt/rootfs
-# - nss_wrapper: LD_PRELOADed by agent-launcher.sh for OpenShift random UIDs
-# - cyrus-sasl*, krb5-libs, openldap, openssl, xz-libs, libcurl: mongod runtime libraries
-#   (https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/), used by the
-#   mongod binary of the static architecture which runs in this container
-# - net-snmp*: agent and MongoDB 6.0 SNMP support
+# Only libraries are installed for the MongoDB dependencies, not the daemons/CLIs from the same source packages
+# (net-snmp, cyrus-sasl/saslauthd, openssl), which would pull in systemd, perl and more without being used.
+# - nss_wrapper-libs: libnss_wrapper.so, LD_PRELOADed by the launcher scripts for OpenShift random UIDs
+# - cyrus-sasl-*, krb5-libs, openldap, openssl-libs, xz-libs, libcurl, net-snmp-*-libs (MongoDB 6.0): mongod runtime
+#   libraries (https://www.mongodb.com/docs/manual/tutorial/install-mongodb-enterprise-on-red-hat-tarball/), used by
+#   the mongod binary of the static architecture which runs in this container
+# - curl, tar, gzip: AppDB custom agent download (MDB_CUSTOM_AGENT_URL)
+# - util-linux-core: mount, referenced by the agent
 # - the rest: commands used by the agent launcher scripts
 RUN dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
         --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
@@ -73,10 +76,10 @@ RUN dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releas
         --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
         install \
         curl libcurl \
-        nss_wrapper \
-        cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs openldap openssl xz-libs \
-        net-snmp net-snmp-agent-libs \
-        hostname tar gzip procps-ng jq findutils grep sed gawk \
+        nss_wrapper-libs \
+        cyrus-sasl-lib cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs openldap openssl-libs xz-libs \
+        net-snmp-libs net-snmp-agent-libs \
+        hostname tar gzip procps-ng jq findutils grep sed gawk util-linux-core \
     && dnf --installroot=/mnt/rootfs clean all \
     # rpm-libs (needed by net-snmp-agent-libs, linked by MongoDB 6.0) requires the rpm package manager itself.
     # Erase it so that no package manager ends up in the image, while keeping the rpm database accurate for scanners.
