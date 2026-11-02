@@ -93,8 +93,10 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 
 	// If digest auth is configured, wrap the HTTP transport with the digest
 	// client, then wrap that with staleRetryTransport to retry on stale nonces
-	// (RFC 7616 §3.2). This runs after TLS options so they modify the
-	// *http.Transport first.
+	// (RFC 7616 §3.2). The digest client sends the challenge request without a
+	// body: Ops Manager rejects that request before reading the body and closes
+	// the connection, so a body still in flight fails with "write: broken pipe".
+	// This runs after TLS options so they modify the *http.Transport first.
 	if client.username != "" && client.password != "" {
 		// The digest transport answers a challenge with credentials on whatever
 		// host sent it, so a cross-host redirect would send the OM credentials to
@@ -115,9 +117,10 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 		}
 		client.HTTPClient.Transport = &staleRetryTransport{
 			transport: &digest.Transport{
-				Username:  client.username,
-				Password:  client.password,
-				Transport: client.HTTPClient.Transport,
+				Username:             client.username,
+				Password:             client.password,
+				Transport:            client.HTTPClient.Transport,
+				ChallengeWithoutBody: true,
 			},
 		}
 	}

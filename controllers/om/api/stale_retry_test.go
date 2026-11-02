@@ -239,6 +239,45 @@ func TestStaleRetryWithDigestAuth(t *testing.T) {
 	assert.Equal(t, int32(4), requests.Load())
 }
 
+// TestDigestChallengeWithoutBody checks that the client built by NewHTTPClient
+// sends the digest challenge request without the caller's body. Ops Manager
+// rejects that request before reading the body and closes the connection, so a
+// body still in flight fails with "write: broken pipe".
+func TestDigestChallengeWithoutBody(t *testing.T) {
+	var challengeRequests, authenticatedRequests atomic.Int32
+	var challengeLength, authenticatedLength atomic.Int64
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			challengeRequests.Add(1)
+			challengeLength.Store(r.ContentLength)
+			w.Header().Set("WWW-Authenticate", `Digest realm="test", nonce="nonce-1", qop="auth"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		authenticatedRequests.Add(1)
+		authenticatedLength.Store(int64(len(body)))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := NewHTTPClient(OptionDigestAuth("user", "password"))
+	require.NoError(t, err)
+
+	payload := map[string]string{"key": "value"}
+	_, _, err = client.Request(context.Background(), http.MethodPut,
+		server.URL, "/api/public/v1.0/groups", payload)
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), challengeRequests.Load())
+	assert.Equal(t, int32(1), authenticatedRequests.Load())
+	assert.Zero(t, challengeLength.Load(), "the challenge request must not announce a body")
+	assert.NotZero(t, authenticatedLength.Load(), "the authenticated request must carry the body")
+}
+
 // TestDigestClientRedirectPolicy checks the redirect policy installed with the
 // digest transport, which exists so a redirect cannot carry OM credentials to
 // another host.
