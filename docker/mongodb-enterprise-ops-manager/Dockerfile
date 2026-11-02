@@ -58,17 +58,18 @@ FROM registry.access.redhat.com/ubi9/ubi-micro AS micro
 FROM registry.access.redhat.com/ubi9/ubi AS rootfs_builder
 COPY --from=micro / /mnt/rootfs
 # OpsManager docker image needs to have the MongoDB dependencies because the
-# backup daemon is running its database locally.
-# - procps-ng, net-tools, ncurses, util-linux, openssl, findutils, grep, sed, gawk, tar: Ops Manager bin/ scripts
+# backup daemon is running its database locally. Only libraries are installed for them, not the daemons/CLIs from the
+# same source packages (net-snmp, cyrus-sasl/saslauthd), which would pull in systemd, perl and more without being used.
+# - procps-ng, net-tools, ncurses, util-linux, openssl, findutils, grep, sed, gawk: Ops Manager bin/ scripts
 RUN dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
         --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
         upgrade \
     && dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
         --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
         install \
-        curl libcurl \
-        cyrus-sasl cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs libpcap lm_sensors-libs \
-        net-snmp net-snmp-agent-libs openldap openssl tar gzip rpm-libs net-tools procps-ng ncurses \
+        libcurl \
+        cyrus-sasl-lib cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs lm_sensors-libs \
+        net-snmp-libs net-snmp-agent-libs openldap openssl rpm-libs net-tools procps-ng ncurses \
         util-linux findutils grep sed gawk \
     && dnf --installroot=/mnt/rootfs clean all \
     # rpm-libs (needed by net-snmp-agent-libs, linked by MongoDB 6.0) requires the rpm package manager itself.
