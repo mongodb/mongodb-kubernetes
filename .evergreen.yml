@@ -323,6 +323,10 @@ patch_aliases:
     description: "Run OM9 variants"
     variant_tags: [ "om9" ]
     task: ".*"
+  - alias: "devcontainer"
+    description: "Run the devcontainer worktrees variant"
+    variant_tags: [ "devcontainer" ]
+    task: ".*"
   - alias: "race"
     description: "Run race detector variants"
     variant_tags: [ "race" ]
@@ -382,6 +386,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:om9"
+  - variant_tags: [ "devcontainer" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:devcontainer"
   # Variants that always run on PRs, regardless of labels
   - variant_tags: [ "auto_bump", "unit_tests", "ocp_version_drift" ]
     task: ".*"
@@ -1293,6 +1301,21 @@ task_groups:
       - e2e_search_ext_mc_rs_x509_enc_mtls
       - e2e_search_ext_mc_sharded_scram_enc_mtls
 
+  # The devcontainer worktrees: each task builds and runs kind clusters of its own, so each gets a host.
+  - name: e2e_devc_local_kind_task_group
+    max_hosts: -1
+    setup_group_can_fail_task: true
+    setup_group:
+      - func: clone
+      - func: setup_building_host
+    teardown_task_can_fail_task: true
+    teardown_task:
+      - func: upload_e2e_logs
+    tasks:
+      - e2e_devc_worktrees
+      - e2e_devc_replica_set
+      - e2e_devc_multi_cluster_replica_set
+
   - name: e2e_multi_cluster_om_appdb_task_group
     max_hosts: -1
     <<: [ *setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group ]
@@ -2104,6 +2127,18 @@ buildvariants:
     <<: *base_om9_dependency
     tasks:
       - name: e2e_static_multi_cluster_om_appdb_task_group
+
+  # The devcontainer worktrees, on demand only: the patch alias `devcontainer` or the PR label `evergreen:devcontainer`.
+  # No image dependency: the tasks use the :latest images.
+  - name: e2e_mck_devcontainer_local_kind
+    display_name: e2e_mck_devcontainer_local_kind
+    tags: [ "devcontainer" ]
+    allowed_requesters: [ "patch", "github_pr" ]
+    <<: *production_code_paths
+    run_on:
+      - ubuntu2404-large
+    tasks:
+      - name: e2e_devc_local_kind_task_group
 
   # The multi-cluster AppDB operator upgrade/downgrade test cannot run against
   # OM 8.x/9.x (it starts from the released v1.27 operator whose baked
