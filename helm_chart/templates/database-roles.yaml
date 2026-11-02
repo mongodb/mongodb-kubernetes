@@ -7,7 +7,7 @@
     {{- $namePrefix = "mck-member" -}}
 {{- end }}
 
-{{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
+{{- $watchNamespace := list $operatorNamespace }}
 {{- if $memberMode }}
     {{- /* Member mode (generate-member-resources): workload RBAC is seeded exactly in
            memberCluster.workloadNamespaces. "*" is rejected — cluster-wide operators

@@ -1,9 +1,10 @@
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $memberMode := $memberCluster.enabled | default false }}
 {{- $telemetry := default dict .Values.operator.telemetry }}
+{{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . }}
 
 {{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
-{{- $bindingName := printf "%s-%s-cluster-telemetry-binding" .Values.operator.name (include "mongodb-kubernetes-operator.namespace" .) }}
+{{- $bindingName := printf "%s-%s-cluster-telemetry-binding" .Values.operator.name $operatorNamespace }}
 {{- $saName := .Values.operator.name }}
 {{- if $memberMode }}
     {{- /* Member mode (rendered only by `kubectl mongodb multicluster generate-member-resources`):
@@ -66,5 +67,5 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ $saName }}
-    namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+    namespace: {{ $operatorNamespace }}
 {{- end}}{{/* if ne $telemetry.installClusterRole false */}}
