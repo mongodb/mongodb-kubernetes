@@ -40,7 +40,6 @@ CRON_TIMEOUT = 600
 CRON_RETRIGGER_POLLS = 20
 
 GSA_SECRET_NAME = "om-license-gsa"
-DO_NOT_DUMP_LABEL = "mongodb.com/do-not-dump"
 
 ROTATE_IDENTITY_ANNOTATION = "mongodb.com/license-rotate-identity"
 RECOMPUTE_ANNOTATION = "mongodb.com/license-recompute"
@@ -280,12 +279,6 @@ def assert_om_and_appdb_running(ops_manager: MongoDBOpsManager) -> None:
 
 def ensure_license_artifact_secret(namespace: str, artifact: str, name: str = LICENSE_SECRET_NAME) -> None:
     create_or_update_secret(namespace=namespace, name=name, data={LICENSE_SECRET_KEY: artifact})
-    # The minted license is sensitive, label the Secret like om-license-gsa so the diagnostic dump skips it.
-    k8s_client.CoreV1Api().patch_namespaced_secret(
-        name,
-        namespace,
-        k8s_client.V1Secret(metadata=k8s_client.V1ObjectMeta(labels={DO_NOT_DUMP_LABEL: "true"})),
-    )
 
 
 def delete_secret_if_exists(namespace: str, name: str) -> None:

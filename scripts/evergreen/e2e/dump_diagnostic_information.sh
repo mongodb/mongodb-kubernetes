@@ -290,9 +290,10 @@ decode_secret() {
 # redact_secret_values reads decoded Secret JSON from stdin and replaces the
 # value of every key that names a credential. Keys such as ca, ca-pem, tls.crt,
 # and user do not match the pattern, so certificate values and usernames stay.
-# A connection string embeds a password, so its key matches too.
+# A connection string embeds a password, so its key matches too. A signed license
+# and its release receipt can be installed or redeemed, so their keys match as well.
 redact_secret_values() {
-    jq 'with_entries(if (.key | test("key|password|token|secret|credential|connection"; "i")) then .value = "<redacted>" else . end)' 2> /dev/null
+    jq 'with_entries(if (.key | test("key|password|token|secret|credential|connection|license|receipt"; "i")) then .value = "<redacted>" else . end)' 2> /dev/null
 }
 
 dump_secrets() {
