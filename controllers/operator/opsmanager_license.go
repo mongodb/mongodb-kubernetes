@@ -13,6 +13,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
@@ -139,6 +140,7 @@ func (h *LicenseReconcilerHelper) reconcileReleaseReceipts(ctx context.Context, 
 	}
 	for _, artifactID := range receipts {
 		secretName := releaseReceiptSecretName(artifactID)
+		h.reconciler.resourceWatcher.AddWatchedResourceIfNotAdded(secretName, h.opsManager.Namespace, watch.Secret, kube.ObjectKeyFromApiObject(h.opsManager))
 		existing, err := h.reconciler.client.GetSecret(ctx, kube.ObjectKey(h.opsManager.Namespace, secretName))
 		if err != nil && !secret.SecretNotExist(err) {
 			return licenseFailed(err, status.ReasonLicenseReceiptFailed)
