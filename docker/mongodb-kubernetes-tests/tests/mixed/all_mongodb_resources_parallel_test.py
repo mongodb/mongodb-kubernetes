@@ -1,8 +1,8 @@
 import threading
-import time
 
 import pytest
 from kubetester.kubetester import KubernetesTester, fixture, run_periodically
+from kubetester.mongodb import MongoDB
 
 mdb_resources = {
     "sh001-single": fixture("sharded-cluster-single.yaml"),
@@ -25,8 +25,9 @@ class TestRaceConditions(KubernetesTester):
     def setup_env(cls):
         threads = []
         for filename in mdb_resources.values():
-            args = (cls.get_namespace(), filename)
-            threads.append(threading.Thread(target=cls.create_custom_resource_from_file, args=args))
+            resource = MongoDB.from_yaml(filename, namespace=cls.get_namespace())
+            args = (cls.get_namespace(), resource.backing_obj)
+            threads.append(threading.Thread(target=cls.create_custom_resource_from_object, args=args))
 
         [t.start() for t in threads]
         [t.join() for t in threads]
