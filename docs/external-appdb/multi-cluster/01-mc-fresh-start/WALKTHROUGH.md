@@ -134,25 +134,33 @@ done
 
 ## 2. Install the operator in multi-cluster mode
 
-First wire up service accounts and roles across all clusters with the `kubectl-mongodb` plugin, then
-install the operator on the central cluster with the member clusters registered.
+First render and apply the member-cluster RBAC and registrations with the `kubectl-mongodb` plugin,
+then install the operator on the central cluster. The member clusters are registered via
+`MemberCluster` CRs (one per cluster), so the operator needs no cluster list at install time.
 
 ```bash
-kubectl mongodb multicluster setup \
-  --central-cluster="${K8S_CTX_0}" \
-  --member-clusters="${K8S_CTX_0},${K8S_CTX_1},${K8S_CTX_2}" \
-  --member-cluster-namespace="${MDB_NS}" \
-  --central-cluster-namespace="${MDB_NS}" \
-  --create-service-account-secrets \
-  --install-database-roles=true
+# Member-cluster RBAC (ServiceAccount, token Secret, Roles and bindings) on every cluster:
+for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
+  kubectl mongodb multicluster generate-member-resources \
+    --member-cluster-namespace="${MDB_NS}" \
+    | kubectl apply --context "${ctx}" -f -
+done
+
+# Register each member cluster with the operator on the central cluster:
+for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
+  kubectl mongodb multicluster generate-member-registration \
+    --member-cluster="${ctx}" \
+    --member-cluster-context="${ctx}" \
+    --member-cluster-namespace="${MDB_NS}" \
+    --operator-namespace="${MDB_NS}" \
+    --member-cluster-logical-name="${ctx}" \
+    | kubectl apply --context "${K8S_CTX_0}" -f -
+done
 
 helm upgrade --install --kube-context "${K8S_CTX_0}" \
   --create-namespace --namespace="${MDB_NS}" \
   mongodb-kubernetes-operator-multi-cluster \
   --set operator.name=mongodb-kubernetes-operator-multi-cluster \
-  --set operator.createOperatorServiceAccount=false \
-  --set operator.createResourcesServiceAccountsAndRoles=false \
-  --set "multiCluster.clusters={${K8S_CTX_0},${K8S_CTX_1},${K8S_CTX_2}}" \
   "${OPERATOR_HELM_CHART}"
 
 kubectl --context "${K8S_CTX_0}" -n "${MDB_NS}" rollout status \
