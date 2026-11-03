@@ -91,15 +91,18 @@ In a sharded cluster, each shard has its own data. MongoDB Search deploys separa
 - Kubernetes cluster with kubectl access
 - Helm 3.x installed
 - cert-manager installed (for TLS certificates)
+- DNS names for Envoy that your mongod and mongos hosts can resolve and reach on port 27028: one per shard plus one for mongos
 - MongoDB Kubernetes Operator installed
 - Access to an external MongoDB 8.2+ sharded cluster (or use the simulated cluster in this guide)
+
+The guide uses `{shardName}.search.example.com` for the shards and `router.search.example.com` for mongos. Replace `search.example.com` (`MDB_SEARCH_EXTERNAL_DOMAIN`) with your own domain whose names point at the Envoy proxy Services or at the load balancer in front of them.
 
 ## Getting Started
 
 ```bash
 cd docs/search/07-search-external-sharded-mongod-managed-lb
 
-# Edit env_variables.sh to set your Kubernetes context, namespace, cluster topology, and TLS settings
+# Edit env_variables.sh to set your Kubernetes context, namespace, cluster topology, Envoy hostnames, and TLS settings
 vi env_variables.sh
 
 # Source the environment variables
@@ -200,7 +203,7 @@ The Envoy proxy terminates one mTLS session (from mongod) and initiates another 
 
 | Certificate | Secret Name Pattern | Purpose |
 |-------------|---------------------|---------|
-| Server cert | `{prefix}-{name}-search-lb-0-cert` | Presented to mongod during TLS handshake (wildcard SAN covers all shards) |
+| Server cert | `{prefix}-{name}-search-lb-0-cert` | Presented to mongod and mongos during TLS handshake (`*.${MDB_SEARCH_EXTERNAL_DOMAIN}` covers every shard hostname and the router hostname) |
 | Client cert | `{prefix}-{name}-search-lb-0-client-cert` | Used by Envoy when connecting to mongot |
 
 Both must be signed by the same CA that mongod and mongot trust.
@@ -211,7 +214,7 @@ Both must be signed by the same CA that mongod and mongot trust.
 
 #### Step 10: Create MongoDBSearch Resource
 
-Applies the MongoDBSearch CR with `clusters[].loadBalancer.managed: {}` and external cluster source configuration:
+Applies the MongoDBSearch CR with `clusters[].loadBalancer.managed` and external cluster source configuration. `externalHostname` and `routerHostname` are hostnames without a port. Envoy matches them as the TLS SNI, and the operator replaces `{shardName}` with each shard name.
 
 ```yaml
 apiVersion: mongodb.com/v1
@@ -223,8 +226,8 @@ spec:
     - replicas: ${MDB_MONGOT_REPLICAS}
       loadBalancer:
         managed:
-          externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-{shardName}-proxy-svc.${MDB_NS}.svc.cluster.local
-          routerHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local
+          externalHostname: "${MDB_SEARCH_EXTERNAL_HOSTNAME}"  # {shardName}.search.example.com
+          routerHostname: "${MDB_SEARCH_ROUTER_HOSTNAME}"      # router.search.example.com
   source:
     username: search-sync-source
     passwordSecretRef:
@@ -294,13 +297,14 @@ Proceed to [`08-search-sharded-query-usage`](../08-search-sharded-query-usage/) 
 
 ### Configuring External mongod
 
-After the MongoDBSearch resource is running, configure your external mongod instances to connect to the operator-created proxy Services. The endpoint format is:
+After the MongoDBSearch resource is running, configure your external mongod and mongos instances to connect to Envoy through your DNS names. Each name must resolve to the matching operator-created proxy Service (or your load balancer in front of it):
 
-```
-{search-name}-search-0-{shard-name}-proxy-svc.{namespace}.svc.cluster.local:27028
-```
+| Clients | Endpoint | Proxy Service |
+|---------|----------|---------------|
+| mongod in each shard | `{shard-name}.search.example.com:27028` | `{search-name}-search-0-{shard-name}-proxy-svc` |
+| mongos | `router.search.example.com:27028` | `{search-name}-search-0-proxy-svc` |
 
-Set these mongod parameters on each shard:
+Set these mongod parameters on each shard, using that shard's endpoint (`${MDB_PROXY_HOST_SHARD_0}` for shard 0):
 ```javascript
 {
   setParameter: {
@@ -311,6 +315,8 @@ Set these mongod parameters on each shard:
   }
 }
 ```
+
+On mongos, set the same parameters with `${MDB_PROXY_HOST_ROUTER}`.
 
 ## Troubleshooting
 
