@@ -73,7 +73,7 @@ tests:
         documentIndex: 5
       # namespaces list/watch is only granted when watching all namespaces
       - notExists:
-          path: rules[9]
+          path: rules[10]
         documentIndex: 0
 
   - it: cluster-wide watchNamespace renders a ClusterRole with the namespaces rule
@@ -86,7 +86,7 @@ tests:
           of: ClusterRole
         documentIndex: 0
       - equal:
-          path: rules[9].resources[0]
+          path: rules[10].resources[0]
           value: namespaces
         documentIndex: 0
       - isKind:
