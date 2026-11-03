@@ -1,6 +1,7 @@
-# Multi-cluster install. First wire up member-cluster RBAC and registrations with the
-# kubectl-mongodb plugin, then install the operator on the central cluster.
-echo "Configuring member clusters (RBAC + MemberCluster registration)..."
+# Multi-cluster install. First apply member-cluster RBAC with the kubectl-mongodb
+# plugin (plain YAML, no CRDs required), then install the operator on the central
+# cluster. MemberCluster registration happens after this script, once the CRDs exist.
+echo "Applying member-cluster RBAC..."
 
 # Render and apply member-cluster RBAC (ServiceAccount, token Secret, Roles and
 # bindings) to every member cluster, including the central one. The rendered names
@@ -12,21 +13,7 @@ for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
     | kubectl apply --context "${ctx}" -f -
 done
 
-# Register each member cluster with the operator on the central cluster. The logical
-# name (--member-cluster-logical-name) is what clusterSpecList[].clusterName refers to;
-# kind contexts contain hyphens and are already RFC 1123 compliant, but pass it
-# explicitly so the MemberCluster CR's spec.clusterName matches the context name.
-for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
-  kubectl mongodb multicluster generate-member-registration \
-    --member-cluster="${ctx}" \
-    --member-cluster-context="${ctx}" \
-    --member-cluster-namespace="${MDB_NS}" \
-    --operator-namespace="${MDB_NS}" \
-    --member-cluster-logical-name="${ctx}" \
-    | kubectl apply --context "${K8S_CTX_0}" -f -
-done
-
-echo "[ok] Member clusters configured"
+echo "[ok] Member-cluster RBAC applied"
 
 echo "Installing the operator in multi-cluster mode..."
 

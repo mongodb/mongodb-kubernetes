@@ -67,27 +67,29 @@ Run the whole runbook:
 
 1. `eadb-mc-01_0040_validate_env.sh` — validate required env vars and all three contexts.
 2. `eadb-mc-01_0045_create_namespaces.sh` — create the namespace in every cluster.
-3. `eadb-mc-01_0100_install_operator.sh` — configure the member clusters
-   (`kubectl mongodb multicluster generate-member-resources` + `generate-member-registration`) and
-   install the operator in multi-cluster mode.
-4. `eadb-mc-01_0200_create_om_admin_secret.sh` — create the Ops Manager admin secret.
-5. `eadb-mc-01_0205_install_cert_manager.sh` — install cert-manager (for AppDB TLS).
-6. `eadb-mc-01_0206_configure_tls_prerequisites.sh` — self-signed CA chain + CA ConfigMap.
-7. `eadb-mc-01_0207_generate_appdb_certificate.sh` — AppDB server certificate.
-8. `eadb-mc-01_0210_deploy_management_om.sh` — deploy the management Ops Manager.
-9. `eadb-mc-01_0215_wait_management_om.sh` — wait until `Running`; note its API-key secret.
-10. `eadb-mc-01_0220_create_appdb_project_configmap.sh` — project ConfigMap (with `sslMMSCAConfigMap`).
+3. `eadb-mc-01_0100_install_operator.sh` — apply member-cluster RBAC
+   (`kubectl mongodb multicluster generate-member-resources`) and install the operator in
+   multi-cluster mode.
+4. `eadb-mc-01_0110_configure_member_clusters.sh` — register the member clusters with the operator
+   (`generate-member-registration`) once the `MemberCluster` CRD exists.
+5. `eadb-mc-01_0200_create_om_admin_secret.sh` — create the Ops Manager admin secret.
+6. `eadb-mc-01_0205_install_cert_manager.sh` — install cert-manager (for AppDB TLS).
+7. `eadb-mc-01_0206_configure_tls_prerequisites.sh` — self-signed CA chain + CA ConfigMap.
+8. `eadb-mc-01_0207_generate_appdb_certificate.sh` — AppDB server certificate.
+9. `eadb-mc-01_0210_deploy_management_om.sh` — deploy the management Ops Manager.
+10. `eadb-mc-01_0215_wait_management_om.sh` — wait until `Running`; note its API-key secret.
+11. `eadb-mc-01_0220_create_appdb_project_configmap.sh` — project ConfigMap (with `sslMMSCAConfigMap`).
 
 ### Fresh Start
 
-11. `eadb-mc-01_0300_create_appdb_mongodbmulti.sh` — create the external AppDB `MongoDBMultiCluster`
+12. `eadb-mc-01_0300_create_appdb_mongodbmulti.sh` — create the external AppDB `MongoDBMultiCluster`
     (`role: AppDB`, name `<primary-om-name>-db`, `clusterSpecList` across the member clusters).
-12. `eadb-mc-01_0305_wait_appdb.sh` — wait until the AppDB is `Running`.
-13. `eadb-mc-01_0310_create_primary_om.sh` — create the primary Ops Manager with
+13. `eadb-mc-01_0305_wait_appdb.sh` — wait until the AppDB is `Running`.
+14. `eadb-mc-01_0310_create_primary_om.sh` — create the primary Ops Manager with
     `externalApplicationDatabaseRef` (`kind: MongoDBMultiCluster`) and no `applicationDatabase`.
-14. `eadb-mc-01_0315_wait_primary_om.sh` — wait until the primary OM is `Running` and its AppDB status
+15. `eadb-mc-01_0315_wait_primary_om.sh` — wait until the primary OM is `Running` and its AppDB status
     is `Disabled`.
-15. `eadb-mc-01_0400_verify.sh` — verify per-member StatefulSet ownership (the `mongodbmulticluster`
+16. `eadb-mc-01_0400_verify.sh` — verify per-member StatefulSet ownership (the `mongodbmulticluster`
     label) and the connection-string secret.
 
 ## Troubleshooting

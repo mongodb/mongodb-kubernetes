@@ -40,7 +40,7 @@ source env_variables.sh
 …or step by step (in order):
 
 ### Setup
-1–10. Same setup block as [01-mc-fresh-start](../01-mc-fresh-start) (`eadb-mc-02_0040` … `0220`):
+1–11. Same setup block as [01-mc-fresh-start](../01-mc-fresh-start) (`eadb-mc-02_0040` … `0220`):
 validate env, create namespaces in every cluster, install the multi-cluster operator, admin secret,
 cert-manager + CA + AppDB certificate, management OM, project ConfigMap.
 

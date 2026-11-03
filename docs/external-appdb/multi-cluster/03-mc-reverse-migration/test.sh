@@ -15,6 +15,7 @@ prepare_snippets
 run eadb-mc-03_0040_validate_env.sh
 run eadb-mc-03_0045_create_namespaces.sh
 run_for_output eadb-mc-03_0100_install_operator.sh
+run_for_output eadb-mc-03_0110_configure_member_clusters.sh
 run eadb-mc-03_0200_create_om_admin_secret.sh
 run_for_output eadb-mc-03_0205_install_cert_manager.sh
 run eadb-mc-03_0206_configure_tls_prerequisites.sh

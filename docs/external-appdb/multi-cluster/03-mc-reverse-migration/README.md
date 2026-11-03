@@ -37,7 +37,7 @@ source env_variables.sh
 …or step by step (in order):
 
 ### Setup
-1–10. Same setup block as [01-mc-fresh-start](../01-mc-fresh-start) (`eadb-mc-03_0040` … `0220`).
+1–11. Same setup block as [01-mc-fresh-start](../01-mc-fresh-start) (`eadb-mc-03_0040` … `0220`).
 
 ### Reach the external-AppDB state
 11. `eadb-mc-03_0300_create_appdb_mongodbmulti.sh` — external `MongoDBMultiCluster` (`role: AppDB`).
