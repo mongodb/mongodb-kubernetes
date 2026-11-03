@@ -329,12 +329,11 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(ctx context.Context, depFunc 
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()
 	}
-	err := depFunc(oc.deployment)
 	oc.numRequestsSent++
 	if oc.MutationErr != nil {
 		return oc.MutationErr
 	}
-	return err
+	return depFunc(oc.deployment)
 }
 
 func (oc *MockedOmConnection) ReadUpdateMonitoringAgentConfig(ctx context.Context, matFunc func(*MonitoringAgentConfig) error, log *zap.SugaredLogger) error {
@@ -374,6 +373,9 @@ func (oc *MockedOmConnection) ReadAutomationConfig(ctx context.Context) (*Automa
 
 func (oc *MockedOmConnection) ReadUpdateAutomationConfig(ctx context.Context, modifyACFunc func(ac *AutomationConfig) error, log *zap.SugaredLogger) error {
 	oc.addToHistory(reflect.ValueOf(oc.ReadUpdateAutomationConfig))
+	if oc.MutationErr != nil {
+		return oc.MutationErr
+	}
 	if oc.automationConfig == nil {
 		if oc.deployment == nil {
 			oc.deployment = NewDeployment()
@@ -389,9 +391,6 @@ func (oc *MockedOmConnection) ReadUpdateAutomationConfig(ctx context.Context, mo
 
 	_ = oc.automationConfig.Apply()
 	oc.deployment = oc.automationConfig.Deployment
-	if oc.MutationErr != nil {
-		return oc.MutationErr
-	}
 	return err
 }
 
