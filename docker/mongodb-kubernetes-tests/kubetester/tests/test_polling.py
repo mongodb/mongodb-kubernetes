@@ -178,6 +178,13 @@ class FakeMongoDB(MongoDBCommon):
         self.members = observation
 
 
+def test_wait_for_rejects_a_non_bool_condition(clock):
+    resource = FakeMongoDB([None], cached_members=3)
+
+    with pytest.raises(TypeError, match="must return a bool"):
+        resource.wait_for(lambda mdb: "10.0.0.1", timeout=5, description="external ip")
+
+
 def test_shared_resource_wait_never_checks_cached_state_after_failed_reload(clock):
     resource = FakeMongoDB([requests.exceptions.Timeout(), None, 3], cached_members=3)
     observed_members = []

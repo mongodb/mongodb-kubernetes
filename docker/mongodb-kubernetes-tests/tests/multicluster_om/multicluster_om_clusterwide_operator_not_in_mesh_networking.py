@@ -243,8 +243,8 @@ def test_enable_external_connectivity(om_test_helper: MultiClusterOMClusterWideT
     }
     ops_manager.update()
 
-    def external_ip_available(om: MongoDBOpsManager):
-        return get_external_service_ip(om)
+    def external_ip_available(om: MongoDBOpsManager) -> bool:
+        return get_external_service_ip(om) is not None
 
     print("Waiting for external service's external IP address")
     ops_manager.wait_for(external_ip_available, 60, should_raise=True)
