@@ -1,20 +1,6 @@
-# Multi-cluster install. First apply member-cluster RBAC with the kubectl-mongodb
-# plugin (plain YAML, no CRDs required), then install the operator on the central
-# cluster. MemberCluster registration happens after this script, once the CRDs exist.
-echo "Applying member-cluster RBAC..."
-
-# Render and apply member-cluster RBAC (ServiceAccount, token Secret, Roles and
-# bindings) to every member cluster, including the central one. The rendered names
-# are unified (mck-member-*), so the output is identical for every cluster.
-for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
-  kubectl mongodb multicluster generate-member-resources \
-    --member-cluster-namespace="${MDB_NS}" \
-    ${IMAGE_PULL_SECRET_NAME:+--image-pull-secrets="${IMAGE_PULL_SECRET_NAME}"} \
-    | kubectl apply --context "${ctx}" -f -
-done
-
-echo "[ok] Member-cluster RBAC applied"
-
+# Multi-cluster install. Install the operator on the central cluster only;
+# member-cluster configuration (RBAC on each cluster + MemberCluster
+# registration) is a follow-up step, once the helm chart has created the CRDs.
 echo "Installing the operator in multi-cluster mode..."
 
 helm upgrade --install --debug --kube-context "${K8S_CTX_0}" \

@@ -67,11 +67,10 @@ Run the whole runbook:
 
 1. `eadb-mc-01_0040_validate_env.sh` — validate required env vars and all three contexts.
 2. `eadb-mc-01_0045_create_namespaces.sh` — create the namespace in every cluster.
-3. `eadb-mc-01_0100_install_operator.sh` — apply member-cluster RBAC
-   (`kubectl mongodb multicluster generate-member-resources`) and install the operator in
-   multi-cluster mode.
-4. `eadb-mc-01_0110_configure_member_clusters.sh` — register the member clusters with the operator
-   (`generate-member-registration`) once the `MemberCluster` CRD exists.
+3. `eadb-mc-01_0100_install_operator.sh` — install the operator in multi-cluster mode.
+4. `eadb-mc-01_0110_configure_member_clusters.sh` — configure the member clusters once the
+   `MemberCluster` CRD exists: apply member-cluster RBAC (`generate-member-resources`) on
+   every cluster, then register them with the operator (`generate-member-registration`).
 5. `eadb-mc-01_0200_create_om_admin_secret.sh` — create the Ops Manager admin secret.
 6. `eadb-mc-01_0205_install_cert_manager.sh` — install cert-manager (for AppDB TLS).
 7. `eadb-mc-01_0206_configure_tls_prerequisites.sh` — self-signed CA chain + CA ConfigMap.

@@ -134,19 +134,10 @@ done
 
 ## 2. Install the operator in multi-cluster mode
 
-First apply the member-cluster RBAC with the `kubectl-mongodb` plugin (plain YAML — no
-CRDs needed), then install the operator on the central cluster. The member clusters are
-registered via `MemberCluster` CRs (one per cluster) in the next step, once the helm
-chart has created the CRD — so the operator needs no cluster list at install time.
+Install the operator on the central cluster. Member-cluster configuration (RBAC and
+registration) is a follow-up step — the operator needs no cluster list at install time.
 
 ```bash
-# Member-cluster RBAC (ServiceAccount, token Secret, Roles and bindings) on every cluster:
-for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
-  kubectl mongodb multicluster generate-member-resources \
-    --member-cluster-namespace="${MDB_NS}" \
-    | kubectl apply --context "${ctx}" -f -
-done
-
 helm upgrade --install --kube-context "${K8S_CTX_0}" \
   --create-namespace --namespace="${MDB_NS}" \
   mongodb-kubernetes-operator-multi-cluster \
@@ -157,12 +148,19 @@ kubectl --context "${K8S_CTX_0}" -n "${MDB_NS}" rollout status \
   --timeout=300s deployment/mongodb-kubernetes-operator-multi-cluster
 ```
 
-## 3. Register the member clusters
+## 3. Configure the member clusters
 
-With the operator installed (and the `MemberCluster` CRD in place), register each member
-cluster on the central cluster:
+With the operator installed (and the `MemberCluster` CRD in place), first apply the
+member-cluster RBAC (ServiceAccount, token Secret, Roles and bindings) to every cluster,
+then register each member cluster on the central cluster:
 
 ```bash
+for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
+  kubectl mongodb multicluster generate-member-resources \
+    --member-cluster-namespace="${MDB_NS}" \
+    | kubectl apply --context "${ctx}" -f -
+done
+
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
   kubectl mongodb multicluster generate-member-registration \
     --member-cluster="${ctx}" \
