@@ -43,16 +43,12 @@ type MockedOmAdmin struct {
 	ReleasedIDs            []string
 	LicenseReceipt         string
 	IdentityRotationErr    error
-	IdentityRotationCalls  int
 	LicenseIdentity        IdentityView
-	LicenseIdentityCalls   int
 	LicenseReadErr         error
 	LicenseInstallErr      error
 	LicenseRecomputeErr    error
 	LicenseReceiptErr      error
 	LicenseIdentityErr     error
-	LicenseReceiptCalls    int
-	LicenseRecomputeCalls  int
 }
 
 func (a *MockedOmAdmin) UpdateDaemonConfig(ctx context.Context, config backup.DaemonConfig) error {
@@ -65,7 +61,8 @@ func (a *MockedOmAdmin) UpdateDaemonConfig(ctx context.Context, config backup.Da
 	return apierror.NewErrorWithCode(apierror.BackupDaemonConfigNotFound)
 }
 
-// NewMockedAdminProvider creates the admin object
+// NewMockedAdminProvider is the function creating the admin object. The function returns the existing mocked admin instance
+// if it exists - this allows to survive through multiple reconciliations and to keep OM state over them
 func NewMockedAdminProvider(baseUrl, publicApiKey, privateApiKey string, withSingleton bool) OpsManagerAdmin {
 	mockedAdmin := &MockedOmAdmin{}
 	mockedAdmin.BaseURL = baseUrl
@@ -256,7 +253,7 @@ func (a *MockedOmAdmin) ReadGlobalAPIKeys(ctx context.Context) ([]Key, error) {
 func (a *MockedOmAdmin) CreateGlobalAPIKey(ctx context.Context, description string) (Key, error) {
 	newKey := Key{
 		Description: description,
-		Roles:       []map[string]string{{"role_name": "GLOBAL_OWNER"}},
+		Roles:       []map[string]string{{"role_name": "GLOBAL_ONWER"}},
 	}
 	a.apiKeys = append(a.apiKeys, newKey)
 	return newKey, nil
@@ -316,7 +313,6 @@ func (a *MockedOmAdmin) InstallLicense(_ context.Context, rawArtifact json.RawMe
 }
 
 func (a *MockedOmAdmin) RecomputeLicense(_ context.Context) error {
-	a.LicenseRecomputeCalls++
 	return a.LicenseRecomputeErr
 }
 
@@ -359,6 +355,7 @@ func (a *MockedOmAdmin) ReleaseLicense(_ context.Context, artifactID string) (Li
 		return LicenseView{}, err
 	}
 	a.LicenseState = raw
+	a.LicenseReadState = nil
 	var response LicenseView
 	if err := json.Unmarshal(raw, &response); err != nil {
 		return LicenseView{}, err
@@ -389,7 +386,6 @@ func unmarshalMockLicenseState(state any) (LicenseView, error) {
 }
 
 func (a *MockedOmAdmin) ReadLicenseReceipt(_ context.Context, artifactID string) (string, error) {
-	a.LicenseReceiptCalls++
 	if a.LicenseReceiptErr != nil {
 		return "", a.LicenseReceiptErr
 	}
@@ -400,7 +396,6 @@ func (a *MockedOmAdmin) ReadLicenseReceipt(_ context.Context, artifactID string)
 }
 
 func (a *MockedOmAdmin) ReadLicenseIdentity(_ context.Context) (IdentityView, error) {
-	a.LicenseIdentityCalls++
 	if a.LicenseIdentityErr != nil {
 		return IdentityView{}, a.LicenseIdentityErr
 	}
@@ -408,6 +403,5 @@ func (a *MockedOmAdmin) ReadLicenseIdentity(_ context.Context) (IdentityView, er
 }
 
 func (a *MockedOmAdmin) RotateLicenseIdentity(_ context.Context) error {
-	a.IdentityRotationCalls++
 	return a.IdentityRotationErr
 }
