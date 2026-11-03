@@ -75,6 +75,10 @@ type MockedOmConnection struct {
 
 	ReadAutomationStatusFunc func() (*AutomationStatus, error)
 	ReadAutomationAgentsFunc func(int) (Paginated, error)
+	// ReadUpdateDeploymentError fails deployment updates while non-nil.
+	ReadUpdateDeploymentError error
+	// RemoveHostFunc is called before removing a host; a non-nil error keeps the host.
+	RemoveHostFunc func(hostID string, remainingHosts int) error
 
 	numRequestsSent         int
 	AgentAPIKey             string
@@ -325,6 +329,9 @@ func (oc *MockedOmConnection) ReadUpdateDeployment(ctx context.Context, depFunc 
 	if oc.deployment == nil {
 		oc.deployment = NewDeployment()
 	}
+	if oc.ReadUpdateDeploymentError != nil {
+		return oc.ReadUpdateDeploymentError
+	}
 	err := depFunc(oc.deployment)
 	oc.numRequestsSent++
 	return err
@@ -512,6 +519,11 @@ func (oc *MockedOmConnection) GetHosts(ctx context.Context) (*host.Result, error
 
 func (oc *MockedOmConnection) RemoveHost(ctx context.Context, hostID string) error {
 	oc.addToHistory(reflect.ValueOf(oc.RemoveHost))
+	if oc.RemoveHostFunc != nil {
+		if err := oc.RemoveHostFunc(hostID, len(oc.hostResults.Results)); err != nil {
+			return err
+		}
+	}
 	toKeep := make([]host.Host, 0)
 	for _, v := range oc.hostResults.Results {
 		if v.Id != hostID {

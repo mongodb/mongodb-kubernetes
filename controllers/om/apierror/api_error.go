@@ -12,6 +12,9 @@ const (
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
 	DuplicateWhitelistEntry    = "DUPLICATE_GLOBAL_WHITELIST_ENTRY"
+	// CannotDeleteHostBackupEnabled is returned when removing the last monitored host of a replica set
+	// whose backup is still active. Ops Manager keeps that host for the backup.
+	CannotDeleteHostBackupEnabled = "CANNOT_DELETE_HOST_BACKUP_ENABLED"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the
