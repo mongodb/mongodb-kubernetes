@@ -28,7 +28,7 @@ class TestOpsManagerLicenseE2E:
         """Without spec.license the CR mirrors the state and identity Ops Manager reports."""
         cr, _ = wait_for_cr_license_sync(ops_manager, installed="")
 
-        assert cr["enforcement"]
+        assert cr["enforcement"]["effectiveState"] == "GRACE"
         assert cr["identity"]["holderId"] == om_holder_id(ops_manager)
 
     def test_recompute_annotation(self, ops_manager: MongoDBOpsManager):
@@ -39,4 +39,4 @@ class TestOpsManagerLicenseE2E:
         cr, _ = wait_for_cr_license_sync(ops_manager)
         assert RECOMPUTE_ANNOTATION not in ops_manager["metadata"].get("annotations", {})
 
-        assert cr["enforcement"]
+        assert cr["enforcement"]["effectiveState"] == "GRACE"
