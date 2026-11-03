@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/blang/semver"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -283,6 +284,12 @@ func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...
 			m.Status.BackupStatus = &mdbv1.BackupStatus{}
 		}
 		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.LicenseStatusOption{}); exists {
+		c := option.(status.LicenseStatusOption).Condition
+		c.ObservedGeneration = m.GetGeneration()
+		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
 	}
 
 	if phase == status.PhaseRunning {

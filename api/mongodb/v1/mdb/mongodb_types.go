@@ -1767,6 +1767,12 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
 	}
 
+	if option, exists := status.GetOption(statusOptions, status.LicenseStatusOption{}); exists {
+		c := option.(status.LicenseStatusOption).Condition
+		c.ObservedGeneration = m.GetGeneration()
+		_ = meta.SetStatusCondition(&m.Status.Conditions, c)
+	}
+
 	if phase == status.PhaseRunning {
 		m.Status.Version = m.Spec.Version
 		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
