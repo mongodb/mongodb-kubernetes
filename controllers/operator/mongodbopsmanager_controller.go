@@ -589,6 +589,17 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 		return workflow.Failed(xerrors.Errorf("error in replicateQueryableBackupTLSSecretInMemberClusters: %w", err)), nil
 	}
 
+	// An old Backup Daemon running against a newer Ops Manager shuts itself down on the version mismatch. The StatefulSet then
+	// can't replace its not ready pod (https://github.com/kubernetes/kubernetes/issues/67250), so the daemon is stopped, and
+	// waited for, before Ops Manager is rolled.
+	backupDaemonStopped, err := r.stopBackupDaemonIfNeeded(ctx, reconcilerHelper, false)
+	if err != nil {
+		return workflow.Failed(err), nil
+	}
+	if !backupDaemonStopped {
+		return workflow.Pending("Waiting for the Backup Daemon to stop before upgrading Ops Manager"), nil
+	}
+
 	// Prepare Ops Manager StatefulSets in parallel in all member clusters
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range reconcilerHelper.getHealthyMemberClusters() {
@@ -621,8 +632,9 @@ func (r *OpsManagerReconciler) reconcileOpsManager(ctx context.Context, reconcil
 		log.Warn("Not triggering an Ops Manager version changed event: %s", err)
 	}
 
-	// 5. Stop backup daemon if necessary
-	if err := r.stopBackupDaemonIfNeeded(ctx, reconcilerHelper); err != nil {
+	// 5. Stop the Backup Daemon pods that outlived the Ops Manager rollout. They run the old version, can't do any work anymore
+	// and may be stuck terminating, so they are not given the time to stop gracefully.
+	if _, err := r.stopBackupDaemonIfNeeded(ctx, reconcilerHelper, true); err != nil {
 		return workflow.Failed(err), nil
 	}
 
@@ -678,36 +690,47 @@ func triggerOmChangedEventIfNeeded(ctx context.Context, opsManager *omv1.MongoDB
 	return nil
 }
 
-// stopBackupDaemonIfNeeded stops the backup daemon when OM is upgraded.
-// Otherwise, the backup daemon will remain in a broken state (because of version missmatch between OM and backup daemon)
-// due to this STS limitation: https://github.com/kubernetes/kubernetes/issues/67250.
-// Later, the normal reconcile process will update the STS and start the backup daemon.
-func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
+// stopBackupDaemonIfNeeded stops the Backup Daemon when the Ops Manager version changes: the StatefulSet is scaled down
+// and its pods are deleted, as scaling down to 0 does not terminate the pods if all of them are in an unhealthy state.
+// The normal reconcile process starts the Backup Daemon again once Ops Manager is upgraded.
+// The pods stop within their termination grace period, or within a second if force is set.
+// It returns false while Backup Daemon pods are still around in any member cluster.
+func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, force bool) (bool, error) {
 	opsManager := reconcileHelper.opsManager
 	if opsManager.Spec.Version == opsManager.Status.OpsManagerStatus.Version || opsManager.Status.OpsManagerStatus.Version == "" {
-		return nil
+		return true, nil
 	}
 
+	stopped := true
 	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
 		if _, err := r.scaleStatefulSet(ctx, opsManager.Namespace, reconcileHelper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), 0, memberCluster.Client); client.IgnoreNotFound(err) != nil {
-			return err
+			return false, err
 		}
 
-		// delete all backup daemon pods, scaling down the statefulSet to 0 does not terminate the pods,
-		// if the number of pods is greater than 1 and all of them are in an unhealthy state
-		cleanupOptions := mdbv1.MongodbCleanUpOptions{
-			Namespace: opsManager.Namespace,
-			Labels: map[string]string{
-				"app": reconcileHelper.BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster),
-			},
+		podLabels := map[string]string{
+			"app": reconcileHelper.BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster),
+		}
+		cleanupOptions := mdbv1.MongodbCleanUpOptions{Namespace: opsManager.Namespace, Labels: podLabels}
+		deleteOptions := []client.DeleteAllOfOption{&cleanupOptions}
+		if force {
+			deleteOptions = append(deleteOptions, client.GracePeriodSeconds(1))
 		}
 
-		if err := memberCluster.Client.DeleteAllOf(ctx, &corev1.Pod{}, &cleanupOptions); client.IgnoreNotFound(err) != nil {
-			return err
+		if err := memberCluster.Client.DeleteAllOf(ctx, &corev1.Pod{}, deleteOptions...); client.IgnoreNotFound(err) != nil {
+			return false, err
+		}
+
+		pods := corev1.PodList{}
+		if err := memberCluster.Client.List(ctx, &pods, client.InNamespace(opsManager.Namespace), client.MatchingLabels(podLabels)); err != nil {
+			return false, err
+		}
+
+		if len(pods.Items) != 0 {
+			stopped = false
 		}
 	}
 
-	return nil
+	return stopped, nil
 }
 
 func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConfig *AppDBConfig, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
