@@ -54,8 +54,6 @@ RECEIPT_SECRET_SUFFIX = "-release-receipt"
 RUN_PRINCIPAL_ID = f"mck-ci-{uuid.uuid4()}"
 
 RELEASED_STATUS = "RELEASED"
-DENIED_STATUS = "DENIED"
-CLAIM_CONFLICT_CAUSE = "CLAIM_CONFLICT"
 
 
 # Ops Manager runs these hourly, the tests trigger them instead of waiting.
@@ -133,19 +131,14 @@ def om_holder_id(ops_manager: MongoDBOpsManager) -> str:
     return ops_manager.get_om_tester().api_read_license_identity()["holderId"]
 
 
-def _mint(ops_manager: MongoDBOpsManager, *, bound: bool = True, **kwargs) -> tuple[str, str]:
-    """Mints a license for this run, bound to this Ops Manager unless bound is False."""
+def _mint(ops_manager: MongoDBOpsManager, **kwargs) -> tuple[str, str]:
+    """Mints a license for this run, bound to this Ops Manager."""
     return mint_license(
         gsa_credentials(ops_manager.namespace),
         principal_id=RUN_PRINCIPAL_ID,
-        holder_ids=[om_holder_id(ops_manager)] if bound else [],
+        holder_ids=[om_holder_id(ops_manager)],
         **kwargs,
     )
-
-
-def mint_single_instance_license(ops_manager: MongoDBOpsManager) -> tuple[str, str]:
-    """Mints a license no Ops Manager is bound to, which one Ops Manager at a time can claim."""
-    return _mint(ops_manager, bound=False)
 
 
 def mint_run_license(
@@ -418,14 +411,6 @@ def ea_holder_states(ops_manager: MongoDBOpsManager, artifact_id: str) -> dict[s
     }
 
 
-def cr_license_row(ops_manager: MongoDBOpsManager, artifact_id: str) -> Optional[dict]:
-    ops_manager.load()
-    for entry in license_status(ops_manager).get("licenses", []):
-        if entry["artifactId"] == artifact_id:
-            return entry
-    return None
-
-
 def trigger_cron(ops_manager: MongoDBOpsManager, cron_name: str) -> None:
     admin = read_secret(ops_manager.namespace, ops_manager.get_admin_secret_name())
     ops_manager.get_om_tester().ui_trigger_cron(admin["Username"], admin["Password"], cron_name)
@@ -481,24 +466,6 @@ def wait_for_om_effective_state(ops_manager: MongoDBOpsManager, expected: str) -
         return read_om_license_view(ops_manager)["enforcement"]["effectiveState"] == expected
 
     wait_with_cron(ops_manager, LICENSE_STATE_EVALUATION_CRON, reached)
-
-
-def wait_for_cr_license_row_status(ops_manager: MongoDBOpsManager, artifact_id: str, expected: str) -> None:
-    """Waits until the CR lists the artifact with the expected status."""
-
-    def reached(_: MongoDBOpsManager) -> bool:
-        return (cr_license_row(ops_manager, artifact_id) or {}).get("status") == expected
-
-    ops_manager.wait_for(reached, timeout=DEFAULT_TIMEOUT)
-
-
-def wait_for_om_artifact_stays_unusable(ops_manager: MongoDBOpsManager, artifact_id: str) -> None:
-    """Waits until Ops Manager does not use the artifact and keeps it that way for a while."""
-
-    def unusable(_: MongoDBOpsManager) -> bool:
-        return not om_artifact_usable(ops_manager, artifact_id)
-
-    ops_manager.wait_for(unusable, timeout=60, persist_for=6)
 
 
 # Scenarios
