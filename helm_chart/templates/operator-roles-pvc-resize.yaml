@@ -30,18 +30,20 @@ retention policy), never by the operator.
 {{- end -}}
 
 {{- $watchNamespace := list $operatorNamespace -}}
+{{- if .Values.operator.watchNamespace -}}
+    {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 -}}
+    {{- $watchNamespace = concat $watchNamespace (list $operatorNamespace) | uniq -}}
+{{- end -}}
 {{- if $memberMode -}}
     {{- /* Member mode: bound in memberCluster.workloadNamespaces plus the operator namespace;
            "*" is rejected — cluster-wide permission is expressed only via
            memberCluster.clusterScoped, which renders a single ClusterRoleBinding. */ -}}
     {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default (list $operatorNamespace) -}}
     {{- $watchNamespace = concat $workloadNamespaces (list $operatorNamespace) | uniq -}}
+
     {{- if $memberCluster.clusterScoped | default false -}}
         {{- $watchNamespace = list "*" -}}
     {{- end -}}
-{{- else if .Values.operator.watchNamespace -}}
-    {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 -}}
-    {{- $watchNamespace = concat $watchNamespace (list $operatorNamespace) | uniq -}}
 {{- end -}}
 
 
