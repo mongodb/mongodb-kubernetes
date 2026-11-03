@@ -615,18 +615,48 @@ spec:
                             More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                           type: object
                       type: object
+                    service:
+                      description: |-
+                        Service sets labels and annotations on this cluster's Services. Labels must not use the
+                        operator-managed keys app, component, shard, mongodb.com/search-name or mongodb.com/search-namespace.
+                      properties:
+                        metadata:
+                          description: Metadata is merged onto the operator-generated
+                            Service metadata.
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations to add to the Service. The operator owns the Service's annotations:
+                                any annotation not listed here, including one added by another tool, is removed.
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              description: Labels to add to the Service. Operator-managed
+                                label keys always keep the operator's values.
+                              type: object
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: service.metadata.labels must not set operator-managed
+                          label keys
+                        rule: '!has(self.metadata) || !has(self.metadata.labels) ||
+                          [''app'', ''component'', ''shard'', ''mongodb.com/search-name'',
+                          ''mongodb.com/search-namespace''].all(k, !(k in self.metadata.labels))'
                     shardOverrides:
                       description: |-
-                        ShardOverrides applies per-shard sizing exceptions within this cluster,
-                        for external sharded sources only. Each entry layers its set sizing fields
+                        ShardOverrides applies per-shard sizing and metadata exceptions within this cluster,
+                        for external sharded sources only. Each entry layers its set fields
                         onto this cluster's resolved values for the named shards.
                       items:
                         description: |-
-                          ShardOverride sizes specific shards within the enclosing cluster differently
+                          ShardOverride configures specific shards within the enclosing cluster differently
                           from the cluster default. Replicas, ResourceRequirements, Persistence,
                           JVMFlags and NodeAffinity replace the cluster value for the named shards when set;
-                          StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
-                          inherit the cluster value.
+                          StatefulSetConfiguration is deep-merged and Service metadata is merged per key.
+                          Unset fields inherit the cluster value.
                         properties:
                           jvmFlags:
                             description: JVMFlags replaces the cluster's jvmFlags
@@ -948,6 +978,30 @@ spec:
                                   If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
                                   otherwise to an implementation-defined value. Requests cannot exceed Limits.
                                   More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                type: object
+                            type: object
+                          service:
+                            description: |-
+                              Service metadata overrides the cluster's per key for these shards' Services (not the
+                              mongos proxy). Operator-managed label keys are ignored.
+                            properties:
+                              metadata:
+                                description: Metadata is merged onto the operator-generated
+                                  Service metadata.
+                                properties:
+                                  annotations:
+                                    additionalProperties:
+                                      type: string
+                                    description: |-
+                                      Annotations to add to the Service. The operator owns the Service's annotations:
+                                      any annotation not listed here, including one added by another tool, is removed.
+                                    type: object
+                                  labels:
+                                    additionalProperties:
+                                      type: string
+                                    description: Labels to add to the Service. Operator-managed
+                                      label keys always keep the operator's values.
+                                    type: object
                                 type: object
                             type: object
                           shardNames:
