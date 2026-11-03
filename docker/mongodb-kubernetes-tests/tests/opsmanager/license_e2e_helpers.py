@@ -538,6 +538,7 @@ def release_license(ops_manager: MongoDBOpsManager, *, request_receipt: bool = F
     wait_for_released_artifact(ops_manager, current_artifact_id())
     wait_for_cr_license_sync(ops_manager, installed="")
     wait_for_ea_artifact_state(ops_manager, current_artifact_id(), "RELEASED")
+    wait_for_ea_artifact_status(ops_manager, current_artifact_id(), "RELEASED")
 
 
 def install_and_release_license(
