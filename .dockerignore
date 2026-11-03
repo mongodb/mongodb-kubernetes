@@ -48,6 +48,8 @@ logs/
 # Tools and binaries
 bin/
 tools.go
+# The tests image does not install this binary, and it is 65 MB per architecture.
+docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_*
 
 # Kubernetes and operator-related artifacts
 deploy/
