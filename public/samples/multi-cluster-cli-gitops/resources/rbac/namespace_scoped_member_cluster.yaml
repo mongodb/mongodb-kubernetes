@@ -120,31 +120,6 @@ rules:
       - watch
       - delete
       - deletecollection
----
-kind: RoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mck-member-role-base-binding
-  namespace: mongodb
-  annotations:
-    mongodb.com/rbac-version: "2.0.0"
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: mck-member-role-base
-subjects:
-  - kind: ServiceAccount
-    name: mck-member-sa
-    namespace: mongodb
----
-kind: Role
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mck-member-pvc-resize
-  namespace: mongodb
-  annotations:
-    mongodb.com/rbac-version: "2.0.0"
-rules:
   - apiGroups:
       - ''
     resources:
@@ -157,14 +132,14 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: mck-member-pvc-resize-binding
+  name: mck-member-role-base-binding
   namespace: mongodb
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: mck-member-pvc-resize
+  name: mck-member-role-base
 subjects:
   - kind: ServiceAccount
     name: mck-member-sa

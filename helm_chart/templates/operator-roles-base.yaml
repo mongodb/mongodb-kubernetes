@@ -114,6 +114,14 @@ rules:
       - watch
       - delete
       - deletecollection
+  - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - list
+      - watch
+      - update
 {{- if not $memberMode }}
   - apiGroups:
       - mongodbcommunity.mongodb.com

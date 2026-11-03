@@ -64,6 +64,14 @@ rules:
       - delete
       - deletecollection
   - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - list
+      - watch
+      - update
+  - apiGroups:
       - mongodbcommunity.mongodb.com
     resources:
       - mongodbcommunity
