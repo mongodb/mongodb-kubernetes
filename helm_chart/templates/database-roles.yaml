@@ -1,9 +1,17 @@
+{{- /*
+Template used directly by Helm and by kubectl plugin when rendering RBAC for member clusters.
+*/ -}}
+
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $memberMode := $memberCluster.enabled | default false -}}
 {{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
 
 {{- $namePrefix := "mongodb-kubernetes" -}}
 {{- if $memberMode }}
+    {{- /*
+    In member mode, change resource names. Member RBAC must never
+    override RBAC from base installation (usually managed by Helm or OLM).
+    */ -}}
     {{- $namePrefix = "mck-member" -}}
 {{- end }}
 
@@ -12,17 +20,18 @@
     {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
 {{- end }}
 {{- if $memberMode }}
-    {{- /* Member mode (generate-member-resources): workload RBAC is seeded exactly in
-           memberCluster.workloadNamespaces. "*" is rejected — cluster-wide operators
-           use memberCluster.clusterScoped, which covers operator permissions;
-           workload ServiceAccounts are always namespaced. */}}
+    {{- /*
+    In member mode workload RBAC is seeded exactly in memberCluster.workloadNamespaces.
+    */}}
     {{- $watchNamespace = $memberCluster.workloadNamespaces | default (list $operatorNamespace) }}
 {{- end }}
 
 {{- range $idx, $namespace := $watchNamespace }}
 {{- if eq $namespace "*" }}
-    {{- /* A cluster-wide operator ("*") still seeds the workload ServiceAccounts in
-           the operator namespace — they are namespaced objects. */}}
+    {{- /*
+    A cluster-wide operator ("*") still seeds the workload ServiceAccounts in
+    the operator namespace - they are namespaced objects.
+    */}}
     {{- $namespace = $operatorNamespace }}
 {{- end }}
 ---

@@ -7,8 +7,6 @@ metadata:
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 ---
-# Long-lived token for the member ServiceAccount. Since Kubernetes 1.24 these are no
-# longer auto-created, so we create one explicitly for the operator to authenticate with.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -26,11 +24,6 @@ metadata:
   annotations:
     mongodb.com/rbac-version: "2.0.0"
 rules:
-  # deletecollection is required only for multi-cluster operation: owner references
-  # don't work across clusters, so removing a multi-cluster workload (or a whole member
-  # cluster) deletes its resources via DeleteAllOf. Single-cluster deletion relies on
-  # Kubernetes garbage collection instead, so the base installation role doesn't grant
-  # this verb on these resources.
   - apiGroups:
       - ''
     resources:
