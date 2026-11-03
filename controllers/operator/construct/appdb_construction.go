@@ -3,6 +3,7 @@ package construct
 import (
 	"fmt"
 	"os"
+	"path"
 	"strconv"
 
 	"go.uber.org/zap"
@@ -392,6 +393,12 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	// mounted agent-api-key secret via ${AGENT_API_KEY}) instead of embedding them in the automation config.
 	if ShouldEnableMonitoring(podVars) {
 		automationAgentCommand[idx] += " -mmsGroupId=" + podVars.ProjectID + " -mmsApiKey=${AGENT_API_KEY}"
+	}
+
+	// Trust the Ops Manager CA for the monitoring connection to Ops Manager. The agent hands
+	// this to its monitoring module; without it the module only trusts the system root CAs.
+	if ShouldMountSSLMMSCAConfigMap(podVars) {
+		automationAgentCommand[idx] += " -httpsCAFile=" + path.Join(caCertMountPath, util.CaCertMMS)
 	}
 
 	automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
