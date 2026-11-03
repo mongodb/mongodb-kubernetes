@@ -174,7 +174,6 @@ def test_delete_cluster_role_and_binding(
     # Operator base cluster-scoped RBAC on the central cluster (Helm, operator.name-based).
     central_role_names = [
         MULTI_CLUSTER_OPERATOR_NAME,
-        f"{MULTI_CLUSTER_OPERATOR_NAME}-pvc-resize",
         f"{MULTI_CLUSTER_OPERATOR_NAME}-cluster-telemetry",
         f"{MULTI_CLUSTER_OPERATOR_NAME}-{namespace}-cluster-telemetry-binding",
     ]
@@ -189,7 +188,6 @@ def test_delete_cluster_role_and_binding(
     member_namespaced_role_names = (
         "mck-member-role-base",
         "mck-member-role-multicluster",
-        "mck-member-pvc-resize",
     )
     member_cluster_role_names = (
         "mck-member-cluster-telemetry",

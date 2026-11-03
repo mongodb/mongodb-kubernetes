@@ -27,10 +27,8 @@ import (
 //     rbac-version validation was removed with that scaffolding).
 //   - operator-roles-base.yaml: dual-mode; in member mode it renders
 //     mck-member-role-base — the operator's shared workload-management
-//     rules, identical to the base installation's role, from a single unconditional
-//     source in the template.
-//   - operator-roles-pvc-resize.yaml: dual-mode; in member mode it renders
-//     mck-member-pvc-resize bound to the member SA.
+//     rules (including PVC resize), identical to the base installation's role, from a
+//     single unconditional source in the template.
 //   - database-roles.yaml: RBAC for the MongoDB pods. Dual-mode; in member mode it renders
 //     member-scoped names (mck-member-*).
 //   - operator-roles-telemetry.yaml: telemetry ClusterRole/ClusterRoleBinding. Dual-mode; in
@@ -44,7 +42,6 @@ import (
 var memberTemplates = []string{
 	"member-cluster-rbac.yaml",
 	"operator-roles-base.yaml",
-	"operator-roles-pvc-resize.yaml",
 	"database-roles.yaml",
 	"operator-roles-telemetry.yaml",
 }

@@ -59,19 +59,16 @@ func kindNames(rs []*unstructured.Unstructured) []string {
 // they keep isolating the operator RBAC from the workload RBAC once the workload names also
 // become member-scoped.
 type resourceNames struct {
-	// Operator member RBAC, named mck-member-*: three roles,
+	// Operator member RBAC, named mck-member-*: two roles,
 	// each with its own binding(s). role-base (the operator's shared
-	// workload-management rules, operator-roles-base.yaml), role-multicluster (rules
-	// needed only for multi-cluster operation, member-cluster-rbac.yaml) and
-	// pvc-resize (operator-roles-pvc-resize.yaml).
+	// workload-management rules, operator-roles-base.yaml) and role-multicluster (rules
+	// needed only for multi-cluster operation, member-cluster-rbac.yaml).
 	operatorSA              string
 	operatorToken           string
 	roleBase                string
 	roleBaseBinding         string
 	roleMulticluster        string
 	roleMulticlusterBinding string
-	pvcResizeRole           string
-	pvcResizeBinding        string
 
 	// Telemetry RBAC, rendered by the dual-mode operator-roles-telemetry.yaml unless
 	// operatorTelemetry is false.
@@ -96,8 +93,6 @@ func expectedNames() resourceNames {
 		roleBaseBinding:         prefix + "role-base-binding",
 		roleMulticluster:        prefix + "role-multicluster",
 		roleMulticlusterBinding: prefix + "role-multicluster-binding",
-		pvcResizeRole:           prefix + "pvc-resize",
-		pvcResizeBinding:        prefix + "pvc-resize-binding",
 
 		telemetryClusterRole: prefix + "cluster-telemetry",
 		telemetryBinding:     prefix + "cluster-telemetry-binding",
@@ -152,9 +147,9 @@ func telemetryResources(n resourceNames) []resourceID {
 	}
 }
 
-// operatorResources returns the resourceIDs of the three operator member roles
-// (role-base, role-multicluster, pvc-resize) and their bindings for the given scope. The
-// three roles always share the same scope: roleKind is "Role" (narrowed) or
+// operatorResources returns the resourceIDs of the two operator member roles
+// (role-base, role-multicluster) and their bindings for the given scope. The
+// two roles always share the same scope: roleKind is "Role" (narrowed) or
 // "ClusterRole" (cluster-scoped). In Role mode each role appears once per given
 // namespace — same name, different namespace, because a RoleBinding cannot reference a
 // Role in another namespace — with one RoleBinding per namespace pointing at the
@@ -165,7 +160,6 @@ func operatorResources(n resourceNames, roleKind string, namespaces ...string) [
 	roles := []struct{ role, binding string }{
 		{n.roleMulticluster, n.roleMulticlusterBinding},
 		{n.roleBase, n.roleBaseBinding},
-		{n.pvcResizeRole, n.pvcResizeBinding},
 	}
 	var out []resourceID
 	for _, r := range roles {
@@ -277,12 +271,11 @@ func TestRender(t *testing.T) {
 		},
 	}
 
-	// The three operator bindings (role-base, role-multicluster, pvc-resize) all share the
+	// The two operator bindings (role-base, role-multicluster) share the
 	// same scope in every test case and must point at a role of wantRoleKind.
 	operatorBindings := map[string]bool{
 		n.roleBaseBinding:         true,
 		n.roleMulticlusterBinding: true,
-		n.pvcResizeBinding:        true,
 	}
 
 	for _, tc := range tests {
@@ -349,10 +342,10 @@ func rulesOf(t *testing.T, r *unstructured.Unstructured) []rbacRule {
 	return out
 }
 
-// TestRender_OperatorRoleRules pins the exact rule content of the three operator member
+// TestRender_OperatorRoleRules pins the exact rule content of the two operator member
 // roles: role-multicluster holds only the multi-cluster-only rules, role-base holds
-// exactly the shared workload-management rules (no central-only rules), and pvc-resize
-// holds its single least-privilege rule.
+// exactly the shared workload-management rules (including PVC resize, no central-only
+// rules).
 func TestRender_OperatorRoleRules(t *testing.T) {
 	const memberNs = "mongodb"
 	n := expectedNames()
@@ -364,7 +357,7 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 	for _, r := range parseResources(t, out) {
 		byName[r.GetName()] = r
 	}
-	for _, name := range []string{n.roleMulticluster, n.roleBase, n.pvcResizeRole} {
+	for _, name := range []string{n.roleMulticluster, n.roleBase} {
 		require.Contains(t, byName, name, "rendered resources missing %s", name)
 	}
 
@@ -380,6 +373,7 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 		{apiGroups: []string{"apps"}, resources: []string{"deployments", "statefulsets"}, verbs: []string{"create", "delete", "get", "list", "update", "watch"}},
 		{apiGroups: []string{"batch"}, resources: []string{"jobs"}, verbs: []string{"create", "delete", "get", "list", "watch"}},
 		{apiGroups: []string{""}, resources: []string{"pods"}, verbs: []string{"delete", "deletecollection", "get", "list", "watch"}},
+		{apiGroups: []string{""}, resources: []string{"persistentvolumeclaims"}, verbs: []string{"list", "update", "watch"}},
 	}, baseRules, "role-base rules")
 
 	// Belt-and-braces alongside the exact-match above: role-base must not leak any of the
@@ -396,10 +390,6 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 		}
 		assert.NotContains(t, rule.resources, "namespaces", "role-base must not contain the central-only namespaces rule")
 	}
-
-	assert.ElementsMatch(t, []rbacRule{
-		{apiGroups: []string{""}, resources: []string{"persistentvolumeclaims"}, verbs: []string{"list", "update", "watch"}},
-	}, rulesOf(t, byName[n.pvcResizeRole]), "pvc-resize rules")
 }
 
 // TestRender_ImagePullSecrets asserts that a non-empty imagePullSecrets argument is set on
@@ -530,13 +520,6 @@ func TestHelmTemplateParity(t *testing.T) {
 			names: map[string]bool{
 				names.roleBase:        true,
 				names.roleBaseBinding: true,
-			},
-		},
-		{
-			template: "templates/operator-roles-pvc-resize.yaml",
-			names: map[string]bool{
-				names.pvcResizeRole:    true,
-				names.pvcResizeBinding: true,
 			},
 		},
 		{
