@@ -1467,7 +1467,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 	// reconcile of the owning MongoDBMultiCluster. This is mainly useful if the renewal of certificate fails because
 	// in that case just the status of certificate changes.
 	if certManagerReadiness.Ready {
-		if err := watch.Certificates(mgr, c, &mdbmultiv1.MongoDBMultiCluster{}); err != nil {
+		if err := watch.MongoDBMultiCertificates(mgr, c); err != nil {
 			return err
 		}
 	}

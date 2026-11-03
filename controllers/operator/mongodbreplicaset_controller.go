@@ -758,7 +758,7 @@ func AddReplicaSetController(
 	// Watch operator-owned cert-manager Certificates so a Ready-status transition
 	// re-triggers reconcile of the owning MongoDB.
 	if certManagerReadiness.Ready {
-		if err := watch.Certificates(mgr, c, &mdbv1.MongoDB{}); err != nil {
+		if err := watch.MongoDBCertificates(mgr, c, mdbv1.ReplicaSet); err != nil {
 			return err
 		}
 	} else {
