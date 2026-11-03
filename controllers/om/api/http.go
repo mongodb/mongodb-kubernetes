@@ -11,6 +11,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
@@ -261,9 +262,11 @@ func createHTTPRequest(ctx context.Context, method string, url string, v any) (*
 func (client *Client) sendRequest(method, url, path string, req *retryablehttp.Request) ([]byte, http.Header, error) {
 	// we need to limit size of request/response dump, because automation config request can't have over 1MB size
 	const maxDumpSize = 10000 // 1 MB
+	// License and receipt bodies carry signed license material, so their dumps leave the body out.
+	withBody := !strings.Contains(path, "/admin/licenses") && !strings.Contains(path, "/admin/artifacts")
 	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
 		if client.debug {
-			dumpRequest, _ := httputil.DumpRequest(request, true)
+			dumpRequest, _ := httputil.DumpRequest(request, withBody)
 			if len(dumpRequest) > maxDumpSize {
 				dumpRequest = dumpRequest[:maxDumpSize]
 			}
@@ -275,7 +278,7 @@ func (client *Client) sendRequest(method, url, path string, req *retryablehttp.R
 
 	client.ResponseLogHook = func(logger retryablehttp.Logger, response *http.Response) {
 		if client.debug {
-			dumpResponse, _ := httputil.DumpResponse(response, true)
+			dumpResponse, _ := httputil.DumpResponse(response, withBody)
 			if len(dumpResponse) > maxDumpSize {
 				dumpResponse = dumpResponse[:maxDumpSize]
 			}
