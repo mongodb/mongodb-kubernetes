@@ -1,6 +1,6 @@
 import kubernetes
 from kubetester import try_load
-from kubetester.certs import Certificate, create_sharded_cluster_certs
+from kubetester.certs import create_sharded_cluster_certs, rotate_and_assert_certificates
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.kubetester import is_multi_cluster, skip_if_local
@@ -101,15 +101,15 @@ def test_sharded_cluster_has_no_connectivity_without_tls(sc: MongoDB):
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
 def test_rotate_tls_certificate(sc: MongoDB, namespace: str):
-    last_transition = sc.get_status_last_transition_time()
+    rotate_and_assert_certificates(sc, namespace, f"prefix-{MDB_RESOURCE}-0-cert")
 
-    # update the shard cert
-    cert = Certificate(name=f"prefix-{MDB_RESOURCE}-0-cert", namespace=namespace).load()
-    cert["spec"]["dnsNames"].append("foo")
-    cert.update()
 
-    sc.assert_state_transition_happens(last_transition, timeout=800)
-    sc.assert_reaches_phase(Phase.Running, timeout=800)
+@mark.e2e_tls_sharded_cluster_certs_prefix
+@skip_if_local
+def test_sharded_cluster_has_connectivity_after_rotation(sc: MongoDB, ca_path: str):
+    service_names = get_mongos_service_names(sc)
+    tester = sc.tester(ca_path=ca_path, use_ssl=True, service_names=service_names)
+    tester.assert_connectivity()
 
 
 @mark.e2e_tls_sharded_cluster_certs_prefix
