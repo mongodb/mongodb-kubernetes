@@ -128,9 +128,9 @@ The image is pushed to `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb
 ### Unreleased Ops Manager build
 
 The `build_om_dev_images` and `e2e_om_dev_kind_ubi` variants build the Ops Manager image from an unreleased
-Ops Manager build and run the licensing tests against it on every merge to master. PR patches do not run them.
-To run them on a branch, use the patch below. The tarball is the latest build of the
-ops-manager `main` branch with the dev EA environment compiled in, which the `PACKAGE_OPS_MANAGER_EA`
+Ops Manager build and run the licensing tests against it on every merge to master. PR patches run them with the
+`evergreen:e2e-license` label. To run them on a branch without a PR, use the patch below. The tarball is the latest
+build of the ops-manager `main` branch with the dev EA environment compiled in, which the `PACKAGE_OPS_MANAGER_EA`
 task publishes to the private `evg-mms-testing2` bucket. `find_om_dev_url` in
 `scripts/release/atomic_pipeline.py` presigns it for the image build. The version comes from
 `scripts/dev/contexts/variables/om_dev`, bump it when the Ops Manager team moves its dev builds to a new
@@ -184,6 +184,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
 | `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
 | `evergreen:e2e-search-images` | `e2e_test_suite !static !om7 !om9 !race !cloudqa` | 8 Envoy/OTel Search tasks tagged `e2e_search_images`; added automatically to the Search image bump PR |
+| `evergreen:e2e-license`    | `ops_manager_license` | The licensing tests against an unreleased Ops Manager build (`build_om_dev_images`, `e2e_om_dev_kind_ubi`)     |
 
 Task counts are rounded PR patch sizes: the tasks selected by the label, their dependencies and the always-on checks.
 They change as tasks are added or removed.
