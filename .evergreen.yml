@@ -426,6 +426,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:race"
+  - variant_tags: [ "ops_manager_license" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:e2e-license"
   # Variants that always run on PRs, regardless of labels
   - variant_tags: [ "auto_bump", "unit_tests", "ocp_version_drift" ]
     task: ".*"
@@ -1934,7 +1938,7 @@ buildvariants:
 
   - name: e2e_om_dev_kind_ubi
     display_name: e2e_om_dev_kind_ubi
-    tags: [ "staging" ]
+    tags: [ "staging", "ops_manager_license" ]
     run_on:
       - ubuntu2204-medium-high-memory
     <<: [ *production_code_paths, *base_om_dev_dependency ]
@@ -2590,7 +2594,7 @@ buildvariants:
 
   - name: build_om_dev_images
     display_name: build_om_dev_images
-    tags: [ "staging" ]
+    tags: [ "staging", "ops_manager_license" ]
     run_on:
       - ubuntu2404-small
     tasks:
