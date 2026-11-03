@@ -242,7 +242,7 @@ def build_om_image(build_configuration: ImageBuildConfiguration):
     if os.environ.get("OM_DEV_BUILD", "") != "":
         om_download_url = find_om_dev_url()
     else:
-        om_download_url = find_om_url(build_configuration.version)
+        om_download_url = os.environ.get("om_download_url", "") or find_om_url(build_configuration.version)
 
     args = {
         "version": build_configuration.version,
