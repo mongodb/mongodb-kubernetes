@@ -4,8 +4,9 @@ set -Eeou pipefail
 
 # The unreleased Ops Manager build under test, bump it when the Ops Manager team moves its dev
 # builds to a new version. The -dev suffix keeps the tag apart from the released image, which
-# shares the registry.
-export OM_VERSION="8.0.7-dev"
+# shares the registry. The Evergreen version keeps each run on its own image.
+version_suffix="${version_id:-local}"
+export OM_VERSION="8.0.7-dev-${version_suffix//_/-}"
 export CUSTOM_OM_VERSION="${OM_VERSION}"
 export ops_manager_version="${OM_VERSION}"
 
