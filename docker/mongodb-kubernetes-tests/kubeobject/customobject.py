@@ -85,10 +85,12 @@ class CustomObject:
                 "spec": {},
             }
 
-    def load(self) -> Self:
+    def load(self, *, request_timeout: Optional[float] = None) -> Self:
         """Loads this object from the API."""
-
-        obj = self.api.get_namespaced_custom_object(self.group, self.version, self.namespace, self.plural, self.name)
+        kwargs = {"_request_timeout": (request_timeout, request_timeout)} if request_timeout is not None else {}
+        obj = self.api.get_namespaced_custom_object(
+            self.group, self.version, self.namespace, self.plural, self.name, **kwargs
+        )
 
         self.backing_obj = obj
         self.bound = True
@@ -261,9 +263,9 @@ class CustomObject:
 
         self._register_updated()
 
-    def reload(self):
+    def reload(self, *, request_timeout: Optional[float] = None):
         """Reloads the object from the Kubernetes API."""
-        return self.load()
+        return self.load(request_timeout=request_timeout)
 
     def __getitem__(self, key):
         self._reload_if_needed()
