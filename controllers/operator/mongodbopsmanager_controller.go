@@ -467,6 +467,12 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	licenseStatus := r.ensureOpsManagerLicense(ctx, opsManager, omAdmin, log)
 
 	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
+	// A license failure must not hold back status.opsManager.version, the backup daemon teardown depends on it.
+	if !licenseStatus.IsOK() {
+		if _, err := r.updateStatus(ctx, opsManager, opsManagerStatus, log, statusOptions...); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
 	if _, err := r.updateStatus(ctx, opsManager, licenseStatus, log, statusOptions...); err != nil {
 		return reconcile.Result{}, err
 	}
