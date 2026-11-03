@@ -12,6 +12,10 @@ const (
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
 	DuplicateWhitelistEntry    = "DUPLICATE_GLOBAL_WHITELIST_ENTRY"
+	// AutomationConfigConcurrentModification is returned when the automation config
+	// version in the request body is not the published version. Another writer
+	// published the config between the client's read and write.
+	AutomationConfigConcurrentModification = "AUTOMATION_CONFIG_CONCURRENT_MODIFICATION"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the
@@ -93,4 +97,12 @@ func (e *Error) ErrorBackupDaemonConfigIsNotFound() bool {
 	}
 
 	return false
+}
+
+// IsAutomationConfigConflict returns true when the error is the optimistic-concurrency
+// rejection for a stale automation config write. Match the error code, not HTTP 409:
+// other automation config operations also return 409 for permanent failures.
+func IsAutomationConfigConflict(err error) bool {
+	var apiErr *Error
+	return errors.As(err, &apiErr) && apiErr.ErrorCode == AutomationConfigConcurrentModification
 }
