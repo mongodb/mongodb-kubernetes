@@ -792,10 +792,7 @@ func (r *OpsManagerReconciler) readOpsManagerResource(ctx context.Context, reque
 
 // ensureAppDBConnectionString ensures that the AppDB Connection String exists in a secret.
 func (r *OpsManagerReconciler) ensureAppDBConnectionStringInMemberCluster(ctx context.Context, opsManager *omv1.MongoDBOpsManager, computedConnectionString string, memberCluster multicluster.MemberCluster, log *zap.SugaredLogger) error {
-	var opsManagerSecretPath string
-	if r.VaultClient != nil {
-		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
-	}
+	opsManagerSecretPath := r.VaultClient.OpsManagerSecretPathOrEmpty()
 
 	_, err := memberCluster.SecretClient.ReadSecret(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.AppDBMongoConnectionStringSecretName()), opsManagerSecretPath)
 	if err != nil {
@@ -1143,10 +1140,7 @@ func setConfigProperty(opsManager *omv1.MongoDBOpsManager, key, value string, lo
 
 func (r *OpsManagerReconciler) ensureGenKeyInOperatorCluster(ctx context.Context, om *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (map[string][]byte, error) {
 	objectKey := kube.ObjectKey(om.Namespace, om.Name+"-gen-key")
-	var opsManagerSecretPath string
-	if r.VaultClient != nil {
-		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
-	}
+	opsManagerSecretPath := r.VaultClient.OpsManagerSecretPathOrEmpty()
 	genKeySecretMap, err := r.ReadBinarySecret(ctx, objectKey, opsManagerSecretPath)
 	if err == nil {
 		return genKeySecretMap, nil
@@ -1184,10 +1178,7 @@ func (r *OpsManagerReconciler) replicateGenKeyInMemberClusters(ctx context.Conte
 		return nil
 	}
 	objectKey := kube.ObjectKey(reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Name+"-gen-key")
-	var opsManagerSecretPath string
-	if r.VaultClient != nil {
-		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
-	}
+	opsManagerSecretPath := r.VaultClient.OpsManagerSecretPathOrEmpty()
 
 	genKeySecret := secret.Builder().
 		SetName(objectKey.Name).
@@ -1218,10 +1209,7 @@ func (r *OpsManagerReconciler) replicateQueryableBackupTLSSecretInMemberClusters
 
 func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, namespace string, secretName string) error {
 	objectKey := kube.ObjectKey(namespace, secretName)
-	var opsManagerSecretPath string
-	if r.VaultClient != nil {
-		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
-	}
+	opsManagerSecretPath := r.VaultClient.OpsManagerSecretPathOrEmpty()
 	secretMap, err := r.ReadSecret(ctx, objectKey, opsManagerSecretPath)
 	if err != nil {
 		return xerrors.Errorf("failed to read secret %s: %w", secretName, err)
