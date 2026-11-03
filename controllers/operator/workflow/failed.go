@@ -12,29 +12,16 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/apierrors"
 )
 
-// automationConfigConflictRetry is the requeue delay after another writer changed the
-// automation config. The next reconcile re-reads the config and recomputes the desired
-// state, so a short delay is enough to converge.
-const automationConfigConflictRetry = 2 * time.Second
-
 // failedStatus indicates that the reconciliation process must be suspended and CR should get "Pending" status
 type failedStatus struct {
 	commonStatus
 	retryInSeconds int
 	// err contains error with stacktrace
 	err error
-	// automationConfigConflict is true when another writer changed the automation
-	// config between the operator's read and write. That is retryable, not a failure.
-	automationConfigConflict bool
 }
 
 func Failed(err error, params ...any) *failedStatus {
-	return &failedStatus{
-		commonStatus:             newCommonStatus(err.Error(), params...),
-		err:                      err,
-		retryInSeconds:           10,
-		automationConfigConflict: omapierror.IsAutomationConfigConflict(err),
-	}
+	return &failedStatus{commonStatus: newCommonStatus(err.Error(), params...), err: err, retryInSeconds: 10}
 }
 
 func (f *failedStatus) WithWarnings(warnings []status.Warning) *failedStatus {
@@ -48,9 +35,6 @@ func (f *failedStatus) WithRetry(retryInSeconds int) *failedStatus {
 }
 
 func (f *failedStatus) ReconcileResult() (reconcile.Result, error) {
-	if f.automationConfigConflict {
-		return reconcile.Result{RequeueAfter: automationConfigConflictRetry}, nil
-	}
 	return reconcile.Result{RequeueAfter: time.Second * time.Duration(f.retryInSeconds)}, nil
 }
 
@@ -86,7 +70,8 @@ func (f *failedStatus) StatusOptions() []status.Option {
 }
 
 func (f *failedStatus) Phase() status.Phase {
-	if f.automationConfigConflict || apierrors.IsTransientMessage(f.msg) {
+	if omapierror.NewNonNil(f.err).ErrorCode == omapierror.AutomationConfigConcurrentModification ||
+		apierrors.IsTransientMessage(f.msg) {
 		return status.PhasePending
 	}
 	return status.PhaseFailed
@@ -94,17 +79,12 @@ func (f *failedStatus) Phase() status.Phase {
 
 // Log does not take the f.msg but instead takes f.err to make sure we print the actual stack trace of the error.
 func (f *failedStatus) Log(log *zap.SugaredLogger) {
-	if f.automationConfigConflict {
-		log.Infof("%v", f.err)
-		return
-	}
 	log.Errorf("%+v", f.err)
 }
 
 func mergedFailed(p1, p2 *failedStatus) *failedStatus {
 	msg := p1.msg + ", " + p2.msg
 	p := Failed(xerrors.Errorf(msg))
-	p.automationConfigConflict = p1.automationConfigConflict || p2.automationConfigConflict
 	p.warnings = append(p1.warnings, p2.warnings...)
 	return p
 }

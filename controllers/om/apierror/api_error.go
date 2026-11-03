@@ -98,11 +98,3 @@ func (e *Error) ErrorBackupDaemonConfigIsNotFound() bool {
 
 	return false
 }
-
-// IsAutomationConfigConflict returns true when the error is the optimistic-concurrency
-// rejection for a stale automation config write. Match the error code, not HTTP 409:
-// other automation config operations also return 409 for permanent failures.
-func IsAutomationConfigConflict(err error) bool {
-	var apiErr *Error
-	return errors.As(err, &apiErr) && apiErr.ErrorCode == AutomationConfigConcurrentModification
-}

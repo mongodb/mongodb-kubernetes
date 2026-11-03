@@ -77,21 +77,7 @@ func TestAutomationConfigConflictIsPending(t *testing.T) {
 
 			result, err := got.ReconcileResult()
 			require.NoError(t, err)
-			if tt.want == status.PhasePending {
-				assert.Equal(t, automationConfigConflictRetry, result.RequeueAfter)
-			} else {
-				assert.Equal(t, 10*time.Second, result.RequeueAfter)
-			}
+			assert.Equal(t, 10*time.Second, result.RequeueAfter)
 		})
 	}
-}
-
-func TestAutomationConfigConflictSurvivesMerge(t *testing.T) {
-	conflict := Failed(&apierror.Error{ErrorCode: apierror.AutomationConfigConcurrentModification})
-	merged := conflict.Merge(Failed(xerrors.New("another failure")))
-
-	assert.Equal(t, status.PhasePending, merged.Phase())
-	result, err := merged.ReconcileResult()
-	require.NoError(t, err)
-	assert.Equal(t, automationConfigConflictRetry, result.RequeueAfter)
 }

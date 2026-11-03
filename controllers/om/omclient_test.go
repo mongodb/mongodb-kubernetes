@@ -204,7 +204,9 @@ func TestReadUpdateDeploymentReturnsTypedAutomationConfigConflict(t *testing.T) 
 	}, logger)
 
 	require.Error(t, err)
-	assert.True(t, apierror.IsAutomationConfigConflict(err), "expected a typed automation config conflict, got %v", err)
+	var apiErr *apierror.Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, apierror.AutomationConfigConcurrentModification, apiErr.ErrorCode)
 }
 
 func OptionRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) func(client *api.Client) error {
