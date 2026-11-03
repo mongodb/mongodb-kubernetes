@@ -1,6 +1,4 @@
-# Multi-cluster install. Install the operator on the central cluster only;
-# member-cluster configuration (RBAC on each cluster + MemberCluster
-# registration) is a follow-up step, once the helm chart has created the CRDs.
+# Install the operator in multi-cluster mode on the central cluster.
 echo "Installing the operator in multi-cluster mode..."
 
 helm upgrade --install --debug --kube-context "${K8S_CTX_0}" \

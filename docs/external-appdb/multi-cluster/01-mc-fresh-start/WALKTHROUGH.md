@@ -150,9 +150,9 @@ kubectl --context "${K8S_CTX_0}" -n "${MDB_NS}" rollout status \
 
 ## 3. Configure the member clusters
 
-With the operator installed (and the `MemberCluster` CRD in place), first apply the
-member-cluster RBAC (ServiceAccount, token Secret, Roles and bindings) to every cluster,
-then register each member cluster on the central cluster:
+With the operator installed, first apply the member-cluster RBAC (ServiceAccount, token
+Secret, Roles and bindings) to every cluster, then register each member cluster on the
+central cluster:
 
 ```bash
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
@@ -167,7 +167,6 @@ for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
     --member-cluster-context="${ctx}" \
     --member-cluster-namespace="${MDB_NS}" \
     --operator-namespace="${MDB_NS}" \
-    --member-cluster-logical-name="${ctx}" \
     | kubectl apply --context "${K8S_CTX_0}" -f -
 done
 ```
