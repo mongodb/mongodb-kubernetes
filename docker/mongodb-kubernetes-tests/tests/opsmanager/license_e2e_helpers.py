@@ -658,13 +658,13 @@ def wait_for_ea_artifact_state(ops_manager: MongoDBOpsManager, artifact_id: str,
     credentials = gsa_credentials(ops_manager.namespace)
     holder_id = om_holder_id(ops_manager)
 
-    def holder_is(_: MongoDBOpsManager) -> bool:
+    def holder_is() -> bool:
         row = read_artifact_inventory(credentials, RUN_PRINCIPAL_ID).get(artifact_id)
         state = holder_state(row, holder_id) if row else "absent"
         logger.info(f"EA reports holder {holder_id} on license {artifact_id} as {state}, waiting for {expected}")
         return state == expected
 
-    ops_manager.wait_for(holder_is, timeout=DEFAULT_TIMEOUT)
+    wait_with_cron(ops_manager, ENROLLMENT_RECONCILE_CRON, holder_is)
 
 
 def wait_for_ea_artifact_status(ops_manager: MongoDBOpsManager, artifact_id: str, expected: str) -> None:
