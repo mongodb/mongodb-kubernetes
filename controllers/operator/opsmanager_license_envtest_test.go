@@ -608,10 +608,10 @@ func TestLicenseE2E_MissingLicenseSecretKeyFails(t *testing.T) {
 	h := newLicenseEnvHarness(t)
 	om := h.createOM(func(om *omv1.MongoDBOpsManager) {
 		om.Spec.License = &omv1.MongoDBOpsManagerLicense{
-			SecretRef: &omv1.SecretRef{Name: om.Name + "-license"},
+			SecretRef: &omv1.SecretRef{Name: "om-license"},
 		}
 	})
-	h.createSecret(om.Name+"-license", "other-key", testLicenseArtifact, om)
+	h.createSecret("om-license", "other-key", testLicenseArtifact, om)
 
 	st := h.reconcile(om.Name)
 	assert.False(t, st.IsOK())
