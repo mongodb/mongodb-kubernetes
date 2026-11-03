@@ -2,9 +2,18 @@ package om
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -180,6 +189,68 @@ func OptionRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) f
 		client.RetryWaitMax = retryWaitMax
 		client.RetryMax = retryMax
 		return nil
+	}
+}
+
+func TestOMClientVerifiesManagedOpsManagerCA(t *testing.T) {
+	newCA := func(name string) (*x509.Certificate, *ecdsa.PrivateKey, string) {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, err)
+		cert := &x509.Certificate{
+			SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: name},
+			NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+			IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+		}
+		der, err := x509.CreateCertificate(rand.Reader, cert, cert, &key.PublicKey, key)
+		require.NoError(t, err)
+		return cert, key, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	}
+	ca, caKey, omCA := newCA("OM CA")
+	_, _, mongodbCA := newCA("MongoDB CA")
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	leaf := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		NotBefore:    time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, leaf, ca, &key.PublicKey, caKey)
+	require.NoError(t, err)
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	serverCert, err := tls.X509KeyPair(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
+	require.NoError(t, err)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/public/v1.0/groups/1/automationConfig", r.URL.Path)
+		_, _ = w.Write([]byte(`{"auth":{"autoAuthMechanism":"SCRAM-SHA-256"}}`))
+	}))
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{serverCert}, MinVersion: tls.VersionTLS12}
+	server.StartTLS()
+	t.Cleanup(server.Close)
+	for _, tc := range []struct {
+		name string
+		ca   string
+		want bool
+	}{
+		{name: "OM CA", ca: omCA, want: true},
+		{name: "MongoDB CA", ca: mongodbCA},
+		{name: "malformed CA", ca: "not PEM"},
+		{name: "system roots only"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			connection := NewOpsManagerConnectionWithOptions(&OMContext{BaseURL: server.URL, GroupID: "1", CACertificate: tc.ca}, OptionRetryConfig(0, 0, 0))
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			mode, err := connection.GetAgentAuthMode(ctx)
+			if tc.want {
+				require.NoError(t, err)
+				assert.Equal(t, "SCRAM-SHA-256", mode)
+			} else {
+				require.ErrorContains(t, err, "certificate")
+				assert.Empty(t, mode)
+			}
+		})
 	}
 }
 
