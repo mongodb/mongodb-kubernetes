@@ -8,14 +8,15 @@
 {{- end }}
 
 {{- $watchNamespace := list $operatorNamespace }}
+{{- if .Values.operator.watchNamespace }}
+    {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
+{{- end }}
 {{- if $memberMode }}
     {{- /* Member mode (generate-member-resources): workload RBAC is seeded exactly in
            memberCluster.workloadNamespaces. "*" is rejected — cluster-wide operators
            use memberCluster.clusterScoped, which covers operator permissions;
            workload ServiceAccounts are always namespaced. */}}
-    {{- $watchNamespace = $memberCluster.workloadNamespaces | default $watchNamespace }}
-{{- else if .Values.operator.watchNamespace }}
-    {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
+    {{- $watchNamespace = $memberCluster.workloadNamespaces | default (list $operatorNamespace) }}
 {{- end }}
 
 {{- range $idx, $namespace := $watchNamespace }}
