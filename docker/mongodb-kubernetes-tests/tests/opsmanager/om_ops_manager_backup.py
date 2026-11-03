@@ -12,7 +12,7 @@ from kubetester import (
     run_periodically,
     try_load,
 )
-from kubetester.awss3client import AwsS3Client, s3_endpoint
+from kubetester.awss3client import AwsS3Client, e2e_bucket_name, s3_endpoint
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import running_locally, skip_if_local
@@ -103,7 +103,7 @@ def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
     """creates a s3 bucket and a s3 config"""
     bucket_name = set_test_identifier(
         f"create_s3_bucket_{bucket_prefix}",
-        KubernetesTester.random_k8s_name(bucket_prefix),
+        e2e_bucket_name(bucket_prefix),
     )
 
     try:
