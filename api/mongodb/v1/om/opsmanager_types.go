@@ -184,6 +184,7 @@ type MongoDBOpsManagerSpec struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, has(r.licenseSecretRef) && r.licenseSecretRef.name == self.licenseSecretRef.name)",message="licenseSecretRef must not also be listed in releaseReceipts"
+// +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
 type MongoDBOpsManagerLicense struct {
 	// LicenseSecretRef is the signed licence artefact Secret (data key "license"). Removing it releases
 	// the artefact the operator installed from it.
