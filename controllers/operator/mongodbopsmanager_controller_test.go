@@ -370,7 +370,7 @@ func TestOpsManagerReconciler_OnDeleteClusterResourceCleanup(t *testing.T) {
 			})
 			kubeClient := kubernetesClient.NewClient(fakeClientBuilder.Build())
 
-			reconciler := NewOpsManagerReconciler(ctx, kubeClient, memberClustersMap, images.ImageUrls{}, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+			reconciler := NewOpsManagerReconciler(ctx, kubeClient, memberClustersMap, images.ImageUrls{}, "", "", architectures.NonStatic, "", omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 				return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 			})
 
@@ -780,6 +780,144 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 }
 
+func TestOpsManagerReconcileAppDBContainerImageType(t *testing.T) {
+	tests := []struct {
+		name                string
+		defaultArchitecture architectures.DefaultArchitecture
+		defaultImageType    architectures.ImageType
+		annotations         map[string]string
+		wantImageType       architectures.ImageType
+	}{
+		{
+			name:                "static without configuration uses ubi9",
+			defaultArchitecture: architectures.Static,
+			wantImageType:       architectures.ImageTypeUBI9,
+		},
+		{
+			name:                "static uses global image type",
+			defaultArchitecture: architectures.Static,
+			defaultImageType:    architectures.ImageTypeUBI9Slim,
+			wantImageType:       architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:                "static annotation overrides global image type",
+			defaultArchitecture: architectures.Static,
+			defaultImageType:    architectures.ImageTypeUBI9,
+			annotations: map[string]string{
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+			wantImageType: architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:                "non-static without configuration uses ubi8",
+			defaultArchitecture: architectures.NonStatic,
+			wantImageType:       architectures.ImageTypeUBI8,
+		},
+		{
+			name:                "non-static uses global image type",
+			defaultArchitecture: architectures.NonStatic,
+			defaultImageType:    architectures.ImageTypeUBI9Slim,
+			wantImageType:       architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:                "non-static annotation overrides global image type",
+			defaultArchitecture: architectures.NonStatic,
+			defaultImageType:    architectures.ImageTypeUBI9,
+			annotations: map[string]string{
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+			wantImageType: architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:                "non-static architecture annotation honors image type annotation",
+			defaultArchitecture: architectures.Static,
+			annotations: map[string]string{
+				architectures.ArchitectureAnnotation:       string(architectures.NonStatic),
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+			wantImageType: architectures.ImageTypeUBI9Slim,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			imageUrlsMock := images.ImageUrls{
+				fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl): "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+			}
+
+			ctx := context.Background()
+			testOm := DefaultOpsManagerBuilder().
+				SetVersion("8.0.0").
+				SetAppDbVersion("8.0.23").
+				SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).
+				Build()
+			testOm.SetAnnotations(test.annotations)
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			reconciler, client, _ := defaultTestOmReconciler(ctx, t, imageUrlsMock, "", "", testOm, nil, omConnectionFactory, test.defaultArchitecture)
+			reconciler.defaultImageType = test.defaultImageType
+
+			checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
+
+			appDBSts := appsv1.StatefulSet{}
+			err := client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+			require.NoError(t, err)
+			wantImage := fmt.Sprintf("quay.io/mongodb/mongodb-enterprise-server:8.0.23-%s", test.wantImageType)
+			assert.Equal(t, wantImage, findContainerImage(appDBSts.Spec.Template.Spec.Containers, util.MongodbContainerName))
+			assert.False(t, hasContainerImageTypeWarning(testOm.Status.AppDbStatus.Warnings), "AppDB status warnings: %v", testOm.Status.AppDbStatus.Warnings)
+		})
+	}
+}
+
+func TestOpsManagerAppDBContainerImageTypeAnnotationWarning(t *testing.T) {
+	tests := []struct {
+		name                string
+		defaultArchitecture architectures.DefaultArchitecture
+		imageType           string
+		wantWarning         bool
+	}{
+		{
+			name:                "supported annotation on static has no warning",
+			defaultArchitecture: architectures.Static,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+		},
+		{
+			name:                "unsupported annotation on static warns",
+			defaultArchitecture: architectures.Static,
+			imageType:           "ubi9slim",
+			wantWarning:         true,
+		},
+		{
+			name:                "supported annotation on non-static has no warning",
+			defaultArchitecture: architectures.NonStatic,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+		},
+		{
+			name:                "unsupported annotation on non-static warns",
+			defaultArchitecture: architectures.NonStatic,
+			imageType:           "ubi9slim",
+			wantWarning:         true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).Build()
+			testOm.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: test.imageType})
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, test.defaultArchitecture)
+
+			checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
+
+			assert.Equal(t, test.wantWarning, hasContainerImageTypeWarning(testOm.Status.AppDbStatus.Warnings), "AppDB status warnings: %v", testOm.Status.AppDbStatus.Warnings)
+		})
+	}
+}
+
 func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
@@ -1157,7 +1295,7 @@ func TestOpsManagerRace(t *testing.T) {
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager1.CentralURL(), t: t, skipChecks: true}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", architectures.NonStatic, "", omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
 	})
 
@@ -1416,7 +1554,7 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, arch, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, arch, "", omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 		}
