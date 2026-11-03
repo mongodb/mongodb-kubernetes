@@ -338,6 +338,14 @@ func (v *VaultClient) OpsManagerSecretPath() string {
 	return fmt.Sprintf("/secret/data/%s", DEFAULT_OPS_MANAGER_SECRET_PATH)
 }
 
+// OpsManagerSecretPathOrEmpty returns the Ops Manager secret path, or an empty string when Vault is not configured.
+func (v *VaultClient) OpsManagerSecretPathOrEmpty() string {
+	if v == nil {
+		return ""
+	}
+	return v.OpsManagerSecretPath()
+}
+
 func (v *VaultClient) OpsManagerSecretMetadataPath() string {
 	if v.VaultConfig.OpsManagerSecretPath != "" {
 		return fmt.Sprintf("/secret/metadata/%s", v.VaultConfig.OpsManagerSecretPath)
