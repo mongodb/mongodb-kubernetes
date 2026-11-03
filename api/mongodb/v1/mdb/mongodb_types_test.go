@@ -489,6 +489,28 @@ func TestAgentClientCertificateSecretName(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("%s-managed-%s", rs.Name, util.AgentSecretName), rs.GetSecurity().AgentClientCertificateSecretName(rs.Name))
 }
 
+func TestManagedCertificateCARefs(t *testing.T) {
+	serverCA := CARef{Name: "server-ca", Kind: "ConfigMap", Key: "ca.crt"}
+	serverExtra := CARef{Name: "server-extra", Kind: "Secret", Key: "tls.crt"}
+	clientCA := CARef{Name: "client-ca", Kind: "Secret", Key: "ca.crt"}
+	clientExtra := CARef{Name: "client-extra", Kind: "ConfigMap", Key: "ca.crt"}
+
+	var nilSecurity *Security
+	assert.Empty(t, nilSecurity.ManagedCertificateCARefs())
+	assert.Empty(t, (&Security{}).ManagedCertificateCARefs())
+	assert.Empty(t, (&Security{ManagedCertificate: &ManagedCertificate{}}).ManagedCertificateCARefs())
+	assert.Empty(t, (&Security{ManagedCertificate: &ManagedCertificate{Server: &CertificateConfig{}, Client: &CertificateConfig{}}}).ManagedCertificateCARefs())
+
+	security := &Security{ManagedCertificate: &ManagedCertificate{
+		Server: &CertificateConfig{CA: &serverCA, AdditionalTrustedCAs: []CARef{serverExtra}},
+		Client: &CertificateConfig{CA: &clientCA, AdditionalTrustedCAs: []CARef{clientExtra}},
+	}}
+	assert.Equal(t, []CARef{serverCA, serverExtra, clientCA, clientExtra}, security.ManagedCertificateCARefs())
+
+	onlyClient := &Security{ManagedCertificate: &ManagedCertificate{Client: &CertificateConfig{AdditionalTrustedCAs: []CARef{clientExtra}}}}
+	assert.Equal(t, []CARef{clientExtra}, onlyClient.ManagedCertificateCARefs())
+}
+
 func TestInternalClusterAuthSecretName(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetSecurityTLSEnabled().Build()
 

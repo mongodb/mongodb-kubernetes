@@ -356,6 +356,16 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, ca, secretNames)
 	}
 
+	// The CA inputs of the operator-managed certificates, so that editing a CA ConfigMap/Secret the user
+	// owns rebuilds the CA trust bundle.
+	for _, ref := range security.ManagedCertificateCARefs() {
+		wType := watch.ConfigMap
+		if ref.Kind == "Secret" {
+			wType = watch.Secret
+		}
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, objectToReconcile.Namespace, wType, objectToReconcile)
+	}
+
 	if security.GetInternalClusterAuthenticationMode() == util.X509 {
 		var secretNames []string
 		if getInternalAuthSecretNames != nil {
