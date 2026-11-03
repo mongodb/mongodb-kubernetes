@@ -95,6 +95,7 @@ def mdb_prev(ops_manager: MongoDBOpsManager, namespace, custom_mdb_prev_version:
 @fixture(scope="function")
 def mdb_prev_test_collection(mdb_prev):
     # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
+    mdb_prev.wait_for(lambda resource: resource.get_status_members() is not None)
     collection = pymongo.MongoClient(mdb_prev.tester().cnx_string, **mdb_prev.tester().default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
@@ -102,6 +103,7 @@ def mdb_prev_test_collection(mdb_prev):
 @fixture(scope="function")
 def mdb_latest_test_collection(mdb_latest):
     # we instantiate the pymongo client per test to avoid flakiness as the primary and secondary might swap
+    mdb_latest.wait_for(lambda resource: resource.get_status_members() is not None)
     collection = pymongo.MongoClient(mdb_latest.tester().cnx_string, **mdb_latest.tester().default_opts)["testdb"]
     return collection["testcollection"].with_options(read_preference=ReadPreference.PRIMARY_PREFERRED)
 
