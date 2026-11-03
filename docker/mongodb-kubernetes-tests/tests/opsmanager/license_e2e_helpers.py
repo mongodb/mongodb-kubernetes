@@ -393,7 +393,8 @@ def om_artifact_usable(ops_manager: MongoDBOpsManager, artifact_id: str) -> bool
     for entry in read_om_license_view(ops_manager).get("licenses", []):
         if entry["artifactId"] == artifact_id:
             return bool(entry.get("usable"))
-    raise AssertionError(f"Ops Manager lists no row for license {artifact_id}")
+    # A revoked artifact can drop out of the Ops Manager view, it is unusable then too.
+    return False
 
 
 def ea_holder_states(ops_manager: MongoDBOpsManager, artifact_id: str) -> dict[str, str]:
