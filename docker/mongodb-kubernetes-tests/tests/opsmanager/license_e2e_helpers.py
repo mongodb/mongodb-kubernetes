@@ -36,6 +36,17 @@ RUN_PRINCIPAL_ID = f"mck-ci-{uuid.uuid4()}"
 _current_artifact: Optional[str] = None
 
 
+@fixture(scope="module", autouse=True)
+def hide_failure_values(request):
+    """Failures in the license suites show no runtime values, since pytest -l would print the EA
+    credentials, tokens and signed licenses held in locals and arguments."""
+    option = request.config.option
+    saved = option.showlocals, option.tbstyle
+    option.showlocals, option.tbstyle = False, "short"
+    yield
+    option.showlocals, option.tbstyle = saved
+
+
 @fixture(scope="module")
 def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
     resource = MongoDBOpsManager.from_yaml(

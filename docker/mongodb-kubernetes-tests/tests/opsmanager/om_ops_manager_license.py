@@ -13,6 +13,7 @@ from tests.opsmanager.license_e2e_helpers import (
     assert_om_and_appdb_running,
     current_artifact_id,
     ea_artifact_row,
+    hide_failure_values,
     mint_run_license,
     om_holder_id,
     ops_manager,
