@@ -145,7 +145,7 @@ func (h *LicenseReconcilerHelper) reconcileReleaseReceipts(ctx context.Context, 
 		if err != nil && !secret.SecretNotExist(err) {
 			return licenseFailed(err, status.ReasonLicenseReceiptFailed)
 		}
-		if _, written := existing.Data[util.DefaultOpsManagerReleaseReceiptKey]; written {
+		if receipt := existing.Data[util.DefaultOpsManagerReleaseReceiptKey]; len(receipt) > 0 {
 			continue
 		}
 
