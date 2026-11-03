@@ -43,6 +43,27 @@ func ReadConfigAndCredentials(ctx context.Context, cmGetter configmap.Getter, se
 	return projectConfig, credsConfig, nil
 }
 
+// NewOMContext returns the Ops Manager client configuration for the project and
+// credentials in config. The caller sets GroupID when the connection must bind
+// to a project other than the one named in config.
+func NewOMContext(config mdbv1.ProjectConfig, credentials mdbv1.Credentials) *om.OMContext {
+	return &om.OMContext{
+		GroupName:  config.ProjectName,
+		OrgID:      config.OrgID,
+		BaseURL:    config.BaseURL,
+		PublicKey:  credentials.PublicAPIKey,
+		PrivateKey: credentials.PrivateAPIKey,
+
+		// The OM client expects the inverse of "Require valid cert" because in Go
+		// the "zero" value of bool is "False", hence this default.
+		AllowInvalidSSLCertificate: !config.SSLRequireValidMMSServerCertificates,
+
+		// The CA certificate passed to the OM client needs to be an actual certificate,
+		// and not a location in disk, because each "project" will have its own CA cert.
+		CACertificate: config.SSLMMSCAConfigMapContents,
+	}
+}
+
 /*
 ReadOrCreateProject
 Communication with groups is tricky.
@@ -65,25 +86,8 @@ func ReadOrCreateProject(ctx context.Context, config mdbv1.ProjectConfig, creden
 
 	log = log.With("project", projectName)
 
-	// we need to create a temporary connection object without group id
-	omContext := om.OMContext{
-		GroupID:    "",
-		GroupName:  projectName,
-		OrgID:      config.OrgID,
-		BaseURL:    config.BaseURL,
-		PublicKey:  credentials.PublicAPIKey,
-		PrivateKey: credentials.PrivateAPIKey,
-
-		// The OM Client expects the inverse of "Require valid cert" because in Go
-		// The "zero" value of bool is "False", hence this default.
-		AllowInvalidSSLCertificate: !config.SSLRequireValidMMSServerCertificates,
-
-		// The CA certificate passed to the OM client needs to be an actual certificate,
-		// and not a location in disk, because each "project" will have its own CA cert.
-		CACertificate: config.SSLMMSCAConfigMapContents,
-	}
-
-	conn := connectionFactory(&omContext)
+	// The connection starts without a group id because the project is resolved below.
+	conn := connectionFactory(NewOMContext(config, credentials))
 
 	org, err := FindOrganization(ctx, config.OrgID, projectName, conn, log)
 	if err != nil {

@@ -101,16 +101,9 @@ func EnsureTargetAutomationConfigSeeded(ctx context.Context, targetConn om.Conne
 		return nil
 	}
 
-	sourceConn := connectionFunc(&om.OMContext{
-		GroupID:                    sourceProjectID,
-		GroupName:                  projectConfig.ProjectName,
-		OrgID:                      projectConfig.OrgID,
-		BaseURL:                    projectConfig.BaseURL,
-		PublicKey:                  credentials.PublicAPIKey,
-		PrivateKey:                 credentials.PrivateAPIKey,
-		AllowInvalidSSLCertificate: !projectConfig.SSLRequireValidMMSServerCertificates,
-		CACertificate:              projectConfig.SSLMMSCAConfigMapContents,
-	})
+	omContext := project.NewOMContext(projectConfig, credentials)
+	omContext.GroupID = sourceProjectID
+	sourceConn := connectionFunc(omContext)
 
 	sourceAC, err := sourceConn.ReadAutomationConfig(ctx)
 	if err != nil {
