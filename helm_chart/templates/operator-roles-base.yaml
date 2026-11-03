@@ -1,27 +1,7 @@
 {{- /*
-Operator RBAC for the clusters the operator manages workloads on. Dual-mode template:
-
-  - Base mode (helm install / OLM; memberCluster.enabled unset): renders the operator's
-    own role <operator.name> — the shared workload-management rules below plus the
-    central-only rules (CRD groups, operatorconfigs/memberclusters) — bound to the
-    operator ServiceAccount across operator.watchNamespace. The cluster-wide
-    namespaces list/watch rule is added only when watching all namespaces ("*").
-
-  - Member mode (memberCluster.enabled=true, set exclusively by
-    `kubectl mongodb multicluster generate-member-resources`): renders
-    mck-member-role-base — ONLY the shared workload-management rules,
-    identical to the base-mode set (hence "-role-base") — bound to the member
-    ServiceAccount mck-member-sa, additive to the base installation RBAC.
-    The central-only rules are excluded: Custom Resources live on the central cluster
-    only. Rules the operator needs only because of multi-cluster operation
-    (deletecollection cleanup) live in
-    member-cluster-rbac.yaml as mck-member-role-multicluster. The mck-member-*
-    names are unified — identical on every member cluster.
-
-The shared workload-management rules are intentionally written once, unconditionally, so
-both modes render them identically. Only naming, annotations, central-only gating and
-the binding namespace source branch on the mode.
+Template used directly by Helm and by kubectl plugin when rendering RBAC for member clusters.
 */ -}}
+
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $memberMode := $memberCluster.enabled | default false -}}
 {{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
@@ -30,6 +10,10 @@ the binding namespace source branch on the mode.
 {{- $bindingName := .Values.operator.name -}}
 {{- $saName := .Values.operator.name -}}
 {{- if $memberMode -}}
+    {{- /*
+    In member mode, change resource names. Member RBAC must never
+    override RBAC from base installation (usually managed by Helm or OLM).
+    */ -}}
     {{- $memberPrefix := "mck-member" -}}
     {{- $name = printf "%s-role-base" $memberPrefix -}}
     {{- $bindingName = printf "%s-role-base-binding" $memberPrefix -}}
@@ -42,10 +26,10 @@ the binding namespace source branch on the mode.
     {{- $watchNamespace = concat $watchNamespace (list $operatorNamespace) | uniq -}}
 {{- end -}}
 {{- if $memberMode -}}
-    {{- /* Member mode: the member SA is bound in memberCluster.workloadNamespaces plus the
-           operator namespace (which holds the SA and the token Secret). "*" is never a valid
-           entry — cluster-wide permission is expressed only via memberCluster.clusterScoped,
-           which renders a single ClusterRoleBinding. */ -}}
+    {{- /*
+    In member mode the member SA is bound in memberCluster.workloadNamespaces plus the
+    operator namespace (which holds the SA and the token Secret).
+    */ -}}
     {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default (list $operatorNamespace) -}}
     {{- $watchNamespace = concat $workloadNamespaces (list $operatorNamespace) | uniq -}}
 
@@ -54,7 +38,9 @@ the binding namespace source branch on the mode.
     {{- end -}}
 {{- end -}}
 
-{{- /* One Role per watched namespace: only a cluster-wide watch ("*") renders a ClusterRole. */ -}}
+{{- /*
+One Role per namespace: only a cluster-wide operator renders a ClusterRole.
+*/ -}}
 {{- $roleScope := "Role" -}}
 {{- if has "*" $watchNamespace -}}
     {{- $roleScope = "ClusterRole" -}}

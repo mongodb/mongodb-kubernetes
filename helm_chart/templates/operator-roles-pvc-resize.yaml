@@ -1,20 +1,7 @@
 {{- /*
-PVC-resize RBAC. Dual-mode template:
-
-  - Base mode (helm install / OLM): <operator.name>-pvc-resize bound to the operator
-    ServiceAccount across operator.watchNamespace.
-  - Member mode (memberCluster.enabled=true, set exclusively by
-    `kubectl mongodb multicluster generate-member-resources`):
-    mck-member-pvc-resize bound to the member ServiceAccount
-    mck-member-sa, additive to the base installation RBAC. The mck-member-*
-    names are unified — identical on every member cluster.
-
-Least-privilege verb set (list, watch, update): the operator only ever lists PVCs and
-updates their requested storage during a resize. watch is required because the cached
-client lazily starts a PVC informer on first list. PVC creation and deletion are
-performed by the Kubernetes StatefulSet controller from volumeClaimTemplates (and its
-retention policy), never by the operator.
+Template used directly by Helm and by kubectl plugin when rendering RBAC for member clusters.
 */ -}}
+
 {{- $memberCluster := .Values.memberCluster | default dict -}}
 {{- $memberMode := $memberCluster.enabled | default false -}}
 {{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
@@ -23,6 +10,10 @@ retention policy), never by the operator.
 {{- $bindingName := printf "%s-pvc-resize-binding" .Values.operator.name -}}
 {{- $saName := .Values.operator.name -}}
 {{- if $memberMode -}}
+    {{- /*
+    In member mode, change resource names. Member RBAC must never
+    override RBAC from base installation (usually managed by Helm or OLM).
+    */ -}}
     {{- $memberPrefix := "mck-member" -}}
     {{- $name = printf "%s-pvc-resize" $memberPrefix -}}
     {{- $bindingName = printf "%s-pvc-resize-binding" $memberPrefix -}}
@@ -35,9 +26,10 @@ retention policy), never by the operator.
     {{- $watchNamespace = concat $watchNamespace (list $operatorNamespace) | uniq -}}
 {{- end -}}
 {{- if $memberMode -}}
-    {{- /* Member mode: bound in memberCluster.workloadNamespaces plus the operator namespace;
-           "*" is rejected — cluster-wide permission is expressed only via
-           memberCluster.clusterScoped, which renders a single ClusterRoleBinding. */ -}}
+    {{- /*
+    In member mode the member SA is bound in memberCluster.workloadNamespaces plus the
+    operator namespace (which holds the SA and the token Secret).
+    */ -}}
     {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default (list $operatorNamespace) -}}
     {{- $watchNamespace = concat $workloadNamespaces (list $operatorNamespace) | uniq -}}
 
