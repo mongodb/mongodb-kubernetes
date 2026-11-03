@@ -971,6 +971,26 @@ func IsMigratingToManagedCertificate(lastAchieved, current *Security) bool {
 	return lastAchieved.IsTLSEnabled() && !lastAchieved.IsManagedCertificateEnabled() && current.IsManagedCertificateEnabled()
 }
 
+// ManagedCertificateCARefs returns every CA input of the operator-managed certificates, the `ca` and the
+// additionalTrustedCAs of both the server and the client category. Changes to these ConfigMaps/Secrets
+// rebuild the CA trust bundles, so the operator watches them.
+func (s *Security) ManagedCertificateCARefs() []CARef {
+	if !s.IsManagedCertificateEnabled() {
+		return nil
+	}
+	var refs []CARef
+	for _, cfg := range []*CertificateConfig{s.ManagedCertificate.Server, s.ManagedCertificate.Client} {
+		if cfg == nil {
+			continue
+		}
+		if cfg.CA != nil {
+			refs = append(refs, *cfg.CA)
+		}
+		refs = append(refs, cfg.AdditionalTrustedCAs...)
+	}
+	return refs
+}
+
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
 func (s *Security) MemberCertificateSecretName(defaultName string) string {
 	if s.CertificatesSecretsPrefix != "" {

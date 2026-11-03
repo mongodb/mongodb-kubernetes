@@ -2,10 +2,17 @@ package operator
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"path"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,6 +36,38 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
+
+// issueLeafSignedByCA returns a leaf certificate signed by the given CA certificate and key. The leaf
+// carries the same organization as the mock certificates, so it also passes the membership subject check.
+func issueLeafSignedByCA(t *testing.T, caCertPEM, caKeyPEM []byte, commonName string) []byte {
+	t.Helper()
+	block, _ := pem.Decode(caCertPEM)
+	require.NotNil(t, block)
+	caCert, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+
+	keyBlock, _ := pem.Decode(caKeyPEM)
+	require.NotNil(t, keyBlock)
+	parsedKey, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
+	require.NoError(t, err)
+	caKey, ok := parsedKey.(*ecdsa.PrivateKey)
+	require.True(t, ok, "the mock CA key must be an ECDSA key")
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject:      pkix.Name{Organization: []string{"MongoDB"}, CommonName: commonName},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
 
 // issueManagedCertificates plays cert-manager: it marks every Certificate in the namespace as Ready and
 // creates the secret it points at, with a fresh keypair. Existing secrets are left as they are.
@@ -107,7 +146,8 @@ func TestDatabaseCAFilePaths(t *testing.T) {
 }
 
 // TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash checks that the automation config
-// CA paths are the hash-named bundle files, and that they change when the CA bundle changes.
+// CA paths are the hash-named bundle files, that a CA rotation retains the old CA next to the new
+// one, and that the prune annotation then drops it.
 func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetMembers(1).SetSecurity(mdbv1.Security{
@@ -130,30 +170,63 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 		require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
 		return omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
 	}
+	serverBundle := func() string {
+		cm, err := kubeClient.GetConfigMap(ctx, kube.ObjectKey(rs.Namespace, certs.ManagedServerCABundleConfigMapName(rs.Name)))
+		require.NoError(t, err)
+		return cm.Data[cm.Data[util.LatestHashSecretKey]]
+	}
 
 	tlsConfig := reconcileAndReadTLS()
-	serverHash, clientHash, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, rs.Name, rs.Namespace, true)
+	hashesServer, hashesClient, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, rs.Name, rs.Namespace, true)
 	require.NoError(t, err)
-	require.NotEmpty(t, serverHash)
-	require.NotEmpty(t, clientHash)
-	assert.Equal(t, util.TLSCaMountPath+"/"+serverHash, tlsConfig["CAFilePath"])
-	assert.Equal(t, util.TLSClusterCaMountPath+"/"+clientHash, tlsConfig["clusterCAFilePath"])
+	require.NotEmpty(t, hashesServer)
+	require.NotEmpty(t, hashesClient)
+	assert.Equal(t, util.TLSCaMountPath+"/"+hashesServer, tlsConfig["CAFilePath"])
+	assert.Equal(t, util.TLSClusterCaMountPath+"/"+hashesClient, tlsConfig["clusterCAFilePath"])
 
-	// the issuer's CA is rotated, the bundle gets a new hash and the automation config follows
+	// the issuer's CA is rotated: the old CA is retained next to the new one, and the CA path moves
 	serverCASecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-server-ca"))
 	require.NoError(t, err)
-	newCA, _ := createMockCertAndKeyBytes()
+	oldCA := serverCASecret.Data[corev1.ServiceAccountRootCAKey]
+	newCA, newCAKey := createMockCertAndKeyBytes()
 	serverCASecret.Data[corev1.ServiceAccountRootCAKey] = newCA
 	require.NoError(t, kubeClient.UpdateSecret(ctx, serverCASecret))
 
 	tlsConfig = reconcileAndReadTLS()
-	newServerHash, newClientHash, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, rs.Name, rs.Namespace, true)
+	newHashesServer, newHashesClient, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, rs.Name, rs.Namespace, true)
 	require.NoError(t, err)
-	assert.Equal(t, enterprisepem.HashBytes([]byte(strings.TrimRight(string(newCA), "\n")+"\n")), newServerHash)
-	assert.NotEqual(t, serverHash, newServerHash)
-	assert.Equal(t, clientHash, newClientHash)
-	assert.Equal(t, util.TLSCaMountPath+"/"+newServerHash, tlsConfig["CAFilePath"])
-	assert.Equal(t, util.TLSClusterCaMountPath+"/"+clientHash, tlsConfig["clusterCAFilePath"])
+	assert.NotEqual(t, hashesServer, newHashesServer)
+	assert.Equal(t, hashesClient, newHashesClient)
+	assert.Equal(t, util.TLSCaMountPath+"/"+newHashesServer, tlsConfig["CAFilePath"])
+	assert.Equal(t, util.TLSClusterCaMountPath+"/"+hashesClient, tlsConfig["clusterCAFilePath"])
+	rotatedBundle := serverBundle()
+	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(oldCA)), "the previous CA is retained after the rotation")
+	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(newCA)), "the new CA is published")
+	assert.Equal(t, enterprisepem.HashBytes([]byte(rotatedBundle)), newHashesServer)
+
+	// reissue the member certificate from the new CA, then ask the operator to prune the previous CA
+	memberSecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-managed-cert"))
+	require.NoError(t, err)
+	memberSecret.Data[corev1.TLSCertKey] = issueLeafSignedByCA(t, newCA, newCAKey, "member")
+	require.NoError(t, kubeClient.UpdateSecret(ctx, memberSecret))
+	if rs.Annotations == nil {
+		rs.Annotations = map[string]string{}
+	}
+	rs.Annotations[util.PrunePreviousCAAnnotation] = "true"
+	require.NoError(t, kubeClient.Update(ctx, rs))
+
+	tlsConfig = reconcileAndReadTLS()
+	prunedHashesServer, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, rs.Name, rs.Namespace, true)
+	require.NoError(t, err)
+	assert.NotEqual(t, newHashesServer, prunedHashesServer)
+	assert.Equal(t, util.TLSCaMountPath+"/"+prunedHashesServer, tlsConfig["CAFilePath"])
+	prunedBundle := serverBundle()
+	assert.NotContains(t, prunedBundle, strings.TrimSpace(string(oldCA)), "the previous CA is pruned")
+	assert.Contains(t, prunedBundle, strings.TrimSpace(string(newCA)))
+	assert.Equal(t, enterprisepem.HashBytes([]byte(prunedBundle)), prunedHashesServer)
+
+	// the operator does not remove the annotation
+	assert.Equal(t, "true", rs.GetAnnotations()[util.PrunePreviousCAAnnotation])
 }
 
 // TestShardedClusterManagedCertificate_CAFilePathIsBundleHash checks that the published automation
@@ -173,12 +246,17 @@ func TestShardedClusterManagedCertificate_CAFilePathIsBundleHash(t *testing.T) {
 	_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
 	require.NoError(t, err)
 
-	serverHash, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, sc.Name, sc.Namespace, false)
+	hashesServer, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, sc.Name, sc.Namespace, false)
 	require.NoError(t, err)
-	require.NotEmpty(t, serverHash)
+	require.NotEmpty(t, hashesServer)
 	tlsConfig := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
-	assert.Equal(t, util.TLSCaMountPath+"/"+serverHash, tlsConfig["CAFilePath"])
+	assert.Equal(t, util.TLSCaMountPath+"/"+hashesServer, tlsConfig["CAFilePath"])
 	assert.NotContains(t, tlsConfig, "clusterCAFilePath")
+
+	serverCM, err := kubeClient.GetConfigMap(ctx, kube.ObjectKey(sc.Namespace, certs.ManagedServerCABundleConfigMapName(sc.Name)))
+	require.NoError(t, err)
+	assert.Equal(t, hashesServer, serverCM.Data[util.LatestHashSecretKey])
+	assert.NotEmpty(t, serverCM.Data[hashesServer])
 }
 
 // TestMultiReplicaSetManagedCertificate_CAFilePathIsBundleHash checks that the published automation
@@ -201,18 +279,19 @@ func TestMultiReplicaSetManagedCertificate_CAFilePathIsBundleHash(t *testing.T) 
 	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
 	require.NoError(t, err)
 
-	serverHash, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, mrs.Name, mrs.Namespace, false)
+	hashesServer, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, mrs.Name, mrs.Namespace, false)
 	require.NoError(t, err)
-	require.NotEmpty(t, serverHash)
+	require.NotEmpty(t, hashesServer)
 	tlsConfig := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
-	assert.Equal(t, util.TLSCaMountPath+"/"+serverHash, tlsConfig["CAFilePath"])
+	assert.Equal(t, util.TLSCaMountPath+"/"+hashesServer, tlsConfig["CAFilePath"])
 
 	central, err := kubeClient.GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, certs.ManagedServerCABundleConfigMapName(mrs.Name)))
 	require.NoError(t, err)
+	assert.NotEmpty(t, central.Data[hashesServer])
 	for clusterName, memberClient := range memberClients {
 		member, err := kubernetesClient.NewClient(memberClient).GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, certs.ManagedServerCABundleConfigMapName(mrs.Name)))
 		require.NoError(t, err, clusterName)
 		assert.Equal(t, central.Data, member.Data, clusterName)
-		assert.Contains(t, member.Data, serverHash, clusterName)
+		assert.Contains(t, member.Data, hashesServer, clusterName)
 	}
 }
