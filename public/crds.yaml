@@ -8868,6 +8868,9 @@ spec:
                   rule: '!has(self.licenseSecretRef) || !has(self.releaseReceipts)
                     || !self.releaseReceipts.exists(r, has(r.licenseSecretRef) &&
                     r.licenseSecretRef.name == self.licenseSecretRef.name)'
+                - message: licenseSecretRef.name must not be empty
+                  rule: '!has(self.licenseSecretRef) || size(self.licenseSecretRef.name)
+                    > 0'
               logging:
                 properties:
                   LogBackAccessRef:
