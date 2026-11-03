@@ -475,6 +475,21 @@ func (d Deployment) ConfigureInternalClusterAuthentication(processNames []string
 	}
 }
 
+// ConfigureClusterFile sets the certificate the processes present when they connect to each other,
+// without changing their cluster authentication mode. Like ConfigureClusterAuthMode, it falls back to
+// the per-pod file name while the clusterfile hash is not known yet.
+func (d Deployment) ConfigureClusterFile(processNames []string, clusterFilePath string) {
+	for _, p := range processNames {
+		if process := d.getProcessByName(p); process != nil {
+			path := clusterFilePath
+			if path == "" {
+				path = fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, process.Name())
+			}
+			process.setClusterFile(path)
+		}
+	}
+}
+
 // GetInternalClusterFilePath returns the first InternalClusterFilepath for the given list of processes.
 func (d Deployment) GetInternalClusterFilePath(processNames []string) string {
 	for _, p := range processNames {
@@ -489,13 +504,6 @@ func (d Deployment) GetInternalClusterFilePath(processNames []string) string {
 		}
 	}
 	return ""
-}
-
-// SetInternalClusterFilePathOnlyIfItThePathHasChanged sets the internal cluster path for the given process names only if it has changed and has been set before.
-func (d Deployment) SetInternalClusterFilePathOnlyIfItThePathHasChanged(names []string, filePath string, clusterAuth string, isRecovering bool) {
-	if currPath := d.GetInternalClusterFilePath(names); isRecovering || currPath != filePath && currPath != "" {
-		d.ConfigureInternalClusterAuthentication(names, clusterAuth, filePath)
-	}
 }
 
 // MinimumMajorVersion returns the lowest major version in the entire deployment.

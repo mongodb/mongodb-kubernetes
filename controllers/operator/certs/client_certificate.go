@@ -22,12 +22,9 @@ import (
 // The subject comes from the user (MongoDBUser.ClientCertificateSubject), so the certificate always
 // carries the same subject the user is registered under.
 //
-// It is signed by whichever CA mongod checks client certificates against. The operator sets
-// clusterCAFile (the client CA) only when internal cluster authentication or the agent uses x509;
-// otherwise mongod checks client certificates against CAFile (the server CA):
-//
-//	internal cluster auth or agent is x509 -> client signer (client.issuerRef, else the operator managed client CA)
-//	otherwise                              -> server signer (server.issuerRef, else the operator's managed server CA)
+// It is signed by the client signer (client.issuerRef, else the operator managed client CA). With
+// operator-managed certificates the members always present a clusterfile, so the operator always
+// sets clusterCAFile (the client CA), which is what mongod checks client certificates against.
 //
 // mongod treats any client whose certificate has the same O and OU as the membership certificate
 // as a cluster member, so the subject must differ from the membership subject in O or OU.
@@ -51,15 +48,10 @@ func ClientCertificate(res CertificateOwner, user *userv1.MongoDBUser) (*certman
 		return nil, xerrors.Errorf("the client certificate subject must differ from the membership subject in organizations or organizationalUnits: both are O=%v, OU=%v, so mongod would treat the client as a cluster member", clientCertSub.Organizations, clientCertSub.OrganizationalUnits)
 	}
 
-	signer := categoryServer
-	if sec.RequiresX509ClientCerts() {
-		signer = categoryClient
-	}
-
 	clientCert := &certmanagerv1.Certificate{}
 	clientCert.Name = user.ClientCertificateName()
 	clientCert.Namespace = res.GetNamespace()
-	clientCert.Spec = certSpec(res, signer, user.ClientCertificateSecretName(), nil, sub.CommonName, clientCertSub, clientAuthCertUsages)
+	clientCert.Spec = certSpec(res, categoryClient, user.ClientCertificateSecretName(), nil, sub.CommonName, clientCertSub, clientAuthCertUsages)
 	return clientCert, nil
 }
 

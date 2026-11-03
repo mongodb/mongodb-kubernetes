@@ -211,15 +211,21 @@ func TestComponentCertificates(t *testing.T) {
 		ClusterDomain:  "cluster.local",
 	}
 
-	t.Run("keyfile internal auth: only the member (serverAuth) cert, SAN-only subject", func(t *testing.T) {
+	t.Run("keyfile internal auth: a server-only member cert and a clusterfile, SAN-only member subject", func(t *testing.T) {
+		opts := baseOpts
+		opts.InternalClusterSecretName = fmt.Sprintf("%s-clusterfile", resName)
 		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
 			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
 		})
-		got := componentCertificates(ctx, fakeClient, owner, baseOpts)
-		require.Len(t, got, 1)
+		got := componentCertificates(ctx, fakeClient, owner, opts)
+		require.Len(t, got, 2)
 		assert.Equal(t, baseOpts.CertSecretName, got[0].certName)
 		assert.Equal(t, memberServerCertUsages, got[0].spec.Usages)
 		assert.Nil(t, got[0].spec.Subject, "member cert is SAN-only when internal auth is not x509")
+
+		// The members present the clusterfile to each other even with keyfile internal auth.
+		assert.Equal(t, opts.InternalClusterSecretName, got[1].certName)
+		assert.Equal(t, clientAuthCertUsages, got[1].spec.Usages)
 	})
 
 	t.Run("x509 internal auth: member + clusterfile, both carry the same membership subject", func(t *testing.T) {

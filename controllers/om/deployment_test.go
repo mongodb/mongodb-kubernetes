@@ -1033,3 +1033,24 @@ func TestSetDownloadBase(t *testing.T) {
 		assert.NotContains(t, d, "options")
 	})
 }
+
+func TestConfigureClusterFile(t *testing.T) {
+	t.Run("sets the clusterfile without a cluster auth mode", func(t *testing.T) {
+		d := NewDeployment()
+		mergeReplicaSet(d, "my-rs", createReplicaSetProcesses("my-rs"))
+		d.ConfigureClusterFile(d.GetProcessNames(ReplicaSet{}, "my-rs"), "/mongodb-automation/cluster-auth/HASH")
+		for _, p := range d.GetProcesses() {
+			assert.Equal(t, "/mongodb-automation/cluster-auth/HASH", p.TLSConfig()["clusterFile"])
+			assert.Empty(t, p.ClusterAuthMode())
+		}
+	})
+
+	t.Run("uses the per-pod file while the clusterfile hash is not known", func(t *testing.T) {
+		d := NewDeployment()
+		mergeReplicaSet(d, "my-rs", createReplicaSetProcesses("my-rs"))
+		d.ConfigureClusterFile(d.GetProcessNames(ReplicaSet{}, "my-rs"), "")
+		for _, p := range d.GetProcesses() {
+			assert.Equal(t, fmt.Sprintf("%s%s-pem", util.InternalClusterAuthMountPath, p.Name()), p.TLSConfig()["clusterFile"])
+		}
+	})
+}

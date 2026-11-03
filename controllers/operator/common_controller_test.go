@@ -29,7 +29,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
@@ -1998,16 +1997,12 @@ func TestStatusWarningsAreStored(t *testing.T) {
 	ctx := context.Background()
 	key := types.NamespacedName{Name: "mdb", Namespace: "ns"}
 
-	// operator-managed certificates on, the client block configured, and SCRAM everywhere: the client
-	// settings have no effect, so the operator has something to warn about.
 	rs := mdbv1.NewReplicaSetBuilder().SetName(key.Name).SetNamespace(key.Namespace).Build()
-	rs.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Client: &mdbv1.CertificateConfig{}}
-	rs.Spec.Security.Authentication = &mdbv1.Authentication{Enabled: true, InternalCluster: util.SCRAM}
 
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
 	commonController := NewReconcileCommonController(ctx, kubeClient)
 
-	rs.SetWarnings(certs.UnusedClientConfigured(rs))
+	rs.SetWarnings([]status.Warning{"something to warn about"})
 	_, err := commonController.updateStatus(ctx, rs, workflow.OK(), zap.S())
 	require.NoError(t, err)
 
@@ -2015,17 +2010,93 @@ func TestStatusWarningsAreStored(t *testing.T) {
 		stored := &mdbv1.MongoDB{}
 		require.NoError(t, kubeClient.Get(ctx, key, stored))
 		require.Len(t, stored.Status.Warnings, 1)
-		assert.Contains(t, string(stored.Status.Warnings[0]), "spec.managedCertificate.client is set even though the deployment doesn't use x509 for internal")
+		assert.Equal(t, status.Warning("something to warn about"), stored.Status.Warnings[0])
 	})
 
 	t.Run("an update that sets no warnings clears them", func(t *testing.T) {
-		rs.Spec.Security.Authentication = &mdbv1.Authentication{Enabled: true, InternalCluster: util.X509}
-		rs.SetWarnings(certs.UnusedClientConfigured(rs))
+		rs.SetWarnings([]status.Warning{})
 		_, err := commonController.updateStatus(ctx, rs, workflow.OK(), zap.S())
 		require.NoError(t, err)
 
 		stored := &mdbv1.MongoDB{}
 		require.NoError(t, kubeClient.Get(ctx, key, stored))
 		assert.Empty(t, stored.Status.Warnings)
+	})
+}
+
+// internalClusterAuthDeployment returns a deployment with the TLS processes of a 3 member replica set
+// that uses the given security, and the names of those processes.
+func internalClusterAuthDeployment(security *mdbv1.Security) (om.Deployment, []string) {
+	rs := mdbv1.NewReplicaSetBuilder().SetName("my-rs").Build()
+	rs.Spec.Security = security
+	processes := make([]om.Process, 3)
+	options := make([]automationconfig.MemberOptions, 3)
+	for i := range processes {
+		name := fmt.Sprintf("my-rs-%d", i)
+		processes[i] = om.NewMongodProcess(name, name+".my-rs-svc", "fake-image", false, &mdbv1.AdditionalMongodConfig{}, rs.GetSpec(), "/mongodb-automation/tls/MEMBER", nil, "", architectures.NonStatic)
+	}
+	d := om.NewDeployment()
+	d.MergeReplicaSet(om.NewReplicaSetWithProcesses(om.NewReplicaSet("my-rs", "7.0.0"), processes, options, nil), nil, nil, nil, zap.S())
+	return d, d.GetProcessNames(om.ReplicaSet{}, "my-rs")
+}
+
+func TestConfigureInternalClusterAuth(t *testing.T) {
+	const path = "/mongodb-automation/cluster-auth/HASH"
+	keyfile := &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{util.SCRAM}}
+	x509 := &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{util.X509}, InternalCluster: util.X509}
+
+	tests := []struct {
+		name            string
+		security        *mdbv1.Security
+		wantClusterFile string
+		wantAuthMode    string
+	}{
+		{
+			// the members present the member cert, and authenticate each other with the keyfile.
+			name:     "legacy TLS with keyfile internal auth: no clusterfile",
+			security: &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}, Authentication: keyfile},
+		},
+		{
+			// the members present the clusterfile, and still authenticate each other with the keyfile.
+			name:            "managed certificates with keyfile internal auth: the clusterfile alone",
+			security:        &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}, Authentication: keyfile},
+			wantClusterFile: path,
+		},
+		{
+			name:            "x509 internal auth: the clusterfile and x509",
+			security:        &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}, Authentication: x509},
+			wantClusterFile: path,
+			wantAuthMode:    "x509",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d, names := internalClusterAuthDeployment(tc.security)
+			configureInternalClusterAuth(d, tc.security, names, path)
+			assert.Equal(t, tc.wantClusterFile, d.GetInternalClusterFilePath(names))
+			for _, p := range d.GetProcesses() {
+				assert.Equal(t, tc.wantAuthMode, p.ClusterAuthMode())
+			}
+		})
+	}
+}
+
+func TestSetInternalClusterFileIfChanged(t *testing.T) {
+	managed := &mdbv1.Security{
+		ManagedCertificate: &mdbv1.ManagedCertificate{},
+		Authentication:     &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{util.SCRAM}},
+	}
+
+	t.Run("a clusterfile that was rotated moves to its new path", func(t *testing.T) {
+		d, names := internalClusterAuthDeployment(managed)
+		configureInternalClusterAuth(d, managed, names, "/mongodb-automation/cluster-auth/OLD")
+		setInternalClusterFileIfChanged(d, managed, names, "/mongodb-automation/cluster-auth/NEW", false)
+		assert.Equal(t, "/mongodb-automation/cluster-auth/NEW", d.GetInternalClusterFilePath(names))
+	})
+
+	t.Run("a clusterfile that was never set is left to the full automation config update", func(t *testing.T) {
+		d, names := internalClusterAuthDeployment(managed)
+		setInternalClusterFileIfChanged(d, managed, names, "/mongodb-automation/cluster-auth/NEW", false)
+		assert.Empty(t, d.GetInternalClusterFilePath(names))
 	})
 }

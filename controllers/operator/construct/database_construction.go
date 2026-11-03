@@ -458,7 +458,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 		secretsToInject.AgentCertsHash = opts.AgentCertHash
 	}
 
-	if mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
+	if mdb.GetSecurity().UsesClusterFile() {
 		secretName := mdb.GetSecurity().InternalClusterAuthSecretName(opts.Name)
 		secretName = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
 		secretsToInject.InternalClusterAuth = secretName
@@ -770,8 +770,8 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		}
 	}
 
-	// add volume for x509 cert used in internal cluster authentication
-	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().GetInternalClusterAuthenticationMode() == util.X509 {
+	// add volume for the clusterfile, the cert the members present to each other
+	if !vault.IsVaultSecretBackend() && mdb.GetSecurity().UsesClusterFile() {
 		internalClusterAuthVolume := statefulset.CreateVolumeFromSecret(util.ClusterFileName, internalClusterAuthSecretName)
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			MountPath: util.InternalClusterAuthMountPath,

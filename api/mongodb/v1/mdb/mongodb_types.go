@@ -1194,8 +1194,18 @@ func (s *Security) GetInternalClusterAuthenticationMode() string {
 	return ""
 }
 
+// UsesClusterFile reports whether the members present a separate client certificate, the
+// clusterfile, when they connect to each other. With TLS on, member connections are mutual TLS
+// whatever the internal cluster authentication is, so each member needs a client certificate.
+// With x509 internal cluster authentication that is the clusterfile. With operator-managed
+// certificates it is the clusterfile too, so the member certificate can stay a server-only
+// certificate. Otherwise mongod presents the member certificate itself.
+func (s *Security) UsesClusterFile() bool {
+	return s.GetInternalClusterAuthenticationMode() == util.X509 || s.IsManagedCertificateEnabled()
+}
+
 func (s *Security) RequiresX509ClientCerts() bool {
-	return s.GetInternalClusterAuthenticationMode() == util.X509 || s.GetAgentMechanism("") == util.X509
+	return s.UsesClusterFile() || s.GetAgentMechanism("") == util.X509
 }
 
 // Authentication holds various authentication related settings that affect

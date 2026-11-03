@@ -397,8 +397,9 @@ func componentCertificates(ctx context.Context, c kubernetesClient.Client, res C
 	// No dnsNames here, this is a client cert that mongod matches by subject (O/OU/DC),
 	// not by SAN. Adding per-member SANs would make it change on every scale and force a
 	// needless reissue (the agent cert, also clientAuth, is issued with no SANs for the
-	// same reason).
-	if internalX509 && opts.InternalClusterSecretName != "" {
+	// same reason). It is issued without x509 internal auth too: the members still present a
+	// client cert to each other, and this keeps the member cert server-only.
+	if sec.UsesClusterFile() && opts.InternalClusterSecretName != "" {
 		sub, cn := membershipSubject(res)
 		// cert-manager rejects a Certificate that has no name at all, and the membership
 		// subject sets only O/OU (no common name). Since we also set no SANs, give the
@@ -909,7 +910,7 @@ func readCASource(ctx context.Context, c kubernetesClient.Client, res Certificat
 // meaningful when the resource has client certs.
 func clientIssuedSecretName(res CertificateOwner, opts Options) string {
 	sec := res.GetSecurity()
-	if sec.GetInternalClusterAuthenticationMode() == util.X509 && opts.InternalClusterSecretName != "" {
+	if sec.UsesClusterFile() && opts.InternalClusterSecretName != "" {
 		return opts.InternalClusterSecretName
 	}
 	if sec.GetAgentMechanism("") == util.X509 {

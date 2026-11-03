@@ -1103,3 +1103,25 @@ func TestInitDefaults_AppDBAuthDefaults(t *testing.T) {
 		assert.Nil(t, mdb.Spec.Security.Authentication)
 	})
 }
+
+func TestUsesClusterFile(t *testing.T) {
+	keyfile := &Authentication{Enabled: true, Modes: []AuthMode{util.SCRAM}}
+	x509 := &Authentication{Enabled: true, Modes: []AuthMode{util.X509}, InternalCluster: util.X509}
+	tests := []struct {
+		name     string
+		security *Security
+		want     bool
+	}{
+		{name: "no security", security: nil, want: false},
+		{name: "legacy TLS with keyfile internal auth", security: &Security{TLSConfig: &TLSConfig{Enabled: true}, Authentication: keyfile}, want: false},
+		{name: "legacy TLS with x509 internal auth", security: &Security{TLSConfig: &TLSConfig{Enabled: true}, Authentication: x509}, want: true},
+		{name: "managed certificates with keyfile internal auth", security: &Security{ManagedCertificate: &ManagedCertificate{}, Authentication: keyfile}, want: true},
+		{name: "managed certificates without authentication", security: &Security{ManagedCertificate: &ManagedCertificate{}}, want: true},
+		{name: "managed certificates with x509 internal auth", security: &Security{ManagedCertificate: &ManagedCertificate{}, Authentication: x509}, want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.security.UsesClusterFile())
+		})
+	}
+}

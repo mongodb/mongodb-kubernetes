@@ -354,7 +354,7 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, ca, secretNames)
 	}
 
-	if security.GetInternalClusterAuthenticationMode() == util.X509 {
+	if security.UsesClusterFile() {
 		var secretNames []string
 		if getInternalAuthSecretNames != nil {
 			secretNames = getInternalAuthSecretNames()
@@ -886,8 +886,7 @@ func (r *ReconcileCommonController) updateOmAuthentication(ctx context.Context, 
 	}
 
 	// if we have changed the internal cluster auth, we need to update the ac first
-	authenticationMode := ar.GetSecurity().GetInternalClusterAuthenticationMode()
-	err = r.setupInternalClusterAuthIfItHasChanged(ctx, conn, processNames, authenticationMode, clusterFilePath, isRecovering)
+	err = r.setupInternalClusterAuthIfItHasChanged(ctx, conn, processNames, ar.GetSecurity(), clusterFilePath, isRecovering)
 	if err != nil {
 		return workflow.Failed(err), false
 	}
@@ -1074,6 +1073,11 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 	security := configurator.GetDbCommonSpec().GetSecurity()
 	authSpec := security.Authentication
 	if authSpec == nil || !security.Authentication.Enabled {
+		// Without authentication there is no agent cert, but operator-managed members still
+		// present the clusterfile to each other.
+		if security.IsManagedCertificateEnabled() {
+			return r.ensureInternalClusterCerts(ctx, configurator, log)
+		}
 		return workflow.OK()
 	}
 
@@ -1088,33 +1092,58 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 		}
 	}
 
-	if security.GetInternalClusterAuthenticationMode() == util.X509 {
-		errors := make([]error, 0)
-		for _, certOption := range configurator.GetCertOptions() {
-			err := r.validateInternalClusterCertsAndCheckTLSType(ctx, configurator, certOption, log)
-			if err != nil {
-				errors = append(errors, err)
-			}
-		}
-		if len(errors) > 0 {
-			return workflow.Failed(xerrors.Errorf("failed ensuring internal cluster authentication certs %w", errors[0]))
-		}
+	if security.UsesClusterFile() {
+		return r.ensureInternalClusterCerts(ctx, configurator, log)
 	}
 
 	return workflow.OK()
 }
 
+// ensureInternalClusterCerts writes the -pem secret of the clusterfile for every component.
+func (r *ReconcileCommonController) ensureInternalClusterCerts(ctx context.Context, configurator certs.X509CertConfigurator, log *zap.SugaredLogger) workflow.Status {
+	errors := make([]error, 0)
+	for _, certOption := range configurator.GetCertOptions() {
+		err := r.validateInternalClusterCertsAndCheckTLSType(ctx, configurator, certOption, log)
+		if err != nil {
+			errors = append(errors, err)
+		}
+	}
+	if len(errors) > 0 {
+		return workflow.Failed(xerrors.Errorf("failed ensuring internal cluster authentication certs %w", errors[0]))
+	}
+	return workflow.OK()
+}
+
 // setupInternalClusterAuthIfItHasChanged enables internal cluster auth if possible in case the path has changed and did exist before.
-func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(ctx context.Context, conn om.Connection, names []string, clusterAuth string, filePath string, isRecovering bool) error {
+func (r *ReconcileCommonController) setupInternalClusterAuthIfItHasChanged(ctx context.Context, conn om.Connection, names []string, sec *mdbv1.Security, filePath string, isRecovering bool) error {
 	if filePath == "" {
 		return nil
 	}
 	err := conn.ReadUpdateDeployment(ctx, func(deployment om.Deployment) error {
-		deployment.SetInternalClusterFilePathOnlyIfItThePathHasChanged(names, filePath, clusterAuth, isRecovering)
+		setInternalClusterFileIfChanged(deployment, sec, names, filePath, isRecovering)
 		return nil
 	}, zap.S())
 
 	return err
+}
+
+// configureInternalClusterAuth sets the internal cluster authentication of the processes and the
+// clusterfile they present to each other. With x509 internal cluster authentication they get both.
+// Operator-managed members present a clusterfile without it too, so they get the clusterfile alone.
+func configureInternalClusterAuth(d om.Deployment, sec *mdbv1.Security, processNames []string, clusterFilePath string) {
+	d.ConfigureInternalClusterAuthentication(processNames, sec.GetInternalClusterAuthenticationMode(), clusterFilePath)
+	if sec.UsesClusterFile() && sec.GetInternalClusterAuthenticationMode() != util.X509 {
+		d.ConfigureClusterFile(processNames, clusterFilePath)
+	}
+}
+
+// setInternalClusterFileIfChanged is configureInternalClusterAuth, but only when the processes already
+// have a clusterfile at another path, or when recovering. It runs before the operator waits for the
+// agents, so they are never left pointing at a clusterfile the pods no longer have.
+func setInternalClusterFileIfChanged(d om.Deployment, sec *mdbv1.Security, processNames []string, clusterFilePath string, isRecovering bool) {
+	if currPath := d.GetInternalClusterFilePath(processNames); isRecovering || currPath != clusterFilePath && currPath != "" {
+		configureInternalClusterAuth(d, sec, processNames, clusterFilePath)
+	}
 }
 
 // getAgentVersion resolves the agent version to use. When customAgentURL is set,
@@ -1501,7 +1530,7 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, externalProcessNames, log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
-	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
+	configureInternalClusterAuth(d, spec.GetSecurity(), rs.GetProcessNames(), internalClusterPath)
 
 	// if we don't set up a prometheus connection, then we don't want to set up prometheus for instance because we do not support it yet.
 	if pc != nil {

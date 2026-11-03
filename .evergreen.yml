@@ -1172,7 +1172,9 @@ task_groups:
       - e2e_replica_set_tls_managedcert
       - e2e_replica_set_tls_managedcert_server
       - e2e_replica_set_tls_managedcert_both_configured
+      - e2e_replica_set_tls_managedcert_clusterfile_without_x509
       - e2e_sharded_cluster_tls_managedcert
+      - e2e_sharded_cluster_tls_managedcert_clusterfile_without_x509
       - e2e_managed_certificate_prerequisites
 
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
@@ -1231,6 +1233,7 @@ task_groups:
       - e2e_managed_certificate_multi_cluster_rs
       - e2e_managed_certificate_multi_cluster_sharded
       - e2e_managed_certificate_multi_cluster_rs_prerequisites
+      - e2e_managed_certificate_multi_cluster_rs_clusterfile_without_x509
       - e2e_multi_cluster_tls_no_mesh
       - e2e_multi_cluster_enable_tls
       - e2e_multi_cluster_clusterwide

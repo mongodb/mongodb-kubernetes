@@ -24,7 +24,8 @@ func x509Only(m *mdbv1.MongoDB) {
 }
 
 // x509ForClientsOnly enables x509 as an authentication mode, but neither internal cluster
-// authentication nor the agent uses it, so the operator creates no client CA.
+// authentication nor the agent uses it. The members still present a clusterfile, so the operator
+// still creates the client CA.
 func x509ForClientsOnly(m *mdbv1.MongoDB) {
 	m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
 	m.Spec.Security.Authentication = &mdbv1.Authentication{
@@ -94,19 +95,20 @@ func TestClientCertificate(t *testing.T) {
 			wantKind:   certmanagerv1.IssuerKind,
 		},
 		{
-			// No clusterCAFile is set, so mongod checks client certificates against the server CA.
-			name:       "x509 only for clients: operator's server CA",
+			// The members present a clusterfile, so clusterCAFile is set and mongod checks client
+			// certificates against the client CA.
+			name:       "x509 only for clients: operator managed client CA",
 			mutate:     x509ForClientsOnly,
-			wantIssuer: "mdb-server-ca-issuer",
+			wantIssuer: "mdb-client-ca-issuer",
 			wantKind:   certmanagerv1.IssuerKind,
 		},
 		{
-			name: "x509 only for clients with a user server issuer: user configured issuer",
+			name: "x509 only for clients with a user server issuer: still the client CA",
 			mutate: func(m *mdbv1.MongoDB) {
 				x509ForClientsOnly(m)
 				m.Spec.Security.ManagedCertificate.Server = &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "ca-issuer", Kind: certmanagerv1.IssuerKind}}
 			},
-			wantIssuer: "ca-issuer",
+			wantIssuer: "mdb-client-ca-issuer",
 			wantKind:   certmanagerv1.IssuerKind,
 		},
 	}

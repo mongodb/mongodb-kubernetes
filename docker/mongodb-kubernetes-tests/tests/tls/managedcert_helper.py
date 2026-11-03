@@ -8,6 +8,7 @@ live here and the test files only keep what is specific to their scenario.
 import tempfile
 from typing import List, Optional
 
+from cryptography import x509
 from kubetester import read_configmap, read_secret, try_load
 from kubetester.certs import Certificate
 from kubetester.crypto import cert_signed_by_bundle
@@ -193,3 +194,30 @@ def scale_and_assert_member_cert_issuance(mdb: MongoDB, name: str, namespace: st
     else:
         assert revision_after == revision_before, "member cert must not be reissued"
         assert cert_after == cert_before, "member cert must not change"
+
+
+def extended_key_usages(namespace: str, secret_name: str, api_client=None) -> x509.ExtendedKeyUsage:
+    """The extended key usages of the certificate a TLS secret holds."""
+    pem = read_secret(namespace, secret_name, api_client=api_client)["tls.crt"]
+    certificate = x509.load_pem_x509_certificate(pem.encode())
+    return certificate.extensions.get_extension_for_class(x509.ExtendedKeyUsage).value
+
+
+def assert_clusterfile_without_x509(automation_config: dict, name: str, expected_processes: int):
+    """Checks that every process of the resource presents a clusterfile without x509 cluster auth.
+
+    With operator-managed certificates the members present the clusterfile to each other even when
+    internal cluster authentication is the keyfile. So each process has net.tls.clusterFile but no
+    security.clusterAuthMode, and clusterCAFilePath is set so the members check each other's
+    clusterfile against the client CA.
+    """
+    assert automation_config.get("tls", {}).get("clusterCAFilePath"), "clusterCAFilePath must be set"
+    # Process names carry a k8s/<namespace>/ prefix.
+    processes = [p for p in automation_config["processes"] if p["name"].split("/")[-1].startswith(name)]
+    assert len(processes) == expected_processes, [p["name"] for p in automation_config["processes"]]
+    for process in processes:
+        args = process["args2_6"]
+        assert args["net"]["tls"].get("clusterFile"), f"{process['name']} has no clusterFile"
+        assert "clusterAuthMode" not in (
+            args.get("security") or {}
+        ), f"{process['name']} must not use x509 cluster auth"

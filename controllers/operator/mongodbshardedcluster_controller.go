@@ -869,9 +869,6 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcile.Result{}, nil
 	}
 
-	// warn if managedCertificate.client is set but not really required/used by the operator
-	sc.SetWarnings(certs.UnusedClientConfigured(sc))
-
 	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReadiness)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
@@ -2310,7 +2307,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 	// updateOmAuthentication normally takes care of the certfile rotation code, but since sharded-cluster is special pertaining multiple clusterfiles, we code this part here for now.
 	// We can look into unifying this into updateOmAuthentication at a later stage.
 	if err := conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
-		setInternalAuthClusterFileIfItHasChanged(d, sc.GetSecurity().GetInternalClusterAuthenticationMode(), sc.GetShardedClusterName(), configSrvInternalClusterPath, mongosInternalClusterPath, sc.ShardACRsNames(), shardInternalClusterPaths, isRecovering)
+		setInternalAuthClusterFileIfItHasChanged(d, sc.GetSecurity(), sc.GetShardedClusterName(), configSrvInternalClusterPath, mongosInternalClusterPath, sc.ShardACRsNames(), shardInternalClusterPaths, isRecovering)
 		return nil
 	}, log); err != nil {
 		return nil, false, workflow.Failed(err)
@@ -2384,7 +2381,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 			d.SetDownloadBase(sc.Spec.GetDownloadBase())
 
-			setupInternalClusterAuth(d, sc.GetShardedClusterName(), sc.GetSecurity().GetInternalClusterAuthenticationMode(),
+			setupInternalClusterAuth(d, sc.GetShardedClusterName(), sc.GetSecurity(),
 				configSrvInternalClusterPath, mongosInternalClusterPath, sc.ShardACRsNames(), shardInternalClusterPaths)
 
 			_ = UpdatePrometheus(ctx, &d, conn, sc.GetPrometheus(), r.commonController.SecretClient, sc.GetNamespace(), opts.prometheusCertHash, log)
@@ -2445,22 +2442,22 @@ func logWarnIgnoredDueToRecovery(log *zap.SugaredLogger, err any) {
 // setInternalAuthClusterFileIfItHasChanged applies the per shard internal cluster cert paths.
 // shardACRsNames is parallel to shardsInternalClusterPath. Shards are looked up by replica set name
 // since the AC shards array is sorted by _id.
-func setInternalAuthClusterFileIfItHasChanged(d om.Deployment, internalAuthMode string, name string, configInternalClusterPath string, mongosInternalClusterPath string, shardACRsNames []string, shardsInternalClusterPath []string, isRecovering bool) {
-	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterConfigProcessNames(name), configInternalClusterPath, internalAuthMode, isRecovering)
-	d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterMongosProcessNames(name), mongosInternalClusterPath, internalAuthMode, isRecovering)
+func setInternalAuthClusterFileIfItHasChanged(d om.Deployment, sec *mdbv1.Security, name string, configInternalClusterPath string, mongosInternalClusterPath string, shardACRsNames []string, shardsInternalClusterPath []string, isRecovering bool) {
+	setInternalClusterFileIfChanged(d, sec, d.GetShardedClusterConfigProcessNames(name), configInternalClusterPath, isRecovering)
+	setInternalClusterFileIfChanged(d, sec, d.GetShardedClusterMongosProcessNames(name), mongosInternalClusterPath, isRecovering)
 	for i, path := range shardsInternalClusterPath {
-		d.SetInternalClusterFilePathOnlyIfItThePathHasChanged(d.GetShardedClusterShardProcessNamesByRs(name, shardACRsNames[i]), path, internalAuthMode, isRecovering)
+		setInternalClusterFileIfChanged(d, sec, d.GetShardedClusterShardProcessNamesByRs(name, shardACRsNames[i]), path, isRecovering)
 	}
 }
 
 // setupInternalClusterAuth configures internal cluster authentication paths per component.
 // shardACRsNames is parallel to shardsInternalClusterPath, see setInternalAuthClusterFileIfItHasChanged.
-func setupInternalClusterAuth(d om.Deployment, name string, internalClusterAuthMode string, configInternalClusterPath string, mongosInternalClusterPath string, shardACRsNames []string, shardsInternalClusterPath []string) {
-	d.ConfigureInternalClusterAuthentication(d.GetShardedClusterConfigProcessNames(name), internalClusterAuthMode, configInternalClusterPath)
-	d.ConfigureInternalClusterAuthentication(d.GetShardedClusterMongosProcessNames(name), internalClusterAuthMode, mongosInternalClusterPath)
+func setupInternalClusterAuth(d om.Deployment, name string, sec *mdbv1.Security, configInternalClusterPath string, mongosInternalClusterPath string, shardACRsNames []string, shardsInternalClusterPath []string) {
+	configureInternalClusterAuth(d, sec, d.GetShardedClusterConfigProcessNames(name), configInternalClusterPath)
+	configureInternalClusterAuth(d, sec, d.GetShardedClusterMongosProcessNames(name), mongosInternalClusterPath)
 
 	for i, path := range shardsInternalClusterPath {
-		d.ConfigureInternalClusterAuthentication(d.GetShardedClusterShardProcessNamesByRs(name, shardACRsNames[i]), internalClusterAuthMode, path)
+		configureInternalClusterAuth(d, sec, d.GetShardedClusterShardProcessNamesByRs(name, shardACRsNames[i]), path)
 	}
 }
 

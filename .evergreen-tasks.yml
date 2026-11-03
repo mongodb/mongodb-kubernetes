@@ -544,6 +544,16 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_tls_managedcert_clusterfile_without_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_tls_managedcert_clusterfile_without_x509
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_managed_certificate_prerequisites
     tags: [ "patch-run" ]
     commands:
@@ -1156,6 +1166,11 @@ tasks:
       - func: e2e_test
 
   - name: e2e_managed_certificate_multi_cluster_sharded
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_managed_certificate_multi_cluster_rs_clusterfile_without_x509
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
