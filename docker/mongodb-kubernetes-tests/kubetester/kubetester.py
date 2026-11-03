@@ -26,7 +26,7 @@ from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 from kubetester.crypto import wait_for_certs_to_be_issued
-from kubetester.polling import RETRYABLE_READ_ERRORS, is_transient_read_error, poll_until
+from kubetester.polling import poll_until
 from opentelemetry import trace
 from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 from tests import test_logger
@@ -126,8 +126,13 @@ SLEEP_TIME = 2
 INFINITY = -1
 
 
-def _deadline_kwargs(deadline):
-    return {"deadline": deadline} if deadline is not None else {}
+def _is_group_not_found(response):
+    """Ops Manager reports a deleted project as a 404 with this error code."""
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and body.get("errorCode") == "GROUP_NOT_FOUND"
 
 
 class KubernetesTester(object):
@@ -453,7 +458,7 @@ class KubernetesTester(object):
 
             org_id = org_id or KubernetesTester.get_om_org_id()
 
-            group = KubernetesTester.query_group(group_name, org_id, **_deadline_kwargs(deadline))
+            group = KubernetesTester.query_group(group_name, org_id, deadline=deadline)
 
             KubernetesTester.group_id = group["id"]
 
@@ -826,8 +831,6 @@ class KubernetesTester(object):
                 timeout=timeout,
                 interval=kwargs.get("sleep_time", SLEEP_TIME),
                 description=kwargs.get("msg") or func.__name__,
-                retry_on=RETRYABLE_READ_ERRORS,
-                retry_if=is_transient_read_error,
             )
         return run_periodically(func, timeout=timeout, **kwargs)
 
@@ -903,7 +906,7 @@ class KubernetesTester(object):
         """
         if org_id is None:
             # If no organization is passed, then look for all organizations
-            org_id = KubernetesTester.find_organizations(group_name, **_deadline_kwargs(deadline))
+            org_id = KubernetesTester.find_organizations(group_name, deadline=deadline)
 
         if not isinstance(org_id, list):
             org_id = [org_id]
@@ -911,13 +914,13 @@ class KubernetesTester(object):
         if len(org_id) != 1:
             raise Exception('{} organizations with name "{}" found instead of 1!'.format(len(org_id), group_name))
 
-        group_ids = KubernetesTester.find_groups_in_organization(org_id[0], group_name, **_deadline_kwargs(deadline))
+        group_ids = KubernetesTester.find_groups_in_organization(org_id[0], group_name, deadline=deadline)
         if len(group_ids) != 1:
             raise Exception(
                 f'{len(group_ids)} groups with name "{group_name}" found inside organization "{org_id[0]}" instead of 1!'
             )
         url = build_om_group_endpoint(KubernetesTester.get_om_base_url(), group_ids[0])
-        response = KubernetesTester.om_request("get", url, **_deadline_kwargs(deadline))
+        response = KubernetesTester.om_request("get", url, deadline=deadline)
 
         return response.json()
 
@@ -938,7 +941,7 @@ class KubernetesTester(object):
         page = 1
         while True:
             url = build_om_org_list_endpoint(KubernetesTester.get_om_base_url(), page)
-            json = KubernetesTester.om_request("get", url, **_deadline_kwargs(deadline)).json()
+            json = KubernetesTester.om_request("get", url, deadline=deadline).json()
 
             # Add organization id if its name is the searched one
             ids.extend([org["id"] for org in json["results"] if org["name"] == org_name])
@@ -961,7 +964,7 @@ class KubernetesTester(object):
         ids = []
         for i in range(1, max_pages):
             url = build_om_groups_in_org_endpoint(KubernetesTester.get_om_base_url(), org_id, i)
-            json = KubernetesTester.om_request("get", url, **_deadline_kwargs(deadline)).json()
+            json = KubernetesTester.om_request("get", url, deadline=deadline).json()
             # Add group id if its name is the searched one
             ids.extend([group["id"] for group in json["results"] if group["name"] == group_name])
 
@@ -978,10 +981,10 @@ class KubernetesTester(object):
     @staticmethod
     def get_automation_config(group_id=None, group_name=None, *, deadline=None):
         if group_id is None:
-            group_id = KubernetesTester.get_om_group_id(group_name=group_name, **_deadline_kwargs(deadline))
+            group_id = KubernetesTester.get_om_group_id(group_name=group_name, deadline=deadline)
 
         url = build_automation_config_endpoint(KubernetesTester.get_om_base_url(), group_id)
-        response = KubernetesTester.om_request("get", url, **_deadline_kwargs(deadline))
+        response = KubernetesTester.om_request("get", url, deadline=deadline)
 
         return response.json()
 
@@ -1032,9 +1035,9 @@ class KubernetesTester(object):
     @staticmethod
     def get_hosts(*, deadline=None):
         url = build_hosts_endpoint(
-            KubernetesTester.get_om_base_url(), KubernetesTester.get_om_group_id(**_deadline_kwargs(deadline))
+            KubernetesTester.get_om_base_url(), KubernetesTester.get_om_group_id(deadline=deadline)
         )
-        response = KubernetesTester.om_request("get", url, **_deadline_kwargs(deadline))
+        response = KubernetesTester.om_request("get", url, deadline=deadline)
 
         return response.json()
 
@@ -1047,15 +1050,8 @@ class KubernetesTester(object):
         response = requests.request(method, endpoint, auth=auth, headers=headers, json=json_object, **kwargs)
 
         if response.status_code >= 300:
-            if response.status_code == 404:
-                if deadline is None:
-                    raise OpsManagerGroupNotFoundError("Ops Manager group not found")
-                try:
-                    body = response.json()
-                except ValueError:
-                    body = None
-                if isinstance(body, dict) and body.get("errorCode") == "GROUP_NOT_FOUND":
-                    raise OpsManagerGroupNotFoundError("Ops Manager group not found")
+            if response.status_code == 404 and (deadline is None or _is_group_not_found(response)):
+                raise OpsManagerGroupNotFoundError("Ops Manager group not found")
             if deadline is not None:
                 response.raise_for_status()
             raise Exception(
@@ -1103,8 +1099,8 @@ class KubernetesTester(object):
     @staticmethod
     def is_om_state_cleaned(*, deadline=None):
         try:
-            config = KubernetesTester.get_automation_config(**_deadline_kwargs(deadline))
-            hosts = KubernetesTester.get_hosts(**_deadline_kwargs(deadline))
+            config = KubernetesTester.get_automation_config(deadline=deadline)
+            hosts = KubernetesTester.get_hosts(deadline=deadline)
 
             return (
                 len(config["replicaSets"]) == 0
@@ -1126,17 +1122,18 @@ class KubernetesTester(object):
         # Should not depend in the global state of KubernetesTester
 
         deleted_in_k8 = KubernetesTester.is_deleted(
-            KubernetesTester.namespace, KubernetesTester.name, KubernetesTester.kind, **_deadline_kwargs(deadline)
+            KubernetesTester.namespace, KubernetesTester.name, KubernetesTester.kind, deadline=deadline
         )
 
-        if deadline is None:
-            return deleted_in_k8 if not check_om_state else (deleted_in_k8 and KubernetesTester.is_om_state_cleaned())
         if not deleted_in_k8:
             return False, "Kubernetes resource still exists"
         if not check_om_state:
             return True, "Kubernetes resource deleted"
-        deadline.remaining()
-        cleaned = KubernetesTester.is_om_state_cleaned(deadline=deadline)
+        if deadline is None:
+            cleaned = KubernetesTester.is_om_state_cleaned()
+        else:
+            deadline.remaining()
+            cleaned = KubernetesTester.is_om_state_cleaned(deadline=deadline)
         return cleaned, "Ops Manager state cleaned" if cleaned else "Ops Manager state not cleaned"
 
     @staticmethod

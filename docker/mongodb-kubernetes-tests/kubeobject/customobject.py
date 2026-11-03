@@ -265,7 +265,7 @@ class CustomObject:
 
     def reload(self, *, request_timeout: Optional[float] = None):
         """Reloads the object from the Kubernetes API."""
-        return self.load(request_timeout=request_timeout) if request_timeout is not None else self.load()
+        return self.load(request_timeout=request_timeout)
 
     def __getitem__(self, key):
         self._reload_if_needed()

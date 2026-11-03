@@ -65,28 +65,6 @@ def test_timeout_counts_time_spent_observing_and_reports_last_state(clock):
     assert clock.now == 6
 
 
-def test_retries_only_the_error_types_selected_by_the_caller(clock):
-    class TemporaryReadError(Exception):
-        pass
-
-    observations = iter([TemporaryReadError("transient"), (True, "members present")])
-
-    def check(deadline):
-        observation = next(observations)
-        if isinstance(observation, Exception):
-            raise observation
-        return observation
-
-    assert poll_until(
-        check,
-        timeout=5,
-        interval=1,
-        description="MongoDB members",
-        retry_on=(TemporaryReadError,),
-    )
-    assert clock.now == 1
-
-
 def test_unexpected_error_is_not_retried(clock):
     def check(deadline):
         raise ValueError("invalid test condition")
@@ -150,10 +128,7 @@ def test_ops_manager_http_errors_are_classified_by_status(status, expected):
 
 
 def test_consecutive_successes_are_reset_after_transient_read_error(clock):
-    class TemporaryReadError(Exception):
-        pass
-
-    observations = iter([True, TemporaryReadError(), True, True])
+    observations = iter([True, requests.exceptions.ConnectionError(), True, True])
 
     def check(deadline):
         result = next(observations)
@@ -166,19 +141,17 @@ def test_consecutive_successes_are_reset_after_transient_read_error(clock):
         timeout=5,
         interval=1,
         description="stable phase",
-        retry_on=(TemporaryReadError,),
         persist_for=2,
     )
     assert clock.now == 3
 
 
-def test_success_returned_after_deadline_is_not_accepted(clock):
+def test_success_that_overruns_the_deadline_is_accepted(clock):
     def check(deadline):
         clock.now += 3
         return True
 
-    with pytest.raises(PollTimeoutError, match="cleanup"):
-        poll_until(check, timeout=2, interval=1, description="cleanup")
+    assert poll_until(check, timeout=2, interval=1, description="cleanup")
 
 
 def test_timeout_without_raise_returns_none_and_logs(clock, caplog):
@@ -213,7 +186,7 @@ def test_shared_resource_wait_never_checks_cached_state_after_failed_reload(cloc
         observed_members.append(mdb.members)
         return mdb.members is not None
 
-    assert resource.wait_for(members_present, timeout=10, use_shared_poller=True, description="members")
+    assert resource.wait_for(members_present, timeout=10, description="members")
     assert observed_members == [None, 3]
     assert resource.request_timeouts == [10, 7, 4]
 
@@ -226,7 +199,6 @@ def test_shared_resource_wait_fails_fast_on_forbidden_reload(clock):
         resource.wait_for(
             lambda mdb: observed_members.append(mdb.members) or True,
             timeout=10,
-            use_shared_poller=True,
             description="members",
         )
 

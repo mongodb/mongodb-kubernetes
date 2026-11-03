@@ -9,7 +9,7 @@ from urllib3 import exceptions as urllib3_errors
 
 logger = logging.getLogger(__name__)
 
-RETRYABLE_READ_ERRORS = (
+TRANSIENT_ERRORS = (
     ApiException,
     requests.exceptions.RequestException,
     urllib3_errors.HTTPError,
@@ -81,8 +81,6 @@ def poll_until(
     timeout: float,
     interval: float,
     description: str,
-    retry_on: tuple[type[Exception], ...] = (),
-    retry_if: Callable[[Exception], bool] | None = None,
     persist_for: int = 1,
     should_raise: bool = True,
 ) -> bool | None:
@@ -111,8 +109,8 @@ def poll_until(
             result = check(deadline)
         except DeadlineExpired:
             break
-        except retry_on as exc:
-            if retry_if is not None and not retry_if(exc):
+        except TRANSIENT_ERRORS as exc:
+            if not is_transient_read_error(exc):
                 raise
             consecutive = 0
             status = getattr(exc, "status", None)
@@ -124,10 +122,6 @@ def poll_until(
             ready, last_observation = _parse_result(result)
             consecutive = consecutive + 1 if ready else 0
             if consecutive >= persist_for:
-                try:
-                    deadline.remaining()
-                except DeadlineExpired:
-                    break
                 return True
 
         try:

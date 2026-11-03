@@ -185,16 +185,14 @@ configuration.
 
 ### Deadline-aware polling ###
 
-The shared poller is an opt-in pilot; existing waits keep their legacy
-behavior. For a `MongoDBCommon` resource, use
-`resource.wait_for(condition, timeout=600, use_shared_poller=True,
-description="...")` to reload before every condition check. Only recognized
-transient read failures are retried by the poller; authorization and
-unexpected failures are propagated. The Kubernetes client may perform its
-own retries before the poller receives an error.
+`MongoDBCommon.wait_for` reloads the resource before every condition check,
+so a failed or skipped read can never be mistaken for an observation.
+Recognized transient read failures are retried; authorization and unexpected
+failures are propagated. The Kubernetes client may perform its own retries
+before the poller receives an error.
 
-A `KubernetesTester` action can opt in with a positive timeout and a
-deadline-aware condition, for example:
+A `KubernetesTester` action opts in by naming a deadline-aware condition, for
+example:
 
 ```yaml
 delete:
