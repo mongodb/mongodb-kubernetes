@@ -32,6 +32,7 @@ import (
 
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
@@ -585,6 +586,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// per-shard TLS preflight above still fails fast on an unreachable cluster.
 	// TODO(KUBE-159): surface per-cluster failures in status.
 	var reconcileErrs error
+	var pvcResizeStatus workflow.Status = workflow.OK()
 	applied := make([]unitApplyResult, 0, len(plan.units))
 	for _, unit := range plan.units {
 		if slices.Contains(missingClusters, unit.clusterName) {
@@ -592,16 +594,24 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		}
 		unitLog := log.With(unit.logFields...)
 
-		mutatedSts, unitClient, err := r.applyReconcileUnit(ctx, unitLog, plan, unit, mods)
+		mutatedSts, pvcStatus, err := r.applyReconcileUnit(ctx, unitLog, plan, unit, mods)
 		if err != nil {
 			// e.g. unreachable cluster: aggregate and continue with the other units.
 			unitLog.Warnf("Failed to reconcile unit on cluster %q: %s", unit.clusterName, err)
 			reconcileErrs = multierror.Append(reconcileErrs, err)
 			continue
 		}
+		// A status write carries a single status.pvc entry, so every resizing StatefulSet's entry is
+		// merged here and persisted by the final status write.
+		if opt, ok := status.GetOption(pvcStatus.StatusOptions(), status.PVCStatusOption{}); ok {
+			r.mdbSearch.Status.PVCs.Merge(*opt.(status.PVCStatusOption).PVC)
+		}
+		if !pvcStatus.IsOK() {
+			pvcResizeStatus = pvcResizeStatus.Merge(pvcStatus)
+			continue
+		}
 		applied = append(applied, unitApplyResult{
 			unit:               unit,
-			unitClient:         unitClient,
 			expectedGeneration: mutatedSts.GetGeneration(),
 		})
 	}
@@ -635,12 +645,15 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// Mark routing-ready shards across ALL units before the worst-of readiness
 	// return, so one not-ready unit does not block the routing switch for the others.
 	for _, res := range applied {
-		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
+		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unit.client); err != nil {
 			reconcileErrs = multierror.Append(reconcileErrs, err)
 		}
 	}
 	if reconcileErrs != nil {
 		return workflow.Failed(reconcileErrs)
+	}
+	if !pvcResizeStatus.IsOK() {
+		return pvcResizeStatus
 	}
 	if len(missingClusters) > 0 {
 		return workflow.Pending("Member clusters not registered with the operator: %s", strings.Join(missingClusters, ", "))
@@ -667,7 +680,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Pending("Waiting for managed load balancer to be ready").
 			WithAdditionalOptions(versionOption, clusterStatusesOption)
 	}
-	return workflow.OK().WithAdditionalOptions(versionOption, clusterStatusesOption)
+	return workflow.OK().WithAdditionalOptions(versionOption, clusterStatusesOption, status.NewPVCsStatusOptionEmptyStatus())
 }
 
 // reconcileUnitMods bundles the topology-agnostic modifications applied to
@@ -699,15 +712,15 @@ func (m reconcileUnitMods) withDefaults() reconcileUnitMods {
 }
 
 // applyReconcileUnit reconciles all per-unit resources against the unit's
-// cluster client. Returns the mutated StatefulSet and that client for the
-// readiness check.
+// cluster client. Returns the mutated StatefulSet for the readiness check and the
+// PVC resize status; while that status is not OK the StatefulSet is not applied.
 func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	ctx context.Context,
 	log *zap.SugaredLogger,
 	plan reconcilePlan,
 	unit reconcileUnit,
 	mods reconcileUnitMods,
-) (*appsv1.StatefulSet, kubernetesClient.Client, error) {
+) (*appsv1.StatefulSet, workflow.Status, error) {
 	mods = mods.withDefaults()
 
 	unitClient := unit.client
@@ -785,12 +798,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	))
 
 	stsFunc := CreateSearchStatefulSetFunc(r.mdbSearch, unit.sizing, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, r.operatorSearchConfig.ImagePullPolicy, mods.usePerPodConfig)
-	stsOverride := StatefulSetOverrideModification(unit.sizing.StatefulSetConfiguration)
-	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
-		log,
-		unitClient,
-		unit.stsName,
-		unit.ownerReferences,
+	stsModifications := []statefulset.Modification{
 		stsFunc,
 		mods.passwordAuthSts,
 		configHashModification,
@@ -799,21 +807,35 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		egressTlsStsModification,
 		x509StsModification,
 		mods.embeddingConfigSts,
-		stsOverride,
+		StatefulSetOverrideModification(unit.sizing.StatefulSetConfiguration),
 		withSearchOwnerLabels(r.mdbSearch),
-	)
+	}
+
+	// volumeClaimTemplates are immutable: a storage increase grows the PVCs in place, then
+	// orphan-deletes the StatefulSet (keeping pods and PVCs) so it is recreated below.
+	desiredSts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: unit.stsName.Name, Namespace: unit.stsName.Namespace}}
+	statefulset.Apply(stsModifications...)(desiredSts)
+	pvcStatus := create.HandlePVCResize(ctx, unitClient, desiredSts, log)
+	if !pvcStatus.IsOK() {
+		return nil, pvcStatus, nil
+	}
+	// Set by HandlePVCResize on a resize: the template change rolls the adopted pods.
+	if size, ok := desiredSts.Spec.Template.Annotations[statefulset.PVCSizeAnnotation]; ok {
+		stsModifications = append(stsModifications, statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(map[string]string{statefulset.PVCSizeAnnotation: size})))
+	}
+
+	mutatedSts, err := r.createOrUpdateStatefulSet(ctx, log, unitClient, unit.stsName, unit.ownerReferences, stsModifications...)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return mutatedSts, unitClient, nil
+	return mutatedSts, pvcStatus, nil
 }
 
-// unitApplyResult pairs an applied reconcile unit with the cluster client used to
-// apply it and the StatefulSet generation expected after the apply.
+// unitApplyResult pairs an applied reconcile unit with the StatefulSet generation
+// expected after the apply.
 type unitApplyResult struct {
 	unit               reconcileUnit
-	unitClient         kubernetesClient.Client
 	expectedGeneration int64
 }
 
@@ -868,7 +890,7 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 		acc := accFor(res.unit)
 
 		// Per shard mongot StatefulSet readiness — this is what gates the top-level phase (via topStatus).
-		stsStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unitClient)
+		stsStatus := statefulset.GetStatefulSetStatus(ctx, r.mdbSearch.Namespace, res.unit.stsName.Name, res.expectedGeneration, res.unit.client)
 		acc.searchPhase = searchv1.WorstOfPhase(acc.searchPhase, stsStatus.Phase())
 		if !stsStatus.IsOK() {
 			if msg := MessageFromStatus(stsStatus); msg != "" {
@@ -881,7 +903,7 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 		// for status.clusters only — top-level phase gating stays on IsLoadBalancerReady().
 		if managedLB && !acc.loadBalancerComputed {
 			acc.loadBalancerComputed = true
-			lbStatus := r.envoyDeploymentStatus(ctx, res.unit.clusterIndex, res.unitClient)
+			lbStatus := r.envoyDeploymentStatus(ctx, res.unit.clusterIndex, res.unit.client)
 			acc.loadBalancerPhase = lbStatus.Phase()
 			if !lbStatus.IsOK() {
 				acc.loadBalancerMsg = MessageFromStatus(lbStatus)
@@ -892,7 +914,7 @@ func (r *MongoDBSearchReconcileHelper) aggregateReadiness(ctx context.Context, a
 		// for status.clusters only — never gates the top-level phase.
 		if metricsForwarderEnabled && !acc.metricsForwarderComputed {
 			acc.metricsForwarderComputed = true
-			mfStatus := r.metricsForwarderDeploymentStatus(ctx, res.unit.clusterIndex, res.unitClient)
+			mfStatus := r.metricsForwarderDeploymentStatus(ctx, res.unit.clusterIndex, res.unit.client)
 			acc.metricsForwarderPhase = mfStatus.Phase()
 			if !mfStatus.IsOK() {
 				acc.metricsForwarderMsg = MessageFromStatus(mfStatus)

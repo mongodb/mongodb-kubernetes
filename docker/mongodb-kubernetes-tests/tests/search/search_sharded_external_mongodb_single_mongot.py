@@ -18,6 +18,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
+from tests.common.search.connectivity import MongotPVCResize, resizable_persistence
 from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
@@ -49,6 +50,9 @@ MONGOS_COUNT = 1
 CONFIG_SERVER_COUNT = 1
 
 MDBS_TLS_CERT_PREFIX = "certs"
+
+INITIAL_STORAGE = "1Gi"
+OVERRIDDEN_SHARD = f"{MDB_RESOURCE_NAME}-1"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
 
 
@@ -158,6 +162,10 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
 @mark.e2e_search_sharded_external_mongodb_single_mongot
 def test_create_search_resource(mdbs: MongoDBSearch):
     """Test MongoDBSearch resource deployment with external sharded source config."""
+    mdbs["spec"]["clusters"][0]["persistence"] = resizable_persistence(INITIAL_STORAGE)
+    mdbs["spec"]["clusters"][0]["shardOverrides"] = [
+        {"shardNames": [OVERRIDDEN_SHARD], "persistence": resizable_persistence(INITIAL_STORAGE)}
+    ]
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -277,3 +285,26 @@ def test_vector_search_before_and_after_sharding(mdb: MongoDB):
         mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True
     )
     verify_vector_search_before_and_after_sharding(search_tester, admin_search_tester)
+
+
+@mark.e2e_search_sharded_external_mongodb_single_mongot
+def test_storage_increase_resizes_each_shard_to_its_own_size(
+    namespace: str, mdbs: MongoDBSearch, sample_movies_helper: SampleMoviesSearchHelper
+):
+    storage_by_shard = {f"{MDB_RESOURCE_NAME}-0": "2Gi", OVERRIDDEN_SHARD: "3Gi"}
+    resizes = {
+        shard: MongotPVCResize(namespace, search_resource_names.shard_statefulset_name(mdbs.name, shard))
+        for shard in storage_by_shard
+    }
+
+    mdbs["spec"]["clusters"][0]["persistence"] = resizable_persistence(storage_by_shard[f"{MDB_RESOURCE_NAME}-0"])
+    mdbs["spec"]["clusters"][0]["shardOverrides"][0]["persistence"] = resizable_persistence(
+        storage_by_shard[OVERRIDDEN_SHARD]
+    )
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+
+    assert "pvc" not in mdbs["status"]
+    for shard, resize in resizes.items():
+        resize.assert_resized(storage_by_shard[shard])
+    sample_movies_helper.assert_search_query(retry_timeout=300)

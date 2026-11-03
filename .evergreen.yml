@@ -1000,6 +1000,7 @@ task_groups:
     <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
     tasks: &single_cluster_search_tasks
       - e2e_search_community_basic
+      - e2e_search_pvc_resize
       - e2e_search_community_auto_embedding
       - e2e_search_community_auto_embedding_multi_mongot
       - e2e_search_auto_embedding_bad_secret
@@ -1084,6 +1085,7 @@ task_groups:
     <<: [ *setup_group, *setup_and_teardown_task, *teardown_group ]
     tasks:
       - e2e_search_community_basic
+      - e2e_search_pvc_resize
       - e2e_search_community_auto_embedding
       - e2e_search_community_auto_embedding_multi_mongot
       - e2e_search_auto_embedding_bad_secret
