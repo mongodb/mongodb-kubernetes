@@ -174,6 +174,39 @@ func TestNotSendingRequestOnNonModifiedAutomationConfigWithMergoDelete(t *testin
 	assert.Equal(t, 0, counters.putHitCount)
 }
 
+// TestReadUpdateDeploymentReturnsTypedAutomationConfigConflict verifies that a
+// 409 from the automationConfig PUT reaches the caller as a typed API error. The
+// workflow layer uses that type to report Pending instead of Failed.
+func TestReadUpdateDeploymentReturnsTypedAutomationConfigConflict(t *testing.T) {
+	ctx := t.Context()
+	logger := zap.NewNop().Sugar()
+	testAutomationConfig := getTestAutomationConfig()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			data, err := json.Marshal(testAutomationConfig.Deployment)
+			require.NoError(t, err)
+			_, _ = w.Write(data)
+		case http.MethodPut:
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":409,"reason":"Conflict","detail":"Another session or user has already published changes.","errorCode":"AUTOMATION_CONFIG_CONCURRENT_MODIFICATION"}`))
+		default:
+			t.Errorf("unexpected method %s", r.Method)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+	err := connection.ReadUpdateDeployment(ctx, func(d Deployment) error {
+		d["version"] = int64(999)
+		return nil
+	}, logger)
+
+	require.Error(t, err)
+	assert.True(t, apierror.IsAutomationConfigConflict(err), "expected a typed automation config conflict, got %v", err)
+}
+
 func OptionRetryConfig(retryWaitMin, retryWaitMax time.Duration, retryMax int) func(client *api.Client) error {
 	return func(client *api.Client) error {
 		client.RetryWaitMin = retryWaitMin
