@@ -12,7 +12,6 @@ from tests.opsmanager.license_e2e_helpers import (
     assert_om_and_appdb_running,
     om_holder_id,
     ops_manager,
-    set_annotation_and_wait_cleared,
     wait_for_cr_license_sync,
 )
 
@@ -33,7 +32,11 @@ class TestOpsManagerLicenseE2E:
         assert cr["identity"]["holderId"] == om_holder_id(ops_manager)
 
     def test_recompute_annotation(self, ops_manager: MongoDBOpsManager):
-        set_annotation_and_wait_cleared(ops_manager, RECOMPUTE_ANNOTATION)
+        ops_manager.load()
+        ops_manager["spec"]["license"] = {}
+        ops_manager["metadata"].setdefault("annotations", {})[RECOMPUTE_ANNOTATION] = "true"
+        ops_manager.update()
         cr, _ = wait_for_cr_license_sync(ops_manager)
+        assert RECOMPUTE_ANNOTATION not in ops_manager["metadata"].get("annotations", {})
 
         assert cr["enforcement"]
