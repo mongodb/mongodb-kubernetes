@@ -488,6 +488,11 @@ def test_legacy_wait_condition_still_splits_time_between_phases(monkeypatch):
     assert wait_until.call_args_list == [mock_call("first", 10), mock_call("second", 10)]
 
 
+def test_shared_poller_requires_a_positive_timeout():
+    with pytest.raises(ValueError, match="use_shared_poller requires a positive timeout"):
+        KubernetesTester.wait_condition({"wait_until": "mongo_resource_deleted", "use_shared_poller": True})
+
+
 def test_replica_set_deletion_uses_shared_poller():
     test_file = Path(__file__).parents[2] / "tests" / "replicaset" / "replica_set.py"
     module = ast.parse(test_file.read_text())

@@ -826,6 +826,8 @@ class KubernetesTester(object):
         else:  # otherwise find a function of that name
             func = getattr(cls, action)
         if kwargs.pop("use_shared_poller", False):
+            if timeout <= 0:
+                raise ValueError(f"use_shared_poller requires a positive timeout, got {timeout} for {func.__name__}")
             return poll_until(
                 lambda deadline: func(deadline=deadline),
                 timeout=timeout,
