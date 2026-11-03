@@ -2510,7 +2510,7 @@ func TestMongoDBReplicaSet_NonLicenseMutationDoesNotSetLicenseCondition(t *testi
 		mocked.Hostnames = calculateReplicaSetExternalHostnames(rs)
 		mocked.MutationErr = apierror.NewErrorWithCode(apierror.ProjectNotFound)
 	})
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
 
 	result, err := reconciler.Reconcile(ctx, requestFromObject(rs))
 	require.NoError(t, err)
@@ -2531,7 +2531,7 @@ func TestReplicaSet_LicenseEnforcedBlocksAndRecoversWithoutRecreation(t *testing
 		mocked.Hostnames = calculateReplicaSetExternalHostnames(rs)
 		mocked.MutationErr = &apierror.Error{ErrorCode: apierror.LicenseEnforced, Detail: "This Ops Manager is not licensed for this operation."}
 	})
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
 
 	result, err := reconciler.Reconcile(ctx, requestFromObject(rs))
 	require.NoError(t, err)
