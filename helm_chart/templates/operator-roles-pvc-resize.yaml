@@ -41,7 +41,7 @@ retention policy), never by the operator.
     {{- end -}}
 {{- else if .Values.operator.watchNamespace -}}
     {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 -}}
-    {{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq -}}
+    {{- $watchNamespace = concat $watchNamespace (list $operatorNamespace) | uniq -}}
 {{- end -}}
 
 
@@ -89,5 +89,5 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ $saName }}
-    namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
+    namespace: {{ $operatorNamespace }}
 {{- end }}

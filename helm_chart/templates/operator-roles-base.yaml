@@ -49,7 +49,7 @@ the binding namespace source branch on the mode.
     {{- end -}}
 {{- else if .Values.operator.watchNamespace -}}
     {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 -}}
-    {{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq -}}
+    {{- $watchNamespace = concat $watchNamespace (list $operatorNamespace) | uniq -}}
 {{- end -}}
 
 {{- /* One Role per watched namespace: only a cluster-wide watch ("*") renders a ClusterRole. */ -}}
@@ -200,5 +200,5 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ $saName }}
-    namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
+    namespace: {{ $operatorNamespace }}
 {{- end }}
