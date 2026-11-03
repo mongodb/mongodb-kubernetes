@@ -666,6 +666,7 @@ func TestEnsureOpsManagerLicense_ReceiptFetchedOnlyOnce(t *testing.T) {
 	for range 5 {
 		assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
 	}
+	assert.Contains(t, r.resourceWatcher.GetWatchedResources(), getWatch(testOm.Namespace, "art-1-release-receipt", watch.Secret))
 
 	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
 	delete(got.Data, util.DefaultOpsManagerReleaseReceiptKey)
