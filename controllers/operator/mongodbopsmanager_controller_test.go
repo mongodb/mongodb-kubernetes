@@ -57,11 +57,13 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	certspkg "github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -1934,6 +1936,13 @@ func listManagedCertificateObjects(t *testing.T, ctx context.Context, c kubernet
 	return certificates.Items
 }
 
+func getManagedCertificateObject(t *testing.T, ctx context.Context, c kubernetesClient.Client, name string) *certmanagerv1.Certificate {
+	t.Helper()
+	certificate := &certmanagerv1.Certificate{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: name, Namespace: mock.TestNamespace}, certificate))
+	return certificate
+}
+
 func managedCertificateNames(certificates []certmanagerv1.Certificate) []string {
 	names := make([]string, 0, len(certificates))
 	for _, certificate := range certificates {
@@ -2435,7 +2444,7 @@ func TestOpsManagerManagedCertificateSANs(t *testing.T) {
 	}
 }
 
-func managedOMTestCA(t *testing.T) ([]byte, func() ([]byte, []byte)) {
+func managedTestCAWithDNSNames(t *testing.T, dnsNames ...string) ([]byte, func() ([]byte, []byte)) {
 	t.Helper()
 	caPEM, caKeyPEM := createMockCertAndKeyBytes()
 	caPair, err := tls.X509KeyPair(caPEM, caKeyPEM)
@@ -2452,13 +2461,18 @@ func managedOMTestCA(t *testing.T) ([]byte, func() ([]byte, []byte)) {
 		leaf := &x509.Certificate{
 			SerialNumber: big.NewInt(serial),
 			NotBefore:    time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
-			DNSNames:    []string{"managed-om-svc.testNS.svc.cluster.local"},
+			DNSNames:    dnsNames,
 			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		}
 		der, err := x509.CreateCertificate(rand.Reader, leaf, ca, key.(crypto.Signer).Public(), caPair.PrivateKey)
 		require.NoError(t, err)
 		return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), keyPEM
 	}
+}
+
+func managedOMTestCA(t *testing.T) ([]byte, func() ([]byte, []byte)) {
+	t.Helper()
+	return managedTestCAWithDNSNames(t, "managed-om-svc.testNS.svc.cluster.local")
 }
 
 func TestOpsManagerManagedHTTPSRenewal(t *testing.T) {
@@ -2511,7 +2525,7 @@ func TestOpsManagerManagedHTTPSRenewal(t *testing.T) {
 	assert.NotEqual(t, firstHash, secondHash)
 	assert.NotEqual(t, firstSTS.Spec.Template, secondSTS.Spec.Template, "renewed PEM path must trigger the existing rollout and launcher PKCS12 conversion")
 	assert.Equal(t, firstHash, string(secondPEM.Data[util.PreviousHashSecretKey]))
-	assert.Equal(t, strings.TrimSpace(string(firstPEM.Data[firstHash])), string(secondPEM.Data[firstHash]))
+	assert.Equal(t, firstPEM.Data[firstHash], secondPEM.Data[firstHash], "the previous PEM leaf must be retained byte-for-byte")
 }
 
 func TestOpsManagerManagedCAConsumableByMongoDBProjectConfig(t *testing.T) {
@@ -2687,6 +2701,513 @@ func TestOpsManagerManagedCertificateLegacyStartup(t *testing.T) {
 	assert.False(t, blocked)
 	assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c))
 	assert.Nil(t, managedCertificateCondition(t, t.Context(), c, opsManager))
+}
+
+func newAppDBManagedCertificateTestOM() *omv1.MongoDBOpsManager {
+	om := newManagedCertificateTestOM()
+	om.Spec.Security.ManagedCertificate = nil
+	om.Spec.Backup.Enabled = false
+	om.Spec.Backup.ManagedCertificate = nil
+	om.Spec.AppDB.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	om.Spec.AppDB.Members = 3
+	om.Status.AppDbStatus.Members = 3
+	return om
+}
+
+func TestAppDBManagedCertificatePreparationOwnership(t *testing.T) {
+	otherOwner := metav1.OwnerReference{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "other", UID: types.UID("other-uid")}
+
+	for _, tc := range []struct {
+		name        string
+		statefulSet *appsv1.StatefulSet
+		wantIssued  bool
+	}{
+		{name: "absent StatefulSet permits issuance", wantIssued: true},
+		{
+			name: "Ops Manager owner label permits issuance",
+			statefulSet: &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+				Name:      "managed-om-db",
+				Namespace: mock.TestNamespace,
+				Labels:    map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: "managed-om"},
+			}},
+			wantIssued: true,
+		},
+		{
+			name: "legacy owner reference permits issuance",
+			statefulSet: &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+				Name:            "managed-om-db",
+				Namespace:       mock.TestNamespace,
+				OwnerReferences: []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: "MongoDBOpsManager", Name: "managed-om", UID: types.UID("managed-om-uid")}},
+			}},
+			wantIssued: true,
+		},
+		{
+			name: "foreign owner label defers issuance",
+			statefulSet: &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+				Name:      "managed-om-db",
+				Namespace: mock.TestNamespace,
+				Labels:    map[string]string{util.MongoDBResourceOwnerLabel: "other-mdb"},
+			}},
+		},
+		{
+			name: "ownerless StatefulSet defers issuance",
+			statefulSet: &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+				Name:      "managed-om-db",
+				Namespace: mock.TestNamespace,
+			}},
+		},
+		{
+			name: "foreign owner reference defers issuance",
+			statefulSet: &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+				Name:            "managed-om-db",
+				Namespace:       mock.TestNamespace,
+				OwnerReferences: []metav1.OwnerReference{otherOwner},
+			}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			om := newAppDBManagedCertificateTestOM()
+			objects := []client.Object{om}
+			if tc.statefulSet != nil {
+				objects = append(objects, tc.statefulSet)
+			}
+			c := newManagedCertificateKubeClient(t, objects...)
+			r := newManagedCertificateTestReconciler(ctx, c)
+			r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+			_, blocked, err := r.prepareManagedCertificates(ctx, om, zap.S())
+			require.NoError(t, err)
+
+			names := managedCertificateNames(listManagedCertificateObjects(t, ctx, c))
+			if tc.wantIssued {
+				assert.True(t, blocked, "issuance is pending until cert-manager reports the certificate ready")
+				assert.Contains(t, names, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name()))
+				return
+			}
+
+			assert.False(t, blocked)
+			assert.Empty(t, names, "deferral must not create the AppDB leaf or its server CA")
+			configMaps := &corev1.ConfigMapList{}
+			require.NoError(t, c.List(ctx, configMaps, client.InNamespace(mock.TestNamespace)))
+			assert.Empty(t, configMaps.Items, "deferral must not publish an AppDB CA bundle")
+			if tc.statefulSet == nil {
+				return
+			}
+			persisted := &appsv1.StatefulSet{}
+			require.NoError(t, c.Get(ctx, kube.ObjectKey(mock.TestNamespace, "managed-om-db"), persisted))
+			assert.Equal(t, tc.statefulSet.Labels, persisted.Labels, "preparation must not claim or relabel the StatefulSet")
+			assert.Equal(t, tc.statefulSet.Annotations, persisted.Annotations)
+			assert.Equal(t, tc.statefulSet.OwnerReferences, persisted.OwnerReferences)
+		})
+	}
+}
+
+func TestAppDBManagedCertificatePreparationReadError(t *testing.T) {
+	ctx := t.Context()
+	om := newAppDBManagedCertificateTestOM()
+	c := newManagedCertificateKubeClientWithInterceptor(t, interceptor.Funcs{
+		Get: func(ctx context.Context, inner client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*appsv1.StatefulSet); ok {
+				return errors.New("appdb statefulset read failed")
+			}
+			return inner.Get(ctx, key, obj, opts...)
+		},
+	}, om)
+	r := newManagedCertificateTestReconciler(ctx, c)
+	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+	_, blocked, err := r.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	require.True(t, blocked)
+	condition := managedCertificateCondition(t, ctx, c, om)
+	require.NotNil(t, condition)
+	assert.Equal(t, "IssuanceFailed", condition.Reason)
+	assert.Contains(t, condition.Message, "appdb statefulset read failed")
+	persisted := getPersistedManagedCertificateOM(t, ctx, c, om)
+	assert.Equal(t, status.PhaseFailed, persisted.Status.AppDbStatus.Phase)
+	assert.Contains(t, persisted.Status.AppDbStatus.Message, "appdb statefulset read failed")
+	assert.Empty(t, listManagedCertificateObjects(t, ctx, c))
+}
+
+func TestAppDBManagedCertificatePreparationScopes(t *testing.T) {
+	t.Run("missing cert-manager or RBAC keeps the diagnostic for an enabled AppDB", func(t *testing.T) {
+		for _, cause := range []string{
+			"cert-manager CRDs are not installed",
+			"not allowed to create certificates in namespace my-namespace",
+		} {
+			t.Run(cause, func(t *testing.T) {
+				om := newAppDBManagedCertificateTestOM()
+				c := newManagedCertificateKubeClient(t, om)
+				r := newManagedCertificateTestReconciler(t.Context(), c)
+				r.certManagerReadiness = certspkg.CertManagerReadiness{NotReadyReason: cause}
+
+				_, blocked, err := r.prepareManagedCertificates(t.Context(), om, zap.S())
+				require.NoError(t, err)
+				require.True(t, blocked)
+				condition := managedCertificateCondition(t, t.Context(), c, om)
+				require.NotNil(t, condition)
+				assert.Equal(t, "IssuanceFailed", condition.Reason)
+				assert.Contains(t, condition.Message, cause)
+				persisted := getPersistedManagedCertificateOM(t, t.Context(), c, om)
+				assert.Equal(t, status.PhaseFailed, persisted.Status.AppDbStatus.Phase)
+				assert.Contains(t, persisted.Status.AppDbStatus.Message, cause)
+				assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c))
+			})
+		}
+	})
+
+	t.Run("external AppDB is skipped", func(t *testing.T) {
+		om := newAppDBManagedCertificateTestOM()
+		om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: "external-db", Kind: "MongoDB"}
+		c := newManagedCertificateKubeClient(t, om)
+		r := newManagedCertificateTestReconciler(t.Context(), c)
+		r.certManagerReadiness = certspkg.CertManagerReadiness{NotReadyReason: "cert-manager CRDs are not installed"}
+
+		_, blocked, err := r.prepareManagedCertificates(t.Context(), om, zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked, "a deferred external AppDB must not turn a missing cert-manager into a rejection")
+		assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c))
+	})
+
+	t.Run("multi-cluster AppDB is skipped", func(t *testing.T) {
+		om := newAppDBManagedCertificateTestOM()
+		om.Spec.AppDB.Topology = omv1.ClusterTopologyMultiCluster
+		c := newManagedCertificateKubeClient(t, om)
+		r := newManagedCertificateTestReconciler(t.Context(), c)
+		r.certManagerReadiness = certspkg.CertManagerReadiness{NotReadyReason: "cert-manager CRDs are not installed"}
+
+		_, blocked, err := r.prepareManagedCertificates(t.Context(), om, zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked)
+		assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c), "single-cluster SANs must not be issued for a multi-cluster AppDB")
+	})
+
+	t.Run("unmanaged AppDB is skipped", func(t *testing.T) {
+		om := newAppDBManagedCertificateTestOM()
+		om.Spec.AppDB.Security.ManagedCertificate = nil
+		om.Spec.AppDB.Security.TLSConfig = &mdbv1.TLSConfig{Enabled: true, CA: "appdb-ca"}
+		c := newManagedCertificateKubeClient(t, om)
+		r := newManagedCertificateTestReconciler(t.Context(), c)
+		r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+		_, blocked, err := r.prepareManagedCertificates(t.Context(), om, zap.S())
+		require.NoError(t, err)
+		assert.False(t, blocked)
+		assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c))
+	})
+}
+
+func TestAppDBManagedCertificateIssuanceWithOMPending(t *testing.T) {
+	ctx := t.Context()
+	om := newManagedCertificateTestOM()
+	om.Spec.AppDB.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	c := newManagedCertificateKubeClient(t, om)
+	r := newManagedCertificateTestReconciler(ctx, c)
+	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+	result, blocked, err := r.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	require.True(t, blocked)
+	require.NotZero(t, result.RequeueAfter)
+
+	names := managedCertificateNames(listManagedCertificateObjects(t, ctx, c))
+	assert.Contains(t, names, om.TLSCertificateSecretName(), "Ops Manager issuance must be attempted")
+	assert.Contains(t, names, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name()),
+		"AppDB issuance must be attempted even while the Ops Manager certificate is pending")
+	assert.NotContains(t, names, om.QueryableBackupCertificateSecretName(), "Backup preparation remains inactive")
+
+	condition := managedCertificateCondition(t, ctx, c, om)
+	require.NotNil(t, condition)
+	assert.Equal(t, metav1.ConditionFalse, condition.Status)
+	assert.Equal(t, "Issuing", condition.Reason)
+	assert.Contains(t, condition.Message, "OpsManager:")
+	assert.Contains(t, condition.Message, "AppDB:")
+
+	markAllManagedCertificatesReady(t, ctx, c)
+	createSecretsForManagedCertificates(t, ctx, c)
+
+	_, blocked, err = r.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	require.False(t, blocked)
+	condition = managedCertificateCondition(t, ctx, c, om)
+	require.NotNil(t, condition)
+	assert.Equal(t, metav1.ConditionTrue, condition.Status)
+	assert.Equal(t, "AllCertificatesReady", condition.Reason)
+	assert.NotContains(t, managedCertificateNames(listManagedCertificateObjects(t, ctx, c)), om.QueryableBackupCertificateSecretName(),
+		"Backup preparation remains inactive even when Backup is configured")
+
+	omBundle := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, om.GetOpsManagerCA()), omBundle))
+	assert.NotEmpty(t, omBundle.Data["mms-ca.crt"])
+	appDBBundle := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, "managed-om-db-managed-server-ca-bundle"), appDBBundle))
+	assert.NotEmpty(t, appDBBundle.Data["ca-pem"])
+	assert.Equal(t, "managed-om-db-managed-server-ca-bundle", om.Spec.AppDB.GetCAConfigMapName())
+	assert.NotEqual(t, omBundle.Data["mms-ca.crt"], appDBBundle.Data["ca-pem"], "Ops Manager and AppDB keep separate trust chains")
+}
+
+func TestAppDBManagedCertificateCustomerConfiguration(t *testing.T) {
+	ctx := t.Context()
+	externalDomain := "external.example.com"
+	om := newAppDBManagedCertificateTestOM()
+	om.Spec.AppDB.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: &externalDomain}
+	om.Spec.AppDB.Security.TLSConfig = &mdbv1.TLSConfig{AdditionalCertificateDomains: []string{"alt.example.com"}}
+	om.Spec.AppDB.Security.ManagedCertificate = &mdbv1.ManagedCertificate{
+		Server: &mdbv1.CertificateConfig{
+			IssuerRef: &mdbv1.IssuerRef{Name: "appdb-issuer", Kind: "ClusterIssuer"},
+			AdditionalTrustedCAs: []mdbv1.CARef{{
+				Name: "extra-ca",
+				Kind: "ConfigMap",
+				Key:  "ca-pem",
+			}},
+		},
+		Subjects: &mdbv1.CertSubjects{Server: &mdbv1.X509Subject{Organizations: []string{"AppDB Org"}, CommonName: "appdb.example.com"}},
+	}
+	extraCA := "-----BEGIN CERTIFICATE-----\nEXTRA-APP-DB-CA\n-----END CERTIFICATE-----\n"
+	c := newManagedCertificateKubeClient(t, om, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "extra-ca", Namespace: om.Namespace}, Data: map[string]string{"ca-pem": extraCA}})
+	r := newManagedCertificateTestReconciler(ctx, c)
+	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+	_, blocked, err := r.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	require.True(t, blocked)
+
+	leaf := getManagedCertificateObject(t, ctx, c, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name()))
+	require.NotNil(t, leaf.Spec.IssuerRef)
+	assert.Equal(t, "appdb-issuer", leaf.Spec.IssuerRef.Name)
+	assert.Equal(t, "ClusterIssuer", leaf.Spec.IssuerRef.Kind)
+	require.NotNil(t, leaf.Spec.Subject)
+	assert.Equal(t, []string{"AppDB Org"}, leaf.Spec.Subject.Organizations)
+	assert.Equal(t, "appdb.example.com", leaf.Spec.CommonName)
+	assert.Contains(t, leaf.Spec.DNSNames, "managed-om-db-0.managed-om-db-svc.my-namespace.svc.cluster.local")
+	assert.Contains(t, leaf.Spec.DNSNames, "managed-om-db-0.external.example.com")
+	assert.Contains(t, leaf.Spec.DNSNames, "managed-om-db-0.alt.example.com")
+
+	for _, name := range []string{"managed-om-db-managed-clusterfile", "managed-om-db-managed-agent-certs", "managed-om-db-client-ca"} {
+		err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: om.Namespace}, &certmanagerv1.Certificate{})
+		assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not issue client/server-auth resources: %s", name)
+	}
+
+	markAllManagedCertificatesReady(t, ctx, c)
+	createSecretsForManagedCertificates(t, ctx, c)
+	_, blocked, err = r.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	require.False(t, blocked)
+	bundle := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, "managed-om-db-managed-server-ca-bundle"), bundle))
+	assert.Contains(t, bundle.Data["ca-pem"], "CA-managed-om-db-managed-cert")
+	assert.Contains(t, bundle.Data["ca-pem"], extraCA, "additional trusted CAs must reach the shared issuance engine")
+}
+
+func TestAppDBManagedCertificateUnusedClientWarning(t *testing.T) {
+	ctx := t.Context()
+	om := newAppDBManagedCertificateTestOM()
+	om.Spec.AppDB.Security.ManagedCertificate.Client = &mdbv1.CertificateConfig{
+		IssuerRef: &mdbv1.IssuerRef{Name: "unused-client-issuer"},
+	}
+	const unrelated = "an unrelated AppDB warning"
+	om.Status.AppDbStatus.Warnings = []status.Warning{unrelated}
+	c := newManagedCertificateKubeClient(t, om)
+	r := newManagedCertificateTestReconciler(ctx, c)
+	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+	_, blocked, err := r.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	require.True(t, blocked)
+
+	persisted := getPersistedManagedCertificateOM(t, ctx, c, om)
+	warningText := make([]string, 0, len(persisted.Status.AppDbStatus.Warnings))
+	for _, warning := range persisted.Status.AppDbStatus.Warnings {
+		warningText = append(warningText, string(warning))
+	}
+	assert.Contains(t, strings.Join(warningText, "|"), unrelated, "unrelated warnings must not be cleared")
+	require.Len(t, persisted.Status.AppDbStatus.Warnings, 2)
+	assert.Contains(t, strings.Join(warningText, "|"), "spec.managedCertificate.client is set even though the deployment doesn't use x509")
+
+	assert.NotContains(t, managedCertificateNames(listManagedCertificateObjects(t, ctx, c)), "managed-om-db-managed-clusterfile")
+	err = c.Get(ctx, types.NamespacedName{Name: "managed-om-db-managed-client-ca-bundle", Namespace: om.Namespace}, &corev1.ConfigMap{})
+	assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not publish a client CA bundle")
+
+	markAllManagedCertificatesReady(t, ctx, c)
+	createSecretsForManagedCertificates(t, ctx, c)
+	_, blocked, err = r.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	require.False(t, blocked)
+	_, err = r.updateStatus(ctx, om, workflow.OK(), zap.S(), status.NewOMPartOption(status.AppDb))
+	require.NoError(t, err)
+
+	persisted = getPersistedManagedCertificateOM(t, ctx, c, om)
+	warningText = warningText[:0]
+	for _, warning := range persisted.Status.AppDbStatus.Warnings {
+		warningText = append(warningText, string(warning))
+	}
+	joinedWarnings := strings.Join(warningText, "|")
+	assert.Contains(t, joinedWarnings, unrelated, "unrelated warnings must survive a successful AppDB status update")
+	assert.Contains(t, joinedWarnings, "spec.managedCertificate.client is set even though the deployment doesn't use x509")
+	require.Len(t, persisted.Status.AppDbStatus.Warnings, 2, "the unused-client warning must be persisted exactly once")
+}
+
+func appDBManagedHostnames(om *omv1.MongoDBOpsManager) []string {
+	opts := certspkg.AppDBManagedCertConfig(om)
+	opts.Replicas = opts.MembersToCover
+	hostnames, _ := certspkg.GetDNSNames(opts)
+	return hostnames
+}
+
+func setupAppDBManagedDelivery(t *testing.T) (context.Context, *omv1.MongoDBOpsManager, kubernetesClient.Client, *ReconcileAppDbReplicaSet, *corev1.Secret, func() ([]byte, []byte)) {
+	t.Helper()
+	ctx := t.Context()
+	om := newAppDBManagedCertificateTestOM()
+	c := newManagedCertificateKubeClient(t, om)
+	r := newManagedCertificateTestReconciler(ctx, c)
+	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+	_, blocked, err := r.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	require.True(t, blocked)
+	require.Contains(t, managedCertificateNames(listManagedCertificateObjects(t, ctx, c)),
+		om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name()),
+		"the AppDB certificate must be issued before its TLS material can be delivered")
+
+	markAllManagedCertificatesReady(t, ctx, c)
+	createSecretsForManagedCertificates(t, ctx, c)
+
+	source := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name())), source))
+	ca, issue := managedTestCAWithDNSNames(t, appDBManagedHostnames(om)...)
+	crt, key := issue()
+	source.Type = corev1.SecretTypeTLS
+	source.Data = map[string][]byte{"tls.crt": crt, "tls.key": key, "ca.crt": ca}
+	require.NoError(t, c.Update(ctx, source))
+
+	_, blocked, err = r.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	require.False(t, blocked)
+
+	appDBReconciler, err := newAppDbReconciler(ctx, c, om, nil, zap.S())
+	require.NoError(t, err)
+	return ctx, om, c, appDBReconciler, source, issue
+}
+
+func deliverAppDBManagedPEM(t *testing.T, ctx context.Context, c kubernetesClient.Client, r *ReconcileAppDbReplicaSet, om *omv1.MongoDBOpsManager) (*corev1.Secret, string) {
+	t.Helper()
+	require.True(t, r.ensureTLSSecretAndCreatePEMIfNeeded(ctx, om, zap.S()).IsOK())
+	pemSecret := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name())+certspkg.OperatorGeneratedCertSuffix), pemSecret))
+	hash := string(pemSecret.Data[util.LatestHashSecretKey])
+	require.NotEmpty(t, hash)
+	return pemSecret, hash
+}
+
+func buildAppDBManagedAutomationConfig(t *testing.T, ctx context.Context, c kubernetesClient.Client, om *omv1.MongoDBOpsManager) automationconfig.AutomationConfig {
+	t.Helper()
+	if err := createOpsManagerUserPasswordSecret(ctx, c, om, "my-password"); err != nil && !apiErrors.IsAlreadyExists(err) {
+		require.NoError(t, err)
+	}
+	r, err := newAppDbReconciler(ctx, c, om, nil, zap.S())
+	require.NoError(t, err)
+	ac, err := r.buildAppDbAutomationConfig(ctx, om, nil, "", multicluster.LegacyCentralClusterName, zap.S())
+	require.NoError(t, err)
+	return ac
+}
+
+func TestAppDBManagedCertificatesDelivery(t *testing.T) {
+	ctx, om, c, r, source, _ := setupAppDBManagedDelivery(t)
+	sourceBefore := source.DeepCopy()
+
+	pemSecret, hash := deliverAppDBManagedPEM(t, ctx, c, r, om)
+	expectedPEM := append(append([]byte{}, source.Data["tls.crt"]...), source.Data["tls.key"]...)
+	assert.Equal(t, expectedPEM, pemSecret.Data[hash], "the delivered PEM is the exact tls.crt + tls.key concatenation")
+	assert.Equal(t, hash, string(pemSecret.Data[util.LatestHashSecretKey]))
+	assert.NotEqual(t, source.Name, pemSecret.Name)
+
+	persistedSource := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(source.Namespace, source.Name), persistedSource))
+	assert.Equal(t, sourceBefore.Data, persistedSource.Data, "delivery must never rewrite cert-manager's source Secret")
+	assert.Equal(t, sourceBefore.Type, persistedSource.Type)
+
+	ac := buildAppDBManagedAutomationConfig(t, ctx, c, om)
+	require.NotEmpty(t, ac.Processes)
+	assert.Equal(t, "requireTLS", ac.Processes[0].Args26.Get("net.tls.mode").String())
+	assert.Equal(t, fmt.Sprintf("%s/certs/%s", util.SecretVolumeMountPath, hash), ac.Processes[0].Args26.Get("net.tls.certificateKeyFile").String())
+	require.NotNil(t, ac.TLSConfig)
+	assert.Equal(t, "/var/lib/mongodb-automation/secrets/ca/ca-pem", ac.TLSConfig.CAFilePath)
+	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
+
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	sts, err := operatorConstruct.AppDbStatefulSet(*om, nil, operatorConstruct.AppDBStatefulSetOptions{CertHash: hash}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	volumes := map[string]corev1.Volume{}
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		volumes[volume.Name] = volume
+	}
+	require.Contains(t, volumes, util.SecretVolumeName)
+	require.NotNil(t, volumes[util.SecretVolumeName].Secret)
+	assert.Equal(t, "managed-om-db-managed-cert-pem", volumes[util.SecretVolumeName].Secret.SecretName)
+	require.Contains(t, volumes, "secret-ca")
+	require.NotNil(t, volumes["secret-ca"].ConfigMap)
+	assert.Equal(t, "managed-om-db-managed-server-ca-bundle", volumes["secret-ca"].ConfigMap.Name)
+	for _, container := range sts.Spec.Template.Spec.Containers {
+		assert.Contains(t, container.VolumeMounts, corev1.VolumeMount{Name: util.SecretVolumeName, MountPath: util.SecretVolumeMountPath + "/certs", ReadOnly: true})
+		assert.Contains(t, container.VolumeMounts, corev1.VolumeMount{Name: "secret-ca", MountPath: util.ConfigMapVolumeCAMountPath, ReadOnly: true})
+	}
+}
+
+func TestAppDBManagedHTTPSRenewal(t *testing.T) {
+	ctx, om, c, r, source, issue := setupAppDBManagedDelivery(t)
+	firstPEM, firstHash := deliverAppDBManagedPEM(t, ctx, c, r, om)
+	firstResourceVersion := firstPEM.ResourceVersion
+
+	samePEM, sameHash := deliverAppDBManagedPEM(t, ctx, c, r, om)
+	assert.Equal(t, firstHash, sameHash)
+	assert.Equal(t, firstPEM.Data, samePEM.Data)
+	assert.Equal(t, firstResourceVersion, samePEM.ResourceVersion, "identical inputs must not rewrite the PEM Secret")
+
+	crt, key := issue()
+	source.Type = corev1.SecretTypeTLS
+	source.Data = map[string][]byte{"tls.crt": crt, "tls.key": key, "ca.crt": source.Data["ca.crt"]}
+	require.NoError(t, c.Update(ctx, source))
+	renewedSource := source.DeepCopy()
+
+	renewedPEM, renewedHash := deliverAppDBManagedPEM(t, ctx, c, r, om)
+	assert.NotEqual(t, firstHash, renewedHash)
+	expectedRenewedPEM := append(append([]byte{}, renewedSource.Data["tls.crt"]...), renewedSource.Data["tls.key"]...)
+	assert.Equal(t, expectedRenewedPEM, renewedPEM.Data[renewedHash])
+	assert.Equal(t, firstHash, string(renewedPEM.Data[util.PreviousHashSecretKey]))
+	assert.Equal(t, firstPEM.Data[firstHash], renewedPEM.Data[firstHash], "the previous leaf must be retained during renewal")
+
+	persistedSource := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(source.Namespace, source.Name), persistedSource))
+	assert.Equal(t, renewedSource.Data, persistedSource.Data, "renewal delivery must never rewrite cert-manager's source Secret")
+
+	ac := buildAppDBManagedAutomationConfig(t, ctx, c, om)
+	require.NotEmpty(t, ac.Processes)
+	assert.Equal(t, fmt.Sprintf("%s/certs/%s", util.SecretVolumeMountPath, renewedHash), ac.Processes[0].Args26.Get("net.tls.certificateKeyFile").String(),
+		"the mounted automation config must point at the renewed leaf")
+	assert.NotEqual(t, firstHash, renewedHash)
+
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	stsBeforeRenewal, err := operatorConstruct.AppDbStatefulSet(*om, nil, operatorConstruct.AppDBStatefulSetOptions{CertHash: firstHash}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	stsAfterRenewal, err := operatorConstruct.AppDbStatefulSet(*om, nil, operatorConstruct.AppDBStatefulSetOptions{CertHash: renewedHash}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.Equal(t, stsBeforeRenewal.Spec.Template, stsAfterRenewal.Spec.Template,
+		"the non-Vault delivery path picks up the leaf through automation config, so renewal must not change the AppDB pod template or its volumes")
+
+	lastFailure := metav1.NewTime(time.Now().Add(-time.Hour))
+	leaf := getManagedCertificateObject(t, ctx, c, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name()))
+	leaf.Status.LastFailureTime = &lastFailure
+	require.NoError(t, c.Update(ctx, leaf))
+	opsManagerReconciler := newManagedCertificateTestReconciler(ctx, c)
+	opsManagerReconciler.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+	_, blocked, err := opsManagerReconciler.prepareManagedCertificates(ctx, om, zap.S())
+	require.NoError(t, err)
+	assert.False(t, blocked, "a renewal failure must not block workload reconciliation")
+	condition := managedCertificateCondition(t, ctx, c, om)
+	require.NotNil(t, condition)
+	assert.Equal(t, "RenewalFailed", condition.Reason)
 }
 
 func TestOpsManagerManagedCrossTrust(t *testing.T) {

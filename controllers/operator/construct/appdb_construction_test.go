@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -471,6 +472,38 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 		assert.NotContains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
 		assert.NotContains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
+	})
+}
+
+func TestAppDBManagedCATLSConfigMapName(t *testing.T) {
+	t.Run("managed certificate uses the operator-owned server CA bundle", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+		om.Spec.AppDB.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+
+		assert.Equal(t, "default-om-db-managed-server-ca-bundle", CAConfigMapName(*om.Spec.AppDB, zap.S()))
+
+		volumes, _ := getTLSVolumesAndVolumeMounts(*om.Spec.AppDB, nil, zap.S())
+		var caVolume *corev1.Volume
+		for i := range volumes {
+			if volumes[i].Name == tls.ConfigMapVolumeCAName {
+				caVolume = &volumes[i]
+			}
+		}
+		require.NotNil(t, caVolume, "the AppDB pod must mount a CA ConfigMap")
+		require.NotNil(t, caVolume.ConfigMap)
+		assert.Equal(t, "default-om-db-managed-server-ca-bundle", caVolume.ConfigMap.Name)
+	})
+
+	t.Run("legacy explicit CA is unchanged", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+		om.Spec.AppDB.Security = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true, CA: "explicit-ca"}}
+		assert.Equal(t, "explicit-ca", CAConfigMapName(*om.Spec.AppDB, zap.S()))
+	})
+
+	t.Run("legacy default CA is unchanged", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().Build()
+		om.Spec.AppDB.Security = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
+		assert.Equal(t, "default-om-db-ca", CAConfigMapName(*om.Spec.AppDB, zap.S()))
 	})
 }
 
