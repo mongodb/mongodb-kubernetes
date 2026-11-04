@@ -127,9 +127,17 @@ func (h *LicenseReconcilerHelper) reconcileLicenseRecompute(ctx context.Context)
 	if err := annotations.RemoveAnnotation(ctx, h.opsManager, util.LicenseRecomputeAnnotation, h.reconciler.client); err != nil {
 		return licenseFailed(err, status.ReasonLicenseRecomputeFailed)
 	}
-	if _, err := h.omAdmin.RecomputeLicense(ctx); err != nil {
+	state, err := h.omAdmin.RecomputeLicense(ctx)
+	if err != nil {
 		return licenseFailed(err, status.ReasonLicenseRecomputeFailed)
 	}
+	h.observed = &state
+	// Ops Manager versions with the license API but without the identity API are fine, the holder stays unset.
+	identity, err := h.omAdmin.ReadLicenseIdentity(ctx)
+	if err != nil && !apierror.NewNonNil(err).IsNotFound() {
+		return licenseFailed(err, status.ReasonLicenseObserveFailed)
+	}
+	h.holderID = identity.HolderID
 	return workflow.OK()
 }
 
