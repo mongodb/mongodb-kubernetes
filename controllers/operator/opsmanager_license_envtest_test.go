@@ -341,11 +341,16 @@ func TestLicenseE2E_RotateFailureClearsAnnotation(t *testing.T) {
 
 func TestLicenseE2E_RecomputeViaAnnotation(t *testing.T) {
 	h := newLicenseEnvHarness(t)
-	h.admin.LicenseState = licensedView("LICENSED")
+	// Reads return the state of the last evaluation until a recompute evaluates a new one.
+	h.admin.LicenseReadState = licensedView("GRACE")
+	h.admin.LicenseRecomputedState = licensedView("LICENSED")
 
 	om := h.createOM(nil)
-	h.setRecomputeAnnotation(om.Name, "true")
 	got := h.reconcileExpectOK(om.Name)
+	assert.Contains(t, licenseReadyCondition(t, got).Message, "License state is GRACE.")
+
+	h.setRecomputeAnnotation(om.Name, "true")
+	got = h.reconcileExpectOK(om.Name)
 	assert.Empty(t, got.Annotations[util.LicenseRecomputeAnnotation])
 	assert.Contains(t, licenseReadyCondition(t, got).Message, "License state is LICENSED.")
 
