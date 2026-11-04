@@ -6,6 +6,7 @@ Ops Manager answer are covered by opsmanager_license_test.go and opsmanager_lice
 
 import pytest
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture
 from tests.opsmanager.license_e2e_helpers import (
     RECOMPUTE_ANNOTATION,
@@ -20,6 +21,13 @@ from tests.opsmanager.license_e2e_helpers import (
 def _reset_license_state(ops_manager: MongoDBOpsManager):
     yield
     assert_om_and_appdb_running(ops_manager)
+
+
+@pytest.mark.e2e_om_ops_manager_license
+def test_create_om(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @pytest.mark.e2e_om_ops_manager_license
