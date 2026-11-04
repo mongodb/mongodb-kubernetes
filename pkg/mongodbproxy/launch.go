@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"sigs.k8s.io/yaml"
 )
 
 const binaryNumactl = "numactl"
@@ -89,6 +91,29 @@ func (r StopRequest) validate() error {
 	}
 	if r.TimeoutSeconds == 0 && !r.Force {
 		return fmt.Errorf("%w: timeoutSeconds must be > 0 unless force is set", ErrInvalidRequest)
+	}
+	return nil
+}
+
+// rejectFork refuses a config file that sets processManagement.fork. A forking mongod makes its parent exit with
+// code 0 while the real process lives on outside the proxy's reach: the proxy would report an exit and the agent
+// would start a second mongod on the same data. A file that cannot be read or parsed is left to mongod, which
+// reports it better than the proxy can.
+func rejectFork(configPath string) error {
+	data, err := os.ReadFile(configPath) //nolint:gosec // the path was validated to be absolute and names the config of the child
+	if err != nil {
+		return nil
+	}
+	var config struct {
+		ProcessManagement struct {
+			Fork bool `json:"fork"`
+		} `json:"processManagement"`
+	}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil
+	}
+	if config.ProcessManagement.Fork {
+		return fmt.Errorf("%w: %s sets processManagement.fork, which is not supported: the proxy needs mongod in the foreground", ErrInvalidRequest, configPath)
 	}
 	return nil
 }

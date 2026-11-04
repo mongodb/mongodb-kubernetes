@@ -142,6 +142,10 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		return cur, nil
 	}
 
+	if err := rejectFork(req.ConfigPath); err != nil {
+		return nil, err
+	}
+
 	path, err := s.resolve(spec.binary)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSpawn, err)
@@ -149,11 +153,13 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 
 	name, args := path, spec.args
 	if spec.numactl {
-		numactl, err := s.resolve(binaryNumactl)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrSpawn, err)
+		// Interleaving is a tuning that the server image may not ship the tool for, and a database that does not
+		// start is worse than one that starts without it.
+		if numactl, err := s.resolveOptional(binaryNumactl); err != nil {
+			s.log.Warnw("numactl is not available, starting without it", "error", err)
+		} else {
+			name, args = numactl, append([]string{"--interleave=all", path}, spec.args...)
 		}
-		name, args = numactl, append([]string{"--interleave=all", path}, spec.args...)
 	}
 
 	output := &tailBuffer{limit: maxOutputBytes}
@@ -197,6 +203,21 @@ func (s *Supervisor) wait(e *Execution) {
 	}
 	s.log.Infow("process exited", "role", e.role, "configPath", e.configPath, "exitCode", e.exitCode, "signal", e.signal)
 	close(e.done)
+}
+
+// resolveOptional is resolve for a program that may be missing. Without a bin dir the answer comes from PATH; with
+// one, resolve alone does not look at the file system.
+func (s *Supervisor) resolveOptional(binary string) (string, error) {
+	path, err := s.resolve(binary)
+	if err != nil {
+		return "", err
+	}
+	if s.binDir != "" {
+		if _, err := os.Stat(path); err != nil {
+			return "", err
+		}
+	}
+	return path, nil
 }
 
 func (s *Supervisor) resolve(binary string) (string, error) {

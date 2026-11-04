@@ -239,12 +239,60 @@ func TestNumaInterleaveRunsUnderNumactl(t *testing.T) {
 	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
 }
 
-func TestNumaInterleaveWithoutNumactlFailsToStart(t *testing.T) {
+func TestNumaInterleaveWithoutNumactlStartsWithoutIt(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.Remove(filepath.Join(f.dir, binaryNumactl)))
-	_, err := f.sup.Start(StartRequest{ConfigPath: f.config("main", "run"), Role: RoleMain, Other: Other{NumaInterleave: true}})
-	assert.ErrorIs(t, err, ErrSpawn)
-	assert.Equal(t, StateIdle, f.sup.Status().State)
+	cfg := f.config("main", "args")
+
+	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaInterleave: true}})
+
+	require.NoError(t, err)
+	waitDone(t, e)
+	out := f.sup.Status().Output
+	assert.NotContains(t, out, "numactl")
+	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
+}
+
+func TestConfigWithForkIsRejected(t *testing.T) {
+	f := newFixture(t)
+	for name, config := range map[string]string{
+		"block":   "processManagement:\n  fork: true\n",
+		"flow":    "processManagement: {fork: true, pidFilePath: /tmp/x}\n",
+		"between": "net:\n  port: 27017\nprocessManagement:\n  fork: true\nstorage:\n  dbPath: /data\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := filepath.Join(f.dir, name+".conf")
+			require.NoError(t, os.WriteFile(cfg, []byte(config), 0o600))
+
+			_, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain})
+
+			assert.ErrorIs(t, err, ErrInvalidRequest)
+			assert.ErrorContains(t, err, "processManagement.fork")
+			assert.Equal(t, StateIdle, f.sup.Status().State)
+		})
+	}
+}
+
+func TestConfigWithoutForkIsNotRejected(t *testing.T) {
+	f := newFixture(t)
+	for name, config := range map[string]string{
+		"fork false": "processManagement:\n  fork: false\n",
+		"no section": "net:\n  port: 27017\n",
+		"other key":  "processManagement:\n  pidFilePath: /tmp/x\n",
+		"not yaml":   "{{{ not yaml",
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.NoError(t, rejectFork(writeConfig(t, f.dir, config)))
+		})
+	}
+	assert.NoError(t, rejectFork(filepath.Join(f.dir, "missing.conf")), "a missing file is left to mongod")
+}
+
+func writeConfig(t *testing.T, dir, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, "case.conf")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
 }
 
 func TestStopSendsSIGTERMAndWaits(t *testing.T) {
