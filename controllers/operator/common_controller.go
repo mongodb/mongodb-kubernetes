@@ -45,6 +45,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -395,6 +396,19 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 	resource.SetWarnings([]status.Warning{})
 
 	return reconcile.Result{}, nil
+}
+
+// removeFulfilledPruneAnnotation removes the prune-previous-ca annotation once the operator has
+// applied it. The CA bundles are published before this runs, so a reconcile interrupted between the
+// two steps just finds nothing left to prune and removes the annotation next time.
+func (r *ReconcileCommonController) removeFulfilledPruneAnnotation(ctx context.Context, resource client.Object, pruneApplied bool) workflow.Status {
+	if !pruneApplied {
+		return workflow.OK()
+	}
+	if err := annotations.RemoveAnnotation(ctx, resource, util.PrunePreviousCAAnnotation, r.client); err != nil {
+		return workflow.Failed(err)
+	}
+	return workflow.OK()
 }
 
 // checkIfHasExcessProcesses will check if the project has excess processes.

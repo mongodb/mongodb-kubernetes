@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/meta"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
@@ -164,6 +165,13 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 	require.NoError(t, err)
 	issueManagedCertificates(ctx, t, kubeClient, rs.Namespace)
 
+	// replace the CA cert-manager issued with one the test controls, so it can also sign a leaf with it
+	serverCASecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-server-ca"))
+	require.NoError(t, err)
+	oldCA, oldCAKey := createMockCertAndKeyBytes()
+	serverCASecret.Data[corev1.ServiceAccountRootCAKey] = oldCA
+	require.NoError(t, kubeClient.UpdateSecret(ctx, serverCASecret))
+
 	reconcileAndReadTLS := func() map[string]any {
 		_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
 		require.NoError(t, err)
@@ -185,10 +193,9 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 	assert.Equal(t, util.TLSClusterCaMountPath+"/"+hashesClient, tlsConfig["clusterCAFilePath"])
 
 	// the issuer's CA is rotated: the old CA is retained next to the new one, and the CA path moves
-	serverCASecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-server-ca"))
-	require.NoError(t, err)
-	oldCA := serverCASecret.Data[corev1.ServiceAccountRootCAKey]
 	newCA, newCAKey := createMockCertAndKeyBytes()
+	serverCASecret, err = kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-server-ca"))
+	require.NoError(t, err)
 	serverCASecret.Data[corev1.ServiceAccountRootCAKey] = newCA
 	require.NoError(t, kubeClient.UpdateSecret(ctx, serverCASecret))
 
@@ -204,16 +211,34 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(newCA)), "the new CA is published")
 	assert.Equal(t, enterprisepem.HashBytes([]byte(rotatedBundle)), newHashesServer)
 
-	// reissue the member certificate from the new CA, then ask the operator to prune the previous CA
+	// the condition tells the user that a previous CA is retained and how to prune it
+	certsCondition := certificatesReadyCondition(t, rs)
+	assert.Equal(t, metav1.ConditionTrue, certsCondition.Status)
+	assert.Contains(t, certsCondition.Message, "Previous server CA retained in the trust bundle")
+	assert.Contains(t, certsCondition.Message, util.PrunePreviousCAAnnotation+"=server (or true)")
+
+	// the member certificate is still signed by the old CA: the prune is refused and the annotation stays
 	memberSecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-managed-cert"))
 	require.NoError(t, err)
-	memberSecret.Data[corev1.TLSCertKey] = issueLeafSignedByCA(t, newCA, newCAKey, "member")
+	memberSecret.Data[corev1.TLSCertKey] = issueLeafSignedByCA(t, oldCA, oldCAKey, "member")
 	require.NoError(t, kubeClient.UpdateSecret(ctx, memberSecret))
 	if rs.Annotations == nil {
 		rs.Annotations = map[string]string{}
 	}
 	rs.Annotations[util.PrunePreviousCAAnnotation] = "true"
 	require.NoError(t, kubeClient.Update(ctx, rs))
+
+	reconcileAndReadTLS()
+	assert.Contains(t, serverBundle(), strings.TrimSpace(string(oldCA)), "the previous CA is kept while a leaf is signed by it")
+	assert.Equal(t, "true", rs.GetAnnotations()[util.PrunePreviousCAAnnotation], "the annotation stays while the prune is refused")
+	certsCondition = certificatesReadyCondition(t, rs)
+	assert.Contains(t, certsCondition.Message, "The previous server CA was not pruned: issued certificates are still signed by it.")
+
+	// reissue the member certificate from the new CA, then the operator prunes the previous CA
+	memberSecret, err = kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-managed-cert"))
+	require.NoError(t, err)
+	memberSecret.Data[corev1.TLSCertKey] = issueLeafSignedByCA(t, newCA, newCAKey, "member")
+	require.NoError(t, kubeClient.UpdateSecret(ctx, memberSecret))
 
 	tlsConfig = reconcileAndReadTLS()
 	prunedHashesServer, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, rs.Name, rs.Namespace, true)
@@ -225,8 +250,10 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 	assert.Contains(t, prunedBundle, strings.TrimSpace(string(newCA)))
 	assert.Equal(t, enterprisepem.HashBytes([]byte(prunedBundle)), prunedHashesServer)
 
-	// the operator does not remove the annotation
-	assert.Equal(t, "true", rs.GetAnnotations()[util.PrunePreviousCAAnnotation])
+	// the operator removes the annotation once the prune has been applied
+	assert.NotContains(t, rs.GetAnnotations(), util.PrunePreviousCAAnnotation)
+	certsCondition = certificatesReadyCondition(t, rs)
+	assert.NotContains(t, certsCondition.Message, "Previous server CA retained")
 }
 
 // TestShardedClusterManagedCertificate_CAFilePathIsBundleHash checks that the published automation
@@ -257,6 +284,41 @@ func TestShardedClusterManagedCertificate_CAFilePathIsBundleHash(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, hashesServer, serverCM.Data[util.LatestHashSecretKey])
 	assert.NotEmpty(t, serverCM.Data[hashesServer])
+
+	// rotate the server CA: the previous one is retained in the bundle
+	caSecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(sc.Namespace, sc.Name+"-server-ca"))
+	require.NoError(t, err)
+	oldCA := caSecret.Data[corev1.ServiceAccountRootCAKey]
+	newCA, _ := createMockCertAndKeyBytes()
+	caSecret.Data[corev1.ServiceAccountRootCAKey] = newCA
+	require.NoError(t, kubeClient.UpdateSecret(ctx, caSecret))
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+	require.NoError(t, err)
+	serverCM, err = kubeClient.GetConfigMap(ctx, kube.ObjectKey(sc.Namespace, certs.ManagedServerCABundleConfigMapName(sc.Name)))
+	require.NoError(t, err)
+	rotatedBundle := serverCM.Data[serverCM.Data[util.LatestHashSecretKey]]
+	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(oldCA)))
+	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(newCA)))
+
+	// asking to prune removes the previous CA and the annotation
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
+	if sc.Annotations == nil {
+		sc.Annotations = map[string]string{}
+	}
+	sc.Annotations[util.PrunePreviousCAAnnotation] = "true"
+	require.NoError(t, kubeClient.Update(ctx, sc))
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(sc))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
+	assert.NotContains(t, sc.GetAnnotations(), util.PrunePreviousCAAnnotation)
+
+	serverCM, err = kubeClient.GetConfigMap(ctx, kube.ObjectKey(sc.Namespace, certs.ManagedServerCABundleConfigMapName(sc.Name)))
+	require.NoError(t, err)
+	prunedBundle := serverCM.Data[serverCM.Data[util.LatestHashSecretKey]]
+	assert.NotContains(t, prunedBundle, strings.TrimSpace(string(oldCA)), "the previous CA is pruned")
+	assert.Contains(t, prunedBundle, strings.TrimSpace(string(newCA)))
 }
 
 // TestMultiReplicaSetManagedCertificate_CAFilePathIsBundleHash checks that the published automation
@@ -294,4 +356,51 @@ func TestMultiReplicaSetManagedCertificate_CAFilePathIsBundleHash(t *testing.T) 
 		assert.Equal(t, central.Data, member.Data, clusterName)
 		assert.Contains(t, member.Data, hashesServer, clusterName)
 	}
+
+	// rotate the central server CA: the previous one is retained and replicated to every member cluster
+	caSecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name+"-server-ca"))
+	require.NoError(t, err)
+	oldCA := caSecret.Data[corev1.ServiceAccountRootCAKey]
+	newCA, _ := createMockCertAndKeyBytes()
+	caSecret.Data[corev1.ServiceAccountRootCAKey] = newCA
+	require.NoError(t, kubeClient.UpdateSecret(ctx, caSecret))
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	central, err = kubeClient.GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, certs.ManagedServerCABundleConfigMapName(mrs.Name)))
+	require.NoError(t, err)
+	rotatedBundle := central.Data[central.Data[util.LatestHashSecretKey]]
+	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(oldCA)))
+
+	// asking to prune removes the previous CA everywhere and the annotation
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(mrs), mrs))
+	if mrs.Annotations == nil {
+		mrs.Annotations = map[string]string{}
+	}
+	mrs.Annotations[util.PrunePreviousCAAnnotation] = "true"
+	require.NoError(t, kubeClient.Update(ctx, mrs))
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(mrs), mrs))
+	assert.NotContains(t, mrs.GetAnnotations(), util.PrunePreviousCAAnnotation)
+
+	central, err = kubeClient.GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, certs.ManagedServerCABundleConfigMapName(mrs.Name)))
+	require.NoError(t, err)
+	prunedBundle := central.Data[central.Data[util.LatestHashSecretKey]]
+	assert.NotContains(t, prunedBundle, strings.TrimSpace(string(oldCA)), "the previous CA is pruned")
+	assert.Contains(t, prunedBundle, strings.TrimSpace(string(newCA)))
+	for clusterName, memberClient := range memberClients {
+		member, err := kubernetesClient.NewClient(memberClient).GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, certs.ManagedServerCABundleConfigMapName(mrs.Name)))
+		require.NoError(t, err, clusterName)
+		assert.Equal(t, central.Data, member.Data, clusterName)
+	}
+}
+
+// certificatesReadyCondition returns the CertificatesReady condition recorded on the resource.
+func certificatesReadyCondition(t *testing.T, rs *mdbv1.MongoDB) metav1.Condition {
+	t.Helper()
+	condition := meta.FindStatusCondition(rs.Status.Conditions, certs.ConditionCertificatesReady)
+	require.NotNil(t, condition, "CertificatesReady condition is missing")
+	return *condition
 }

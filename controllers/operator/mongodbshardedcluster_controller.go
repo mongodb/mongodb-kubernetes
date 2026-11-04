@@ -1263,7 +1263,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 			return workflow.Failed(xerrors.New(r.certManagerReadiness.UnavailableMessage()))
 		}
 
-		status, certsCondition := certs.EnsureCertificatesAndCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log)
+		status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log)
 		sc.SetStatusCondition(certsCondition)
 		if !status.IsOK() {
 			return status
@@ -1277,6 +1277,10 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 			if !replicateStatus.IsOK() {
 				return replicateStatus
 			}
+		}
+
+		if status := r.commonController.removeFulfilledPruneAnnotation(ctx, sc, pruneApplied); !status.IsOK() {
+			return status
 		}
 	}
 

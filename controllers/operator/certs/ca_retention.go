@@ -20,7 +20,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -34,24 +33,23 @@ type caCert struct {
 	der         []byte
 }
 
-// ensureCategoryBundle publishes the trust bundle of a category: its primary CA, the previous
-// primary CA when the CA was rotated and the prune annotation did not drop it yet, and the additionalTrustedCAs.
+// ensureCategoryBundle publishes the trust bundle of a category.
 func ensureCategoryBundle(
 	ctx context.Context,
 	c kubernetesClient.Client,
 	res CertificateOwner,
 	cat certCategory,
-	issuedSecretName string,
-	leafSecrets []string,
-) workflow.Status {
+	allOpts []Options,
+) (retained, refused bool, err error) {
+	issuedSecretName, leafSecrets := categorySecrets(res, cat, allOpts)
 	primary, err := primaryTrustedCA(ctx, c, res, cat, issuedSecretName)
 	if err != nil {
-		return workflow.Failed(err)
+		return false, false, err
 	}
 
 	additional, err := additionalTrustedCAs(ctx, c, res, cat)
 	if err != nil {
-		return workflow.Failed(err)
+		return false, false, err
 	}
 
 	name := ManagedServerCABundleConfigMapName(res.GetName())
@@ -60,18 +58,17 @@ func ensureCategoryBundle(
 	}
 	publishedCM, published, err := publishedTrustedCAs(ctx, c, res, name)
 	if err != nil {
-		return workflow.Failed(err)
+		return false, false, err
 	}
 
-	retained := retainedTrustedCAs(published, primary)
+	previous := retainedTrustedCAs(published, primary)
 
-	prune, err := prunePreviousCA(ctx, c, res, cat, leafSecrets, retained)
+	prune, err := prunePreviousCA(ctx, c, res, cat, leafSecrets, previous)
 	if err != nil {
-		return workflow.Failed(err)
+		return false, false, err
 	}
-
 	if prune {
-		retained = nil
+		previous = nil
 	}
 
 	// The server bundle also keeps a stable ca-pem copy: it is the ConfigMap that client applications
@@ -81,11 +78,13 @@ func ensureCategoryBundle(
 	if cat == categoryServer {
 		aliasKey = tls.CAConfigMapKey
 	}
-	if err = ensureHashedBundleConfigMap(ctx, c, res, name, publishedCM, mergeCABundle(primary, retained, additional), aliasKey); err != nil {
-		return workflow.Failed(err)
+	if err = ensureHashedBundleConfigMap(ctx, c, res, name, publishedCM, mergeCABundle(primary, previous, additional), aliasKey); err != nil {
+		return false, false, err
 	}
 
-	return workflow.OK()
+	retained = len(previous) > 0
+	refused = pruneRequested(res, cat) && retained
+	return retained, refused, nil
 }
 
 // mergeCABundle builds the PEM bundle of all the given CAs. Each CA appears once (deduplicated by
@@ -281,7 +280,7 @@ func pruneRequested(res CertificateOwner, cat certCategory) bool {
 	return value == "true" || value == string(cat)
 }
 
-// leafSignedByCA returns true if any of the leaf certificates is signed by any of the CAs.
+// leafSignedByCA reports whether any of the issued certificate secrets is signed by any of the CAs.
 func leafSignedByCA(ctx context.Context, c kubernetesClient.Client, namespace string, secretNames []string, cas []caCert) (bool, error) {
 	issuers := parseIssuers(cas)
 	for _, name := range secretNames {
@@ -338,6 +337,15 @@ func readLeafCertificate(ctx context.Context, c kubernetesClient.Client, namespa
 	}
 
 	return leaf, nil
+}
+
+// categorySecrets returns, for a category, the issued secret the issuer's CA is read from and the
+// secrets of every issued leaf certificate of that category.
+func categorySecrets(res CertificateOwner, cat certCategory, allOpts []Options) (string, []string) {
+	if cat == categoryClient {
+		return clientIssuedSecretName(res, allOpts[0]), clientLeafSecretNames(res, allOpts)
+	}
+	return allOpts[0].CertSecretName, serverLeafSecretNames(allOpts)
 }
 
 // serverLeafSecretNames are the secrets of the issued certificates signed by the server category issuer.
