@@ -39,6 +39,7 @@ type MockedOmAdmin struct {
 	agentVersion           string
 	LicenseState           any
 	LicenseReadState       any
+	LicenseRecomputedState any
 	InstalledLicense       json.RawMessage
 	ReleasedIDs            []string
 	LicenseReceipt         string
@@ -315,6 +316,9 @@ func (a *MockedOmAdmin) InstallLicense(_ context.Context, rawArtifact json.RawMe
 func (a *MockedOmAdmin) RecomputeLicense(ctx context.Context) (LicenseView, error) {
 	if a.LicenseRecomputeErr != nil {
 		return LicenseView{}, a.LicenseRecomputeErr
+	}
+	if a.LicenseRecomputedState != nil {
+		a.LicenseReadState = a.LicenseRecomputedState
 	}
 	return a.ReadLicenseState(ctx)
 }
