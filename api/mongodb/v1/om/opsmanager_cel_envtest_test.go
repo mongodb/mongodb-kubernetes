@@ -418,3 +418,50 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 		})
 	}
 }
+
+func TestOpsManagerCELValidation_LicenseReleaseReceiptsPolicy(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	tests := []struct {
+		name          string
+		policy        omv1.ReleaseReceiptsPolicy
+		errorContains string
+	}{
+		{
+			name:          "OnDemand is rejected",
+			policy:        "OnDemand",
+			errorContains: `Unsupported value: "OnDemand": supported values: "Automatic"`,
+		},
+		{
+			name:   "Automatic is accepted",
+			policy: omv1.ReleaseReceiptsAutomatic,
+		},
+		{
+			name: "an unset policy is accepted",
+		},
+		{
+			name:          "an unknown policy is rejected",
+			policy:        "Sometimes",
+			errorContains: `Unsupported value: "Sometimes": supported values: "Automatic"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := newOpsManager(t, func(om *omv1.MongoDBOpsManager) {
+				om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: "test-om-db", Kind: "MongoDB"}
+				om.Spec.License = &omv1.MongoDBOpsManagerLicense{ReleaseReceiptsPolicy: tc.policy}
+			})
+			err := k8sClient.Create(ctx, om)
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				_ = k8sClient.Delete(ctx, om)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
