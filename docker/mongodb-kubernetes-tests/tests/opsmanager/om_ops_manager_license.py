@@ -10,6 +10,7 @@ from kubetester.phase import Phase
 from pytest import fixture
 from tests.opsmanager.license_e2e_helpers import (
     ENROLLMENT_RECONCILE_CRON,
+    LICENSE_STATE_EVALUATION_CRON,
     RECOMPUTE_ANNOTATION,
     ROTATE_IDENTITY_ANNOTATION,
     assert_license_installed,
@@ -39,6 +40,7 @@ from tests.opsmanager.license_e2e_helpers import (
     om_artifact_usable,
     om_holder_id,
     ops_manager,
+    paused_cron,
     prepare_for_license_install,
     read_om_license_view,
     renew_license,
@@ -60,7 +62,6 @@ from tests.opsmanager.license_e2e_helpers import (
     wait_for_license_reconciled,
     wait_for_observed_api_state,
     wait_for_om_artifact_unusable,
-    wait_for_om_effective_state,
 )
 
 
@@ -103,15 +104,14 @@ class TestOpsManagerLicenseE2E:
         assert cr["enforcement"].get("enforced", False) is False
         assert cr["identity"]["holderId"] == om_holder_id(ops_manager)
 
-    def test_recompute_annotation(self, ops_manager: MongoDBOpsManager):
+    def test_recompute_annotation_is_consumed(self, ops_manager: MongoDBOpsManager):
+        """The operator removes the recompute annotation and reports the license reconciled."""
         ops_manager.load()
         ops_manager["spec"]["license"] = {}
         ops_manager["metadata"].setdefault("annotations", {})[RECOMPUTE_ANNOTATION] = "true"
         ops_manager.update()
-        cr, _ = wait_for_cr_license_sync(ops_manager)
+        wait_for_cr_license_sync(ops_manager)
         assert RECOMPUTE_ANNOTATION not in ops_manager["metadata"].get("annotations", {})
-
-        assert cr["enforcement"]["effectiveState"] == "GRACE"
 
     def test_release_without_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
         """Removing licenseSecretRef releases the license at EA and writes no receipt."""
@@ -200,17 +200,20 @@ class TestOpsManagerLicenseE2E:
 
         assert top_up in om_artifact_ids(ops_manager)
 
-    def test_revoke_at_ea_is_mirrored_not_reinstalled(self, ops_manager: MongoDBOpsManager, namespace: str):
-        """Once Ops Manager stops using a license revoked at EA, the CR mirrors GRACE, the operator does not PUT the
-        Secret again, and removing licenseSecretRef reconciles cleanly."""
+    def test_revoke_at_ea_then_recompute_moves_to_grace(self, ops_manager: MongoDBOpsManager, namespace: str):
+        """Once Ops Manager stops using a license revoked at EA, the recompute annotation moves the state to GRACE
+        while the evaluation cron is paused. The operator does not PUT the Secret again, and removing licenseSecretRef
+        reconciles cleanly."""
         revoked = install_license(ops_manager, namespace)
 
         assert revoke_at_ea(ops_manager, revoked) == "REVOKED"
         wait_for_ea_artifact_status(ops_manager, revoked, "REVOKED")
-        wait_for_om_artifact_unusable(ops_manager, revoked)
-        wait_for_om_effective_state(ops_manager, "GRACE")
-        nudge_reconcile(ops_manager)
-        cr, om_view = wait_for_cr_license_sync(ops_manager, installed=revoked)
+        with paused_cron(ops_manager, LICENSE_STATE_EVALUATION_CRON):
+            wait_for_om_artifact_unusable(ops_manager, revoked)
+            assert read_om_license_view(ops_manager)["enforcement"]["effectiveState"] != "GRACE"
+
+            set_annotation_and_wait_cleared(ops_manager, RECOMPUTE_ANNOTATION)
+            cr, om_view = wait_for_observed_api_state(ops_manager, effective_state="GRACE", installed=revoked)
 
         assert cr_matches_om_license(cr, om_view)
         assert cr["enforcement"]["effectiveState"] == "GRACE"
