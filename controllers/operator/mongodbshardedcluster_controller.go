@@ -1996,7 +1996,7 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	// reconcile of the owning MongoDB. This is mainly helpful when the renewal of the certificate fails becausae in that
 	//  case only certificate's status is changed.
 	if certManagerReadiness.Ready {
-		if err := watch.Certificates(mgr, c, &mdbv1.MongoDB{}); err != nil {
+		if err := watch.MongoDBCertificates(mgr, c, mdbv1.ShardedCluster); err != nil {
 			return err
 		}
 	}
