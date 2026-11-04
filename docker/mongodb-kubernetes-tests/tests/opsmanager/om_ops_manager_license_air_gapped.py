@@ -4,13 +4,14 @@ from typing import Optional
 
 import pytest
 from kubetester.opsmanager import MongoDBOpsManager
+from kubetester.phase import Phase
 from pytest import fixture
 from tests.opsmanager.ea_license import submit_release_receipt
 from tests.opsmanager.license_e2e_helpers import (
+    build_license_ops_manager,
     current_artifact,
     current_artifact_id,
     current_receipt_secret_name,
-    deploy_license_ops_manager,
     ea_artifact_row,
     ensure_license_artifact_secret,
     gsa_credentials,
@@ -23,7 +24,6 @@ from tests.opsmanager.license_e2e_helpers import (
     tampered_receipt,
     wait_for_ea_artifact_status,
     wait_for_installed_license,
-    wait_for_license_ops_manager_running,
     wait_for_license_receipt,
     wait_for_released_artifact,
 )
@@ -34,11 +34,16 @@ CLOSED_PROXY = {"http.proxy.host": "127.0.0.1", "http.proxy.port": "9"}
 
 @fixture(scope="module")
 def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
-    resource = deploy_license_ops_manager(
+    return build_license_ops_manager(
         namespace, "om-license-air-gapped", custom_version, custom_appdb_version, CLOSED_PROXY
     )
-    wait_for_license_ops_manager_running(resource)
-    return resource
+
+
+@pytest.mark.e2e_om_ops_manager_license_air_gapped
+def test_create_om(ops_manager: MongoDBOpsManager):
+    ops_manager.update()
+    ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @pytest.mark.e2e_om_ops_manager_license_air_gapped

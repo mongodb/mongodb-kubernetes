@@ -74,7 +74,7 @@ def hide_failure_values(request):
     option.showlocals, option.tbstyle = saved
 
 
-def deploy_license_ops_manager(
+def build_license_ops_manager(
     namespace: str,
     name: str,
     custom_version: Optional[str],
@@ -93,15 +93,9 @@ def deploy_license_ops_manager(
     return resource
 
 
-def wait_for_license_ops_manager_running(resource: MongoDBOpsManager) -> None:
-    resource.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    resource.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
-
-
 @fixture(scope="module")
 def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_version: str) -> MongoDBOpsManager:
-    resource = deploy_license_ops_manager(namespace, OM_NAME, custom_version, custom_appdb_version)
-    return resource
+    return build_license_ops_manager(namespace, OM_NAME, custom_version, custom_appdb_version)
 
 
 def current_artifact() -> str:
@@ -176,7 +170,7 @@ def om_condition(ops_manager: MongoDBOpsManager, condition_type: str) -> Optiona
 
 def generation_of(ops_manager: MongoDBOpsManager) -> int:
     ops_manager.load()
-    return ops_manager["metadata"]["generation"]
+    return ops_manager.get_generation()
 
 
 def installed_artifact_id(ops_manager: MongoDBOpsManager) -> str:
