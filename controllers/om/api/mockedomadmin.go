@@ -312,8 +312,11 @@ func (a *MockedOmAdmin) InstallLicense(_ context.Context, rawArtifact json.RawMe
 	return unmarshalMockLicenseState(a.LicenseState)
 }
 
-func (a *MockedOmAdmin) RecomputeLicense(_ context.Context) error {
-	return a.LicenseRecomputeErr
+func (a *MockedOmAdmin) RecomputeLicense(ctx context.Context) (LicenseView, error) {
+	if a.LicenseRecomputeErr != nil {
+		return LicenseView{}, a.LicenseRecomputeErr
+	}
+	return a.ReadLicenseState(ctx)
 }
 
 func (a *MockedOmAdmin) ReleaseLicense(_ context.Context, artifactID string) (LicenseView, error) {
