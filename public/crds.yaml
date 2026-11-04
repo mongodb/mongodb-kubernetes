@@ -8870,9 +8870,10 @@ spec:
                     type: object
                   releaseReceipts:
                     description: |-
-                      ReleaseReceipts lists previously released licenses to collect a receipt for, each named by
-                      artifact ID or by the Secret that holds it. Each receipt is written to a Secret named
-                      <artifactId>-release-receipt.
+                      ReleaseReceipts requests a release receipt for each entry.
+                      An entry can be either an artifactId or a licenseSecretRef.
+                      The operator creates one Secret per entry, named <artifactId>-release-receipt,
+                      containing its receipt.
                     items:
                       properties:
                         artifactId:
