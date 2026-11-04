@@ -268,7 +268,7 @@ cmd_namespace() {
     --from-literal "orgId=${OM_ORGID}" --from-literal "projectName=${project}" --from-literal "baseUrl=${OM_HOST}"
   apply_from_create -n "${NAMESPACE_NAME}" create secret generic my-credentials \
     --from-literal "user=${OM_USER}" --from-literal "publicApiKey=${OM_API_KEY}"
-  kube apply --server-side -f "${MCK}/helm_chart/crds" >/dev/null
+  kube apply --server-side --force-conflicts -f "${MCK}/helm_chart/crds" >/dev/null
   kube -n "${NAMESPACE_NAME}" delete configmap operator-installation-config --ignore-not-found >/dev/null
   kube -n "${NAMESPACE_NAME}" create configmap operator-installation-config \
     --from-literal "registry.operator=${REGISTRY}" --from-literal "operator.version=$(state_get OPERATOR_TAG)" \
@@ -284,6 +284,8 @@ cmd_namespace() {
 
 cmd_clean() {
   log "Cleaning the leftovers in ${NAMESPACE_NAME}"
+  # a user of an earlier run would enable authentication again in the project, whatever the new resource asks for
+  kube -n "${NAMESPACE_NAME}" delete mongodbusers --all --ignore-not-found --timeout=120s || true
   # wait for the resource to disappear: the test loads an existing resource, and one that is still being deleted
   # brings the spec of the earlier run into the new one
   kube -n "${NAMESPACE_NAME}" delete mdb my-replica-set --ignore-not-found --timeout=180s || true

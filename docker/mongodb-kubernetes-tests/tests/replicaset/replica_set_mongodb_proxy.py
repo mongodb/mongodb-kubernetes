@@ -83,6 +83,9 @@ def operator_with_proxy(namespace: str, operator_installation_config: dict[str, 
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), namespace=namespace)
     resource.set_version(custom_mdb_version)
+    # The Ops Manager project keeps the authentication of an earlier run (also of one that failed half way), and a
+    # new resource then starts with it. Asking for no authentication makes the operator switch it off.
+    resource["spec"]["security"] = {"authentication": {"enabled": False}}
     # The proxy only exists in the static architecture, whatever the default of the test run is.
     resource["metadata"].setdefault("annotations", {}).update(
         {
@@ -512,9 +515,103 @@ def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, 
     wait_until("the index on every member", built_on_all_members, timeout_seconds=900, interval_seconds=10)
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
+    # Ops Manager changes the automation config itself while it works through the index builds, and an operator that
+    # publishes at the same time is refused (AUTOMATION_CONFIG_CONCURRENT_MODIFICATION), so the entry goes away now.
+    automation_config = om.api_get_automation_config()
+    automation_config["indexConfigs"] = []
+    om.api_put_automation_config(automation_config)
+
     started = {pod: ephemeral_starts(pod, namespace) for pod in pods}
     assert any(started.values()), f"no member got a start request with the role ephemeral: {started}"
     for pod in pods:
         for event in started[pod]:
             assert event["configPath"], event
         assert query_proxy(pod, namespace)["role"] == "main", pod
+
+
+SCRAM_USER = "proxy-user"
+SCRAM_PASSWORD = "proxy-password-1"
+
+
+def member_uri(user: Optional[str] = None, password: Optional[str] = None) -> str:
+    """A connection string to the mongod of the pod itself, which a secondary also answers."""
+    credentials = f"{user}:{password}@" if user else ""
+    return f"mongodb://{credentials}localhost:27017/?directConnection=true&readPreference=secondaryPreferred&authSource=admin"
+
+
+def unauthenticated_result(pod: str, namespace: str) -> str:
+    script = 'try { db.adminCommand({listDatabases: 1}); print("allowed") } catch (e) { print("denied:" + e.codeName) }'
+    return mongosh(pod, namespace, script, member_uri())
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_agent_starts_mongod_with_scram_authentication(replica_set: MongoDB, namespace: str):
+    """Authentication adds a keyfile and the credentials of the agent, and restarts every member.
+
+    The agent writes the keyfile in its container and mongod, in the other container, reads it.
+    """
+    replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
+    replica_set.update()
+
+    # A publish that Ops Manager refuses as concurrent leaves the resource Failed until the operator tries again.
+    replica_set.assert_reaches_phase(Phase.Running, timeout=1500, ignore_errors=True)
+
+    for pod in pod_members(replica_set):
+        assert query_proxy(pod, namespace)["state"] == "running", pod
+        assert unauthenticated_result(pod, namespace) == "denied:Unauthorized", pod
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_user_can_read_the_data_with_scram(replica_set: MongoDB, namespace: str):
+    from kubetester.scram import build_scram_user_resource
+
+    user = build_scram_user_resource(
+        namespace, SCRAM_USER, SCRAM_PASSWORD, f"{SCRAM_USER}-password", replica_set.name
+    )
+    # the fixture grants roles on admin only
+    user["spec"]["roles"] = [{"db": INDEX_DATABASE, "name": "read"}]
+    user.update()
+    user.assert_reaches_phase(Phase.Updated, timeout=600)
+
+    script = f'db.getSiblingDB("{INDEX_DATABASE}").{INDEX_COLLECTION}.countDocuments({{}})'
+    for pod in pod_members(replica_set):
+        assert mongosh(pod, namespace, script, member_uri(SCRAM_USER, SCRAM_PASSWORD)) == "100", pod
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_agent_starts_mongod_again_after_it_was_killed_with_authentication(replica_set: MongoDB, namespace: str):
+    """The agent has to start mongod again with the keyfile and has to log in to it to see it is up."""
+    pod = f"{replica_set.name}-1"
+    identity = mongod_identity(pod, namespace)
+    assert identity
+
+    KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["bash", "-c", f"kill -9 {identity.split(':')[0]}"], container=DATABASE_CONTAINER
+    )
+
+    wait_for_new_mongod(pod, namespace, identity, timeout_seconds=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+    assert unauthenticated_result(pod, namespace) == "denied:Unauthorized"
+    script = f'db.getSiblingDB("{INDEX_DATABASE}").{INDEX_COLLECTION}.countDocuments({{}})'
+    assert mongosh(pod, namespace, script, member_uri(SCRAM_USER, SCRAM_PASSWORD)) == "100"
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_agent_starts_mongod_without_authentication_when_it_is_switched_off(replica_set: MongoDB, namespace: str):
+    """Switching authentication off restarts the members once more, and leaves the Ops Manager project as it was.
+
+    The project keeps its authentication settings after the resource is deleted, and every resource that is created
+    in it next would start with authentication, so a test that enables it also has to switch it off.
+    """
+    from kubetester.mongodb_user import MongoDBUser
+
+    user = MongoDBUser.from_yaml(yaml_fixture("scram-sha-user.yaml"), namespace=namespace, name=SCRAM_USER)
+    user.delete()
+
+    replica_set["spec"]["security"] = {"authentication": {"enabled": False}}
+    replica_set.update()
+
+    replica_set.assert_reaches_phase(Phase.Running, timeout=1500, ignore_errors=True)
+    for pod in pod_members(replica_set):
+        assert query_proxy(pod, namespace)["state"] == "running", pod
+        assert unauthenticated_result(pod, namespace) == "allowed", pod
