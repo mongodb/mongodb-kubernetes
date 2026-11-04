@@ -79,6 +79,16 @@ var memberServerCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageServerAuth,
 }
 
+// memberServerAndClientCertUsages is for a member cert that is also a client cert. Without x509
+// internal cluster authentication there is no clusterfile, so mongod also presents the member cert
+// when it connects to the other members, and they reject it unless it allows clientAuth.
+var memberServerAndClientCertUsages = []certmanagerv1.KeyUsage{
+	certmanagerv1.UsageDigitalSignature,
+	certmanagerv1.UsageKeyEncipherment,
+	certmanagerv1.UsageServerAuth,
+	certmanagerv1.UsageClientAuth,
+}
+
 var clientAuthCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageDigitalSignature,
 	certmanagerv1.UsageKeyEncipherment,
@@ -346,7 +356,9 @@ func inspectCertificateStatus(name string, cert *certmanagerv1.Certificate) cert
 
 // componentCertificates returns the per-component Certificates the operator must issue
 // for one component's Options (an RS/standalone has a single component; a sharded cluster
-// has one per mongos/config/shard)
+// has one per mongos/config/shard).
+// In returns two certToEnsure types, representing member certificate and clusterFile
+// certificate when x509 internal cluster auth is on.
 func componentCertificates(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, opts Options) []certToEnsure {
 	sec := res.GetSecurity()
 
@@ -374,22 +386,27 @@ func componentCertificates(ctx context.Context, c kubernetesClient.Client, res C
 	}
 	internalX509 := sec.GetInternalClusterAuthenticationMode() == util.X509
 
+	// The subject depends on the internal cluster authentication. With x509 mongod matches a peer by
+	// the subject of its certificate, so the member certificate carries the membership subject.
+	// Otherwise nothing reads the subject, so it is set only when the user configured subjects.server.
 	var memberSub *certmanagerv1.X509Subject
 	var memberCN string
-	// the membership subject when X509 internal auth is on (mongod matches peers by subject),
-	// else the optional subjects.server override. When that override is unset the subject has
-	// no DN but only the SANs.
+	memberUsages := memberServerCertUsages
 	if internalX509 {
 		memberSub, memberCN = membershipSubject(res)
 	} else {
 		memberSub, memberCN = serverSubject(res)
+		// Member to member connections are mutual TLS even without x509 internal authentication, and
+		// there is no clusterfile, so the member certificate is what they present to each other even as client,
+		// that's why it needs both key usages.
+		memberUsages = memberServerAndClientCertUsages
 	}
 
 	required := []certToEnsure{
-		// member/server cert (serverAuth EKU), signed by the server-category issuer.
+		// member/server cert, signed by the server-category issuer.
 		{
 			certName:    opts.CertSecretName,
-			spec:        certSpec(res, categoryServer, opts.CertSecretName, dnsNames, memberCN, memberSub, memberServerCertUsages),
+			spec:        certSpec(res, categoryServer, opts.CertSecretName, dnsNames, memberCN, memberSub, memberUsages),
 			annotations: memberCertAnnotations,
 		},
 	}
