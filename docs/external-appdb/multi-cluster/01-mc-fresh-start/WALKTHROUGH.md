@@ -53,7 +53,7 @@ clusters without any test harness.
 - An **Istio service mesh** spanning the clusters, with cross-cluster service discovery. The AppDB
   pods need a sidecar to reach the central-cluster management OM and each other over the mesh.
 - `kubectl`, `helm`, and the `kubectl-mongodb` plugin configured for all three clusters.
-- [cert-manager](https://cert-manager.io/) installed on the central cluster (step 5).
+- [cert-manager](https://cert-manager.io/) installed on the central cluster (step 6).
 - Access to the MongoDB Kubernetes operator Helm chart.
 
 ## 0. Set your variables
@@ -134,32 +134,44 @@ done
 
 ## 2. Install the operator in multi-cluster mode
 
-First wire up service accounts and roles across all clusters with the `kubectl-mongodb` plugin, then
-install the operator on the central cluster with the member clusters registered.
+Install the operator on the central cluster. Member-cluster configuration (RBAC and
+registration) is a follow-up step — the operator needs no cluster list at install time.
 
 ```bash
-kubectl mongodb multicluster setup \
-  --central-cluster="${K8S_CTX_0}" \
-  --member-clusters="${K8S_CTX_0},${K8S_CTX_1},${K8S_CTX_2}" \
-  --member-cluster-namespace="${MDB_NS}" \
-  --central-cluster-namespace="${MDB_NS}" \
-  --create-service-account-secrets \
-  --install-database-roles=true
-
 helm upgrade --install --kube-context "${K8S_CTX_0}" \
   --create-namespace --namespace="${MDB_NS}" \
   mongodb-kubernetes-operator-multi-cluster \
   --set operator.name=mongodb-kubernetes-operator-multi-cluster \
-  --set operator.createOperatorServiceAccount=false \
-  --set operator.createResourcesServiceAccountsAndRoles=false \
-  --set "multiCluster.clusters={${K8S_CTX_0},${K8S_CTX_1},${K8S_CTX_2}}" \
   "${OPERATOR_HELM_CHART}"
 
 kubectl --context "${K8S_CTX_0}" -n "${MDB_NS}" rollout status \
   --timeout=300s deployment/mongodb-kubernetes-operator-multi-cluster
 ```
 
-## 3. Create the Ops Manager admin secret
+## 3. Configure the member clusters
+
+With the operator installed, first apply the member-cluster RBAC (ServiceAccount, token
+Secret, Roles and bindings) to every cluster, then register each member cluster on the
+central cluster:
+
+```bash
+for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
+  kubectl mongodb multicluster generate-member-resources \
+    --member-cluster-namespace="${MDB_NS}" \
+    | kubectl apply --context "${ctx}" -f -
+done
+
+for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
+  kubectl mongodb multicluster generate-member-registration \
+    --member-cluster="${ctx}" \
+    --member-cluster-context="${ctx}" \
+    --member-cluster-namespace="${MDB_NS}" \
+    --operator-namespace="${MDB_NS}" \
+    | kubectl apply --context "${K8S_CTX_0}" -f -
+done
+```
+
+## 4. Create the Ops Manager admin secret
 
 Both Ops Managers reference this secret via `spec.adminCredentials`.
 
@@ -172,7 +184,7 @@ kubectl create secret generic ops-manager-admin-secret \
   --from-literal=LastName="${OM_ADMIN_LAST_NAME}"
 ```
 
-## 4. Install cert-manager (central cluster)
+## 5. Install cert-manager (central cluster)
 
 The multi-cluster AppDB members are TLS-enabled, so you need cert-manager on the central cluster to
 issue the CA and the AppDB server certificate.
@@ -184,7 +196,7 @@ helm upgrade --install --kube-context "${K8S_CTX_0}" \
   --set crds.enabled=true
 ```
 
-## 5. Configure the TLS CA
+## 6. Configure the TLS CA
 
 Create the signing chain (self-signed `ClusterIssuer` → CA `Certificate` → CA `ClusterIssuer`), then
 publish the CA into a ConfigMap the operator references as `spec.security.tls.ca` (keys `ca-pem` and
@@ -268,7 +280,7 @@ kubectl create configmap "${APPDB_CA_CONFIGMAP}" \
 rm -f "${ca_bundle_file}"
 ```
 
-## 6. Generate the AppDB server certificate
+## 7. Generate the AppDB server certificate
 
 The cert secret name follows the operator convention `<certsSecretPrefix>-<appdb-name>-cert`. The
 wildcard `dnsName` covers every per-member AppDB Service FQDN
@@ -299,7 +311,7 @@ kubectl wait --for=condition=Ready certificate/"${APPDB_CERT_PREFIX}-${APPDB_NAM
   -n "${MDB_NS}" --context "${K8S_CTX_0}" --timeout=120s
 ```
 
-## 7. Deploy the management Ops Manager
+## 8. Deploy the management Ops Manager
 
 An ordinary single-cluster Ops Manager with its own internal AppDB, on the central cluster. It owns
 the project under which the external AppDB is registered.
@@ -337,7 +349,7 @@ spec:
 EOF
 ```
 
-## 8. Wait for the management Ops Manager
+## 9. Wait for the management Ops Manager
 
 Wait for the internal AppDB, then the OM application, then confirm the public REST API is serving
 (the operator needs it to create the AppDB project).
@@ -367,7 +379,7 @@ its credentials:
 kubectl get secret "${MANAGEMENT_OM_ADMIN_KEY_SECRET}" --context "${K8S_CTX_0}" -n "${MDB_NS}"
 ```
 
-## 9. Create the AppDB project ConfigMap
+## 10. Create the AppDB project ConfigMap
 
 Points the AppDB CR at a project on the management OM. `sslMMSCAConfigMap` advertises the CA the
 TLS-enabled AppDB agents must trust when reaching Ops Manager.
@@ -383,7 +395,7 @@ kubectl create configmap "${APPDB_PROJECT_CONFIGMAP}" \
   | kubectl apply --context "${K8S_CTX_0}" -n "${MDB_NS}" -f -
 ```
 
-## 10. Create the external AppDB `MongoDBMultiCluster`
+## 11. Create the external AppDB `MongoDBMultiCluster`
 
 A `MongoDBMultiCluster` with `role: AppDB`, spread across the two member clusters, with TLS enabled.
 **The name must be `${APPDB_NAME}` (`<primary-om-name>-db`).** The CR object is applied on the
@@ -420,7 +432,7 @@ kubectl wait --for=jsonpath='{.status.phase}'=Running \
   mdbmc/"${APPDB_NAME}" --context "${K8S_CTX_0}" -n "${MDB_NS}" --timeout=1200s
 ```
 
-## 11. Create the primary Ops Manager
+## 12. Create the primary Ops Manager
 
 No `spec.applicationDatabase` — it references the external multi-cluster AppDB via
 `externalApplicationDatabaseRef` (`kind: MongoDBMultiCluster`).
@@ -454,7 +466,7 @@ spec:
 EOF
 ```
 
-## 12. Wait for the primary Ops Manager
+## 13. Wait for the primary Ops Manager
 
 ```bash
 kubectl wait --for=jsonpath='{.status.opsManager.phase}'=Running \
@@ -466,7 +478,7 @@ kubectl wait --for=jsonpath='{.status.applicationDatabase.phase}'=Disabled \
   om/"${PRIMARY_OM_NAME}" --context "${K8S_CTX_0}" -n "${MDB_NS}" --timeout=600s
 ```
 
-## 13. Verify
+## 14. Verify
 
 In multi-cluster mode the AppDB StatefulSets live in the member clusters (one per cluster, named
 `<appdb>-<clusterIndex>`), and ownership is tracked by the `mongodbmulticluster` **label**
@@ -499,11 +511,11 @@ present.
   (downloading `https://downloads.mongodb.com/...`)** — with AppDB TLS enabled the agent validates
   the download against the `spec.security.tls.ca` bundle, not the system store. The CA ConfigMap must
   include the **public** roots that sign `downloads.mongodb.com`, not only your self-signed CA.
-  Rebuild it as in step 5 (self-signed CA **+** the host system CA bundle). The management OM's *own*
+  Rebuild it as in step 6 (self-signed CA **+** the host system CA bundle). The management OM's *own*
   internal AppDB is unaffected because it has TLS disabled and uses the system trust store.
 - **`The ConfigMap "<appdb>-ca" is invalid: metadata.annotations: Too long`** — the combined CA
   bundle exceeds the 262144-byte limit of the client-side apply annotation. Apply it with
-  `kubectl apply --server-side --force-conflicts` (as in step 5), or `kubectl create` without
+  `kubectl apply --server-side --force-conflicts` (as in step 6), or `kubectl create` without
   `apply`.
 - **AppDB `MongoDBMultiCluster` is `Failed` with `Invalid config: MongoDB version <x> is not
   available`** — the external AppDB is an Ops-Manager-managed MongoDB, so its `spec.version` must be
@@ -514,11 +526,11 @@ present.
   namespace is missing the `istio-injection=enabled` label (step 1), so the pods have no sidecar and
   cannot resolve the central-cluster OM service over the mesh.
 - **Management OM pod CrashLoops right after start; logs show `mms.ignoreInitialUiSetup ...
-  mms.fromEmailAddr must not be blank`** — add the `mms.*` mail block shown in step 7 to
+  mms.fromEmailAddr must not be blank`** — add the `mms.*` mail block shown in step 8 to
   `spec.configuration`.
 - **AppDB stays `Pending` and its agents never get an automation config** — the AppDB CR was created
   before the management OM's public REST API was serving, so the operator could not seed the project.
-  Ensure the readiness poll in step 8 passes before step 10.
+  Ensure the readiness poll in step 9 passes before step 11.
 - **`externalApplicationDatabaseRef.name` rejected** — the referenced CR name must be exactly
   `<primary-om-name>-db`.
 - **Primary OM `status.applicationDatabase.phase` is `Disabled`, not `Running`** — expected: in

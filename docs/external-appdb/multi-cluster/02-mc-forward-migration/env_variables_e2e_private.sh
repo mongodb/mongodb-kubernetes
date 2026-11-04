@@ -16,10 +16,12 @@ K8S_CTX_2=$(echo "${MEMBER_CLUSTERS}" | awk '{print $3}')
 export K8S_CTX_2
 
 # kind API server endpoints (127.0.0.1:<port>) are not reachable from pods, so
-# the kubeconfig Secret created by `kubectl mongodb multicluster setup` would
-# leave the operator unable to reach the member clusters. Build a kubeconfig
-# variant pointing at each cluster's node container IP on the shared docker
-# network (port 6443), reachable both from pods and from this host.
+# the credential Secret emitted by `kubectl mongodb multicluster
+# generate-member-registration` -- which takes the API-server address from the
+# member cluster's kubeconfig context -- would leave the operator unable to
+# reach the member clusters. Build a kubeconfig variant pointing at each
+# cluster's node container IP on the shared docker network (port 6443),
+# reachable both from pods and from this host.
 plugin_kubeconfig="${PROJECT_DIR}/.generated/snippets_mc_appdb_plugin_kubeconfig"
 mkdir -p "$(dirname "${plugin_kubeconfig}")"
 cp "${KUBECONFIG:-${HOME}/.kube/config}" "${plugin_kubeconfig}"
