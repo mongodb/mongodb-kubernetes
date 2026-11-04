@@ -49,15 +49,15 @@ This guide starts from an already-running multi-cluster deployment. Before you b
 
 - **Three** clusters (central + two AppDB members) with an Istio mesh, and the **multi-cluster
   operator installed** on the central cluster — see [../01-mc-fresh-start](../01-mc-fresh-start)
-  steps 1–2.
+  steps 1–3.
 - cert-manager, the **TLS CA ConfigMap** (`${APPDB_CA_CONFIGMAP}`, including the public roots for
   `downloads.mongodb.com`) and the AppDB server certificate — see
-  [../01-mc-fresh-start](../01-mc-fresh-start) steps 4–6. **This CA setup is mandatory**; without the
+  [../01-mc-fresh-start](../01-mc-fresh-start) steps 5–7. **This CA setup is mandatory**; without the
   public roots the migrated AppDB agents fail the binary download (see that guide's Troubleshooting).
 - A **management Ops Manager** that is `Running` and owns the external AppDB's project, plus its
   operator-provisioned API-key secret (`<namespace>-<management-om-name>-admin-key`) and the project
   ConfigMap (`${APPDB_PROJECT_CONFIGMAP}`) — see [../01-mc-fresh-start](../01-mc-fresh-start) steps
-  7–9.
+  8–10.
 - A **primary Ops Manager** with an **internal multi-cluster AppDB** (the deployment you are
   migrating). If you do not have one yet, create it as in step 1 below.
 
@@ -220,6 +220,6 @@ the `appdb-migration-ready` annotation is empty.
   OM detaches; it clears once `externalApplicationDatabaseRef` is set (step 4).
 - **AppDB agents fail the binary download with `x509: certificate signed by unknown authority`** — the
   TLS CA ConfigMap must include the public roots for `downloads.mongodb.com`, not only the self-signed
-  CA. See [../01-mc-fresh-start](../01-mc-fresh-start) step 5 and its Troubleshooting.
+  CA. See [../01-mc-fresh-start](../01-mc-fresh-start) step 6 and its Troubleshooting.
 - **Ownership check** — multi-cluster AppDB StatefulSets are tracked by the `mongodbmulticluster`
   label per member cluster, not by `ownerReferences`.
