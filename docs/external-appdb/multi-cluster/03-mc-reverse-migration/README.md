@@ -37,21 +37,21 @@ source env_variables.sh
 …or step by step (in order):
 
 ### Setup
-1–11. Same setup block as [01-mc-fresh-start](../01-mc-fresh-start) (`eadb-mc-03_0040` … `0220`).
+1–12. Same setup block as [01-mc-fresh-start](../01-mc-fresh-start) (`eadb-mc-03_0040` … `0220`).
 
 ### Reach the external-AppDB state
-11. `eadb-mc-03_0300_create_appdb_mongodbmulti.sh` — external `MongoDBMultiCluster` (`role: AppDB`).
-12. `eadb-mc-03_0305_wait_appdb.sh` — wait until the AppDB is `Running`.
-13. `eadb-mc-03_0310_create_primary_om.sh` — primary OM with `externalApplicationDatabaseRef`.
-14. `eadb-mc-03_0315_wait_primary_om.sh` — wait until the OM is `Running` / AppDB `Disabled`.
+13. `eadb-mc-03_0300_create_appdb_mongodbmulti.sh` — external `MongoDBMultiCluster` (`role: AppDB`).
+14. `eadb-mc-03_0305_wait_appdb.sh` — wait until the AppDB is `Running`.
+15. `eadb-mc-03_0310_create_primary_om.sh` — primary OM with `externalApplicationDatabaseRef`.
+16. `eadb-mc-03_0315_wait_primary_om.sh` — wait until the OM is `Running` / AppDB `Disabled`.
 
 ### Reverse migration
-15. `eadb-mc-03_0320_reconfigure_to_internal.sh` — patch the OM: drop the ref, add
+17. `eadb-mc-03_0320_reconfigure_to_internal.sh` — patch the OM: drop the ref, add
     `applicationDatabase` (`topology: MultiCluster`).
-16. `eadb-mc-03_0325_wait_release_and_adopt.sh` — the CR becomes `Pending` (released); the OM re-adopts
+18. `eadb-mc-03_0325_wait_release_and_adopt.sh` — the CR becomes `Pending` (released); the OM re-adopts
     the internal AppDB and becomes `Running`.
-17. `eadb-mc-03_0330_delete_mongodbmulti_cr.sh` — delete the released CR.
-18. `eadb-mc-03_0400_verify.sh` — per-member StatefulSets survive (empty `ownerReferences`), OM internal
+19. `eadb-mc-03_0330_delete_mongodbmulti_cr.sh` — delete the released CR.
+20. `eadb-mc-03_0400_verify.sh` — per-member StatefulSets survive (empty `ownerReferences`), OM internal
     AppDB `Running`.
 
 ## Troubleshooting
