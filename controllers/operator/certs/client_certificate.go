@@ -12,6 +12,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -51,16 +52,20 @@ func ClientCertificate(res CertificateOwner, user *userv1.MongoDBUser) (*certman
 		return nil, xerrors.Errorf("the client certificate subject must differ from the membership subject in organizations or organizationalUnits: both are O=%v, OU=%v, so mongod would treat the client as a cluster member", clientCertSub.Organizations, clientCertSub.OrganizationalUnits)
 	}
 
-	signer := categoryServer
-	if sec.RequiresX509ClientCerts() {
-		signer = categoryClient
-	}
-
 	clientCert := &certmanagerv1.Certificate{}
 	clientCert.Name = user.ClientCertificateName()
 	clientCert.Namespace = res.GetNamespace()
-	clientCert.Spec = certSpec(res, signer, user.ClientCertificateSecretName(), nil, sub.CommonName, clientCertSub, clientAuthCertUsages)
+	clientCert.Spec = certSpec(res, clientCertificateSigner(sec), user.ClientCertificateSecretName(), nil, sub.CommonName, clientCertSub, clientAuthCertUsages)
 	return clientCert, nil
+}
+
+// clientCertificateSigner returns the category whose issuer signs the MongoDBUser client
+// certificates, see ClientCertificate.
+func clientCertificateSigner(sec *mdbv1.Security) certCategory {
+	if sec.RequiresX509ClientCerts() {
+		return categoryClient
+	}
+	return categoryServer
 }
 
 // EnsureClientCertificate creates or updates a user's client Certificate and reports whether

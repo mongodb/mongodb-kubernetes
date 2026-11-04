@@ -43,7 +43,9 @@ func (o serverCertificateOwner) ownerResource() v1.ObjectOwner { return o.Object
 // EnsureServerCertificateAndCA issues the serverAuth certificate for an Ops Manager
 // component that has no client category (the app server and the queryable backup daemon).
 // The certificate and CA bundle are owned by owner; generated names derive from
-// opts.NamingBase so the components cannot collide. Callers compute the SANs.
+// opts.NamingBase so the components cannot collide. Callers compute the SANs. The returned
+// bool reports that a requested prune of the previous server CA has been applied and the
+// caller may remove the prune annotation.
 func EnsureServerCertificateAndCA(
 	ctx context.Context,
 	c kubernetesClient.Client,
@@ -51,17 +53,17 @@ func EnsureServerCertificateAndCA(
 	cfg *omv1.ManagedCertificate,
 	opts ServerCertificateOptions,
 	log *zap.SugaredLogger,
-) (workflow.Status, metav1.Condition) {
+) (workflow.Status, metav1.Condition, bool) {
 	if cfg == nil {
-		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
+		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource"), false
 	}
 	if opts.NamingBase == "" || opts.SecretName == "" {
 		msg := "operator-managed server certificate requires a naming base and a secret name"
-		return workflow.Failed(xerrors.New(msg)), issuanceFailedCondition(msg)
+		return workflow.Failed(xerrors.New(msg)), issuanceFailedCondition(msg), false
 	}
 	if opts.CABundleName == "" || opts.CABundleKey == "" {
 		msg := "operator-managed server certificate requires a CA bundle ConfigMap name and key"
-		return workflow.Failed(xerrors.New(msg)), issuanceFailedCondition(msg)
+		return workflow.Failed(xerrors.New(msg)), issuanceFailedCondition(msg), false
 	}
 
 	res := serverCertificateOwner{
@@ -78,20 +80,17 @@ func EnsureServerCertificateAndCA(
 
 	renewalFailures, status, condition := ensureCertificatesReady(ctx, c, res, []certToEnsure{{certName: opts.SecretName, spec: spec}}, false)
 	if !status.IsOK() {
-		return status, condition
+		return status, condition, false
 	}
 
-	if status = ensureCategoryBundle(
-		ctx,
-		c,
-		res,
-		categoryServer,
-		opts.SecretName,
-		[]string{opts.SecretName},
-		caBundleTarget{name: opts.CABundleName, aliasKey: opts.CABundleKey}); !status.IsOK() {
-		return status, issuanceFailedCondition(status.Message())
+	previousRetained, err := ensureCategoryBundle(ctx, c, res, categoryServer, []Options{{CertSecretName: opts.SecretName}},
+		caBundleTarget{name: opts.CABundleName, aliasKey: opts.CABundleKey})
+	if err != nil {
+		return workflow.Failed(err), issuanceFailedCondition(err.Error()), false
 	}
 	log.Debugf("Populated operator-managed CA ConfigMap %s for %s", opts.CABundleName, opts.NamingBase)
 
-	return certificatesResult(renewalFailures)
+	refused := pruneRequested(res, categoryServer) && previousRetained
+	status, condition = certificatesResult(renewalFailures, previousCASentence(categoryServer, previousRetained, refused))
+	return status, condition, pruneRequested(res, categoryServer) && !refused
 }

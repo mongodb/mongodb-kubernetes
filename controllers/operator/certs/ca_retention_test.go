@@ -141,6 +141,16 @@ func setCategoryLeaves(t *testing.T, c kubernetesClient.Client, owner Certificat
 	setSecret(t, c, owner.GetSecurity().AgentClientCertificateSecretName(resName), map[string][]byte{corev1.TLSCertKey: clientCA.issueLeaf(t, "agent")})
 }
 
+// rotateSelfSignedCA plays cert-manager reissuing a category's self-signed CA Certificate: both ca.crt
+// and tls.crt of the CA secret are replaced with the new root.
+func rotateSelfSignedCA(t *testing.T, c kubernetesClient.Client, owner CertificateOwner, cat certCategory, ca *testCA) {
+	t.Helper()
+	setSecret(t, c, managedCACertName(owner, cat), map[string][]byte{
+		corev1.ServiceAccountRootCAKey: []byte(ca.pem),
+		corev1.TLSCertKey:              []byte(ca.pem),
+	})
+}
+
 // rotatedFixture is a resource whose server and client CAs were rotated once, with every leaf reissued
 // by the new CAs. The published bundle therefore holds both the old and the new CAs of each category.
 func rotatedFixture(t *testing.T, serverCA1, serverCA2, clientCA1, clientCA2 *testCA) (*mdbv1.MongoDB, Options, kubernetesClient.Client) {
@@ -337,6 +347,166 @@ func TestPrunePreviousCA(t *testing.T) {
 		status := EnsureCAConfigMapFromIssuedSecret(ctx, c, owner, []Options{opts}, true, zap.S())
 		assert.False(t, status.IsOK())
 		assert.Contains(t, status.Message(), "could not read certificate secret")
+	})
+}
+
+// TestSelfSignedCARotationRetention covers CA rotation for a category signed by the operator's own
+// self-signed CA (no issuerRef configured, the CA read from the "<name>-<cat>-ca" secret). cert-manager
+// reissuing that root must go through the same retention and prune path as a user issuer CA rotation.
+func TestSelfSignedCARotationRetention(t *testing.T) {
+	ctx := context.Background()
+	serverCA1, serverCA2, serverCA3 := newTestCA(t, "server-ca-1"), newTestCA(t, "server-ca-2"), newTestCA(t, "server-ca-3")
+	clientCA1, clientCA2 := newTestCA(t, "client-ca-1"), newTestCA(t, "client-ca-2")
+
+	t.Run("a cert-manager reissued self-signed root is bundled with the new root", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		opts.InternalClusterSecretName = resName + "-clusterfile"
+		setCAs(serverCA1.pem, clientCA1.pem)
+		setCategoryLeaves(t, c, owner, opts, serverCA1, clientCA1)
+		ensureBundles(t, c, owner, opts, true)
+
+		rotateSelfSignedCA(t, c, owner, categoryServer, serverCA2)
+		rotateSelfSignedCA(t, c, owner, categoryClient, clientCA2)
+		setCategoryLeaves(t, c, owner, opts, serverCA2, clientCA2)
+		ensureBundles(t, c, owner, opts, true)
+
+		serverBundle, clientBundle := expectedBundle(serverCA1, serverCA2), expectedBundle(clientCA1, clientCA2)
+		assert.Equal(t, serverBundle, latestBundle(t, c, serverCMKey))
+		assert.Equal(t, clientBundle, latestBundle(t, c, clientCMKey))
+
+		serverCM, err := c.GetConfigMap(ctx, serverCMKey)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			hashOfBundle(serverBundle):  serverBundle,
+			util.LatestHashSecretKey:    hashOfBundle(serverBundle),
+			util.PreviousHashSecretKey:  hashOfBundle(serverCA1.pem),
+			hashOfBundle(serverCA1.pem): serverCA1.pem,
+			tls.CAConfigMapKey:          serverBundle,
+		}, serverCM.Data)
+		assert.Empty(t, serverCM.Annotations, "the operator keeps no control state on the ConfigMap")
+
+		clientCM, err := c.GetConfigMap(ctx, clientCMKey)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			hashOfBundle(clientBundle):  clientBundle,
+			util.LatestHashSecretKey:    hashOfBundle(clientBundle),
+			util.PreviousHashSecretKey:  hashOfBundle(clientCA1.pem),
+			hashOfBundle(clientCA1.pem): clientCA1.pem,
+		}, clientCM.Data)
+		assert.Empty(t, clientCM.Annotations)
+	})
+
+	t.Run("true is refused while a leaf is still signed by the old self-signed root", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		opts.InternalClusterSecretName = resName + "-clusterfile"
+		setCAs(serverCA1.pem, clientCA1.pem)
+		setCategoryLeaves(t, c, owner, opts, serverCA1, clientCA1)
+		ensureBundles(t, c, owner, opts, true)
+
+		rotateSelfSignedCA(t, c, owner, categoryServer, serverCA2)
+		rotateSelfSignedCA(t, c, owner, categoryClient, clientCA2)
+		// only the client leaves are reissued; the member cert is still signed by the old server root
+		setSecret(t, c, opts.InternalClusterSecretName, map[string][]byte{corev1.TLSCertKey: clientCA2.issueLeaf(t, "clusterfile")})
+		setSecret(t, c, owner.GetSecurity().AgentClientCertificateSecretName(resName), map[string][]byte{corev1.TLSCertKey: clientCA2.issueLeaf(t, "agent")})
+		ensureBundles(t, c, owner, opts, true)
+
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "true"}
+		status := ensureBundles(t, c, owner, opts, true)
+		assert.True(t, status.IsOK(), "a refused prune does not fail the reconcile")
+
+		assert.Equal(t, expectedBundle(serverCA1, serverCA2), latestBundle(t, c, serverCMKey), "the old server root is kept")
+		assert.Equal(t, clientCA2.pem, latestBundle(t, c, clientCMKey), "the client category has no leaf left on the old root")
+	})
+
+	t.Run("true prunes the old self-signed root once every leaf uses the new root", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		opts.InternalClusterSecretName = resName + "-clusterfile"
+		setCAs(serverCA1.pem, clientCA1.pem)
+		setCategoryLeaves(t, c, owner, opts, serverCA1, clientCA1)
+		ensureBundles(t, c, owner, opts, true)
+
+		rotateSelfSignedCA(t, c, owner, categoryServer, serverCA2)
+		rotateSelfSignedCA(t, c, owner, categoryClient, clientCA2)
+		setCategoryLeaves(t, c, owner, opts, serverCA2, clientCA2)
+		ensureBundles(t, c, owner, opts, true)
+
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "true"}
+		ensureBundles(t, c, owner, opts, true)
+
+		assert.Equal(t, serverCA2.pem, latestBundle(t, c, serverCMKey))
+		assert.Equal(t, clientCA2.pem, latestBundle(t, c, clientCMKey))
+		hashesServer, hashesClient, err := ReadManagedCABundleHashes(ctx, c, resName, resNamespace, true)
+		require.NoError(t, err)
+		assert.Equal(t, hashOfBundle(serverCA2.pem), hashesServer)
+		assert.Equal(t, hashOfBundle(clientCA2.pem), hashesClient)
+	})
+
+	t.Run("a second root rotation before pruning keeps every previously published root, not only the previous one", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		setCAs(serverCA1.pem, clientCA1.pem)
+		ensureBundles(t, c, owner, opts, true)
+
+		rotateSelfSignedCA(t, c, owner, categoryServer, serverCA2)
+		ensureBundles(t, c, owner, opts, true)
+
+		rotateSelfSignedCA(t, c, owner, categoryServer, serverCA3)
+		ensureBundles(t, c, owner, opts, true)
+
+		// previousCAs keeps everything in the bundle that is not the current CA, so
+		// both earlier roots stay until a prune (the ConfigMap keeps only the two newest hashes, but
+		// the latest bundle itself still carries all three roots).
+		bundle := latestBundle(t, c, serverCMKey)
+		assert.Equal(t, expectedBundle(serverCA1, serverCA2, serverCA3), bundle)
+		assert.Equal(t, 3, strings.Count(bundle, "BEGIN CERTIFICATE"))
+		assert.Equal(t, clientCA1.pem, latestBundle(t, c, clientCMKey))
+	})
+
+	t.Run("a client-only prune leaves the retained server roots in place", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		opts.InternalClusterSecretName = resName + "-clusterfile"
+		setCAs(serverCA1.pem, clientCA1.pem)
+		setCategoryLeaves(t, c, owner, opts, serverCA1, clientCA1)
+		ensureBundles(t, c, owner, opts, true)
+
+		rotateSelfSignedCA(t, c, owner, categoryServer, serverCA2)
+		rotateSelfSignedCA(t, c, owner, categoryClient, clientCA2)
+		setCategoryLeaves(t, c, owner, opts, serverCA2, clientCA2)
+		ensureBundles(t, c, owner, opts, true)
+		assert.Equal(t, expectedBundle(serverCA1, serverCA2), latestBundle(t, c, serverCMKey))
+		assert.Equal(t, expectedBundle(clientCA1, clientCA2), latestBundle(t, c, clientCMKey))
+
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "client"}
+		ensureBundles(t, c, owner, opts, true)
+
+		assert.Equal(t, expectedBundle(serverCA1, serverCA2), latestBundle(t, c, serverCMKey), "the server bundle is untouched")
+		assert.Equal(t, clientCA2.pem, latestBundle(t, c, clientCMKey))
+	})
+
+	t.Run("a removed additionalTrustedCAs entry stays in the bundle until pruned, the bundle only shrinks on prune", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		additionalCA := newTestCA(t, "additional-ca")
+		setConfigMap(t, c, "additional-ca", map[string]string{"ca.crt": additionalCA.pem})
+		owner.Spec.Security.ManagedCertificate.Server = &mdbv1.CertificateConfig{
+			AdditionalTrustedCAs: []mdbv1.CARef{{Name: "additional-ca", Kind: "ConfigMap", Key: "ca.crt"}},
+		}
+		setCAs(serverCA1.pem, clientCA1.pem)
+		setSecret(t, c, opts.CertSecretName, map[string][]byte{corev1.TLSCertKey: serverCA1.issueLeaf(t, "member")})
+		ensureBundles(t, c, owner, opts, false)
+		assert.Equal(t, expectedBundle(serverCA1, additionalCA), latestBundle(t, c, serverCMKey))
+
+		owner.Spec.Security.ManagedCertificate.Server = nil
+		ensureBundles(t, c, owner, opts, false)
+		assert.Equal(t, expectedBundle(serverCA1, additionalCA), latestBundle(t, c, serverCMKey), "removing the source does not shrink the bundle")
+
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "true"}
+		ensureBundles(t, c, owner, opts, false)
+		assert.Equal(t, serverCA1.pem, latestBundle(t, c, serverCMKey), "the removed CA is pruned")
 	})
 }
 

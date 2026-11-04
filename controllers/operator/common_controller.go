@@ -46,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -419,6 +420,22 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 	}
 }
 
+// watchUserClientCertificateSecrets watches the client certificate secrets that the operator issues
+// for the MongoDBUsers of res. The MongoDBUser owns them, so without the watch a user certificate
+// moving to the new CA would not reconcile res to retry a refused prune of the previous CA.
+// It must run after SetupCommonWatchers, which removes the watches of res.
+func (r *ReconcileCommonController) watchUserClientCertificateSecrets(ctx context.Context, res certs.CertificateOwner, log *zap.SugaredLogger) {
+	secretNames, err := certs.UserClientCertificateSecretNames(ctx, r.client, res)
+	if err != nil {
+		log.Warnf("Failed to watch the client certificate secrets of the MongoDBUsers: %s", err)
+		return
+	}
+	objectKey := kube.ObjectKey(res.GetNamespace(), res.GetName())
+	for _, secretName := range secretNames {
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(secretName, res.GetNamespace(), watch.Secret, objectKey)
+	}
+}
+
 // GetResource populates the provided runtime.Object with some additional error handling
 func (r *ReconcileCommonController) GetResource(ctx context.Context, request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
 	return commoncontroller.GetResource(ctx, r.client, request, resource, log)
@@ -435,6 +452,19 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 	resource.SetWarnings([]status.Warning{})
 
 	return reconcile.Result{}, nil
+}
+
+// removeFulfilledPruneAnnotation removes the prune-previous-ca annotation once the operator has
+// applied it. The CA bundles are published before this runs, so a reconcile interrupted between the
+// two steps just finds nothing left to prune and removes the annotation next time.
+func (r *ReconcileCommonController) removeFulfilledPruneAnnotation(ctx context.Context, resource client.Object, pruneApplied bool) workflow.Status {
+	if !pruneApplied {
+		return workflow.OK()
+	}
+	if err := annotations.RemoveAnnotation(ctx, resource, util.PrunePreviousCAAnnotation, r.client); err != nil {
+		return workflow.Failed(err)
+	}
+	return workflow.OK()
 }
 
 // checkIfHasExcessProcesses will check if the project has excess processes.
