@@ -199,7 +199,7 @@ type MongoDBOpsManagerLicense struct {
 	// ReleaseReceipts requests a release receipt for each entry.
 	// An entry can be either an artifactId or a licenseSecretRef.
 	// The operator creates one Secret per entry, named <artifactId>-release-receipt,
-	// containing its receipt.
+	// containing the license release receipt.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
