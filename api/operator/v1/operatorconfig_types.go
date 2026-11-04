@@ -101,95 +101,6 @@ type AutomaticRecoveryConfig struct {
 	Delay int `json:"delay,omitempty"`
 }
 
-// TelemetryCollectionClustersConfig controls collection of cluster-level telemetry.
-type TelemetryCollectionClustersConfig struct {
-	// Mode controls collection of cluster-level telemetry.
-	// Note: The cluster UUID is unique but random and MongoDB has no way to map it to a customer.
-	// +optional
-	// +kubebuilder:default=Enabled
-	Mode FeatureMode `json:"mode,omitempty"`
-}
-
-// TelemetryCollectionDeploymentsConfig controls collection of deployment-level telemetry.
-type TelemetryCollectionDeploymentsConfig struct {
-	// Mode controls collection of deployment-level telemetry.
-	// +optional
-	// +kubebuilder:default=Enabled
-	Mode FeatureMode `json:"mode,omitempty"`
-}
-
-// TelemetryCollectionOperatorsConfig controls collection of operator-level telemetry.
-type TelemetryCollectionOperatorsConfig struct {
-	// Mode controls collection of operator-level telemetry.
-	// +optional
-	// +kubebuilder:default=Enabled
-	Mode FeatureMode `json:"mode,omitempty"`
-}
-
-// TelemetryCollectionConfig controls how telemetry data is collected.
-// Collection does not imply sending; see TelemetrySendConfig for transmission settings.
-type TelemetryCollectionConfig struct {
-	// Frequency controls how often telemetry data is collected and written to the telemetry ConfigMap.
-	// Duration using h (hours) and m (minutes) units, e.g. "30m", "1h", "2h30m". Must be at least 1m; defaults to 1h when omitted.
-	// +optional
-	// +kubebuilder:default="1h"
-	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1m')",message="frequency must be at least 1m"
-	Frequency *metav1.Duration `json:"frequency,omitempty"`
-
-	// KubeTimeout is the timeout for Kubernetes API calls made while collecting telemetry.
-	// Duration using h (hours), m (minutes) and s (seconds) units, e.g. "30s", "5m". Must be at least 1s; defaults to 5m when omitted.
-	// +optional
-	// +kubebuilder:default="5m"
-	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1s')",message="kubeTimeout must be at least 1s"
-	KubeTimeout *metav1.Duration `json:"kubeTimeout,omitempty"`
-
-	// Clusters controls collection of cluster-level telemetry.
-	// +optional
-	Clusters *TelemetryCollectionClustersConfig `json:"clusters,omitempty"`
-
-	// Deployments controls collection of deployment-level telemetry.
-	// +optional
-	Deployments *TelemetryCollectionDeploymentsConfig `json:"deployments,omitempty"`
-
-	// Operators controls collection of operator-level telemetry.
-	// +optional
-	Operators *TelemetryCollectionOperatorsConfig `json:"operators,omitempty"`
-}
-
-// TelemetrySendConfig controls how collected telemetry is sent to MongoDB.
-// Disabling send does not prevent local collection.
-type TelemetrySendConfig struct {
-	// Mode controls sending of collected telemetry to MongoDB for analysis.
-	// +optional
-	// +kubebuilder:default=Enabled
-	Mode FeatureMode `json:"mode,omitempty"`
-
-	// Frequency controls how often collected telemetry is pushed to MongoDB.
-	// Duration using h (hours) units, e.g. "24h", "168h". Must be at least 1h; defaults to 168h when omitted.
-	// +optional
-	// +kubebuilder:default="168h"
-	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1h')",message="frequency must be at least 1h"
-	Frequency *metav1.Duration `json:"frequency,omitempty"`
-}
-
-// TelemetryConfig configures collection and sending of operator telemetry.
-// Absence of this block implies telemetry is enabled.
-type TelemetryConfig struct {
-	// Mode is the master switch for telemetry. Set to Disabled to disable all
-	// telemetry collection and sending.
-	// +optional
-	// +kubebuilder:default=Enabled
-	Mode FeatureMode `json:"mode,omitempty"`
-
-	// Collection controls how telemetry data is collected.
-	// +optional
-	Collection *TelemetryCollectionConfig `json:"collection,omitempty"`
-
-	// Send controls how collected telemetry is sent to MongoDB.
-	// +optional
-	Send *TelemetrySendConfig `json:"send,omitempty"`
-}
-
 // OperatorConfigSpec defines the desired state of OperatorConfig.
 type OperatorConfigSpec struct {
 	// WatchedResources controls which CRDs the operator actively reconciles.
@@ -222,11 +133,6 @@ type OperatorConfigSpec struct {
 	// automation configuration.
 	// +optional
 	AutomaticRecovery *AutomaticRecoveryConfig `json:"automaticRecovery,omitempty"`
-
-	// Telemetry configures collection and sending of operator telemetry.
-	// Absence of this block implies telemetry is enabled.
-	// +optional
-	Telemetry *TelemetryConfig `json:"telemetry,omitempty"`
 }
 
 // OperatorConfig configures the behaviour of the MCK operator instance deployed in the same namespace.
