@@ -24,6 +24,7 @@ from scripts.release.atomic_pipeline import (
     build_init_om_image,
     build_mco_tests_image,
     build_meko_tests_image,
+    build_mongodb_proxy_image,
     build_om_image,
     build_operator_image,
     build_readiness_probe_image,
@@ -39,6 +40,7 @@ from scripts.release.build.build_info import (
     MEKO_TESTS_IBM_POWER_IMAGE,
     MEKO_TESTS_IBM_Z_IMAGE,
     MEKO_TESTS_IMAGE,
+    MONGODB_PROXY_IMAGE,
     OPERATOR_IMAGE,
     OPERATOR_RACE_IMAGE,
     OPS_MANAGER_IMAGE,
@@ -80,6 +82,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         INIT_OPS_MANAGER_IMAGE: build_init_om_image,
         # Ops Manager image
         OPS_MANAGER_IMAGE: build_om_image,
+        # mongodb-proxy, mounted into the database container as an OCI image volume
+        MONGODB_PROXY_IMAGE: build_mongodb_proxy_image,
     }
 
     return image_builders

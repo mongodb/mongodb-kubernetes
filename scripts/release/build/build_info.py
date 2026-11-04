@@ -17,6 +17,7 @@ DATABASE_IMAGE = "database"
 AGENT_IMAGE = "agent"
 INIT_DATABASE_IMAGE = "init-database"
 INIT_OPS_MANAGER_IMAGE = "init-ops-manager"
+MONGODB_PROXY_IMAGE = "mongodb-proxy"
 OPS_MANAGER_IMAGE = "ops-manager"
 
 KUBECTL_PLUGIN_BINARY = "kubectl-mongodb"

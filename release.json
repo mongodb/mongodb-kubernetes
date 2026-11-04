@@ -4,6 +4,7 @@
   },
   "mongodbOperator": "1.15.1",
   "initDatabaseVersion": "1.15.1",
+  "mongodbProxyVersion": "1.15.1",
   "initOpsManagerVersion": "1.15.1",
   "databaseImageVersion": "1.15.1",
   "agentVersion": "109.0.1.9310-1",
