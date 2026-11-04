@@ -91,6 +91,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
+	defaultImageType    architectures.ImageType
 
 	// certManagerReadiness is used to make sure the managed-certificate path fails with
 	// a clear message when certmanager is not ready, instead of trying and getting a permission error.
@@ -99,7 +100,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -125,6 +126,7 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		agentDebug:                        agentDebug,
 		agentDebugImage:                   agentDebugImage,
 		defaultArchitecture:               defaultArchitecture,
+		defaultImageType:                  defaultImageType,
 		certManagerReadiness:              certManagerReadiness,
 	}
 }
@@ -159,6 +161,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	if err := mrs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
+	}
+	if warning := databaseContainerImageTypeAnnotationWarning(mrs.GetAnnotations(), r.defaultArchitecture); warning != "" {
+		log.Warn(warning)
+		mrs.AddWarningIfNotExists(mdbstatus.Warning(warning))
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, &mrs, log)
@@ -860,7 +866,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, automationAgentVersion)),
 			WithCustomAgentURL(r.customAgentURL),
 
-			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture)),
+			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
 			WithDefaultArchitecture(r.defaultArchitecture),
@@ -1387,7 +1393,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(ctx
 		log.Warnf("failed retrieving list of failed clusters: %s", err.Error())
 	}
 
-	for i, e := range clusterSpecList {
+	for _, e := range clusterSpecList {
 		if stringutil.Contains(failedClusterNames, e.ClusterName) {
 			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is marked as failed", e.ClusterName))
 			continue
@@ -1398,7 +1404,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(ctx
 			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is missing from client map", e.ClusterName))
 			continue
 		}
-		cm := getHostnameOverrideConfigMap(mrs, i, e.ClusterName, e.Members)
+		cm := getHostnameOverrideConfigMap(mrs, mrs.ClusterNum(e.ClusterName), e.ClusterName, e.Members)
 
 		err = configmap.CreateOrUpdate(ctx, client, cm)
 		if err != nil && !apiErrors.IsAlreadyExists(err) {
@@ -1442,13 +1448,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster) error {
 	// The operator decides once, at startup, whether it may use cert-manager, the same way the
 	// single-cluster controllers do. The managed-certificate path reports the reason when it may not.
 	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
 
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), certManagerReadiness)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), certManagerReadiness)
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err

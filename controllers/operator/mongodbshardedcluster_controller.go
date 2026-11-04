@@ -98,13 +98,14 @@ type ReconcileMongoDbShardedCluster struct {
 	agentDebugImage     string
 	backupEnableDelay   time.Duration
 	defaultArchitecture architectures.DefaultArchitecture
+	defaultImageType    architectures.ImageType
 
 	// certManagerReadiness is used to make sure the managed-certificate path fails with
 	// a clear message when certmanager is not ready, instead of trying and getting a permission error.
 	certManagerReadiness certs.CertManagerReadiness
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
@@ -120,6 +121,7 @@ func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, 
 		agentDebugImage:     agentDebugImage,
 		backupEnableDelay:   backupEnableDelay,
 		defaultArchitecture: defaultArchitecture,
+		defaultImageType:    defaultImageType,
 
 		certManagerReadiness: certManagerReadiness,
 	}
@@ -625,6 +627,7 @@ type ShardedClusterReconcileHelper struct {
 	agentDebugImage     string
 	backupEnableDelay   time.Duration
 	defaultArchitecture architectures.DefaultArchitecture
+	defaultImageType    architectures.ImageType
 
 	// sc is the resource being reconciled
 	sc *mdbv1.MongoDB
@@ -667,7 +670,7 @@ func NewReadOnlyClusterReconcilerHelper(
 	// This helper only reads the deployment state, it never issues certificates, so the readiness
 	// stays not ready.
 	return newShardedClusterReconcilerHelper(ctx, reconciler, nil, "", "", false, false, false, "",
-		architectures.NonStatic, sc, globalMemberClustersMap, nil, log, true, backupEnableDelay, certs.CertManagerReadiness{})
+		architectures.NonStatic, "", sc, globalMemberClustersMap, nil, log, true, backupEnableDelay, certs.CertManagerReadiness{})
 }
 
 func NewShardedClusterReconcilerHelper(
@@ -681,6 +684,7 @@ func NewShardedClusterReconcilerHelper(
 	agentDebug bool,
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
 	sc *mdbv1.MongoDB,
 	globalMemberClustersMap map[string]client.Client,
 	omConnectionFactory om.ConnectionFactory,
@@ -689,7 +693,7 @@ func NewShardedClusterReconcilerHelper(
 	certManagerReadiness certs.CertManagerReadiness,
 ) (*ShardedClusterReconcileHelper, error) {
 	return newShardedClusterReconcilerHelper(ctx, reconciler, imageUrls, initDatabaseNonStaticImageVersion,
-		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay, certManagerReadiness)
+		databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, sc, globalMemberClustersMap, omConnectionFactory, log, false, backupEnableDelay, certManagerReadiness)
 }
 
 func newShardedClusterReconcilerHelper(
@@ -703,6 +707,7 @@ func newShardedClusterReconcilerHelper(
 	agentDebug bool,
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
 	sc *mdbv1.MongoDB,
 	globalMemberClustersMap map[string]client.Client,
 	omConnectionFactory om.ConnectionFactory,
@@ -732,6 +737,7 @@ func newShardedClusterReconcilerHelper(
 		agentDebugImage:     agentDebugImage,
 		backupEnableDelay:   backupEnableDelay,
 		defaultArchitecture: defaultArchitecture,
+		defaultImageType:    defaultImageType,
 
 		readOnly:             readOnly,
 		certManagerReadiness: certManagerReadiness,
@@ -872,7 +878,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 	// warn if managedCertificate.client is set but not really required/used by the operator
 	sc.SetWarnings(certs.UnusedClientConfigured(sc))
 
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReadiness)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReadiness)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("Failed to initialize sharded cluster reconciler: %w", err)), log)
 	}
@@ -887,7 +893,7 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
 		return nil
 	}
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReadiness)
+	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay, r.certManagerReadiness)
 	if err != nil {
 		return err
 	}
@@ -898,6 +904,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	sc := r.sc
 	if err := sc.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.commonController.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
+	}
+	if warning := databaseContainerImageTypeAnnotationWarning(sc.GetAnnotations(), r.defaultArchitecture); warning != "" {
+		log.Warn(warning)
+		sc.AddWarningIfNotExists(mdbstatus.Warning(warning))
 	}
 
 	log.Info("-> ShardedCluster.Reconcile")
@@ -1945,13 +1955,13 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	}
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
 	// Create a new controller
 	// Make sure cert-manager is installed and the operator has the RBAC the managed-certificate
 	// feature needs. It is checked once here, at startup, and the reconcile path fails with a clear
 	// message when it is false.
 	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, certManagerReadiness)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, certManagerReadiness)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -2811,7 +2821,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
 		WithCustomAgentURL(r.commonController.customAgentURL),
 
-		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture)),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -2851,7 +2861,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
 		WithCustomAgentURL(r.commonController.customAgentURL),
 
-		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture)),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -2893,7 +2903,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
 		WithCustomAgentURL(r.commonController.customAgentURL),
 
-		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture)),
+		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),

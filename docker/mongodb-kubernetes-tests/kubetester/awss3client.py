@@ -3,7 +3,15 @@ from typing import Dict, Optional
 
 import boto3
 from botocore.exceptions import ClientError
+from kubetester import random_k8s_name
 from kubetester.kubetester import get_env_var_or_fail
+
+# All e2e buckets share this prefix so they are recognisable as MCK test buckets (and cleaned up by prepare_aws.sh).
+E2E_BUCKET_PREFIX = "mck-e2e-"
+
+
+def e2e_bucket_name(prefix: str) -> str:
+    return random_k8s_name(E2E_BUCKET_PREFIX + prefix)
 
 
 class AwsS3Client:
@@ -16,8 +24,13 @@ class AwsS3Client:
         self.tags = tags
 
     def create_s3_bucket(self, name: str):
-        self.s3_client.create_bucket(ACL="private", Bucket=name)
-        self.update_bucket_tags(name=name, **self.tags)
+        # Tags are passed at creation because bucket creation is denied when required tags are missing.
+        # In us-east-1 the configuration must not contain a LocationConstraint.
+        self.s3_client.create_bucket(
+            ACL="private",
+            Bucket=name,
+            CreateBucketConfiguration={"Tags": [{"Key": k, "Value": v} for k, v in self.tags.items()]},
+        )
 
     def update_bucket_tags(self, name: str, **tags):
         try:

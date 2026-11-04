@@ -93,6 +93,7 @@ def test_statefulsets_have_been_created_correctly(
     clients = {c.cluster_name: c for c in member_cluster_clients}
 
     # read all statefulsets except the last one
+    mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients[:-1])
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients[:-1])
     cluster_one_client = clients["kind-e2e-cluster-1"]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]
@@ -147,7 +148,7 @@ def test_statefulsets_have_been_created_correctly_after_cluster_addition(
     member_cluster_clients: List[MultiClusterClient],
 ):
     clients = {c.cluster_name: c for c in member_cluster_clients}
-    # read all statefulsets except the last one
+    mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
     cluster_one_client = clients["kind-e2e-cluster-1"]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]

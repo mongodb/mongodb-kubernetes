@@ -92,6 +92,7 @@ type ReconcileMongoDbReplicaSet struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
+	defaultImageType    architectures.ImageType
 
 	// certManagerReadiness is used to make sure the managed-certificate path fails with
 	// a clear message when certmanager is not ready, instead of trying and getting a permission error.
@@ -211,6 +212,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	if err := rs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
+	}
+	if warning := databaseContainerImageTypeAnnotationWarning(rs.GetAnnotations(), reconciler.defaultArchitecture); warning != "" {
+		log.Warn(warning)
+		rs.AddWarningIfNotExists(mdbstatus.Warning(warning))
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, reconciler.client, reconciler.SecretClient, rs, log)
@@ -459,6 +464,7 @@ func newReplicaSetReconciler(
 	agentDebug bool,
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
 	omFunc om.ConnectionFactory,
 	certManagerReadiness certs.CertManagerReadiness,
 ) *ReconcileMongoDbReplicaSet {
@@ -475,6 +481,7 @@ func newReplicaSetReconciler(
 		agentDebug:           agentDebug,
 		agentDebugImage:      agentDebugImage,
 		defaultArchitecture:  defaultArchitecture,
+		defaultImageType:     defaultImageType,
 		certManagerReadiness: certManagerReadiness,
 	}
 }
@@ -698,7 +705,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithDatabaseNonStaticImage(images.ContainerImage(reconciler.imageUrls, util.NonStaticDatabaseEnterpriseImage, reconciler.databaseNonStaticImageVersion)),
 		WithAgentImage(images.ContainerImage(reconciler.imageUrls, util.AgentImageUrlEnv, r.automationAgentVersion)),
 		WithCustomAgentURL(reconciler.customAgentURL),
-		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations(), reconciler.defaultArchitecture)),
+		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations(), reconciler.defaultArchitecture, reconciler.defaultImageType)),
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
 		WithDefaultArchitecture(reconciler.defaultArchitecture),
@@ -722,13 +729,14 @@ func AddReplicaSetController(
 	agentDebug bool,
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
 ) error {
 	// make sure cert-manager resources are registered and operator has authz to access them, before actually registering
 	// watches or doing anything with cert-manager resources.
 	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
 
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, certManagerReadiness)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, certManagerReadiness)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err

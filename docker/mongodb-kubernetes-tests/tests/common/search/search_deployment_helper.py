@@ -138,6 +138,7 @@ class SearchDeploymentHelper:
         lb_mode: Optional[str] = None,
         replicas: Optional[int] = None,
         shard_overrides: Optional[list] = None,
+        service: Optional[dict] = None,
     ) -> MongoDBSearch:
         resource = MongoDBSearch.from_yaml(
             yaml_fixture("search-sharded-external-mongod.yaml"),
@@ -183,6 +184,11 @@ class SearchDeploymentHelper:
         if shard_overrides is not None:
             clusters = resource["spec"].get("clusters") or [{}]
             clusters[0]["shardOverrides"] = shard_overrides
+            resource["spec"]["clusters"] = clusters
+
+        if service is not None:
+            clusters = resource["spec"].get("clusters") or [{}]
+            clusters[0]["service"] = service
             resource["spec"]["clusters"] = clusters
 
         if lb_mode or lb_endpoint:

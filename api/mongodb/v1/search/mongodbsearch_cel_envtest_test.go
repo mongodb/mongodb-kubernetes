@@ -7,10 +7,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
@@ -20,6 +22,43 @@ import (
 // env.Shared(t) instead of starting their own environment.
 func TestMain(m *testing.M) {
 	os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_mongodbsearch.yaml")))
+}
+
+func TestMongoDBSearchServiceMetadataPersistence(t *testing.T) {
+	k8sClient := env.Shared(t).Client
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "service-metadata-", Namespace: "default"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+				ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+					Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+					Shards: []searchv1.ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"shard.example:27017"}}},
+				},
+			}},
+			Clusters: []searchv1.ClusterSpec{{
+				Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+					Labels:      map[string]string{"app.kubernetes.io/component": "search"},
+					Annotations: map[string]string{"example.com/note": "cluster"},
+				}},
+				ShardOverrides: []searchv1.ShardOverride{{
+					ShardNames: []string{"shard-0"},
+					Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+						Labels:      map[string]string{"example.com/team": "shard"},
+						Annotations: map[string]string{"example.com/note": "shard"},
+					}},
+				}},
+			}},
+		},
+	}
+	want := search.DeepCopy()
+	require.NoError(t, k8sClient.Create(t.Context(), search))
+	t.Cleanup(func() { require.NoError(t, k8sClient.Delete(context.Background(), search)) })
+	var fetched searchv1.MongoDBSearch
+	require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(search), &fetched))
+	require.Len(t, fetched.Spec.Clusters, 1)
+	require.Len(t, fetched.Spec.Clusters[0].ShardOverrides, 1)
+	assert.Equal(t, want.Spec.Clusters[0].Service, fetched.Spec.Clusters[0].Service)
+	assert.Equal(t, want.Spec.Clusters[0].ShardOverrides[0].Service, fetched.Spec.Clusters[0].ShardOverrides[0].Service)
 }
 
 // TestMongoDBSearchCELValidation proves that the CEL validation rules defined on
@@ -84,6 +123,19 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 			create:        []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(0))}},
 			update:        []searchv1.ClusterSpec{{Name: "cluster-b", Index: new(int32(0))}},
 			errorContains: "clusters[].name is immutable for an existing cluster index",
+		},
+		{
+			name: "service labels accept non-operator keys",
+			create: []searchv1.ClusterSpec{{Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+				Labels: map[string]string{"app.kubernetes.io/component": "search"},
+			}}}},
+		},
+		{
+			name: "service labels reject operator-managed keys",
+			create: []searchv1.ClusterSpec{{Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+				Labels: map[string]string{"component": "user"},
+			}}}},
+			errorContains: "must not set operator-managed label keys",
 		},
 	}
 	for _, tc := range tests {

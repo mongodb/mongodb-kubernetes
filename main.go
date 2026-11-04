@@ -155,6 +155,10 @@ func run() error {
 	agentDebug := env.ReadBoolOrDefault(util.EnvVarDebug, false)
 	agentDebugImage := env.ReadOrDefault(util.EnvVarDebugImage, "")
 	defaultArchitecture := architectures.DefaultArchitecture(env.ReadOrDefault(architectures.DefaultEnvArchitecture, string(architectures.NonStatic)))
+	defaultImageType, imageTypeWarning := architectures.ValidateDefaultImageType(env.ReadOrDefault(architectures.DefaultEnvImageType, ""))
+	if imageTypeWarning != "" {
+		log.Warn(imageTypeWarning)
+	}
 
 	enableClusterMongoDBRoles := slices.Contains(crds, clusterMongoDBRoleCRDPlural)
 
@@ -312,6 +316,7 @@ func run() error {
 			agentDebug,
 			agentDebugImage,
 			defaultArchitecture,
+			defaultImageType,
 			memberClusterObjectsMap,
 			backupEnableDelay,
 		); err != nil {
@@ -319,7 +324,7 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBOpsManagerCRDPlural) {
-		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion, defaultArchitecture); err != nil {
+		if err := setupMongoDBOpsManagerCRD(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseNonStaticImageVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType); err != nil {
 			return err
 		}
 	}
@@ -329,7 +334,7 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, memberClusterObjectsMap); err != nil {
 			return err
 		}
 	}
@@ -436,6 +441,7 @@ func setupMongoDBCRD(
 	agentDebug bool,
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
 	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
 	backupEnableDelay time.Duration,
 ) error {
@@ -450,6 +456,7 @@ func setupMongoDBCRD(
 		agentDebug,
 		agentDebugImage,
 		defaultArchitecture,
+		defaultImageType,
 	); err != nil {
 		return err
 	}
@@ -464,6 +471,7 @@ func setupMongoDBCRD(
 		agentDebug,
 		agentDebugImage,
 		defaultArchitecture,
+		defaultImageType,
 	); err != nil {
 		return err
 	}
@@ -478,6 +486,7 @@ func setupMongoDBCRD(
 		agentDebug,
 		agentDebugImage,
 		defaultArchitecture,
+		defaultImageType,
 		memberClusterObjectsMap,
 		backupEnableDelay,
 	); err != nil {
@@ -488,8 +497,8 @@ func setupMongoDBCRD(
 		Complete()
 }
 
-func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture) error {
-	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture); err != nil {
+func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
@@ -501,9 +510,9 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap, backupEnableDelay)
 }
 
-func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
 	requiredHealthyStreak := env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak)
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, requiredHealthyStreak, memberClusterObjectsMap); err != nil {
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, requiredHealthyStreak, memberClusterObjectsMap); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
@@ -522,11 +531,12 @@ func setupMongoDBSearchCRD(
 	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
 	operatorClusterName string,
 ) error {
+	imagePullPolicy := corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))
 	if err := operator.AddMongoDBSearchController(ctx, mgr, searchcontroller.OperatorSearchConfig{
 		SearchRepo:      env.ReadOrPanic(util.SearchRepoURLEnv),
 		SearchName:      env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion:   env.ReadOrPanic(util.SearchVersionEnv),
-		ImagePullPolicy: corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv)),
+		ImagePullPolicy: imagePullPolicy,
 	}, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
@@ -534,13 +544,13 @@ func setupMongoDBSearchCRD(
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, memberClusterObjectsMap, operatorClusterName); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, imagePullPolicy, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 
 	// Metrics forwarder controller — image is again enforced in controller
 	metricsForwarderImage := env.ReadOrDefault(util.MetricsForwarderImageEnv, "")
-	if err := operator.AddMongoDBSearchMetricsForwarderController(ctx, mgr, metricsForwarderImage, memberClusterObjectsMap, operatorClusterName); err != nil {
+	if err := operator.AddMongoDBSearchMetricsForwarderController(ctx, mgr, metricsForwarderImage, imagePullPolicy, memberClusterObjectsMap, operatorClusterName); err != nil {
 		return err
 	}
 
