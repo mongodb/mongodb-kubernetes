@@ -14,13 +14,17 @@ import (
 	"strings"
 
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -55,37 +59,37 @@ func defaultCABundleTarget(res CertificateOwner, cat certCategory) caBundleTarge
 
 // ensureCategoryBundle publishes the trust bundle of a category: its current CA, the previous
 // CA when the CA was rotated and the prune annotation did not drop it yet, and the additionalTrustedCAs.
+// It returns true when the bundle still has a previous CA.
 func ensureCategoryBundle(
 	ctx context.Context,
 	c kubernetesClient.Client,
 	res CertificateOwner,
 	cat certCategory,
-	issuedSecretName string,
-	leafSecrets []string,
+	allOpts []Options,
 	bundleTarget caBundleTarget,
-) workflow.Status {
-	current, err := currentCA(ctx, c, res, cat, issuedSecretName)
+) (bool, error) {
+	leafSecrets := categoryLeafSecrets(res, cat, allOpts)
+	current, err := currentCA(ctx, c, res, cat, leafSecrets)
 	if err != nil {
-		return workflow.Failed(err)
+		return false, err
 	}
 
 	additional, err := additionalTrustedCAs(ctx, c, res, cat)
 	if err != nil {
-		return workflow.Failed(err)
+		return false, err
 	}
 
 	bundleCM, bundleCAs, err := readCABundleConfigMap(ctx, c, res, bundleTarget.name)
 	if err != nil {
-		return workflow.Failed(err)
+		return false, err
 	}
 
 	previous := previousCAs(bundleCAs, current, additional)
 
 	prune, err := prunePreviousCA(ctx, c, res, cat, leafSecrets, previous)
 	if err != nil {
-		return workflow.Failed(err)
+		return false, err
 	}
-
 	if prune {
 		previous = nil
 	}
@@ -97,10 +101,10 @@ func ensureCategoryBundle(
 		bundleTarget.name,
 		bundleCM,
 		mergeCABundle(current, previous, additional), bundleTarget.aliasKey); err != nil {
-		return workflow.Failed(err)
+		return false, err
 	}
 
-	return workflow.OK()
+	return len(previous) > 0, nil
 }
 
 // mergeCABundle builds the PEM bundle of all the given CAs. Each CA appears once (deduplicated by
@@ -163,8 +167,12 @@ func ensureHashedCABundleConfigMap(
 	return configmap.CreateOrUpdate(ctx, c, cm)
 }
 
-// currentCA returns the current CA of a category.
-func currentCA(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cat certCategory, issuedSecretName string) ([]caCert, error) {
+// currentCA returns the current CA of a category. For a user issuer, it reads the CA from the first leaf secret.
+func currentCA(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cat certCategory, leafSecrets []string) ([]caCert, error) {
+	issuedSecretName := ""
+	if len(leafSecrets) > 0 {
+		issuedSecretName = leafSecrets[0]
+	}
 	currentPEM, status := resolveCategoryCA(ctx, c, res, cat, issuedSecretName)
 	if !status.IsOK() {
 		return nil, errors.New(status.Message())
@@ -276,6 +284,18 @@ func prunePreviousCA(ctx context.Context, c kubernetesClient.Client, res Certifi
 	if err != nil {
 		return false, fmt.Errorf("cannot check if the leaf certificates are signed by the previous %s CA: %w", cat, err)
 	}
+	if signed {
+		return false, nil
+	}
+
+	userLeaves, err := userClientCertificateLeaves(ctx, c, res, cat)
+	if err != nil {
+		return false, err
+	}
+	signed, err = areUserLeavesSignedByCA(ctx, c, res.GetNamespace(), userLeaves, previous)
+	if err != nil {
+		return false, fmt.Errorf("cannot check if the MongoDBUser client certificates are signed by the previous %s CA: %w", cat, err)
+	}
 
 	return !signed, nil
 }
@@ -288,12 +308,33 @@ func pruneRequested(res CertificateOwner, cat certCategory) bool {
 	return value == "true" || value == string(cat)
 }
 
-// areLeavesSignedByCA returns true if any of the leaf certificates is signed by any of the CAs.
+// areLeavesSignedByCA reports whether any of the issued certificate secrets is signed by any of the CAs.
 func areLeavesSignedByCA(ctx context.Context, c kubernetesClient.Client, namespace string, secretNames []string, cas []caCert) (bool, error) {
 	issuers := parseIssuers(cas)
 	for _, name := range secretNames {
 		leaf, err := readLeafCertificate(ctx, c, namespace, name)
 		if err != nil {
+			return false, err
+		}
+		if signedByAny(leaf, issuers) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// areUserLeavesSignedByCA reports whether any of the MongoDBUser client certificates is signed by any
+// of the CAs. A certificate whose secret does not exist yet is skipped: cert-manager has not issued
+// it, so no application uses it, and it will be signed by the current CA.
+func areUserLeavesSignedByCA(ctx context.Context, c kubernetesClient.Client, namespace string, leaves []issuedLeaf, cas []caCert) (bool, error) {
+	issuers := parseIssuers(cas)
+	for _, l := range leaves {
+		leaf, err := readLeafCertificate(ctx, c, namespace, l.secretName)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
 			return false, err
 		}
 		if signedByAny(leaf, issuers) {
@@ -347,6 +388,15 @@ func readLeafCertificate(ctx context.Context, c kubernetesClient.Client, namespa
 	return leaf, nil
 }
 
+// categoryLeafSecrets returns the secrets of every issued leaf certificate of a category.
+// For a user issuer, the operator reads the CA of the category from ca.crt of the first secret.
+func categoryLeafSecrets(res CertificateOwner, cat certCategory, allOpts []Options) []string {
+	if cat == categoryClient {
+		return clientLeafSecretNames(res, allOpts)
+	}
+	return serverLeafSecretNames(allOpts)
+}
+
 // serverLeafSecretNames are the secrets of the issued certificates signed by the server category issuer.
 func serverLeafSecretNames(allOpts []Options) []string {
 	names := make([]string, 0, len(allOpts))
@@ -372,4 +422,79 @@ func clientLeafSecretNames(res CertificateOwner, allOpts []Options) []string {
 		names = append(names, sec.AgentClientCertificateSecretName(res.GetName()))
 	}
 	return names
+}
+
+// issuedLeaf is a leaf certificate that the operator issues: the cert-manager Certificate and the
+// secret cert-manager writes it to. The names differ for the MongoDBUser client certificates.
+type issuedLeaf struct {
+	certName   string
+	secretName string
+}
+
+// userClientCertificateLeaves returns the x509 client certificates that the operator issues for the
+// MongoDBUsers of res (see ClientCertificate) and that the issuer of the category signs. A user
+// belongs to res when it sets spec.clientCertificate and its spec.mongodbResourceRef points to res.
+// The user controller only issues the certificate when the user is in the namespace of res, so only
+// that namespace is listed. A user that is being deleted is ignored: its access goes away with it.
+// Only MongoDB and MongoDBMultiCluster resources have users. For the other owners (the Ops Manager
+// components) it returns no leaves and does not read the users.
+func userClientCertificateLeaves(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cat certCategory) ([]issuedLeaf, error) {
+	switch res.(type) {
+	case *mdbv1.MongoDB, *mdbmulti.MongoDBMultiCluster:
+	default:
+		return nil, nil
+	}
+	sec := res.GetSecurity()
+	if !sec.IsManagedCertificateEnabled() || !sec.Authentication.IsX509Enabled() || clientCertificateSigner(sec) != cat {
+		return nil, nil
+	}
+
+	users := &userv1.MongoDBUserList{}
+	if err := c.List(ctx, users, client.InNamespace(res.GetNamespace())); err != nil {
+		// Without the MongoDBUser CRD there are no users.
+		if meta.IsNoMatchError(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("could not list the MongoDBUsers of %s: %w", res.GetName(), err)
+	}
+
+	var leaves []issuedLeaf
+	for i := range users.Items {
+		user := &users.Items[i]
+		if user.Spec.ClientCertificate == nil || !user.DeletionTimestamp.IsZero() || !userRefersTo(user, res) {
+			continue
+		}
+		leaves = append(leaves, issuedLeaf{certName: user.ClientCertificateName(), secretName: user.ClientCertificateSecretName()})
+	}
+
+	return leaves, nil
+}
+
+// UserClientCertificateSecretNames returns the secrets of the x509 client certificates that the
+// operator issues for the MongoDBUsers of res (see userClientCertificateLeaves). The MongoDBUser owns
+// these certificates, so the controller of res watches the secrets to retry a refused prune of the
+// previous CA once the user certificates move to the new CA.
+func UserClientCertificateSecretNames(ctx context.Context, c kubernetesClient.Client, res CertificateOwner) ([]string, error) {
+	var names []string
+	for _, cat := range []certCategory{categoryServer, categoryClient} {
+		leaves, err := userClientCertificateLeaves(ctx, c, res, cat)
+		if err != nil {
+			return nil, err
+		}
+		for _, l := range leaves {
+			names = append(names, l.secretName)
+		}
+	}
+	return names, nil
+}
+
+// userRefersTo reports whether the spec.mongodbResourceRef of the user points to res. The namespace
+// of the reference defaults to the namespace of the user, as in the user controller.
+func userRefersTo(user *userv1.MongoDBUser, res CertificateOwner) bool {
+	ref := user.Spec.MongoDBResourceRef
+	namespace := ref.Namespace
+	if namespace == "" {
+		namespace = user.Namespace
+	}
+	return ref.Name == res.GetName() && namespace == res.GetNamespace()
 }
