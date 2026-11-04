@@ -529,6 +529,16 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_tls_managedcert_legacy_migration
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_tls_managedcert_legacy_migration
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replica_set_tls_managedcert_server
     tags: [ "patch-run" ]
     commands:
@@ -1151,6 +1161,11 @@ tasks:
       - func: e2e_test
 
   - name: e2e_managed_certificate_multi_cluster_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_managed_certificate_multi_cluster_rs_legacy_migration
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
