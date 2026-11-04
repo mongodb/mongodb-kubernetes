@@ -160,6 +160,9 @@ func EnsureAppDBCertificatesAndCA(
 	if om == nil || om.Spec.AppDB == nil {
 		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
 	}
+	for _, warning := range UnusedClientConfigured(appDBManagedCertificateOwner{om}) {
+		om.AddAppDBWarningIfNotExists(warning)
+	}
 	return EnsureCertificatesAndCA(ctx, c, appDBManagedCertificateOwner{om}, allOpts, log)
 }
 
@@ -280,6 +283,17 @@ func AppDBReplicaSetConfig(om *omv1.MongoDBOpsManager) Options {
 		opts.additionalCertificateDomains = append(opts.additionalCertificateDomains, mdb.GetSecurity().TLSConfig.AdditionalCertificateDomains...)
 	}
 
+	return opts
+}
+
+// AppDBManagedCertConfig returns the single-cluster AppDB certificate options. The certificate
+// covers max(current, desired) members so a scale-up issues once for the target size, and it
+// carries the configured external domain so external member hostnames are trusted.
+func AppDBManagedCertConfig(om *omv1.MongoDBOpsManager) Options {
+	opts := AppDBReplicaSetConfig(om)
+	scaler := scalers.NewAppDBSingleClusterScaler(om)
+	opts.MembersToCover = max(scaler.CurrentReplicas(), scaler.DesiredReplicas())
+	opts.ExternalDomain = om.Spec.AppDB.GetExternalDomain()
 	return opts
 }
 

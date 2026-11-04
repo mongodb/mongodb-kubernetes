@@ -549,6 +549,7 @@ type componentCertificateResult struct {
 func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
 	results := []componentCertificateResult{
 		r.ensureOpsManagerCertificateAndCA(ctx, opsManager, log),
+		r.prepareAppDBCertificate(ctx, opsManager, log),
 	}
 
 	return r.applyManagedCertificateResults(ctx, opsManager, results, log)
@@ -614,6 +615,66 @@ func opsManagerCertificateSANs(opsManager *omv1.MongoDBOpsManager) ([]string, []
 	slices.Sort(dnsNames)
 	slices.Sort(ipAddresses)
 	return slices.Compact(dnsNames), slices.Compact(ipAddresses), nil
+}
+
+func (r *OpsManagerReconciler) prepareAppDBCertificate(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) componentCertificateResult {
+	// Multi-cluster and referenced AppDBs are not part of the single-cluster managed-certificate
+	// scope; they stay on their existing lifecycle instead of receiving single-cluster SANs.
+	enabled := opsManager.IsInternalAppDB() &&
+		opsManager.Spec.AppDB != nil &&
+		!opsManager.Spec.AppDB.IsMultiCluster() &&
+		opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled()
+	if !r.certManagerReadiness.Ready {
+		return r.managedCertificateGateResult(mdbstatus.AppDb, enabled)
+	}
+	if !enabled {
+		return componentCertificateResult{part: mdbstatus.AppDb, status: workflow.OK()}
+	}
+
+	owned, err := r.appDBStatefulSetReadyForManagedCertificates(ctx, opsManager)
+	if err != nil {
+		message := fmt.Sprintf("Failed to read AppDB StatefulSet %s before preparing its operator-managed certificates: %s", opsManager.Spec.AppDB.Name(), err)
+		return componentCertificateResult{
+			part:   mdbstatus.AppDb,
+			status: workflow.Failed(xerrors.New(message)),
+			condition: &metav1.Condition{
+				Type:    certs.ConditionCertificatesReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  certificateReasonIssuanceFailed,
+				Message: message,
+			},
+		}
+	}
+	if !owned {
+		// Another controller still owns the AppDB StatefulSet and is reconciling its own
+		// certificates under the same names. Preparation must not claim or release it; the
+		// existing AppDB lifecycle decides when issuance is safe.
+		return componentCertificateResult{part: mdbstatus.AppDb, status: workflow.OK()}
+	}
+
+	opts := certs.AppDBManagedCertConfig(opsManager)
+	status, condition := certs.EnsureAppDBCertificatesAndCA(ctx, r.client, opsManager, []certs.Options{opts}, log)
+	return componentCertificateResult{part: mdbstatus.AppDb, status: status, condition: &condition}
+}
+
+// appDBStatefulSetReadyForManagedCertificates reports whether the AppDB StatefulSet is absent or
+// already owned by this Ops Manager, based on the current ownership labels or a legacy owner
+// reference. It never mutates the StatefulSet.
+func (r *OpsManagerReconciler) appDBStatefulSetReadyForManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (bool, error) {
+	appDBStatefulSet := &appsv1.StatefulSet{}
+	err := r.client.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()), appDBStatefulSet)
+	if apiErrors.IsNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	ownershipLabels := util.GetOwnershipLabels(appDBStatefulSet.Labels)
+	if len(ownershipLabels) == 0 {
+		return statefulset.IsOwnedBy(appDBStatefulSet, opsManager), nil
+	}
+	return ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] == opsManager.GetName(), nil
 }
 
 func (r *OpsManagerReconciler) managedCertificateGateResult(part mdbstatus.Part, enabled bool) componentCertificateResult {
