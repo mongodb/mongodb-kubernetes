@@ -6,7 +6,7 @@ live here and the test files only keep what is specific to their scenario.
 """
 
 import tempfile
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -204,7 +204,8 @@ def scale_and_assert_member_cert_issuance(mdb: MongoDB, name: str, namespace: st
 # variables in customEnvVars is escaped.
 RECOVERY_OFF_ENV_VAR = "\\&MDB_AUTOMATIC_RECOVERY_ENABLE=false"
 
-# The subject attributes a certificate can carry, mapped from the name the API uses to its OID.
+# The subject attributes a certificate can carry, mapped from the field name the API uses for it to
+# the X.509 OID that carries it.
 _SUBJECT_ATTRIBUTES = {
     "commonName": NameOID.COMMON_NAME,
     "organizations": NameOID.ORGANIZATION_NAME,
@@ -225,14 +226,12 @@ def subject_from_certificate(namespace: str, secret_name: str, api_client=None) 
     subject = x509.load_pem_x509_certificate(certificate.encode()).subject
 
     # Only the attributes the certificate carries, so the operator keeps its defaults for the rest.
-    attributes = {
-        api_name: [attribute.value for attribute in subject.get_attributes_for_oid(oid)]
-        for api_name, oid in _SUBJECT_ATTRIBUTES.items()
-    }
-    attributes = {name: value for name, value in attributes.items() if value}
     # commonName is a single value in the API, the other attributes are lists.
-    if "commonName" in attributes:
-        attributes["commonName"] = attributes["commonName"][0]
+    attributes: dict[str, Any] = {}
+    for api_field, oid in _SUBJECT_ATTRIBUTES.items():
+        values = [attribute.value for attribute in subject.get_attributes_for_oid(oid)]
+        if values:
+            attributes[api_field] = values[0] if api_field == "commonName" else values
     return attributes
 
 
