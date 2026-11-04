@@ -3572,6 +3572,10 @@ spec:
             type: object
             x-kubernetes-preserve-unknown-fields: true
             x-kubernetes-validations:
+            - message: spec.topology MultiCluster is not supported when spec.role
+                is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
+                || self.topology != ''MultiCluster'''
             - message: spec.members must be >= 3 when spec.role is AppDB
               rule: '!has(self.role) || self.role != ''AppDB'' || (has(self.members)
                 && self.members >= 3)'
@@ -3594,10 +3598,6 @@ spec:
                 == true'
             - message: spec.resourceType must be ReplicaSet when spec.role is AppDB
               rule: '!has(self.role) || self.role != ''AppDB'' || self.type == ''ReplicaSet'''
-            - message: spec.topology MultiCluster is not supported when spec.role
-                is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
-                || self.topology != ''MultiCluster'''
             - message: 'spec.role is immutable: it cannot be added, removed, or changed
                 after creation; to stop using a resource as AppDB, perform a reverse
                 migration (delete the resource)'
@@ -4841,8 +4841,10 @@ spec:
             type: object
             x-kubernetes-preserve-unknown-fields: true
             x-kubernetes-validations:
-            - message: spec.role is not supported on MongoDBMultiCluster
-              rule: '!has(self.role) || self.role == ""'
+            - message: the total number of members across spec.clusterSpecList must
+                be >= 3 when spec.role is AppDB
+              rule: '!has(self.role) || self.role != ''AppDB'' || self.clusterSpecList.map(c,
+                c.members).sum() >= 3'
             - message: spec.security.authentication must be enabled with modes [SCRAM]
                 only when spec.role is AppDB, or omitted entirely
               rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.security)
@@ -4856,10 +4858,6 @@ spec:
                 == true'
             - message: spec.resourceType must be ReplicaSet when spec.role is AppDB
               rule: '!has(self.role) || self.role != ''AppDB'' || self.type == ''ReplicaSet'''
-            - message: spec.topology MultiCluster is not supported when spec.role
-                is AppDB
-              rule: '!has(self.role) || self.role != ''AppDB'' || !has(self.topology)
-                || self.topology != ''MultiCluster'''
             - message: 'spec.role is immutable: it cannot be added, removed, or changed
                 after creation; to stop using a resource as AppDB, perform a reverse
                 migration (delete the resource)'
@@ -5635,18 +5633,48 @@ spec:
                             More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                           type: object
                       type: object
+                    service:
+                      description: |-
+                        Service sets labels and annotations on this cluster's Services. Labels must not use the
+                        operator-managed keys app, component, shard, mongodb.com/search-name or mongodb.com/search-namespace.
+                      properties:
+                        metadata:
+                          description: Metadata is merged onto the operator-generated
+                            Service metadata.
+                          properties:
+                            annotations:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                Annotations to add to the Service. The operator owns the Service's annotations:
+                                any annotation not listed here, including one added by another tool, is removed.
+                              type: object
+                            labels:
+                              additionalProperties:
+                                type: string
+                              description: Labels to add to the Service. Operator-managed
+                                label keys always keep the operator's values.
+                              type: object
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: service.metadata.labels must not set operator-managed
+                          label keys
+                        rule: '!has(self.metadata) || !has(self.metadata.labels) ||
+                          [''app'', ''component'', ''shard'', ''mongodb.com/search-name'',
+                          ''mongodb.com/search-namespace''].all(k, !(k in self.metadata.labels))'
                     shardOverrides:
                       description: |-
-                        ShardOverrides applies per-shard sizing exceptions within this cluster,
-                        for external sharded sources only. Each entry layers its set sizing fields
+                        ShardOverrides applies per-shard sizing and metadata exceptions within this cluster,
+                        for external sharded sources only. Each entry layers its set fields
                         onto this cluster's resolved values for the named shards.
                       items:
                         description: |-
-                          ShardOverride sizes specific shards within the enclosing cluster differently
+                          ShardOverride configures specific shards within the enclosing cluster differently
                           from the cluster default. Replicas, ResourceRequirements, Persistence,
                           JVMFlags and NodeAffinity replace the cluster value for the named shards when set;
-                          StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
-                          inherit the cluster value.
+                          StatefulSetConfiguration is deep-merged and Service metadata is merged per key.
+                          Unset fields inherit the cluster value.
                         properties:
                           jvmFlags:
                             description: JVMFlags replaces the cluster's jvmFlags
@@ -5968,6 +5996,30 @@ spec:
                                   If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
                                   otherwise to an implementation-defined value. Requests cannot exceed Limits.
                                   More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                type: object
+                            type: object
+                          service:
+                            description: |-
+                              Service metadata overrides the cluster's per key for these shards' Services (not the
+                              mongos proxy). Operator-managed label keys are ignored.
+                            properties:
+                              metadata:
+                                description: Metadata is merged onto the operator-generated
+                                  Service metadata.
+                                properties:
+                                  annotations:
+                                    additionalProperties:
+                                      type: string
+                                    description: |-
+                                      Annotations to add to the Service. The operator owns the Service's annotations:
+                                      any annotation not listed here, including one added by another tool, is removed.
+                                    type: object
+                                  labels:
+                                    additionalProperties:
+                                      type: string
+                                    description: Labels to add to the Service. Operator-managed
+                                      label keys always keep the operator's values.
+                                    type: object
                                 type: object
                             type: object
                           shardNames:
@@ -8640,6 +8692,7 @@ spec:
                     description: Kind of the referenced resource.
                     enum:
                     - MongoDB
+                    - MongoDBMultiCluster
                     type: string
                   name:
                     description: |-
@@ -8818,6 +8871,13 @@ spec:
             - version
             type: object
             x-kubernetes-validations:
+            - message: topology does not match between the current AppDB and the external
+                AppDB
+              rule: '!has(self.externalApplicationDatabaseRef) || !has(oldSelf.applicationDatabase)
+                || (self.externalApplicationDatabaseRef.kind == ''MongoDBMultiCluster''
+                ? (has(oldSelf.applicationDatabase.topology) && oldSelf.applicationDatabase.topology
+                == ''MultiCluster'') : !(has(oldSelf.applicationDatabase.topology)
+                && oldSelf.applicationDatabase.topology == ''MultiCluster''))'
             - message: at least one of spec.applicationDatabase or spec.externalApplicationDatabaseRef
                 must be set
               rule: has(self.applicationDatabase) || has(self.externalApplicationDatabaseRef)

@@ -113,3 +113,6 @@ scripts/code_snippets/tests/outputs/*
 # mckci binary (built at repo root by `go build ./cmd/mckci`)
 /mckci
 
+# AWS CLI v2 install tree (scripts/evergreen/setup_aws.sh installs it at the repo root)
+/aws-cli/
+

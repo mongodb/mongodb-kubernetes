@@ -149,6 +149,30 @@ func TestAppDbStatefulSet_MonitoringCredentialsAsCLIFlags(t *testing.T) {
 		"agent container must mount the agent-api-key volume when monitoring is enabled")
 }
 
+func TestAppDbStatefulSet_StripsUserOwnerLabels(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	om.Labels = map[string]string{
+		"app":                                    "demo",
+		util.MongoDBResourceOwnerLabel:           "spoofed-mdb",
+		util.MongoDBOpsManagerResourceOwnerLabel: "spoofed-om",
+	}
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	assert.Equal(t, "demo", sts.Labels["app"], "non-reserved user label must survive")
+	assert.NotContains(t, sts.Labels, util.MongoDBResourceOwnerLabel, "user-supplied participant key must be stripped")
+	assert.Equal(t, om.GetOwnerLabels()[util.MongoDBOpsManagerResourceOwnerLabel], sts.Labels[util.MongoDBOpsManagerResourceOwnerLabel],
+		"user-supplied OpsManager owner label value must be replaced by GetOwnerLabels")
+
+	ownerLabels := om.GetOwnerLabels()
+	require.NotEmpty(t, ownerLabels)
+	for k, v := range ownerLabels {
+		assert.Equal(t, v, sts.Labels[k], "owner label %s from GetOwnerLabels must be present", k)
+	}
+}
+
 func TestAppDbStatefulSet_NoMonitoringCredentialsWhenDisabled(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)

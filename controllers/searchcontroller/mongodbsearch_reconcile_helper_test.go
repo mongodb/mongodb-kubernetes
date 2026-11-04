@@ -3203,6 +3203,10 @@ func newBaseMongotStatefulSet() *appsv1.StatefulSet {
 func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns")
 	withAdvancedMongotConfigs(t, search, `{"indexing":{"lucene":{"fieldLimit":1000}}}`)
+	search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+		Labels:      map[string]string{"team": "search"},
+		Annotations: map[string]string{"example.com/note": "search"},
+	}}
 
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"my-cluster-0", "my-cluster-1"},
@@ -3250,6 +3254,15 @@ func TestReconcileSharded_CreatesPerShardResources(t *testing.T) {
 		}
 		assert.Equal(t, int32(27028), portMap["mongot-grpc"])
 		assert.Equal(t, int32(8080), portMap["healthcheck"])
+	}
+
+	// Verify every Service, including the mongos proxy, carries the configured metadata.
+	var services corev1.ServiceList
+	require.NoError(t, fakeClient.List(t.Context(), &services, client.InNamespace("test-ns")))
+	require.Len(t, services.Items, 5, "per-shard headless and proxy Services plus the mongos proxy")
+	for _, svc := range services.Items {
+		assert.Equal(t, "search", svc.Labels["team"], svc.Name)
+		assert.Equal(t, "search", svc.Annotations["example.com/note"], svc.Name)
 	}
 
 	// Verify per-shard StatefulSets
@@ -3572,6 +3585,16 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 			},
 		},
 	}
+	// The same goes for Service metadata: the sweep selects Services on these labels.
+	search.Spec.Clusters[0].Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+		Labels: map[string]string{
+			"custom-label":                            "custom-value",
+			khandler.MongoDBSearchOwnerNameLabel:      "wrong-name",
+			khandler.MongoDBSearchOwnerNamespaceLabel: "wrong-namespace",
+			khandler.MongoDBSearchComponentLabel:      "wrong-component",
+		},
+		Annotations: map[string]string{"example.com/note": "custom"},
+	}}
 	mdbc := newTestMongoDBCommunity("test-mongodb", "test-ns")
 	sourceTLSSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: search.TLSSecretNamespacedName().Name, Namespace: search.Namespace},
@@ -3628,7 +3651,15 @@ func TestReconcileReplicaSet_CreatesResources(t *testing.T) {
 	assert.Equal(t, "test-search-search-0-svc", svc.Spec.Selector["app"])
 	assert.Equal(t, "test-search-search-0-svc", svc.Labels["app"])
 	assert.Empty(t, svc.Labels["shard"])
+	assert.Equal(t, "custom-value", svc.Labels["custom-label"])
+	assert.Equal(t, map[string]string{"example.com/note": "custom"}, svc.Annotations)
 	assertSearchOwnershipLabels(t, &svc, search)
+
+	proxySvc, err := fakeClient.GetService(t.Context(), search.ProxyServiceNamespacedNameForCluster(0))
+	require.NoError(t, err)
+	assert.Equal(t, "custom-value", proxySvc.Labels["custom-label"])
+	assert.Equal(t, map[string]string{"example.com/note": "custom"}, proxySvc.Annotations)
+	assert.Equal(t, search.Name, proxySvc.Labels[khandler.MongoDBSearchOwnerNameLabel])
 
 	portMap := make(map[string]int32)
 	for _, p := range svc.Spec.Ports {
@@ -4047,6 +4078,21 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 		}}},
 	}
 
+	for i := range search.Spec.Clusters {
+		c := &search.Spec.Clusters[i]
+		c.Service = &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+			Labels:      map[string]string{"team": c.Name, "cluster-only": "kept"},
+			Annotations: map[string]string{"note": c.Name},
+		}}
+	}
+	search.Spec.Clusters[0].ShardOverrides = []searchv1.ShardOverride{{
+		ShardNames: []string{"sh-0"},
+		Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+			Labels:      map[string]string{"team": "shard-team", "shard-only": "yes"},
+			Annotations: map[string]string{"note": "shard-note"},
+		}},
+	}}
+
 	shardedSource := &mockShardedSource{
 		shardNames: []string{"sh-0", "sh-1"},
 		hostSeeds: map[string][]string{
@@ -4077,6 +4123,21 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 	for _, unit := range plan.units {
 		_, _, err := r.applyReconcileUnit(t.Context(), zap.S(), plan, unit, reconcileUnitMods{})
 		require.NoError(t, err)
+		for _, nn := range []types.NamespacedName{unit.headlessSvc, unit.proxySvc} {
+			svc, err := unit.client.GetService(t.Context(), nn)
+			require.NoError(t, err)
+			team, note := unit.clusterName, unit.clusterName
+			if unit.clusterName == "cluster-a" && unit.shardName == "sh-0" {
+				team, note = "shard-team", "shard-note"
+				assert.Equal(t, "yes", svc.Labels["shard-only"])
+			} else {
+				assert.NotContains(t, svc.Labels, "shard-only")
+			}
+			assert.Equal(t, team, svc.Labels["team"])
+			assert.Equal(t, "kept", svc.Labels["cluster-only"])
+			assert.Equal(t, map[string]string{"note": note}, svc.Annotations)
+			assert.Equal(t, unit.shardName, svc.Labels[shardLabelKey])
+		}
 	}
 	// Mirror reconcile()'s cluster-level proxy Service pass.
 	for _, res := range plan.clusterLevelResources {
@@ -4130,6 +4191,11 @@ func TestReconcileShardedMC_FanOutUsesPerClusterClient(t *testing.T) {
 		svc := &corev1.Service{}
 		require.NoError(t, c.Get(t.Context(), res.svcName, svc),
 			"cluster-level proxy svc %s missing on %s", res.svcName.Name, res.clusterName)
+		assert.Equal(t, res.clusterName, svc.Labels["team"])
+		assert.Equal(t, "kept", svc.Labels["cluster-only"])
+		assert.Equal(t, map[string]string{"note": res.clusterName}, svc.Annotations)
+		assert.NotContains(t, svc.Labels, "shard-only")
+		assert.NotContains(t, svc.Labels, shardLabelKey)
 		// Service must be created via the per-cluster client, not central.
 		err := centralClient.Get(t.Context(), res.svcName, &corev1.Service{})
 		assert.True(t, apierrors.IsNotFound(err),
