@@ -4,6 +4,7 @@ import base64
 import json
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -399,9 +400,23 @@ def ea_holder_states(ops_manager: MongoDBOpsManager, artifact_id: str) -> dict[s
     }
 
 
-def trigger_cron(ops_manager: MongoDBOpsManager, cron_name: str) -> None:
+def _cron(ops_manager: MongoDBOpsManager, action: str, cron_name: str) -> None:
     admin = read_secret(ops_manager.namespace, ops_manager.get_admin_secret_name())
-    ops_manager.get_om_tester().ui_trigger_cron(admin["Username"], admin["Password"], cron_name)
+    ops_manager.get_om_tester().ui_cron(admin["Username"], admin["Password"], action, cron_name)
+
+
+def trigger_cron(ops_manager: MongoDBOpsManager, cron_name: str) -> None:
+    _cron(ops_manager, "trigger", cron_name)
+
+
+@contextmanager
+def paused_cron(ops_manager: MongoDBOpsManager, cron_name: str):
+    """Pauses an Ops Manager cron for the block. The pause persists in Ops Manager, so it is always resumed."""
+    _cron(ops_manager, "manualDisable", cron_name)
+    try:
+        yield
+    finally:
+        _cron(ops_manager, "manualEnable", cron_name)
 
 
 def revoke_at_ea(ops_manager: MongoDBOpsManager, artifact_id: str) -> str:
@@ -445,15 +460,6 @@ def wait_for_om_artifact_unusable(ops_manager: MongoDBOpsManager, artifact_id: s
         return not om_artifact_usable(ops_manager, artifact_id)
 
     wait_with_cron(ops_manager, ENROLLMENT_RECONCILE_CRON, unusable)
-
-
-def wait_for_om_effective_state(ops_manager: MongoDBOpsManager, expected: str) -> None:
-    """Waits until Ops Manager reports the effective state, triggering the state evaluation cron."""
-
-    def reached() -> bool:
-        return read_om_license_view(ops_manager)["enforcement"]["effectiveState"] == expected
-
-    wait_with_cron(ops_manager, LICENSE_STATE_EVALUATION_CRON, reached)
 
 
 # Scenarios
