@@ -8795,22 +8795,13 @@ spec:
                   type: string
                 type: array
               license:
-                description: |-
-                  License configures EA licensing. secretRef installs from Secret, releaseReceipts stores the
-                  release receipts of released artifacts. When omitted, the operator still observes OM licence
-                  state when the admin API is available.
+                description: License manages the Ops Manager license and its release
+                  receipts.
                 properties:
-                  autoReleaseReceipts:
-                    description: |-
-                      AutoReleaseReceipts turns on automatic release receipts, which only matter in air gapped
-                      deployments. The operator then writes the release receipt of every artifact it releases, on
-                      removal and on renewal, into a Secret it creates named <artifactId>-release-receipt. The
-                      Secret has no owner reference and is never deleted by the operator.
-                    type: boolean
                   licenseSecretRef:
                     description: |-
-                      LicenseSecretRef is the signed licence artefact Secret (data key "license"). Removing it releases
-                      the artefact the operator installed from it.
+                      LicenseSecretRef names a Secret that holds the signed license under the "license" key.
+                      Changing or removing it releases the installed license.
                     properties:
                       name:
                         maxLength: 253
@@ -8820,21 +8811,21 @@ spec:
                     type: object
                   releaseReceipts:
                     description: |-
-                      ReleaseReceipts lists released artifacts whose release receipt the operator writes to a
-                      Secret it creates, named <artifactId>-release-receipt. Each entry names the artifact by id
-                      or by the Secret holding its licence payload. Listing an artifact never releases it. A
-                      receipt is written once Ops Manager no longer holds the artifact.
+                      ReleaseReceipts lists previously released licenses to collect a receipt for, each named by
+                      artifact ID or by the Secret that holds it. Each receipt is written to a Secret named
+                      <artifactId>-release-receipt.
                     items:
                       properties:
                         artifactId:
-                          description: ArtifactID is the id of the released artifact.
+                          description: ArtifactID is the artifact ID of the released
+                            license.
                           maxLength: 253
                           minLength: 1
                           type: string
                         licenseSecretRef:
                           description: |-
-                            LicenseSecretRef points at a Secret holding the old licence artefact, the operator reads
-                            the artifact id from its payload.
+                            LicenseSecretRef names a Secret that holds the released license. The artifact ID is read
+                            from the license.
                           properties:
                             name:
                               maxLength: 253
@@ -8862,6 +8853,14 @@ spec:
                       rule: self.all(x, !has(x.licenseSecretRef) || self.filter(y,
                         has(y.licenseSecretRef) && y.licenseSecretRef.name == x.licenseSecretRef.name).size()
                         == 1)
+                  releaseReceiptsPolicy:
+                    description: |-
+                      ReleaseReceiptsPolicy controls which released licenses get a receipt.
+                      When unset, only the licenses listed in releaseReceipts get one.
+                      Automatic also covers every license the operator releases.
+                    enum:
+                    - Automatic
+                    type: string
                 type: object
                 x-kubernetes-validations:
                 - message: licenseSecretRef must not also be listed in releaseReceipts
@@ -9292,9 +9291,7 @@ spec:
                   lastTransition:
                     type: string
                   license:
-                    description: |-
-                      License contains the typed response from Ops Manager's /admin/licenses API,
-                      together with operator-owned identity and install markers.
+                    description: License reports the license state of Ops Manager.
                     properties:
                       activeEntitlements:
                         additionalProperties:
@@ -9318,12 +9315,8 @@ spec:
                             - type
                             type: object
                           type: array
-                        description: ActiveEntitlements contains the active entitlements
-                          grouped by type.
                         type: object
                       enforcement:
-                        description: Enforcement contains the current license enforcement
-                          state.
                         properties:
                           cause:
                             type: string
@@ -9392,22 +9385,13 @@ spec:
                         - enforced
                         type: object
                       identity:
-                        description: Identity is the Ops Manager enrollment identity
-                          bound to EA licenses.
                         properties:
                           holderId:
                             type: string
                         type: object
                       installedArtifactId:
-                        description: |-
-                          InstalledArtifactID is the artifact id of the last artefact installed from licenseSecretRef, as
-                          claimed by the artefact itself. It is kept when OM no longer holds the artefact, so it
-                          also acts as the install memory that prevents the same Secret content from being PUT
-                          again. It is cleared when the artefact is released.
                         type: string
                       licenses:
-                        description: Licenses contains the license artifacts reported
-                          by Ops Manager.
                         items:
                           properties:
                             artifactId:
