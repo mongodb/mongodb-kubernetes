@@ -409,3 +409,82 @@ def test_agent_container_restart_does_not_restart_mongod(replica_set: MongoDB, n
     time.sleep(60)
     assert mongod_identity(pod, namespace) == identity
     assert query_proxy(pod, namespace)["state"] == "running"
+
+
+INDEX_DATABASE = "proxytest"
+INDEX_COLLECTION = "items"
+INDEX_NAME = "field_1"
+
+
+def mongosh(pod: str, namespace: str, script: str, uri: str) -> str:
+    """Runs a script with mongosh in the database container (it has the shell) and returns the last line."""
+    # The home directory of the user of the container is not writable, and mongosh warns about it on stdout.
+    out = KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["env", "HOME=/tmp", "mongosh", "--quiet", uri, "--eval", script], container=DATABASE_CONTAINER
+    ).strip()
+    return out.splitlines()[-1] if out else ""
+
+
+def replica_set_uri(replica_set: MongoDB, namespace: str) -> str:
+    host = f"{replica_set.name}-0.{replica_set.name}-svc.{namespace}.svc.cluster.local:27017"
+    return f"mongodb://{host}/?replicaSet={replica_set.name}"
+
+
+def ephemeral_starts(pod: str, namespace: str) -> list[dict]:
+    return [e for e in proxy_events(pod, namespace, "start requested") if e.get("role") == "ephemeral"]
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, namespace: str):
+    """A rolling index build takes each secondary out of the replica set and builds the index on a standalone mongod.
+
+    Ops Manager starts it with `indexConfigs` in the automation config. For a replica set of three or more members
+    the agent starts the secondary as a standalone on an ephemeral port, builds the index, stops it and starts the
+    member again: the proxy gets a `start` request with the role `ephemeral`.
+    """
+    pods = pod_members(replica_set)
+    uri = replica_set_uri(replica_set, namespace)
+    assert len(pods) >= 3, "the agent builds the index in place on a replica set of fewer than three members"
+
+    mongosh(
+        pods[0],
+        namespace,
+        f'db.getSiblingDB("{INDEX_DATABASE}").{INDEX_COLLECTION}.insertMany('
+        f'Array.from({{length: 100}}, (_, i) => ({{_id: i, field: i}})))',
+        uri,
+    )
+
+    om = replica_set.get_om_tester()
+    automation_config = om.api_get_automation_config()
+    automation_config["indexConfigs"] = [
+        {
+            "key": [["field", 1]],
+            "rsName": replica_set.name,
+            "dbName": INDEX_DATABASE,
+            "collectionName": INDEX_COLLECTION,
+            "options": {"name": INDEX_NAME},
+        }
+    ]
+    om.api_put_automation_config(automation_config)
+
+    def built_on_all_members() -> bool:
+        script = (
+            f'db.getSiblingDB("{INDEX_DATABASE}").{INDEX_COLLECTION}.getIndexes()'
+            f'.filter(i => i.name === "{INDEX_NAME}").length'
+        )
+        for pod in pods:
+            # read from the member itself, which also reads on a secondary
+            direct = f"mongodb://localhost:27017/?directConnection=true&readPreference=secondaryPreferred"
+            if mongosh(pod, namespace, script, direct) != "1":
+                return False
+        return True
+
+    wait_until("the index on every member", built_on_all_members, timeout_seconds=900, interval_seconds=10)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+
+    started = {pod: ephemeral_starts(pod, namespace) for pod in pods}
+    assert any(started.values()), f"no member got a start request with the role ephemeral: {started}"
+    for pod in pods:
+        for event in started[pod]:
+            assert event["configPath"], event
+        assert query_proxy(pod, namespace)["role"] == "main", pod
