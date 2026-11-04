@@ -168,6 +168,86 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 	assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not publish a client CA bundle")
 }
 
+func TestAppDBManagedCertificateOptions(t *testing.T) {
+	externalDomain := "external.example.com"
+	om := managedTestOM()
+	om.Spec.AppDB.Members = 5
+	om.Status.AppDbStatus.Members = 3
+	om.Spec.AppDB.Service = "appdb-svc"
+	om.Spec.AppDB.ClusterDomain = "custom.domain"
+	om.Spec.AppDB.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: &externalDomain}
+	om.Spec.AppDB.Security.TLSConfig = &mdbv1.TLSConfig{AdditionalCertificateDomains: []string{"alt.example.com"}}
+
+	opts := AppDBManagedCertConfig(om)
+
+	assert.Equal(t, "example-db", opts.ResourceName)
+	assert.Equal(t, "example-db-managed-cert", opts.CertSecretName)
+	assert.Equal(t, "example-db-managed-clusterfile", opts.InternalClusterSecretName)
+	assert.Equal(t, managedTestNamespace, opts.Namespace)
+	assert.Equal(t, "appdb-svc", opts.ServiceName)
+	assert.Equal(t, "custom.domain", opts.ClusterDomain)
+	assert.Equal(t, 5, opts.MembersToCover, "scale-up coverage is the desired replica count")
+	require.NotNil(t, opts.ExternalDomain)
+	assert.Equal(t, externalDomain, *opts.ExternalDomain)
+	assert.Contains(t, opts.additionalCertificateDomains, "alt.example.com")
+	assert.Equal(t, om.GetOwnerReferences(), opts.OwnerReference)
+
+	om.Spec.AppDB.Members = 1
+	om.Status.AppDbStatus.Members = 3
+	assert.Equal(t, 3, AppDBManagedCertConfig(om).MembersToCover, "scale-down coverage stays at the current replica count")
+}
+
+func TestAppDBManagedCertificateScaling(t *testing.T) {
+	ctx := context.Background()
+	om := managedTestOM()
+	om.Spec.AppDB.Members = 3
+	om.Status.AppDbStatus.Members = 3
+	c := newManagedCertTestClient(t)
+
+	issue := func() *certmanagerv1.Certificate {
+		t.Helper()
+		_, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
+		return getManagedCertificate(t, ctx, c, "example-db-managed-cert")
+	}
+	expectedNames := func(members int) []string {
+		t.Helper()
+		opts := AppDBManagedCertConfig(om)
+		opts.Replicas = members
+		hostnames, _ := GetDNSNames(opts)
+		return hostnames
+	}
+
+	initial := issue()
+	assert.ElementsMatch(t, expectedNames(3), initial.Spec.DNSNames)
+	assert.Equal(t, "3", initial.Annotations[coveredMembersAnnotation])
+
+	om.Spec.AppDB.Members = 5
+	scaleUp := issue()
+	assert.ElementsMatch(t, expectedNames(5), scaleUp.Spec.DNSNames, "a scale-up must cover every target member in a single update")
+	assert.Equal(t, "5", scaleUp.Annotations[coveredMembersAnnotation])
+
+	om.Spec.AppDB.Members = 3
+	om.Status.AppDbStatus.Members = 5
+	scaleDown := issue()
+	assert.Equal(t, scaleUp.Spec.DNSNames, scaleDown.Spec.DNSNames, "a scale-down must not shrink the issued SANs")
+	assert.Equal(t, scaleUp.Spec, scaleDown.Spec, "repeated identical coverage must not change the certificate spec")
+	assert.Equal(t, "5", scaleDown.Annotations[coveredMembersAnnotation])
+
+	certNames := make([]string, 0)
+	for _, cert := range listManagedCertificates(t, ctx, c) {
+		certNames = append(certNames, cert.Name)
+	}
+	assert.ElementsMatch(t, []string{"example-db-managed-cert", "example-db-server-ca"}, certNames,
+		"SCRAM AppDB issues one server leaf and one server CA chain")
+
+	for _, name := range []string{"example-db-managed-clusterfile", "example-db-managed-agent-certs"} {
+		_, err := c.GetSecret(ctx, types.NamespacedName{Name: name, Namespace: managedTestNamespace})
+		assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not issue client Secret %s", name)
+	}
+	err := c.Get(ctx, types.NamespacedName{Name: "example-db-managed-client-ca-bundle", Namespace: managedTestNamespace}, &corev1.ConfigMap{})
+	assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not publish a client CA bundle")
+}
+
 func TestVerifyTLSSecretForStatefulSet(t *testing.T) {
 	//nolint
 	crt := `-----BEGIN CERTIFICATE-----
