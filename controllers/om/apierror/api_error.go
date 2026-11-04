@@ -12,6 +12,10 @@ const (
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
 	DuplicateWhitelistEntry    = "DUPLICATE_GLOBAL_WHITELIST_ENTRY"
+	// AutomationConfigConcurrentModification is returned when the automation config
+	// version in the request body is not the published version. Another writer
+	// published the config between the client's read and write.
+	AutomationConfigConcurrentModification = "AUTOMATION_CONFIG_CONCURRENT_MODIFICATION"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the
