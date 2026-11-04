@@ -492,6 +492,19 @@ func TestEnsureOpsManagerLicense_RecomputeOnAnnotation(t *testing.T) {
 	assert.Empty(t, testOm.Annotations[util.LicenseRecomputeAnnotation])
 }
 
+func TestEnsureOpsManagerLicense_RecomputePublishesReturnedState(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	r := newOmLicenseReconciler(t, testOm)
+	setLicenseRecomputeAnnotation(t, context.Background(), r.client, testOm, "true")
+	admin := &api.MockedOmAdmin{
+		LicenseReadState:       licensedView("LICENSED"),
+		LicenseRecomputedState: licensedView("ENFORCED"),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "License state is ENFORCED.")
+}
+
 func TestEnsureOpsManagerLicense_RecomputeFailureClearsAnnotation(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	r := newOmLicenseReconciler(t, testOm)
