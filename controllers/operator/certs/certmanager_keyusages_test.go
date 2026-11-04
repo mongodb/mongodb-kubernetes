@@ -71,7 +71,7 @@ func TestVerifyIssuedKeyUsages(t *testing.T) {
 		return c
 	}
 
-	t.Run("a certificate that have every usage asked for is accepted", func(t *testing.T) {
+	t.Run("a certificate that has every usage asked for is accepted", func(t *testing.T) {
 		c := newClient()
 		// The requested usages also hold the key usages (digitalSignature, keyEncipherment), which are
 		// not extended key usages, so they are not looked for in the certificate.
