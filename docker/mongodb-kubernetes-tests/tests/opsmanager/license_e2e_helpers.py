@@ -33,13 +33,7 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     if is_multi_cluster():
         enable_multi_cluster_deployment(resource)
 
-    if try_load(resource):
-        resource.update()
-    else:
-        resource.create()
-
-    resource.om_status().assert_reaches_phase(Phase.Running, timeout=900)
-    resource.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
+    try_load(resource)
     return resource
 
 
@@ -51,7 +45,7 @@ def license_status(ops_manager: MongoDBOpsManager) -> dict:
     return ops_manager["status"]["opsManager"]["license"]
 
 
-def license_condition(ops_manager: MongoDBOpsManager, condition_type: str) -> Optional[dict]:
+def om_condition(ops_manager: MongoDBOpsManager, condition_type: str) -> Optional[dict]:
     for condition in ops_manager["status"]["opsManager"]["conditions"]:
         if condition["type"] == condition_type:
             return condition
@@ -68,7 +62,7 @@ def _reconciled_condition(ops_manager: MongoDBOpsManager, generation: int, want:
 
     Fails at once when the operator settled this generation with a status other than want.
     """
-    condition = license_condition(ops_manager, "LicenseReconciled")
+    condition = om_condition(ops_manager, "LicenseReconciled")
     if condition is None or condition["observedGeneration"] < generation:
         return None
     if condition["status"] != want:
