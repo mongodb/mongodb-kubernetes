@@ -111,6 +111,78 @@ func updateSecretDataWithPreviousCert(ctx context.Context, secretClient secrets.
 	return newData, nil
 }
 
+// When a customer moves a resource from legacy TLS to operator-managed certificates, the pods get new
+// -pem secrets mounted. If those held only the new certificate, mongod would not start: the pods would
+// have the new files, but the automation config would still name the old paths for a while.
+//
+// To avoid that, each new managed -pem secret is created with the old certificate already in it. So
+// during the migration the pods have both the old and the new certificate, like during a rotation,
+// and the deployment stays up until it converges to Running.
+func SeedManagedPEMSecretsFromLegacy(ctx context.Context, secretClient secrets.SecretClient, namespace, stsName, resourceName string, lastAchieved, current *mdbv1.Security, log *zap.SugaredLogger) error {
+	pairs := []struct{ legacy, managed string }{
+		{lastAchieved.MemberCertificateSecretName(stsName), current.MemberCertificateSecretName(stsName)},
+		{lastAchieved.InternalClusterAuthSecretName(stsName), current.InternalClusterAuthSecretName(stsName)},
+		{lastAchieved.AgentClientCertificateSecretName(resourceName), current.AgentClientCertificateSecretName(resourceName)},
+	}
+	for _, p := range pairs {
+		if err := seedPEMSecret(ctx, secretClient, namespace, p.legacy, p.managed, log); err != nil {
+			return xerrors.Errorf("failed to create the initial -pem secret %s with the legacy certificate from %s: %w", p.managed, p.legacy, err)
+		}
+	}
+	return nil
+}
+
+// seedPEMSecret creates the -pem secret of managedSecretName holding the current certificate of
+// legacySecretName's -pem secret. It does nothing when the names are the same, when the managed -pem
+// secret already exists, or when there is no legacy -pem secret to take the certificate from.
+func seedPEMSecret(ctx context.Context, secretClient secrets.SecretClient, namespace, legacySecretName, managedSecretName string, log *zap.SugaredLogger) error {
+	if legacySecretName == managedSecretName {
+		return nil
+	}
+	path, err := getVaultBasePath(secretClient, Database)
+	if err != nil {
+		return err
+	}
+	legacyPEM := getOperatorGeneratedSecret(kube.ObjectKey(namespace, legacySecretName))
+	managedPEM := getOperatorGeneratedSecret(kube.ObjectKey(namespace, managedSecretName))
+
+	// nothing should be done if managed -pem secret is found, return early
+	if _, err := secretClient.ReadSecret(ctx, managedPEM, path); err == nil {
+		return nil
+	} else if !secret.SecretNotExist(err) {
+		return err
+	}
+
+	legacyData, err := secretClient.ReadSecret(ctx, legacyPEM, path)
+	if secret.SecretNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	legacyHash := currentHashOfPEMSecret(legacyData)
+	if legacyHash == "" {
+		return nil
+	}
+
+	log.Infof("Moving to operator-managed certificates: keeping the certificate of %s in %s, so restarted pods still have the file the automation config names", legacyPEM.Name, managedPEM.Name)
+	return CreateOrUpdatePEMSecret(ctx, secretClient, kube.ObjectKey(namespace, managedSecretName), map[string]string{
+		legacyHash:               legacyData[legacyHash],
+		util.LatestHashSecretKey: legacyHash,
+	}, nil, Database)
+}
+
+func currentHashOfPEMSecret(data map[string]string) string {
+	if hash, ok := data[util.LatestHashSecretKey]; ok {
+		return hash
+	}
+	if len(data) == 1 {
+		for hash := range data {
+			return hash
+		}
+	}
+	return ""
+}
+
 // getVaultBasePath returns the path to secrets in the vault
 func getVaultBasePath(secretClient secrets.SecretClient, podType certDestination) (string, error) {
 	var path string

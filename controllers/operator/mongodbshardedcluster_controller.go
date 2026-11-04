@@ -1476,6 +1476,33 @@ func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Con
 	}
 }
 
+// seedManagedPEMSecretsFromLegacy keeps the legacy certificate files of every component in its new
+// -pem secrets, before they are created, so the restarted pods still have the files the automation
+// config names until it is updated. It runs in every member cluster that holds the component, because
+// that is where the -pem secrets are.
+func (r *ShardedClusterReconcileHelper) seedManagedPEMSecretsFromLegacy(ctx context.Context, s *mdbv1.MongoDB, lastAchieved *mdbv1.Security, log *zap.SugaredLogger) error {
+	seed := func(memberClusters []multicluster.MemberCluster, stsName string) error {
+		for _, memberCluster := range getHealthyMemberClusters(memberClusters) {
+			if err := certs.SeedManagedPEMSecretsFromLegacy(ctx, memberCluster.SecretClient, s.Namespace, stsName, s.Name, lastAchieved, s.GetSecurity(), log); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := seed(r.mongosMemberClusters, s.MongosRsName()); err != nil {
+		return err
+	}
+	if err := seed(r.configSrvMemberClusters, s.ConfigRsName()); err != nil {
+		return err
+	}
+	for i := 0; i < s.Spec.ShardCount; i++ {
+		if err := seed(r.shardsMemberClustersMap[i], s.ShardName(i)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Context, s *mdbv1.MongoDB, log *zap.SugaredLogger) workflow.Status {
 	tlsConfig := s.Spec.GetTLSConfig()
 
@@ -1485,6 +1512,19 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 
 	if err := r.replicateTLSCAConfigMap(ctx, log); err != nil {
 		return workflow.Failed(err)
+	}
+
+	// When migrating to managed certificates from legacy TLS management, keep the legacy certificate files in the new -pem secrets,
+	// so the restarted pods still have the files the automation config (old) names until it is updated.
+	if lastSpec := r.deploymentState.LastAchievedSpec; lastSpec != nil && mdbv1.IsMigratingToManagedCertificate(lastSpec.GetSecurity(), s.GetSecurity()) {
+		// Refuse a migration that would change the subjects MongoDB uses to identify the deployment. All
+		// components carry the same membership subject, so checking one of them is enough.
+		if status := certs.VerifyMigrationSubjects(ctx, r.commonController.client, s, lastSpec.GetSecurity(), s.ConfigRsName(), log); !status.IsOK() {
+			return status
+		}
+		if err := r.seedManagedPEMSecretsFromLegacy(ctx, s, lastSpec.GetSecurity(), log); err != nil {
+			return workflow.Failed(err)
+		}
 	}
 
 	var workflowStatus workflow.Status = workflow.OK()
