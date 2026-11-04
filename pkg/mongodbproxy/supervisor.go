@@ -27,6 +27,9 @@ type Supervisor struct {
 	stdout io.Writer
 	stderr io.Writer
 	log    *zap.SugaredLogger
+	// tailLogs copies the log file of the child to stdout (see logtail.go).
+	tailLogs bool
+	logPoll  time.Duration
 
 	mu          sync.Mutex
 	current     *Execution
@@ -45,6 +48,11 @@ func WithOutput(stdout, stderr io.Writer) Option {
 	return func(s *Supervisor) { s.stdout, s.stderr = stdout, stderr }
 }
 
+// WithLogTail sets whether the log file of the child is followed and copied to the proxy's stdout. It is on by default.
+func WithLogTail(on bool) Option {
+	return func(s *Supervisor) { s.tailLogs = on }
+}
+
 // WithLogger sets the logger of the supervisor. Without it nothing is logged.
 func WithLogger(log *zap.SugaredLogger) Option {
 	return func(s *Supervisor) { s.log = log }
@@ -52,7 +60,7 @@ func WithLogger(log *zap.SugaredLogger) Option {
 
 // NewSupervisor creates a Supervisor that forwards the child's output to the proxy's stdout/stderr.
 func NewSupervisor(opts ...Option) *Supervisor {
-	s := &Supervisor{stdout: os.Stdout, stderr: os.Stderr, log: zap.NewNop().Sugar()}
+	s := &Supervisor{stdout: os.Stdout, stderr: os.Stderr, log: zap.NewNop().Sugar(), tailLogs: true, logPoll: defaultLogTailPoll}
 	for _, o := range opts {
 		o(s)
 	}
@@ -162,6 +170,15 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		}
 	}
 
+	// The state of the log file before the process starts tells the tail where its own lines begin.
+	var logPath string
+	var logInfoBefore os.FileInfo
+	if s.tailLogs {
+		if logPath = logPathOf(req.ConfigPath); logPath != "" {
+			logInfoBefore, _ = os.Stat(logPath)
+		}
+	}
+
 	output := &tailBuffer{limit: maxOutputBytes}
 	// The program is mongod/mongos (optionally behind numactl) and every argument is built by
 	// validate() from typed fields; nothing from the request reaches a shell or is used as a flag verbatim.
@@ -189,6 +206,9 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	s.current = e
 	s.log.Infow("process started", "role", e.role, "configPath", e.configPath, "pid", cmd.Process.Pid)
 	go s.wait(e)
+	if logPath != "" {
+		go tailLog(logPath, logInfoBefore, s.stdout, e.done, s.logPoll)
+	}
 	return e, nil
 }
 

@@ -24,19 +24,20 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8099", "address of the process API; must be a loopback address")
 	binDir := flag.String("bin-dir", "", "directory with mongod/mongos; PATH is used when empty")
 	debug := flag.Bool("debug", false, "log the status requests too")
+	tailLog := flag.Bool("tail-mongod-log", true, "copy the log file of mongod/mongos to the stdout of the proxy")
 	flag.Parse()
 
 	log := newLogger(*debug)
 	defer func() { _ = log.Sync() }()
 
-	if err := run(log, *listen, *binDir); err != nil {
+	if err := run(log, *listen, *binDir, *tailLog); err != nil {
 		log.Errorw("proxy failed", "error", err)
 		_ = log.Sync()
 		os.Exit(1)
 	}
 }
 
-func run(log *zap.SugaredLogger, listen, binDir string) error {
+func run(log *zap.SugaredLogger, listen, binDir string, tailLog bool) error {
 	if err := requireLoopback(listen); err != nil {
 		return err
 	}
@@ -46,6 +47,7 @@ func run(log *zap.SugaredLogger, listen, binDir string) error {
 		opts = append(opts, mongodbproxy.WithBinDir(binDir))
 	}
 	opts = append(opts, mongodbproxy.WithLogger(log))
+	opts = append(opts, mongodbproxy.WithLogTail(tailLog))
 	sup := mongodbproxy.NewSupervisor(opts...)
 
 	srv := &http.Server{

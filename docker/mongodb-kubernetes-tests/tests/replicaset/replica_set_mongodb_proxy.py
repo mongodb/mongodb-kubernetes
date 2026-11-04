@@ -199,6 +199,26 @@ def test_mongod_runs_in_its_own_container(replica_set: MongoDB, namespace: str):
         assert "proxy" in in_database_container
 
 
+@mark.e2e_replica_set_mongodb_proxy
+def test_log_of_mongod_is_in_the_log_of_the_database_container(replica_set: MongoDB, namespace: str):
+    """`kubectl logs` of the database container has the log of mongod, not only the lines of the proxy.
+
+    mongod writes its log to a file on the logs volume, which the agent and Ops Manager read. The proxy follows the
+    file and copies each line to its stdout.
+    """
+    corev1 = KubernetesTester.clients("corev1")
+    for pod in pod_members(replica_set):
+
+        def has_mongod_log(pod=pod) -> bool:
+            raw = corev1.read_namespaced_pod_log(pod, namespace, container=DATABASE_CONTAINER)
+            # a structured mongod log line, which the log of the proxy has no "c" (component) field for
+            return any(
+                '"msg":"Waiting for connections"' in line and '"c":"NETWORK"' in line for line in raw.splitlines()
+            )
+
+        wait_until(f"the log of mongod in the log of {pod}", has_mongod_log, timeout_seconds=120)
+
+
 def wait_for_replaced_pod(pod: str, namespace: str, old_uid: str, timeout_seconds: int = 600):
     """Waits until the pod has been recreated (another uid) and all its containers are ready."""
     corev1 = KubernetesTester.clients("corev1")
