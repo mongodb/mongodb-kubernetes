@@ -45,7 +45,8 @@ func TestLicenseAdmin_Paths(t *testing.T) {
 			method: http.MethodPost,
 			uri:    "/api/public/v1.0/admin/licenses/recompute",
 			invoke: func(ctx context.Context, admin OpsManagerAdmin) error {
-				return admin.RecomputeLicense(ctx)
+				_, err := admin.RecomputeLicense(ctx)
+				return err
 			},
 		},
 		{
@@ -142,6 +143,17 @@ func TestReadLicenseState_ParsesResponse(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.Enforcement)
 	assert.Equal(t, "GRACE", got.Enforcement.EffectiveState)
+}
+
+func TestRecomputeLicense_ParsesResponse(t *testing.T) {
+	const body = `{"enforcement":{"effectiveState":"ENFORCED"}}`
+	srv, _ := httprecorder.NewServer(http.StatusOK, []byte(body))
+	defer srv.Close()
+
+	got, err := NewOmAdmin(srv.URL, "", "", nil).RecomputeLicense(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, got.Enforcement)
+	assert.Equal(t, "ENFORCED", got.Enforcement.EffectiveState)
 }
 
 func TestReadLicenseState_UnsupportedAPIIsError(t *testing.T) {

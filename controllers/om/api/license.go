@@ -22,7 +22,7 @@ type LicenseAdmin interface {
 	ReadLicenseState(ctx context.Context) (LicenseView, error)
 	InstallLicense(ctx context.Context, rawArtifact json.RawMessage) (LicenseView, error)
 	ReleaseLicense(ctx context.Context, artifactID string) (LicenseView, error)
-	RecomputeLicense(ctx context.Context) error
+	RecomputeLicense(ctx context.Context) (LicenseView, error)
 	ReadLicenseReceipt(ctx context.Context, artifactID string) (string, error)
 	ReadLicenseIdentity(ctx context.Context) (IdentityView, error)
 	RotateLicenseIdentity(ctx context.Context) error
@@ -223,9 +223,13 @@ func (a *DefaultOmAdmin) ReleaseLicense(ctx context.Context, artifactID string) 
 	return decodeLicenseState(body)
 }
 
-func (a *DefaultOmAdmin) RecomputeLicense(ctx context.Context) error {
-	_, _, err := a.post(ctx, licenseRecomputePath, nil)
-	return err
+// RecomputeLicense returns the fresh state Ops Manager computes.
+func (a *DefaultOmAdmin) RecomputeLicense(ctx context.Context) (LicenseView, error) {
+	body, _, err := a.post(ctx, licenseRecomputePath, nil)
+	if err != nil {
+		return LicenseView{}, err
+	}
+	return decodeLicenseState(body)
 }
 
 func (a *DefaultOmAdmin) ReadLicenseReceipt(ctx context.Context, artifactID string) (string, error) {
