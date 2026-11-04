@@ -1172,6 +1172,7 @@ task_groups:
       - e2e_replica_set_tls_managedcert
       - e2e_replica_set_tls_managedcert_server
       - e2e_replica_set_tls_managedcert_both_configured
+      - e2e_replica_set_tls_managedcert_internal_auth_keyfile
       - e2e_sharded_cluster_tls_managedcert
       - e2e_managed_certificate_prerequisites
 
