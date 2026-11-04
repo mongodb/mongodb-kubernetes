@@ -176,32 +176,29 @@ type MongoDBOpsManagerSpec struct {
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
 
-	// License configures EA licensing. secretRef installs from Secret, releaseReceipts stores the
-	// release receipts of released artifacts. When omitted, the operator still observes OM licence
-	// state when the admin API is available.
+	// License manages the Ops Manager license and its release receipts.
 	// +optional
 	License *MongoDBOpsManagerLicense `json:"license,omitempty"`
 }
 
+// MongoDBOpsManagerLicense configures the Enterprise Advanced license and its release receipts.
 // +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, has(r.licenseSecretRef) && r.licenseSecretRef.name == self.licenseSecretRef.name)",message="licenseSecretRef must not also be listed in releaseReceipts"
 // +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
 type MongoDBOpsManagerLicense struct {
-	// LicenseSecretRef is the signed licence artefact Secret (data key "license"). Removing it releases
-	// the artefact the operator installed from it.
+	// LicenseSecretRef names a Secret that holds the signed license under the "license" key.
+	// Changing or removing it releases the installed license.
 	// +optional
 	LicenseSecretRef *SecretRef `json:"licenseSecretRef,omitempty"`
 
-	// AutoReleaseReceipts turns on automatic release receipts, which only matter in air gapped
-	// deployments. The operator then writes the release receipt of every artifact it releases, on
-	// removal and on renewal, into a Secret it creates named <artifactId>-release-receipt. The
-	// Secret has no owner reference and is never deleted by the operator.
+	// ReleaseReceiptsPolicy controls which released licenses get a receipt.
+	// When unset, only the licenses listed in releaseReceipts get one.
+	// Automatic also covers every license the operator releases.
 	// +optional
-	AutoReleaseReceipts bool `json:"autoReleaseReceipts,omitempty"`
+	ReleaseReceiptsPolicy ReleaseReceiptsPolicy `json:"releaseReceiptsPolicy,omitempty"`
 
-	// ReleaseReceipts lists released artifacts whose release receipt the operator writes to a
-	// Secret it creates, named <artifactId>-release-receipt. Each entry names the artifact by id
-	// or by the Secret holding its licence payload. Listing an artifact never releases it. A
-	// receipt is written once Ops Manager no longer holds the artifact.
+	// ReleaseReceipts lists previously released licenses to collect a receipt for, each named by
+	// artifact ID or by the Secret that holds it. Each receipt is written to a Secret named
+	// <artifactId>-release-receipt.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
@@ -210,17 +207,24 @@ type MongoDBOpsManagerLicense struct {
 	ReleaseReceipts []LicenseReleaseReceipt `json:"releaseReceipts,omitempty"`
 }
 
+// ReleaseReceiptsPolicy controls when the operator writes release receipts.
+// +kubebuilder:validation:Enum=Automatic
+type ReleaseReceiptsPolicy string
+
+// ReleaseReceiptsAutomatic writes a receipt for every license the operator releases.
+const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
+
 // +kubebuilder:validation:XValidation:rule="has(self.artifactId) != has(self.licenseSecretRef)",message="exactly one of artifactId or licenseSecretRef must be set"
 // +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
 type LicenseReleaseReceipt struct {
-	// ArtifactID is the id of the released artifact.
+	// ArtifactID is the artifact ID of the released license.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	ArtifactID string `json:"artifactId,omitempty"`
 
-	// LicenseSecretRef points at a Secret holding the old licence artefact, the operator reads
-	// the artifact id from its payload.
+	// LicenseSecretRef names a Secret that holds the released license. The artifact ID is read
+	// from the license.
 	// +optional
 	LicenseSecretRef *SecretRef `json:"licenseSecretRef,omitempty"`
 }
@@ -241,8 +245,9 @@ func (l *MongoDBOpsManagerLicense) ReceiptsRequested() bool {
 	return l != nil && len(l.ReleaseReceipts) > 0
 }
 
+// AutoReleaseReceiptsRequested reports whether ReleaseReceiptsPolicy is Automatic.
 func (l *MongoDBOpsManagerLicense) AutoReleaseReceiptsRequested() bool {
-	return l != nil && l.AutoReleaseReceipts
+	return l != nil && l.ReleaseReceiptsPolicy == ReleaseReceiptsAutomatic
 }
 
 // HasReleaseReceipt reports whether artifactID is listed in releaseReceipts.
@@ -595,29 +600,20 @@ type OpsManagerStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// License contains the typed response from Ops Manager's /admin/licenses API,
-	// together with operator-owned identity and install markers.
+	// License reports the license state of Ops Manager.
 	// +optional
 	License *OpsManagerLicenseStatus `json:"license,omitempty"`
 }
 
 type OpsManagerLicenseStatus struct {
-	// Enforcement contains the current license enforcement state.
 	// +optional
 	Enforcement *OpsManagerLicenseEnforcementStatus `json:"enforcement,omitempty"`
-	// Licenses contains the license artifacts reported by Ops Manager.
 	// +optional
 	Licenses []OpsManagerLicenseArtifactStatus `json:"licenses,omitempty"`
-	// ActiveEntitlements contains the active entitlements grouped by type.
 	// +optional
 	ActiveEntitlements map[string][]OpsManagerLicenseEntitlementStatus `json:"activeEntitlements,omitempty"`
-	// Identity is the Ops Manager enrollment identity bound to EA licenses.
 	// +optional
 	Identity *OpsManagerLicenseIdentityStatus `json:"identity,omitempty"`
-	// InstalledArtifactID is the artifact id of the last artefact installed from licenseSecretRef, as
-	// claimed by the artefact itself. It is kept when OM no longer holds the artefact, so it
-	// also acts as the install memory that prevents the same Secret content from being PUT
-	// again. It is cleared when the artefact is released.
 	// +optional
 	InstalledArtifactID string `json:"installedArtifactId,omitempty"`
 }
