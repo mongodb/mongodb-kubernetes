@@ -293,7 +293,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, s.Spec.Version, s.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
-		WithMongodbProxyImage(r.imageUrls[util.MongodbProxyImageEnv]),
+		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),

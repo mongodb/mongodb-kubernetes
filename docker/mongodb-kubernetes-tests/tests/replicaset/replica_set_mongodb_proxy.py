@@ -41,6 +41,17 @@ def proxy_image() -> Optional[str]:
     return os.environ.get("MDB_MONGODB_PROXY_IMAGE") or None
 
 
+def proxy_helm_values(image: str) -> dict[str, str]:
+    """The Helm values that make the chart pass `image` (registry/name:version) to the operator."""
+    repository, _, version = image.rpartition(":")
+    registry, _, name = repository.rpartition("/")
+    return {
+        "registry.mongodbProxy": registry,
+        "mongodbProxy.name": name,
+        "mongodbProxy.version": version,
+    }
+
+
 def run_operator_in_cluster(namespace: str, timeout_seconds: int = 180):
     apps = KubernetesTester.clients("appsv1")
     name = "mongodb-kubernetes-operator"
@@ -58,8 +69,7 @@ def operator_with_proxy(namespace: str, operator_installation_config: dict[str, 
     image = proxy_image()
     if image is None:
         skip("MDB_MONGODB_PROXY_IMAGE is not set")
-    config = dict(operator_installation_config)
-    config["customEnvVars"] = config.get("customEnvVars", "") + f"\\&MDB_MONGODB_PROXY_IMAGE={image}"
+    config = {**operator_installation_config, **proxy_helm_values(image)}
     operator = get_default_operator(namespace, config)
     if local_operator():
         # A test run from a workstation cannot resolve the in-cluster name of the webhook, so it sets

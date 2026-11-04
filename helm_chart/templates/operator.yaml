@@ -175,6 +175,8 @@ spec:
     {{- $agentImageEnv := "AGENT_IMAGE" -}}
     {{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
     {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
+    {{- $mongodbProxyImageEnv := "MDB_MONGODB_PROXY_IMAGE" -}}
+    {{- $mongodbProxyVersion := print .Values.mongodbProxy.version (.Values.build | default "") -}}
     {{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
     {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
     {{- $agentVersion := .Values.agent.version }}
@@ -187,6 +189,8 @@ spec:
               value: {{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}
             - name: INIT_DATABASE_VERSION
               value: {{ $initDatabaseVersion | quote }}
+            - name: {{ $mongodbProxyImageEnv }}
+              value: "{{ .Values.registry.mongodbProxy }}/{{ .Values.mongodbProxy.name }}:{{ $mongodbProxyVersion }}"
             - name: DATABASE_VERSION
               value: {{ $databaseVersion | quote }}
             # Ops Manager
@@ -269,6 +273,8 @@ spec:
               value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
             - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
+            - name: RELATED_IMAGE_{{ $mongodbProxyImageEnv }}_{{ $mongodbProxyVersion | replace "." "_" | replace "-" "_" }}
+              value: "{{ .Values.registry.mongodbProxy }}/{{ .Values.mongodbProxy.name }}:{{ $mongodbProxyVersion }}"
       {{- range $version := .Values.relatedImages.agent }}
             - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"
