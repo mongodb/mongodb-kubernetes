@@ -64,13 +64,6 @@ from tests.opsmanager.license_e2e_helpers import (
 )
 
 
-@fixture(autouse=True)
-def _reset_license_state(ops_manager: MongoDBOpsManager):
-    ops_manager.load()
-    reset_license_e2e_state(ops_manager)
-    assert_om_and_appdb_running(ops_manager)
-
-
 @pytest.mark.e2e_om_ops_manager_license
 def test_create_om(ops_manager: MongoDBOpsManager):
     ops_manager.update()
@@ -80,6 +73,12 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 
 @pytest.mark.e2e_om_ops_manager_license
 class TestOpsManagerLicenseE2E:
+    @fixture(autouse=True)
+    def _reset_license_state(self, ops_manager: MongoDBOpsManager):
+        ops_manager.load()
+        reset_license_e2e_state(ops_manager)
+        assert_om_and_appdb_running(ops_manager)
+
     def test_observe_only_license_status(self, ops_manager: MongoDBOpsManager):
         """Without spec.license the CR mirrors the state and identity Ops Manager reports."""
         cr, _ = wait_for_cr_license_sync(ops_manager, installed="")
