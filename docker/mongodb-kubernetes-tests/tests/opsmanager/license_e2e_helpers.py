@@ -335,7 +335,7 @@ def set_license_install_spec(
 ) -> None:
     license_spec = {"licenseSecretRef": {"name": secret_name}}
     if auto_release_receipts:
-        license_spec["autoReleaseReceipts"] = True
+        license_spec["releaseReceiptsPolicy"] = "Automatic"
     set_license_spec(ops_manager, license_spec)
 
 
