@@ -21,11 +21,11 @@ Template used directly by Helm and by kubectl plugin when rendering RBAC for mem
     {{- $saName = printf "%s-sa" $memberPrefix }}
 {{- end }}
 
-{{/* Whether telemetry is enabled/disabled is a runtime setting on the OperatorConfig CR, so the RBAC
-     is always deployed (the base deployment can toggle telemetry without redeploying). Deployment of
-     the ClusterRole itself remains an installation-stage choice via operator.telemetry.installClusterRole.
+{{/* Telemetry RBAC ships with the base installation only when telemetry is enabled and the
+     ClusterRole installation is not opted out. Both are installation-stage Helm values:
+     operator.telemetry.enabled and operator.telemetry.installClusterRole.
      We can't use default here, as 0, false and nil are determined as unset and thus set the default value */}}
-{{- if ne $telemetry.installClusterRole false}}
+{{- if and (ne $telemetry.enabled false) (ne $telemetry.installClusterRole false)}}
 
 ---
 # Additional ClusterRole for clusterVersionDetection
@@ -72,4 +72,4 @@ subjects:
   - kind: ServiceAccount
     name: {{ $saName }}
     namespace: {{ $operatorNamespace }}
-{{- end}}{{/* if ne $telemetry.installClusterRole false */}}
+{{- end}}{{/* if and (ne $telemetry.enabled false) (ne $telemetry.installClusterRole false) */}}
