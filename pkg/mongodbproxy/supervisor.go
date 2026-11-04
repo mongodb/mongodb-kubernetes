@@ -27,6 +27,8 @@ type Supervisor struct {
 	stdout io.Writer
 	stderr io.Writer
 	log    *zap.SugaredLogger
+	// baseEnv is the environment of the child. The package does not read it: main passes the one of the proxy.
+	baseEnv []string
 	// tailLogs copies the log file of the child to stdout (see logtail.go).
 	tailLogs bool
 	logPoll  time.Duration
@@ -46,6 +48,12 @@ func WithBinDir(dir string) Option {
 // WithOutput sets where the child's stdout and stderr are forwarded to.
 func WithOutput(stdout, stderr io.Writer) Option {
 	return func(s *Supervisor) { s.stdout, s.stderr = stdout, stderr }
+}
+
+// WithEnv sets the environment that the child starts with, as os.Environ returns it. Without it the child has an
+// empty one.
+func WithEnv(env []string) Option {
+	return func(s *Supervisor) { s.baseEnv = env }
 }
 
 // WithLogTail sets whether the log file of the child is followed and copied to the proxy's stdout. It is on by default.
@@ -132,7 +140,7 @@ func (s *Supervisor) statusLocked(e *Execution) Status {
 // Start launches the child and returns right after the process was spawned.
 // If a child with the same role is already running it is a no-op and returns the running execution.
 func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
-	spec, err := req.validate()
+	spec, err := req.validate(s.baseEnv)
 	if err != nil {
 		return nil, err
 	}

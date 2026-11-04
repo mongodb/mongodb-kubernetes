@@ -75,7 +75,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, binaryNumactl), []byte(fakeNumactl), 0o755)) //nolint:gosec
 	stdout := &syncBuffer{}
-	sup := NewSupervisor(WithBinDir(dir), WithOutput(stdout, stdout))
+	sup := NewSupervisor(WithEnv(os.Environ()), WithBinDir(dir), WithOutput(stdout, stdout))
 	t.Cleanup(func() {
 		// make sure no child outlives the test
 		_ = sup.Stop(context.Background(), "", 0, true)
@@ -190,7 +190,7 @@ func TestStartFailures(t *testing.T) {
 	}
 
 	t.Run("binary not found", func(t *testing.T) {
-		sup := NewSupervisor(WithBinDir(t.TempDir()))
+		sup := NewSupervisor(WithEnv(os.Environ()), WithBinDir(t.TempDir()))
 		_, err := sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain})
 		assert.ErrorIs(t, err, ErrSpawn)
 		assert.Equal(t, StateIdle, sup.Status().State)

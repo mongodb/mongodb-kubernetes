@@ -18,7 +18,7 @@ func TestDisableTHPIsInheritedByChild(t *testing.T) {
 	require.NoError(t, os.WriteFile(cfg, []byte("x"), 0o600))
 
 	for _, disable := range []bool{true, false} {
-		sup := NewSupervisor(WithBinDir(dir), WithOutput(&syncBuffer{}, &syncBuffer{}))
+		sup := NewSupervisor(WithEnv(os.Environ()), WithBinDir(dir), WithOutput(&syncBuffer{}, &syncBuffer{}))
 		e, err := sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{DisableTHP: disable}})
 		require.NoError(t, err)
 		waitDone(t, e)

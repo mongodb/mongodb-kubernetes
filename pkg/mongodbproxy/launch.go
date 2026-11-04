@@ -23,7 +23,9 @@ type launchSpec struct {
 	disableTHP bool
 }
 
-func (r StartRequest) validate() (launchSpec, error) {
+// validate checks the request and turns it into a launch spec. baseEnv is the environment the child starts with,
+// plus the variables that the request adds.
+func (r StartRequest) validate(baseEnv []string) (launchSpec, error) {
 	if !filepath.IsAbs(r.ConfigPath) {
 		return launchSpec{}, fmt.Errorf("%w: configPath must be an absolute path", ErrInvalidRequest)
 	}
@@ -65,7 +67,7 @@ func (r StartRequest) validate() (launchSpec, error) {
 		args = append(args, "--configOnly")
 	}
 
-	env := os.Environ()
+	env := append([]string(nil), baseEnv...)
 	if o.KerberosKeytab != "" {
 		env = append(env, "KRB5_KTNAME="+o.KerberosKeytab)
 	}

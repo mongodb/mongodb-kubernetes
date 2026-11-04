@@ -483,7 +483,7 @@ def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, 
         pods[0],
         namespace,
         f'db.getSiblingDB("{INDEX_DATABASE}").{INDEX_COLLECTION}.insertMany('
-        f'Array.from({{length: 100}}, (_, i) => ({{_id: i, field: i}})))',
+        f"Array.from({{length: 100}}, (_, i) => ({{_id: i, field: i}})))",
         uri,
     )
 
@@ -565,9 +565,7 @@ def test_agent_starts_mongod_with_scram_authentication(replica_set: MongoDB, nam
 def test_user_can_read_the_data_with_scram(replica_set: MongoDB, namespace: str):
     from kubetester.scram import build_scram_user_resource
 
-    user = build_scram_user_resource(
-        namespace, SCRAM_USER, SCRAM_PASSWORD, f"{SCRAM_USER}-password", replica_set.name
-    )
+    user = build_scram_user_resource(namespace, SCRAM_USER, SCRAM_PASSWORD, f"{SCRAM_USER}-password", replica_set.name)
     # the fixture grants roles on admin only
     user["spec"]["roles"] = [{"db": INDEX_DATABASE, "name": "read"}]
     user.update()

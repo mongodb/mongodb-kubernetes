@@ -46,7 +46,7 @@ func run(log *zap.SugaredLogger, listen, binDir string, tailLog bool) error {
 	if binDir != "" {
 		opts = append(opts, mongodbproxy.WithBinDir(binDir))
 	}
-	opts = append(opts, mongodbproxy.WithLogger(log))
+	opts = append(opts, mongodbproxy.WithEnv(os.Environ()), mongodbproxy.WithLogger(log))
 	opts = append(opts, mongodbproxy.WithLogTail(tailLog))
 	sup := mongodbproxy.NewSupervisor(opts...)
 

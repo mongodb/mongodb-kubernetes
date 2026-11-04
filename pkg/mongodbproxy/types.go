@@ -86,7 +86,7 @@ type Other struct {
 type StartRequest struct {
 	ConfigPath  string `json:"configPath"`
 	Role        Role   `json:"role"`
-	Other       Other  `json:"other,omitempty"`
+	Other       Other  `json:"other"`
 	WaitForExit bool   `json:"waitForExit,omitempty"`
 }
 
