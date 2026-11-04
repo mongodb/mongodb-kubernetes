@@ -684,6 +684,17 @@ tasks:
         vars:
           image_name: upgrade-hook
 
+  # The process proxy of the database container, mounted as an OCI image volume. It is built next to the other
+  # images, so that a patch has an image in the dev registry for e2e_replica_set_mongodb_proxy.
+  - name: build_mongodb_proxy_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_staging_login
+      - func: pipeline
+        vars:
+          image_name: mongodb-proxy
+
   # Single CVE scan of all the images built in init_test_run and of the Ops Manager images (7.0, 8.0 and 9.0,
   # built in their own variants), reported in one Slack message. The OM versions are resolved by
   # scripts/release/trivy_scan.sh. Only the currently used agent versions are scanned to keep scan time bounded.
@@ -2428,6 +2439,7 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
+      - name: build_mongodb_proxy_image
       - name: cve_scan_images
       - name: build_kubectl_mongodb_plugin
       - name: prepare_aws
