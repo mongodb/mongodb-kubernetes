@@ -246,6 +246,18 @@ func PredicatesForMultiStatefulSet() predicate.Funcs {
 				return false
 			}
 
+			for _, annotation := range []string{util.AppDBMigrationReadyAnnotation, util.AppDBReverseMigrationReadyAnnotation} {
+				if oldSts.Annotations[annotation] != newSts.Annotations[annotation] {
+					return true
+				}
+			}
+
+			for _, label := range []string{util.MongoDBMultiClusterResourceOwnerLabel, util.MongoDBOpsManagerResourceOwnerLabel, util.MongoDBResourceOwnerLabel} {
+				if oldSts.Labels[label] != newSts.Labels[label] {
+					return true
+				}
+			}
+
 			return !reflect.DeepEqual(oldSts.Status, newSts.Status)
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {

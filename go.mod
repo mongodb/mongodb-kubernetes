@@ -19,6 +19,7 @@ require (
 	github.com/imdario/mergo v0.3.15
 	github.com/joho/godotenv v1.5.1
 	github.com/mitchellh/copystructure v1.2.0
+	github.com/mongodb-forks/digest v1.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/r3labs/diff/v3 v3.0.2
@@ -86,7 +87,7 @@ require (
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect

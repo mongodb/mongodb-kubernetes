@@ -35,7 +35,7 @@ const (
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
 
-	LabelResourceOwner = "mongodbmulticluster"
+	LabelResourceOwner = util.MongoDBMultiClusterResourceOwnerLabel
 )
 
 // The MongoDBMultiCluster resource allows users to create MongoDB deployment spread over
@@ -73,6 +73,10 @@ func (m *MongoDBMultiCluster) GetProjectConfigMapName() string {
 
 func (m *MongoDBMultiCluster) GetCredentialsSecretName() string {
 	return m.Spec.Credentials
+}
+
+func (m *MongoDBMultiCluster) IsRoleAppDB() bool {
+	return m.Spec.Role == mdbv1.RoleAppDB
 }
 
 func (m *MongoDBMultiCluster) GetMultiClusterAgentHostnames() ([]string, error) {
@@ -206,6 +210,10 @@ func (m *MongoDBMultiCluster) GetClusterSpecByName(clusterName string) *mdbv1.Cl
 	return nil
 }
 
+func (m *MongoDBMultiCluster) StatefulSetNameForCluster(clusterName string) string {
+	return dns.GetMultiStatefulSetName(m.Name, m.ClusterNum(clusterName))
+}
+
 // ClusterStatusList holds a list of clusterStatuses corresponding to each cluster
 type ClusterStatusList struct {
 	ClusterStatuses []ClusterStatusItem `json:"clusterStatuses,omitempty"`
@@ -233,7 +241,7 @@ type MongoDBMultiStatus struct {
 	Warnings                    []status.Warning    `json:"warnings,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role == \"\"",message="spec.role is not supported on MongoDBMultiCluster"
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.clusterSpecList.map(c, c.members).sum() >= 3",message="the total number of members across spec.clusterSpecList must be >= 3 when spec.role is AppDB"
 type MongoDBMultiSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	mdbv1.DbCommonSpec `json:",inline"`
@@ -493,6 +501,14 @@ func (m *MongoDBMultiCluster) InitDefaults() {
 	}
 
 	m.Spec.Security = mdbv1.EnsureSecurity(m.Spec.Security)
+
+	if m.IsRoleAppDB() {
+		m.Spec.Security.Authentication = &mdbv1.Authentication{
+			Enabled:            true,
+			Modes:              []mdbv1.AuthMode{util.SCRAM},
+			IgnoreUnknownUsers: true,
+		}
+	}
 }
 
 // Replicas returns the total number of MongoDB members running across all the clusters
@@ -634,9 +650,6 @@ func (m *MongoDBMultiCluster) ClusterNum(clusterName string) int {
 }
 
 // BuildConnectionString for a MultiCluster user.
-//
-// Not yet functional, because m.Service() is not defined. Waiting for CLOUDP-105817
-// to complete.
 func (m *MongoDBMultiCluster) BuildConnectionString(username, password, connectionStringDatabase string, scheme connectionstring.Scheme, connectionParams map[string]string) string {
 	hostnames := make([]string, 0)
 	for _, spec := range m.Spec.GetClusterSpecList() {

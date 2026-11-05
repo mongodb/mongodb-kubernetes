@@ -1,7 +1,7 @@
 from operator import attrgetter
 
 import pytest
-from kubetester import get_default_storage_class
+from kubetester import get_default_storage_class, wait_for_statefulset_ready
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -22,6 +22,7 @@ class TestReplicaSetMultiplePersistentVolumeCreation(KubernetesTester):
         resource.assert_reaches_phase(Phase.Running)
 
     def test_sts_creation(self):
+        wait_for_statefulset_ready(self.namespace, self.RESOURCE_NAME)
         sts = self.appsv1.read_namespaced_stateful_set(self.RESOURCE_NAME, self.namespace)
 
         assert sts.api_version == "apps/v1"

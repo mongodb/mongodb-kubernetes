@@ -249,6 +249,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_container_image_type
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replication_state_awareness
     tags: [ "patch-run" ]
     commands:
@@ -796,6 +801,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_appdb_container_image_type
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_om_appdb_scram
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
@@ -1092,6 +1102,21 @@ tasks:
 
   - name: e2e_multi_cluster_appdb
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_external_multi_cluster_appdb_fresh
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_external_multi_cluster_appdb_forward
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_external_multi_cluster_appdb_backup_and_restore
+    tags: [ "patch-run" ]
     commands:
       - func: e2e_test
 

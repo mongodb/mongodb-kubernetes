@@ -162,7 +162,9 @@ def test_feature_controls_cleared_on_replica_set_deletion(replica_set: MongoDB):
         try:
             replica_set.load()
             k8s_resource_deleted = False
-        except kubernetes.client.ApiException:
+        except kubernetes.client.ApiException as exc:
+            if exc.status != 404:
+                raise
             k8s_resource_deleted = True
         automation_config_deleted = None
         tester = replica_set.get_automation_config_tester()
@@ -171,7 +173,11 @@ def test_feature_controls_cleared_on_replica_set_deletion(replica_set: MongoDB):
             automation_config_deleted = True
         except AssertionError:
             automation_config_deleted = False
-        return k8s_resource_deleted and automation_config_deleted
+        return (
+            k8s_resource_deleted
+            and automation_config_deleted
+            and replica_set.get_om_tester().get_feature_controls()["policies"] == []
+        )
 
     wait_until(replica_set_deleted, timeout=60)
 

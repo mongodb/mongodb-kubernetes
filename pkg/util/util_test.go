@@ -46,6 +46,100 @@ func TestMajorMinorVersion(t *testing.T) {
 	assert.Equal(t, "4.2", s)
 }
 
+func TestGetOwnershipLabels(t *testing.T) {
+	tests := []struct {
+		name      string
+		stsLabels map[string]string
+		expectedX map[string]string
+	}{
+		{
+			name:      "nil labels produce no ownership labels",
+			expectedX: map[string]string{},
+		},
+		{
+			name:      "unrelated labels are ignored",
+			stsLabels: map[string]string{"app": "demo"},
+			expectedX: map[string]string{},
+		},
+		{
+			name:      "a participant label is returned",
+			stsLabels: map[string]string{"app": "demo", MongoDBResourceOwnerLabel: "my-mdb"},
+			expectedX: map[string]string{MongoDBResourceOwnerLabel: "my-mdb"},
+		},
+		{
+			name: "every present participant label is returned",
+			stsLabels: map[string]string{
+				MongoDBResourceOwnerLabel:             "my-mdb",
+				MongoDBOpsManagerResourceOwnerLabel:   "my-om",
+				MongoDBMultiClusterResourceOwnerLabel: "my-mdbm",
+			},
+			expectedX: map[string]string{
+				MongoDBResourceOwnerLabel:             "my-mdb",
+				MongoDBOpsManagerResourceOwnerLabel:   "my-om",
+				MongoDBMultiClusterResourceOwnerLabel: "my-mdbm",
+			},
+		},
+		{
+			name:      "an empty participant value is not an ownership label",
+			stsLabels: map[string]string{MongoDBResourceOwnerLabel: ""},
+			expectedX: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedX, GetOwnershipLabels(tt.stsLabels))
+		})
+	}
+}
+
+func TestStripOwnerLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		labels   map[string]string
+		expected map[string]string
+	}{
+		{
+			name:     "nil labels return nil",
+			labels:   nil,
+			expected: nil,
+		},
+		{
+			name:     "empty labels return nil",
+			labels:   map[string]string{},
+			expected: nil,
+		},
+		{
+			name:     "unrelated labels survive",
+			labels:   map[string]string{"app": "demo"},
+			expected: map[string]string{"app": "demo"},
+		},
+		{
+			name: "participant labels are stripped",
+			labels: map[string]string{
+				"app":                                 "demo",
+				MongoDBResourceOwnerLabel:             "my-mdb",
+				MongoDBOpsManagerResourceOwnerLabel:   "my-om",
+				MongoDBMultiClusterResourceOwnerLabel: "my-mdbm",
+			},
+			expected: map[string]string{"app": "demo"},
+		},
+		{
+			name: "only participant labels return nil",
+			labels: map[string]string{
+				MongoDBResourceOwnerLabel: "my-mdb",
+			},
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, StripOwnerLabels(tt.labels))
+		})
+	}
+}
+
 func TestRedactURI(t *testing.T) {
 	uri := "mongo.mongoUri=mongodb://mongodb-ops-manager:my-scram-password@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
 	expected := "mongo.mongoUri=mongodb://mongodb-ops-manager:<redacted>@om-scram-db-0.om-scram-db-svc.mongodb.svc.cluster.local:27017/?connectTimeoutMS=20000&serverSelectionTimeoutMS=20000&authSource=admin&authMechanism=SCRAM-SHA-1"
