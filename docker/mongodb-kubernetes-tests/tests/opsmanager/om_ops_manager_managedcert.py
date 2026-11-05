@@ -294,10 +294,6 @@ def ops_manager(namespace: str, custom_version: str, custom_appdb_version: str) 
     resource.set_appdb_version(custom_appdb_version)
     resource["spec"]["security"] = {"managedCertificate": {}}
     resource["spec"]["applicationDatabase"]["security"] = {"managedCertificate": {}}
-    # Temporary diagnostic: withhold the AppDB client certificate during the TLS startup handshake.
-    appdb_mongod_config = resource["spec"]["applicationDatabase"].setdefault("additionalMongodConfig", {})
-    appdb_set_parameter = appdb_mongod_config.setdefault("setParameter", {})
-    appdb_set_parameter["tlsWithholdClientCertificate"] = True
     resource.update()
     return resource
 

@@ -1817,6 +1817,9 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 
 		params := map[string]string{}
 		if tls {
+			// AppDB uses SCRAM with optional TLS client certificates, so no client PEM is needed.
+			// Do not reuse mongod's server PEM as sslClientCertificate: serverAuth-only certificates
+			// are invalid for TLS client authentication, regardless of the database auth mechanism.
 			maps.Copy(params, om.NewTLSParams(appdbCAFilePath, ""))
 		} else {
 			om.ClearTLSParams(params)
