@@ -139,23 +139,6 @@ def build_operator_config_spec_from_test_env() -> dict:
     if max_concurrent_reconciles:
         spec["maxConcurrentReconciles"] = int(max_concurrent_reconciles)
 
-    # Telemetry. The OperatorConfig default is send Enabled (opt-out), but e2e operators must NOT
-    # ship telemetry to cloud, so we default send to Disabled here and only enable it for the
-    # dedicated telemetry variant (MDB_OPERATOR_TELEMETRY_SEND_ENABLED=true, which also points the
-    # operator at a cloud-dev endpoint via MDB_OPERATOR_TELEMETRY_SEND_BASEURL). Setting
-    # MDB_OPERATOR_TELEMETRY_ENABLED=false disables telemetry entirely (master switch).
-    #
-    # Collection frequency is set to the minimum (1m) so telemetry tests observe fresh, populated
-    # payloads quickly: the operator collects once immediately at startup (before any deployment
-    # exists) and then on this interval, so a short interval is needed to pick up resources created
-    # later in the test within its polling window.
-    telemetry: dict = {"send": {"mode": "Disabled"}, "collection": {"frequency": "1m"}}
-    if os.getenv("MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "false") == "true":
-        telemetry["send"]["mode"] = "Enabled"
-    if os.getenv("MDB_OPERATOR_TELEMETRY_ENABLED", "true") == "false":
-        telemetry["mode"] = "Disabled"
-    spec["telemetry"] = telemetry
-
     return spec
 
 
