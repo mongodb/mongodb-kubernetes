@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -57,6 +58,21 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
+
+// logAgentErrors logs the errors of the agents of a not ready resource, as its next reconciles end before the wait for the agents.
+func logAgentErrors(ctx context.Context, resource metav1.Object, conn om.Connection, log *zap.SugaredLogger) {
+	as, err := conn.ReadAutomationStatus(ctx)
+	if err != nil {
+		log.Warnf("failed to read agent errors: %v", err)
+		return
+	}
+
+	for _, e := range om.GetAgentErrors(as, func(processName string) bool {
+		return process.IsResourceProcess(processName, resource.GetName(), resource.GetNamespace())
+	}) {
+		log.Warnw("MongoDB agent reported an error", "process", e.Process, "errorCode", e.Code, "error", e.Message)
+	}
+}
 
 func automationConfigFirstMsg(resourceType string, valueToSet string) string {
 	return fmt.Sprintf("About to set `%s` to %s. automationConfig needs to be updated first", resourceType, valueToSet)
