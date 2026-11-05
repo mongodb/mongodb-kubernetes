@@ -1915,22 +1915,41 @@ func TestConfigureMonitoring_NonTLS(t *testing.T) {
 }
 
 func TestConfigureMonitoring_TLS(t *testing.T) {
-	ac := automationconfig.AutomationConfig{
-		Processes: []automationconfig.Process{{HostName: "host-0"}},
+	tests := []struct {
+		name               string
+		monitoringVersions []automationconfig.MonitoringVersion
+	}{
+		{name: "new monitoring entry"},
+		{
+			name: "existing entry with server PEM as client certificate",
+			monitoringVersions: []automationconfig.MonitoringVersion{
+				{Hostname: "host-0", AdditionalParams: map[string]string{"sslClientCertificate": "/certs/server.pem"}},
+			},
+		},
 	}
-	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ac := automationconfig.AutomationConfig{
+				Processes:          []automationconfig.Process{{HostName: "host-0"}},
+				MonitoringVersions: tt.monitoringVersions,
+			}
+			ac.Processes[0].SetArgs26Field("net.tls.certificateKeyFile", "/certs/server.pem")
+			configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", nil)
 
-	require.Len(t, ac.MonitoringVersions, 1)
-	params := ac.MonitoringVersions[0].AdditionalParams
-	assert.NotContains(t, params, "mmsGroupId")
-	assert.NotContains(t, params, "mmsApiKey")
-	assert.Equal(t, "true", params["useSslForAllConnections"])
-	// additionalParams override agent flags, so forcing this would disable the agent's default
-	// validation of the Ops Manager certificate against -httpsCAFile.
-	assert.NotContains(t, params, "sslRequireValidMMSServerCertificates")
-	assert.Equal(t, appdbCAFilePath, params["sslTrustedServerCertificates"])
-	assertDefaultLogRotate(t, ac.MonitoringVersions[0].LogRotate)
-	assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
+			require.Len(t, ac.MonitoringVersions, 1)
+			params := ac.MonitoringVersions[0].AdditionalParams
+			assert.NotContains(t, params, "mmsGroupId")
+			assert.NotContains(t, params, "mmsApiKey")
+			assert.Equal(t, "true", params["useSslForAllConnections"])
+			// additionalParams override agent flags, so forcing this would disable the agent's default
+			// validation of the Ops Manager certificate against -httpsCAFile.
+			assert.NotContains(t, params, "sslRequireValidMMSServerCertificates")
+			assert.Equal(t, appdbCAFilePath, params["sslTrustedServerCertificates"])
+			assert.NotContains(t, params, "sslClientCertificate")
+			assertDefaultLogRotate(t, ac.MonitoringVersions[0].LogRotate)
+			assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
+		})
+	}
 }
 
 func TestConfigureMonitoring_TLS_DropsStaleRequireValidCertFalse(t *testing.T) {
