@@ -2032,7 +2032,13 @@ func TestOpsManagerManagedCertificateBootstrap(t *testing.T) {
 	assert.Equal(t, "Issuing", condition.Reason)
 
 	markAllManagedCertificatesReady(t, ctx, c)
-	createSecretsForManagedCertificates(t, ctx, c)
+	ca, issue := managedOMTestCA(t)
+	createSecretsForManagedCertificates(t, ctx, c, ca)
+	issued := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.TLSCertificateSecretName()), issued))
+	issued.Type = corev1.SecretTypeTLS
+	issued.Data[corev1.TLSCertKey], issued.Data[corev1.TLSPrivateKeyKey] = issue()
+	require.NoError(t, c.Update(ctx, issued))
 
 	_, blocked, err = reconciler.prepareManagedCertificates(ctx, opsManager, log)
 	require.NoError(t, err)
