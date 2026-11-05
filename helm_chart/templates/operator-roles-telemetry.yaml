@@ -21,10 +21,7 @@ Template used directly by Helm and by kubectl plugin when rendering RBAC for mem
     {{- $saName = printf "%s-sa" $memberPrefix }}
 {{- end }}
 
-{{/* Telemetry RBAC ships with the base installation only when telemetry is enabled and the
-     ClusterRole installation is not opted out. Both are installation-stage Helm values:
-     operator.telemetry.enabled and operator.telemetry.installClusterRole.
-     We can't use default here, as 0, false and nil are determined as unset and thus set the default value */}}
+{{/* We can't use default here, as 0, false and nil are determined as unset and thus set the default value */}}
 {{- if and (ne $telemetry.enabled false) (ne $telemetry.installClusterRole false)}}
 
 ---

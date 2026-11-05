@@ -132,14 +132,11 @@ spec:
     {{- end }}
     {{- if $telemetry.send.frequency}}
             - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
-              value: "{{ $telemetry.send.frequency }}"
+              value: "{{ .Values.operator.telemetry.send.frequency }}"
     {{- end }}
-    {{- /* operator.telemetry.send.baseUrl is an internal, undocumented knob used to point telemetry at a
-           mock endpoint in tests. dig traverses the (optional) path nil-safely and returns "" when unset. */}}
-    {{- $telemetryBaseUrl := dig "telemetry" "send" "baseUrl" "" .Values.operator }}
-    {{- if $telemetryBaseUrl }}
+    {{- if $telemetry.send.baseUrl}}
             - name: MDB_OPERATOR_TELEMETRY_SEND_BASEURL
-              value: "{{ $telemetryBaseUrl }}"
+              value: "{{ $telemetry.send.baseUrl }}"
     {{- end }}
     {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
     {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
