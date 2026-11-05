@@ -16,10 +16,8 @@ if [[ -z "${MDB_AGENT_IMAGE_REPOSITORY:-}" ]]; then
   exit 1
 fi
 
-if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
-  # A dev build has no mapping of its own, its agent is the one of the version it is built from.
-  om_version="${CUSTOM_OM_VERSION%%-dev*}"
-  AGENT_VERSION="$(jq -r --arg om "${om_version}" \
+if [[ -n "${CUSTOM_OM_VERSION:-}" && "${CUSTOM_OM_VERSION}" != *-dev* ]]; then
+  AGENT_VERSION="$(jq -r --arg om "${CUSTOM_OM_VERSION}" \
     '.supportedImages."mongodb-agent".opsManagerMapping.ops_manager[$om].agent_version // empty' \
     "${PROJECT_DIR}/release.json")"
   if [[ -z "${AGENT_VERSION}" ]]; then
@@ -27,6 +25,9 @@ if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
     exit 1
   fi
 else
+  # Dev builds have no mapping entry and don't need one. AppDB starts before OM, so its agent image
+  # is pinned to this resolved version, any current agent works there. OM managed deployments get
+  # their agent version from the running OM, not from here.
   AGENT_VERSION="$(jq -r '.agentVersion' "${PROJECT_DIR}/release.json")"
 fi
 

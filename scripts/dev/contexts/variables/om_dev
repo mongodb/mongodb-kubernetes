@@ -2,13 +2,13 @@
 
 set -Eeou pipefail
 
-# The unreleased Ops Manager build under test, bump it when the Ops Manager team moves its dev
-# builds to a new version. The -dev suffix keeps the tag apart from the released image, which
-# shares the registry. The Evergreen version keeps each run on its own image.
-version_suffix="${version_id:-local}"
-export OM_VERSION="8.0.7-dev-${version_suffix//_/-}"
-export CUSTOM_OM_VERSION="${OM_VERSION}"
+# One image per Ops Manager major, built from the latest build of its release branch. Each image is tagged
+# <major>-dev-<OPERATOR_VERSION>, the evergreen id of the run, see build_om_image. The tests run against the last
+# major, so CUSTOM_OM_VERSION is its tag, see single_e2e.sh.
+export OM_DEV_RELEASE_LINES="8 9"
+export OM_VERSION="dev-${OPERATOR_VERSION}"
 export ops_manager_version="${OM_VERSION}"
+export CUSTOM_OM_VERSION="${OM_DEV_RELEASE_LINES##* }-dev-${OPERATOR_VERSION}"
 
-# Build from the unreleased Ops Manager build instead of the released one, see build_om_image.
+# Build from the unreleased Ops Manager builds instead of the released ones.
 export OM_DEV_BUILD=true
