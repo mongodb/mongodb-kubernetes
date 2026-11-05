@@ -2204,27 +2204,14 @@ func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRe
 		return nil
 	}
 
-	var modes []string
-	switch src := db.(type) {
-	case EnterpriseResourceSearchSource:
-		modes = src.Spec.GetSecurityAuthenticationModes()
-	case *ShardedInternalSearchSource:
-		modes = src.Spec.GetSecurityAuthenticationModes()
-	case *CommunitySearchSource:
-		for _, mode := range src.Spec.Security.Authentication.Modes {
-			modes = append(modes, string(mode))
-		}
-	default:
+	modes, checkable := sourceAuthModes(db)
+	if !checkable || len(modes) == 0 {
 		return nil
 	}
-
-	if len(modes) == 0 {
+	if slices.ContainsFunc(modes, func(mode string) bool {
+		return strings.HasPrefix(strings.ToUpper(mode), util.SCRAM)
+	}) {
 		return nil
-	}
-	for _, mode := range modes {
-		if strings.HasPrefix(strings.ToUpper(mode), util.SCRAM) {
-			return nil
-		}
 	}
 	return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
 }
