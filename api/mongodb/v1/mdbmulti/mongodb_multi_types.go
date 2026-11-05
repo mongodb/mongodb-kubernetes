@@ -48,6 +48,8 @@ const (
 // +kubebuilder:resource:path= mongodbmulticluster,scope=Namespaced,shortName=mdbmc
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase",description="Current state of the MongoDB deployment."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDBMultiCluster resource was created."
+// +kubebuilder:printcolumn:name="ServerCertRenewal",type="string",JSONPath=".status.certificateRenewals.server.renewalTime",priority=1,description="Next automatic renewal of the operator-managed server certificates."
+// +kubebuilder:printcolumn:name="ClientCertRenewal",type="string",JSONPath=".status.certificateRenewals.client.renewalTime",priority=1,description="Next automatic renewal of the operator-managed client certificates."
 type MongoDBMultiCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -243,6 +245,10 @@ type MongoDBMultiStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// CertificateRenewals reports the next automatic renewal of the operator-managed leaf certificates,
+	// per category. Set only with spec.security.managedCertificate.
+	// +optional
+	CertificateRenewals *status.CertificateRenewalStatus `json:"certificateRenewals,omitempty"`
 }
 
 // SetStatusCondition adds or updates a status condition on the resource, recording the resource
@@ -250,6 +256,13 @@ type MongoDBMultiStatus struct {
 func (m *MongoDBMultiCluster) SetStatusCondition(condition metav1.Condition) {
 	condition.ObservedGeneration = m.GetGeneration()
 	apimeta.SetStatusCondition(&m.Status.Conditions, condition)
+}
+
+// SetCertificateRenewals records the next automatic renewal of the operator-managed leaf
+// certificates on the resource status. This only changes the in-memory object; the controllers
+// persist it along with the rest of the status.
+func (m *MongoDBMultiCluster) SetCertificateRenewals(renewals *status.CertificateRenewalStatus) {
+	m.Status.CertificateRenewals = renewals
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.clusterSpecList.map(c, c.members).sum() >= 3",message="the total number of members across spec.clusterSpecList must be >= 3 when spec.role is AppDB"
