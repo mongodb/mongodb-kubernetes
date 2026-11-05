@@ -80,11 +80,11 @@ func VerifyMigrationSubjects(ctx context.Context, c kubernetesClient.Client, res
 // secret is not there, which is normal for the certificates a deployment does not have, for example
 // the clusterfile when internal cluster authentication is not x509.
 func readLegacySubject(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, secretName string) (certSubject, bool, workflow.Status) {
-	subject, found, status := readCertSubject(ctx, c, res.GetNamespace(), secretName)
+	cert, found, status := readIssuedCertificate(ctx, c, res.GetNamespace(), secretName)
 	if !status.IsOK() || !found {
 		return certSubject{}, found, status
 	}
-	return certSubjectFromName(subject), true, workflow.OK()
+	return certSubjectFromName(cert.Subject), true, workflow.OK()
 }
 
 // certSubject is a certificate subject in the shape of the managedCertificate.subjects fields.

@@ -3,7 +3,6 @@ package certs
 import (
 	"context"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -262,6 +261,11 @@ func EnsureCertificatesAndCA(
 	// the member cert (server-signed) and the clusterFile cert (client-signed) must carry
 	// the same membership subject
 	if status := verifyMembershipSubjects(ctx, c, res, allOpts); !status.IsOK() {
+		return status, issuanceFailedCondition(status.Message())
+	}
+
+	// every issued certificate must have the key usages it was requested with
+	if status := verifyKeyUsagesInIssuedCert(ctx, c, res, required); !status.IsOK() {
 		return status, issuanceFailedCondition(status.Message())
 	}
 
@@ -1040,35 +1044,88 @@ func verifyMembershipSubjects(ctx context.Context, c kubernetesClient.Client, re
 // its subject Organization and OrganizationalUnit — the attributes mongod compares for
 // cluster membership.
 func readCertOrgUnits(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, secretName string) ([]string, []string, workflow.Status) {
-	subject, found, status := readCertSubject(ctx, c, res.GetNamespace(), secretName)
+	cert, found, status := readIssuedCertificate(ctx, c, res.GetNamespace(), secretName)
 	if !status.IsOK() {
 		return nil, nil, status
 	}
 	if !found {
 		return nil, nil, workflow.Pending("Waiting for cert-manager to write the certificate secret %s", secretName)
 	}
-	return subject.Organization, subject.OrganizationalUnit, workflow.OK()
+	return cert.Subject.Organization, cert.Subject.OrganizationalUnit, workflow.OK()
 }
 
-// readCertSubject reads the subject of the leaf certificate a secret holds. found is false when the
-// secret is not there.
-func readCertSubject(ctx context.Context, c kubernetesClient.Client, namespace, secretName string) (pkix.Name, bool, workflow.Status) {
+// readIssuedCertificate reads the leaf certificate cert-manager wrote into a TLS secret. found is
+// false when the secret is not there yet.
+func readIssuedCertificate(ctx context.Context, c kubernetesClient.Client, namespace, secretName string) (*x509.Certificate, bool, workflow.Status) {
 	s, err := c.GetSecret(ctx, types.NamespacedName{Name: secretName, Namespace: namespace})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			return pkix.Name{}, false, workflow.OK()
+			return nil, false, workflow.OK()
 		}
-		return pkix.Name{}, false, workflow.Failed(err)
+		return nil, false, workflow.Failed(err)
 	}
 	block, _ := pem.Decode(s.Data[corev1.TLSCertKey])
 	if block == nil {
-		return pkix.Name{}, false, workflow.Failed(xerrors.Errorf("could not PEM-decode tls.crt in secret %s", secretName))
+		return nil, false, workflow.Failed(xerrors.Errorf("could not PEM-decode tls.crt in secret %s", secretName))
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return pkix.Name{}, false, workflow.Failed(xerrors.Errorf("could not parse certificate in secret %s: %w", secretName, err))
+		return nil, false, workflow.Failed(xerrors.Errorf("could not parse certificate in secret %s: %w", secretName, err))
 	}
-	return cert.Subject, true, workflow.OK()
+	return cert, true, workflow.OK()
+}
+
+// extendedKeyUsages maps the extended key usages the operator requests to the x509 ones.
+var extendedKeyUsages = map[certmanagerv1.KeyUsage]x509.ExtKeyUsage{
+	certmanagerv1.UsageServerAuth: x509.ExtKeyUsageServerAuth,
+	certmanagerv1.UsageClientAuth: x509.ExtKeyUsageClientAuth,
+}
+
+// verifyKeyUsagesInIssuedCert checks that every issued certificate has the extended key usages the
+// operator asked for.
+//
+// cert-manager does not check this: it compares the Certificate with its CertificateRequest, not with
+// the certificate that was signed. An issuer that decides the usages itself can therefore drop one,
+// and the Certificate still becomes Ready. The deployment then fails at the TLS handshake, with "unsupported certificate
+// purpose" in the mongod logs and nothing on the resource, so it is checked here instead.
+func verifyKeyUsagesInIssuedCert(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, required []certToEnsure) workflow.Status {
+	for _, cert := range required {
+		issued, found, status := readIssuedCertificate(ctx, c, res.GetNamespace(), cert.spec.SecretName)
+		if !status.IsOK() {
+			return status
+		}
+		if !found {
+			return workflow.Pending("Waiting for cert-manager to write the certificate secret %s", cert.spec.SecretName)
+		}
+		for _, usage := range cert.spec.Usages {
+			if isMissingEKU(issued, usage) {
+				return workflow.Failed(xerrors.Errorf(
+					"the certificate %s doesn't have the EKUs (%s) that were requested by operator, there are chances that configured issuer doesn't honor EKU requests. Point that category's issuerRef (security.managedCertificate.server or .client) at an issuer that allows the usage, or leave it unset so the operator signs the certificate with its own CA",
+					cert.spec.SecretName, usage))
+			}
+		}
+	}
+	return workflow.OK()
+}
+
+// isMissingEKU reports whether the issued certificate is missing an extended key usage the operator
+// asked for. It answers false for the requested usages that are not extended key usages, and for a
+// certificate that allows every purpose, so the caller only reports what is really missing.
+func isMissingEKU(issued *x509.Certificate, usage certmanagerv1.KeyUsage) bool {
+	// usage here can be certmanagerv1.UsageDigitalSignature, UsageKeyEncipherment, UsageServerAuth or UsageClientAuth but we would like
+	// to just verify the extended key usages that are UsageServerAuth and UsageClientAuth that's why we are looking up extendedKeyUsages[usage]
+	eku, isExtendedUsage := extendedKeyUsages[usage]
+	if !isExtendedUsage {
+		return false
+	}
+
+	// the issued cert can be used for any purpose if the issued cert doesn't have any EKU or it has ExtKeyUsageAny
+	if len(issued.ExtKeyUsage) == 0 || slices.Contains(issued.ExtKeyUsage, x509.ExtKeyUsageAny) {
+		return false
+	}
+
+	// make sure issued cert's EKUs have the expected EKU
+	return !slices.Contains(issued.ExtKeyUsage, eku)
 }
 
 func certificateReady(cert *certmanagerv1.Certificate) bool {
