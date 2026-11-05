@@ -2517,7 +2517,7 @@ func TestOpsManagerManagedCertificateSANs(t *testing.T) {
 	}
 }
 
-func managedTestCAWithDNSNames(t *testing.T, dnsNames ...string) ([]byte, func() ([]byte, []byte)) {
+func managedTestCAWithDNSNames(t *testing.T, usages []x509.ExtKeyUsage, dnsNames ...string) ([]byte, func() ([]byte, []byte)) {
 	t.Helper()
 	caPEM, caKeyPEM := createMockCertAndKeyBytes()
 	caPair, err := tls.X509KeyPair(caPEM, caKeyPEM)
@@ -2535,7 +2535,7 @@ func managedTestCAWithDNSNames(t *testing.T, dnsNames ...string) ([]byte, func()
 			SerialNumber: big.NewInt(serial),
 			NotBefore:    time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
 			DNSNames:    dnsNames,
-			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			ExtKeyUsage: usages,
 		}
 		der, err := x509.CreateCertificate(rand.Reader, leaf, ca, key.(crypto.Signer).Public(), caPair.PrivateKey)
 		require.NoError(t, err)
@@ -2545,7 +2545,7 @@ func managedTestCAWithDNSNames(t *testing.T, dnsNames ...string) ([]byte, func()
 
 func managedOMTestCA(t *testing.T) ([]byte, func() ([]byte, []byte)) {
 	t.Helper()
-	return managedTestCAWithDNSNames(t, "managed-om-svc.testNS.svc.cluster.local")
+	return managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, "managed-om-svc.testNS.svc.cluster.local")
 }
 
 func TestOpsManagerManagedHTTPSRenewal(t *testing.T) {
@@ -2998,7 +2998,14 @@ func TestAppDBManagedCertificateIssuanceWithOMPending(t *testing.T) {
 	assert.Contains(t, condition.Message, "AppDB:")
 
 	markAllManagedCertificatesReady(t, ctx, c)
-	createSecretsForManagedCertificates(t, ctx, c)
+	omCA, issue := managedOMTestCA(t)
+	createSecretsForManagedCertificates(t, ctx, c, omCA)
+	omLeaf := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, om.TLSCertificateSecretName()), omLeaf))
+	omLeaf.Type = corev1.SecretTypeTLS
+	omLeaf.Data[corev1.TLSCertKey], omLeaf.Data[corev1.TLSPrivateKeyKey] = issue()
+	require.NoError(t, c.Update(ctx, omLeaf))
+	issueAppDBManagedCertificate(t, ctx, c, om)
 
 	_, blocked, err = r.prepareManagedCertificates(ctx, om, zap.S())
 	require.NoError(t, err)
@@ -3064,12 +3071,13 @@ func TestAppDBManagedCertificateCustomerConfiguration(t *testing.T) {
 
 	markAllManagedCertificatesReady(t, ctx, c)
 	createSecretsForManagedCertificates(t, ctx, c)
+	appDBLeaf, _ := issueAppDBManagedCertificate(t, ctx, c, om)
 	_, blocked, err = r.prepareManagedCertificates(ctx, om, zap.S())
 	require.NoError(t, err)
 	require.False(t, blocked)
 	bundle := &corev1.ConfigMap{}
 	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, "managed-om-db-managed-server-ca-bundle"), bundle))
-	assert.Contains(t, bundle.Data["ca-pem"], "CA-managed-om-db-managed-cert")
+	assert.Contains(t, bundle.Data["ca-pem"], string(appDBLeaf.Data["ca.crt"]))
 	assert.Contains(t, bundle.Data["ca-pem"], extraCA, "additional trusted CAs must reach the shared issuance engine")
 }
 
@@ -3104,6 +3112,7 @@ func TestAppDBManagedCertificateUnusedClientWarning(t *testing.T) {
 
 	markAllManagedCertificatesReady(t, ctx, c)
 	createSecretsForManagedCertificates(t, ctx, c)
+	issueAppDBManagedCertificate(t, ctx, c, om)
 	_, blocked, err = r.prepareManagedCertificates(ctx, om, zap.S())
 	require.NoError(t, err)
 	require.False(t, blocked)
@@ -3128,6 +3137,25 @@ func appDBManagedHostnames(om *omv1.MongoDBOpsManager) []string {
 	return hostnames
 }
 
+func issueAppDBManagedCertificate(t *testing.T, ctx context.Context, c kubernetesClient.Client, om *omv1.MongoDBOpsManager) (*corev1.Secret, func() ([]byte, []byte)) {
+	t.Helper()
+	source := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name())), source))
+	ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, appDBManagedHostnames(om)...)
+	crt, key := issue()
+	source.Type = corev1.SecretTypeTLS
+	source.Data = map[string][]byte{"tls.crt": crt, "tls.key": key, "ca.crt": ca}
+	require.NoError(t, c.Update(ctx, source))
+	serverConfig := om.Spec.AppDB.GetSecurity().ManagedCertificate.Server
+	if serverConfig == nil || serverConfig.IssuerRef == nil {
+		caSecret := &corev1.Secret{}
+		require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, om.AppDBName()+"-server-ca"), caSecret))
+		caSecret.Data = map[string][]byte{"tls.crt": ca, "ca.crt": ca}
+		require.NoError(t, c.Update(ctx, caSecret))
+	}
+	return source, issue
+}
+
 func setupAppDBManagedDelivery(t *testing.T) (context.Context, *omv1.MongoDBOpsManager, kubernetesClient.Client, *ReconcileAppDbReplicaSet, *corev1.Secret, func() ([]byte, []byte)) {
 	t.Helper()
 	ctx := t.Context()
@@ -3146,13 +3174,7 @@ func setupAppDBManagedDelivery(t *testing.T) (context.Context, *omv1.MongoDBOpsM
 	markAllManagedCertificatesReady(t, ctx, c)
 	createSecretsForManagedCertificates(t, ctx, c)
 
-	source := &corev1.Secret{}
-	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name())), source))
-	ca, issue := managedTestCAWithDNSNames(t, appDBManagedHostnames(om)...)
-	crt, key := issue()
-	source.Type = corev1.SecretTypeTLS
-	source.Data = map[string][]byte{"tls.crt": crt, "tls.key": key, "ca.crt": ca}
-	require.NoError(t, c.Update(ctx, source))
+	source, issue := issueAppDBManagedCertificate(t, ctx, c, om)
 
 	_, blocked, err = r.prepareManagedCertificates(ctx, om, zap.S())
 	require.NoError(t, err)
