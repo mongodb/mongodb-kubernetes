@@ -90,13 +90,11 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test custom agent" -f -y -
 
 The `build_om_dev_images` and `e2e_om_dev_kind_ubi` variants build the Ops Manager image from an unreleased
 Ops Manager build and run the licensing tests against it on every merge to master. PR patches run them with the
-`evergreen:e2e-license` label. To run them on a branch without a PR, use the patch below. The tarball is the latest
-build of the ops-manager `main` branch with the dev EA environment compiled in, which the `PACKAGE_OPS_MANAGER_EA`
-task publishes to the private `evg-mms-testing2` bucket. `find_om_dev_url` in
-`scripts/release/atomic_pipeline.py` presigns it for the image build. The version comes from
-`scripts/dev/contexts/variables/om_dev`, bump it when the Ops Manager team moves its dev builds to a new
-version. Note that `OM_VERSION` there is static while the tarball key under `ea/dev/latest/main` follows the
-ops-manager `main` branch, so the downloaded build can be newer than the pinned `OM_VERSION` until it is bumped.
+`evergreen:e2e-license` label. To run them on a branch without a PR, use the patch below. The build task builds one image per Ops Manager
+line in `OM_DEV_RELEASE_LINES` (`scripts/dev/contexts/variables/om_dev`), from the latest build of its release branch with the dev EA environment compiled in, which the
+`PACKAGE_OPS_MANAGER_EA` task publishes to the private `evg-mms-testing2` bucket. Each image is tagged
+`<major>-dev-<OPERATOR_VERSION>`, the evergreen id of the run, for example `9-dev-<version_id>` in a patch. The
+tests run against the last line, whose tag the `om_dev` context exports as `CUSTOM_OM_VERSION` for `single_e2e.sh`.
 
 ```shell
 evergreen patch -p mongodb-kubernetes -d "Test unreleased Ops Manager" -f -y -u --path .evergreen.yml \
