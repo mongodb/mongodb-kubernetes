@@ -530,7 +530,7 @@ def format_slack_message(flaky_tasks: list[WeeklyTask]) -> dict:
                         "Passed without retries: execution 0 succeeded.\n"
                         "Passed with retries: a later execution succeeded.\n"
                         "Didn't pass even with retries: no successful execution.\n"
-                        "Failure details show the check with the most failed executions before a successful retry."
+                        "Failure details show the failure group with the most failed executions before a successful retry."
                     ),
                 }
             ],

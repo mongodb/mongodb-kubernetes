@@ -49,6 +49,10 @@ class TestFormatSlackMessage:
         message = format_slack_message(tasks)
         assert "Top 5" in message["blocks"][1]["text"]["text"]
 
+    def test_defines_failure_selection(self):
+        message = format_slack_message([make_flaky_task()])
+        assert "failure group with the most failed executions" in message["blocks"][2]["elements"][0]["text"]
+
     def test_shows_task_name(self):
         message = format_slack_message([make_flaky_task(task_name="my_e2e_task")])
         found = False
