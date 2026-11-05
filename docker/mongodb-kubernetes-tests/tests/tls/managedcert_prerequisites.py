@@ -74,14 +74,14 @@ def test_cert_manager_missing(namespace: str, managed_rs: MongoDB, managed_sc: M
     managed_rs.update()
     managed_rs.assert_reaches_phase(
         Phase.Failed,
-        msg_regexp="It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC",
+        msg_regexp=".*It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC",
         timeout=300,
     )
 
     managed_sc.update()
     managed_sc.assert_reaches_phase(
         Phase.Failed,
-        msg_regexp="It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC",
+        msg_regexp=".*It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC",
         timeout=300,
     )
 
@@ -101,8 +101,8 @@ def test_cert_manager_without_rbac(namespace: str, managed_rs: MongoDB, managed_
     install_cert_manager(cluster_client=get_central_cluster_client(), cluster_name=get_central_cluster_name())
     _install_operator(namespace, managed_certificates=False).restart_operator_deployment()
 
-    managed_rs.assert_reaches_phase(Phase.Failed, msg_regexp="the operator is not allowed to", timeout=600)
-    managed_sc.assert_reaches_phase(Phase.Failed, msg_regexp="the operator is not allowed to", timeout=600)
+    managed_rs.assert_reaches_phase(Phase.Failed, msg_regexp=".*the operator is not allowed to", timeout=600)
+    managed_sc.assert_reaches_phase(Phase.Failed, msg_regexp=".*the operator is not allowed to", timeout=600)
 
 
 @pytest.mark.e2e_managed_certificate_prerequisites
