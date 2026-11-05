@@ -2,10 +2,11 @@
 """
 Weekly flaky test notification script.
 
-Queries Honeycomb for tasks that required retries to pass in the past 7 days
-(indicating flaky behavior) and sends a summary to Slack.
+Ranks distinct task runs by the share that passed with retries in the past 7 days.
+Reports first-pass, retried, and never-passed counts, then sends the failed-test
+evidence from before each successful retry to Slack.
 
-Uses the same query as the Honeycomb board:
+The master-failure notifier uses get_flaky_tasks() for the board's average retry score:
 https://ui.honeycomb.io/mongodb-4b/environments/production/board/EgX7rho7iH3/kubernetes-operator
 
 Environment variables:
@@ -18,9 +19,12 @@ Usage:
 
 import argparse
 import os
+import re
 import sys
 import time
+from collections import defaultdict
 from dataclasses import dataclass
+from html import escape
 from pprint import pprint
 
 import requests
@@ -30,6 +34,13 @@ DATASET = "evergreen-agent"
 PROJECT_ID = "mongodb-kubernetes"
 TIME_RANGE_SECONDS = 604800  # 7 days
 HONEYCOMB_BOARD_URL = "https://ui.honeycomb.io/mongodb-4b/environments/production/board/EgX7rho7iH3/kubernetes-operator"
+# Honeycomb returns at most 1,000 groups. Reaching that limit requires splitting or rejecting the result.
+QUERY_RESULT_LIMIT = 1000
+# Observed task IDs exceed 200 characters. Batches of 100 stay below Honeycomb's 100 KB request limit.
+ID_BATCH_SIZE = 100
+# The Query Data API permits 10 query starts per minute. A 6.1-second interval leaves boundary headroom.
+QUERY_INTERVAL_SECONDS = 6.1
+_last_query_started = None
 
 
 def _honeycomb_headers() -> dict[str, str]:
@@ -40,7 +51,11 @@ def _honeycomb_headers() -> dict[str, str]:
 
 
 def _honeycomb_query(query_spec: dict, dataset: str = DATASET) -> dict:
+    global _last_query_started
     headers = _honeycomb_headers()
+    if _last_query_started is not None:
+        time.sleep(max(0, QUERY_INTERVAL_SECONDS - (time.monotonic() - _last_query_started)))
+    _last_query_started = time.monotonic()
     response = requests.post(
         f"{HONEYCOMB_API_BASE}/queries/{dataset}",
         headers=headers,
@@ -75,6 +90,70 @@ def _honeycomb_query(query_spec: dict, dataset: str = DATASET) -> dict:
     raise RuntimeError("Query did not complete in time")
 
 
+def _query_rows(
+    window: dict,
+    dataset: str,
+    filters: list[dict],
+    columns: list[str],
+    match_column: str | None = None,
+    values: list[str] | None = None,
+    fallback_column: str | None = None,
+) -> list[dict]:
+    if values is not None:
+        if not values:
+            return []
+        if len(values) > ID_BATCH_SIZE:
+            return [
+                row
+                for start in range(0, len(values), ID_BATCH_SIZE)
+                for row in _query_rows(
+                    window,
+                    dataset,
+                    filters,
+                    columns,
+                    match_column,
+                    values[start : start + ID_BATCH_SIZE],
+                    fallback_column,
+                )
+            ]
+        filters = [*filters, {"column": match_column, "op": "in", "value": values}]
+    result = _honeycomb_query(
+        {
+            **window,
+            "granularity": 0,
+            "calculations": [{"op": "COUNT"}],
+            "breakdowns": columns,
+            "filters": filters,
+            "limit": QUERY_RESULT_LIMIT,
+        },
+        dataset,
+    )
+    rows = [row.get("data", row) for row in result.get("data", {}).get("results", [])]
+    for bound in ("start_time", "end_time"):
+        if bound in result.get("query", {}):
+            window[bound] = result["query"][bound]
+    if len(rows) >= QUERY_RESULT_LIMIT:
+        if values is not None and len(values) > 1:
+            midpoint = len(values) // 2
+            return [
+                row
+                for batch in (values[:midpoint], values[midpoint:])
+                for row in _query_rows(window, dataset, filters[:-1], columns, match_column, batch, fallback_column)
+            ]
+        if fallback_column:
+            partitions = _query_rows(window, dataset, filters, [fallback_column])
+            return _query_rows(
+                window,
+                dataset,
+                filters,
+                columns,
+                fallback_column,
+                sorted({row[fallback_column] for row in partitions}),
+            )
+        raise RuntimeError(f"Honeycomb result reached the {QUERY_RESULT_LIMIT}-row limit")
+    return [{**row, "_query_url": result.get("links", {}).get("query_url", "")} for row in rows]
+
+
 @dataclass
 class FlakyTask:
     task_name: str
@@ -83,7 +162,152 @@ class FlakyTask:
     total_runs: int  # COUNT of runs in the window
 
 
-def get_flaky_tasks() -> list[FlakyTask]:
+@dataclass
+class WeeklyTask:
+    task_name: str
+    variant: str
+    total_runs: int
+    successful_runs: int
+    didnt_pass_runs: int  # No successful execution in the report window
+    retried_runs: dict[str, int]
+    other_runs: int = 0
+    counts_query_url: str = ""
+
+    @property
+    def passed_without_retries(self) -> int:
+        return self.successful_runs - len(self.retried_runs)
+
+    @property
+    def passed_with_retries(self) -> int:
+        return len(self.retried_runs)
+
+    @property
+    def retried_percent(self) -> float:
+        return 100 * self.passed_with_retries / self.total_runs
+
+
+def _execution(row: dict) -> int:
+    value = row.get("evergreen.task.execution")
+    return -1 if value is None else int(value)
+
+
+def _task_statuses(rows: list[dict]) -> dict[str, dict[int, str]]:
+    statuses: dict[str, dict[int, tuple[tuple[bool, bool, str], str]]] = defaultdict(dict)
+    for row in rows:
+        task_id = row.get("evergreen.task.id")
+        execution = _execution(row)
+        status = row.get("evergreen.task.status")
+        if not task_id or execution < 0 or not status:
+            raise RuntimeError("Incomplete task metadata prevents distinct-run counting")
+        # Conflicting exports for one execution must not classify it as a success.
+        priority = (status == "failed", status != "success", status)
+        current = statuses[task_id].get(execution)
+        if current is None or priority > current[0]:
+            statuses[task_id][execution] = (priority, status)
+    return {
+        task_id: {execution: status for execution, (_, status) in executions.items()}
+        for task_id, executions in statuses.items()
+    }
+
+
+def _summarize_weekly_tasks(rows: list[dict]) -> list[WeeklyTask]:
+    groups = defaultdict(list)
+    for row in rows:
+        pair = (row.get("evergreen.task.name"), row.get("evergreen.build.name"))
+        if not all(pair):
+            raise RuntimeError("Incomplete task metadata prevents task/variant grouping")
+        groups[pair].append(row)
+    tasks = []
+    for (task_name, variant), records in groups.items():
+        statuses = _task_statuses(records)
+        first_pass = 0
+        retried = {}
+        didnt_pass = 0
+        other = 0
+        for task_id, executions in statuses.items():
+            latest_execution = max(executions)
+            latest_status = executions[latest_execution]
+            if latest_status == "success":
+                if latest_execution == 0:
+                    first_pass += 1
+                else:
+                    retried[task_id] = latest_execution
+            elif latest_status == "failed" and "success" not in executions.values():
+                didnt_pass += 1
+            else:
+                other += 1
+        if not retried:
+            continue
+        tasks.append(
+            WeeklyTask(
+                task_name=task_name,
+                variant=variant,
+                total_runs=len(statuses),
+                successful_runs=first_pass + len(retried),
+                didnt_pass_runs=didnt_pass,
+                retried_runs=retried,
+                other_runs=other,
+                counts_query_url=records[0].get("_query_url", ""),
+            )
+        )
+    return sorted(
+        tasks,
+        key=lambda task: (
+            -task.retried_percent,
+            -task.passed_with_retries,
+            -task.total_runs,
+            task.task_name,
+            task.variant,
+        ),
+    )
+
+
+def get_weekly_tasks(window: dict) -> list[WeeklyTask]:
+    print("Querying distinct weekly task runs from evergreen-agent...", file=sys.stderr)
+    filters = [
+        {"column": "name", "op": "=", "value": "task"},
+        {"column": "evergreen.project.id", "op": "=", "value": PROJECT_ID},
+        {"column": "evergreen.version.requester", "op": "=", "value": "gitter_request"},
+        {"column": "evergreen.task.name", "op": "!=", "value": "lint_repo"},
+    ]
+    names = _query_rows(window, DATASET, filters, ["evergreen.task.name"])
+    task_names = sorted({row["evergreen.task.name"] for row in names})
+    if not task_names:
+        raise RuntimeError("No weekly task metadata returned; refusing to send an empty report")
+    rows = _query_rows(
+        window,
+        DATASET,
+        filters,
+        [
+            "evergreen.task.id",
+            "evergreen.task.execution",
+            "evergreen.task.status",
+            "evergreen.task.name",
+            "evergreen.build.name",
+        ],
+        "evergreen.task.name",
+        task_names,
+        fallback_column="evergreen.build.name",
+    )
+    if set(task_names) != {row.get("evergreen.task.name") for row in rows}:
+        raise RuntimeError("Incomplete task metadata prevents complete weekly ranking")
+    tasks = _summarize_weekly_tasks(rows)
+    print(f"  Found {len(tasks)} task/variant combinations with successful retries", file=sys.stderr)
+    return tasks
+
+
+def _slack_text(text: str) -> str:
+    text = re.sub(r"(?i)(mongodb(?:\+srv)?://)[^\s/@]+@", r"\1[REDACTED]@", text)
+    text = re.sub(
+        r"(?i)\b(password|passwd|token|api[_-]?key|authorization)([\"']?\s*[:=]\s*)"
+        r"(?:Bearer\s+)?(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)",
+        r"\1\2[REDACTED]",
+        text,
+    )
+    return escape(" ".join(text.split()).replace("`", "'"), quote=False)
+
+
+def get_flaky_tasks(window: dict | None = None) -> list[FlakyTask]:
     """Query Honeycomb for flaky tasks (past 7 days, retry_flakiness_percent > 0).
 
     Self-contained: fetches its own Honeycomb auth. Raises RuntimeError if
@@ -108,8 +332,14 @@ def get_flaky_tasks() -> list[FlakyTask]:
         "orders": [{"column": "mck.retry_flakiness_percent", "op": "AVG", "order": "descending"}],
         "limit": 50,
     }
+    if window is not None:
+        query_spec.pop("time_range")
+        query_spec.update(window)
 
     results = _honeycomb_query(query_spec)
+    if window is not None:
+        for bound in ("start_time", "end_time"):
+            window[bound] = results.get("query", {}).get(bound, window[bound])
 
     flaky_tasks = []
     for row in results.get("data", {}).get("results", []):
@@ -136,7 +366,7 @@ def get_flaky_tasks() -> list[FlakyTask]:
     return flaky_tasks
 
 
-def format_slack_message(flaky_tasks: list[FlakyTask]) -> dict:
+def format_slack_message(flaky_tasks: list[WeeklyTask]) -> dict:
     """Format flaky task results as Slack Block Kit message."""
     if not flaky_tasks:
         return {
@@ -149,7 +379,7 @@ def format_slack_message(flaky_tasks: list[FlakyTask]) -> dict:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": "No flaky tasks found in master merges (past 7 days).",
+                        "text": "No flaky tasks found with successful retries in master merges (past 7 days).",
                     },
                 },
             ]
@@ -172,7 +402,12 @@ def format_slack_message(flaky_tasks: list[FlakyTask]) -> dict:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "_Retry flakiness: % of runs that needed retries to pass. Higher = more flaky._",
+                    "text": (
+                        "One run = one Evergreen task ID, latest execution in the report window.\n"
+                        "Passed without retries: execution 0 succeeded.\n"
+                        "Passed with retries: a later execution succeeded.\n"
+                        "Didn't pass even with retries: no successful execution."
+                    ),
                 }
             ],
         },
@@ -180,12 +415,22 @@ def format_slack_message(flaky_tasks: list[FlakyTask]) -> dict:
     ]
 
     for task in flaky_tasks[:5]:
+        run_label = "run" if task.total_runs == 1 else "runs"
+        runs = f"<{task.counts_query_url}|{run_label}>" if task.counts_query_url else run_label
+        outcomes = (
+            f"{task.total_runs} {runs}: "
+            f"{task.passed_without_retries} passed without retries · "
+            f"{task.passed_with_retries} passed with retries · "
+            f"{task.didnt_pass_runs} didn't pass even with retries"
+        )
+        if task.other_runs:
+            outcomes += f" · {task.other_runs} other outcomes"
         blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*{task.task_name}*\n`{task.variant}`\nFlakiness: {task.flakiness_percent:.1f}% ({task.total_runs} runs)",
+                    "text": (f"*{_slack_text(task.task_name)}*\n`{_slack_text(task.variant)}`\n" f"{outcomes}"),
                 },
             }
         )
@@ -232,15 +477,24 @@ def main():
     args = parser.parse_args()
 
     try:
-        flaky_tasks = get_flaky_tasks()
+        end_time = int(time.time())
+        window = {"start_time": end_time - TIME_RANGE_SECONDS, "end_time": end_time}
+        flaky_tasks = get_weekly_tasks(window)
 
         print(f"\nFound {len(flaky_tasks)} flaky tasks")
 
         if flaky_tasks:
-            print("\n| Flakiness % | Runs | Variant | Task |")
-            print("|-------------|------|---------|------|")
+            print(
+                "\n| Retried/Total % | Passed without retries | Passed with retries | Didn't pass | Other | Total | Variant | Task |"
+            )
+            print(
+                "|-----------------|------------------------|---------------------|-------------|-------|-------|---------|------|"
+            )
             for task in flaky_tasks[:5]:
-                print(f"| {task.flakiness_percent:.1f}% | {task.total_runs} | {task.variant} | {task.task_name} |")
+                print(
+                    f"| {task.retried_percent:.1f}% | {task.passed_without_retries} | {task.passed_with_retries} | "
+                    f"{task.didnt_pass_runs} | {task.other_runs} | {task.total_runs} | {task.variant} | {task.task_name} |"
+                )
 
         message = format_slack_message(flaky_tasks)
 
