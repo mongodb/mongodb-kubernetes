@@ -386,7 +386,7 @@ class TestOpsManagerManagedCertificates:
         assert leaf_certificate["spec"]["secretName"] == APP_DB_LEAF_CERTIFICATE
         assert leaf_certificate["spec"]["issuerRef"]["name"] == APP_DB_CA_ISSUER
         assert "server auth" in leaf_certificate["spec"].get("usages", [])
-        assert "client auth" not in leaf_certificate["spec"].get("usages", [])
+        assert "client auth" in leaf_certificate["spec"].get("usages", [])
 
         revision, leaf_pem = _wait_for_appdb_leaf(namespace, _appdb_sans(ops_manager, namespace, 3))
         assert revision >= 1
