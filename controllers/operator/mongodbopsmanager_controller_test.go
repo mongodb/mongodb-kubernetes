@@ -1911,7 +1911,7 @@ func newManagedCertificateKubeClientWithInterceptor(t *testing.T, funcs intercep
 }
 
 func newManagedCertificateTestReconciler(ctx context.Context, c kubernetesClient.Client) *OpsManagerReconciler {
-	return NewOpsManagerReconciler(ctx, c, nil, images.ImageUrls{}, "", "", architectures.NonStatic, om.NewOpsManagerConnection, nil, nil)
+	return NewOpsManagerReconciler(ctx, c, nil, images.ImageUrls{}, "", "", architectures.NonStatic, "", om.NewOpsManagerConnection, nil, nil)
 }
 
 func newManagedCertificateTestOM() *omv1.MongoDBOpsManager {
