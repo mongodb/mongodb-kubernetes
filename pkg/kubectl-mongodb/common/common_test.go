@@ -1283,8 +1283,21 @@ func TestManagedCertificateRulesAreCentralOnly(t *testing.T) {
 		return false
 	}
 
+	hasCertificatesStatusRule := func(rules []rbacv1.PolicyRule) bool {
+		for _, rule := range rules {
+			if slices.Contains(rule.Resources, "certificates/status") &&
+				slices.Contains(rule.Verbs, "update") &&
+				slices.Contains(rule.Verbs, "patch") {
+				return true
+			}
+		}
+		return false
+	}
+
 	assert.False(t, hasCertManagerRule(getManagedCertificateRules(false)), "rule must be absent when not requested")
 	assert.True(t, hasCertManagerRule(getManagedCertificateRules(true)), "rule must be present when requested")
+	assert.False(t, hasCertificatesStatusRule(getManagedCertificateRules(false)), "status rule must be absent when not requested")
+	assert.True(t, hasCertificatesStatusRule(getManagedCertificateRules(true)), "status rule must allow update and patch")
 
 	// The member roles must never carry it, whatever the flag says.
 	assert.False(t, hasCertManagerRule(buildMemberEntityRole("mongodb").Rules), "member role must not have the rule")
