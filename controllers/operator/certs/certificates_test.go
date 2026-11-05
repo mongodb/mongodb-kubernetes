@@ -2,6 +2,7 @@ package certs
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,9 +10,9 @@ import (
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,7 +58,7 @@ func TestManagedIssuanceScopeOwnership(t *testing.T) {
 	assert.NotEqual(t, caChains[0], caChains[2])
 	assert.NotEqual(t, caChains[1], caChains[2])
 
-	for _, name := range []string{"example-managed-om-cert", "example-managed-backup-cert", "example-db-managed-cert"} {
+	for _, name := range []string{"example-managed-om-cert", "example-managed-backup-cert"} {
 		cert := getManagedCertificate(t, ctx, c, name)
 		assert.Equal(t, memberServerCertUsages, cert.Spec.Usages)
 		assert.NotContains(t, cert.Spec.Usages, certmanagerv1.UsageClientAuth)
@@ -66,6 +67,8 @@ func TestManagedIssuanceScopeOwnership(t *testing.T) {
 	appDBLeaf := getManagedCertificate(t, ctx, c, "example-db-managed-cert")
 	assert.Equal(t, "example-db-managed-cert", appDBLeaf.Spec.SecretName)
 	assert.Equal(t, "example-db-server-ca-issuer", appDBLeaf.Spec.IssuerRef.Name)
+	assert.Equal(t, serverAndClientUsage, appDBLeaf.Spec.Usages)
+	assert.Contains(t, appDBLeaf.Spec.Usages, certmanagerv1.UsageClientAuth)
 	assert.Nil(t, appDBLeaf.Spec.Subject, "SCRAM AppDB server certificates carry no membership subject")
 	assert.Empty(t, appDBLeaf.Spec.CommonName)
 
@@ -111,8 +114,8 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 	leaf := getManagedCertificate(t, ctx, c, "example-db-managed-cert")
 	assert.Equal(t, "example-db-managed-cert", leaf.Spec.SecretName)
 	assert.Equal(t, "example-db-server-ca-issuer", leaf.Spec.IssuerRef.Name)
-	assert.Equal(t, memberServerCertUsages, leaf.Spec.Usages)
-	assert.NotContains(t, leaf.Spec.Usages, certmanagerv1.UsageClientAuth)
+	assert.Equal(t, serverAndClientUsage, leaf.Spec.Usages)
+	assert.Contains(t, leaf.Spec.Usages, certmanagerv1.UsageClientAuth)
 	assert.False(t, leaf.Spec.IsCA)
 	assertOwnedByManagedTestOM(t, leaf.OwnerReferences)
 
@@ -148,13 +151,8 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 		ObjectMeta: v1.ObjectMeta{Name: "example-db-server-ca", Namespace: managedTestNamespace},
 		Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte(serverCAPEM)},
 	}))
-	require.NoError(t, c.Create(ctx, &corev1.Secret{
-		ObjectMeta: v1.ObjectMeta{Name: "example-db-managed-cert", Namespace: managedTestNamespace},
-		Data: map[string][]byte{
-			corev1.TLSCertKey:       []byte("LEAF-CERT-PEM"),
-			corev1.TLSPrivateKeyKey: []byte("LEAF-KEY-PEM"),
-		},
-	}))
+	issued := issuedCertificateSecret(t, managedTestNamespace, "example-db-managed-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	require.NoError(t, c.Create(ctx, &issued))
 
 	status, condition := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
 	require.True(t, status.IsOK(), status.Message())
