@@ -525,7 +525,8 @@ def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, 
     assert any(started.values()), f"no member got a start request with the role ephemeral: {started}"
     for pod in pods:
         for event in started[pod]:
-            assert event["configPath"], event
+            # The proxy does not log the path of the config file, only whether the request was accepted.
+            assert event["http_status"] == 200, event
         assert query_proxy(pod, namespace)["role"] == "main", pod
 
 
