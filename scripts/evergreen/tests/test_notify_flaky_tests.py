@@ -49,6 +49,10 @@ class TestFormatSlackMessage:
         message = format_slack_message(tasks)
         assert "Top 5" in message["blocks"][1]["text"]["text"]
 
+    def test_defines_failure_selection(self):
+        message = format_slack_message([make_flaky_task()])
+        assert "failure group with the most failed executions" in message["blocks"][2]["elements"][0]["text"]
+
     def test_shows_task_name(self):
         message = format_slack_message([make_flaky_task(task_name="my_e2e_task")])
         found = False
@@ -163,7 +167,7 @@ def failed_test(
 
 
 class TestFailureSummaries:
-    def test_summarizes_non_cr_failure_and_groups_variable_poll_durations(self):
+    def test_summarizes_failure_and_groups_variable_poll_durations(self):
         first = failed_test()
         second = failed_test(
             execution=1,
@@ -172,10 +176,6 @@ class TestFailureSummaries:
         context = report._summarize_failures({"task-id": 2}, [first, first, second])
         summary = context.summaries[0]
         assert summary.nodeid.endswith("::test_authentication_was_disabled")
-        assert (
-            summary.message
-            == "AssertionError: Timed out executing authentication_was_disabled after 300.5 seconds and 49 attempt(s)"
-        )
         assert summary.failed_executions == 2
         assert summary.task_runs == 1
         assert context.covered_runs == context.recovered_runs == 1
@@ -188,7 +188,7 @@ class TestFailureSummaries:
         assert not context.summaries
         assert context.covered_runs == 0
 
-    def test_groups_wait_timeouts_and_keeps_distinct_scale_down_error(self):
+    def test_keeps_only_the_failure_group_with_most_failed_executions(self):
         scale_up = "tests/rs.py::TestScaleUp::test_mdb_updated"
         first = failed_test(
             nodeid=scale_up,
@@ -204,11 +204,10 @@ class TestFailureSummaries:
             error='E   AssertionError: Got into Failed phase while waiting for Running! ("Cannot add/remove multiple voting members of a replica set at once")',
         )
         context = report._summarize_failures({"task-id": 2}, [first, second, rejected])
-        assert len(context.summaries) == 2
+        assert len(context.summaries) == 1
+        assert context.summaries[0].nodeid == scale_up
         assert context.summaries[0].failed_executions == 2
-        assert "Timeout (700)" in context.summaries[0].message
-        assert "Continuing scaling operation" not in context.summaries[0].message
-        assert "Cannot add/remove multiple voting members" in context.summaries[1].message
+        assert context.covered_runs == 1
 
     def test_retains_setup_failures_and_missing_history_in_coverage(self):
         row = failed_test()
@@ -220,31 +219,23 @@ class TestFailureSummaries:
         assert context.recovered_runs == 2
         assert len(context.summaries) == 1
 
-    def test_preserves_non_pytest_marker_exception_text(self):
-        row = failed_test(error="RuntimeError: connection refused")
-        context = report._summarize_failures({"task-id": 1}, [row])
-        assert context.summaries[0].message == "RuntimeError: connection refused"
-
     def test_does_not_merge_other_errors_by_stripping_meaningful_suffixes(self):
         first = failed_test(error="E   RuntimeError: failed after 3 seconds and 2 attempt(s): certificate invalid")
         second = failed_test(
             execution=1, error="E   RuntimeError: failed after 4 seconds and 3 attempt(s): access denied"
         )
         context = report._summarize_failures({"task-id": 2}, [first, second])
-        assert len(context.summaries) == 2
-        assert any("certificate invalid" in summary.message for summary in context.summaries)
-        assert any("access denied" in summary.message for summary in context.summaries)
+        assert len(context.summaries) == 1
+        assert context.summaries[0].failed_executions == 1
 
-    def test_skips_missing_exception_text_instead_of_using_wait_attributes(self):
-        row = failed_test(error="")
-        row.update({"mck.wait.last_observed.phase": "Failed", "mck.wait.last_observed.message": "Invalid config"})
-        context = report._summarize_failures({"task-id": 1}, [row])
+    def test_skips_missing_exception_text(self):
+        context = report._summarize_failures({"task-id": 1}, [failed_test(error="")])
         assert not context.summaries
         assert context.covered_runs == 0
 
 
 class TestCompactFailureFormatting:
-    def test_two_large_summaries_fit_one_slack_section(self):
+    def test_one_large_summary_fits_one_slack_section(self):
         rows = []
         task_id = "task-" + "x" * 400
         for check in ("first", "second"):
@@ -266,48 +257,54 @@ class TestCompactFailureFormatting:
         task.failure_context = report._summarize_failures({task_id: 1}, rows)
         text = format_slack_message([task])["blocks"][4]["text"]["text"]
         assert len(text) <= 3000
-        assert text.count("|Evergreen>") == text.count("|Honeycomb>") == 2
+        assert text.count("|Evergreen>") == text.count("|Honeycomb>") == 1
+        assert "Example:" not in text
 
-    def test_adds_one_observation_with_coverage_and_evidence(self):
+    def test_adds_one_summary_with_coverage_and_evidence(self):
         task = make_flaky_task()
         task.failure_context = report._summarize_failures({"task-id": 1, "other-id": 1}, [failed_test()])
         message = format_slack_message([task])
         text = message["blocks"][4]["text"]["text"]
         assert "10 runs: 6 passed without retries · 2 passed with retries · 2 didn't pass even with retries" in text
         assert "TestDeleted::test_authentication_was_disabled" in text
-        assert "Timed out executing authentication_was_disabled" in text
         assert "1 of 2 runs that passed with retries affected · 1 failed pytest execution" in text
-        assert "Example: `AssertionError: Timed out executing authentication_was_disabled" in text
-        assert "after 300.5 seconds and 49 attempt(s)" in text
         assert "https://ui.honeycomb.io/example" in text
         assert "execution=0" in text
+        assert text.count("↳") == 1
+        assert "Example:" not in text
         assert "Retry score" not in text
         assert "Passed after retry" not in text
         assert "Latest execution failed" not in text
 
-    def test_keeps_cr_text_inside_the_exception_only(self):
-        row = failed_test(
-            error="E   Exception: Timeout (600) reached while waiting for MongoDB (rs)| status: Phase.Pending| message: StatefulSet not ready"
-        )
+    def test_omits_the_second_failure_group(self):
+        top = failed_test(nodeid="tests/z.py::test_top")
+        top_again = failed_test(execution=1, nodeid="tests/z.py::test_top")
+        second = failed_test(nodeid="tests/a.py::test_second")
+        second["evergreen.task.id"] = "second-id"
         task = make_flaky_task()
-        task.failure_context = report._summarize_failures({"task-id": 1}, [row])
-        text = format_slack_message([task])["blocks"][4]["text"]["text"]
-        assert "| status: Phase.Pending| message: StatefulSet not ready" in text
-        assert "CR status" not in text
-        assert "mck.wait.last_observed" not in text
+        task.failure_context = report._summarize_failures({"task-id": 2, "second-id": 1}, [top, top_again, second])
+        message = format_slack_message([task])
+        text = message["blocks"][4]["text"]["text"]
+        footer = message["blocks"][-1]["elements"][0]["text"]
+        assert text.count("↳") == 1
+        assert "test_top" in text
+        assert "test_second" not in text
+        assert "Example:" not in text
+        assert task.failure_context.covered_runs == 1
+        assert "1 of 2 runs that passed with retries affected" in text
+        assert "Failure details: 1/2 runs that passed with retries." in footer
 
-    def test_missing_context_is_not_reported_as_no_cr_errors(self):
+    def test_missing_context_is_reported_as_unavailable(self):
         text = format_slack_message([make_flaky_task()])["blocks"][4]["text"]["text"]
         assert "Failed-test details unavailable" in text
-        assert "no CR errors" not in text
 
-    def test_bounds_and_escapes_message_and_redacts_credentials(self):
+    def test_bounds_and_escapes_nodeid_and_redacts_credentials(self):
         task = make_flaky_task()
         task.failure_context = report._summarize_failures(
             {"task-id": 1},
             [
                 failed_test(
-                    error="E   RuntimeError: <@everyone> token=secret mongodb://user:password@host/ " + "x" * 4000
+                    nodeid="tests/rs.py::test_<@everyone> token=secret mongodb://user:password@host/ " + "x" * 4000
                 )
             ],
         )
