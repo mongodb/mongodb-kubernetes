@@ -430,7 +430,7 @@ def _format_failure_context(context: FailureContext | None) -> str:
         passed_runs = "run" if context.recovered_runs == 1 else "runs"
         lines.append(
             f"↳ `{name}` — {summary.task_runs} of {context.recovered_runs} {passed_runs} that passed with retries affected · "
-            f"{summary.failed_executions} failed Evergreen {executions}\n"
+            f"{summary.failed_executions} failed pytest {executions}\n"
             f"Example: `{message}`"
         )
         lines.append(f"<{task_url}|Evergreen> · <{summary.query_url}|Honeycomb>")
