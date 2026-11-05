@@ -1814,11 +1814,10 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 	monitoringVersions := ac.MonitoringVersions
 	for _, p := range ac.Processes {
 		hostname := p.HostName
-		pemKeyFile := p.Args26.Get("net.tls.certificateKeyFile").String()
 
 		params := map[string]string{}
 		if tls {
-			maps.Copy(params, om.NewTLSParams(appdbCAFilePath, pemKeyFile))
+			maps.Copy(params, om.NewTLSParams(appdbCAFilePath, ""))
 		} else {
 			om.ClearTLSParams(params)
 		}
