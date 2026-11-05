@@ -534,6 +534,88 @@ func TestReplicaSetManagedCertificate_ReissuesLeavesOnCARotation(t *testing.T) {
 	assert.NotContains(t, rs.GetAnnotations(), util.PrunePreviousCAAnnotation)
 }
 
+// setCertificateRenewal plays cert-manager: it records when a Certificate expires and when it will
+// renew it, so the operator can report the latter on the resource status.
+func setCertificateRenewal(t *testing.T, ctx context.Context, c kubernetesClient.Client, namespace, name string, renewalTime, notAfter time.Time) {
+	t.Helper()
+	cert := &certmanagerv1.Certificate{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(namespace, name), cert))
+	renewal := metav1.NewTime(renewalTime)
+	expiry := metav1.NewTime(notAfter)
+	cert.Status.RenewalTime = &renewal
+	cert.Status.NotAfter = &expiry
+	require.NoError(t, c.Status().Update(ctx, cert))
+}
+
+// TestReplicaSetManagedCertificate_StatusReportsRenewal checks that a replica set records the next
+// automatic renewal of its member certificate on the status.
+func TestReplicaSetManagedCertificate_StatusReportsRenewal(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(1).SetSecurity(mdbv1.Security{
+		ManagedCertificate: &mdbv1.ManagedCertificate{},
+	}).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{Ready: true})
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	issueManagedCertificates(ctx, t, kubeClient, rs.Namespace)
+
+	memberCertName := rs.Name + "-managed-cert"
+	renewalTime := time.Now().Truncate(time.Second).Add(30 * 24 * time.Hour)
+	notAfter := time.Now().Truncate(time.Second).Add(90 * 24 * time.Hour)
+	setCertificateRenewal(t, ctx, kubeClient, rs.Namespace, memberCertName, renewalTime, notAfter)
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+
+	renewals := rs.Status.CertificateRenewals
+	require.NotNil(t, renewals)
+	require.NotNil(t, renewals.Server)
+	assert.Equal(t, memberCertName, renewals.Server.Name)
+	require.NotNil(t, renewals.Server.RenewalTime)
+	assert.True(t, renewalTime.Equal(renewals.Server.RenewalTime.Time))
+	require.NotNil(t, renewals.Server.NotAfter)
+	assert.True(t, notAfter.Equal(renewals.Server.NotAfter.Time))
+	assert.Nil(t, renewals.Client, "no client certificates are issued without x509 internal auth")
+}
+
+// TestMultiReplicaSetManagedCertificate_StatusReportsRenewal checks that a multi-cluster replica set
+// records the next automatic renewal of its shared member certificate on the status.
+func TestMultiReplicaSetManagedCertificate_StatusReportsRenewal(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetSecurity(&mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}).
+		Build()
+
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	issueManagedCertificates(ctx, t, kubeClient, mrs.Namespace)
+
+	memberCertName := mrs.Name + "-managed-cert"
+	renewalTime := time.Now().Truncate(time.Second).Add(30 * 24 * time.Hour)
+	notAfter := time.Now().Truncate(time.Second).Add(90 * 24 * time.Hour)
+	setCertificateRenewal(t, ctx, kubeClient, mrs.Namespace, memberCertName, renewalTime, notAfter)
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(mrs), mrs))
+
+	renewals := mrs.Status.CertificateRenewals
+	require.NotNil(t, renewals)
+	require.NotNil(t, renewals.Server)
+	assert.Equal(t, memberCertName, renewals.Server.Name)
+	require.NotNil(t, renewals.Server.RenewalTime)
+	assert.True(t, renewalTime.Equal(renewals.Server.RenewalTime.Time))
+	require.NotNil(t, renewals.Server.NotAfter)
+	assert.True(t, notAfter.Equal(renewals.Server.NotAfter.Time))
+}
+
 // certificatesReadyCondition returns the CertificatesReady condition recorded on the resource.
 func certificatesReadyCondition(t *testing.T, rs *mdbv1.MongoDB) metav1.Condition {
 	t.Helper()
