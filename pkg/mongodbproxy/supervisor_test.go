@@ -75,7 +75,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, binaryNumactl), []byte(fakeNumactl), 0o755)) //nolint:gosec
 	stdout := &syncBuffer{}
-	sup := NewSupervisor(WithEnv(os.Environ()), WithBinDir(dir), WithOutput(stdout, stdout))
+	sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(stdout, stdout))
 	t.Cleanup(func() {
 		// make sure no child outlives the test
 		_ = sup.Stop(context.Background(), "", 0, true)
@@ -190,7 +190,7 @@ func TestStartFailures(t *testing.T) {
 	}
 
 	t.Run("binary not found", func(t *testing.T) {
-		sup := NewSupervisor(WithEnv(os.Environ()), WithBinDir(t.TempDir()))
+		sup := NewSupervisor(WithEnv(testEnv), WithBinDir(t.TempDir()))
 		_, err := sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain})
 		assert.ErrorIs(t, err, ErrSpawn)
 		assert.Equal(t, StateIdle, sup.Status().State)
@@ -390,3 +390,7 @@ func TestTailBufferKeepsTheLastBytes(t *testing.T) {
 	_, _ = b.Write([]byte("defg"))
 	assert.Equal(t, "cdefg", b.String())
 }
+
+// testEnv is the environment of the processes started by the tests. The package never reads the environment of the
+// proxy itself (main does), so the tests give the children a fixed one.
+var testEnv = []string{"PATH=/usr/local/bin:/usr/bin:/bin"}
