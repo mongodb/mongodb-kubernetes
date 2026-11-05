@@ -69,6 +69,13 @@ def test_appdb_group_is_monitored(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_appdb_monitoring_tls
+def test_appdb_hosts_are_registered_with_ssl_enabled(ops_manager: MongoDBOpsManager):
+    # The AppDB has TLS configured, so the operator must tell Ops Manager about it when it
+    # registers the hosts. Otherwise the hosts show up with SSL off in the All Clusters view.
+    ops_manager.assert_appdb_hosts_have_ssl_enabled()
+
+
+@mark.e2e_om_appdb_monitoring_tls
 def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
     # Change the Secret containing the password
     data = {"password": "Hello-World!-new"}

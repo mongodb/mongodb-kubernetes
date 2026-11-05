@@ -150,6 +150,18 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
         KubernetesTester.wait_until(appdb_hostnames_are_correct, timeout=300, sleep_time=10)
 
+    @TRACER.start_as_current_span("assert_appdb_hosts_have_ssl_enabled")
+    def assert_appdb_hosts_have_ssl_enabled(self):
+        def appdb_hosts_have_ssl_enabled():
+            hosts = self.get_appdb_hosts()
+
+            if not hosts:
+                return False
+
+            return all(host.get("sslEnabled", False) for host in hosts)
+
+        KubernetesTester.wait_until(appdb_hosts_have_ssl_enabled, timeout=300, sleep_time=10)
+
     @TRACER.start_as_current_span("assert_appdb_monitoring_group_was_created")
     def assert_appdb_monitoring_group_was_created(self):
         tester = self.get_om_tester(self.app_db_name())

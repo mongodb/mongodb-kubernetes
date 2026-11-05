@@ -1852,7 +1852,14 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 }
 
 // registerAppDBHostsWithProject uses the Hosts API to add each process in the AppDB to the project
-func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(ctx context.Context, hostnames []string, conn om.Connection, opsManagerPassword string, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(
+	ctx context.Context,
+	appDbSecurity *mdbv1.Security,
+	hostnames []string,
+	conn om.Connection,
+	opsManagerPassword string,
+	log *zap.SugaredLogger,
+) error {
 	getHostsResult, err := conn.GetHosts(ctx)
 	if err != nil {
 		return xerrors.Errorf("error fetching existing hosts: %w", err)
@@ -1870,6 +1877,7 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(ctx context.Con
 			Password:          opsManagerPassword,
 			Hostname:          hostname,
 			AuthMechanismName: "MONGODB_CR",
+			SSLEnabled:        appDbSecurity.IsTLSEnabled(),
 		}
 
 		if currentHost, ok := hostMap[hostname]; ok {
@@ -2092,8 +2100,10 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
+	appDbSecurity := opsManager.Spec.AppDB.GetSecurity()
+
 	if err := conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
-		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appDBCAFilePath)
+		d.ConfigureTLS(appDbSecurity, appDBCAFilePath)
 		return nil
 	}, log); err != nil {
 		log.Errorf("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. "+
@@ -2103,7 +2113,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 
 	hostnames := r.generateProcessHostnames(opsManager)
 
-	if err := r.registerAppDBHostsWithProject(ctx, hostnames, conn, opsManagerUserPassword, log); err != nil {
+	if err := r.registerAppDBHostsWithProject(ctx, appDbSecurity, hostnames, conn, opsManagerUserPassword, log); err != nil {
 		return existingPodVars, xerrors.Errorf("error registering hosts with project: %w", err)
 	}
 
