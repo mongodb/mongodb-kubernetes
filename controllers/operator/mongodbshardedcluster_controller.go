@@ -1089,6 +1089,14 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)), log)
 	}
 
+	// The members are now running with the widened trust bundle (doShardedClusterProcessing
+	// published it and waited for the agents), so a leaf can safely move to a rotated self-signed CA.
+	if sc.GetSecurity().IsManagedCertificateEnabled() {
+		if err := certs.ReissueLeavesOnRotatedSelfSignedCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log); err != nil {
+			log.Warnf("Failed to re-issue certificates after a self-signed CA rotation: %s", err)
+		}
+	}
+
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	// It's the second place in the reconcile logic we're updating sizes of all the components
 	// We're also updating the shardCount here - it's the only place we're doing that.
