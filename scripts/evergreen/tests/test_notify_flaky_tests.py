@@ -276,7 +276,7 @@ class TestCompactFailureFormatting:
         assert "10 runs: 6 passed without retries · 2 passed with retries · 2 didn't pass even with retries" in text
         assert "TestDeleted::test_authentication_was_disabled" in text
         assert "Timed out executing authentication_was_disabled" in text
-        assert "1 of 2 runs that passed with retries affected · 1 failed Evergreen execution" in text
+        assert "1 of 2 runs that passed with retries affected · 1 failed pytest execution" in text
         assert "Example: `AssertionError: Timed out executing authentication_was_disabled" in text
         assert "after 300.5 seconds and 49 attempt(s)" in text
         assert "https://ui.honeycomb.io/example" in text
