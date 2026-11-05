@@ -144,11 +144,218 @@ class TestSlackNotification:
             send_slack_notification({"text": "test"})
 
 
+def failed_test(
+    span_id="test",
+    execution="0",
+    nodeid="tests/auth.py::TestDeleted::test_authentication_was_disabled",
+    error="E       AssertionError: Timed out executing authentication_was_disabled after 300.5 seconds and 49 attempt(s)",
+):
+    return {
+        "evergreen.task.id": "task-id",
+        "evergreen.task.execution": execution,
+        "trace.trace_id": "shared-trace",
+        "trace.span_id": span_id,
+        "mck.pytest.nodeid": nodeid,
+        "mck.pytest.outcome.call": "failed",
+        "mck.pytest.error_details": error,
+        "_query_url": "https://ui.honeycomb.io/example",
+    }
+
+
+class TestFailureSummaries:
+    def test_summarizes_non_cr_failure_and_groups_variable_poll_durations(self):
+        first = failed_test()
+        second = failed_test(
+            execution=1,
+            error="E   AssertionError: Timed out executing authentication_was_disabled after 308.0 seconds and 54 attempt(s)",
+        )
+        context = report._summarize_failures({"task-id": 2}, [first, first, second])
+        summary = context.summaries[0]
+        assert summary.nodeid.endswith("::test_authentication_was_disabled")
+        assert (
+            summary.message
+            == "AssertionError: Timed out executing authentication_was_disabled after 300.5 seconds and 49 attempt(s)"
+        )
+        assert summary.failed_executions == 2
+        assert summary.task_runs == 1
+        assert context.covered_runs == context.recovered_runs == 1
+        assert summary.execution == 0
+
+    def test_excludes_passing_expected_failure_and_later_executions(self):
+        expected = failed_test(error="E   AssertionError: INVALID_ORG_ID wrongId")
+        expected["mck.pytest.outcome.call"] = "passed"
+        context = report._summarize_failures({"task-id": 1}, [expected, failed_test(execution=1)])
+        assert not context.summaries
+        assert context.covered_runs == 0
+
+    def test_groups_wait_timeouts_and_keeps_distinct_scale_down_error(self):
+        scale_up = "tests/rs.py::TestScaleUp::test_mdb_updated"
+        first = failed_test(
+            nodeid=scale_up,
+            error="E   Exception: Timeout (700) reached while waiting for MongoDB (rs)| status: Phase.Pending| message: StatefulSet not ready",
+        )
+        second = failed_test(
+            execution=1,
+            nodeid=scale_up,
+            error="E   Exception: Timeout (700) reached while waiting for MongoDB (rs)| status: Phase.Pending| message: Continuing scaling operation",
+        )
+        rejected = failed_test(
+            nodeid="tests/rs.py::test_scale_down",
+            error='E   AssertionError: Got into Failed phase while waiting for Running! ("Cannot add/remove multiple voting members of a replica set at once")',
+        )
+        context = report._summarize_failures({"task-id": 2}, [first, second, rejected])
+        assert len(context.summaries) == 2
+        assert context.summaries[0].failed_executions == 2
+        assert "Timeout (700)" in context.summaries[0].message
+        assert "Continuing scaling operation" not in context.summaries[0].message
+        assert "Cannot add/remove multiple voting members" in context.summaries[1].message
+
+    def test_retains_setup_failures_and_missing_history_in_coverage(self):
+        row = failed_test()
+        row.pop("mck.pytest.outcome.call")
+        row["mck.pytest.outcome.setup"] = "failed"
+        missing = failed_test(execution=None)
+        context = report._summarize_failures({"task-id": 1, "missing-history": 1}, [row, missing])
+        assert context.covered_runs == 1
+        assert context.recovered_runs == 2
+        assert len(context.summaries) == 1
+
+    def test_preserves_non_pytest_marker_exception_text(self):
+        row = failed_test(error="RuntimeError: connection refused")
+        context = report._summarize_failures({"task-id": 1}, [row])
+        assert context.summaries[0].message == "RuntimeError: connection refused"
+
+    def test_does_not_merge_other_errors_by_stripping_meaningful_suffixes(self):
+        first = failed_test(error="E   RuntimeError: failed after 3 seconds and 2 attempt(s): certificate invalid")
+        second = failed_test(
+            execution=1, error="E   RuntimeError: failed after 4 seconds and 3 attempt(s): access denied"
+        )
+        context = report._summarize_failures({"task-id": 2}, [first, second])
+        assert len(context.summaries) == 2
+        assert any("certificate invalid" in summary.message for summary in context.summaries)
+        assert any("access denied" in summary.message for summary in context.summaries)
+
+    def test_skips_missing_exception_text_instead_of_using_wait_attributes(self):
+        row = failed_test(error="")
+        row.update({"mck.wait.last_observed.phase": "Failed", "mck.wait.last_observed.message": "Invalid config"})
+        context = report._summarize_failures({"task-id": 1}, [row])
+        assert not context.summaries
+        assert context.covered_runs == 0
+
+
+class TestCompactFailureFormatting:
+    def test_two_large_summaries_fit_one_slack_section(self):
+        rows = []
+        task_id = "task-" + "x" * 400
+        for check in ("first", "second"):
+            row = failed_test(
+                nodeid=f"tests/rs.py::test_{check}[" + "parameter " * 1000 + "]",
+                error="E   RuntimeError: " + "failure detail " * 1000,
+            )
+            row.update(
+                {
+                    "evergreen.task.id": task_id,
+                    "_query_url": "https://ui.honeycomb.io/mongodb-4b/environments/production/datasets/mongodb-e2e-tests/result/example",
+                }
+            )
+            rows.append(row)
+        task = make_flaky_task(task_name="e2e_" + "task_" * 20, variant="variant_" * 15)
+        task.counts_query_url = (
+            "https://ui.honeycomb.io/mongodb-4b/environments/production/datasets/evergreen-agent/result/example"
+        )
+        task.failure_context = report._summarize_failures({task_id: 1}, rows)
+        text = format_slack_message([task])["blocks"][4]["text"]["text"]
+        assert len(text) <= 3000
+        assert text.count("|Evergreen>") == text.count("|Honeycomb>") == 2
+
+    def test_adds_one_observation_with_coverage_and_evidence(self):
+        task = make_flaky_task()
+        task.failure_context = report._summarize_failures({"task-id": 1, "other-id": 1}, [failed_test()])
+        message = format_slack_message([task])
+        text = message["blocks"][4]["text"]["text"]
+        assert "10 runs: 6 passed without retries · 2 passed with retries · 2 didn't pass even with retries" in text
+        assert "TestDeleted::test_authentication_was_disabled" in text
+        assert "Timed out executing authentication_was_disabled" in text
+        assert "1 of 2 runs that passed with retries affected · 1 failed Evergreen execution" in text
+        assert "Example: `AssertionError: Timed out executing authentication_was_disabled" in text
+        assert "after 300.5 seconds and 49 attempt(s)" in text
+        assert "https://ui.honeycomb.io/example" in text
+        assert "execution=0" in text
+        assert "Retry score" not in text
+        assert "Passed after retry" not in text
+        assert "Latest execution failed" not in text
+
+    def test_keeps_cr_text_inside_the_exception_only(self):
+        row = failed_test(
+            error="E   Exception: Timeout (600) reached while waiting for MongoDB (rs)| status: Phase.Pending| message: StatefulSet not ready"
+        )
+        task = make_flaky_task()
+        task.failure_context = report._summarize_failures({"task-id": 1}, [row])
+        text = format_slack_message([task])["blocks"][4]["text"]["text"]
+        assert "| status: Phase.Pending| message: StatefulSet not ready" in text
+        assert "CR status" not in text
+        assert "mck.wait.last_observed" not in text
+
+    def test_missing_context_is_not_reported_as_no_cr_errors(self):
+        text = format_slack_message([make_flaky_task()])["blocks"][4]["text"]["text"]
+        assert "Failed-test details unavailable" in text
+        assert "no CR errors" not in text
+
+    def test_bounds_and_escapes_message_and_redacts_credentials(self):
+        task = make_flaky_task()
+        task.failure_context = report._summarize_failures(
+            {"task-id": 1},
+            [
+                failed_test(
+                    error="E   RuntimeError: <@everyone> token=secret mongodb://user:password@host/ " + "x" * 4000
+                )
+            ],
+        )
+        text = format_slack_message([task])["blocks"][4]["text"]["text"]
+        assert "<@everyone>" not in text
+        assert "&lt;@everyone&gt;" in text
+        assert "secret" not in text
+        assert "user:password" not in text
+        assert "[REDACTED]" in text
+        assert len(text) < 3000
+
+
 def honeycomb_result(rows, url="https://ui.honeycomb.io/example"):
     return {"data": {"results": [{"data": row} for row in rows]}, "links": {"query_url": url}}
 
 
-class TestQueryRows:
+class TestFailureQueries:
+    def test_skips_queries_when_no_retried_ids_exist(self, monkeypatch):
+        monkeypatch.setattr(report, "_honeycomb_query", lambda *args: pytest.fail("Unexpected query"))
+        task = make_flaky_task(retried_count=0)
+        report.enrich_flaky_tasks([task], {})
+        assert task.failure_context.recovered_runs == 0
+        assert not task.failure_context.summaries
+
+    def test_fetches_failed_pytest_outcomes_instead_of_wait_parent_chains(self, monkeypatch):
+        queries = []
+
+        def query(spec, dataset):
+            queries.append((spec, dataset))
+            match = spec["filters"][-1]
+            assert dataset == report.TEST_DATASET
+            if match["column"] == "evergreen.task.id":
+                assert {"column": "mck.pytest.nodeid", "op": "exists"} in spec["filters"]
+                assert not any(f["column"] == "mck.wait.name" for f in spec["filters"])
+                assert not any("mck.wait" in column for column in spec["breakdowns"])
+                return honeycomb_result([failed_test()])
+            pytest.fail("Unexpected parent lookup")
+
+        monkeypatch.setattr(report, "_honeycomb_query", query)
+        task = make_flaky_task()
+        window = {"start_time": 100, "end_time": 200}
+        report.enrich_flaky_tasks([task], window)
+        assert task.failure_context.summaries[0].nodeid.endswith("::test_authentication_was_disabled")
+        assert task.failure_context.summaries[0].execution == 0
+        assert len(queries) == 1
+        assert all(spec["start_time"] == 100 and spec["end_time"] == 200 for spec, _ in queries)
+        assert all("time_range" not in spec for spec, _ in queries)
+
     def test_splits_capped_id_queries_and_keeps_each_result_link(self, monkeypatch):
         monkeypatch.setattr(report, "QUERY_RESULT_LIMIT", 2)
 
@@ -172,19 +379,25 @@ class TestQueryRows:
 
 class TestReportModes:
     @pytest.mark.parametrize("dry_run", [True, False])
-    def test_only_actual_mode_sends(self, monkeypatch, capsys, dry_run):
+    def test_only_actual_mode_sends_and_enrichment_failure_preserves_ranking(self, monkeypatch, capsys, dry_run):
         task = make_flaky_task()
         monkeypatch.setattr(report, "get_weekly_tasks", lambda window: [task])
+
+        def fail_enrichment(*args):
+            raise RuntimeError("query result limit")
+
+        monkeypatch.setattr(report, "enrich_flaky_tasks", fail_enrichment)
         sent = []
         monkeypatch.setattr(report, "send_slack_notification", sent.append)
         monkeypatch.setattr(report.sys, "argv", ["notify_flaky_tests.py"] + (["--dry-run"] if dry_run else []))
         report.main()
         output = capsys.readouterr()
+        assert "Failure details unavailable" in output.err
         assert "20.0%" in output.out
         assert all(line.count("|") == 9 for line in output.out.splitlines() if line.startswith("|"))
         assert len(sent) == (0 if dry_run else 1)
         if sent:
-            assert "10 runs: 6 passed without retries" in sent[0]["blocks"][4]["text"]["text"]
+            assert "Failed-test details unavailable" in sent[0]["blocks"][4]["text"]["text"]
 
     def test_baseline_query_failure_does_not_send_a_healthy_report(self, monkeypatch):
         def fail_query(window):
