@@ -304,6 +304,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Pending("MongoDBMultiCluster deployment is not yet ready, requeuing reconciliation."), log)
 	}
 
+	// The members are now running with the widened trust bundle (the reconcile above published it
+	// and waited for the agents), so a leaf can safely move to a rotated self-signed CA.
+	if mrs.GetSecurity().IsManagedCertificateEnabled() {
+		if allOpts, err := r.managedCertOptions(&mrs); err != nil {
+			log.Warnf("Failed to build the managed certificate options to re-issue certificates after a self-signed CA rotation: %s", err)
+		} else if err := certs.ReissueLeavesOnRotatedSelfSignedCA(ctx, r.client, &mrs, allOpts, log); err != nil {
+			log.Warnf("Failed to re-issue certificates after a self-signed CA rotation: %s", err)
+		}
+	}
+
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
 	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
@@ -1654,13 +1664,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureManagedCertificates(
 	mrs *mdbmultiv1.MongoDBMultiCluster,
 	log *zap.SugaredLogger,
 ) workflow.Status {
-	clusterSpecList, err := mrs.GetClusterSpecItems()
+	allOpts, err := r.managedCertOptions(mrs)
 	if err != nil {
 		return workflow.Failed(err)
 	}
 
-	mcRSOpts := certs.MultiReplicaSetManagedCertConfig(*mrs, memberClustersForManagedCert(mrs, clusterSpecList))
-	status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(ctx, r.client, mrs, []certs.Options{mcRSOpts}, log)
+	status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(ctx, r.client, mrs, allOpts, log)
 	// Record the certificate state on the resource so it is visible in the status, the same way the
 	// replica set and sharded controllers do.
 	mrs.SetStatusCondition(certsCondition)
@@ -1673,6 +1682,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureManagedCertificates(
 	}
 
 	return r.removeFulfilledPruneAnnotation(ctx, mrs, pruneApplied)
+}
+
+// managedCertOptions builds the single Options the multi-cluster replica set uses for its shared
+// member and internal-cluster/agent certificates.
+func (r *ReconcileMongoDbMultiReplicaSet) managedCertOptions(mrs *mdbmultiv1.MongoDBMultiCluster) ([]certs.Options, error) {
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return nil, err
+	}
+	return []certs.Options{certs.MultiReplicaSetManagedCertConfig(*mrs, memberClustersForManagedCert(mrs, clusterSpecList))}, nil
 }
 
 // memberClustersForManagedCert returns how many members the shared member certificate must cover, per member
