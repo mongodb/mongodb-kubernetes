@@ -22,13 +22,14 @@ def make_flaky_task(
     variant: str = "e2e_variant",
     successful_runs: int = 8,
     retried_count: int = 2,
+    didnt_pass_runs: int = 2,
 ) -> report.WeeklyTask:
     return report.WeeklyTask(
         task_name=task_name,
         variant=variant,
-        total_runs=successful_runs + 2,
+        total_runs=successful_runs + didnt_pass_runs,
         successful_runs=successful_runs,
-        failed_runs=2,
+        didnt_pass_runs=didnt_pass_runs,
         retried_runs={"task-id" if i == 0 else f"retry-{i}": 1 for i in range(retried_count)},
     )
 
@@ -70,16 +71,17 @@ class TestFormatSlackMessage:
                     break
         assert found
 
-    def test_shows_passed_after_retry_percent(self):
-        message = format_slack_message([make_flaky_task(successful_runs=3, retried_count=1)])
-        found = False
-        for block in message["blocks"]:
-            if block.get("type") == "section":
-                text = block.get("text", {}).get("text", "")
-                if "33.3%" in text:
-                    found = True
-                    break
-        assert found
+    def test_shows_three_outcome_counts(self):
+        message = format_slack_message([make_flaky_task(successful_runs=8, retried_count=2, didnt_pass_runs=2)])
+        text = message["blocks"][4]["text"]["text"]
+        assert "10 runs: 6 passed without retries · 2 passed with retries · 2 didn't pass even with retries" in text
+
+    def test_shows_other_outcomes_only_when_present(self):
+        task = make_flaky_task()
+        task.other_runs = 1
+        text = format_slack_message([task])["blocks"][4]["text"]["text"]
+        assert "· 1 other outcomes" in text
+        assert "other outcomes" not in format_slack_message([make_flaky_task()])["blocks"][4]["text"]["text"]
 
     def test_shows_only_top_5(self):
         tasks = [make_flaky_task(task_name=f"task_{i}") for i in range(20)]
@@ -174,7 +176,6 @@ class TestFailureSummaries:
             summary.message
             == "AssertionError: Timed out executing authentication_was_disabled after 300.5 seconds and 49 attempt(s)"
         )
-        assert summary.error_source == "mck.pytest.error_details"
         assert summary.failed_executions == 2
         assert summary.task_runs == 1
         assert context.covered_runs == context.recovered_runs == 1
@@ -206,8 +207,7 @@ class TestFailureSummaries:
         assert len(context.summaries) == 2
         assert context.summaries[0].failed_executions == 2
         assert "Timeout (700)" in context.summaries[0].message
-        assert context.summaries[0].cr_example == "Pending: StatefulSet not ready"
-        assert context.summaries[0].cr_source == "same pytest exception"
+        assert "Continuing scaling operation" not in context.summaries[0].message
         assert "Cannot add/remove multiple voting members" in context.summaries[1].message
 
     def test_retains_setup_failures_and_missing_history_in_coverage(self):
@@ -235,13 +235,12 @@ class TestFailureSummaries:
         assert any("certificate invalid" in summary.message for summary in context.summaries)
         assert any("access denied" in summary.message for summary in context.summaries)
 
-    def test_uses_structured_message_on_the_failed_test_when_exception_text_is_missing(self):
+    def test_skips_missing_exception_text_instead_of_using_wait_attributes(self):
         row = failed_test(error="")
         row.update({"mck.wait.last_observed.phase": "Failed", "mck.wait.last_observed.message": "Invalid config"})
         context = report._summarize_failures({"task-id": 1}, [row])
-        assert context.summaries[0].message == "CR Failed: Invalid config"
-        assert context.summaries[0].error_source == "mck.wait.last_observed.*"
-        assert context.summaries[0].cr_source == "mck.wait.last_observed.*"
+        assert not context.summaries
+        assert context.covered_runs == 0
 
 
 class TestCompactFailureFormatting:
@@ -256,8 +255,6 @@ class TestCompactFailureFormatting:
             row.update(
                 {
                     "evergreen.task.id": task_id,
-                    "mck.wait.last_observed.phase": "Pending",
-                    "mck.wait.last_observed.message": "CR detail " * 1000,
                     "_query_url": "https://ui.honeycomb.io/mongodb-4b/environments/production/datasets/mongodb-e2e-tests/result/example",
                 }
             )
@@ -273,34 +270,31 @@ class TestCompactFailureFormatting:
 
     def test_adds_one_observation_with_coverage_and_evidence(self):
         task = make_flaky_task()
-        task.failure_context = report._summarize_failures({"task-id": 1}, [failed_test()])
+        task.failure_context = report._summarize_failures({"task-id": 1, "other-id": 1}, [failed_test()])
         message = format_slack_message([task])
         text = message["blocks"][4]["text"]["text"]
-        assert "Passed after retry: 25.0% (2 of 8 successful runs)" in text
-        assert "Latest execution failed: 20.0% (2 of 10 distinct runs)" in text
-        assert "Runs: 10 distinct" in text
+        assert "10 runs: 6 passed without retries · 2 passed with retries · 2 didn't pass even with retries" in text
         assert "TestDeleted::test_authentication_was_disabled" in text
         assert "Timed out executing authentication_was_disabled" in text
-        assert "1 failed Evergreen attempt" in text
-        assert "1 distinct run affected" in text
-        assert "Example error (`mck.pytest.error_details`)" in text
+        assert "1 of 2 runs that passed with retries affected · 1 failed Evergreen execution" in text
+        assert "Example: `AssertionError: Timed out executing authentication_was_disabled" in text
         assert "after 300.5 seconds and 49 attempt(s)" in text
         assert "https://ui.honeycomb.io/example" in text
         assert "execution=0" in text
         assert "Retry score" not in text
-        assert "recovered" not in str(message)
+        assert "Passed after retry" not in text
+        assert "Latest execution failed" not in text
 
-    def test_labels_cr_provenance_without_claiming_a_live_resource_read(self):
+    def test_keeps_cr_text_inside_the_exception_only(self):
         row = failed_test(
             error="E   Exception: Timeout (600) reached while waiting for MongoDB (rs)| status: Phase.Pending| message: StatefulSet not ready"
         )
         task = make_flaky_task()
         task.failure_context = report._summarize_failures({"task-id": 1}, [row])
         text = format_slack_message([task])["blocks"][4]["text"]["text"]
-        assert "CR status (same pytest exception): Pending: StatefulSet not ready" in text
-        assert "Exception: Timeout (600)" in text
-        assert "Example error (`mck.pytest.error_details`)" in text
-        assert "CR example" not in text
+        assert "| status: Phase.Pending| message: StatefulSet not ready" in text
+        assert "CR status" not in text
+        assert "mck.wait.last_observed" not in text
 
     def test_missing_context_is_not_reported_as_no_cr_errors(self):
         text = format_slack_message([make_flaky_task()])["blocks"][4]["text"]["text"]
@@ -348,6 +342,7 @@ class TestFailureQueries:
             if match["column"] == "evergreen.task.id":
                 assert {"column": "mck.pytest.nodeid", "op": "exists"} in spec["filters"]
                 assert not any(f["column"] == "mck.wait.name" for f in spec["filters"])
+                assert not any("mck.wait" in column for column in spec["breakdowns"])
                 return honeycomb_result([failed_test()])
             pytest.fail("Unexpected parent lookup")
 
@@ -398,8 +393,8 @@ class TestReportModes:
         report.main()
         output = capsys.readouterr()
         assert "Failure details unavailable" in output.err
-        assert "25.0%" in output.out
-        assert all(line.count("|") == 6 for line in output.out.splitlines() if line.startswith("|"))
+        assert "20.0%" in output.out
+        assert all(line.count("|") == 9 for line in output.out.splitlines() if line.startswith("|"))
         assert len(sent) == (0 if dry_run else 1)
         if sent:
             assert "Failed-test details unavailable" in sent[0]["blocks"][4]["text"]["text"]
@@ -464,48 +459,55 @@ def task_execution(task_id, execution, status, task_name="e2e_task", variant="va
 
 
 class TestWeeklyRunRates:
-    def test_counts_distinct_latest_executions_with_separate_denominators(self):
+    def test_counts_three_outcome_buckets(self):
         rows = [
             task_execution("first-pass", "0", "success"),
             task_execution("retried", 0, "failed"),
             task_execution("retried", "1", "success"),
             task_execution("retried", 1, "success"),
-            task_execution("latest-failed", 1, "success"),
-            task_execution("latest-failed", 2, "failed"),
+            task_execution("never-passed", 0, "failed"),
+            task_execution("never-passed", 1, "failed"),
+            task_execution("passed-then-failed", 0, "success"),
+            task_execution("passed-then-failed", 1, "failed"),
             task_execution("running", 0, "started"),
         ]
         task = report._summarize_weekly_tasks(rows)[0]
-        assert task.total_runs == 4
+        assert task.total_runs == 5
         assert task.successful_runs == 2
-        assert task.failed_runs == 1
-        assert task.other_runs == 1
+        assert task.passed_without_retries == 1
+        assert task.passed_with_retries == 1
+        assert task.didnt_pass_runs == 1
+        assert task.other_runs == 2
         assert task.retried_runs == {"retried": 1}
-        assert task.passed_after_retry_percent == 50
-        assert task.latest_failed_percent == 25
+        assert task.retried_percent == 20
 
-    def test_ranks_the_full_population_by_true_percentage_not_average_retry_score(self):
+    def test_ranks_the_full_population_by_retried_over_total_runs(self):
         rows = []
         for i in range(60):
             name = f"task_{i:02}"
-            rows.extend(
-                [
-                    task_execution(f"{name}-retry", 1, "success", name),
-                    task_execution(f"{name}-first", 0, "success", name),
-                ]
-            )
+            for j in range(9):
+                rows.append(task_execution(f"{name}-first-{j}", 0, "success", name))
+            rows.append(task_execution(f"{name}-retry", 1, "success", name))
+        for j in range(8):
+            rows.append(task_execution(f"severe-fail-{j}", 0, "failed", "severe"))
         rows.extend(
             [
-                task_execution("last-retry", 1, "success", "task_after_legacy_limit"),
-                task_execution("severe-retry", 4, "success", "severe"),
-                task_execution("severe-first", 0, "success", "severe"),
+                task_execution("severe-retry-0", 1, "success", "severe"),
+                task_execution("severe-retry-1", 1, "success", "severe"),
                 task_execution("only-failed", 0, "failed", "only-failed"),
             ]
         )
+        for j in range(7):
+            rows.append(task_execution(f"better-first-{j}", 0, "success", "better"))
+        for j in range(3):
+            rows.append(task_execution(f"better-retry-{j}", 1, "success", "better"))
         tasks = report._summarize_weekly_tasks(rows)
         assert len(tasks) == 62
-        assert tasks[0].task_name == "task_after_legacy_limit"
-        assert tasks[0].passed_after_retry_percent == 100
-        assert all(task.passed_after_retry_percent == 50 for task in tasks[1:])
+        assert tasks[0].task_name == "better"
+        assert tasks[0].retried_percent == 30
+        assert tasks[1].task_name == "severe"
+        assert tasks[1].retried_percent == 20
+        assert all(task.retried_percent == 10 for task in tasks[2:])
         assert all(task.task_name != "only-failed" for task in tasks)
 
     def test_conflicting_outcome_does_not_count_as_success_in_either_order(self):
@@ -514,15 +516,28 @@ class TestWeeklyRunRates:
         for rows in ([other, *conflict], [other, *reversed(conflict)]):
             task = report._summarize_weekly_tasks(rows)[0]
             assert task.total_runs == 2
-            assert task.successful_runs == task.failed_runs == 1
+            assert task.successful_runs == 1
+            assert task.didnt_pass_runs == 1
             assert task.retried_runs == {"retry": 1}
+
+    def test_passed_earlier_then_failed_is_not_counted_as_never_passing(self):
+        rows = [
+            task_execution("passed-then-failed", 0, "success"),
+            task_execution("passed-then-failed", 1, "failed"),
+            task_execution("retry", 1, "success"),
+        ]
+        task = report._summarize_weekly_tasks(rows)[0]
+        assert task.total_runs == 2
+        assert task.didnt_pass_runs == 0
+        assert task.other_runs == 1
+        assert task.retried_runs == {"retry": 1}
 
     def test_failed_outcome_wins_over_in_progress_for_the_same_execution(self):
         other = task_execution("retry", 1, "success")
         records = [task_execution("conflict", 1, "failed"), task_execution("conflict", 1, "started")]
         for rows in ([other, *records], [other, *reversed(records)]):
             task = report._summarize_weekly_tasks(rows)[0]
-            assert task.failed_runs == 1
+            assert task.didnt_pass_runs == 1
             assert task.other_runs == 0
 
     def test_rejects_missing_identity_or_execution_in_denominator(self):
@@ -552,7 +567,9 @@ class TestWeeklyRunRates:
         window = {"start_time": 100, "end_time": 200}
         tasks = report.get_weekly_tasks(window)
         assert len(queries) == 2
-        assert tasks[0].passed_after_retry_percent == 50
+        assert tasks[0].retried_percent == 50
+        assert tasks[0].passed_without_retries == 1
+        assert tasks[0].passed_with_retries == 1
         assert window == {"start_time": 90, "end_time": 190}
 
     def test_partitions_a_capped_task_name_by_variant(self, monkeypatch):
@@ -574,7 +591,7 @@ class TestWeeklyRunRates:
         monkeypatch.setattr(report, "_honeycomb_query", query)
         tasks = report.get_weekly_tasks({})
         assert {task.variant for task in tasks} == {"a", "b"}
-        assert all(task.total_runs == 1 for task in tasks)
+        assert all(task.total_runs == 1 and task.passed_with_retries == 1 for task in tasks)
 
     def test_empty_metadata_cannot_be_reported_as_healthy(self, monkeypatch):
         monkeypatch.setattr(report, "_honeycomb_query", lambda *args: honeycomb_result([]))
