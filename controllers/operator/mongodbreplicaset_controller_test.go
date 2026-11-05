@@ -833,7 +833,7 @@ func TestReplicaSetReconcile_RequeuesOnStaleStatusWriteAndScalesDownOneAtATime(t
 			},
 		}).Build()
 
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateReplicaSetExternalHostnames(rs)
 	})
@@ -890,7 +890,7 @@ func TestReplicaSetReconcile_RequeuesOnStaleStatusWriteAndLeavesServerStateUntou
 			},
 		}).Build()
 
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateReplicaSetExternalHostnames(rs)
 	})
