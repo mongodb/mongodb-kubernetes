@@ -167,7 +167,6 @@ def _query_rows(
 @dataclass
 class FailureSummary:
     nodeid: str
-    message: str
     failed_executions: int
     task_runs: int
     task_id: str
@@ -215,24 +214,21 @@ def _summarize_failures(recovered: dict[str, int], rows: list[dict]) -> FailureC
         signature = poll.group(1) if poll else message
         if re.match(r"[\w.]*Exception: Timeout \(\d+\) reached while waiting", message):
             signature = message.partition("| status:")[0].strip()
-        groups[(nodeid, signature)][(task_id, execution)] = {
-            **row,
-            "_failure_text": message,
-        }
-    context.covered_runs = len({task_id for attempts in groups.values() for task_id, _ in attempts})
-    # Keep the two largest failure groups within the five-task layout.
-    for (nodeid, _), attempts in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))[:2]:
+        groups[(nodeid, signature)][(task_id, execution)] = row
+    # Keep the failure group with the most failed executions.
+    retained = sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))[:1]
+    context.covered_runs = len({task_id for _, attempts in retained for task_id, _ in attempts})
+    for (nodeid, _), attempts in retained:
         task_id, execution = min(attempts)
-        example = attempts[(task_id, execution)]
+        first_attempt = attempts[(task_id, execution)]
         context.summaries.append(
             FailureSummary(
                 nodeid=nodeid,
-                message=example["_failure_text"],
                 failed_executions=len(attempts),
                 task_runs=len({key[0] for key in attempts}),
                 task_id=task_id,
                 execution=execution,
-                query_url=example.get("_query_url", ""),
+                query_url=first_attempt.get("_query_url", ""),
             )
         )
     return context
@@ -420,9 +416,7 @@ def _format_failure_context(context: FailureContext | None) -> str:
     lines = []
     for summary in context.summaries:
         nodeid = summary.nodeid.partition("::")[2] or summary.nodeid
-        # Messages exceed 1,000 characters. These excerpts keep two examples with 400-character task IDs below Slack's 3,000-character section limit.
         name = shorten(_slack_text(nodeid), width=120, placeholder="…")
-        message = shorten(_slack_text(summary.message), width=280, placeholder="…")
         task_url = (
             f"https://spruce.corp.mongodb.com/task/{quote(summary.task_id, safe='')}?execution={summary.execution}"
         )
@@ -430,10 +424,9 @@ def _format_failure_context(context: FailureContext | None) -> str:
         passed_runs = "run" if context.recovered_runs == 1 else "runs"
         lines.append(
             f"↳ `{name}` — {summary.task_runs} of {context.recovered_runs} {passed_runs} that passed with retries affected · "
-            f"{summary.failed_executions} failed Evergreen {executions}\n"
-            f"Example: `{message}`"
+            f"{summary.failed_executions} failed Evergreen {executions} · "
+            f"<{task_url}|Evergreen> · <{summary.query_url}|Honeycomb>"
         )
-        lines.append(f"<{task_url}|Evergreen> · <{summary.query_url}|Honeycomb>")
     return "\n".join(lines)
 
 
@@ -537,7 +530,7 @@ def format_slack_message(flaky_tasks: list[WeeklyTask]) -> dict:
                         "Passed without retries: execution 0 succeeded.\n"
                         "Passed with retries: a later execution succeeded.\n"
                         "Didn't pass even with retries: no successful execution.\n"
-                        "Errors are from failed executions before a successful retry (`mck.pytest.error_details`)."
+                        "Failure details show the check with the most failed executions before a successful retry."
                     ),
                 }
             ],
@@ -572,9 +565,9 @@ def format_slack_message(flaky_tasks: list[WeeklyTask]) -> dict:
 
     contexts = [task.failure_context for task in flaky_tasks[:5] if task.failure_context is not None]
     coverage = (
-        f"Failure details: {sum(c.covered_runs for c in contexts)}/{sum(c.recovered_runs for c in contexts)} runs that passed with retries. "
+        f"Failure details: {sum(c.covered_runs for c in contexts)}/{sum(c.recovered_runs for c in contexts)} runs that passed with retries."
         if len(contexts) == len(flaky_tasks[:5])
-        else "Some failure details are unavailable. "
+        else "Some failure details are unavailable."
     )
     blocks.append({"type": "divider"})
     blocks.append(
@@ -583,13 +576,7 @@ def format_slack_message(flaky_tasks: list[WeeklyTask]) -> dict:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": (
-                        f"<{HONEYCOMB_BOARD_URL}|View in Honeycomb> · "
-                        f"{coverage}A run can appear under multiple checks. "
-                        "Attempt counts in exception text are not Evergreen executions. "
-                        "Runs that didn't pass are counted above, but their errors are not included. "
-                        "Examples are not confirmed root causes."
-                    ),
+                    "text": (f"<{HONEYCOMB_BOARD_URL}|View in Honeycomb> · {coverage}"),
                 }
             ],
         }
