@@ -2146,6 +2146,26 @@ func hashBytes(bytes []byte) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
+// sourceAuthModes returns the source's configured authentication modes and
+// whether the operator can inspect them. External sources and unknown
+// implementations are not checkable.
+func sourceAuthModes(db SearchSourceDBResource) ([]string, bool) {
+	switch src := db.(type) {
+	case EnterpriseResourceSearchSource:
+		return src.Spec.GetSecurityAuthenticationModes(), true
+	case *ShardedInternalSearchSource:
+		return src.Spec.GetSecurityAuthenticationModes(), true
+	case *CommunitySearchSource:
+		modes := make([]string, 0, len(src.Spec.Security.Authentication.Modes))
+		for _, mode := range src.Spec.Security.Authentication.Modes {
+			modes = append(modes, string(mode))
+		}
+		return modes, true
+	default:
+		return nil, false
+	}
+}
+
 // ValidateX509AuthSource enforces the x509 source requirement at reconcile time: a search
 // authenticating with x509 needs an X509 auth mode on the source MongoDB, because mongod
 // disables the MONGODB-X509 SASL mechanism otherwise and the deployment would only fail at
@@ -2155,26 +2175,10 @@ func ValidateX509AuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRes
 		return nil
 	}
 
-	var modes []string
-	switch src := db.(type) {
-	case EnterpriseResourceSearchSource:
-		modes = src.Spec.GetSecurityAuthenticationModes()
-	case *ShardedInternalSearchSource:
-		modes = src.Spec.GetSecurityAuthenticationModes()
-	case *CommunitySearchSource:
-		for _, mode := range src.Spec.Security.Authentication.Modes {
-			modes = append(modes, string(mode))
-		}
-	case *externalSearchResource:
-		// The operator knows nothing about an external deployment's auth
-		// configuration; mongod rejects the SASL attempt at runtime.
-		return nil
-	default:
-		// A new internal source implementation must add an explicit case
-		// above instead of relying on this pass-through.
+	modes, checkable := sourceAuthModes(db)
+	if !checkable {
 		return nil
 	}
-
 	if slices.Contains(modes, util.X509) {
 		return nil
 	}
