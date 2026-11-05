@@ -2,6 +2,7 @@ package certs
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"reflect"
 	"testing"
@@ -238,10 +239,9 @@ func TestManagedServerCertificate(t *testing.T) {
 
 		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
-		require.NoError(t, c.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "example-managed-om-cert", Namespace: managedTestNamespace},
-			Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte("EMITTED-CA")},
-		}))
+		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		issued.Data[corev1.ServiceAccountRootCAKey] = []byte("EMITTED-CA")
+		require.NoError(t, c.Create(ctx, &issued))
 
 		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
@@ -272,9 +272,8 @@ func TestManagedServerCertificate(t *testing.T) {
 
 		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
-		require.NoError(t, c.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "example-managed-om-cert", Namespace: managedTestNamespace},
-		}))
+		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		require.NoError(t, c.Create(ctx, &issued))
 
 		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
@@ -293,9 +292,8 @@ func TestManagedServerCertificate(t *testing.T) {
 
 		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
-		require.NoError(t, c.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "example-managed-om-cert", Namespace: managedTestNamespace},
-		}))
+		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		require.NoError(t, c.Create(ctx, &issued))
 
 		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		assert.False(t, status.IsOK())
@@ -324,9 +322,8 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		c := newManagedCertTestClient(t, fallback())
 		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
-		require.NoError(t, c.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "example-managed-om-cert", Namespace: managedTestNamespace},
-		}))
+		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		require.NoError(t, c.Create(ctx, &issued))
 
 		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
@@ -417,9 +414,8 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		markManagedCertificatesReady(t, ctx, c, func(cert *certmanagerv1.Certificate) {
 			cert.Status.LastFailureTime = &lastFailure
 		})
-		require.NoError(t, c.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: "example-managed-om-cert", Namespace: managedTestNamespace},
-		}))
+		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+		require.NoError(t, c.Create(ctx, &issued))
 
 		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
