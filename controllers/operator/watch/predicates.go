@@ -112,7 +112,7 @@ func PredicatesForMongoDB(resourceType mdbv1.ResourceType) predicate.Funcs {
 				if oldResource.GetAnnotations()[credentialsAnnotation] != newResource.GetAnnotations()[credentialsAnnotation] {
 					vaultReconcile = true
 				}
-				for _, e := range oldResource.GetSecretsMountedIntoDBPod() {
+				for _, e := range oldResource.GetSecretsMountedIntoDBPod(oldResource.Status.ProjectId) {
 					if oldResource.GetAnnotations()[e] != newResource.GetAnnotations()[e] {
 						vaultReconcile = true
 					}

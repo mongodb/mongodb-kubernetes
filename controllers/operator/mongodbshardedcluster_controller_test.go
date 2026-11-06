@@ -1449,10 +1449,13 @@ func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
+	require.NoError(t, clusterClient.Get(ctx, sc.ObjectKey(), sc))
+	require.NotEmpty(t, sc.Status.ProjectId)
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, sc.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, sc.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, sc.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}:    {kube.ObjectKey(mock.TestNamespace, sc.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, sc.Spec.Credentials)}:                 {kube.ObjectKey(mock.TestNamespace, sc.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, sc.Status.ProjectId+"-group-secret")}: {sc.ObjectKey()},
 	}
 
 	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
@@ -1469,6 +1472,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 
 	addKubernetesTlsResources(ctx, clusterClient, sc)
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
+	require.NoError(t, clusterClient.Get(ctx, sc.ObjectKey(), sc))
 
 	expectedWatchedResources := []watch.Object{
 		getWatch(sc.Namespace, sc.Name+"-config-cert", watch.Secret),
@@ -1480,6 +1484,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 		getWatch(sc.Namespace, "custom-ca", watch.ConfigMap),
 		getWatch(sc.Namespace, "my-credentials", watch.Secret),
 		getWatch(sc.Namespace, "my-project", watch.ConfigMap),
+		getWatch(sc.Namespace, sc.Status.ProjectId+"-group-secret", watch.Secret),
 	}
 
 	var actual []watch.Object
@@ -1499,7 +1504,11 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(sc))
 	assert.Equal(t, reconcile.Result{RequeueAfter: 10 * time.Second}, res)
 	assert.NoError(t, err)
-	assert.Len(t, reconciler.resourceWatcher.GetWatchedResources(), 2)
+	assert.Equal(t, map[watch.Object][]types.NamespacedName{
+		getWatch(sc.Namespace, "my-credentials", watch.Secret):                    {sc.ObjectKey()},
+		getWatch(sc.Namespace, "my-project", watch.ConfigMap):                     {sc.ObjectKey()},
+		getWatch(sc.Namespace, sc.Status.ProjectId+"-group-secret", watch.Secret): {sc.ObjectKey()},
+	}, reconciler.resourceWatcher.GetWatchedResources())
 }
 
 func TestBackupConfiguration_ShardedCluster(t *testing.T) {
