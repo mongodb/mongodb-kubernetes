@@ -684,6 +684,8 @@ functions:
           AGENT_VERSION_OVERRIDE: ${agent_version}
           AGENT_TOOLS_VERSION: ${agent_tools_version}
           MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
+          OM_DOWNLOAD_URL: ${om_download_url}
+          OM_VERSION_OVERRIDE: ${om_version}
 
   # Scans the images that were just built and pushed for known CVEs using trivy, and
   # notifies Slack with a single message listing the ones that have fixable vulnerabilities
