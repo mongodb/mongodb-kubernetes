@@ -210,6 +210,18 @@ def assert_leaf_certs_signed_by_its_category_ca(name: str, namespace: str, serve
     assert not cert_signed_by_bundle(clusterfile_crt, server_ca), "clusterfile cert must not be signed by the server CA"
 
 
+def read_certificate_renewals(resource: MongoDB) -> Optional[dict]:
+    """Returns status.certificateRenewals, or None when the operator has not set it.
+
+    The operator reports, per category, the leaf certificate that cert-manager renews soonest and
+    when: renewalTime is when the members roll onto the new certificate.
+    """
+    resource.load()
+    if "status" not in resource:
+        return None
+    return resource["status"].get("certificateRenewals")
+
+
 def member_cert_issuance(name: str, namespace: str) -> tuple[int, str]:
     """Returns how many times the member cert has been issued, and its current content.
 
