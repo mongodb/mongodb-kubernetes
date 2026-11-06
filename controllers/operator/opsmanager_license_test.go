@@ -287,6 +287,18 @@ func TestEnsureOpsManagerLicense_WritesReadyConditionFromGet(t *testing.T) {
 	assert.Contains(t, active.Message, "license art-1")
 }
 
+func TestEnsureOpsManagerLicense_UnknownStateBeforeFirstRecompute(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+	r := newOmLicenseReconciler(t, testOm)
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, &api.MockedOmAdmin{}, zap.S()).IsOK())
+	active := licenseActiveCondition(t, testOm)
+	assert.Equal(t, metav1.ConditionFalse, active.Status)
+	assert.Equal(t, status.ReasonLicenseStateUnknown, active.Reason)
+	assert.Contains(t, active.Message, "has not reported a license state yet")
+}
+
 func TestEnsureOpsManagerLicense_InstallsWhenArtifactChanges(t *testing.T) {
 	artifact := licenseArtifactJSON("art-1")
 	testOm := DefaultOpsManagerBuilder().Build()
