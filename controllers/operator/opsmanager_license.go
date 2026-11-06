@@ -215,11 +215,11 @@ func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, 
 
 	state, err := h.omAdmin.InstallLicense(ctx, json.RawMessage(rawArtifact))
 	if err != nil {
-		msg := "failed to install Ops Manager license %s: %w"
+		// A 409 means the artifact is outdated, licenseReconciledStatus reports it.
 		if apierror.NewNonNil(err).IsConflict() {
-			msg = "Ops Manager rejected license %s from the license Secret: %w"
+			return artifactID, "", workflow.OK()
 		}
-		return "", "", licenseFailed(xerrors.Errorf(msg, artifactID, err), status.ReasonLicenseInstallFailed)
+		return "", "", licenseFailed(xerrors.Errorf("failed to install Ops Manager license %s: %w", artifactID, err), status.ReasonLicenseInstallFailed)
 	}
 	h.observed = &state
 	h.log.Info("Installed Ops Manager license from secret")

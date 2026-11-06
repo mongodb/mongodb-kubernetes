@@ -54,7 +54,8 @@ func licenseStateReason(state string) string {
 	return reason
 }
 
-// licenseReconciledStatus reports what happened to the license in secretRef.
+// licenseReconciledStatus reports what happened to the license in secretRef. A requested artifact
+// Ops Manager does not hold was rejected as outdated by its anti rollback check.
 func (h *LicenseReconcilerHelper) licenseReconciledStatus(requestedID string) workflow.Status {
 	if requestedID == "" {
 		return licenseReconciled(status.ReasonLicenseReconciled, "")
@@ -62,7 +63,11 @@ func (h *LicenseReconcilerHelper) licenseReconciledStatus(requestedID string) wo
 	if h.observed.HoldsArtifact(requestedID) {
 		return licenseReconciled(status.ReasonLicenseInstalled, fmt.Sprintf("Ops Manager holds license %s from secretRef.", requestedID))
 	}
-	return licenseReconciled(status.ReasonLicenseReconciled, "")
+	message := fmt.Sprintf("Ops Manager rejected license %s, a license this new or newer was already installed", requestedID)
+	if held, ok := h.observed.HeldArtifact(); ok {
+		message += fmt.Sprintf(". It holds license %s", held.ArtifactID)
+	}
+	return licenseReconciled(status.ReasonLicenseOutdated, message+". Bring a newer artifact in the license Secret.")
 }
 
 func licenseReconciled(reason, message string) workflow.Status {

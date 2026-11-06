@@ -423,7 +423,7 @@ func TestEnsureOpsManagerLicense_InstallFailed(t *testing.T) {
 	assert.Equal(t, status.ReasonLicenseInstallFailed, c.Reason)
 }
 
-func TestEnsureOpsManagerLicense_InstallConflictFails(t *testing.T) {
+func TestEnsureOpsManagerLicense_InstallConflictReportsOutdated(t *testing.T) {
 	artifact := licenseArtifactJSON("art-1")
 	testOm := DefaultOpsManagerBuilder().Build()
 	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
@@ -432,18 +432,45 @@ func TestEnsureOpsManagerLicense_InstallConflictFails(t *testing.T) {
 
 	conflict := http.StatusConflict
 	admin := &api.MockedOmAdmin{
+		LicenseReadState:  viewWithLicenses("LICENSED", artifactView("art-ui")),
 		LicenseInstallErr: &apierror.Error{Status: &conflict, ErrorCode: "ARTIFACT_OUTDATED", Detail: "artifact is not newer than the installed one"},
 	}
 
+	// A 409 on install is always OUTDATED: the artifact in the Secret is not newer than what was
+	// installed before, the customer brings a newer one from EA.
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
-	assert.False(t, st.IsOK())
+	assert.True(t, st.IsOK())
 	assert.Empty(t, admin.InstalledLicense)
 
 	c := reconciledCondition(t, st.StatusOptions())
-	assert.Equal(t, status.ReasonLicenseInstallFailed, c.Reason)
-	assert.Contains(t, c.Message, "rejected license art-1")
-	assert.Contains(t, c.Message, "ErrorCode: ARTIFACT_OUTDATED")
-	assert.Contains(t, c.Message, "artifact is not newer than the installed one")
+	assert.Equal(t, metav1.ConditionTrue, c.Status)
+	assert.Equal(t, status.ReasonLicenseOutdated, c.Reason)
+	assert.Contains(t, c.Message, "Ops Manager rejected license art-1")
+	assert.Contains(t, c.Message, "a license this new or newer was already installed")
+	assert.Contains(t, c.Message, "It holds license art-ui")
+}
+
+func TestEnsureOpsManagerLicense_InstallConflictWhenOMHoldsNothing(t *testing.T) {
+	artifact := licenseArtifactJSON("art-1")
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", artifact)
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
+
+	// Rejected by anti rollback with no active license left: every artifact ever installed counts,
+	// released ones included.
+	conflict := http.StatusConflict
+	admin := &api.MockedOmAdmin{
+		LicenseReadState:  viewWithLicenses("LICENSED", releasedArtifactView("art-1")),
+		LicenseInstallErr: &apierror.Error{Status: &conflict, ErrorCode: "ARTIFACT_OUTDATED"},
+	}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.True(t, st.IsOK())
+	c := reconciledCondition(t, st.StatusOptions())
+	assert.Equal(t, status.ReasonLicenseOutdated, c.Reason)
+	assert.Contains(t, c.Message, "a license this new or newer was already installed")
+	assert.NotContains(t, c.Message, "It holds license")
 }
 
 func TestEnsureOpsManagerLicense_RotateClearsFlag(t *testing.T) {
