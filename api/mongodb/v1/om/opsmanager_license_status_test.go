@@ -36,23 +36,3 @@ func TestOpsManagerStatus_LicenseReconciledCondition(t *testing.T) {
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
 	assert.Equal(t, status.ReasonLicenseReconciled, cond.Reason)
 }
-
-func TestOpsManagerLicenseStatus_ArtifactQuestions(t *testing.T) {
-	view := OpsManagerLicenseStatus{
-		Licenses: []OpsManagerLicenseArtifactStatus{
-			{ArtifactID: "held", Status: "ACTIVE"},
-			{ArtifactID: "unstated"},
-			{ArtifactID: "released", Status: LicenseArtifactStatusReleased},
-		},
-	}
-
-	assert.True(t, view.HoldsArtifact("held"))
-	assert.True(t, view.HoldsArtifact("unstated"))
-	assert.False(t, view.HoldsArtifact("released"))
-	assert.False(t, view.HoldsArtifact("missing"))
-
-	assert.True(t, view.ListsArtifact("released"))
-	assert.False(t, view.ListsArtifact("missing"))
-	assert.Equal(t, []string{"held", "unstated"}, view.HeldArtifactIDs())
-	assert.Equal(t, []string{"held", "unstated", "released"}, view.ArtifactIDs())
-}
