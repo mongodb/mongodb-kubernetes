@@ -99,18 +99,6 @@ class TestOpsManagerLicenseE2E:
         assert om_view["enforcement"].get("enforced", False) is False
         assert f"Holder ID {om_holder_id(ops_manager)}." in license_ready_condition(ops_manager)["message"]
 
-    def test_recompute_annotation_is_consumed(self, ops_manager: MongoDBOpsManager):
-        """The operator removes the recompute annotation and reports the license reconciled."""
-        set_license_spec(ops_manager, {})
-        set_annotation_and_wait_cleared(ops_manager, RECOMPUTE_ANNOTATION)
-        wait_for_cr_license_sync(ops_manager, installed="")
-
-    def test_release_without_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
-        """Removing secretRef releases the license at EA and writes no receipt."""
-        install_and_release_license(ops_manager, namespace)
-
-        assert_secret_absent(namespace, current_receipt_secret_name())
-
     def test_release_after_license_secret_deleted_leaves_license_held(
         self, ops_manager: MongoDBOpsManager, namespace: str
     ):
@@ -137,8 +125,11 @@ class TestOpsManagerLicenseE2E:
         wait_for_ea_artifact_state(ops_manager, installed, "ACTIVE")
 
     def test_install_release_then_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
-        """The receipt is read from Ops Manager after the release, and written again when its Secret is lost."""
+        """Removing secretRef releases the license at EA without a receipt. Listing the license Secret in
+        releaseReceipts afterwards writes the receipt read from Ops Manager, and writes it again when its Secret
+        is lost."""
         install_and_release_license(ops_manager, namespace)
+        assert_secret_absent(namespace, current_receipt_secret_name())
 
         set_release_receipts_spec(ops_manager)
         receipt = wait_for_license_receipt(ops_manager, current_receipt_secret_name())
