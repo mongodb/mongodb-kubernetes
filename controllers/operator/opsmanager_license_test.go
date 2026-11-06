@@ -418,6 +418,20 @@ func TestEnsureOpsManagerLicense_ReleaseWithoutTheLicenseSecretFails(t *testing.
 	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReleaseFailed)
 }
 
+func TestEnsureOpsManagerLicense_ReleaseWithSecretMissingKeySkipsWhenNothingHeld(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	seedInstalled(t, testOm, "om-license")
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+	badSecret := licenseSecretFor(testOm, "om-license", "other-key", `{}`)
+	r := newOmLicenseReconciler(t, testOm, &badSecret)
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("", releasedArtifactView("art-1")),
+	}
+
+	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+}
+
 func TestEnsureOpsManagerLicense_InstallFailed(t *testing.T) {
 	artifact := licenseArtifactJSON("art-1")
 	testOm := DefaultOpsManagerBuilder().Build()
