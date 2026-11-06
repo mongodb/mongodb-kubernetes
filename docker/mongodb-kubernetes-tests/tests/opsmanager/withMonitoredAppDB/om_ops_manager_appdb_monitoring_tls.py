@@ -76,6 +76,14 @@ def test_appdb_hosts_are_registered_with_ssl_enabled(ops_manager: MongoDBOpsMana
 
 
 @mark.e2e_om_appdb_monitoring_tls
+def test_appdb_cluster_has_ssl_enabled_in_all_clusters(ops_manager: MongoDBOpsManager):
+    # The All Clusters view is the page the customer looks at. Ops Manager shows SSL on there
+    # only when every host of the cluster is registered with SSL on, so this checks the same
+    # problem as the test above from the side the customer sees.
+    ops_manager.assert_appdb_cluster_has_ssl_enabled()
+
+
+@mark.e2e_om_appdb_monitoring_tls
 def test_appdb_password_can_be_changed(ops_manager: MongoDBOpsManager):
     # Change the Secret containing the password
     data = {"password": "Hello-World!-new"}
