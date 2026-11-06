@@ -2,6 +2,7 @@
 
 import base64
 import json
+import re
 import time
 import uuid
 from contextlib import contextmanager
@@ -154,14 +155,6 @@ def ea_artifact_row(ops_manager: MongoDBOpsManager, artifact_id: str) -> dict:
 # CR status
 
 
-def license_status(ops_manager: MongoDBOpsManager) -> dict:
-    return ops_manager["status"]["opsManager"]["license"]
-
-
-def license_effective_state(ops_manager: MongoDBOpsManager) -> str:
-    return license_status(ops_manager)["enforcement"]["effectiveState"]
-
-
 def om_condition(ops_manager: MongoDBOpsManager, condition_type: str) -> Optional[dict]:
     for condition in ops_manager["status"]["opsManager"]["conditions"]:
         if condition["type"] == condition_type:
@@ -174,9 +167,33 @@ def generation_of(ops_manager: MongoDBOpsManager) -> int:
     return ops_manager.get_generation()
 
 
+def license_ready_condition(ops_manager: MongoDBOpsManager) -> dict:
+    condition = om_condition(ops_manager, "LicenseReady")
+    assert condition is not None, "the CR has no LicenseReady condition"
+    return condition
+
+
 def installed_artifact_id(ops_manager: MongoDBOpsManager) -> str:
+    """The license from secretRef that LicenseReconciled reports Ops Manager holds, empty otherwise."""
     ops_manager.load()
-    return license_status(ops_manager).get("installedArtifactId", "")
+    condition = om_condition(ops_manager, "LicenseReconciled")
+    if condition is None or condition["reason"] != "LicenseInstalled":
+        return ""
+    match = re.search(r"holds license (\S+) from secretRef", condition["message"])
+    return match.group(1) if match else ""
+
+
+def _reconciled_as(ops_manager: MongoDBOpsManager, generation: int, installed: Optional[str]) -> bool:
+    """Whether LicenseReconciled settled this generation as expected. An empty installed expects no
+    license from secretRef, an artifact id expects Ops Manager to hold it, and None skips the check."""
+    condition = _reconciled_condition(ops_manager, generation)
+    if condition is None:
+        return False
+    if installed is None:
+        return True
+    if installed == "":
+        return condition["reason"] == "LicenseReconciled"
+    return condition["reason"] == "LicenseInstalled" and installed in condition["message"]
 
 
 def _reconciled_condition(ops_manager: MongoDBOpsManager, generation: int, want: str = "True") -> Optional[dict]:
@@ -226,7 +243,7 @@ def _omitempty(value):
 
 
 def _mirrored(view: dict) -> dict:
-    """The fields the CR mirrors from the Ops Manager license view."""
+    """The fields that tell whether the Ops Manager license view changed."""
     return _omitempty(
         {
             "enforcement": view.get("enforcement"),
@@ -236,8 +253,49 @@ def _mirrored(view: dict) -> dict:
     )
 
 
-def cr_matches_om_license(cr: dict, om_view: dict) -> bool:
-    return _mirrored(cr) == _mirrored(om_view)
+def _held_artifact(view: dict) -> Optional[dict]:
+    """The first listed artifact that is not released, as the operator picks it for LicenseReady."""
+    for entry in view.get("licenses") or []:
+        if entry.get("artifactId") and entry.get("status") != RELEASED_STATUS:
+            return entry
+    return None
+
+
+def ready_reason_for(effective_state: str) -> str:
+    """The LicenseReady reason the operator sets for a license state, like LicenseGrace for GRACE."""
+    if effective_state == "LICENSED":
+        return "LicenseReady"
+    if effective_state == "":
+        return "LicenseStateUnknown"
+    return "License" + "".join(word.capitalize() for word in effective_state.lower().split("_") if word)
+
+
+def expected_ready_condition(om_view: dict, holder_id: str) -> tuple[str, str, str]:
+    """The status, reason and message LicenseReady carries for an Ops Manager license view."""
+    effective_state = (om_view.get("enforcement") or {}).get("effectiveState", "")
+    held = _held_artifact(om_view)
+    license = "no license"
+    if held is not None:
+        license = f"license {held['artifactId']}"
+        if held.get("termEnd"):
+            license += f", valid until {held['termEnd']}"
+    state_message = f"License state is {effective_state}."
+    if effective_state == "":
+        state_message = "Ops Manager has not reported a license state yet."
+    message = f"{state_message} Ops Manager holds {license}."
+    if holder_id:
+        message += f" Holder ID {holder_id}."
+    status = "True" if effective_state == "LICENSED" else "False"
+    return status, ready_reason_for(effective_state), message
+
+
+def cr_matches_om_license(ops_manager: MongoDBOpsManager, om_view: dict) -> bool:
+    """Whether LicenseReady reports the Ops Manager license view for the current generation."""
+    condition = om_condition(ops_manager, "LicenseReady")
+    if condition is None or condition["observedGeneration"] < ops_manager.get_generation():
+        return False
+    expected = expected_ready_condition(om_view, om_holder_id(ops_manager))
+    return (condition["status"], condition["reason"], condition["message"]) == expected
 
 
 # Assertions
@@ -245,7 +303,9 @@ def cr_matches_om_license(cr: dict, om_view: dict) -> bool:
 
 def assert_license_installed(ops_manager: MongoDBOpsManager, artifact_id: str) -> None:
     assert installed_artifact_id(ops_manager) == artifact_id
-    assert license_effective_state(ops_manager) == "LICENSED"
+    ready = license_ready_condition(ops_manager)
+    assert ready["status"] == "True", ready["message"]
+    assert ready["reason"] == "LicenseReady", ready["message"]
 
 
 def assert_reconcile_failed(condition: dict, reason: str, *fragments: str) -> None:
@@ -328,26 +388,20 @@ def set_observe_only_license_spec(ops_manager: MongoDBOpsManager) -> None:
 def set_license_install_spec(
     ops_manager: MongoDBOpsManager, auto_release_receipts: bool = False, secret_name: str = LICENSE_SECRET_NAME
 ) -> None:
-    license_spec = {"licenseSecretRef": {"name": secret_name}}
+    license_spec = {"secretRef": {"name": secret_name}}
     if auto_release_receipts:
         license_spec["releaseReceiptsPolicy"] = "Automatic"
     set_license_spec(ops_manager, license_spec)
 
 
 def set_license_release_spec(ops_manager: MongoDBOpsManager) -> None:
-    _patch_license_spec(ops_manager, licenseSecretRef=None)
+    _patch_license_spec(ops_manager, secretRef=None)
 
 
-def set_release_receipts_spec(
-    ops_manager: MongoDBOpsManager,
-    artifact_id: str,
-    *,
-    keep_secret_ref: bool = False,
-) -> None:
-    fields = {"releaseReceipts": [{"artifactId": artifact_id}]}
-    if not keep_secret_ref:
-        fields["licenseSecretRef"] = None
-    _patch_license_spec(ops_manager, **fields)
+def set_release_receipts_spec(ops_manager: MongoDBOpsManager, secret_name: str = LICENSE_SECRET_NAME) -> None:
+    """Requests the receipt of the license held in the Secret, which the operator reads the artifact id
+    from. The Secret cannot also be the install secretRef, so the install intent is removed."""
+    _patch_license_spec(ops_manager, secretRef=None, releaseReceipts=[{"secretRef": {"name": secret_name}}])
 
 
 def nudge_reconcile(ops_manager: MongoDBOpsManager) -> None:
@@ -493,7 +547,7 @@ def install_license(ops_manager: MongoDBOpsManager, namespace: str, *, auto_rele
 
 def release_license(ops_manager: MongoDBOpsManager, *, request_receipt: bool = False) -> None:
     if request_receipt:
-        set_release_receipts_spec(ops_manager, current_artifact_id())
+        set_release_receipts_spec(ops_manager)
     else:
         set_license_release_spec(ops_manager)
     wait_for_released_artifact(ops_manager, current_artifact_id())
@@ -565,41 +619,66 @@ def wait_for_license_reconciled(ops_manager: MongoDBOpsManager, *, expected: boo
     return condition
 
 
-def wait_for_license_reconcile_failure(ops_manager: MongoDBOpsManager) -> dict:
-    """Waits for LicenseReconciled to turn False after a change that keeps the generation, like a Secret update."""
+def wait_for_license_reconciled_reason(ops_manager: MongoDBOpsManager, reason: str) -> dict:
+    """Waits for LicenseReconciled to report the reason after a change that keeps the generation, like
+    a Secret update."""
 
-    def failed(_: MongoDBOpsManager) -> bool:
+    def reported(_: MongoDBOpsManager) -> bool:
         condition = om_condition(ops_manager, "LicenseReconciled")
-        return condition is not None and condition["status"] == "False"
+        if condition is None or condition["reason"] != reason:
+            nudge_reconcile(ops_manager)
+            return False
+        return True
 
-    ops_manager.wait_for(failed, timeout=DEFAULT_TIMEOUT)
+    ops_manager.wait_for(reported, timeout=DEFAULT_TIMEOUT)
     condition = om_condition(ops_manager, "LicenseReconciled")
     assert condition is not None
     return condition
 
 
-def wait_for_cr_license_sync(ops_manager: MongoDBOpsManager, *, installed: Optional[str] = None) -> tuple[dict, dict]:
-    """Waits until the current generation is reconciled and the CR mirrors Ops Manager.
+def assert_license_reconciled_reason_stays(ops_manager: MongoDBOpsManager, reason: str, polls: int = 10) -> None:
+    """Triggers reconciles and checks LicenseReconciled keeps the reason across them."""
+    for _ in range(polls):
+        nudge_reconcile(ops_manager)
+        time.sleep(3)
+        ops_manager.load()
+        condition = om_condition(ops_manager, "LicenseReconciled")
+        assert condition is not None and condition["reason"] == reason, condition
 
-    installed is the installedArtifactId the CR must carry. None skips the check.
+
+def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artifact_id: str) -> dict:
+    """Removes secretRef once the license Secret no longer identifies the installed license, and checks
+    the operator refuses to release a license it cannot identify and keeps refusing."""
+    set_license_release_spec(ops_manager)
+    reconciled = wait_for_license_reconciled_reason(ops_manager, "LicenseReleaseFailed")
+    assert reconciled["status"] == "False", reconciled["message"]
+    assert "cannot release the license Ops Manager holds" in reconciled["message"], reconciled["message"]
+    assert_license_reconciled_reason_stays(ops_manager, "LicenseReleaseFailed")
+    assert artifact_id in om_artifact_ids(ops_manager)
+    return reconciled
+
+
+def wait_for_cr_license_sync(ops_manager: MongoDBOpsManager, *, installed: Optional[str] = None) -> tuple[dict, dict]:
+    """Waits until the current generation is reconciled and LicenseReady reports the Ops Manager view.
+
+    installed is the license from secretRef LicenseReconciled must report Ops Manager holds, empty for
+    none. None skips the check. Returns the LicenseReady condition and the Ops Manager view.
     """
     generation = generation_of(ops_manager)
 
     def synced(_: MongoDBOpsManager) -> bool:
         om_view = read_om_license_view(ops_manager)
-        cr = license_status(ops_manager)
-        in_sync = (
-            _reconciled_condition(ops_manager, generation) is not None
-            and cr_matches_om_license(cr, om_view)
-            and (installed is None or cr.get("installedArtifactId", "") == installed)
-        )
+        in_sync = _reconciled_as(ops_manager, generation, installed) and cr_matches_om_license(ops_manager, om_view)
         if not in_sync:
-            logger.info(f"License status not in sync yet, CR: {cr}, Ops Manager: {om_view}")
+            logger.info(
+                f"License conditions not in sync yet, CR: {ops_manager['status']['opsManager'].get('conditions')}, "
+                f"Ops Manager: {om_view}"
+            )
             nudge_reconcile(ops_manager)
         return in_sync
 
     ops_manager.wait_for(synced, timeout=DEFAULT_TIMEOUT)
-    return license_status(ops_manager), read_om_license_view(ops_manager)
+    return license_ready_condition(ops_manager), read_om_license_view(ops_manager)
 
 
 def wait_for_observed_api_state(
@@ -610,7 +689,7 @@ def wait_for_observed_api_state(
     artifact_id: Optional[str] = None,
     installed: Optional[str] = None,
 ) -> tuple[dict, dict]:
-    """Waits until Ops Manager reports the expected state, then until the CR mirrors it."""
+    """Waits until Ops Manager reports the expected state, then until the CR reports it."""
 
     def matches(_: MongoDBOpsManager) -> bool:
         view = read_om_license_view(ops_manager)
