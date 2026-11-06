@@ -6,13 +6,22 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// OpsManagerLicenseReady reports the license Ops Manager holds, whoever installed it. LicenseReconciled
+// reports whether the operator applied spec.license.
 const (
 	ConditionOpsManagerLicenseReady = "OpsManagerLicenseReady"
 	ConditionLicenseReconciled      = "LicenseReconciled"
+)
 
-	ReasonLicenseEnforced        = "LicenseEnforced"
-	ReasonLicenseReady           = "LicenseReady"
-	ReasonLicenseStateUnknown    = "LicenseStateUnknown"
+// Reasons of OpsManagerLicenseReady. Any other license state, like GRACE, becomes LicenseGrace.
+const (
+	ReasonLicenseEnforced     = "LicenseEnforced"
+	ReasonLicenseReady        = "LicenseReady"
+	ReasonLicenseStateUnknown = "LicenseStateUnknown"
+)
+
+// Reasons of LicenseReconciled.
+const (
 	ReasonLicenseReconciled      = "LicenseReconciled"
 	ReasonLicenseInstalled       = "LicenseInstalled"
 	ReasonLicenseReleased        = "LicenseReleased"
@@ -32,6 +41,8 @@ func LicenseCondition(ready bool, reason, message string) metav1.Condition {
 	return licenseCondition(ConditionOpsManagerLicenseReady, ready, reason, message)
 }
 
+// LicenseEnforcedCondition and ClearLicenseBlockIfPresent serve the enforcement block flow, wired
+// in by upcoming AC change mutations.
 func LicenseEnforcedCondition(message string) metav1.Condition {
 	return LicenseCondition(false, ReasonLicenseEnforced, message)
 }
@@ -54,6 +65,7 @@ func licenseCondition(conditionType string, ok bool, reason, message string) met
 	}
 }
 
+// ClearLicenseBlockIfPresent clears an enforcement block once it no longer applies.
 func ClearLicenseBlockIfPresent(conditions *[]metav1.Condition, generation int64) {
 	if conditions == nil {
 		return
