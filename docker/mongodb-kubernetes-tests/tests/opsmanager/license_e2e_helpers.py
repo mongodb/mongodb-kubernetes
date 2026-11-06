@@ -184,14 +184,15 @@ def installed_artifact_id(ops_manager: MongoDBOpsManager) -> str:
 
 def _reconciled_as(ops_manager: MongoDBOpsManager, generation: int, installed: Optional[str]) -> bool:
     """Whether LicenseReconciled settled this generation as expected. An empty installed expects no
-    license from secretRef, an artifact id expects Ops Manager to hold it, and None skips the check."""
+    license from secretRef, right after a release too, an artifact id expects Ops Manager to hold it,
+    and None skips the check."""
     condition = _reconciled_condition(ops_manager, generation)
     if condition is None:
         return False
     if installed is None:
         return True
     if installed == "":
-        return condition["reason"] == "LicenseReconciled"
+        return condition["reason"] in ("LicenseReconciled", "LicenseReleased")
     return condition["reason"] == "LicenseInstalled" and installed in condition["message"]
 
 
