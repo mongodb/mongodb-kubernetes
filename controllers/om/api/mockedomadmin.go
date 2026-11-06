@@ -292,7 +292,7 @@ func (a *MockedOmAdmin) InstallLicense(_ context.Context, rawArtifact json.RawMe
 		if err != nil {
 			return LicenseView{}, err
 		}
-		if !state.ListsArtifact(artifactID) {
+		if _, listed := state.Artifact(artifactID); !listed {
 			state.Licenses = append(state.Licenses, LicenseArtifactView{
 				ArtifactID: artifactID,
 				Usable:     true,
@@ -328,7 +328,7 @@ func (a *MockedOmAdmin) ReleaseLicense(_ context.Context, artifactID string) (Li
 	if err != nil {
 		return LicenseView{}, err
 	}
-	if !held.ListsArtifact(artifactID) {
+	if _, listed := held.Artifact(artifactID); !listed {
 		notFound := 404
 		return LicenseView{}, &apierror.Error{
 			Status: &notFound,
