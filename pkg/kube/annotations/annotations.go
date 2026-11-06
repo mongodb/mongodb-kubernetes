@@ -3,6 +3,7 @@ package annotations
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -72,6 +73,27 @@ func SetAnnotations(ctx context.Context, object client.Object, annotations map[s
 		return err
 	}
 	object.SetAnnotations(currentObject.GetAnnotations())
+	return nil
+}
+
+// SetAnnotationsOptimistic updates annotations using a merge patch guarded by the object's current resourceVersion.
+func SetAnnotationsOptimistic(ctx context.Context, object client.Object, annotations map[string]string, kubeClient client.Client) error {
+	cp := object.DeepCopyObject().(client.Object)
+	base := cp.DeepCopyObject().(client.Object)
+
+	merged := cp.GetAnnotations()
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, annotations)
+	cp.SetAnnotations(merged)
+
+	if err := kubeClient.Patch(ctx, cp, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return err
+	}
+
+	object.SetAnnotations(cp.GetAnnotations())
+	object.SetResourceVersion(cp.GetResourceVersion())
 	return nil
 }
 
