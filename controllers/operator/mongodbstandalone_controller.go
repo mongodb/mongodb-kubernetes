@@ -56,6 +56,7 @@ import (
 func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
 	// Create a new controller
 	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection)
+	reconciler.SetProxyAgentCompatibilityVerified(reconciler.customAgentURL != "")
 	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -294,13 +295,18 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, s.Spec.Version, s.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+		WithProxyAgentCompatibilityVerified(r.proxyAgentCompatibilityVerified),
+		WithProxyDebug(false),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
 		WithExternalAgentVersion(externalAgentVersion),
 	)
 
-	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)
+	sts, err := construct.DatabaseStatefulSetWithError(*s, standaloneOpts, log)
+	if err != nil {
+		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("failed to construct standalone StatefulSet: %w", err)), log)
+	}
 
 	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
 	if !workflowStatus.IsOK() {

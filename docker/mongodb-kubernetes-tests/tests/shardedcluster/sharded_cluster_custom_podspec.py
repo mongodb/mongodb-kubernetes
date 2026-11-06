@@ -2,7 +2,7 @@ from kubetester import try_load
 from kubetester.custom_podspec import assert_stateful_set_podspec
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static
+from kubetester.kubetester import get_default_architecture, is_default_architecture_static
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -102,33 +102,41 @@ def test_stateful_sets_spec_updated(sc: MongoDB):
             containers = shard0_sts.spec.template.spec.containers
             container_names = [container.name for container in containers]
 
-            assert len(containers) == 4
+            assert len(containers) == (3 if get_default_architecture() == "static-ga" else 4)
             assert "mongodb-agent" in container_names
             assert "mongodb-enterprise-database" in container_names
-            assert "mongodb-agent-operator-utilities" in container_names
+            assert ("mongodb-agent-operator-utilities" in container_names) == (get_default_architecture() == "static")
             assert "sharded-cluster-sidecar-override" in container_names
 
             containers = shard1_sts.spec.template.spec.containers
             container_names = [container.name for container in containers]
 
-            assert len(containers) == 4
+            assert len(containers) == (3 if get_default_architecture() == "static-ga" else 4)
             assert "mongodb-agent" in container_names
             assert "mongodb-enterprise-database" in container_names
-            assert "mongodb-agent-operator-utilities" in container_names
+            assert ("mongodb-agent-operator-utilities" in container_names) == (get_default_architecture() == "static")
             assert "sharded-cluster-sidecar" in container_names
 
-            resources = containers[3].resources
+            resources = next(
+                container for container in containers if container.name == "sharded-cluster-sidecar"
+            ).resources
         else:
             containers = shard1_sts.spec.template.spec.containers
             assert len(containers) == 2
-            assert containers[0].name == "mongodb-enterprise-database"
-            assert containers[1].name == "sharded-cluster-sidecar"
+            assert {container.name for container in containers} == {
+                "mongodb-enterprise-database",
+                "sharded-cluster-sidecar",
+            }
 
             containers = shard0_sts.spec.template.spec.containers
             assert len(containers) == 2
-            assert containers[0].name == "mongodb-enterprise-database"
-            assert containers[1].name == "sharded-cluster-sidecar-override"
-            resources = containers[1].resources
+            assert {container.name for container in containers} == {
+                "mongodb-enterprise-database",
+                "sharded-cluster-sidecar-override",
+            }
+            resources = next(
+                container for container in containers if container.name == "sharded-cluster-sidecar-override"
+            ).resources
 
         assert resources.limits["cpu"] == "1"
         assert resources.requests["cpu"] == "500m"

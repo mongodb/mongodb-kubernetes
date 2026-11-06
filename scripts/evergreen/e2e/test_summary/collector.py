@@ -501,7 +501,6 @@ class TestSummaryGenerator:
           - {prefix}{pod}-monitoring-agent-verbose.log
           - {prefix}{pod}-monitoring-agent.log
           - {prefix}{pod}-monitoring-agent-stdout.log
-          - {prefix}{pod}-mongod-container.log       (mongod container stdout)
           - {prefix}{pod}-mongodb-agent-container.log (agent container stdout)
           - {prefix}{pod}-mongodb.log                (mongod file log)
           - {prefix}{pod}-launcher.log               (launcher script log)

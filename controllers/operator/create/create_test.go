@@ -31,11 +31,66 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	enterprisests "github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 func init() {
 	mock.InitDefaultEnvVariables()
+}
+
+func TestDatabaseInKubernetesProxyPrerequisites(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*construct.DatabaseStatefulSetOptions)
+		want   string
+	}{
+		{"unverified Agent", func(o *construct.DatabaseStatefulSetOptions) { o.ProxyAgentCompatibilityVerified = false }, "Agent proxy compatibility is not verified"},
+		{"missing proxy image", func(o *construct.DatabaseStatefulSetOptions) { o.MongodbProxyImage = "" }, "requires a MongoDB proxy image"},
+		{"missing Agent URL", func(o *construct.DatabaseStatefulSetOptions) { o.CustomAgentURL = "" }, "requires MDB_CUSTOM_AGENT_URL"},
+		{"missing MongoDB image", func(o *construct.DatabaseStatefulSetOptions) { o.MongodbImage = "" }, "requires MongoDB and init-database images"},
+		{"missing init image", func(o *construct.DatabaseStatefulSetOptions) { o.InitDatabaseImage = "" }, "requires MongoDB and init-database images"},
+	}
+	for _, tt := range tests {
+		for _, existing := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/existing=%t", tt.name, existing), func(t *testing.T) {
+				ctx := context.Background()
+				client, _ := mock.NewDefaultFakeClient()
+				mdb := mdbv1.NewReplicaSetBuilder().SetName("proxy-gate").SetNamespace(mock.TestNamespace).SetMembers(3).Build()
+				sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), zap.S())
+				sts.Status.ReadyReplicas = 3
+				if existing {
+					require.NoError(t, client.CreateStatefulSet(ctx, sts))
+					var err error
+					sts, err = client.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+					require.NoError(t, err)
+				}
+				mdb.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.StaticGA)}
+				opts := construct.DatabaseStatefulSetOptions{
+					MongodbProxyImage:               "proxy:test",
+					MongodbImage:                    "mongodb:test",
+					InitDatabaseImage:               "init:test",
+					CustomAgentURL:                  "https://example.invalid/agent.tar.gz",
+					ProxyAgentCompatibilityVerified: true,
+				}
+				tt.change(&opts)
+				desired := *sts.DeepCopy()
+				desired.Spec.Template.Annotations = map[string]string{"rollout": "must-not-apply"}
+				result, err := DatabaseInKubernetes(ctx, client, *mdb, desired, func(mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+					return opts
+				}, zap.S())
+				require.ErrorContains(t, err, tt.want)
+				require.Nil(t, result)
+				actual, getErr := client.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+				if existing {
+					require.NoError(t, getErr)
+					assert.Equal(t, sts, actual)
+				} else {
+					require.True(t, errors.IsNotFound(getErr))
+				}
+			})
+		}
+	}
 }
 
 func TestBuildService(t *testing.T) {

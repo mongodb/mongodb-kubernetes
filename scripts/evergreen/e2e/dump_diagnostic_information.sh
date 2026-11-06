@@ -314,7 +314,6 @@ dump_pod_logs() {
         cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/monitoring-agent-verbose.log" "logs/${prefix}${pod}-monitoring-agent-verbose.log"
         cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/monitoring-agent.log" "logs/${prefix}${pod}-monitoring-agent.log"
         run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent-monitoring" > "logs/${prefix}${pod}-monitoring-agent-stdout.log" || true
-        run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongod" > "logs/${prefix}${pod}-mongod-container.log" || true
         run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent" > "logs/${prefix}${pod}-mongodb-agent-container.log" || true
         cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/mongodb.log" "logs/${prefix}${pod}-mongodb.log"
 

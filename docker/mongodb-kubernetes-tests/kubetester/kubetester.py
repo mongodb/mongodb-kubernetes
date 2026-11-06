@@ -34,6 +34,8 @@ TRACER = trace.get_tracer("evergreen-agent")
 logger = test_logger.get_test_logger(__name__)
 
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
+# The helm chart and the e2e setup write the operator inputs into this ConfigMap in the operator namespace.
+STATIC_GA_INSTALLATION_CONFIGMAP = "operator-installation-config"
 EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
 MAX_TAG_LEN = 32
 
@@ -78,18 +80,97 @@ def is_multi_cluster():
 
 
 def is_default_architecture_static() -> bool:
-    return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
+    return get_default_architecture() in {"static", "static-ga"}
+
+
+def should_skip_static_containers() -> bool:
+    return get_default_architecture() == "static"
 
 
 def assert_container_count_with_static(current_container_count: int, expected_counter_without_static: int):
-    if is_default_architecture_static():
+    # AppDB pods: only the static architecture adds the mongodb-agent-operator-utilities container.
+    # Static-ga mounts that image into the agent container, so its count equals the non-static count.
+    if get_default_architecture() == "static":
         assert current_container_count == expected_counter_without_static + 1
     else:
         assert current_container_count == expected_counter_without_static
 
 
+def assert_database_pod_container_count(current_container_count: int):
+    """Database pod containers per architecture: legacy static 4, static-ga 3, non-static 2.
+
+    Legacy static adds the mongodb-agent-operator-utilities container. Static-ga mounts that image into the agent
+    container and passes the proxy as an image volume, so only an injected sidecar separates it from non-static.
+    """
+    architecture = get_default_architecture()
+    expected = {"static": 4, "static-ga": 3}.get(architecture, 2)
+    assert current_container_count == expected, (current_container_count, expected, architecture)
+
+
 def get_default_architecture() -> str:
-    return "static" if is_default_architecture_static() else "non-static"
+    return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static")
+
+
+def configured_proxy_image(config: dict[str, str]) -> str:
+    for key in ("registry.mongodbProxy", "mongodbProxy.name", "mongodbProxy.version"):
+        if not config.get(key):
+            raise ValueError(f"Static-ga acceptance requires {key}")
+    return (
+        f'{config["registry.mongodbProxy"]}/{config["mongodbProxy.name"]}:'
+        f'{config["mongodbProxy.version"]}{config.get("build", "")}'
+    )
+
+
+def validate_static_ga_config(config: dict[str, str]):
+    if config.get("operator.mdbDefaultArchitecture") != "static-ga":
+        return
+    if not config.get("agent.customAgentUrl"):
+        raise ValueError("Static-ga acceptance requires agent.customAgentUrl")
+    configured_proxy_image(config)
+
+
+CUSTOM_ENV_VARS_SEPARATOR = r"\&"
+
+
+def with_custom_env_var(config: dict[str, str], name: str, value: str) -> dict[str, str]:
+    """Add one operator custom environment variable and keep the ones the config already carries.
+
+    The Helm value ``customEnvVars`` holds the whole list in one string, separated by "\\&". A caller that wants one
+    extra variable must merge instead of replacing the list, or it silently drops markers another fixture set.
+    """
+    entries: dict[str, str] = {}
+    order: list[str] = []
+    for entry in (config.get("customEnvVars") or "").split(CUSTOM_ENV_VARS_SEPARATOR):
+        entry = entry.strip()
+        if not entry:
+            continue
+        key = entry.split("=", 1)[0]
+        if key not in entries:
+            order.append(key)
+        entries[key] = entry
+    if name not in entries:
+        order.append(name)
+    entries[name] = f"{name}={value}"
+    config["customEnvVars"] = CUSTOM_ENV_VARS_SEPARATOR.join(entries[key] for key in order)
+    return config
+
+
+def released_agent_config(config: dict[str, str]) -> dict[str, str]:
+    config = config.copy()
+    with_custom_env_var(config, "MDB_TEST_ONLY_RELEASED_AGENT_PHASE", "true")
+    config["agent.customAgentUrl"] = ""
+    if config.get("operator.mdbDefaultArchitecture") == "static-ga":
+        config["operator.mdbDefaultArchitecture"] = "static"
+    return config
+
+
+def get_migration_target_architecture() -> str:
+    architecture = get_default_architecture()
+    if architecture == "non-static":
+        return "static-ga"
+    if architecture in {"static", "static-ga"}:
+        return "non-static"
+    raise ValueError(f"unsupported default architecture: {architecture}")
 
 
 def get_default_image_type() -> str:
@@ -102,29 +183,52 @@ def get_default_appdb_image_type() -> str:
     return os.getenv("MDB_DEFAULT_IMAGE_TYPE") or ("ubi9" if is_default_architecture_static() else "ubi8")
 
 
-def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):
+def assert_statefulset_architecture(statefulset: client.V1StatefulSet | client.V1Pod, architecture: str):
     """
     Asserts that the statefulset is configured with the expected architecture.
     """
-    agent_container = next((c for c in statefulset.spec.template.spec.containers if c.name == "mongodb-agent"), None)
+    pod_spec = statefulset.spec if isinstance(statefulset, client.V1Pod) else statefulset.spec.template.spec
+    containers = pod_spec.containers
+    agent_container = next((c for c in containers if c.name == "mongodb-agent"), None)
+    database_container = next((c for c in containers if c.name == "mongodb-enterprise-database"), None)
     if architecture == "non-static":
-        # In non-static architecture expect agent container to not be present
         assert agent_container is None
-    else:
-        # In static architecture we expect agent container to be present
-        # and contain static environment variable which
-        # instructs the agent launcher script to not download binaries
-        assert agent_container is not None
-        static_env_var = next(
-            (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
-        )
-        assert static_env_var is not None and static_env_var.value == "true"
+        assert database_container is not None
+        assert database_container.command == ["/opt/scripts/agent-launcher.sh"]
+        assert not any(volume.name == "mongodb-proxy" for volume in pod_spec.volumes or [])
+        return
+
+    assert architecture in {"static", "static-ga"}
+    assert agent_container is not None
+    static_env_var = next(
+        (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
+    )
+    assert static_env_var is not None and static_env_var.value == "true"
+    assert database_container is not None
+
+    if architecture == "static-ga":
+        assert database_container.command == ["/mnt/proxy/proxy"]
+        assert pod_spec.share_process_namespace is not True
+        proxy_volume = next((volume for volume in pod_spec.volumes or [] if volume.name == "mongodb-proxy"), None)
+        assert proxy_volume is not None and proxy_volume.image is not None
+        assert proxy_volume.image.reference
+        proxy_address = next((env for env in agent_container.env if env.name == "MDB_MONGODB_PROXY_ADDRESS"), None)
+        assert proxy_address is not None and proxy_address.value == "127.0.0.1:8099"
+        return
+
+    assert database_container.command == ["bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"]
+    assert pod_spec.share_process_namespace is True
 
 
-skip_if_static_containers = pytest.mark.skipif(
-    is_default_architecture_static(),
-    reason="Skip if this test is executed using the Static Containers architecture",
-)
+def _static_container_skip_marker():
+    return pytest.mark.skipif(
+        should_skip_static_containers(),
+        reason="Skip if this test is executed using the legacy Static Containers architecture",
+    )
+
+
+skip_if_static_containers = _static_container_skip_marker()
+
 
 skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
 skip_if_multi_cluster = pytest.mark.skipif(is_multi_cluster(), reason="Only run in Kubernetes single cluster")
@@ -135,6 +239,78 @@ SLEEP_TIME = 2
 INFINITY = -1
 
 
+def static_ga_installation_config(namespace: str, api_client=None) -> Optional[dict[str, str]]:
+    """The operator installation config ConfigMap, or None when the namespace has none."""
+    try:
+        return (
+            client.CoreV1Api(api_client=api_client)
+            .read_namespaced_config_map(STATIC_GA_INSTALLATION_CONFIGMAP, namespace)
+            .data
+        )
+    except ApiException as exception:
+        if exception.status != 404:
+            raise
+        return None
+
+
+def statefulset_pod_selector(statefulset) -> str:
+    """The label selector that matches the pods of this StatefulSet, without unrelated workloads.
+
+    A name prefix is not an ownership test: a MongoDBSearch, an Envoy deployment or a metrics forwarder can
+    share a resource name, and their pods then carry the same prefix.
+    """
+    selector = statefulset.spec.selector
+    labels = (selector.match_labels if selector is not None else None) or {}
+    assert labels, f"StatefulSet {statefulset.metadata.name} has no spec.selector.matchLabels"
+    return ",".join(f"{key}={value}" for key, value in sorted(labels.items()))
+
+
+def pod_owned_by(pod, statefulset) -> bool:
+    return any(
+        owner.kind == "StatefulSet" and owner.uid == statefulset.metadata.uid
+        for owner in pod.metadata.owner_references or []
+    )
+
+
+def statefulset_pods(statefulset, namespace: str, api_client=None) -> list:
+    """The pods this StatefulSet owns: selector match, own name prefix and own ownerReference UID."""
+    pods = (
+        client.CoreV1Api(api_client=api_client)
+        .list_namespaced_pod(namespace, label_selector=statefulset_pod_selector(statefulset))
+        .items
+    )
+    prefix = f"{statefulset.metadata.name}-"
+    return [pod for pod in pods if pod.metadata.name.startswith(prefix) and pod_owned_by(pod, statefulset)]
+
+
+def assert_no_statefulset_pods(
+    namespace: str,
+    statefulset_name_pattern: str,
+    api_client=None,
+    timeout: int = 60,
+    sleep_time: int = 3,
+):
+    """Fail when pods of a component with no members are still running.
+
+    A component that is scaled to zero keeps its StatefulSet, and a deleted one leaves no owner behind, so the
+    pods are selected by their StatefulSet ownerReference name. Pods that are already terminating are the
+    expected end state of a scale-down and are not stale.
+    """
+    pattern = re.compile(statefulset_name_pattern)
+
+    def settled() -> tuple:
+        stale = []
+        for pod in client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace).items:
+            if pod.metadata.deletion_timestamp is not None:
+                continue
+            owners = [ref.name for ref in pod.metadata.owner_references or [] if ref.kind == "StatefulSet"]
+            if any(pattern.fullmatch(owner) for owner in owners):
+                stale.append(pod.metadata.name)
+        return not stale, f"stale pods={sorted(stale)}"
+
+    run_periodically(settled, timeout=timeout, sleep_time=sleep_time, msg="no pods of a zero-member component")
+
+
 class KubernetesTester(object):
     """
     KubernetesTester is the base class for all python tests. It deliberately doesn't have object state
@@ -143,6 +319,224 @@ class KubernetesTester(object):
     The class provides some common utility methods used by all children and also performs some common
     create/update/delete actions for Kubernetes objects based on the docstrings of subclasses
     """
+
+    @staticmethod
+    def static_ga_config_for_current_operator(
+        api_client=None, namespace: Optional[str] = None
+    ) -> Optional[dict[str, str]]:
+        """The static-ga installation config of the operator that converges the resource in ``namespace``.
+
+        ``namespace`` defaults to the test namespace. A migration test runs the target operator in its own
+        namespace, so the operator that converges the resource is not necessarily the one in the test namespace.
+        """
+        if get_default_architecture() != "static-ga":
+            return None
+        operator_namespace = os.environ["NAMESPACE"]
+        namespace = namespace or operator_namespace
+        config = static_ga_installation_config(namespace, api_client)
+        if config is None and namespace != operator_namespace:
+            # A cluster-wide operator in the test namespace converges a resource in another namespace.
+            namespace = operator_namespace
+            config = static_ga_installation_config(namespace, api_client)
+        assert config is not None, f"Static-ga requires {STATIC_GA_INSTALLATION_CONFIGMAP} in {namespace}"
+        validate_static_ga_config(config)
+        image = (
+            f'{config["registry.operator"]}/{config.get("operator.operator_image_name", "mongodb-kubernetes")}:'
+            f'{config["operator.version"]}{config.get("operator.build", "")}'
+        )
+        deployments = client.AppsV1Api(api_client=api_client).list_namespaced_deployment(namespace).items
+        for deployment in deployments:
+            if not deployment.spec.replicas:
+                continue
+            for container in deployment.spec.template.spec.containers:
+                if container.image != image:
+                    continue
+                env = {item.name: item.value for item in container.env or []}
+                if (
+                    env.get("MDB_DEFAULT_ARCHITECTURE") == "static"
+                    and not env.get("MDB_CUSTOM_AGENT_URL")
+                    and env.get("MDB_TEST_ONLY_RELEASED_AGENT_PHASE") == "true"
+                ):
+                    return None
+                assert env.get("MDB_DEFAULT_ARCHITECTURE") == "static-ga", env.get("MDB_DEFAULT_ARCHITECTURE")
+                assert env.get("MDB_CUSTOM_AGENT_URL") == config["agent.customAgentUrl"]
+                assert env.get("MDB_MONGODB_PROXY_IMAGE") == configured_proxy_image(config)
+                return config
+
+        active_olm_deployments = (
+            KubernetesTester._active_olm_deployments(namespace, api_client)
+            if any(
+                "@sha256:" in container.image
+                for deployment in deployments
+                for container in deployment.spec.template.spec.containers
+            )
+            else {}
+        )
+        historical_image = re.compile(
+            r"quay\.io/mongodb/(?:mongodb-kubernetes|mongodb-enterprise-operator)(?:-ubi)?"
+            r"(?::\d+\.\d+\.\d+(?:@sha256:[0-9a-f]{64})?|@sha256:[0-9a-f]{64})"
+        )
+        historical = any(
+            deployment.spec.replicas
+            and historical_image.fullmatch(container.image)
+            and (
+                (
+                    "@sha256:" not in container.image
+                    and deployment.metadata.name
+                    in {
+                        "mongodb-kubernetes-operator",
+                        "mongodb-enterprise-operator",
+                        "mongodb-kubernetes-operator-multi-cluster",
+                        "mongodb-enterprise-operator-multi-cluster",
+                    }
+                )
+                or container.image in active_olm_deployments.get(deployment.metadata.name, set())
+            )
+            for deployment in deployments
+            for container in deployment.spec.template.spec.containers
+        )
+        assert historical, "Static-ga convergence requires an active current or historical operator"
+        return None
+
+    @staticmethod
+    def _active_olm_deployments(namespace: str, api_client=None) -> dict[str, set[str]]:
+        custom_objects = client.CustomObjectsApi(api_client=api_client)
+        try:
+            subscriptions = custom_objects.list_namespaced_custom_object(
+                "operators.coreos.com", "v1alpha1", namespace, "subscriptions"
+            ).get("items", [])
+            csvs = custom_objects.list_namespaced_custom_object(
+                "operators.coreos.com", "v1alpha1", namespace, "clusterserviceversions"
+            ).get("items", [])
+        except ApiException as error:
+            if error.status == 404:
+                return {}
+            raise
+
+        installed_csv_names = {
+            subscription.get("status", {}).get("installedCSV")
+            for subscription in subscriptions
+            if subscription.get("status", {}).get("installedCSV")
+        }
+        active_deployments = {}
+        for csv in csvs:
+            if (
+                csv.get("metadata", {}).get("name") not in installed_csv_names
+                or csv.get("status", {}).get("phase") != "Succeeded"
+            ):
+                continue
+            deployment_specs = csv.get("spec", {}).get("install", {}).get("spec", {}).get("deployments", [])
+            for deployment in deployment_specs:
+                name = deployment.get("name")
+                containers = deployment.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+                images = {container.get("image") for container in containers if container.get("image")}
+                if name and images:
+                    active_deployments[name] = images
+        return active_deployments
+
+    @staticmethod
+    def read_processes(pod: str, namespace: str, container: str, api_client=None) -> list[str]:
+        output = KubernetesTester.run_command_in_pod_container(
+            pod,
+            namespace,
+            ["bash", "-c", 'for p in /proc/[0-9]*; do cat "$p/comm" 2>/dev/null; done'],
+            container=container,
+            api_client=api_client,
+        )
+        return [line.strip() for line in output.splitlines() if line.strip()]
+
+    @staticmethod
+    def query_proxy(pod: str, namespace: str, api_client=None) -> dict:
+        output = KubernetesTester.run_command_in_pod_container(
+            pod,
+            namespace,
+            [
+                "bash",
+                "-c",
+                "exec 3<>/dev/tcp/127.0.0.1/8099; "
+                "printf 'GET /v1/process HTTP/1.0\\r\\nHost: proxy\\r\\n\\r\\n' >&3; cat <&3",
+            ],
+            container="mongodb-agent",
+            api_client=api_client,
+        )
+        headers, body = output.replace("\r\n", "\n").split("\n\n", 1)
+        assert re.match(r"HTTP/1\.[01] 200(?: |$)", headers), headers
+        return json.loads(body)
+
+    @staticmethod
+    def assert_static_ga_pods(
+        statefulset,
+        namespace: str,
+        api_client=None,
+        database_running=True,
+        timeout: Optional[int] = None,
+    ):
+        """Assert that the pods of a static-ga StatefulSet converged.
+
+        This is the generic convergence contract that functional tests share: the expected pods exist, are owned
+        by the StatefulSet and reach the expected readiness. Proxy acceptance is not part of it. The candidate
+        Agent image and executable, the proxy image volume, the proxy API and the process separation are asserted
+        by the dedicated test in tests/replicaset/replica_set_mongodb_proxy.py.
+        """
+        replicas = statefulset.spec.replicas
+
+        if replicas == 0:
+            assert_no_statefulset_pods(
+                namespace,
+                re.escape(statefulset.metadata.name),
+                api_client=api_client,
+                timeout=60,
+            )
+            return
+
+        expected_names = {f"{statefulset.metadata.name}-{index}" for index in range(replicas)}
+        converged: dict = {}
+
+        def final_state() -> tuple:
+            """The complete condition, so a transient Ready flip cannot be observed by a later single read."""
+            problems = []
+            observed = {}
+            for pod in statefulset_pods(statefulset, namespace, api_client):
+                if pod.metadata.deletion_timestamp is not None:
+                    # A lower ordinal after a scale-down, or a pod that is going away.
+                    continue
+                if pod.metadata.name not in expected_names:
+                    problems.append(f"{pod.metadata.name}: unexpected owned pod")
+                    continue
+                if pod.status.phase != "Running":
+                    problems.append(f"{pod.metadata.name}: phase {pod.status.phase}")
+                    continue
+                ready = any(item.type == "Ready" and item.status == "True" for item in pod.status.conditions or [])
+                if ready != database_running:
+                    problems.append(f"{pod.metadata.name}: ready={ready} want={database_running}")
+                    continue
+                observed[pod.metadata.name] = pod
+            for name in sorted(expected_names - observed.keys()):
+                problems.append(f"{name}: absent")
+            if not problems:
+                converged.clear()
+                converged.update(observed)
+            return not problems, "; ".join(problems)
+
+        if timeout is None:
+            timeout = 300 if database_running else 180
+        run_periodically(
+            final_state,
+            timeout=timeout,
+            sleep_time=3,
+            msg=f"StatefulSet {statefulset.metadata.name} pods ready={database_running}",
+        )
+
+        for index in range(replicas):
+            name = f"{statefulset.metadata.name}-{index}"
+            # The pod objects are the ones the successful poll observed: a second read could catch the next
+            # readiness transition of the agent and fail an assertion the poll already proved.
+            pod = converged[name]
+            assert pod.metadata.deletion_timestamp is None, name
+            assert any(owner.uid == statefulset.metadata.uid for owner in pod.metadata.owner_references or []), name
+            assert pod.status.phase == "Running", name
+            ready = any(item.type == "Ready" and item.status == "True" for item in pod.status.conditions or [])
+            assert ready == database_running, (name, ready, database_running)
 
     init = None
     group_id = None
@@ -1144,6 +1538,58 @@ class KubernetesTester(object):
         )
 
     @staticmethod
+    def assert_agent_executable_sha256(
+        pod_name: str,
+        namespace: str,
+        expected_sha256: str,
+        executable_path: str,
+        container: str,
+        api_client: Optional[kubernetes.client.ApiClient] = None,
+    ):
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise ValueError("Candidate Agent acceptance requires a 64-character lowercase executable SHA-256")
+        command = r"""
+set -euo pipefail
+processes=()
+for process in /proc/[0-9]*; do
+    executable=$(readlink "${process}/exe") || continue
+    if [[ "${executable}" == "$1" || "${executable}" == "$1 (deleted)" ]]; then
+        processes+=("${process}")
+    fi
+done
+if [[ ${#processes[@]} != 1 ]]; then
+    echo "Expected exactly one live Agent executable, found ${#processes[@]}" >&2
+    exit 1
+fi
+process="${processes[0]}"
+before=$(cat "${process}/stat")
+before="${before##*) }"
+read -ra before_fields <<< "${before}"
+exec 3< "${process}/exe"
+checksum=$(sha256sum /dev/fd/3)
+after=$(cat "${process}/stat")
+after="${after##*) }"
+read -ra after_fields <<< "${after}"
+# Linux stat field 22 distinguishes process lifetimes across PID reuse.
+if [[ "${before_fields[19]}" != "${after_fields[19]}" || ! "${process}/exe" -ef /proc/$$/fd/3 ]]; then
+    echo "Agent process changed during executable verification" >&2
+    exit 1
+fi
+printf '%s\n' "${checksum%% *}"
+"""
+        actual = KubernetesTester.run_command_in_pod_container(
+            pod_name,
+            namespace,
+            ["bash", "-c", command, "verify-agent-executable", executable_path],
+            container=container,
+            api_client=api_client,
+        ).strip()
+        assert actual == expected_sha256, (
+            f"Agent executable identity mismatch in {namespace}/{pod_name} container {container}: "
+            f"expected {expected_sha256}, got {actual!r}"
+        )
+
+    @staticmethod
     def run_command_in_pod_container(
         pod_name: str,
         namespace: str,
@@ -1733,6 +2179,11 @@ def ensure_ent_version(mdb_version: str) -> str:
 
 
 @TRACER.start_as_current_span("wait_processes_ready")
+def automation_process_name(namespace: str, pod: str) -> str:
+    """The process name Ops Manager and the agent use for a pod: ``k8s/<namespace>/<pod>``."""
+    return f"k8s/{namespace}/{pod}"
+
+
 def wait_processes_ready():
     # Get current automation status
     def processes_are_ready():

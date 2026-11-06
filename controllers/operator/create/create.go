@@ -48,6 +48,9 @@ var (
 // It returns any errors coming from Kubernetes API.
 func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	opts := config(mdb)
+	if err := opts.ValidateProxyPrerequisites(mdb.Name, mdb.Annotations); err != nil {
+		return nil, err
+	}
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, mdb.Namespace, log, &sts)
 	if err != nil {
 		return nil, err

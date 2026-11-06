@@ -12,7 +12,35 @@ from pytest import fixture
 
 @fixture(scope="module")
 def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(yaml_fixture("replica-set-liveness.yaml"), "my-replica-set", namespace)
+    resource = MongoDB.from_yaml(
+        yaml_fixture("replica-set-liveness.yaml"), "my-replica-set", namespace, with_mdb_version_from_env=False
+    )
+    if KubernetesTester.static_ga_config_for_current_operator() is not None:
+        resource["spec"]["version"] = custom_mdb_version
+        # All members must start while unready, and the proxy must never spawn mongod.
+        resource["spec"]["statefulSet"] = {
+            "spec": {
+                "podManagementPolicy": "Parallel",
+                "template": {
+                    "spec": {
+                        "volumes": [{"name": "liveness-empty-bin", "emptyDir": {}}],
+                        "containers": [
+                            {
+                                "name": "mongodb-enterprise-database",
+                                "args": ["--debug", "--bin-dir=/tmp/liveness-empty-bin"],
+                                "volumeMounts": [
+                                    {
+                                        "name": "liveness-empty-bin",
+                                        "mountPath": "/tmp/liveness-empty-bin",
+                                        "readOnly": True,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            }
+        }
 
     resource.update()
 
@@ -37,6 +65,15 @@ def test_pods_are_running(replica_set: MongoDB, namespace: str):
         if pod.status.phase == "Running":
             running_pods.add(podname)
     assert len(running_pods) == 3
+    assert_idle_static_ga_pods(replica_set)
+
+
+def assert_idle_static_ga_pods(replica_set: MongoDB):
+    if KubernetesTester.static_ga_config_for_current_operator() is None:
+        return
+    statefulset = replica_set.read_statefulset()
+    assert statefulset.spec.replicas == replica_set["spec"]["members"] > 0
+    KubernetesTester.assert_static_ga_pods(statefulset, replica_set.namespace, database_running=False)
 
 
 @skip_if_static_containers
@@ -54,6 +91,7 @@ def test_no_pods_get_restarted(replica_set: MongoDB, namespace: str):
 
         # Pods should not restart because of a missing mongod process
         assert pod.status.container_statuses[0].restart_count == 0
+    assert_idle_static_ga_pods(replica_set)
 
 
 @skip_if_static_containers

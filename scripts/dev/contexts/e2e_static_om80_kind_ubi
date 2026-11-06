@@ -10,4 +10,4 @@ source "${script_dir}/variables/om80"
 source "${script_dir}/variables/mongodb_search_dev"
 
 export KUBE_ENVIRONMENT_NAME=kind
-export MDB_DEFAULT_ARCHITECTURE=static
+export MDB_DEFAULT_ARCHITECTURE=static-ga

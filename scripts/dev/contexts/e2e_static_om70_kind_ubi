@@ -9,4 +9,4 @@ source "${script_dir}/root-context"
 source "${script_dir}/variables/om70"
 
 export KUBE_ENVIRONMENT_NAME=kind
-export MDB_DEFAULT_ARCHITECTURE=static
+export MDB_DEFAULT_ARCHITECTURE=static-ga

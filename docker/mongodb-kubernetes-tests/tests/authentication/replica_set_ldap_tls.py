@@ -1,11 +1,24 @@
+import re
+import time
 from typing import Dict
 
 from kubetester import create_or_update_secret, find_fixture, try_load, wait_until
+from kubetester.kubetester import KubernetesTester, automation_process_name, get_default_architecture
 from kubetester.ldap import LDAP_AUTHENTICATION_MECHANISM, LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
 from kubetester.phase import Phase
 from pytest import fixture, mark
+from tests.replicaset.replica_set_mongodb_proxy import (
+    AGENT_CONTAINER,
+    DATABASE_CONTAINER,
+    mongod_identity,
+    pod_members,
+    pod_uids,
+    query_proxy,
+    restart_agent_container,
+    restart_counts,
+)
 
 
 @fixture(scope="module")
@@ -17,7 +30,7 @@ def operator_installation_config_quick_recovery(operator_installation_config: Di
     TODO: investigate why and when this mechanism was broken.
     """
     operator_installation_config["customEnvVars"] = (
-        operator_installation_config["customEnvVars"] + "\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
+        operator_installation_config["customEnvVars"] + r"\&MDB_AUTOMATIC_RECOVERY_BACKOFF_TIME_S=10"
     )
     return operator_installation_config
 
@@ -138,6 +151,76 @@ def test_new_ldap_users_can_authenticate(replica_set: MongoDB, ldap_user_mongodb
     tester.assert_ldap_authentication(ldap_user_mongodb["spec"]["username"], ldap_user_mongodb.password, attempts=10)
 
 
+def assert_agent_observation_logs(replica_set: MongoDB, namespace: str):
+    for pod in pod_members(replica_set):
+        for name in ("automation-agent.log", "automation-agent-verbose.log"):
+            raw = KubernetesTester.run_command_in_pod_container(
+                pod,
+                namespace,
+                ["cat", f"/var/log/mongodb-mms-automation/{name}"],
+                container=AGENT_CONTAINER,
+            )
+            assert raw.strip(), f"{pod}: {name} is empty"
+            assert "Error reading environment for pid" not in raw, f"{pod}: {name} contains an environment-read error"
+            assert "Error getting LDAP CA path for pid" not in raw, f"{pod}: {name} contains an LDAP observation error"
+            failures = re.findall(
+                r"Postcondition failed for step Start(?:Fresh)? because[^\n]*\n"
+                r"(?:(?!^\[\d{4}-)[\s\S])*?\['currentState\.LdapCaPath' != 'desiredState\.LdapCaPath'",
+                raw,
+                re.MULTILINE,
+            )
+            assert len(failures) == 0, f"{pod}: {name} contains {len(failures)} LDAP Start postcondition failures"
+
+
+@mark.e2e_replica_set_ldap_tls
+@mark.skipif(get_default_architecture() != "static-ga", reason="Agent-only restart requires the static-ga proxy")
+def test_agent_restart_retains_ldap_launch_environment(replica_set: MongoDB, namespace: str):
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    pods = pod_members(replica_set)
+    assert pods, "the LDAP replica set has no members"
+    identities = {pod: mongod_identity(pod, namespace) for pod in pods}
+    assert all(identities.values()), "a database child is not running"
+    uids = pod_uids(replica_set, namespace)
+    restarts = {pod: restart_counts(pod, namespace) for pod in pods}
+    snapshots = {pod: query_proxy(pod, namespace) for pod in pods}
+    for pod, status in snapshots.items():
+        assert status["state"] == "running", f"{pod}: proxy does not report running"
+        assert status["pid"] == int(identities[pod].split(":")[0]), f"{pod}: child PID does not match proxy status"
+        assert status["launchEnvironment"].get("ldapCaPath"), f"{pod}: proxy did not retain the LDAP CA path"
+        assert set(status["launchEnvironment"]) <= {"ldapCaPath", "kerberosKeytab"}
+    assert_agent_observation_logs(replica_set, namespace)
+
+    restarted_pod = pods[0]
+    restart_agent_container(restarted_pod, namespace)
+    time.sleep(60)
+
+    def agents_converged() -> bool:
+        status = KubernetesTester.get_automation_status(group_id=replica_set.get_om_tester().context.project_id)
+        goal = replica_set.get_automation_config_tester().automation_config["version"]
+        # Ops Manager names a process "k8s/<namespace>/<pod>", not by the pod name alone.
+        processes = {process["name"]: process for process in status["processes"]}
+        return status["goalVersion"] == goal and all(
+            automation_process_name(namespace, pod) in processes
+            and processes[automation_process_name(namespace, pod)]["lastGoalVersionAchieved"] == goal
+            for pod in pods
+        )
+
+    wait_until(agents_converged, timeout=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    assert pod_uids(replica_set, namespace) == uids, "a pod was replaced"
+    for pod in pods:
+        after = restart_counts(pod, namespace)
+        assert after[DATABASE_CONTAINER] == restarts[pod][DATABASE_CONTAINER], f"{pod}: database container restarted"
+        if pod == restarted_pod:
+            assert after[AGENT_CONTAINER] > restarts[pod][AGENT_CONTAINER]
+        assert mongod_identity(pod, namespace) == identities[pod], f"{pod}: database child restarted"
+        current = query_proxy(pod, namespace)
+        assert current["state"] == "running", f"{pod}: proxy does not report running"
+        assert current["pid"] == snapshots[pod]["pid"], f"{pod}: proxy child PID changed"
+        assert current["launchEnvironment"] == snapshots[pod]["launchEnvironment"], f"{pod}: launch environment changed"
+    assert_agent_observation_logs(replica_set, namespace)
+
+
 @mark.e2e_replica_set_ldap_tls
 def test_remove_ldap_settings(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
@@ -158,3 +241,9 @@ def test_remove_ldap_settings(replica_set: MongoDB):
     wait_until(wait_for_ac_pushed, timeout=400)
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+
+@mark.e2e_replica_set_ldap_tls
+@mark.skipif(get_default_architecture() != "static-ga", reason="Proxy observation checks require static-ga")
+def test_agent_logs_have_no_ldap_observation_failures(replica_set: MongoDB, namespace: str):
+    assert_agent_observation_logs(replica_set, namespace)

@@ -52,8 +52,6 @@ UNUSED_TASK_ALLOWLIST: dict[str, str] = {
     "run_precommit_and_push": "invoked via run_task_conditionally (run_conditionally_precommit_and_push)",
     "prepare_and_upload_openshift_bundles": "invoked via run_task_conditionally in the release pipeline",
     "e2e_om_reconcile_perf": "exercised only via generated perf_* tasks (TEST_NAME_OVERRIDE) in scripts/evergreen/e2e/performance/create_variants.py",
-    # --- Not in a variant yet: it needs Kubernetes 1.36 (OCI image volumes) and an agent with --mongodProxyAddress ---
-    "e2e_replica_set_mongodb_proxy": "needs Kubernetes 1.36 and an agent with --mongodProxyAddress, which no release has yet (KUBE-530)",
     # --- Orphaned e2e tasks disabled pending CLOUDP-349093 (password secret / project migration) ---
     "e2e_sharded_cluster_x509_switch_project": "disabled pending CLOUDP-349093 (password secret / project migration)",
     "e2e_replica_set_x509_switch_project": "disabled pending CLOUDP-349093 (password secret / project migration)",
