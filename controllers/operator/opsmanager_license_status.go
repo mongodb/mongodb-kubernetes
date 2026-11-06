@@ -28,14 +28,19 @@ func (h *LicenseReconcilerHelper) setLicenseReadyCondition() {
 			license += ", valid until " + held.TermEnd
 		}
 	}
-	message := fmt.Sprintf("License state is %s. Ops Manager holds %s.", state, license)
-	if h.holderID != "" {
-		message += fmt.Sprintf(" Holder ID %s.", h.holderID)
-	}
 
 	ready, reason := true, status.ReasonLicenseReady
-	if state != licenseStateLicensed {
+	stateMessage := fmt.Sprintf("License state is %s.", state)
+	if state == "" {
+		// A fresh Ops Manager reports no license state until its first recompute.
+		ready, reason, stateMessage = false, status.ReasonLicenseStateUnknown, "Ops Manager has not reported a license state yet."
+	} else if state != licenseStateLicensed {
 		ready, reason = false, licenseStateReason(state)
+	}
+
+	message := fmt.Sprintf("%s Ops Manager holds %s.", stateMessage, license)
+	if h.holderID != "" {
+		message += fmt.Sprintf(" Holder ID %s.", h.holderID)
 	}
 
 	condition := status.OpsManagerLicenseReadyCondition(ready, reason, message)
