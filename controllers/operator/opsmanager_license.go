@@ -21,8 +21,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// LicenseReconcilerHelper contains the license state and logic for a SINGLE reconcile execution.
-// The decisions read it, the status only reports it.
+// LicenseReconcilerHelper holds the license state and logic for a single reconcile execution.
 type LicenseReconcilerHelper struct {
 	reconciler *OpsManagerReconciler
 	opsManager *omv1.MongoDBOpsManager
@@ -34,7 +33,7 @@ type LicenseReconcilerHelper struct {
 	holderID             string
 }
 
-func (r *OpsManagerReconciler) newLicenseReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (*LicenseReconcilerHelper, error) {
+func (r *OpsManagerReconciler) newLicenseReconcilerHelper(opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (*LicenseReconcilerHelper, error) {
 	lastInstallSecretRef, err := opsManager.GetLastInstallSecretRef()
 	if err != nil {
 		return nil, err
@@ -43,13 +42,14 @@ func (r *OpsManagerReconciler) newLicenseReconcilerHelper(ctx context.Context, o
 }
 
 func (r *OpsManagerReconciler) ensureOpsManagerLicense(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) workflow.Status {
-	helper, err := r.newLicenseReconcilerHelper(ctx, opsManager, omAdmin, log)
+	helper, err := r.newLicenseReconcilerHelper(opsManager, omAdmin, log)
 	if err != nil {
 		return licenseFailed(err, status.ReasonLicenseStateFailed)
 	}
 	return helper.Reconcile(ctx)
 }
 
+// Reconcile runs the license reconcile and reports the license Ops Manager holds.
 func (h *LicenseReconcilerHelper) Reconcile(ctx context.Context) workflow.Status {
 	st := h.reconcileLicense(ctx)
 
@@ -71,7 +71,6 @@ func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow
 		}
 	}
 
-	// The release receipts requested in the spec resolve to the artifact ids they name.
 	receipts, st := h.resolveReleaseReceipts(ctx)
 	if !st.IsOK() {
 		return st
@@ -99,9 +98,7 @@ func (h *LicenseReconcilerHelper) releaseDue() bool {
 }
 
 // reconcileLicenseIntent applies the install or release the spec asks for and returns the artifact
-// the spec requested plus the artifact that was released as a consequence. The install asks OM:
-// when it already holds the artifact from the secret the PUT is skipped, otherwise the license is
-// installed or renewed.
+// the spec requested plus the artifact that was released as a consequence.
 func (h *LicenseReconcilerHelper) reconcileLicenseIntent(ctx context.Context, receipts []string) (requestedID, releasedID string, st workflow.Status) {
 	if h.releaseDue() {
 		releasedID, st := h.releaseInstalledLicense(ctx)
@@ -187,7 +184,7 @@ func (h *LicenseReconcilerHelper) observeLicense(ctx context.Context) workflow.S
 }
 
 // installLicenseFromSecret installs the license the spec asks for and returns the artifact it
-// names plus the artifact that was replaced as a consequence.
+// names plus the artifact that was replaced.
 func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, receipts []string) (requestedID, releasedID string, st workflow.Status) {
 	rawArtifact, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.opsManager.Spec.License.SecretRef.Name)
 	if invalid {
