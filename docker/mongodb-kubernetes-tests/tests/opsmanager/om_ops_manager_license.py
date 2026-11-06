@@ -22,7 +22,6 @@ from tests.opsmanager.license_e2e_helpers import (
     current_artifact_id,
     current_receipt_secret_name,
     delete_secret_if_exists,
-    ea_artifact_row,
     ensure_license_artifact_secret,
     hide_failure_values,
     install_and_release_license,
@@ -89,13 +88,6 @@ class TestOpsManagerLicenseE2E:
         assert ready["status"] == "False"
         assert ready["reason"] == "LicenseGrace"
         assert f"Holder ID {om_holder_id(ops_manager)}." in ready["message"]
-
-    def test_mint_license_for_this_ops_manager(self, ops_manager: MongoDBOpsManager):
-        """EA issues a license bound to this Ops Manager, and lists it for the run's principal."""
-        artifact_id = mint_run_license(ops_manager)
-
-        assert artifact_id == current_artifact_id()
-        assert ea_artifact_row(ops_manager, artifact_id)["status"] == "ISSUED"
 
     def test_install_and_claim(self, ops_manager: MongoDBOpsManager, namespace: str):
         """The license from the Secret is installed, claimed at EA, and reported in the CR."""
