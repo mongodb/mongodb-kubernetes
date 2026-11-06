@@ -3,8 +3,8 @@ package multicluster
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster/recover"
-	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster/setup"
+	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster/generatememberregistration"
+	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster/generatememberresources"
 )
 
 // MulticlusterCmd represents the multicluster command
@@ -16,6 +16,6 @@ multicluster environments that hold MongoDB resources.`,
 }
 
 func init() {
-	MulticlusterCmd.AddCommand(setup.SetupCmd)
-	MulticlusterCmd.AddCommand(recover.RecoverCmd)
+	MulticlusterCmd.AddCommand(generatememberresources.GenerateMemberResourcesCmd)
+	MulticlusterCmd.AddCommand(generatememberregistration.GenerateMemberRegistrationCmd)
 }

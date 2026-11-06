@@ -12,8 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -36,7 +36,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // secretsCheckRequeueAfter is the requeue interval used when CheckSecretsPresence
@@ -120,8 +119,8 @@ type MongoDBSearchReconciler struct {
 	watch                *watch.ResourceWatcher
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
-	memberClusterClientsMap map[string]kubernetesClient.Client // per-cluster Kubernetes client; empty in single-cluster installs
-	operatorClusterName     string
+	memberClustersProvider *multicluster.Provider
+	operatorClusterName    string
 
 	prepareSearch prepareSearchFuncs
 }
@@ -129,23 +128,29 @@ type MongoDBSearchReconciler struct {
 func newMongoDBSearchReconciler(
 	kubeClient client.Client,
 	operatorSearchConfig searchcontroller.OperatorSearchConfig,
-	memberClustersMap map[string]client.Client,
+	memberClustersProvider *multicluster.Provider,
 	operatorClusterName string,
 ) *MongoDBSearchReconciler {
-	clientsMap := make(map[string]kubernetesClient.Client, len(memberClustersMap))
-	for k, v := range memberClustersMap {
-		clientsMap[k] = kubernetesClient.NewClient(v)
-	}
-
 	central := kubernetesClient.NewClient(kubeClient)
 	return &MongoDBSearchReconciler{
-		kubeClient:              central,
-		watch:                   watch.NewResourceWatcher(),
-		operatorSearchConfig:    operatorSearchConfig,
-		memberClusterClientsMap: clientsMap,
-		operatorClusterName:     operatorClusterName,
-		prepareSearch:           newPrepareSearch(operatorClusterName),
+		kubeClient:             central,
+		watch:                  watch.NewResourceWatcher(),
+		operatorSearchConfig:   operatorSearchConfig,
+		memberClustersProvider: memberClustersProvider,
+		operatorClusterName:    operatorClusterName,
+		prepareSearch:          newPrepareSearch(operatorClusterName),
 	}
+}
+
+// memberClusterClients derives per-cluster Kubernetes clients from a provider
+// snapshot, matching the shape of the startup-built client map the reconcilers
+// previously held.
+func memberClusterClients(memberClusterEntries map[string]multicluster.Entry) map[string]kubernetesClient.Client {
+	clientsMap := make(map[string]kubernetesClient.Client, len(memberClusterEntries))
+	for k, v := range memberClusterEntries {
+		clientsMap[k] = kubernetesClient.NewClient(v.Client)
+	}
+	return clientsMap
 }
 
 // +kubebuilder:rbac:groups=mongodb.com,resources={mongodbsearch,mongodbsearch/status},verbs=*,namespace=placeholder
@@ -162,6 +167,10 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		log.Infof("MongoDBSearch %s/%s is deleting; skipping main-controller reconcile", mdbSearch.Namespace, mdbSearch.Name)
 		return reconcile.Result{}, nil
 	}
+
+	// Live snapshot of the member-cluster registry for this reconcile.
+	memberClusterEntries := r.memberClustersProvider.Entries()
+	memberClients := memberClusterClients(memberClusterEntries)
 
 	// Short-circuit: the disable-reconciliation annotation allows to
 	// pause reconciliation on a single CR so owned objects can be mutated
@@ -185,7 +194,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// in hub-and-spoke, so this call covers that mode; in operator-per-cluster
 	// the map is empty and the operatorClusterNotInSearchSpec check below lets
 	// each operator clean up its own cluster.
-	if err := deleteRemovedMemberClusterResources(ctx, mdbSearch, r.memberClusterClientsMap, deleteMemberSearchResources, log); err != nil {
+	if err := deleteRemovedMemberClusterResources(ctx, mdbSearch, memberClients, deleteMemberSearchResources, log); err != nil {
 		log.Warnf("Failed to clean up Search resources on removed member clusters: %v", err)
 	}
 
@@ -249,7 +258,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		mdbSearch,
 		searchSource,
 		r.operatorSearchConfig,
-		r.memberClusterClientsMap,
+		memberClusterEntries,
 		r.operatorClusterName,
 		state,
 	)
@@ -263,7 +272,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// re-checked after a delay, never failing the reconcile. Skip when reconcile
 	// already requeued — its own gates cover that case.
 	if result.RequeueAfter == 0 {
-		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, r.memberClusterClientsMap); len(gaps) > 0 {
+		if gaps := searchcontroller.CheckSecretsPresence(ctx, mdbSearch, r.kubeClient, memberClients); len(gaps) > 0 {
 			r.surfaceMissingSecrets(gaps, log)
 			result.RequeueAfter = secretsCheckRequeueAfter
 		}
@@ -310,8 +319,9 @@ func (r *MongoDBSearchReconciler) OnDelete(ctx context.Context, obj runtime.Obje
 		return xerrors.Errorf("expected a deleted MongoDBSearch, got %T", obj)
 	}
 
-	for _, clusterName := range slices.Sorted(maps.Keys(r.memberClusterClientsMap)) {
-		memberClient := r.memberClusterClientsMap[clusterName]
+	memberClusterEntries := r.memberClustersProvider.Entries()
+	for _, clusterName := range slices.Sorted(maps.Keys(memberClusterEntries)) {
+		memberClient := kubernetesClient.NewClient(memberClusterEntries[clusterName].Client)
 		errs := deleteOwnedClusterResources(ctx, memberClient, clusterName, search, log)
 		// deleteOwnedClusterResources' kind list has no Deployment, but Search
 		// also owns per-cluster Envoy and metrics-forwarder Deployments.
@@ -573,8 +583,11 @@ func AddMongoDBSearchController(
 	ctx context.Context,
 	mgr manager.Manager,
 	operatorSearchConfig searchcontroller.OperatorSearchConfig,
-	memberClusterObjectsMap map[string]cluster.Cluster,
+	memberClustersProvider *multicluster.Provider,
 	operatorClusterName string,
+	maxConcurrentReconciles int,
+	memberClusterClientTimeout int,
+	requiredHealthyStreak int,
 ) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, mdbcSearchIndexBuilder); err != nil {
 		return err
@@ -583,13 +596,13 @@ func AddMongoDBSearchController(
 	r := newMongoDBSearchReconciler(
 		mgr.GetClient(),
 		operatorSearchConfig,
-		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
+		memberClustersProvider,
 		operatorClusterName,
 	)
 
 	c, err := controller.New(util.MongoDbSearchController, mgr, controller.Options{
 		Reconciler:              r,
-		MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1), // nolint:forbidigo
+		MaxConcurrentReconciles: maxConcurrentReconciles,
 	})
 	if err != nil {
 		return err
@@ -601,19 +614,26 @@ func AddMongoDBSearchController(
 		}
 	}
 
-	// Per-member-cluster watches. Empty memberClusterObjectsMap (single-cluster
-	// install) skips them entirely — there is nothing to watch.
-	if len(memberClusterObjectsMap) > 0 {
-		// Per-member-cluster watches map events back to the parent MongoDBSearch
-		// via the search-owner labels (cross-cluster owner refs do not GC).
-		for k, v := range memberClusterObjectsMap {
+	// Per-member-cluster watches follow member-cluster engagement: on every cluster add attach
+	// the watches to the new cluster (they map events back to the parent MongoDBSearch via the
+	// search-owner labels — cross-cluster owner refs do not GC) and enqueue all MongoDBSearch
+	// CRs — watch replay alone cannot reach CRs that own no resources on the new cluster yet.
+	clusterAddedEvents := make(chan event.GenericEvent)
+	if err := c.Watch(source.Channel[client.Object](clusterAddedEvents, &handler.EnqueueRequestForObject{})); err != nil {
+		return xerrors.Errorf("failed to set MongoDBSearch cluster-added channel watch: %w", err)
+	}
+	memberClustersProvider.RegisterHooks(ctx, multicluster.Hooks{
+		OnAdd: func(ctx context.Context, clusterName string, entry multicluster.Entry) {
 			for _, w := range memberMongoDBSearchResourceWatches(r) {
-				if err := c.Watch(source.Kind[client.Object](v.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
-					return xerrors.Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %w", k, w.obj, err)
+				if err := c.Watch(source.Kind[client.Object](entry.Cluster.GetCache(), w.obj, w.handler, w.predicates...)); err != nil {
+					zap.S().Errorf("failed to set MongoDBSearch member-cluster watch on %s for %T: %s", clusterName, w.obj, err)
 				}
 			}
-		}
-	}
+			if err := multicluster.EnqueueAll(ctx, mgr.GetClient(), &searchv1.MongoDBSearchList{}, clusterAddedEvents); err != nil {
+				zap.S().Errorf("failed to enqueue MongoDBSearch resources on member cluster %s add: %s", clusterName, err)
+			}
+		},
+	})
 
 	return nil
 }

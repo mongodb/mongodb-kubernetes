@@ -1,4 +1,5 @@
 from kubetester import get_statefulset
+from kubetester.helm import apply_member_cluster_crd
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import skip_if_local
 from kubetester.operator import Operator
@@ -6,7 +7,13 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.cert.cert_issuer import create_appdb_certs
-from tests.conftest import get_default_operator, get_multi_cluster_operator, install_official_operator, is_multi_cluster
+from tests.conftest import (
+    configure_multi_cluster_members,
+    get_default_operator,
+    get_multi_cluster_operator,
+    install_official_operator,
+    is_multi_cluster,
+)
 from tests.constants import (
     LEGACY_MULTI_CLUSTER_OPERATOR_NAME,
     LEGACY_OPERATOR_CHART,
@@ -97,6 +104,8 @@ def test_install_latest_official_operator(
         helm_chart_path=LEGACY_OPERATOR_CHART,  # We are testing the upgrade from version fixing appdb hostnames, introduced in MEKO
         operator_name=LEGACY_OPERATOR_NAME,
         operator_image=LEGACY_OPERATOR_IMAGE_NAME,
+        # The legacy operator does not ship the OperatorConfig CRD, so the CR cannot be created here.
+        create_operator_config=False,
     )
     operator.wait_for_operator_ready()
 
@@ -137,6 +146,10 @@ def test_upgrade_operator(
     member_cluster_names,
 ):
     if is_multi_cluster():
+        # MCK discovers members from MemberCluster CRs, which the MEKO 1.32 baseline does not create,
+        # so register them before the upgrade or the operator boots as single-cluster.
+        apply_member_cluster_crd(api_client=central_cluster_client)
+        configure_multi_cluster_members(member_cluster_names, namespace, namespace, central_cluster_name)
         operator = get_multi_cluster_operator(
             namespace,
             central_cluster_name,

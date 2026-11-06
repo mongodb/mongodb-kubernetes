@@ -5,7 +5,6 @@ resources:
   - database-roles.yaml
   - operator-roles-base.yaml
   - operator-roles-clustermongodbroles.yaml
-  - operator-roles-pvc-resize.yaml
   - operator-roles-telemetry.yaml
 
 # we have to remove service account namespace from RoleBinding as OLM is not overriding it

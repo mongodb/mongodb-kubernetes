@@ -30,7 +30,6 @@ import (
 )
 
 const (
-	appDBServiceAccount        = "mongodb-kubernetes-appdb"
 	InitAppDbContainerName     = "mongodb-kubernetes-init-appdb"
 	mongoDBAssumeEnterpriseEnv = "MDB_ASSUME_ENTERPRISE"
 	// AppDB environment variable names
@@ -48,6 +47,8 @@ type AppDBStatefulSetOptions struct {
 	InitAppDBImage string
 	MongodbImage   string
 	AgentImage     string
+
+	ServiceAccountName string
 
 	PrometheusTLSCertHash string
 	CustomAgentURL        string
@@ -490,7 +491,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		statefulset.WithPodSpecTemplate(
 			podtemplatespec.Apply(
 				podSecurityContext,
-				podtemplatespec.WithServiceAccount(appDBServiceAccount),
+				podtemplatespec.WithServiceAccount(opts.ServiceAccountName),
 				podtemplatespec.WithVolume(healthStatusVolume),
 				automationConfigVolumeFunc,
 				hooksVolumeMod,

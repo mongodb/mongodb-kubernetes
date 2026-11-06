@@ -23,7 +23,6 @@ title "Running pre-commit checks"
 
 if [[ "${full_mode}" == true ]]; then
   export MDB_UPDATE_LICENSES=true
-  export MDB_REGENERATE_RBAC=true
 fi
 
 # Store the current state of the index and working directory

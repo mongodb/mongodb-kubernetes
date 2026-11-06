@@ -40,21 +40,21 @@ source env_variables.sh
 …or step by step (in order):
 
 ### Setup
-1–10. Same setup block as [01-mc-fresh-start](../01-mc-fresh-start) (`eadb-mc-02_0040` … `0220`):
+1–12. Same setup block as [01-mc-fresh-start](../01-mc-fresh-start) (`eadb-mc-02_0040` … `0220`):
 validate env, create namespaces in every cluster, install the multi-cluster operator, admin secret,
 cert-manager + CA + AppDB certificate, management OM, project ConfigMap.
 
 ### Before state
-11. `eadb-mc-02_0300_create_primary_om_internal.sh` — primary OM with an internal multi-cluster AppDB.
-12. `eadb-mc-02_0305_wait_internal_appdb.sh` — wait until the internal AppDB and OM are `Running`.
+13. `eadb-mc-02_0300_create_primary_om_internal.sh` — primary OM with an internal multi-cluster AppDB.
+14. `eadb-mc-02_0305_wait_internal_appdb.sh` — wait until the internal AppDB and OM are `Running`.
 
 ### Forward migration
-13. `eadb-mc-02_0310_create_appdb_mongodbmulti.sh` — create the external `MongoDBMultiCluster`
+15. `eadb-mc-02_0310_create_appdb_mongodbmulti.sh` — create the external `MongoDBMultiCluster`
     (`role: AppDB`, same name/topology).
-14. `eadb-mc-02_0315_wait_appdb_pending.sh` — confirm it is `Pending` on the adoption gate.
-15. `eadb-mc-02_0320_set_external_ref.sh` — patch the OM to add `externalApplicationDatabaseRef`.
-16. `eadb-mc-02_0325_wait_after_switch.sh` — wait until the AppDB CR adopts and the OM is `Running`.
-17. `eadb-mc-02_0400_verify.sh` — per-member StatefulSet ownership (`mongodbmulticluster` label) and
+16. `eadb-mc-02_0315_wait_appdb_pending.sh` — confirm it is `Pending` on the adoption gate.
+17. `eadb-mc-02_0320_set_external_ref.sh` — patch the OM to add `externalApplicationDatabaseRef`.
+18. `eadb-mc-02_0325_wait_after_switch.sh` — wait until the AppDB CR adopts and the OM is `Running`.
+19. `eadb-mc-02_0400_verify.sh` — per-member StatefulSet ownership (`mongodbmulticluster` label) and
     cleared migration annotations.
 
 ## Troubleshooting

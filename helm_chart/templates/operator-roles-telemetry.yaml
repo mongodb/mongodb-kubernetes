@@ -1,9 +1,31 @@
-{{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
-{{- $telemetry := default dict .Values.operator.telemetry }}
+{{- /*
+Template used directly by Helm and by kubectl plugin when rendering RBAC for member clusters.
+*/ -}}
 
-{{/* We can't use default here, as 0, false and nil as determined as unset and thus set the default value */}}
-{{- if ne $telemetry.enabled false }}
-  {{- if ne $telemetry.installClusterRole false}}
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false }}
+{{- $telemetry := default dict .Values.operator.telemetry }}
+{{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . }}
+
+{{- $clusterRoleName := printf "%s-cluster-telemetry" .Values.operator.name }}
+{{- $bindingName := printf "%s-%s-cluster-telemetry-binding" .Values.operator.name $operatorNamespace }}
+{{- $saName := .Values.operator.name }}
+{{- if $memberMode }}
+    {{- /*
+    In member mode, change resource names. Member RBAC must never
+    override RBAC from base installation (usually managed by Helm or OLM).
+    */ -}}
+    {{- $memberPrefix := "mck-member" }}
+    {{- $clusterRoleName = printf "%s-cluster-telemetry" $memberPrefix }}
+    {{- $bindingName = printf "%s-cluster-telemetry-binding" $memberPrefix }}
+    {{- $saName = printf "%s-sa" $memberPrefix }}
+{{- end }}
+
+{{/* Whether telemetry is enabled/disabled is a runtime setting on the OperatorConfig CR, so the RBAC
+     is always deployed (the base deployment can toggle telemetry without redeploying). Deployment of
+     the ClusterRole itself remains an installation-stage choice via operator.telemetry.installClusterRole.
+     We can't use default here, as 0, false and nil are determined as unset and thus set the default value */}}
+{{- if ne $telemetry.installClusterRole false}}
 
 ---
 # Additional ClusterRole for clusterVersionDetection
@@ -11,6 +33,8 @@ kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: {{ $clusterRoleName }}
+  annotations:
+    mongodb.com/rbac-version: {{ .Chart.Version | quote }}
 rules:
   # Non-resource URL permissions
   - nonResourceURLs:
@@ -37,14 +61,15 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-telemetry-binding
+  name: {{ $bindingName }}
+  annotations:
+    mongodb.com/rbac-version: {{ .Chart.Version | quote }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: {{ $clusterRoleName }}
 subjects:
   - kind: ServiceAccount
-    name: {{ .Values.operator.name }}
-    namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
-  {{- end}}{{/* if ne $telemetry.installClusterRole false */}}
-{{- end }}{{/* if ne $telemetry.enabled false */}}
+    name: {{ $saName }}
+    namespace: {{ $operatorNamespace }}
+{{- end}}{{/* if ne $telemetry.installClusterRole false */}}

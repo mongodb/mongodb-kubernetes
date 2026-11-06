@@ -1,8 +1,9 @@
 import pytest
 from kubernetes.client.rest import ApiException
 from kubetester import read_service, wait_for_webhook
+from kubetester.helm import apply_operator_config_crd
+from kubetester.kubetester import build_operator_config_spec_from_test_env, create_operator_config
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import get_default_architecture
 from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from tests.constants import OPERATOR_NAME
@@ -32,7 +33,6 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
     )
     catalog_source_resource.update()
 
-    static_value = get_default_architecture()
     subscription = get_subscription_custom_object(
         OPERATOR_NAME,
         namespace,
@@ -48,7 +48,9 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
                 "env": [
                     {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
                     {"name": "OPERATOR_ENV", "value": "dev"},
-                    {"name": "MDB_DEFAULT_ARCHITECTURE", "value": static_value},
+                    # The upgrade starts from the released operator, which still reads telemetry env
+                    # vars directly, so keep send disabled here. After the upgrade to the branch build,
+                    # apply_operator_config_from_test_env keeps it disabled via the OperatorConfig CR.
                     {"name": "MDB_OPERATOR_TELEMETRY_SEND_ENABLED", "value": "false"},
                 ]
             },
@@ -58,6 +60,19 @@ def test_upgrade_operator_only(namespace: str, version_id: str):
     subscription.update()
 
     wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{latest_released_operator_version}")
+
+    # Configure the operator before the upgrade, mirroring the real upgrade flow: the OperatorConfig
+    # exists before the branch build starts, so it takes effect from startup.
+    #
+    # The released operator predates OperatorConfig
+    # and ignores the CR, so apply the CRD temporarily to create it.
+    # TODO: once latest_released_operator_version is >= 2.0.0 it ships the OperatorConfig CRD itself,
+    # so drop this apply_operator_config_crd call. We will also need to move OperatorConfig CR creation before
+    # we install latest_released_operator_version.
+    apply_operator_config_crd()
+    spec = build_operator_config_spec_from_test_env()
+    if spec:
+        create_operator_config(namespace, spec)
 
     subscription.load()
     subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
