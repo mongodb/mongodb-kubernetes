@@ -75,6 +75,8 @@ spec:
       namespace: istio-system
       enabled: true
   meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
     defaultConfig:
       terminationDrainDuration: 30s
       proxyMetadata:
@@ -103,6 +105,8 @@ spec:
       namespace: istio-system
       enabled: true
   meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
     defaultConfig:
       terminationDrainDuration: 30s
       proxyMetadata:
@@ -131,6 +135,8 @@ spec:
       namespace: istio-system
       enabled: true
   meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
     defaultConfig:
       terminationDrainDuration: 30s
       proxyMetadata:
