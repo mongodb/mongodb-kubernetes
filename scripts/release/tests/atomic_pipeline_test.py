@@ -12,6 +12,7 @@ from scripts.release.agent.validation import (
     get_working_agent_filename,
     get_working_tools_filename,
 )
+from scripts.release.atomic_pipeline import add_custom_agent_version, agent_version_from_custom_url
 
 
 class TestBuildArgumentGeneration(unittest.TestCase):
@@ -163,6 +164,37 @@ class TestPlatformAvailability(unittest.TestCase):
 
         filename = get_working_tools_filename(self.tools_version, "invalid/platform")
         self.assertEqual(filename, "")
+
+
+class TestCustomAgentVersion(unittest.TestCase):
+    """The operator derives the Agent image tag from the custom URL filename."""
+
+    url = (
+        "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/"
+        "6aec7805bec40d0007fe0ae1/automation-agent/local/"
+        "mongodb-mms-automation-agent-110.0.0.9427-1.rhel8_x86_64.tar.gz"
+    )
+
+    def test_version_from_url(self):
+        self.assertEqual("110.0.0.9427-1", agent_version_from_custom_url(self.url))
+
+    def test_rejects_filename_without_version(self):
+        with self.assertRaisesRegex(ValueError, "custom Agent URL filename"):
+            agent_version_from_custom_url("https://example.com/agent.tar.gz")
+
+    def test_adds_candidate_version(self):
+        versions = [("109.0.1.9310-1", "100.17.0")]
+
+        result = add_custom_agent_version(versions, self.url, "100.17.0")
+
+        self.assertEqual([("109.0.1.9310-1", "100.17.0"), ("110.0.0.9427-1", "100.17.0")], result)
+
+    def test_keeps_existing_candidate_version_once(self):
+        versions = [("110.0.0.9427-1", "100.17.0")]
+
+        result = add_custom_agent_version(versions, self.url, "100.17.0")
+
+        self.assertEqual(versions, result)
 
 
 class TestIntegration(unittest.TestCase):
