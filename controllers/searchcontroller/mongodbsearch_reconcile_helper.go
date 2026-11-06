@@ -811,8 +811,8 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		configHash = hashBytes([]byte(configHash + keyPasswordHash))
 	}
 
-	// Same fold for the OIDC client secret: it is mounted directly (not part of the mongot
-	// config content), so rotating it must roll the mongot pods through the hash to re-read it.
+	// Include the OIDC client secret in the config hash as well: it is mounted directly
+	// (not part of the mongot config content), so rotating it must roll the mongot pods to re-read it.
 	oidcClientSecretHash, err := r.oidcClientSecretContentHash(ctx, unitClient)
 	if err != nil {
 		return nil, nil, err
@@ -821,8 +821,8 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		configHash = hashBytes([]byte(configHash + oidcClientSecretHash))
 	}
 
-	// Same fold for the OIDC IdP CA ConfigMap: the OIDC callback reads idpCaFile into its trust
-	// store once at startup, so a CA rotation must roll the mongot pods through the hash.
+	// Include the OIDC IdP CA ConfigMap in the config hash as well: the OIDC callback reads
+	// idpCaFile into its trust store once at startup, so a CA rotation must roll the mongot pods.
 	oidcIdpCaHash, err := r.oidcIdpCaContentHash(ctx, unitClient)
 	if err != nil {
 		return nil, nil, err
@@ -1944,10 +1944,10 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		return mongot.NOOP(), removeX509Volumes, nil
 	}
 
-	tlsSourceConfig := r.db.TLSConfig()
+	sourceTLSConfig := r.db.TLSConfig()
 	// in this https://docs.google.com/document/d/11xdolqdUR2Ht107AbxO5VKW658ytl6rPoJlYYc36ufE/edit?tab=t.0#heading=h.xpj7eo2nhgir document
 	// it's mentioned that tls=true is required for x509 auth.
-	if tlsSourceConfig == nil {
+	if sourceTLSConfig == nil {
 		return nil, nil, xerrors.New("tls must be enabled for syncSource to enable x509 auth for search resource")
 	}
 
@@ -1974,7 +1974,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		config.SyncSource.ReplicaSet.ScramAuth = nil
 		config.SyncSource.ReplicaSet.X509 = &mongot.ConfigX509{
 			TLSCertificateKeyFile:    new(certPath),
-			CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
+			CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 		}
 		if hasKeyPassword {
 			config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
@@ -1984,7 +1984,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 			config.SyncSource.Router.ScramAuth = nil
 			config.SyncSource.Router.X509 = &mongot.ConfigX509{
 				TLSCertificateKeyFile:    new(certPath),
-				CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
+				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 			}
 			if hasKeyPassword {
 				config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
@@ -2034,28 +2034,27 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 // When OIDC is configured, it replaces username/password auth with OIDC client-credentials auth.
 func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
 	if !r.mdbSearch.IsOIDCAuth() {
-		return mongot.NOOP(), removeMongotVolumesAndMounts("oidc-client-secret", "oidc-idp-ca"), nil
+		return mongot.NOOP(), removeMongotVolumesAndMounts(OIDCClientSecretVolumeName, OIDCIdPCaVolumeName), nil
 	}
-	removeOIDCMounts := removeMongotVolumeMounts("oidc-client-secret", "oidc-idp-ca")
+	removeOIDCMounts := removeMongotVolumeMounts(OIDCClientSecretVolumeName, OIDCIdPCaVolumeName)
 
 	// mongot requires oidc.tls.caFile to trust the source's TLS certificate (no JVM-trust
 	// fallback), so TLS must be enabled on the source for OIDC auth.
-	tlsSourceConfig := r.db.TLSConfig()
-	if tlsSourceConfig == nil {
+	sourceTLSConfig := r.db.TLSConfig()
+	if sourceTLSConfig == nil {
 		return nil, nil, xerrors.New("tls must be enabled for syncSource to enable OIDC auth for search resource")
 	}
 
 	oidc := r.mdbSearch.Spec.Source.OIDC
 
-	// Read + verify the client secret now to fail fast with a clear error; the secret value
-	// never appears in the mongot config — it is mounted directly and only referenced by path.
+	// Read + verify the client secret now to fail fast with a clear error instead of a
+	// mongot startup failure.
 	clientSecretRef := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: oidc.ClientSecretRef.Name}
 	if _, err := secret.ReadKey(ctx, kubeClient, oidc.ClientSecretRef.Key, clientSecretRef); err != nil {
 		return nil, nil, xerrors.Errorf("reading OIDC client secret %s: %w", oidc.ClientSecretRef.Name, err)
 	}
 
-	// Read + verify the IdP CA ConfigMap: the CA certificate must be present at the fixed
-	// "ca.crt" key (same convention as spec.source.external.tls.ca).
+	// Read + verify the IdP CA ConfigMap and require its fixed "ca.crt" key.
 	idpCaConfigMapRef := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: oidc.IdPCAConfigMapRef.Name}
 	idpCaConfigMap, err := kubeClient.GetConfigMap(ctx, idpCaConfigMapRef)
 	if err != nil {
@@ -2091,7 +2090,7 @@ func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Contex
 			IDPCaFile:        OIDCIdPCaMountPath + "/" + OIDCIdPCAConfigMapKey,
 			Scope:            scope,
 			TLS: &mongot.ConfigOIDCTLS{
-				CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
+				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 			},
 		}
 		if certPath != "" {
@@ -2119,12 +2118,12 @@ func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Contex
 	// Build volume/mount modifications for the OIDC client secret and the IdP CA ConfigMap.
 	// The client secret is mounted with subPath = the secret key so only that one key is
 	// exposed at /mongot/oidcClientSecret; the IdP CA ConfigMap is mounted as a directory.
-	clientSecretVolume := statefulset.CreateVolumeFromSecret("oidc-client-secret", oidc.ClientSecretRef.Name)
-	clientSecretVolumeMount := statefulset.CreateVolumeMount("oidc-client-secret", OIDCClientSecretMountPath,
+	clientSecretVolume := statefulset.CreateVolumeFromSecret(OIDCClientSecretVolumeName, oidc.ClientSecretRef.Name)
+	clientSecretVolumeMount := statefulset.CreateVolumeMount(OIDCClientSecretVolumeName, OIDCClientSecretMountPath,
 		statefulset.WithReadOnly(true), statefulset.WithSubPath(oidc.ClientSecretRef.Key))
 
-	idpCaVolume := statefulset.CreateVolumeFromConfigMap("oidc-idp-ca", oidc.IdPCAConfigMapRef.Name)
-	idpCaVolumeMount := statefulset.CreateVolumeMount("oidc-idp-ca", OIDCIdPCaMountPath, statefulset.WithReadOnly(true))
+	idpCaVolume := statefulset.CreateVolumeFromConfigMap(OIDCIdPCaVolumeName, oidc.IdPCAConfigMapRef.Name)
+	idpCaVolumeMount := statefulset.CreateVolumeMount(OIDCIdPCaVolumeName, OIDCIdPCaMountPath, statefulset.WithReadOnly(true))
 
 	volumeMounts := []corev1.VolumeMount{clientSecretVolumeMount, idpCaVolumeMount}
 	volumes := []podtemplatespec.Modification{
@@ -2168,8 +2167,8 @@ func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.Namespaced
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
 	removeScramClientVolumes := removeMongotVolumesAndMounts("scram-client-cert", "scram-key-password")
-	tlsSourceConfig := r.db.TLSConfig()
-	if tlsSourceConfig == nil {
+	sourceTLSConfig := r.db.TLSConfig()
+	if sourceTLSConfig == nil {
 		return mongot.NOOP(), removeScramClientVolumes, nil
 	}
 
@@ -2198,7 +2197,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	mongotModification := func(config *mongot.Config) {
 		scramTLS := &mongot.ScramAuthTLS{
 			Enabled:                  true,
-			CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
+			CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 		}
 		if scramCertPath != "" {
 			scramTLS.TLSCertificateKeyFile = new(scramCertPath)
@@ -2213,7 +2212,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		if config.SyncSource.Router != nil && config.SyncSource.Router.ScramAuth != nil {
 			routerScramTLS := &mongot.ScramAuthTLS{
 				Enabled:                  true,
-				CertificateAuthorityFile: new(tls.CAMountPath + tlsSourceConfig.CAFileName),
+				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 			}
 			if scramCertPath != "" {
 				routerScramTLS.TLSCertificateKeyFile = new(scramCertPath)
@@ -2227,11 +2226,11 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
 			config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeMTLS
-			config.Server.Grpc.TLS.CertificateAuthorityFile = new(tls.CAMountPath + tlsSourceConfig.CAFileName)
+			config.Server.Grpc.TLS.CertificateAuthorityFile = new(tls.CAMountPath + sourceTLSConfig.CAFileName)
 		}
 	}
 
-	caVolume := tlsSourceConfig.CAVolume
+	caVolume := sourceTLSConfig.CAVolume
 	volumeMounts := []corev1.VolumeMount{
 		statefulset.CreateVolumeMount(caVolume.Name, tls.CAMountPath, statefulset.WithReadOnly(true)),
 	}

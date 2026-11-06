@@ -69,10 +69,12 @@ const (
 	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
 	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
 
-	OIDCClientSecretMountPath = "/mongot/oidcClientSecret"           // #nosec G101 -- path, not a password
-	TempOIDCClientSecretPath  = tempVolumePath + "/oidcClientSecret" // #nosec G101 -- path, not a password
-	OIDCIdPCAConfigMapKey     = "ca.crt"                             // fixed key in the user's IdP-CA ConfigMap (spec.source.oidc.idpCAConfigMapRef), same convention as spec.source.external.tls.ca
-	OIDCIdPCaMountPath        = "/mongot/oidcIdpCa"                  // dir mount of the IdP-CA ConfigMap; idpCaFile = mountPath + "/" + OIDCIdPCAConfigMapKey
+	OIDCClientSecretVolumeName = "oidc-client-secret"
+	OIDCIdPCaVolumeName        = "oidc-idp-ca"
+	OIDCClientSecretMountPath  = "/mongot/oidcClientSecret"           // #nosec G101 -- path, not a password
+	TempOIDCClientSecretPath   = tempVolumePath + "/oidcClientSecret" // #nosec G101 -- path, not a password
+	OIDCIdPCAConfigMapKey      = "ca.crt"                             // fixed key in the user's IdP-CA ConfigMap (spec.source.oidc.idpCAConfigMapRef), same convention as spec.source.external.tls.ca
+	OIDCIdPCaMountPath         = "/mongot/oidcIdpCa"                  // dir mount of the IdP-CA ConfigMap; idpCaFile = mountPath + "/" + OIDCIdPCAConfigMapKey
 
 	// SourceUserPasswordVolumeName is the password volume/mount name, referenced by both the
 	// SCRAM mount modification and the auth-switch cleanup.
