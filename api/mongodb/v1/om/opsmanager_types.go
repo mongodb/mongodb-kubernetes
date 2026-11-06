@@ -182,13 +182,13 @@ type MongoDBOpsManagerSpec struct {
 }
 
 // MongoDBOpsManagerLicense configures the Enterprise Advanced license and its release receipts.
-// +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, r.licenseSecretRef.name == self.licenseSecretRef.name)",message="licenseSecretRef must not also be listed in releaseReceipts"
-// +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
+// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, r.secretRef.name == self.secretRef.name)",message="secretRef must not also be listed in releaseReceipts"
+// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
 type MongoDBOpsManagerLicense struct {
-	// LicenseSecretRef names a Secret that holds the signed license under the "license" key.
+	// SecretRef names a Secret that holds the signed license under the "license" key.
 	// Changing or removing it releases the installed license.
 	// +optional
-	LicenseSecretRef *SecretRef `json:"licenseSecretRef,omitempty"`
+	SecretRef *SecretRef `json:"secretRef,omitempty"`
 
 	// ReleaseReceiptsPolicy controls which released licenses get a receipt.
 	// When unset, only the licenses listed in releaseReceipts get one.
@@ -203,7 +203,7 @@ type MongoDBOpsManagerLicense struct {
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.licenseSecretRef.name == x.licenseSecretRef.name).size() == 1)",message="releaseReceipts must not list the same licenseSecretRef twice"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size() == 1)",message="releaseReceipts must not list the same secretRef twice"
 	ReleaseReceipts []LicenseReleaseReceipt `json:"releaseReceipts,omitempty"`
 }
 
@@ -214,16 +214,16 @@ type ReleaseReceiptsPolicy string
 // ReleaseReceiptsAutomatic writes a receipt for every license the operator releases.
 const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
 
-// +kubebuilder:validation:XValidation:rule="size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
+// +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
 type LicenseReleaseReceipt struct {
-	// LicenseSecretRef names a Secret that holds the released license. The artifact ID is read
+	// SecretRef names a Secret that holds the released license. The artifact ID is read
 	// from the license.
 	// +kubebuilder:validation:Required
-	LicenseSecretRef SecretRef `json:"licenseSecretRef"`
+	SecretRef SecretRef `json:"secretRef"`
 }
 
 func (l *MongoDBOpsManagerLicense) InstallRequested() bool {
-	return l != nil && l.LicenseSecretRef != nil && l.LicenseSecretRef.Name != ""
+	return l != nil && l.SecretRef != nil && l.SecretRef.Name != ""
 }
 
 // GetReleaseReceipts returns the artifacts whose release receipts the operator collects.
@@ -1300,7 +1300,7 @@ func (om *MongoDBOpsManager) GetLastSpec() (*MongoDBOpsManagerSpec, error) {
 	return &lastSpec, nil
 }
 
-// GetLastInstallSecretRef returns the licenseSecretRef the last spec that has successfully been
+// GetLastInstallSecretRef returns the secretRef the last spec that has successfully been
 // applied installed from. The current spec alone cannot answer whether the install intent was
 // removed or was never there.
 func (om *MongoDBOpsManager) GetLastInstallSecretRef() (string, error) {
@@ -1311,7 +1311,7 @@ func (om *MongoDBOpsManager) GetLastInstallSecretRef() (string, error) {
 	if !lastSpec.License.InstallRequested() {
 		return "", nil
 	}
-	return lastSpec.License.LicenseSecretRef.Name, nil
+	return lastSpec.License.SecretRef.Name, nil
 }
 
 func (om *MongoDBOpsManager) LicenseRotateIdentityDue() bool {
