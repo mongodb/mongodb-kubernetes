@@ -42,9 +42,8 @@ type IdentityView struct {
 
 // LicenseView is the license state Ops Manager returns.
 type LicenseView struct {
-	Enforcement        *LicenseEnforcementView             `json:"enforcement,omitempty"`
-	Licenses           []LicenseArtifactView               `json:"licenses,omitempty"`
-	ActiveEntitlements map[string][]LicenseEntitlementView `json:"activeEntitlements,omitempty"`
+	Enforcement *LicenseEnforcementView `json:"enforcement,omitempty"`
+	Licenses    []LicenseArtifactView   `json:"licenses,omitempty"`
 }
 
 // ArtifactIDs returns every artifact id the view lists, released rows included. It is for logging.
@@ -95,76 +94,16 @@ func (s LicenseView) HeldArtifactIDs() []string {
 	return ids
 }
 
-type LicenseEntitlementView struct {
-	Type        string                        `json:"type"`
-	ProductName string                        `json:"productName,omitempty"`
-	Active      bool                          `json:"active"`
-	Window      *LicenseEntitlementWindowView `json:"window,omitempty"`
-}
-
-type LicenseEntitlementWindowView struct {
-	Start string `json:"start,omitempty"`
-	End   string `json:"end,omitempty"`
-}
-
 type LicenseEnforcementView struct {
-	EffectiveState string                            `json:"effectiveState"`
-	Cause          string                            `json:"cause"`
-	Enforced       bool                              `json:"enforced"`
-	Transition     *LicenseEnforcementTransitionView `json:"transition,omitempty"`
-	Warnings       []LicenseWarningView              `json:"warnings,omitempty"`
-	Verdicts       []LicenseVerdictView              `json:"verdicts,omitempty"`
-}
-
-type LicenseEnforcementTransitionView struct {
-	EvaluatorID  string `json:"evaluatorId,omitempty"`
-	InStateUntil string `json:"inStateUntil,omitempty"`
-	NextState    string `json:"nextState,omitempty"`
-}
-
-type LicenseWarningView struct {
-	EvaluatorID string                      `json:"evaluatorId,omitempty"`
-	Since       string                      `json:"since,omitempty"`
-	Subjects    []LicenseWarningSubjectView `json:"subjects,omitempty"`
-}
-
-type LicenseWarningSubjectView struct {
-	ID    string `json:"id,omitempty"`
-	Since string `json:"since,omitempty"`
-}
-
-type LicenseVerdictView struct {
-	EvaluatorID  string                        `json:"evaluatorId,omitempty"`
-	State        string                        `json:"state,omitempty"`
-	BreachAt     string                        `json:"breachAt,omitempty"`
-	WarningStart string                        `json:"warningStart,omitempty"`
-	Transition   *LicenseVerdictTransitionView `json:"transition,omitempty"`
-	Metadata     map[string]any                `json:"metadata,omitempty"`
-}
-
-type LicenseVerdictTransitionView struct {
-	InStateUntil string `json:"inStateUntil,omitempty"`
-	NextState    string `json:"nextState,omitempty"`
+	EffectiveState string `json:"effectiveState"`
 }
 
 type LicenseArtifactView struct {
-	ArtifactID   string             `json:"artifactId"`
-	Usable       bool               `json:"usable"`
-	GeneratedAt  string             `json:"generatedAt,omitempty"`
-	InstalledAt  string             `json:"installedAt,omitempty"`
-	Status       string             `json:"status,omitempty"`
-	StatusCause  string             `json:"statusCause,omitempty"`
-	StatusReason string             `json:"statusReason,omitempty"`
-	TermEnd      string             `json:"termEnd,omitempty"`
-	Grants       []LicenseGrantView `json:"grants,omitempty"`
-}
-
-type LicenseGrantView struct {
-	GrantType    string                   `json:"grantType,omitempty"`
-	GrantID      string                   `json:"grantId,omitempty"`
-	StartDate    string                   `json:"startDate,omitempty"`
-	EndDate      string                   `json:"endDate,omitempty"`
-	Entitlements []LicenseEntitlementView `json:"entitlements,omitempty"`
+	ArtifactID   string `json:"artifactId"`
+	Usable       bool   `json:"usable"`
+	Status       string `json:"status,omitempty"`
+	StatusReason string `json:"statusReason,omitempty"`
+	TermEnd      string `json:"termEnd,omitempty"`
 }
 
 // ArtifactIDFromRaw reads the artifact_id claim out of a raw signed artifact: the envelope's
