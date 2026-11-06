@@ -58,6 +58,7 @@ from tests.opsmanager.license_e2e_helpers import (
     wait_for_ea_artifact_status,
     wait_for_ea_holder_released,
     wait_for_installed_license,
+    wait_for_license_ready_matches_om,
     wait_for_license_receipt,
     wait_for_license_reconciled,
     wait_for_license_reconciled_reason,
@@ -180,7 +181,7 @@ class TestOpsManagerLicenseE2E:
             ensure_license_artifact_secret(namespace, older_raw)
             reconciled = wait_for_license_reconciled_reason(ops_manager, "LicenseOutdated")
 
-            assert reconciled["status"] == "True", reconciled["message"]
+            assert reconciled["status"] == "False", reconciled["message"]
             assert f"rejected license {older_id}" in reconciled["message"], reconciled["message"]
             assert f"It holds license {current_artifact_id()}" in reconciled["message"], reconciled["message"]
             assert_om_license_unchanged(before, read_om_license_view(ops_manager))
@@ -211,8 +212,9 @@ class TestOpsManagerLicenseE2E:
         top_up = issue_top_up_and_auto_install(ops_manager)
         wait_for_ea_artifact_state(ops_manager, original, "RELEASED")
         reconciled = wait_for_license_reconciled_reason(ops_manager, "LicenseOutdated")
-        _, om_view = wait_for_cr_license_sync(ops_manager)
+        om_view = wait_for_license_ready_matches_om(ops_manager)
 
+        assert reconciled["status"] == "False", reconciled["message"]
         assert f"rejected license {original}" in reconciled["message"], reconciled["message"]
         assert cr_matches_om_license(ops_manager, om_view)
         assert om_artifact_released(ops_manager, original)

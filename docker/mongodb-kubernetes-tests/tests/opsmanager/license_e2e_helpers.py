@@ -657,6 +657,20 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
     return reconciled
 
 
+def wait_for_license_ready_matches_om(ops_manager: MongoDBOpsManager) -> dict:
+    """Waits until LicenseReady reports the Ops Manager view, whatever LicenseReconciled says, and
+    returns the view."""
+
+    def matches(_: MongoDBOpsManager) -> bool:
+        if cr_matches_om_license(ops_manager, read_om_license_view(ops_manager)):
+            return True
+        nudge_reconcile(ops_manager)
+        return False
+
+    ops_manager.wait_for(matches, timeout=DEFAULT_TIMEOUT)
+    return read_om_license_view(ops_manager)
+
+
 def wait_for_cr_license_sync(ops_manager: MongoDBOpsManager, *, installed: Optional[str] = None) -> tuple[dict, dict]:
     """Waits until the current generation is reconciled and LicenseReady reports the Ops Manager view.
 
