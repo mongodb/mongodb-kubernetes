@@ -10,13 +10,13 @@ from kubetester.phase import Phase
 from pytest import fixture
 from tests.opsmanager.license_e2e_helpers import (
     ENROLLMENT_RECONCILE_CRON,
+    LICENSE_SECRET_NAME,
     LICENSE_STATE_EVALUATION_CRON,
     RECOMPUTE_ANNOTATION,
     ROTATE_IDENTITY_ANNOTATION,
     assert_license_installed,
     assert_om_and_appdb_running,
     assert_om_license_unchanged,
-    assert_reconcile_failed,
     assert_secret_absent,
     cr_matches_om_license,
     current_artifact,
@@ -32,7 +32,7 @@ from tests.opsmanager.license_e2e_helpers import (
     install_license_out_of_band,
     installed_artifact_id,
     issue_top_up_and_auto_install,
-    license_status,
+    license_ready_condition,
     mint_run_license,
     nudge_reconcile,
     om_artifact_ids,
@@ -43,6 +43,7 @@ from tests.opsmanager.license_e2e_helpers import (
     paused_cron,
     prepare_for_license_install,
     read_om_license_view,
+    remove_install_intent_without_identity,
     renew_license,
     reset_license_e2e_state,
     revoke_at_ea,
@@ -58,8 +59,8 @@ from tests.opsmanager.license_e2e_helpers import (
     wait_for_ea_holder_released,
     wait_for_installed_license,
     wait_for_license_receipt,
-    wait_for_license_reconcile_failure,
     wait_for_license_reconciled,
+    wait_for_license_reconciled_reason,
     wait_for_observed_api_state,
     wait_for_om_artifact_unusable,
 )
@@ -81,11 +82,12 @@ class TestOpsManagerLicenseE2E:
         assert_om_and_appdb_running(ops_manager)
 
     def test_observe_only_license_status(self, ops_manager: MongoDBOpsManager):
-        """Without spec.license the CR mirrors the state and identity Ops Manager reports."""
-        cr, _ = wait_for_cr_license_sync(ops_manager, installed="")
+        """Without spec.license LicenseReady reports the state and identity Ops Manager reports."""
+        ready, _ = wait_for_cr_license_sync(ops_manager, installed="")
 
-        assert cr["enforcement"]["effectiveState"] == "GRACE"
-        assert cr["identity"]["holderId"] == om_holder_id(ops_manager)
+        assert ready["status"] == "False"
+        assert ready["reason"] == "LicenseGrace"
+        assert f"Holder ID {om_holder_id(ops_manager)}." in ready["message"]
 
     def test_mint_license_for_this_ops_manager(self, ops_manager: MongoDBOpsManager):
         """EA issues a license bound to this Ops Manager, and lists it for the run's principal."""
@@ -95,14 +97,14 @@ class TestOpsManagerLicenseE2E:
         assert ea_artifact_row(ops_manager, artifact_id)["status"] == "ISSUED"
 
     def test_install_and_claim(self, ops_manager: MongoDBOpsManager, namespace: str):
-        """The license from the Secret is installed, claimed at EA, and mirrored in the CR."""
+        """The license from the Secret is installed, claimed at EA, and reported in the CR."""
         install_license(ops_manager, namespace)
-        cr = license_status(ops_manager)
+        om_view = read_om_license_view(ops_manager)
 
-        assert cr_matches_om_license(cr, read_om_license_view(ops_manager))
-        assert cr["enforcement"]["effectiveState"] == "LICENSED"
-        assert cr["enforcement"].get("enforced", False) is False
-        assert cr["identity"]["holderId"] == om_holder_id(ops_manager)
+        assert cr_matches_om_license(ops_manager, om_view)
+        assert_license_installed(ops_manager, current_artifact_id())
+        assert om_view["enforcement"].get("enforced", False) is False
+        assert f"Holder ID {om_holder_id(ops_manager)}." in license_ready_condition(ops_manager)["message"]
 
     def test_recompute_annotation_is_consumed(self, ops_manager: MongoDBOpsManager):
         """The operator removes the recompute annotation and reports the license reconciled."""
@@ -114,16 +116,37 @@ class TestOpsManagerLicenseE2E:
         assert RECOMPUTE_ANNOTATION not in ops_manager["metadata"].get("annotations", {})
 
     def test_release_without_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
-        """Removing licenseSecretRef releases the license at EA and writes no receipt."""
+        """Removing secretRef releases the license at EA and writes no receipt."""
         install_and_release_license(ops_manager, namespace)
 
         assert_secret_absent(namespace, current_receipt_secret_name())
+
+    def test_release_after_license_secret_deleted_fails(self, ops_manager: MongoDBOpsManager, namespace: str):
+        """Without the license Secret the operator cannot tell its license from a foreign one, so removing
+        secretRef releases nothing and keeps reporting why."""
+        installed = install_license(ops_manager, namespace)
+
+        delete_secret_if_exists(namespace, LICENSE_SECRET_NAME)
+        remove_install_intent_without_identity(ops_manager, installed)
+
+        wait_for_ea_artifact_state(ops_manager, installed, "ACTIVE")
+
+    def test_release_after_license_secret_changed_fails(self, ops_manager: MongoDBOpsManager, namespace: str):
+        """A license Secret that no longer holds a license does not identify the installed one, so removing
+        secretRef releases nothing and keeps reporting why."""
+        installed = install_license(ops_manager, namespace)
+
+        ensure_license_artifact_secret(namespace, "not-a-license")
+        wait_for_license_reconciled_reason(ops_manager, "LicenseArtifactInvalid")
+        remove_install_intent_without_identity(ops_manager, installed)
+
+        wait_for_ea_artifact_state(ops_manager, installed, "ACTIVE")
 
     def test_install_release_then_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
         """The receipt is read from Ops Manager after the release, and written again when its Secret is lost."""
         install_and_release_license(ops_manager, namespace)
 
-        set_release_receipts_spec(ops_manager, current_artifact_id())
+        set_release_receipts_spec(ops_manager)
         receipt = wait_for_license_receipt(ops_manager, current_receipt_secret_name())
         delete_secret_if_exists(namespace, current_receipt_secret_name())
         nudge_reconcile(ops_manager)
@@ -141,10 +164,10 @@ class TestOpsManagerLicenseE2E:
 
         assert wait_for_license_receipt(ops_manager, current_receipt_secret_name())
 
-    def test_outdated_artifact_in_secret_fails_without_touching_om(
+    def test_outdated_artifact_in_secret_is_reported_without_touching_om(
         self, ops_manager: MongoDBOpsManager, namespace: str
     ):
-        """Ops Manager rejects a license older than one it has seen, and the CR reports the 409."""
+        """Ops Manager rejects a license older than one it has seen, and LicenseReconciled reports it as outdated."""
         prepare_for_license_install(ops_manager)
         older_raw, older_id = current_artifact(), current_artifact_id()
         mint_run_license(ops_manager)
@@ -155,13 +178,12 @@ class TestOpsManagerLicenseE2E:
             before = read_om_license_view(ops_manager)
 
             ensure_license_artifact_secret(namespace, older_raw)
-            reconciled = wait_for_license_reconcile_failure(ops_manager)
+            reconciled = wait_for_license_reconciled_reason(ops_manager, "LicenseOutdated")
 
-            assert_reconcile_failed(
-                reconciled, "LicenseInstallFailed", f"rejected license {older_id}", "409", "ARTIFACT_OUTDATED"
-            )
+            assert reconciled["status"] == "True", reconciled["message"]
+            assert f"rejected license {older_id}" in reconciled["message"], reconciled["message"]
+            assert f"It holds license {current_artifact_id()}" in reconciled["message"], reconciled["message"]
             assert_om_license_unchanged(before, read_om_license_view(ops_manager))
-            assert installed_artifact_id(ops_manager) == current_artifact_id()
         finally:
             # Ops Manager never held the older license, so only a revoke retires it at EA.
             revoke_at_ea(ops_manager, older_id)
@@ -169,29 +191,30 @@ class TestOpsManagerLicenseE2E:
     def test_out_of_band_install_and_release_are_mirrored(self, ops_manager: MongoDBOpsManager):
         """Changes made through the Ops Manager admin API show up in the CR, which never acts on them."""
         install_license_out_of_band(ops_manager)
-        cr, om_view = wait_for_cr_license_sync(ops_manager)
+        _, om_view = wait_for_cr_license_sync(ops_manager)
 
-        assert cr_matches_om_license(cr, om_view)
+        assert cr_matches_om_license(ops_manager, om_view)
         assert not installed_artifact_id(ops_manager)
 
         released = current_artifact_id()
         ops_manager.get_om_tester().api_release_license(released)
-        cr, _ = wait_for_observed_api_state(ops_manager, effective_state="GRACE", installed="")
+        ready, _ = wait_for_observed_api_state(ops_manager, effective_state="GRACE", installed="")
 
         assert om_artifact_released(ops_manager, released)
-        assert cr["enforcement"]["effectiveState"] == "GRACE"
+        assert ready["reason"] == "LicenseGrace"
 
-    def test_auto_installed_top_up_is_mirrored_not_overridden(self, ops_manager: MongoDBOpsManager, namespace: str):
-        """A top up Ops Manager pulls from EA replaces the license from the Secret. The CR mirrors it, the
-        operator does not put its own license back, and removing licenseSecretRef leaves the top up alone."""
+    def test_auto_installed_top_up_is_reported_not_overridden(self, ops_manager: MongoDBOpsManager, namespace: str):
+        """A top up Ops Manager pulls from EA replaces the license from the Secret. The CR reports it, Ops
+        Manager rejects the license from the Secret as outdated, and removing secretRef leaves the top up alone."""
         original = install_license(ops_manager, namespace)
 
         top_up = issue_top_up_and_auto_install(ops_manager)
         wait_for_ea_artifact_state(ops_manager, original, "RELEASED")
-        nudge_reconcile(ops_manager)
-        cr, om_view = wait_for_cr_license_sync(ops_manager, installed=original)
+        reconciled = wait_for_license_reconciled_reason(ops_manager, "LicenseOutdated")
+        _, om_view = wait_for_cr_license_sync(ops_manager)
 
-        assert cr_matches_om_license(cr, om_view)
+        assert f"rejected license {original}" in reconciled["message"], reconciled["message"]
+        assert cr_matches_om_license(ops_manager, om_view)
         assert om_artifact_released(ops_manager, original)
         assert top_up in om_artifact_ids(ops_manager)
 
@@ -202,7 +225,7 @@ class TestOpsManagerLicenseE2E:
 
     def test_revoke_at_ea_then_recompute_moves_to_grace(self, ops_manager: MongoDBOpsManager, namespace: str):
         """Once Ops Manager stops using a license revoked at EA, the recompute annotation moves the state to GRACE
-        while the evaluation cron is paused. The operator does not PUT the Secret again, and removing licenseSecretRef
+        while the evaluation cron is paused. The operator does not PUT the Secret again, and removing secretRef
         reconciles cleanly."""
         revoked = install_license(ops_manager, namespace)
 
@@ -213,10 +236,10 @@ class TestOpsManagerLicenseE2E:
             assert read_om_license_view(ops_manager)["enforcement"]["effectiveState"] != "GRACE"
 
             set_annotation_and_wait_cleared(ops_manager, RECOMPUTE_ANNOTATION)
-            cr, om_view = wait_for_observed_api_state(ops_manager, effective_state="GRACE", installed=revoked)
+            ready, om_view = wait_for_observed_api_state(ops_manager, effective_state="GRACE", installed=revoked)
 
-        assert cr_matches_om_license(cr, om_view)
-        assert cr["enforcement"]["effectiveState"] == "GRACE"
+        assert cr_matches_om_license(ops_manager, om_view)
+        assert ready["reason"] == "LicenseGrace"
         assert not om_artifact_usable(ops_manager, revoked)
 
         set_license_release_spec(ops_manager)
@@ -237,13 +260,16 @@ class TestOpsManagerLicenseE2E:
         wait_for_ea_artifact_state(ops_manager, current_artifact_id(), "ACTIVE")
 
     def test_expired_license_is_enforced_then_recovers(self, ops_manager: MongoDBOpsManager, namespace: str):
-        """The CR reports an expired license as enforced, and a fresh one from the Secret recovers."""
+        """The CR reports an expired license, which Ops Manager enforces, and a fresh one from the Secret recovers."""
         install_expired_license(ops_manager)
         wait_for_ea_artifact_state(ops_manager, current_artifact_id(), "ACTIVE")
-        cr, om_view = wait_for_observed_api_state(ops_manager, effective_state="EXPIRED", enforced=True, installed="")
+        ready, om_view = wait_for_observed_api_state(
+            ops_manager, effective_state="EXPIRED", enforced=True, installed=""
+        )
 
-        assert cr_matches_om_license(cr, om_view)
-        assert cr["enforcement"]["cause"].split(":")[-1] == "EXPIRED"
+        assert cr_matches_om_license(ops_manager, om_view)
+        assert ready["reason"] == "LicenseExpired"
+        assert om_view["enforcement"]["cause"].split(":")[-1] == "EXPIRED"
 
         install_license(ops_manager, namespace)
 
