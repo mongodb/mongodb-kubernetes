@@ -197,13 +197,12 @@ type MongoDBOpsManagerLicense struct {
 	ReleaseReceiptsPolicy ReleaseReceiptsPolicy `json:"releaseReceiptsPolicy,omitempty"`
 
 	// ReleaseReceipts requests a release receipt for each entry.
-	// An entry can be either an artifactId or a licenseSecretRef.
-	// The operator creates one Secret per entry, named <artifactId>-release-receipt,
-	// containing the license release receipt.
+	// Each entry names the Secret that holds the released license, and the artifact id
+	// is read from the license in it. The operator creates one Secret per entry, named
+	// <artifactId>-release-receipt, containing the license release receipt.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.artifactId) || self.filter(y, has(y.artifactId) && y.artifactId == x.artifactId).size() == 1)",message="releaseReceipts must not list the same artifactId twice"
 	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.licenseSecretRef) || self.filter(y, has(y.licenseSecretRef) && y.licenseSecretRef.name == x.licenseSecretRef.name).size() == 1)",message="releaseReceipts must not list the same licenseSecretRef twice"
 	ReleaseReceipts []LicenseReleaseReceipt `json:"releaseReceipts,omitempty"`
 }
@@ -215,15 +214,9 @@ type ReleaseReceiptsPolicy string
 // ReleaseReceiptsAutomatic writes a receipt for every license the operator releases.
 const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
 
-// +kubebuilder:validation:XValidation:rule="has(self.artifactId) != has(self.licenseSecretRef)",message="exactly one of artifactId or licenseSecretRef must be set"
+// +kubebuilder:validation:XValidation:rule="has(self.licenseSecretRef)",message="licenseSecretRef must be set"
 // +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
 type LicenseReleaseReceipt struct {
-	// ArtifactID is the artifact ID of the released license.
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	ArtifactID string `json:"artifactId,omitempty"`
-
 	// LicenseSecretRef names a Secret that holds the released license. The artifact ID is read
 	// from the license.
 	// +optional
@@ -242,26 +235,9 @@ func (l *MongoDBOpsManagerLicense) GetReleaseReceipts() []LicenseReleaseReceipt 
 	return l.ReleaseReceipts
 }
 
-func (l *MongoDBOpsManagerLicense) ReceiptsRequested() bool {
-	return l != nil && len(l.ReleaseReceipts) > 0
-}
-
 // AutoReleaseReceiptsRequested reports whether ReleaseReceiptsPolicy is Automatic.
 func (l *MongoDBOpsManagerLicense) AutoReleaseReceiptsRequested() bool {
 	return l != nil && l.ReleaseReceiptsPolicy == ReleaseReceiptsAutomatic
-}
-
-// HasReleaseReceipt reports whether artifactID is listed in releaseReceipts.
-func (l *MongoDBOpsManagerLicense) HasReleaseReceipt(artifactID string) bool {
-	if l == nil {
-		return false
-	}
-	for _, r := range l.ReleaseReceipts {
-		if r.ArtifactID == artifactID {
-			return true
-		}
-	}
-	return false
 }
 
 // ExternalAppDBRef references an MongoDB resource
