@@ -37,14 +37,14 @@ const (
 	ReasonLicenseStateFailed     = "LicenseStateFailed"
 )
 
-func LicenseCondition(ready bool, reason, message string) metav1.Condition {
+func OpsManagerLicenseReadyCondition(ready bool, reason, message string) metav1.Condition {
 	return licenseCondition(ConditionOpsManagerLicenseReady, ready, reason, message)
 }
 
 // LicenseEnforcedCondition and ClearLicenseBlockIfPresent serve the enforcement block flow, wired
 // in by upcoming AC change mutations.
 func LicenseEnforcedCondition(message string) metav1.Condition {
-	return LicenseCondition(false, ReasonLicenseEnforced, message)
+	return OpsManagerLicenseReadyCondition(false, ReasonLicenseEnforced, message)
 }
 
 func LicenseReconciledCondition(reconciled bool, reason, message string) metav1.Condition {
@@ -74,7 +74,7 @@ func ClearLicenseBlockIfPresent(conditions *[]metav1.Condition, generation int64
 	if ready == nil || ready.Status != metav1.ConditionFalse || ready.Reason != ReasonLicenseEnforced {
 		return
 	}
-	c := LicenseCondition(true, ReasonLicenseReady, "")
+	c := OpsManagerLicenseReadyCondition(true, ReasonLicenseReady, "")
 	c.ObservedGeneration = generation
 	_ = meta.SetStatusCondition(conditions, c)
 }
