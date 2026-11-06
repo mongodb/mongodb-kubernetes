@@ -24,30 +24,24 @@ const (
 )
 
 func LicenseCondition(ready bool, reason, message string) metav1.Condition {
-	st := metav1.ConditionFalse
-	if ready {
-		st = metav1.ConditionTrue
-	}
-	return metav1.Condition{
-		Type:               ConditionOpsManagerLicenseReady,
-		Status:             st,
-		Reason:             reason,
-		Message:            message,
-		LastTransitionTime: metav1.Now(),
-	}
+	return licenseCondition(ConditionOpsManagerLicenseReady, ready, reason, message)
 }
 
 func LicenseEnforcedCondition(message string) metav1.Condition {
 	return LicenseCondition(false, ReasonLicenseEnforced, message)
 }
 
-func OmLicenseReconciledCondition(reconciled bool, reason, message string) metav1.Condition {
+func LicenseReconciledCondition(reconciled bool, reason, message string) metav1.Condition {
+	return licenseCondition(ConditionLicenseReconciled, reconciled, reason, message)
+}
+
+func licenseCondition(conditionType string, ok bool, reason, message string) metav1.Condition {
 	st := metav1.ConditionFalse
-	if reconciled {
+	if ok {
 		st = metav1.ConditionTrue
 	}
 	return metav1.Condition{
-		Type:               ConditionLicenseReconciled,
+		Type:               conditionType,
 		Status:             st,
 		Reason:             reason,
 		Message:            message,

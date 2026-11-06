@@ -15,8 +15,8 @@ import (
 func TestOpsManagerStatus_LicenseReconciledCondition(t *testing.T) {
 	om := NewOpsManagerBuilderDefault().Build()
 	om.UpdateStatus(status.PhaseFailed, status.NewOMPartOption(status.OpsManager),
-		status.NewOmLicenseReconciledStatusOptionWithCondition(
-			status.OmLicenseReconciledCondition(false, status.ReasonIdentityRotationFailed, "rotation failed"),
+		status.NewLicenseStatusOptionWithCondition(
+			status.LicenseReconciledCondition(false, status.ReasonIdentityRotationFailed, "rotation failed"),
 		))
 
 	cond := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseReconciled)
@@ -27,8 +27,8 @@ func TestOpsManagerStatus_LicenseReconciledCondition(t *testing.T) {
 	assert.Equal(t, om.GetGeneration(), cond.ObservedGeneration)
 
 	om.UpdateStatus(status.PhaseRunning, status.NewOMPartOption(status.OpsManager),
-		status.NewOmLicenseReconciledStatusOptionWithCondition(
-			status.OmLicenseReconciledCondition(true, status.ReasonLicenseReconciled, ""),
+		status.NewLicenseStatusOptionWithCondition(
+			status.LicenseReconciledCondition(true, status.ReasonLicenseReconciled, ""),
 		))
 
 	cond = meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseReconciled)
