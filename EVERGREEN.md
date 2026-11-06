@@ -88,16 +88,30 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test custom agent" -f -y -
 
 ### Custom Ops Manager image
 
-Pass `om_download_url` and `om_version` to build the Ops Manager image from a custom tarball; `om_version` is the image
-tag and must be passed together with the URL. The image is pushed to the `dev` registry.
+Build an Ops Manager image from a custom tarball, for example from an Ops Manager patch build.
+
+**1. Build the Ops Manager tarball.** From the Ops Manager repository, run the `PACKAGE_OPS_MANAGER` task of the
+`package_rpm` variant in the `ops-manager-main` project:
+
+```shell
+evergreen patch -p ops-manager-main -v package_rpm -t PACKAGE_OPS_MANAGER -d "OM tarball for testing" -f -y
+```
+
+When the task finishes, open it in Spruce, go to the **Files** tab and copy the link of the
+`mongodb-mms-<version>.tar.gz` artifact.
+
+**2. Build the image.** Pass `om_download_url` and `om_version` to the `build_om_images` task; `om_version` is the image
+tag and must be passed together with the URL.
 
 ```shell
 evergreen patch -p mongodb-kubernetes -v build_om90_images -t build_om_images -d "OM image from custom tarball" -f -y \
-  --param om_download_url=https://example.com/mongodb-mms-10.0.0-alpha0.489.20261106T1228Z.tar.gz \
+  --param om_download_url=https://mciuploads.s3.amazonaws.com/ops-manager-main/.../mongodb-mms-10.0.0-alpha0.489.20261106T1228Z.tar.gz \
   --param om_version=10.0.0-alpha0.489.20261106T1228Z
 ```
 
-- Pass `--param BUILD_SCENARIO=staging` to push to the `staging` registry instead.
+The image is pushed to `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi:<om_version>`.
+
+- Pass `--param BUILD_SCENARIO=staging` to push to the `staging` registry instead, with the same tag.
 - An existing tag in the registry is skipped (`skip-if-exists`), so pass a new `om_version` when rebuilding with a different
   tarball.
 - `om_version` without a URL rebuilds the image of that released OM version, for example after a Dockerfile-only change.
