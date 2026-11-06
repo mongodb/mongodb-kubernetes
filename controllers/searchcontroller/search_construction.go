@@ -69,7 +69,7 @@ const (
 	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
 	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
 
-	OIDCClientSecretVolumeName = "oidc-client-secret"
+	OIDCClientSecretVolumeName = "oidc-client-secret" // #nosec G101 -- volume name, not a password
 	OIDCIdPCaVolumeName        = "oidc-idp-ca"
 	OIDCClientSecretMountPath  = "/mongot/oidcClientSecret"           // #nosec G101 -- path, not a password
 	TempOIDCClientSecretPath   = tempVolumePath + "/oidcClientSecret" // #nosec G101 -- path, not a password
