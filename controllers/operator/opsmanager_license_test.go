@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,6 +25,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
@@ -87,6 +89,13 @@ func reconciledCondition(t *testing.T, options []status.Option) metav1.Condition
 func assertLicenseReconcileReason(t *testing.T, options []status.Option, reason string) {
 	t.Helper()
 	assert.Equal(t, reason, reconciledCondition(t, options).Reason)
+}
+
+func TestFailed_NonLicenseKeepsDefaultRetry(t *testing.T) {
+	st := workflow.Failed(assert.AnError)
+	res, err := st.ReconcileResult()
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Second, res.RequeueAfter)
 }
 
 func TestMongoDBOpsManagerLicense_InstallRequested(t *testing.T) {
