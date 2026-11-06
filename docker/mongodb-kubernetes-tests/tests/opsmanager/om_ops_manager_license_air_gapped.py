@@ -2,10 +2,9 @@
 
 from typing import Optional
 
-import pytest
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
-from pytest import fixture
+from pytest import fixture, mark
 from tests.opsmanager.ea_license import submit_release_receipt
 from tests.opsmanager.license_e2e_helpers import (
     build_license_ops_manager,
@@ -39,14 +38,14 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
     )
 
 
-@pytest.mark.e2e_om_ops_manager_license_air_gapped
+@mark.e2e_om_ops_manager_license_air_gapped
 def test_create_om(ops_manager: MongoDBOpsManager):
     ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
-@pytest.mark.e2e_om_ops_manager_license_air_gapped
+@mark.e2e_om_ops_manager_license_air_gapped
 class TestOpsManagerLicenseAirGappedE2E:
     def test_release_by_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
         """The license works without an EA claim, and the receipt the operator writes on release is the one
