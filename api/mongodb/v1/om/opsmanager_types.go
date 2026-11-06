@@ -1160,6 +1160,15 @@ func (om *MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
 		}
 	}
 
+	if license := om.Spec.License; license != nil {
+		if license.InstallRequested() {
+			secretNames = append(secretNames, license.SecretRef.Name)
+		}
+		for _, entry := range license.ReleaseReceipts {
+			secretNames = append(secretNames, entry.SecretRef.Name)
+		}
+	}
+
 	return secretNames
 }
 

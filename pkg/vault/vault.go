@@ -316,6 +316,14 @@ func (v *VaultClient) OperatorSecretPath() string {
 	return fmt.Sprintf("/secret/data/%s", DEFAULT_OPERATOR_SECRET_PATH)
 }
 
+// OperatorSecretPathOrEmpty returns the operator secret path, or an empty string when Vault is not configured.
+func (v *VaultClient) OperatorSecretPathOrEmpty() string {
+	if v == nil {
+		return ""
+	}
+	return v.OperatorSecretPath()
+}
+
 func (v *VaultClient) OperatorScretMetadataPath() string {
 	if v.VaultConfig.OperatorSecretPath != "" {
 		return fmt.Sprintf("/secret/metadata/%s", v.VaultConfig.OperatorSecretPath)
@@ -328,6 +336,14 @@ func (v *VaultClient) OpsManagerSecretPath() string {
 		return fmt.Sprintf("/secret/data/%s", v.VaultConfig.OpsManagerSecretPath)
 	}
 	return fmt.Sprintf("/secret/data/%s", DEFAULT_OPS_MANAGER_SECRET_PATH)
+}
+
+// OpsManagerSecretPathOrEmpty returns the Ops Manager secret path, or an empty string when Vault is not configured.
+func (v *VaultClient) OpsManagerSecretPathOrEmpty() string {
+	if v == nil {
+		return ""
+	}
+	return v.OpsManagerSecretPath()
 }
 
 func (v *VaultClient) OpsManagerSecretMetadataPath() string {

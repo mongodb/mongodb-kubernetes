@@ -10,16 +10,11 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 // ReadCredentials reads the Secret containing the credentials to authenticate in Ops Manager and creates a matching 'Credentials' object
 func ReadCredentials(ctx context.Context, secretClient secrets.SecretClient, credentialsSecret client.ObjectKey, log *zap.SugaredLogger) (mdbv1.Credentials, error) {
-	var operatorSecretPath string
-	if vault.IsVaultSecretBackend() {
-		operatorSecretPath = secretClient.VaultClient.OperatorSecretPath()
-	}
-	secret, err := secretClient.ReadSecret(ctx, credentialsSecret, operatorSecretPath)
+	secret, err := secretClient.ReadSecret(ctx, credentialsSecret, secretClient.VaultClient.OperatorSecretPathOrEmpty())
 	if err != nil {
 		return mdbv1.Credentials{}, err
 	}
