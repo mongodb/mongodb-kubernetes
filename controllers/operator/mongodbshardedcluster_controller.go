@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -71,7 +70,6 @@ import (
 	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
-	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -1301,7 +1299,10 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 
-	caFilePath := sc.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
+	caFilePath, clusterCAFilePath, err := databaseCAFilePaths(ctx, r.commonController.client, sc.Spec.GetSecurity(), sc.Name, sc.Namespace)
+	if err != nil {
+		return workflow.Failed(err)
+	}
 
 	if workflowStatus := controlledfeature.EnsureFeatureControls(ctx, *sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
 		return workflowStatus
@@ -1326,6 +1327,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		podEnvVars:           podEnvVars,
 		currentAgentAuthMode: currentAgentAuthMode,
 		caFilePath:           caFilePath,
+		clusterCAFilePath:    clusterCAFilePath,
 		agentCertPath:        agentCertPath,
 		agentCertHash:        agentCertHash,
 		prometheusCertHash:   prometheusCertHash,
@@ -2203,6 +2205,7 @@ type deploymentOptions struct {
 	podEnvVars           *env.PodEnvVars
 	currentAgentAuthMode string
 	caFilePath           string
+	clusterCAFilePath    string
 	agentCertPath        string
 	agentCertHash        string
 
@@ -2430,7 +2433,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			}
 
 			d.ConfigureMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
-			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath)
+			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath, opts.clusterCAFilePath)
 
 			d.SetDownloadBase(sc.Spec.GetDownloadBase())
 

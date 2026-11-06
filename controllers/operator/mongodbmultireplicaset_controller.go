@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"path"
 	"reflect"
 	"sort"
 
@@ -1090,7 +1089,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.GetName(), mrs.Spec.Version), processes, mrs.Spec.GetMemberOptions(), processIds, mrs.Spec.Connectivity)
 
-	caFilePath := mrs.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
+	caFilePath, clusterCAFilePath, err := databaseCAFilePaths(ctx, r.client, mrs.GetSecurity(), mrs.Name, mrs.Namespace)
+	if err != nil {
+		return err
+	}
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertPath, caFilePath, internalClusterCertPath, mrs.Spec.GetDownloadBase(), isRecovering, log)
 	if !status.IsOK() && !isRecovering {
@@ -1101,7 +1103,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
-			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.GetName(), rs, nil, caFilePath, internalClusterCertPath, nil, log)
+			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.GetName(), rs, nil, caFilePath, clusterCAFilePath, internalClusterCertPath, nil, log)
 		},
 		log)
 
