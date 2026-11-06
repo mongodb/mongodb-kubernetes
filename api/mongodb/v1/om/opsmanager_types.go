@@ -1066,8 +1066,8 @@ func (om *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOp
 		om.Status.OpsManagerStatus.Warnings = append(om.Status.OpsManagerStatus.Warnings, option.(status.WarningsOption).Warnings...)
 	}
 
-	if option, exists := status.GetOption(statusOptions, status.OmLicenseReconciledStatusOption{}); exists {
-		c := option.(status.OmLicenseReconciledStatusOption).Condition
+	if option, exists := status.GetOption(statusOptions, status.LicenseStatusOption{}); exists {
+		c := option.(status.LicenseStatusOption).Condition
 		c.ObservedGeneration = om.GetGeneration()
 		_ = meta.SetStatusCondition(&om.Status.OpsManagerStatus.Conditions, c)
 	}
