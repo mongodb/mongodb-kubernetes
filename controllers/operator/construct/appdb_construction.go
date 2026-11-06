@@ -3,6 +3,7 @@ package construct
 import (
 	"fmt"
 	"os"
+	"path"
 	"strconv"
 
 	"go.uber.org/zap"
@@ -383,18 +384,19 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		}
 	}
 
-	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), ShouldEnableMonitoring(podVars), opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
-	idx := len(automationAgentCommand) - 1
-	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
-
-	// Deliver the AppDB monitoring credentials to the single agent as CLI flags (sourced from the
-	// mounted agent-api-key secret via ${AGENT_API_KEY}) instead of embedding them in the automation config.
-	if ShouldEnableMonitoring(podVars) {
-		automationAgentCommand[idx] += " -mmsGroupId=" + podVars.ProjectID + " -mmsApiKey=${AGENT_API_KEY}"
+	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture))
+	agentArgs := []string{"-f", path.Join(AgentSettingsPath, AgentSettingsFileName)}
+	overrideLocalHost, hasOverrideLocalHost := AgentSettingsOverrides(appDb.AutomationAgent.StartupParameters)["overrideLocalHost"]
+	if externalDomain != nil {
+		overrideLocalHost = "$(POD_NAME)." + *externalDomain
+		hasOverrideLocalHost = true
+	} else if appDb.IsMultiCluster() {
+		overrideLocalHost = "$(POD_NAME)-svc.$(POD_NAMESPACE).svc." + appDb.GetClusterDomain()
+		hasOverrideLocalHost = true
 	}
-
-	automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
+	if hasOverrideLocalHost {
+		agentArgs = append(agentArgs, "-overrideLocalHost="+overrideLocalHost)
+	}
 
 	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
 	acVersionMount := corev1.VolumeMount{
@@ -499,6 +501,8 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				podtemplatespec.WithVolume(keyFileVolume),
 				podtemplatespec.WithVolume(acVersionConfigMapVolume),
 				podtemplatespec.WithContainer(util.AgentContainerName, appdbMongodbAgentContainer(appDb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, opts.AgentImage, automationAgentCommand)),
+				podtemplatespec.WithContainer(util.AgentContainerName, container.WithArgs(agentArgs)),
+				podtemplatespec.WithContainer(util.AgentContainerName, container.WithEnvs(corev1.EnvVar{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}})),
 				podtemplatespec.WithContainer(util.MongodbContainerName, appdbMongodbContainer(opts.MongodbImage, mongodVolumeMounts, appDb.GetMongodConfiguration(), !withInitContainers)),
 				withStaticContainerModification,
 				upgradeInitContainer,
@@ -569,16 +573,4 @@ func appdbContainerEnv(appDbSpec om.AppDBSpec, customAgentURL string) []corev1.E
 	}
 
 	return envVars
-}
-
-// Configure the -overrideLocalHost parameter which controls how the automation agent instances identify themselves. For multi-cluster deployments:
-//   - With externalDomain: Use {hostname}.{externalDomain} format for cross-cluster discovery via external DNS
-//   - Without externalDomain: Use Kubernetes internal DNS format with cluster domain suffix for in-cluster networking
-func overrideLocalHostFlag(appDbSpec *om.AppDBSpec, externalDomain *string) string {
-	if externalDomain != nil {
-		return fmt.Sprintf(" -overrideLocalHost=$(hostname).%s", *externalDomain)
-	} else if appDbSpec.IsMultiCluster() {
-		return fmt.Sprintf(" -overrideLocalHost=$(hostname)-svc.${POD_NAMESPACE}.svc.%s", appDbSpec.GetClusterDomain())
-	}
-	return ""
 }

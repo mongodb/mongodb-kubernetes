@@ -667,7 +667,26 @@ func GetMultiClusterMongoDBPlaceholderReplacer(name string, stsName string, name
 }
 
 // AppDBInKubernetes creates or updates the StatefulSet and Service required for the AppDB.
-func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, sts appsv1.StatefulSet, serviceSelectorLabel string, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
+	sts = *sts.DeepCopy()
+	cm, err := construct.AppDBAgentSettingsConfigMap(sts, opsManager.Spec.AppDB, podVars)
+	if err != nil {
+		return nil, fmt.Errorf("cannot render AppDB agent settings: %w", err)
+	}
+	var basePath string
+	if secretClient.VaultClient != nil {
+		basePath = secretClient.VaultClient.AppDBSecretPath()
+	}
+	parameters := construct.AgentSettingsOverrides(opsManager.Spec.AppDB.AutomationAgent.StartupParameters)
+	if construct.ShouldEnableMonitoring(podVars) {
+		// The legacy command appended the monitoring project and key after customer startup
+		// options, so the monitoring key wins over a raw key. A customer mmsApiKeyExec remains
+		// the credential source, matching the agent's exec-over-key preference.
+		delete(parameters, "mmsApiKey")
+	}
+	if err := reconcileAgentSettings(ctx, client, secretClient, &sts, cm, parameters, basePath, construct.ShouldEnableMonitoring(podVars)); err != nil {
+		return nil, err
+	}
 	if err := preserveExistingVolumeClaimTemplateMetadata(ctx, client, &sts, log); err != nil {
 		return nil, err
 	}
