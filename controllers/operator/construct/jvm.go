@@ -2,6 +2,7 @@ package construct
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"golang.org/x/xerrors"
@@ -19,7 +20,18 @@ const (
 	opsManagerPodMemPercentage = 90
 	oneMB                      = 1048576
 	backupDaemonHealthPort     = 8090
+	omAutoHeapEnvVar           = "OM_AUTO_HEAP"
 )
+
+// userMaxHeapFlagPrefixes are the JVM flags that mean the user sizes the max heap themselves.
+var userMaxHeapFlagPrefixes = []string{"-Xmx", "-XX:MaxHeapSize=", "-XX:MaxRAMPercentage="}
+
+// userInitialHeapSizePrefixes set only the initial heap, so we still need to provide -Xmx.
+var userInitialHeapSizePrefixes = []string{"-Xms", "-XX:InitialHeapSize="}
+
+// on its own this leaves the max heap at the JVM default of 25%, so we still provide -Xmx.
+// MinRAMPercentage only matters on tiny heaps, so we don't treat it as a heap setting.
+var userInitialHeapPercentagePrefixes = []string{"-XX:InitialRAMPercentage="}
 
 // setJvmArgsEnvVars sets the correct environment variables for JVM size parameters.
 // This method must be invoked on the final version of the StatefulSet (after user statefulSet spec
@@ -67,9 +79,14 @@ func buildJvmParamsEnvVars(m omv1.MongoDBOpsManagerSpec, containerName string, t
 		maxPodMem = minPodMem
 	}
 
-	memParams := fmt.Sprintf("-Xmx%dm -Xms%dm", maxPodMem, minPodMem)
-	mmsJvmEnvVar.Value = buildJvmEnvVar(m.JVMParams, memParams)
-	backupJvmEnvVar.Value = buildJvmEnvVar(m.Backup.JVMParams, memParams)
+	// OM's start script sizes the heap itself when OM_AUTO_HEAP=true, but only if we don't pass -Xmx.
+	// The Backup Daemon start script has no auto heap, so this only applies to Ops Manager.
+	mmsMaxMem, mmsMinMem := maxPodMem, minPodMem
+	if isOmAutoHeapEnabled(omContainer.Env) {
+		mmsMaxMem, mmsMinMem = 0, 0
+	}
+	mmsJvmEnvVar.Value = buildJvmEnvVar(m.JVMParams, mmsMaxMem, mmsMinMem)
+	backupJvmEnvVar.Value = buildJvmEnvVar(m.Backup.JVMParams, maxPodMem, minPodMem)
 
 	// If a debug port is set, add the JVM debug agent to the JVM parameters
 	if debugPort := getDebugPort(omContainer.Ports); debugPort > 0 {
@@ -116,22 +133,80 @@ func getPercentOfQuantityAsInt(q resource.Quantity, percent int) (int, error) {
 	return int(float64(quantityAsInt)*percentage) / oneMB, nil
 }
 
-// buildJvmEnvVar returns the string representation of the JVM environment variable
-func buildJvmEnvVar(customParams []string, containerMemParams string) string {
+// isOmAutoHeapEnabled uses the last OM_AUTO_HEAP entry, like Kubernetes does with duplicate env names.
+func isOmAutoHeapEnabled(envVars []corev1.EnvVar) bool {
+	enabled := false
+	for _, envVar := range envVars {
+		if envVar.Name == omAutoHeapEnvVar {
+			enabled = envVar.Value == "true"
+		}
+	}
+	return enabled
+}
+
+// buildJvmEnvVar returns the string representation of the JVM environment variable.
+// maxPodMem and minPodMem are our xmx and xms in MB. A maxPodMem of 0 means we don't set either.
+func buildJvmEnvVar(customParams []string, maxPodMem, minPodMem int) string {
 	jvmParams := strings.Join(customParams, " ")
 
 	// if both mem limits and mem requests are unset/have value 0, we don't want to override om's default JVM xmx/xms params
-	if strings.Contains(containerMemParams, "-Xmx0m") {
+	if maxPodMem == 0 {
 		return jvmParams
 	}
 
-	if strings.Contains(jvmParams, "Xmx") {
-		return jvmParams
+	userXmsMB := int64(-1)
+	userSetInitialHeapPercentage := false
+	for param := range strings.FieldsSeq(jvmParams) {
+		if hasAnyPrefix(param, userMaxHeapFlagPrefixes) {
+			return jvmParams
+		}
+		if hasAnyPrefix(param, userInitialHeapPercentagePrefixes) {
+			userSetInitialHeapPercentage = true
+		}
+		for _, prefix := range userInitialHeapSizePrefixes {
+			if size, ok := strings.CutPrefix(param, prefix); ok {
+				userXmsMB = parseJvmSizeMB(size)
+			}
+		}
+	}
+
+	// with only a user initial heap we still set xmx, otherwise the -Xmx8096m from mms.conf applies.
+	// keep the user's xms unless it's above our xmx, since the JVM won't start then.
+	memParams := fmt.Sprintf("-Xmx%dm", maxPodMem)
+	userXmsFits := userXmsMB >= 0 && userXmsMB <= int64(maxPodMem)
+	if !userXmsFits && !userSetInitialHeapPercentage {
+		memParams += fmt.Sprintf(" -Xms%dm", minPodMem)
 	}
 
 	if jvmParams != "" {
 		jvmParams += " "
 	}
 
-	return jvmParams + containerMemParams
+	return jvmParams + memParams
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseJvmSizeMB converts a JVM size like "2g" or "512m" to MB, or returns -1 if it can't parse it.
+func parseJvmSizeMB(size string) int64 {
+	multipliers := map[byte]int64{'k': 1 << 10, 'm': 1 << 20, 'g': 1 << 30, 't': 1 << 40}
+	multiplier := int64(1)
+	if size != "" {
+		if m, ok := multipliers[strings.ToLower(size[len(size)-1:])[0]]; ok {
+			multiplier = m
+			size = size[:len(size)-1]
+		}
+	}
+	value, err := strconv.ParseInt(size, 10, 64)
+	if err != nil || value < 0 {
+		return -1
+	}
+	return value * multiplier / oneMB
 }
