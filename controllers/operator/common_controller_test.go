@@ -29,6 +29,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
@@ -1987,4 +1988,44 @@ func TestValidateVotingLimitRS(t *testing.T) {
 	st := validateVotingLimitRS(mdb, rs)
 	require.False(t, st.IsOK())
 	assert.Contains(t, statusMsg(st), "8 voting members")
+}
+
+// TestStatusWarningsAreStored covers the plumbing behind the warnings a controller sets on its
+// resource: they land in the status the operator stores, and an update that sets none clears what an
+// earlier one set. The controllers set them once per reconcile, which is what makes a warning
+// disappear when the settings behind it change.
+func TestStatusWarningsAreStored(t *testing.T) {
+	ctx := context.Background()
+	key := types.NamespacedName{Name: "mdb", Namespace: "ns"}
+
+	// operator-managed certificates on, the client block configured, and SCRAM everywhere: the client
+	// settings have no effect, so the operator has something to warn about.
+	rs := mdbv1.NewReplicaSetBuilder().SetName(key.Name).SetNamespace(key.Namespace).Build()
+	rs.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{Client: &mdbv1.CertificateConfig{}}
+	rs.Spec.Security.Authentication = &mdbv1.Authentication{Enabled: true, InternalCluster: util.SCRAM}
+
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	commonController := NewReconcileCommonController(ctx, kubeClient)
+
+	rs.SetWarnings(certs.UnusedClientConfigured(rs))
+	_, err := commonController.updateStatus(ctx, rs, workflow.OK(), zap.S())
+	require.NoError(t, err)
+
+	t.Run("the warning is stored on the resource, not only set in memory", func(t *testing.T) {
+		stored := &mdbv1.MongoDB{}
+		require.NoError(t, kubeClient.Get(ctx, key, stored))
+		require.Len(t, stored.Status.Warnings, 1)
+		assert.Contains(t, string(stored.Status.Warnings[0]), "spec.managedCertificate.client is set even though the deployment doesn't use x509 for internal")
+	})
+
+	t.Run("an update that sets no warnings clears them", func(t *testing.T) {
+		rs.Spec.Security.Authentication = &mdbv1.Authentication{Enabled: true, InternalCluster: util.X509}
+		rs.SetWarnings(certs.UnusedClientConfigured(rs))
+		_, err := commonController.updateStatus(ctx, rs, workflow.OK(), zap.S())
+		require.NoError(t, err)
+
+		stored := &mdbv1.MongoDB{}
+		require.NoError(t, kubeClient.Get(ctx, key, stored))
+		assert.Empty(t, stored.Status.Warnings)
+	})
 }

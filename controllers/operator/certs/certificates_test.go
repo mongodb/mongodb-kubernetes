@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -96,6 +97,50 @@ func TestVerifyTLSSecretForStatefulSetHorizonMemberDifference(t *testing.T) {
 	})
 
 	assert.ErrorContains(t, err, "horizon configs")
+}
+
+// TestBuildDNSNamesWithMoreMembersThanHorizons covers what a scale-down goes through: the
+// certificate is built for every member the deployment still has, while the horizons are already
+// configured for fewer members. The members that still have a horizon keep their names, and
+// reading past the end of the horizon list must not panic.
+func TestBuildDNSNamesWithMoreMembersThanHorizons(t *testing.T) {
+	opts := Options{
+		ResourceName: "mdb",
+		Namespace:    "ns",
+		ServiceName:  "mdb-svc",
+		Replicas:     4,
+		horizons: []mdbv1.MongoDBHorizonConfig{
+			{"1": "mdb-0.example.com"},
+			{"2": "mdb-1.example.com"},
+			{"3": "mdb-2.example.com"},
+		},
+	}
+
+	dnsNames := buildDNSNames(opts)
+
+	assert.Contains(t, dnsNames, "mdb-0.example.com")
+	assert.Contains(t, dnsNames, "mdb-1.example.com")
+	assert.Contains(t, dnsNames, "mdb-2.example.com")
+}
+
+// TestGetAdditionalCertDomainsForMemberPastHorizons asks for the additional domains of a member
+// whose horizon entry is already gone. That is the state a scale-down leaves behind: the
+// deployment still has more members than there are horizon entries configured. The member gets no
+// horizon names, and reading its entry must not panic.
+func TestGetAdditionalCertDomainsForMemberPastHorizons(t *testing.T) {
+	opts := Options{
+		ResourceName: "mdb",
+		Namespace:    "ns",
+		ServiceName:  "mdb-svc",
+		Replicas:     4,
+		horizons: []mdbv1.MongoDBHorizonConfig{
+			{"1": "mdb-0.example.com"},
+		},
+	}
+
+	assert.NotPanics(t, func() {
+		assert.Empty(t, GetAdditionalCertDomainsForMember(opts, 3))
+	})
 }
 
 // This test uses mock hashes and certificate because CreatePemSecretClient does not verify the certificates.
@@ -237,4 +282,120 @@ func TestRotateCertificate(t *testing.T) {
 
 		assert.Equal(t, expectedPem, pemSecret)
 	})
+}
+
+// putPEMSecret writes a -pem secret into the fake cluster, to set up what already exists before the
+// code under test runs. The name is the -pem name, for example my-rs-cert-pem.
+func putPEMSecret(ctx context.Context, t *testing.T, client secrets.SecretClient, name string, data map[string]string) {
+	pem := secret.Builder().SetName(name).SetNamespace(mock.TestNamespace).SetStringMapToData(data).Build()
+	assert.NoError(t, client.PutSecret(ctx, pem, Unused))
+}
+
+// newFakeSecretClient returns the secret client the tests use. It talks to a fake Kubernetes client
+// instead of a cluster, so the real read and write code runs without one.
+func newFakeSecretClient() secrets.SecretClient {
+	fakeClient, _ := mock.NewDefaultFakeClient(mdbv1.NewReplicaSetBuilder().Build())
+	return secrets.SecretClient{KubeClient: fakeClient}
+}
+
+// This test walks the whole migration: the seeding, and then the write the operator does in every
+// reconcile. Together they have to leave each managed -pem secret holding the legacy certificate next
+// to the managed one, like a rotation does, so a restarted pod still finds the file the automation
+// config names until the config is updated.
+func TestSeedManagedPEMSecretsFromLegacy_KeepsTheLegacyCertificateLikeARotation(t *testing.T) {
+	ctx := context.Background()
+	client := newFakeSecretClient()
+	// The security of the last applied spec and of the spec now: legacy TLS first, managed after.
+	legacy := &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true, CA: "issuer-ca"}}
+	managed := &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+
+	// create the legacy -pem secrets the pods mount before the migration
+	putPEMSecret(ctx, t, client, "my-rs-cert-pem", map[string]string{util.LatestHashSecretKey: "legacy_member", "legacy_member": "legacy member cert"})
+	putPEMSecret(ctx, t, client, "my-rs-clusterfile-pem", map[string]string{util.LatestHashSecretKey: "legacy_cf", "legacy_cf": "legacy clusterfile cert"})
+	putPEMSecret(ctx, t, client, "agent-certs-pem", map[string]string{util.LatestHashSecretKey: "legacy_agent", "legacy_agent": "legacy agent cert"})
+
+	// seed the managed -pem secrets with the legacy certificates
+	assert.NoError(t, SeedManagedPEMSecretsFromLegacy(ctx, client, mock.TestNamespace, "my-rs", "my-rs", legacy, managed, zap.S()))
+
+	// CreateOrUpdatePEMSecretWithPreviousCert creates or updates the -pem secret with the managed
+	// certificate, and keeps the certificate that was the latest one until now as the previous one.
+	// The seeding above made the legacy certificate the latest one, so the secret ends up holding both.
+	for _, c := range []struct{ secretName, hash, value, legacyHash, legacyValue string }{
+		{"my-rs-managed-cert", "managed_member", "managed member cert", "legacy_member", "legacy member cert"},
+		{"my-rs-managed-clusterfile", "managed_cf", "managed clusterfile cert", "legacy_cf", "legacy clusterfile cert"},
+		{"my-rs-managed-agent-certs", "managed_agent", "managed agent cert", "legacy_agent", "legacy agent cert"},
+	} {
+		key := types.NamespacedName{Namespace: mock.TestNamespace, Name: c.secretName}
+		assert.NoError(t, CreateOrUpdatePEMSecretWithPreviousCert(ctx, client, key, c.hash, c.value, nil, Unused))
+
+		pem, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: c.secretName + "-pem"}, Unused)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			util.LatestHashSecretKey:   c.hash,
+			util.PreviousHashSecretKey: c.legacyHash,
+			c.hash:                     c.value,
+			c.legacyHash:               c.legacyValue,
+		}, pem, c.secretName)
+	}
+}
+
+// A legacy deployment that used certsSecretPrefix names its secrets after the prefix, and a deployment
+// without x509 internal cluster auth has no clusterfile secret at all. The seeding works out both names
+// from the last applied spec, so it has to handle both.
+func TestSeedManagedPEMSecretsFromLegacy_PrefixInstall(t *testing.T) {
+	ctx := context.Background()
+	client := newFakeSecretClient()
+	legacy := &mdbv1.Security{CertificatesSecretsPrefix: "prefix"}
+	managed := &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+
+	// the legacy -pem secrets of a prefixed install, with no clusterfile secret
+	putPEMSecret(ctx, t, client, "prefix-my-rs-cert-pem", map[string]string{util.LatestHashSecretKey: "legacy_member", "legacy_member": "legacy member cert"})
+	putPEMSecret(ctx, t, client, "prefix-my-rs-agent-certs-pem", map[string]string{util.LatestHashSecretKey: "legacy_agent", "legacy_agent": "legacy agent cert"})
+
+	// seed the managed -pem secrets, copying from the prefixed legacy names
+	assert.NoError(t, SeedManagedPEMSecretsFromLegacy(ctx, client, mock.TestNamespace, "my-rs", "my-rs", legacy, managed, zap.S()))
+
+	// each managed secret holds the legacy certificate for now, with latestHash naming it
+	member, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-rs-managed-cert-pem"}, Unused)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{util.LatestHashSecretKey: "legacy_member", "legacy_member": "legacy member cert"}, member)
+
+	agent, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-rs-managed-agent-certs-pem"}, Unused)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{util.LatestHashSecretKey: "legacy_agent", "legacy_agent": "legacy agent cert"}, agent)
+
+	// There was no legacy clusterfile, so there is nothing to keep and the managed clusterfile secret
+	// is not created here. The write that follows creates it the normal way.
+	_, err = client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-rs-managed-clusterfile-pem"}, Unused)
+	assert.True(t, secret.SecretNotExist(err))
+}
+
+// The operator reconciles many times during a migration, so the seeding runs again on every pass. Once
+// a managed -pem secret exists it holds the managed certificate, so seeding again must not put the
+// legacy certificate back as the latest: that would undo the migration and leave the automation config
+// naming a file that is no longer the latest one.
+func TestSeedManagedPEMSecretsFromLegacy_LeavesAnExistingManagedSecretAlone(t *testing.T) {
+	ctx := context.Background()
+	client := newFakeSecretClient()
+	legacy := &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
+	managed := &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+
+	// the legacy -pem secret the pods mount before the migration
+	putPEMSecret(ctx, t, client, "my-rs-cert-pem", map[string]string{util.LatestHashSecretKey: "legacy_member", "legacy_member": "legacy member cert"})
+	// the managed -pem secret as it looks after the first pass: both certificates, the managed one as
+	// latest and the legacy one as previous
+	existing := map[string]string{
+		util.LatestHashSecretKey:   "managed_member",
+		util.PreviousHashSecretKey: "legacy_member",
+		"managed_member":           "managed member cert",
+		"legacy_member":            "legacy member cert",
+	}
+	putPEMSecret(ctx, t, client, "my-rs-managed-cert-pem", existing)
+
+	// the seeding runs again on the next reconcile and must leave the secret as it is
+	assert.NoError(t, SeedManagedPEMSecretsFromLegacy(ctx, client, mock.TestNamespace, "my-rs", "my-rs", legacy, managed, zap.S()))
+
+	pem, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-rs-managed-cert-pem"}, Unused)
+	assert.NoError(t, err)
+	assert.Equal(t, existing, pem)
 }

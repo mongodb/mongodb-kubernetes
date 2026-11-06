@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -94,6 +95,7 @@ func init() {
 	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(vaiv1.AddToScheme(scheme))
+	utilruntime.Must(certmanagerv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
 	flag.Var(&crds, "watch-resource", "A Watch Resource specifies if the Operator should watch the given resource")
@@ -303,7 +305,21 @@ func run() error {
 
 	// Setup all Controllers
 	if slices.Contains(crds, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, memberClusterObjectsMap, backupEnableDelay); err != nil {
+		if err := setupMongoDBCRD(
+			ctx,
+			mgr,
+			imageUrls,
+			initDatabaseNonStaticImageVersion,
+			databaseNonStaticImageVersion,
+			forceEnterprise,
+			enableClusterMongoDBRoles,
+			agentDebug,
+			agentDebugImage,
+			defaultArchitecture,
+			defaultImageType,
+			memberClusterObjectsMap,
+			backupEnableDelay,
+		); err != nil {
 			return err
 		}
 	}
@@ -414,14 +430,66 @@ func shutdownTracerProvider(signalCtx context.Context, tp *sdktrace.TracerProvid
 	}
 }
 
-func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterObjectsMap map[string]runtime_cluster.Cluster, backupEnableDelay time.Duration) error {
-	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType); err != nil {
+func setupMongoDBCRD(
+	ctx context.Context,
+	mgr manager.Manager,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise,
+	enableClusterMongoDBRoles,
+	agentDebug bool,
+	agentDebugImage string,
+	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
+	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
+	backupEnableDelay time.Duration,
+) error {
+	if err := operator.AddStandaloneController(
+		ctx,
+		mgr,
+		imageUrls,
+		initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion,
+		forceEnterprise,
+		enableClusterMongoDBRoles,
+		agentDebug,
+		agentDebugImage,
+		defaultArchitecture,
+		defaultImageType,
+	); err != nil {
 		return err
 	}
-	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType); err != nil {
+	if err := operator.AddReplicaSetController(
+		ctx,
+		mgr,
+		imageUrls,
+		initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion,
+		forceEnterprise,
+		enableClusterMongoDBRoles,
+		agentDebug,
+		agentDebugImage,
+		defaultArchitecture,
+		defaultImageType,
+	); err != nil {
 		return err
 	}
-	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, memberClusterObjectsMap, backupEnableDelay); err != nil {
+	if err := operator.AddShardedClusterController(
+		ctx,
+		mgr,
+		imageUrls,
+		initDatabaseNonStaticImageVersion,
+		databaseNonStaticImageVersion,
+		forceEnterprise,
+		enableClusterMongoDBRoles,
+		agentDebug,
+		agentDebugImage,
+		defaultArchitecture,
+		defaultImageType,
+		memberClusterObjectsMap,
+		backupEnableDelay,
+	); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).

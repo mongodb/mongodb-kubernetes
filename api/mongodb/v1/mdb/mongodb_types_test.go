@@ -430,6 +430,16 @@ func TestMongoDB_IsSecurityTLSConfigEnabled(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			// managedCertificate enables TLS on its own so the feature does not depend
+			// on the deprecated tls.enabled field (and it is mutually exclusive with
+			// certsSecretPrefix, so it is the only TLS-on signal a managed user has).
+			name: "TLS is enabled when ManagedCertificate is set without tls.enabled",
+			security: &Security{
+				ManagedCertificate: &ManagedCertificate{Server: &CertificateConfig{IssuerRef: &IssuerRef{Name: "my-issuer"}}},
+			},
+			expected: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -449,6 +459,12 @@ func TestMemberCertificateSecretName(t *testing.T) {
 	// If the top-level prefix is specified, we use it
 	rs.Spec.Security.CertificatesSecretsPrefix = "top-level-prefix"
 	assert.Equal(t, fmt.Sprintf("top-level-prefix-%s-cert", rs.Name), rs.GetSecurity().MemberCertificateSecretName(rs.Name))
+
+	// Operator-managed certificates get their own name, so enabling the feature on a deployment
+	// that already has user-provided certs cannot conflict with user's cert secret.
+	rs.Spec.Security.CertificatesSecretsPrefix = ""
+	rs.Spec.Security.ManagedCertificate = &ManagedCertificate{}
+	assert.Equal(t, fmt.Sprintf("%s-managed-cert", rs.Name), rs.GetSecurity().MemberCertificateSecretName(rs.Name))
 }
 
 func TestAgentClientCertificateSecretName(t *testing.T) {
@@ -464,6 +480,13 @@ func TestAgentClientCertificateSecretName(t *testing.T) {
 	// If the name is provided (deprecated) we return it
 	rs.GetSecurity().Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = "foo"
 	assert.Equal(t, "foo", rs.GetSecurity().AgentClientCertificateSecretName(rs.Name))
+
+	// Operator-managed certificates get their own name, so enabling the feature on a deployment
+	// that already has user-provided certs cannot conflict with user's cert secret.
+	rs.GetSecurity().Authentication.Agents.ClientCertificateSecretRefWrap.ClientCertificateSecretRef.Name = ""
+	rs.Spec.Security.CertificatesSecretsPrefix = ""
+	rs.Spec.Security.ManagedCertificate = &ManagedCertificate{}
+	assert.Equal(t, fmt.Sprintf("%s-managed-%s", rs.Name, util.AgentSecretName), rs.GetSecurity().AgentClientCertificateSecretName(rs.Name))
 }
 
 func TestInternalClusterAuthSecretName(t *testing.T) {
@@ -475,6 +498,12 @@ func TestInternalClusterAuthSecretName(t *testing.T) {
 	// IF there is a prefix, use it
 	rs.Spec.Security.CertificatesSecretsPrefix = "prefix"
 	assert.Equal(t, fmt.Sprintf("prefix-%s-clusterfile", rs.Name), rs.GetSecurity().InternalClusterAuthSecretName(rs.Name))
+
+	// Operator-managed certificates get their own name, so enabling the feature on a deployment
+	// that already has user-provided certs cannot conflict with user's cert secret.
+	rs.Spec.Security.CertificatesSecretsPrefix = ""
+	rs.Spec.Security.ManagedCertificate = &ManagedCertificate{}
+	assert.Equal(t, fmt.Sprintf("%s-managed-clusterfile", rs.Name), rs.GetSecurity().InternalClusterAuthSecretName(rs.Name))
 }
 
 func TestGetTransportSecurity(t *testing.T) {
@@ -1073,4 +1102,63 @@ func TestInitDefaults_AppDBAuthDefaults(t *testing.T) {
 		require.NotNil(t, mdb.Spec.Security)
 		assert.Nil(t, mdb.Spec.Security.Authentication)
 	})
+}
+
+func TestIsMigratingToManagedCertificate(t *testing.T) {
+	legacyTLS := &Security{TLSConfig: &TLSConfig{Enabled: true, CA: "issuer-ca"}}
+	legacyPrefix := &Security{CertificatesSecretsPrefix: "prefix"}
+	noTLS := &Security{}
+	managed := &Security{ManagedCertificate: &ManagedCertificate{}}
+
+	tests := []struct {
+		name         string
+		lastAchieved *Security
+		current      *Security
+		expected     bool
+	}{
+		{name: "tls.enabled to managedCertificate is a migration", lastAchieved: legacyTLS, current: managed, expected: true},
+		{name: "certsSecretPrefix to managedCertificate is a migration", lastAchieved: legacyPrefix, current: managed, expected: true},
+		{name: "TLS off to managedCertificate is not a migration", lastAchieved: noTLS, current: managed, expected: false},
+		{name: "no security block to managedCertificate is not a migration", lastAchieved: nil, current: managed, expected: false},
+		{name: "managedCertificate that stays on is not a migration", lastAchieved: managed, current: managed, expected: false},
+		{name: "legacy TLS that stays legacy is not a migration", lastAchieved: legacyTLS, current: legacyTLS, expected: false},
+		{name: "removing managedCertificate is not a migration to it", lastAchieved: managed, current: nil, expected: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, IsMigratingToManagedCertificate(tc.lastAchieved, tc.current))
+		})
+	}
+}
+
+// The last applied spec arrives as JSON in the lastSuccessfulConfiguration annotation,
+// not as a struct, so the fields the migration check reads have to survive that round trip. If one of
+// them stops being written or read back, the check would quietly never see a migration.
+func TestIsMigratingToManagedCertificate_FieldsSurviveTheLastAppliedSpecAnnotation(t *testing.T) {
+	tests := []struct {
+		name     string
+		security *Security
+		expected bool
+	}{
+		{name: "tls.enabled", security: &Security{TLSConfig: &TLSConfig{Enabled: true}}, expected: true},
+		{name: "certsSecretPrefix only", security: &Security{CertificatesSecretsPrefix: "prefix"}, expected: true},
+		{name: "TLS off", security: &Security{}, expected: false},
+		{name: "managedCertificate", security: &Security{ManagedCertificate: &ManagedCertificate{}}, expected: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := NewReplicaSetBuilder().Build()
+			rs.Spec.Security = tc.security
+			specBytes, err := json.Marshal(rs.Spec)
+			require.NoError(t, err)
+			rs.Annotations = map[string]string{util.LastAchievedSpec: string(specBytes)}
+
+			lastSpec, err := rs.GetLastSpec()
+			require.NoError(t, err)
+			require.NotNil(t, lastSpec)
+
+			current := &Security{ManagedCertificate: &ManagedCertificate{}}
+			assert.Equal(t, tc.expected, IsMigratingToManagedCertificate(lastSpec.GetSecurity(), current))
+		})
+	}
 }

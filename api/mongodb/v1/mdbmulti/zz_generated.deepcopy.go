@@ -23,6 +23,7 @@ package mdbmulti
 import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -187,6 +188,13 @@ func (in *MongoDBMultiStatus) DeepCopyInto(out *MongoDBMultiStatus) {
 		in, out := &in.Warnings, &out.Warnings
 		*out = make([]status.Warning, len(*in))
 		copy(*out, *in)
+	}
+	if in.Conditions != nil {
+		in, out := &in.Conditions, &out.Conditions
+		*out = make([]v1.Condition, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 

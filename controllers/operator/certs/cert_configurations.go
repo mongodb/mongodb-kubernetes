@@ -1,8 +1,6 @@
 package certs
 
 import (
-	"fmt"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -134,6 +132,16 @@ type Options struct {
 	ResourceName string
 	// Replicas is the number of replicas.
 	Replicas int
+	// MembersToCover is how many members the member/server cert's SANs should cover this reconcile and
+	// is max(current, desired). On a scale-up this is the target size, so the SANs cover all target
+	// members at once and the cert is issued a single time, instead of growing the SANs (and reissuing
+	// the cert) at every one-member step. On a scale-down it equals the current member count, which
+	// decreases one by one. The SANs are then held steady by the count recorded in the Certificate
+	// annotation, not by this field.
+	MembersToCover int
+	// MultiClusterMembers is set in multi cluster scenarios and is used to figure out the union
+	// of the member's SAN across all the clusters while creating the shared member certificate.
+	MultiClusterMembers []MemberCluster
 	// Namespace is the namespace the resource is in.
 	Namespace string
 	// ServiceName is the name of the service which is created for the resource.
@@ -153,11 +161,20 @@ type Options struct {
 	OwnerReference []metav1.OwnerReference
 }
 
+// MemberCluster describes one member cluster's details to figure out the union SAN list of a
+// multi-cluster member certificate.
+type MemberCluster struct {
+	ClusterNum     int
+	ClusterName    string
+	Members        int
+	ExternalDomain *string
+}
+
 // StandaloneConfig returns a function which provides all of the configuration options required for the given Standalone.
 func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
 		ResourceName:                 mdb.Name,
-		CertSecretName:               GetCertNameWithPrefixOrDefault(*mdb.GetSecurity(), mdb.Name),
+		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.Name),
 		Namespace:                    mdb.Namespace,
 		ServiceName:                  mdb.ServiceName(),
 		Replicas:                     1,
@@ -176,6 +193,7 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.Name),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(&mdb),
+		MembersToCover:               max(mdb.CurrentReplicas(), mdb.DesiredReplicas()),
 		ServiceName:                  mdb.ServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
@@ -238,6 +256,7 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, externalDomain *string, scaler
 		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ShardName(shardNum)),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
+		MembersToCover:               max(scaler.CurrentReplicas(), scaler.DesiredReplicas()),
 		ServiceName:                  mdb.ShardServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
@@ -262,6 +281,45 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 	}
 }
 
+// MultiReplicaSetManagedCertConfig builds the single Options type for the managed member certificate of a
+// multi-cluster replica set. All member clusters share one member cert, so its SANs are the union
+// across clusters.
+func MultiReplicaSetManagedCertConfig(mdbm mdbmulti.MongoDBMultiCluster, clusters []MemberCluster) Options {
+	return Options{
+		ResourceName:              mdbm.Name,
+		CertSecretName:            mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
+		InternalClusterSecretName: mdbm.Spec.GetSecurity().InternalClusterAuthSecretName(mdbm.Name),
+		Namespace:                 mdbm.Namespace,
+		ClusterDomain:             mdbm.Spec.GetClusterDomain(),
+		Topology:                  mdbv1.ClusterTopologyMultiCluster,
+		OwnerReference:            mdbm.GetOwnerReferences(),
+		MultiClusterMembers:       clusters,
+	}
+}
+
+// MultiShardedComponentManagedCertConfig builds the single Options type for the managed member
+// certificate of one sharded component (mongos, the config server, or one shard) in a multi-cluster
+// sharded cluster. Every member cluster that runs that component shares the one certificate, so its
+// SANs are the union across those clusters.
+//
+// baseName is the component's hostname base, MongosRsName(), ConfigRsName() or ShardName(i), not
+// the per-cluster StatefulSet name: the pods are addressed as
+// <baseName>-<cluster index>-<pod>-svc.<namespace>.svc.<clusterDomain>, so passing the StatefulSet
+// name would put the cluster index in the hostname twice.
+func MultiShardedComponentManagedCertConfig(sc mdbv1.MongoDB, baseName string, clusters []MemberCluster) Options {
+	return Options{
+		ResourceName:                 baseName,
+		CertSecretName:               sc.GetSecurity().MemberCertificateSecretName(baseName),
+		InternalClusterSecretName:    sc.GetSecurity().InternalClusterAuthSecretName(baseName),
+		Namespace:                    sc.Namespace,
+		ClusterDomain:                sc.Spec.GetClusterDomain(),
+		Topology:                     mdbv1.ClusterTopologyMultiCluster,
+		OwnerReference:               sc.GetOwnerReferences(),
+		MultiClusterMembers:          clusters,
+		additionalCertificateDomains: sc.Spec.Security.TLSConfig.AdditionalCertificateDomains,
+	}
+}
+
 // MongosConfig returns a struct which provides all of the configuration options required for the given Mongos.
 func MongosConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
 	resourceName := mdb.MongosRsName()
@@ -275,6 +333,7 @@ func MongosConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interfaces.M
 		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.MongosRsName()),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
+		MembersToCover:               max(scaler.CurrentReplicas(), scaler.DesiredReplicas()),
 		ServiceName:                  mdb.ServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
@@ -297,6 +356,7 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interface
 		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ConfigRsName()),
 		Namespace:                    mdb.Namespace,
 		Replicas:                     scale.ReplicasThisReconciliation(scaler),
+		MembersToCover:               max(scaler.CurrentReplicas(), scaler.DesiredReplicas()),
 		ServiceName:                  mdb.ConfigSrvServiceName(),
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
@@ -304,14 +364,4 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interface
 		ExternalDomain:               externalDomain,
 		Topology:                     mdb.Spec.GetTopology(),
 	}
-}
-
-// GetCertNameWithPrefixOrDefault returns the name of the cert that will store certificates for the given resource.
-// this takes into account the tlsConfig.prefix option.
-func GetCertNameWithPrefixOrDefault(ms mdbv1.Security, defaultName string) string {
-	if ms.CertificatesSecretsPrefix != "" {
-		return fmt.Sprintf("%s-%s-cert", ms.CertificatesSecretsPrefix, defaultName)
-	}
-
-	return defaultName + "-cert"
 }

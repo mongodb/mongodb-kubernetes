@@ -79,8 +79,18 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 
 	secretName := security.MemberCertificateSecretName(databaseOpts.Name)
 
+	managedCAResourceName := databaseOpts.OwnerResourceName
+	if managedCAResourceName == "" {
+		managedCAResourceName = databaseOpts.Name
+	}
+
 	caName := fmt.Sprintf("%s-ca", databaseOpts.Name)
-	if tlsConfig != nil && tlsConfig.CA != "" {
+	switch {
+	case security.IsManagedCertificateEnabled():
+		// in case of managedCertificate mode operator manages two CMs for client and server CAs.
+		caName = certs.ManagedServerCABundleConfigMapName(managedCAResourceName)
+		c.logger.Debugf("Managed-certificate mode: mounting operator-owned server CA ConfigMap: %s", caName)
+	case tlsConfig != nil && tlsConfig.CA != "":
 		caName = tlsConfig.CA
 	}
 
@@ -131,6 +141,19 @@ func (c *tlsVolumeSource) getVolumesAndMounts() ([]corev1.Volume, []corev1.Volum
 			ReadOnly:  true,
 		})
 		volumesToAdd = append(volumesToAdd, caConfigMapVolume)
+	}
+
+	// Managed mode with clientAuth certs
+	if security.IsManagedCertificateEnabled() && security.RequiresX509ClientCerts() {
+		clientCAName := certs.ManagedClientCABundleConfigMapName(managedCAResourceName)
+		clientCAVolume := statefulset.CreateVolumeFromConfigMap(tls.ConfigMapVolumeClusterCAName, clientCAName, optionalConfigMapFunc)
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			MountPath: util.TLSClusterCaMountPath,
+			Name:      clientCAVolume.Name,
+			ReadOnly:  true,
+		})
+		volumesToAdd = append(volumesToAdd, clientCAVolume)
+		c.logger.Debugf("Managed-certificate mode: mounting operator-owned client CA ConfigMap: %s", clientCAName)
 	}
 
 	return volumesToAdd, volumeMounts

@@ -26,6 +26,7 @@ func init() {
 	SetupCmd.Flags().BoolVar(&setupFlags.ClusterScoped, "cluster-scoped", false, "Create ClusterRole and ClusterRoleBindings for member clusters. [optional default: false]")
 	SetupCmd.Flags().BoolVar(&setupFlags.CreateTelemetryClusterRoles, "create-telemetry-roles", true, "Create ClusterRole and ClusterRoleBindings for member clusters for telemetry. [optional default: true]")
 	SetupCmd.Flags().BoolVar(&setupFlags.CreateMongoDBRolesClusterRole, "create-mongodb-roles-cluster-role", true, "Create ClusterRole and ClusterRoleBinding for central cluster for ClusterMongoDBRole resources. [optional default: true]")
+	SetupCmd.Flags().BoolVar(&setupFlags.CreateManagedCertificateRoles, "create-managed-certificate-roles", false, "Grant the operator RBAC for cert-manager Certificates and Issuers in the central cluster, needed when security.managedCertificate is used. [optional default: false]")
 	SetupCmd.Flags().BoolVar(&setupFlags.InstallDatabaseRoles, "install-database-roles", false, "Install the ServiceAccounts and Roles required for running database workloads in the member clusters. [optional default: false]")
 	SetupCmd.Flags().BoolVar(&setupFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
 	SetupCmd.Flags().StringVar(&setupFlags.ImagePullSecrets, "image-pull-secrets", "", "Name of the secret for imagePullSecrets to set in created service accounts")

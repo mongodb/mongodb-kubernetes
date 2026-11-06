@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	certsv1 "k8s.io/api/certificates/v1beta1"
@@ -108,6 +109,11 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 	}
 
 	err = vaiv1.AddToScheme(s)
+	if err != nil {
+		return nil
+	}
+
+	err = certmanagerv1.AddToScheme(s)
 	if err != nil {
 		return nil
 	}
