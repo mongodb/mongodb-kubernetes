@@ -24,7 +24,7 @@ func TestOpsManager_LicenseSpecRoundTrip(t *testing.T) {
 			},
 		}
 		om.Spec.License = &omv1.MongoDBOpsManagerLicense{
-			LicenseSecretRef:      &omv1.SecretRef{Name: "om-license"},
+			SecretRef:             &omv1.SecretRef{Name: "om-license"},
 			ReleaseReceiptsPolicy: omv1.ReleaseReceiptsAutomatic,
 		}
 	})
@@ -36,7 +36,7 @@ func TestOpsManager_LicenseSpecRoundTrip(t *testing.T) {
 	got := &omv1.MongoDBOpsManager{}
 	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(om), got))
 	require.NotNil(t, got.Spec.License)
-	require.NotNil(t, got.Spec.License.LicenseSecretRef)
-	assert.Equal(t, "om-license", got.Spec.License.LicenseSecretRef.Name)
+	require.NotNil(t, got.Spec.License.SecretRef)
+	assert.Equal(t, "om-license", got.Spec.License.SecretRef.Name)
 	assert.Equal(t, omv1.ReleaseReceiptsAutomatic, got.Spec.License.ReleaseReceiptsPolicy)
 }
