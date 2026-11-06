@@ -829,6 +829,13 @@ func (in *S3Config) DeepCopyInto(out *S3Config) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.CustomCertificateConfigMapRefs != nil {
+		in, out := &in.CustomCertificateConfigMapRefs, &out.CustomCertificateConfigMapRefs
+		*out = make([]corev1.ConfigMapKeySelector, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
 	if in.ObjectLockEnabled != nil {
 		in, out := &in.ObjectLockEnabled, &out.ObjectLockEnabled
 		*out = new(bool)
