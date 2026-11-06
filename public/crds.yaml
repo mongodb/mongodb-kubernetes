@@ -8214,6 +8214,7 @@ spec:
                       for queryable backup. This will be mounted into the Ops Manager pod.
                     properties:
                       name:
+                        maxLength: 253
                         type: string
                     required:
                     - name
@@ -8320,6 +8321,7 @@ spec:
                             It is optional because the credentials can be provided via AWS IRSA
                           properties:
                             name:
+                              maxLength: 253
                               type: string
                           required:
                           - name
@@ -8439,6 +8441,7 @@ spec:
                             It is optional because the credentials can be provided via AWS IRSA
                           properties:
                             name:
+                              maxLength: 253
                               type: string
                           required:
                           - name
@@ -8777,6 +8780,68 @@ spec:
                 items:
                   type: string
                 type: array
+              license:
+                description: License manages the Ops Manager license and its release
+                  receipts.
+                properties:
+                  releaseReceipts:
+                    description: |-
+                      ReleaseReceipts requests a release receipt for each entry.
+                      Each entry names the Secret that holds the released license, and the artifact id
+                      is read from the license in it. The operator creates one Secret per entry, named
+                      <artifactId>-release-receipt, containing the license release receipt.
+                    items:
+                      properties:
+                        secretRef:
+                          description: |-
+                            SecretRef names a Secret that holds the released license. The artifact ID is read
+                            from the license.
+                          properties:
+                            name:
+                              maxLength: 253
+                              type: string
+                          required:
+                          - name
+                          type: object
+                      required:
+                      - secretRef
+                      type: object
+                      x-kubernetes-validations:
+                      - message: secretRef.name must not be empty
+                        rule: size(self.secretRef.name) > 0
+                    maxItems: 16
+                    type: array
+                    x-kubernetes-list-type: atomic
+                    x-kubernetes-validations:
+                    - message: releaseReceipts must not list the same secretRef twice
+                      rule: self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size()
+                        == 1)
+                  releaseReceiptsPolicy:
+                    description: |-
+                      ReleaseReceiptsPolicy controls which released licenses get a receipt.
+                      When unset, only the licenses listed in releaseReceipts get one.
+                      Automatic also covers every license the operator releases.
+                    enum:
+                    - Automatic
+                    type: string
+                  secretRef:
+                    description: |-
+                      SecretRef names a Secret that holds the signed license under the "license" key.
+                      Changing or removing it releases the installed license.
+                    properties:
+                      name:
+                        maxLength: 253
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+                x-kubernetes-validations:
+                - message: secretRef must not also be listed in releaseReceipts
+                  rule: '!has(self.secretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r,
+                    r.secretRef.name == self.secretRef.name)'
+                - message: secretRef.name must not be empty
+                  rule: '!has(self.secretRef) || size(self.secretRef.name) > 0'
               logging:
                 properties:
                   LogBackAccessRef:
