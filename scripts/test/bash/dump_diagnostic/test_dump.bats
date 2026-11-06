@@ -53,3 +53,12 @@ setup() {
     [[ "${output}" == *"BEGIN CERTIFICATE"* ]]
     [[ "${output}" != *"user:pass@host"* ]]
 }
+
+@test "license and release receipt values are redacted" {
+    run redact_secret_values <<< '{"license":"signed-license","release-receipt":"signed-receipt"}'
+
+    [ "${status}" -eq 0 ]
+    [[ "${output}" == *'"license": "<redacted>"'* ]]
+    [[ "${output}" == *'"release-receipt": "<redacted>"'* ]]
+    [[ "${output}" != *"signed-"* ]]
+}
