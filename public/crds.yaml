@@ -8798,17 +8798,6 @@ spec:
                 description: License manages the Ops Manager license and its release
                   receipts.
                 properties:
-                  licenseSecretRef:
-                    description: |-
-                      LicenseSecretRef names a Secret that holds the signed license under the "license" key.
-                      Changing or removing it releases the installed license.
-                    properties:
-                      name:
-                        maxLength: 253
-                        type: string
-                    required:
-                    - name
-                    type: object
                   releaseReceipts:
                     description: |-
                       ReleaseReceipts requests a release receipt for each entry.
@@ -8817,9 +8806,9 @@ spec:
                       <artifactId>-release-receipt, containing the license release receipt.
                     items:
                       properties:
-                        licenseSecretRef:
+                        secretRef:
                           description: |-
-                            LicenseSecretRef names a Secret that holds the released license. The artifact ID is read
+                            SecretRef names a Secret that holds the released license. The artifact ID is read
                             from the license.
                           properties:
                             name:
@@ -8829,19 +8818,18 @@ spec:
                           - name
                           type: object
                       required:
-                      - licenseSecretRef
+                      - secretRef
                       type: object
                       x-kubernetes-validations:
-                      - message: licenseSecretRef.name must not be empty
-                        rule: size(self.licenseSecretRef.name) > 0
+                      - message: secretRef.name must not be empty
+                        rule: size(self.secretRef.name) > 0
                     maxItems: 16
                     type: array
                     x-kubernetes-list-type: atomic
                     x-kubernetes-validations:
-                    - message: releaseReceipts must not list the same licenseSecretRef
-                        twice
-                      rule: self.all(x, self.filter(y, y.licenseSecretRef.name ==
-                        x.licenseSecretRef.name).size() == 1)
+                    - message: releaseReceipts must not list the same secretRef twice
+                      rule: self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size()
+                        == 1)
                   releaseReceiptsPolicy:
                     description: |-
                       ReleaseReceiptsPolicy controls which released licenses get a receipt.
@@ -8850,15 +8838,24 @@ spec:
                     enum:
                     - Automatic
                     type: string
+                  secretRef:
+                    description: |-
+                      SecretRef names a Secret that holds the signed license under the "license" key.
+                      Changing or removing it releases the installed license.
+                    properties:
+                      name:
+                        maxLength: 253
+                        type: string
+                    required:
+                    - name
+                    type: object
                 type: object
                 x-kubernetes-validations:
-                - message: licenseSecretRef must not also be listed in releaseReceipts
-                  rule: '!has(self.licenseSecretRef) || !has(self.releaseReceipts)
-                    || !self.releaseReceipts.exists(r, r.licenseSecretRef.name ==
-                    self.licenseSecretRef.name)'
-                - message: licenseSecretRef.name must not be empty
-                  rule: '!has(self.licenseSecretRef) || size(self.licenseSecretRef.name)
-                    > 0'
+                - message: secretRef must not also be listed in releaseReceipts
+                  rule: '!has(self.secretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r,
+                    r.secretRef.name == self.secretRef.name)'
+                - message: secretRef.name must not be empty
+                  rule: '!has(self.secretRef) || size(self.secretRef.name) > 0'
               logging:
                 properties:
                   LogBackAccessRef:
