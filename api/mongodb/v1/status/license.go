@@ -12,7 +12,11 @@ const (
 
 	ReasonLicenseEnforced        = "LicenseEnforced"
 	ReasonLicenseReady           = "LicenseReady"
+	ReasonLicenseStateUnknown    = "LicenseStateUnknown"
 	ReasonLicenseReconciled      = "LicenseReconciled"
+	ReasonLicenseInstalled       = "LicenseInstalled"
+	ReasonLicenseReleased        = "LicenseReleased"
+	ReasonLicenseOutdated        = "LicenseOutdated"
 	ReasonIdentityRotationFailed = "IdentityRotationFailed"
 	ReasonLicenseRecomputeFailed = "LicenseRecomputeFailed"
 	ReasonLicenseInstallFailed   = "LicenseInstallFailed"
@@ -21,6 +25,7 @@ const (
 	ReasonLicenseSecretFailed    = "LicenseSecretFailed"
 	ReasonLicenseArtifactInvalid = "LicenseArtifactInvalid"
 	ReasonLicenseObserveFailed   = "LicenseObserveFailed"
+	ReasonLicenseStateFailed     = "LicenseStateFailed"
 )
 
 func LicenseCondition(ready bool, reason, message string) metav1.Condition {
