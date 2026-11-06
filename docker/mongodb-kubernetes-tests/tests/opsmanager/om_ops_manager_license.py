@@ -4,18 +4,17 @@ Only behavior that needs a real Ops Manager or EA lives here. The operator's dec
 Ops Manager answer are covered by opsmanager_license_test.go and opsmanager_license_envtest_test.go.
 """
 
-import pytest
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
-from pytest import fixture
+from pytest import fixture, mark
 from tests.opsmanager.license_e2e_helpers import (
     ENROLLMENT_RECONCILE_CRON,
     LICENSE_SECRET_NAME,
     LICENSE_STATE_EVALUATION_CRON,
     RECOMPUTE_ANNOTATION,
     ROTATE_IDENTITY_ANNOTATION,
+    assert_foreign_license_kept,
     assert_license_installed,
-    assert_om_and_appdb_running,
     assert_om_license_unchanged,
     assert_secret_absent,
     cr_matches_om_license,
@@ -47,10 +46,12 @@ from tests.opsmanager.license_e2e_helpers import (
     renew_license,
     reset_license_e2e_state,
     revoke_at_ea,
+    rotate_identity_and_recompute,
     same_release_receipt,
     set_annotation_and_wait_cleared,
     set_license_install_spec,
     set_license_release_spec,
+    set_license_spec,
     set_release_receipts_spec,
     trigger_cron,
     wait_for_cr_license_sync,
@@ -58,29 +59,28 @@ from tests.opsmanager.license_e2e_helpers import (
     wait_for_ea_artifact_status,
     wait_for_ea_holder_released,
     wait_for_installed_license,
-    wait_for_license_ready_matches_om,
     wait_for_license_receipt,
-    wait_for_license_reconciled,
     wait_for_license_reconciled_reason,
     wait_for_observed_api_state,
     wait_for_om_artifact_unusable,
 )
 
 
-@pytest.mark.e2e_om_ops_manager_license
+@mark.e2e_om_ops_manager_license
 def test_create_om(ops_manager: MongoDBOpsManager):
     ops_manager.update()
     ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=900)
 
 
-@pytest.mark.e2e_om_ops_manager_license
+@mark.e2e_om_ops_manager_license
 class TestOpsManagerLicenseE2E:
     @fixture(autouse=True)
     def _reset_license_state(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         reset_license_e2e_state(ops_manager)
-        assert_om_and_appdb_running(ops_manager)
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=60)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=60)
 
     def test_observe_only_license_status(self, ops_manager: MongoDBOpsManager):
         """Without spec.license LicenseReady reports the state and identity Ops Manager reports."""
@@ -109,12 +109,9 @@ class TestOpsManagerLicenseE2E:
 
     def test_recompute_annotation_is_consumed(self, ops_manager: MongoDBOpsManager):
         """The operator removes the recompute annotation and reports the license reconciled."""
-        ops_manager.load()
-        ops_manager["spec"]["license"] = {}
-        ops_manager["metadata"].setdefault("annotations", {})[RECOMPUTE_ANNOTATION] = "true"
-        ops_manager.update()
-        wait_for_cr_license_sync(ops_manager)
-        assert RECOMPUTE_ANNOTATION not in ops_manager["metadata"].get("annotations", {})
+        set_license_spec(ops_manager, {})
+        set_annotation_and_wait_cleared(ops_manager, RECOMPUTE_ANNOTATION)
+        wait_for_cr_license_sync(ops_manager, installed="")
 
     def test_release_without_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
         """Removing secretRef releases the license at EA and writes no receipt."""
@@ -122,9 +119,11 @@ class TestOpsManagerLicenseE2E:
 
         assert_secret_absent(namespace, current_receipt_secret_name())
 
-    def test_release_after_license_secret_deleted_fails(self, ops_manager: MongoDBOpsManager, namespace: str):
+    def test_release_after_license_secret_deleted_leaves_license_held(
+        self, ops_manager: MongoDBOpsManager, namespace: str
+    ):
         """Without the license Secret the operator cannot tell its license from a foreign one, so removing
-        secretRef releases nothing and keeps reporting why."""
+        secretRef releases nothing, reports why once, and leaves the license to the Ops Manager UI."""
         installed = install_license(ops_manager, namespace)
 
         delete_secret_if_exists(namespace, LICENSE_SECRET_NAME)
@@ -132,9 +131,11 @@ class TestOpsManagerLicenseE2E:
 
         wait_for_ea_artifact_state(ops_manager, installed, "ACTIVE")
 
-    def test_release_after_license_secret_changed_fails(self, ops_manager: MongoDBOpsManager, namespace: str):
+    def test_release_after_license_secret_changed_leaves_license_held(
+        self, ops_manager: MongoDBOpsManager, namespace: str
+    ):
         """A license Secret that no longer holds a license does not identify the installed one, so removing
-        secretRef releases nothing and keeps reporting why."""
+        secretRef releases nothing, reports why once, and leaves the license to the Ops Manager UI."""
         installed = install_license(ops_manager, namespace)
 
         ensure_license_artifact_secret(namespace, "not-a-license")
@@ -190,12 +191,17 @@ class TestOpsManagerLicenseE2E:
             revoke_at_ea(ops_manager, older_id)
 
     def test_out_of_band_install_and_release_are_mirrored(self, ops_manager: MongoDBOpsManager):
-        """Changes made through the Ops Manager admin API show up in the CR, which never acts on them."""
+        """Changes made through the Ops Manager admin API show up in the CR, which never acts on them, not even
+        with automatic release receipts and after the rotate identity and recompute annotations."""
         install_license_out_of_band(ops_manager)
         _, om_view = wait_for_cr_license_sync(ops_manager)
 
         assert cr_matches_om_license(ops_manager, om_view)
         assert not installed_artifact_id(ops_manager)
+
+        set_license_spec(ops_manager, {"releaseReceiptsPolicy": "Automatic"})
+        rotate_identity_and_recompute(ops_manager)
+        assert_foreign_license_kept(ops_manager, current_artifact_id())
 
         released = current_artifact_id()
         ops_manager.get_om_tester().api_release_license(released)
@@ -206,13 +212,14 @@ class TestOpsManagerLicenseE2E:
 
     def test_auto_installed_top_up_is_reported_not_overridden(self, ops_manager: MongoDBOpsManager, namespace: str):
         """A top up Ops Manager pulls from EA replaces the license from the Secret. The CR reports it, Ops
-        Manager rejects the license from the Secret as outdated, and removing secretRef leaves the top up alone."""
+        Manager rejects the license from the Secret as outdated, and removing secretRef, rotating the identity
+        and recomputing leave the top up alone."""
         original = install_license(ops_manager, namespace)
 
         top_up = issue_top_up_and_auto_install(ops_manager)
         wait_for_ea_artifact_state(ops_manager, original, "RELEASED")
         reconciled = wait_for_license_reconciled_reason(ops_manager, "LicenseOutdated")
-        om_view = wait_for_license_ready_matches_om(ops_manager)
+        om_view = read_om_license_view(ops_manager)
 
         assert reconciled["status"] == "False", reconciled["message"]
         assert f"rejected license {original}" in reconciled["message"], reconciled["message"]
@@ -221,9 +228,9 @@ class TestOpsManagerLicenseE2E:
         assert top_up in om_artifact_ids(ops_manager)
 
         set_license_release_spec(ops_manager)
-        wait_for_cr_license_sync(ops_manager, installed="")
+        rotate_identity_and_recompute(ops_manager)
 
-        assert top_up in om_artifact_ids(ops_manager)
+        assert_foreign_license_kept(ops_manager, top_up)
 
     def test_revoke_at_ea_then_recompute_moves_to_grace(self, ops_manager: MongoDBOpsManager, namespace: str):
         """Once Ops Manager stops using a license revoked at EA, the recompute annotation moves the state to GRACE
@@ -253,7 +260,7 @@ class TestOpsManagerLicenseE2E:
         holder = om_holder_id(ops_manager)
 
         set_annotation_and_wait_cleared(ops_manager, ROTATE_IDENTITY_ANNOTATION)
-        wait_for_license_reconciled(ops_manager, expected=True)
+        wait_for_cr_license_sync(ops_manager, installed=current_artifact_id())
         trigger_cron(ops_manager, ENROLLMENT_RECONCILE_CRON)
 
         assert_license_installed(ops_manager, current_artifact_id())
