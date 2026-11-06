@@ -292,15 +292,16 @@ func (h *LicenseReconcilerHelper) receiptArtifactID(ctx context.Context, entry o
 // readLicenseArtifact reads the license from a Secret, invalid is set when the Secret does not hold a license.
 func (h *LicenseReconcilerHelper) readLicenseArtifact(ctx context.Context, secretName string) (rawArtifact, artifactID string, invalid bool, err error) {
 	namespace := h.opsManager.Namespace
-	rawArtifact, err = h.reconciler.ReadSecretKey(ctx, kube.ObjectKey(namespace, secretName), h.reconciler.VaultClient.OpsManagerSecretPathOrEmpty(), util.DefaultOpsManagerLicenseKey)
+	data, err := h.reconciler.ReadSecret(ctx, kube.ObjectKey(namespace, secretName), h.reconciler.VaultClient.OpsManagerSecretPathOrEmpty())
 	if secret.SecretNotExist(err) {
 		return "", "", false, xerrors.Errorf("license secret %s/%s does not exist: %w", namespace, secretName, err)
 	}
 	if err != nil {
 		return "", "", false, err
 	}
+	rawArtifact = data[util.DefaultOpsManagerLicenseKey]
 	if rawArtifact == "" {
-		return "", "", false, xerrors.Errorf("license secret %s/%s is missing key %q", namespace, secretName, util.DefaultOpsManagerLicenseKey)
+		return "", "", true, xerrors.Errorf("license secret %s/%s is missing key %q", namespace, secretName, util.DefaultOpsManagerLicenseKey)
 	}
 	artifactID, err = api.ArtifactIDFromRaw(rawArtifact)
 	if err != nil {
