@@ -187,6 +187,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         architecture_suffix=architecture_suffix,
         agent_tools_version=agent_tools_version,
         custom_agent_url=args.custom_agent_url,
+        om_download_url=args.om_download_url,
     )
 
 
@@ -330,6 +331,14 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         type=str,
         default="",
         help="Custom agent URL for testing. Overrides the prod agent download URL.",
+    )
+    parser.add_argument(
+        "--om-download-url",
+        metavar="",
+        action="store",
+        type=str,
+        default="",
+        help="Custom Ops Manager tarball URL for testing. Overrides the prod OM download URL.",
     )
 
     args = parser.parse_args()

@@ -277,6 +277,14 @@ parameters:
     value: ""
     description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path."
 
+  - key: om_download_url
+    value: ""
+    description: "Full URL of a custom Ops Manager tarball. Must be used together with om_version (the image tag). Only the ops-manager image build uses it."
+
+  - key: om_version
+    value: ""
+    description: "Image tag override for the Ops Manager image. Required with om_download_url, otherwise the image is tagged with the build's OM version. Without a URL it must be a released OM version, whose release tarball is downloaded."
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"

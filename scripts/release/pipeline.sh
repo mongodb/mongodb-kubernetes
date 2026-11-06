@@ -15,7 +15,7 @@ case ${IMAGE_NAME} in
     ;;
 
   "ops-manager")
-    IMAGE_VERSION="${OM_VERSION}"
+    IMAGE_VERSION="${OM_VERSION_OVERRIDE:-${OM_VERSION}}"
     ;;
 
   "readiness-probe")
@@ -43,6 +43,11 @@ fi
 # Pass custom agent URL if set (for testing custom agent builds)
 if [[ "${MDB_CUSTOM_AGENT_URL:-}" != "" ]]; then
     args+=(--custom-agent-url "${MDB_CUSTOM_AGENT_URL}")
+fi
+
+# Pass custom OM tarball URL if set (for testing custom Ops Manager builds)
+if [[ "${OM_DOWNLOAD_URL:-}" != "" ]]; then
+    args+=(--om-download-url "${OM_DOWNLOAD_URL}")
 fi
 
 if [[ "${FLAGS:-}" != "" ]]; then
