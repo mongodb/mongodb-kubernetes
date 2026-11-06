@@ -8828,22 +8828,20 @@ spec:
                           required:
                           - name
                           type: object
+                      required:
+                      - licenseSecretRef
                       type: object
                       x-kubernetes-validations:
-                      - message: licenseSecretRef must be set
-                        rule: has(self.licenseSecretRef)
                       - message: licenseSecretRef.name must not be empty
-                        rule: '!has(self.licenseSecretRef) || size(self.licenseSecretRef.name)
-                          > 0'
+                        rule: size(self.licenseSecretRef.name) > 0
                     maxItems: 16
                     type: array
                     x-kubernetes-list-type: atomic
                     x-kubernetes-validations:
                     - message: releaseReceipts must not list the same licenseSecretRef
                         twice
-                      rule: self.all(x, !has(x.licenseSecretRef) || self.filter(y,
-                        has(y.licenseSecretRef) && y.licenseSecretRef.name == x.licenseSecretRef.name).size()
-                        == 1)
+                      rule: self.all(x, self.filter(y, y.licenseSecretRef.name ==
+                        x.licenseSecretRef.name).size() == 1)
                   releaseReceiptsPolicy:
                     description: |-
                       ReleaseReceiptsPolicy controls which released licenses get a receipt.
@@ -8856,8 +8854,8 @@ spec:
                 x-kubernetes-validations:
                 - message: licenseSecretRef must not also be listed in releaseReceipts
                   rule: '!has(self.licenseSecretRef) || !has(self.releaseReceipts)
-                    || !self.releaseReceipts.exists(r, has(r.licenseSecretRef) &&
-                    r.licenseSecretRef.name == self.licenseSecretRef.name)'
+                    || !self.releaseReceipts.exists(r, r.licenseSecretRef.name ==
+                    self.licenseSecretRef.name)'
                 - message: licenseSecretRef.name must not be empty
                   rule: '!has(self.licenseSecretRef) || size(self.licenseSecretRef.name)
                     > 0'
