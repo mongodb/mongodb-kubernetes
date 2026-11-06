@@ -917,6 +917,113 @@ func TestEnsureCAConfigMapFromIssuedSecret(t *testing.T) {
 	})
 }
 
+func TestPruneAnnotationAggregation(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	serverCA1, serverCA2 := newTestCA(t, "server-ca-1"), newTestCA(t, "server-ca-2")
+	clientCA1, clientCA2 := newTestCA(t, "client-ca-1"), newTestCA(t, "client-ca-2")
+
+	ensure := func(t *testing.T, c kubernetesClient.Client, owner CertificateOwner, opts Options) (string, bool) {
+		t.Helper()
+		message, pruneApplied, status := ensureCAConfigMapsFromIssuedSecret(ctx, c, owner, []Options{opts}, true, log)
+		require.True(t, status.IsOK(), status.Message())
+		return message, pruneApplied
+	}
+
+	t.Run("a retained CA is reported until a prune is requested", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.False(t, pruneApplied)
+		assert.Contains(t, message, "Previous server CA retained in the trust bundle")
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+		assert.Less(t, strings.Index(message, "Previous server CA"), strings.Index(message, "Previous client CA"))
+	})
+
+	t.Run("true fulfils the annotation once no leaf is signed by the previous CAs", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "true"}
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.True(t, pruneApplied)
+		assert.Empty(t, message)
+	})
+
+	t.Run("a leaf still signed by the previous CA refuses the prune and keeps the annotation", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "true"}
+		// the clusterFile certificate has not been reissued yet, it is still signed by the previous client CA
+		setSecret(t, c, opts.InternalClusterSecretName, map[string][]byte{corev1.TLSCertKey: clientCA1.issueLeaf(t, "clusterfile")})
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.False(t, pruneApplied)
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+		assert.Contains(t, message, "The previous client CA was not pruned: issued certificates are still signed by it.")
+		assert.NotContains(t, message, "Previous server CA retained", "the server CA was pruned")
+	})
+
+	t.Run("nothing retained fulfils the annotation", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		setCAs(serverCA1.pem, clientCA1.pem)
+		ensure(t, c, owner, opts)
+
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "true"}
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.True(t, pruneApplied)
+		assert.Empty(t, message)
+	})
+
+	t.Run("server targets the server category only", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "server"}
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.True(t, pruneApplied)
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+		assert.NotContains(t, message, "Previous server CA retained", "the targeted server CA was pruned")
+	})
+
+	t.Run("an unknown annotation value is left untouched", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "yes"}
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.False(t, pruneApplied)
+		assert.Contains(t, message, "Previous server CA retained in the trust bundle")
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+	})
+}
+
+func TestCertificatesReadyMessage(t *testing.T) {
+	t.Run("no retained CA keeps the plain message", func(t *testing.T) {
+		assert.Equal(t, "", previousCASentence(categoryServer, false, false))
+		assert.Equal(t, "All operator-managed certificates are issued and up to date", certificatesReadyMessage(""))
+	})
+
+	t.Run("a retained CA names the category and how to prune it", func(t *testing.T) {
+		message := certificatesReadyMessage(previousCASentence(categoryServer, true, false))
+
+		assert.Equal(t,
+			"All operator-managed certificates are issued and up to date. Previous server CA retained in the trust bundle; annotate the resource with mongodb.com/prune-previous-ca=server (or true) once all members and clients use the new CA.",
+			message)
+	})
+
+	t.Run("a refused prune says issued certificates are still signed by the previous CA", func(t *testing.T) {
+		message := certificatesReadyMessage(previousCASentence(categoryClient, true, true))
+
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+		assert.Contains(t, message, util.PrunePreviousCAAnnotation+"=client (or true)")
+		assert.Contains(t, message, "The previous client CA was not pruned: issued certificates are still signed by it.")
+	})
+}
+
 func TestBundleDataWithPrevious(t *testing.T) {
 	latest, previous := util.LatestHashSecretKey, util.PreviousHashSecretKey
 

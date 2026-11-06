@@ -1637,7 +1637,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureManagedCertificates(
 	}
 
 	mcRSOpts := certs.MultiReplicaSetManagedCertConfig(*mrs, memberClustersForManagedCert(mrs, clusterSpecList))
-	status, certsCondition := certs.EnsureCertificatesAndCA(ctx, r.client, mrs, []certs.Options{mcRSOpts}, log)
+	status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(ctx, r.client, mrs, []certs.Options{mcRSOpts}, log)
 	// Record the certificate state on the resource so it is visible in the status, the same way the
 	// replica set and sharded controllers do.
 	mrs.SetStatusCondition(certsCondition)
@@ -1645,7 +1645,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureManagedCertificates(
 		return status
 	}
 
-	return r.replicateManagedCABundlesInMemberClusters(ctx, mrs, log)
+	if status := r.replicateManagedCABundlesInMemberClusters(ctx, mrs, log); !status.IsOK() {
+		return status
+	}
+
+	return r.removeFulfilledPruneAnnotation(ctx, mrs, pruneApplied)
 }
 
 // memberClustersForManagedCert returns how many members the shared member certificate must cover, per member

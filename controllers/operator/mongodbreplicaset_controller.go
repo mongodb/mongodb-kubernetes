@@ -304,7 +304,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 				r.reconciler.certManagerReadiness.UnavailableMessage())))
 		}
 
-		status, certsCondition := certs.EnsureCertificatesAndCA(
+		status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(
 			ctx,
 			reconciler.client,
 			rs,
@@ -314,6 +314,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 		rs.SetStatusCondition(certsCondition)
 		if !status.IsOK() {
+			return r.updateStatus(ctx, status)
+		}
+		if status := reconciler.removeFulfilledPruneAnnotation(ctx, rs, pruneApplied); !status.IsOK() {
 			return r.updateStatus(ctx, status)
 		}
 	}
