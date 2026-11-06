@@ -86,6 +86,7 @@ type Other struct {
 type StartRequest struct {
 	ConfigPath  string `json:"configPath"`
 	Role        Role   `json:"role"`
+	OperationID string `json:"operationId,omitempty"`
 	Other       Other  `json:"other"`
 	WaitForExit bool   `json:"waitForExit,omitempty"`
 }
@@ -97,7 +98,8 @@ type StopRequest struct {
 	// Force sends SIGKILL after the timeout (immediately when the timeout is 0).
 	Force bool `json:"force,omitempty"`
 	// Role restricts the stop to an execution with this role. Empty matches any.
-	Role Role `json:"role,omitempty"`
+	Role        Role   `json:"role,omitempty"`
+	OperationID string `json:"operationId,omitempty"`
 }
 
 // Status is the response of GET /v1/process and of start/stop.

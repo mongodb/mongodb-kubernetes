@@ -695,6 +695,20 @@ tasks:
         vars:
           image_name: mongodb-proxy
 
+  # Scans the mongodb-proxy image built in the same patch for known CVEs. The scan is notify-only, so it
+  # never blocks the build. TRIVY_SCAN_FORCE runs it outside the staging and release scenarios.
+  - name: cve_scan_mongodb_proxy_image
+    depends_on:
+      - name: build_mongodb_proxy_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_staging_login
+      - func: trivy_scan
+        vars:
+          image_name: mongodb-proxy
+          trivy_scan_force: "true"
+
   # Single CVE scan of all the images built in init_test_run and of the Ops Manager images (7.0, 8.0 and 9.0,
   # built in their own variants), reported in one Slack message. The OM versions are resolved by
   # scripts/release/trivy_scan.sh. Only the currently used agent versions are scanned to keep scan time bounded.
@@ -2440,6 +2454,7 @@ buildvariants:
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
       - name: build_mongodb_proxy_image
+      - name: cve_scan_mongodb_proxy_image
       - name: cve_scan_images
       - name: build_kubectl_mongodb_plugin
       - name: prepare_aws

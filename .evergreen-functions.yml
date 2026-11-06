@@ -709,6 +709,7 @@ functions:
           BUILD_SCENARIO_OVERRIDE: ${build_scenario}
           AGENT_VERSION_OVERRIDE: ${agent_version}
           TRIVY_SCAN_FLAGS: ${trivy_scan_flags}
+          TRIVY_SCAN_FORCE: ${trivy_scan_force}
           TRIVY_SCAN_NOTIFY: ${TRIVY_SCAN_NOTIFY}
           SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
           TASK_ID: ${task_id}
