@@ -10,9 +10,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestLicenseCondition_CarriesReasonAndMessage(t *testing.T) {
+func TestOpsManagerLicenseReadyCondition_CarriesReasonAndMessage(t *testing.T) {
 	var conditions []metav1.Condition
-	c := LicenseCondition(false, ReasonLicenseStateUnknown, "no state yet")
+	c := OpsManagerLicenseReadyCondition(false, ReasonLicenseStateUnknown, "no state yet")
 	c.ObservedGeneration = 3
 	_ = meta.SetStatusCondition(&conditions, c)
 
@@ -24,7 +24,7 @@ func TestLicenseCondition_CarriesReasonAndMessage(t *testing.T) {
 	assert.Equal(t, "no state yet", ready.Message)
 }
 
-func TestLicenseCondition_SetsAndClearsEnforced(t *testing.T) {
+func TestOpsManagerLicenseReadyCondition_SetsAndClearsEnforced(t *testing.T) {
 	var conditions []metav1.Condition
 	c := LicenseEnforcedCondition("not licensed")
 	c.ObservedGeneration = 3
@@ -46,7 +46,7 @@ func TestLicenseCondition_SetsAndClearsEnforced(t *testing.T) {
 
 func TestClearLicenseBlockIfPresent_LeavesOtherFalseReasons(t *testing.T) {
 	var conditions []metav1.Condition
-	_ = meta.SetStatusCondition(&conditions, LicenseCondition(false, "SomeOtherReason", "leave me"))
+	_ = meta.SetStatusCondition(&conditions, OpsManagerLicenseReadyCondition(false, "SomeOtherReason", "leave me"))
 	ClearLicenseBlockIfPresent(&conditions, 2)
 	ready := meta.FindStatusCondition(conditions, ConditionOpsManagerLicenseReady)
 	require.NotNil(t, ready)
