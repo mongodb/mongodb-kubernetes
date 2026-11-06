@@ -61,7 +61,7 @@ class TestOpsManagerLicenseAirGappedE2E:
         assert row["status"] == "ISSUED"
         assert not row.get("holders")
 
-        set_release_receipts_spec(ops_manager, current_artifact_id())
+        set_release_receipts_spec(ops_manager)
         wait_for_released_artifact(ops_manager, current_artifact_id())
         receipt = wait_for_license_receipt(ops_manager, current_receipt_secret_name())
         credentials = gsa_credentials(namespace)
