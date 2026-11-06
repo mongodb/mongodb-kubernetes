@@ -93,7 +93,7 @@ Ops Manager build and run the licensing tests against it on every merge to maste
 `evergreen:e2e-license` label. To run them on a branch without a PR, use the patch below. The build task builds one image per Ops Manager
 line in `OM_DEV_RELEASE_LINES` (`scripts/dev/contexts/variables/om_dev`), from the latest build of its release branch with the dev EA environment compiled in, which the
 `PACKAGE_OPS_MANAGER_EA` task publishes to the private `evg-mms-testing2` bucket. Each image is tagged
-`<major>-dev-<OPERATOR_VERSION>`, the evergreen id of the run, for example `9-dev-<version_id>` in a patch. The
+`<major>.0.0-dev-<OPERATOR_VERSION>`, the evergreen id of the run, for example `9.0.0-dev-<version_id>` in a patch. The
 tests run against the last line, whose tag the `om_dev` context exports as `CUSTOM_OM_VERSION` for `single_e2e.sh`.
 
 ```shell
