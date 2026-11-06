@@ -461,21 +461,14 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 			name: "entry naming the artifact by its old licence Secret is accepted",
 			license: &omv1.MongoDBOpsManagerLicense{
 				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
-					LicenseSecretRef: &omv1.SecretRef{Name: "old-license"},
+					LicenseSecretRef: omv1.SecretRef{Name: "old-license"},
 				}},
 			},
 		},
 		{
-			name: "entry without a licenseSecretRef is rejected",
-			license: &omv1.MongoDBOpsManagerLicense{
-				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{}},
-			},
-			errorContains: "licenseSecretRef must be set",
-		},
-		{
 			name: "entry with an empty licenseSecretRef name is rejected",
 			license: &omv1.MongoDBOpsManagerLicense{
-				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{LicenseSecretRef: &omv1.SecretRef{}}},
+				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{LicenseSecretRef: omv1.SecretRef{}}},
 			},
 			errorContains: "licenseSecretRef.name must not be empty",
 		},
@@ -490,8 +483,8 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 			name: "same licenseSecretRef listed twice is rejected",
 			license: &omv1.MongoDBOpsManagerLicense{
 				ReleaseReceipts: []omv1.LicenseReleaseReceipt{
-					{LicenseSecretRef: &omv1.SecretRef{Name: "old-license"}},
-					{LicenseSecretRef: &omv1.SecretRef{Name: "old-license"}},
+					{LicenseSecretRef: omv1.SecretRef{Name: "old-license"}},
+					{LicenseSecretRef: omv1.SecretRef{Name: "old-license"}},
 				},
 			},
 			errorContains: "releaseReceipts must not list the same licenseSecretRef twice",
@@ -501,7 +494,7 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 			license: &omv1.MongoDBOpsManagerLicense{
 				LicenseSecretRef: &omv1.SecretRef{Name: "om-license"},
 				ReleaseReceipts: []omv1.LicenseReleaseReceipt{
-					{LicenseSecretRef: &omv1.SecretRef{Name: "om-license"}},
+					{LicenseSecretRef: omv1.SecretRef{Name: "om-license"}},
 				},
 			},
 			errorContains: "licenseSecretRef must not also be listed in releaseReceipts",
@@ -511,8 +504,8 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 			license: &omv1.MongoDBOpsManagerLicense{
 				LicenseSecretRef: &omv1.SecretRef{Name: "om-license"},
 				ReleaseReceipts: []omv1.LicenseReleaseReceipt{
-					{LicenseSecretRef: &omv1.SecretRef{Name: "old-license-1"}},
-					{LicenseSecretRef: &omv1.SecretRef{Name: "old-license-2"}},
+					{LicenseSecretRef: omv1.SecretRef{Name: "old-license-1"}},
+					{LicenseSecretRef: omv1.SecretRef{Name: "old-license-2"}},
 				},
 			},
 		},

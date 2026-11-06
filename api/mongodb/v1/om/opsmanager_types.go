@@ -182,7 +182,7 @@ type MongoDBOpsManagerSpec struct {
 }
 
 // MongoDBOpsManagerLicense configures the Enterprise Advanced license and its release receipts.
-// +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, has(r.licenseSecretRef) && r.licenseSecretRef.name == self.licenseSecretRef.name)",message="licenseSecretRef must not also be listed in releaseReceipts"
+// +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, r.licenseSecretRef.name == self.licenseSecretRef.name)",message="licenseSecretRef must not also be listed in releaseReceipts"
 // +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
 type MongoDBOpsManagerLicense struct {
 	// LicenseSecretRef names a Secret that holds the signed license under the "license" key.
@@ -203,7 +203,7 @@ type MongoDBOpsManagerLicense struct {
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:XValidation:rule="self.all(x, !has(x.licenseSecretRef) || self.filter(y, has(y.licenseSecretRef) && y.licenseSecretRef.name == x.licenseSecretRef.name).size() == 1)",message="releaseReceipts must not list the same licenseSecretRef twice"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.licenseSecretRef.name == x.licenseSecretRef.name).size() == 1)",message="releaseReceipts must not list the same licenseSecretRef twice"
 	ReleaseReceipts []LicenseReleaseReceipt `json:"releaseReceipts,omitempty"`
 }
 
@@ -214,13 +214,12 @@ type ReleaseReceiptsPolicy string
 // ReleaseReceiptsAutomatic writes a receipt for every license the operator releases.
 const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
 
-// +kubebuilder:validation:XValidation:rule="has(self.licenseSecretRef)",message="licenseSecretRef must be set"
-// +kubebuilder:validation:XValidation:rule="!has(self.licenseSecretRef) || size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
+// +kubebuilder:validation:XValidation:rule="size(self.licenseSecretRef.name) > 0",message="licenseSecretRef.name must not be empty"
 type LicenseReleaseReceipt struct {
 	// LicenseSecretRef names a Secret that holds the released license. The artifact ID is read
 	// from the license.
-	// +optional
-	LicenseSecretRef *SecretRef `json:"licenseSecretRef,omitempty"`
+	// +kubebuilder:validation:Required
+	LicenseSecretRef SecretRef `json:"licenseSecretRef"`
 }
 
 func (l *MongoDBOpsManagerLicense) InstallRequested() bool {
