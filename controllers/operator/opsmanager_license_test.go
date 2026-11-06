@@ -620,9 +620,27 @@ func TestEnsureOpsManagerLicense_AutoReleaseOnSecretRefRemoval(t *testing.T) {
 		LicenseState: viewWithLicenses("LICENSED", artifactView("art-1")),
 	}
 
-	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.True(t, st.IsOK())
 	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
 	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "no license")
+	c := reconciledCondition(t, st.StatusOptions())
+	assert.Equal(t, status.ReasonLicenseReleased, c.Reason)
+	assert.Equal(t, "Ops Manager no longer holds license art-1 from secretRef.", c.Message)
+}
+
+func TestEnsureOpsManagerLicense_WithoutSecretRefInstallsNoLicense(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+	r := newOmLicenseReconciler(t, testOm)
+	admin := &api.MockedOmAdmin{LicenseState: viewWithLicenses("LICENSED", artifactView("art-ui"))}
+
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.True(t, st.IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	c := reconciledCondition(t, st.StatusOptions())
+	assert.Equal(t, status.ReasonLicenseReconciled, c.Reason)
+	assert.Equal(t, "secretRef is not set, so the operator installs no license.", c.Message)
 }
 
 func TestEnsureOpsManagerLicense_ReleaseOnLicenseSpecRemoval(t *testing.T) {
