@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -17,7 +19,15 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/cmd/readiness/testdata"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/health"
+	"github.com/mongodb/mongodb-kubernetes/pkg/mongodbproxy"
 )
+
+func TestMain(m *testing.M) {
+	// Keep the existing tests on the agent-health path. The proxy tests override
+	// proxyStatusURL with their own server.
+	proxyStatusURL = "http://127.0.0.1:1"
+	os.Exit(m.Run())
+}
 
 // TestDeadlockDetection verifies that if the agent is stuck in "WaitAllRsMembersUp" phase (started > 15 seconds ago)
 // then the function returns "ready"
@@ -279,6 +289,41 @@ func TestHeadlessAgentReachedGoal(t *testing.T) {
 	assert.NoError(t, err)
 	thePod, _ := c.ClientSet.CoreV1().Pods(c.Namespace).Get(ctx, c.Hostname, metav1.GetOptions{})
 	assert.Equal(t, map[string]string{"agent.mongodb.com/version": "5"}, thePod.Annotations)
+}
+
+// TestProxyProcessState verifies that a reachable proxy with no running
+// database process keeps the pod not ready, and that a running proxy falls
+// through to the agent health status.
+func TestProxyProcessState(t *testing.T) {
+	agentOnly, err := isPodReady(context.Background(), testConfig("testdata/health-status-ok.json"))
+	assert.NoError(t, err)
+
+	tests := map[string]struct {
+		state   mongodbproxy.State
+		isReady bool
+	}{
+		"idle proxy is not ready":              {state: mongodbproxy.StateIdle, isReady: false},
+		"exited proxy is not ready":            {state: mongodbproxy.StateExited, isReady: false},
+		"running proxy keeps the agent result": {state: mongodbproxy.StateRunning, isReady: agentOnly},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			state := test.state
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(mongodbproxy.Status{State: state})
+			}))
+			defer server.Close()
+
+			oldURL := proxyStatusURL
+			proxyStatusURL = server.URL
+			t.Cleanup(func() { proxyStatusURL = oldURL })
+
+			ready, err := isPodReady(context.Background(), testConfig("testdata/health-status-ok.json"))
+			assert.NoError(t, err)
+			assert.Equal(t, test.isReady, ready)
+		})
+	}
 }
 
 func testConfig(healthFilePath string) config.Config {

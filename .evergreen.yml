@@ -339,6 +339,12 @@ patch_aliases:
     description: "Run the amd64 static-ga acceptance suite, including manual-only OM60"
     variant_tags: [ "static_amd64" ]
     task: ".*"
+  # OM9-only version of the static suite. OM6/7/8 are covered by their own
+  # aliases. The smoke variants stay in so the alias matches the full static set.
+  - alias: "static_om9"
+    description: "Run all static variants, with Ops Manager only on 9"
+    variant: "^e2e_static_(mdb_kind_ubi_cloudqa|mdb_kind_ubi9_slim_cloudqa|custom_domain_mdb_kind_ubi_cloudqa|mdb_kind_ubi_cloudqa_large|openshift_mdb_ubi_cloudqa|openshift_mdb_ubi9_slim_cloudqa|om90_kind_ubi|om90_kind_ubi_large|om90_kind_ubi9_slim|multi_cluster_kind|multi_cluster_kind_ubi9_slim|multi_cluster_2_clusters|multi_cluster_2_clusters_ubi9_slim|multi_cluster_om_appdb|multi_cluster_om_appdb_ubi9_slim|operator_kind_ubi_cloudqa|kind_olm_ubi|smoke_arm|smoke_arm_ubi9_slim|smoke_ibm_power|smoke_ibm_power_ubi9_slim|smoke_ibm_z|smoke_ibm_z_ubi9_slim)$"
+    task: ".*"
   # OM6/7 are unsupported for static-ga (ST1). The OM80 upgrade starts on OM7.
   - alias: "static_ga_no_om67"
     description: "Run supported amd64 static-ga contexts, including Cloud Manager"
@@ -1927,7 +1933,7 @@ buildvariants:
   # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
   - name: e2e_static_om60_kind_ubi
     display_name: e2e_static_om60_kind_ubi
-    tags: [ "manual_patch", "e2e_test_suite", "static", "static_amd64" ]
+    tags: [ "manual_patch", "e2e_test_suite", "static_amd64" ]
     allowed_requesters: [ "patch" ] # only on demand
     run_on:
       - ubuntu2404-large
@@ -2371,7 +2377,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om_appdb_ubi9_slim
     display_name: e2e_static_multi_cluster_om_appdb_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "static", "static_amd64" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
