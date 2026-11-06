@@ -6,10 +6,11 @@ and where to fetch and calculate parameters."""
 import datetime
 import json
 import os
+import re
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
 from queue import Queue
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import requests
 from opentelemetry import trace
@@ -36,6 +37,34 @@ def extract_tools_version_from_release(release: Dict) -> str:
     version_part = tools_bundle.split("-")[-1]  # Gets "100.12.2.tgz"
     tools_version = version_part.replace(".tgz", "")  # Gets "100.12.2"
     return tools_version
+
+
+def agent_version_from_custom_url(custom_agent_url: str) -> str:
+    """Return the Agent version encoded in a custom Agent tarball filename.
+
+    The operator derives the Agent image tag from the same filename
+    (agentVersionFromURL in controllers/operator/common_controller.go). The
+    image built from the tarball must carry that tag, or every pod that uses
+    the custom URL stays in ImagePullBackOff.
+    """
+    filename = custom_agent_url.rsplit("/", 1)[-1]
+    match = re.fullmatch(
+        r"mongodb-mms-automation-agent-(\d+\.\d+\.\d+\.\d+-\d+)\.[A-Za-z0-9_]+\.tar\.gz",
+        filename,
+    )
+    if not match:
+        raise ValueError(f"Cannot derive the Agent version from the custom Agent URL filename: {filename}")
+    return match.group(1)
+
+
+def add_custom_agent_version(
+    agent_versions: List[Tuple[str, str]], custom_agent_url: str, tools_version: str
+) -> List[Tuple[str, str]]:
+    """Add the version from a custom Agent URL unless the list already contains it."""
+    candidate = agent_version_from_custom_url(custom_agent_url)
+    if any(agent_version == candidate for agent_version, _ in agent_versions):
+        return agent_versions
+    return [*agent_versions, (candidate, tools_version)]
 
 
 def build_image(
@@ -304,6 +333,15 @@ def build_agent(build_configuration: ImageBuildConfiguration):
         logger.info(f"building agent {version} with tools {build_configuration.agent_tools_version}")
     else:
         raise ValueError("No agent selection provided - this should be caught by pipeline.py validation")
+
+    if build_configuration.custom_agent_url and version in ("all", "current"):
+        tools_version = build_configuration.agent_tools_version or extract_tools_version_from_release(
+            load_release_file()
+        )
+        agent_versions_to_build = add_custom_agent_version(
+            agent_versions_to_build, build_configuration.custom_agent_url, tools_version
+        )
+        logger.info(f"including the custom Agent from {build_configuration.custom_agent_url}")
 
     if not agent_versions_to_build:
         logger.warning("No agent versions found to build")
