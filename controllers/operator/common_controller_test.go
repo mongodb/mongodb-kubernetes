@@ -774,6 +774,41 @@ func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
 	assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
 }
 
+func TestSecretWatcherWithManagedCertificateCARefs(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	rs.Spec.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{
+		Server: &mdbv1.CertificateConfig{
+			IssuerRef:            &mdbv1.IssuerRef{Name: "my-issuer"},
+			CA:                   &mdbv1.CARef{Name: "server-ca", Kind: "ConfigMap", Key: "ca.crt"},
+			AdditionalTrustedCAs: []mdbv1.CARef{{Name: "server-extra", Kind: "Secret", Key: "tls.crt"}},
+		},
+		Client: &mdbv1.CertificateConfig{
+			AdditionalTrustedCAs: []mdbv1.CARef{{Name: "client-extra", Kind: "ConfigMap", Key: "ca.crt"}},
+		},
+	}}
+	kubeClient, _ := mock.NewDefaultFakeClient(rs)
+	controller := NewReconcileCommonController(ctx, kubeClient)
+
+	controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
+
+	watched := controller.resourceWatcher.GetWatchedResources()
+	dependent := []types.NamespacedName{kube.ObjectKey(mock.TestNamespace, rs.Name)}
+	assert.Equal(t, dependent, watched[watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "server-ca")}])
+	assert.Equal(t, dependent, watched[watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "server-extra")}])
+	assert.Equal(t, dependent, watched[watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "client-extra")}])
+	// a CA of a Secret kind is not watched as a ConfigMap, and the other way around
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "server-ca")})
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "server-extra")})
+
+	// the sources are no longer watched once they are removed from the spec
+	rs.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
+	watched = controller.resourceWatcher.GetWatchedResources()
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "server-ca")})
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "server-extra")})
+}
+
 func TestAgentCertHashAndPath(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient(

@@ -25,13 +25,11 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
-	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -271,8 +269,10 @@ func EnsureCertificatesAndCA(
 		return status, issuanceFailedCondition(status.Message())
 	}
 
-	// All certs Ready, populate the per-category CA trust bundle.
-	if status := EnsureCAConfigMapFromIssuedSecret(ctx, c, res, allOpts[0], hasClientCerts, log); !status.IsOK() {
+	// All certs Ready, populate the per-category CA trust bundle. Callers read the resulting bundle
+	// hashes with ReadManagedCABundleHashes when they build the automation config CA paths.
+	status := EnsureCAConfigMapFromIssuedSecret(ctx, c, res, allOpts, hasClientCerts, log)
+	if !status.IsOK() {
 		return status, issuanceFailedCondition(status.Message())
 	}
 
@@ -788,43 +788,27 @@ func ensureIssuer(ctx context.Context, c kubernetesClient.Client, res Certificat
 // mongod config fields, net.tls.CAFile (server CA) and net.tls.clusterCAFile (client CA).
 // Each category's CA is the user issuer's CA (issued secret's ca.crt, or the category's `ca` input
 // (server/client.ca) when the issuer emits none) OR that category's operator self-signed CA cert,
-// plus any `additionalTrustedCAs` for that category.
+// plus the previous CA kept after a CA rotation until it is pruned, plus any `additionalTrustedCAs`
+// for that category, see ensureCategoryBundle.
 func EnsureCAConfigMapFromIssuedSecret(
 	ctx context.Context,
 	c kubernetesClient.Client,
 	res CertificateOwner,
-	opts Options,
+	allOpts []Options,
 	hasClientCerts bool,
 	log *zap.SugaredLogger,
 ) workflow.Status {
-	serverCA, status := resolveCategoryCA(ctx, c, res, categoryServer, opts.CertSecretName)
+	var status workflow.Status
+
+	status = ensureCategoryBundle(ctx, c, res, categoryServer, allOpts[0].CertSecretName, serverLeafSecretNames(allOpts))
 	if !status.IsOK() {
 		return status
-	}
-	// concatenate additionalTrustedCAs
-	serverBundle, status := categoryBundle(ctx, c, res, categoryServer, serverCA)
-	if !status.IsOK() {
-		return status
-	}
-	// The server bundle also keeps a stable ca-pem copy: it is the ConfigMap that client applications
-	// are pointed at (MongoDBUser.status.clientCertificate.serverCAConfigMapName), so they can mount a
-	// fixed key. mongod never uses it, the automation config points at the hash-named file.
-	if err := ensureHashedBundleConfigMap(ctx, c, res, ManagedServerCABundleConfigMapName(res.GetName()), serverBundle, tls.CAConfigMapKey); err != nil {
-		return workflow.Failed(err)
 	}
 
 	if hasClientCerts {
-		clientCA, status := resolveCategoryCA(ctx, c, res, categoryClient, clientIssuedSecretName(res, opts))
+		status = ensureCategoryBundle(ctx, c, res, categoryClient, clientIssuedSecretName(res, allOpts[0]), clientLeafSecretNames(res, allOpts))
 		if !status.IsOK() {
 			return status
-		}
-		// concatenate additionalTrustedCAs
-		clientBundle, status := categoryBundle(ctx, c, res, categoryClient, clientCA)
-		if !status.IsOK() {
-			return status
-		}
-		if err := ensureHashedBundleConfigMap(ctx, c, res, ManagedClientCABundleConfigMapName(res.GetName()), clientBundle, ""); err != nil {
-			return workflow.Failed(err)
 		}
 	}
 
@@ -849,39 +833,6 @@ func ReadManagedCABundleHashes(ctx context.Context, getter configmap.Getter, res
 	}
 
 	return caFilePath, clusterCAFilePath, nil
-}
-
-// ensureHashedBundleConfigMap publishes a CA bundle in the ConfigMap with the given name under its
-// content hash, keeping the previously published bundle. When aliasKey is set
-// the current bundle is also stored under that fixed key. The ConfigMap is only written when its
-// data changes.
-func ensureHashedBundleConfigMap(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, name, bundle, aliasKey string) error {
-	hash := enterprisepem.HashBytes([]byte(bundle))
-
-	var existingData map[string]string
-	existing, err := c.GetConfigMap(ctx, kube.ObjectKey(res.GetNamespace(), name))
-	switch {
-	case err == nil:
-		existingData = existing.Data
-	case !apiErrors.IsNotFound(err):
-		return err
-	}
-
-	data := bundleDataWithPrevious(existingData, hash, bundle)
-	if aliasKey != "" {
-		data[aliasKey] = bundle
-	}
-	if err == nil && maps.Equal(existingData, data) {
-		return nil
-	}
-
-	cm := configmap.Builder().
-		SetName(name).
-		SetNamespace(res.GetNamespace()).
-		SetOwnerReferences(kube.BaseOwnerReference(res)).
-		SetData(data).
-		Build()
-	return configmap.CreateOrUpdate(ctx, c, cm)
 }
 
 // bundleDataWithPrevious returns the ConfigMap data for a bundle: the bundle under its hash, the
@@ -920,24 +871,6 @@ func resolveCategoryCA(
 		return readSelfSignedCACert(ctx, c, res, cat)
 	}
 	return resolveUserCA(ctx, c, res, cat, issuedSecretName)
-}
-
-// categoryBundle concatenates a category's primary CA with any additionalTrustedCAs.
-// Every PEM block is newline-terminated so the concatenation stays a valid bundle.
-func categoryBundle(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cat certCategory, primaryCA string) (string, workflow.Status) {
-	bundle := strings.TrimRight(primaryCA, "\n") + "\n"
-	cfg := certCategoryConfig(res, cat)
-	if cfg == nil {
-		return bundle, workflow.OK()
-	}
-	for _, src := range cfg.AdditionalTrustedCAs {
-		ca, status := readCASource(ctx, c, res, src)
-		if !status.IsOK() {
-			return "", status
-		}
-		bundle += strings.TrimRight(ca, "\n") + "\n"
-	}
-	return bundle, workflow.OK()
 }
 
 // resolveUserCA returns the CA that verifies a category's certs when signed by a user
