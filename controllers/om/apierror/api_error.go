@@ -3,6 +3,7 @@ package apierror
 import (
 	"errors"
 	"fmt"
+	"net/http"
 )
 
 const (
@@ -12,6 +13,7 @@ const (
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
 	DuplicateWhitelistEntry    = "DUPLICATE_GLOBAL_WHITELIST_ENTRY"
+	LicenseArtifactOutdated    = "ARTIFACT_OUTDATED"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the
@@ -93,4 +95,21 @@ func (e *Error) ErrorBackupDaemonConfigIsNotFound() bool {
 	}
 
 	return false
+}
+
+// IsNotFound returns whether Ops Manager answered with a 404.
+func (e *Error) IsNotFound() bool {
+	return e != nil && e.Status != nil && *e.Status == http.StatusNotFound
+}
+
+// IsConflict returns whether Ops Manager rejected the request with a 409.
+func (e *Error) IsConflict() bool {
+	return e != nil && e.Status != nil && *e.Status == http.StatusConflict
+}
+
+// IsLicenseArtifactOutdated returns whether Ops Manager rejected a license install because an
+// artifact this new or newer was already installed at some point, or the install lost a race with
+// a concurrent one.
+func (e *Error) IsLicenseArtifactOutdated() bool {
+	return e.IsConflict() && e.ErrorCode == LicenseArtifactOutdated
 }
