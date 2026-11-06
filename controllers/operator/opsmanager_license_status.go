@@ -12,8 +12,9 @@ import (
 
 const licenseStateLicensed = "LICENSED"
 
-// setLicenseReadyCondition reports the license Ops Manager holds, whoever installed it.
-func (h *LicenseReconcilerHelper) setLicenseReadyCondition() {
+// reportOpsManagerLicenseReady sets OpsManagerLicenseReady to the license Ops Manager holds,
+// whoever installed it.
+func (h *LicenseReconcilerHelper) reportOpsManagerLicenseReady() {
 	if h.observed == nil {
 		return
 	}
@@ -60,10 +61,11 @@ func licenseStateReason(state string) string {
 	return reason.String()
 }
 
-// licenseReconciledStatus reports what happened to the license in secretRef. A requested artifact
-// Ops Manager does not hold was rejected as outdated by its anti rollback check. The license is not
-// applied then, but retrying cannot help until the Secret holds a newer one, so the reconcile is OK.
-func (h *LicenseReconcilerHelper) licenseReconciledStatus(requestedID, releasedID string) workflow.Status {
+// reportLicenseReconciled returns LicenseReconciled for what happened to the license in
+// secretRef. A requested artifact Ops Manager does not hold was rejected as outdated by its anti
+// rollback check. The license is not applied then, but retrying cannot help until the Secret holds
+// a newer one, so the reconcile is OK.
+func (h *LicenseReconcilerHelper) reportLicenseReconciled(requestedID, releasedID string) workflow.Status {
 	if requestedID == "" && releasedID != "" {
 		return licenseReconciled(true, status.ReasonLicenseReleased, fmt.Sprintf("Ops Manager no longer holds license %s from secretRef.", releasedID))
 	}
