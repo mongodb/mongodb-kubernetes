@@ -89,7 +89,7 @@ func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow
 		return st
 	}
 
-	return h.licenseReconciledStatus(requestedID)
+	return h.licenseReconciledStatus(requestedID, releasedID)
 }
 
 // releaseDue reports whether the install intent was removed while the last achieved spec still had one.
