@@ -231,25 +231,22 @@ func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, 
 	return artifactID, "", workflow.OK()
 }
 
-// releaseArtifactID resolves the artifact the operator installed. The last achieved spec names the
-// Secret the install came from. When that Secret is gone, the license Ops Manager holds is the only
-// trace left of the install.
-func (h *LicenseReconcilerHelper) releaseArtifactID(ctx context.Context) string {
-	if h.lastInstallSecretRef != "" {
-		if _, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.lastInstallSecretRef); err == nil && !invalid {
-			return artifactID
-		}
-	}
-	if held, ok := h.observed.HeldArtifact(); ok {
-		return held.ArtifactID
-	}
-	return ""
-}
-
+// releaseInstalledLicense releases the artifact the operator installed, the one named by the
+// Secret in the last achieved spec. Without it the artifact cannot be identified, and a license
+// the operator did not install is never released.
 func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (string, workflow.Status) {
-	artifactID := h.releaseArtifactID(ctx)
-	if artifactID == "" {
+	if h.lastInstallSecretRef == "" {
 		return "", workflow.OK()
+	}
+	_, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.lastInstallSecretRef)
+	if invalid || secret.SecretNotExist(err) {
+		if _, held := h.observed.HeldArtifact(); held {
+			return "", licenseFailed(xerrors.Errorf("cannot release the license Ops Manager holds, the license secret %s that identifies it is gone or no longer holds a license artifact", h.lastInstallSecretRef), status.ReasonLicenseReleaseFailed)
+		}
+		return "", workflow.OK()
+	}
+	if err != nil {
+		return "", licenseFailed(err, status.ReasonLicenseReleaseFailed)
 	}
 	// Ops Manager holds one license at a time. When it no longer holds ours, it was already
 	// released, and a license installed by someone else is left alone.
@@ -304,7 +301,7 @@ func (h *LicenseReconcilerHelper) readLicenseArtifact(ctx context.Context, secre
 	namespace := h.opsManager.Namespace
 	rawArtifact, err = h.reconciler.ReadSecretKey(ctx, kube.ObjectKey(namespace, secretName), h.reconciler.VaultClient.OpsManagerSecretPathOrEmpty(), util.DefaultOpsManagerLicenseKey)
 	if secret.SecretNotExist(err) {
-		return "", "", false, xerrors.Errorf("license secret %s/%s does not exist", namespace, secretName)
+		return "", "", false, xerrors.Errorf("license secret %s/%s does not exist: %w", namespace, secretName, err)
 	}
 	if err != nil {
 		return "", "", false, err

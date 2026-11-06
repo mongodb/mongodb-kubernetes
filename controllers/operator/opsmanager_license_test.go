@@ -389,6 +389,23 @@ func TestEnsureOpsManagerLicense_ReleaseFailsWhenLicenseGetFails(t *testing.T) {
 	assert.Equal(t, "om-license", ref)
 }
 
+func TestEnsureOpsManagerLicense_ReleaseWithoutTheLicenseSecretFails(t *testing.T) {
+	testOm := DefaultOpsManagerBuilder().Build()
+	seedInstalled(t, testOm, "om-license")
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+	r := newOmLicenseReconciler(t, testOm)
+	admin := &api.MockedOmAdmin{
+		LicenseState: viewWithLicenses("LICENSED", artifactView("art-1")),
+	}
+
+	// Without the license Secret the operator cannot tell the license it installed from a foreign
+	// one, so it releases nothing and says why.
+	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
+	assert.False(t, st.IsOK())
+	assert.Empty(t, admin.ReleasedIDs)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReleaseFailed)
+}
+
 func TestEnsureOpsManagerLicense_InstallFailed(t *testing.T) {
 	artifact := licenseArtifactJSON("art-1")
 	testOm := DefaultOpsManagerBuilder().Build()
@@ -524,7 +541,8 @@ func TestEnsureOpsManagerLicense_AutoReleaseOnSecretRefRemoval(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	seedInstalled(t, testOm, "om-license")
 	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
-	r := newOmLicenseReconciler(t, testOm)
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
 	admin := &api.MockedOmAdmin{
 		LicenseState: viewWithLicenses("LICENSED", artifactView("art-1")),
 	}
@@ -538,7 +556,8 @@ func TestEnsureOpsManagerLicense_ReleaseOnLicenseSpecRemoval(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	seedInstalled(t, testOm, "om-license")
 	testOm.Spec.License = nil
-	r := newOmLicenseReconciler(t, testOm)
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
 	admin := &api.MockedOmAdmin{
 		LicenseState: viewWithLicenses("LICENSED", artifactView("art-1")),
 	}
@@ -721,7 +740,8 @@ func TestEnsureOpsManagerLicense_ReleaseWithoutReceipt(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().Build()
 	seedInstalled(t, testOm, "om-license")
 	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
-	r := newOmLicenseReconciler(t, testOm)
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
 	admin := &api.MockedOmAdmin{
 		LicenseState: viewWithLicenses("LICENSED", artifactView("art-1")),
 	}
@@ -737,7 +757,8 @@ func TestEnsureOpsManagerLicense_ReleasesWhenOMStillHoldsInstalledArtifact(t *te
 	testOm := DefaultOpsManagerBuilder().Build()
 	seedInstalled(t, testOm, "om-license")
 	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{}
-	r := newOmLicenseReconciler(t, testOm)
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("om-art"))
+	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
 	admin := &api.MockedOmAdmin{
 		LicenseState: viewWithLicenses("LICENSED", artifactView("om-art")),
 	}

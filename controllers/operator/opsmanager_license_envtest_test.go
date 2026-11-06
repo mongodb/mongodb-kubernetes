@@ -301,6 +301,7 @@ func TestLicenseE2E_ReleaseWithoutReceipt(t *testing.T) {
 		om.Spec.License = &omv1.MongoDBOpsManagerLicense{}
 	})
 	h.seedInstalled(om.Name, om.Name+"-license")
+	h.createSecret(om.Name+"-license", util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-1"), om)
 
 	got := h.reconcileExpectOK(om.Name)
 	assert.Equal(t, []string{"art-1"}, h.admin.ReleasedIDs)
@@ -524,6 +525,7 @@ func TestLicenseE2E_ReleasesWhenOMStillHoldsInstalledArtifact(t *testing.T) {
 		om.Spec.License = &omv1.MongoDBOpsManagerLicense{}
 	})
 	h.seedInstalled(om.Name, om.Name+"-license")
+	h.createSecret(om.Name+"-license", util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("om-art"), om)
 
 	h.reconcileExpectOK(om.Name)
 	assert.Equal(t, []string{"om-art"}, h.admin.ReleasedIDs)
