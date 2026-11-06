@@ -46,54 +46,6 @@ type LicenseView struct {
 	Licenses    []LicenseArtifactView   `json:"licenses,omitempty"`
 }
 
-// ArtifactIDs returns every artifact id the view lists, released rows included. It is for logging.
-func (s LicenseView) ArtifactIDs() []string {
-	artifactIDs := make([]string, 0, len(s.Licenses))
-	for _, license := range s.Licenses {
-		if license.ArtifactID != "" {
-			artifactIDs = append(artifactIDs, license.ArtifactID)
-		}
-	}
-	return artifactIDs
-}
-
-// LicenseArtifactReleased marks an artifact Ops Manager no longer holds.
-const LicenseArtifactReleased = "RELEASED"
-
-// ArtifactStatus returns the status Ops Manager reports for the artifact, and whether the view lists it at all.
-func (s LicenseView) ArtifactStatus(artifactID string) (string, bool) {
-	for _, license := range s.Licenses {
-		if license.ArtifactID == artifactID {
-			return license.Status, true
-		}
-	}
-	return "", false
-}
-
-// ListsArtifact reports whether the view carries a row for the artifact, whatever its status.
-func (s LicenseView) ListsArtifact(artifactID string) bool {
-	_, listed := s.ArtifactStatus(artifactID)
-	return listed
-}
-
-// HoldsArtifact reports whether Ops Manager holds the artifact. A released artifact keeps its row
-// and does not count as held, while a denied one is installed and does.
-func (s LicenseView) HoldsArtifact(artifactID string) bool {
-	status, listed := s.ArtifactStatus(artifactID)
-	return listed && status != LicenseArtifactReleased
-}
-
-// HeldArtifactIDs returns the artifacts Ops Manager holds.
-func (s LicenseView) HeldArtifactIDs() []string {
-	ids := make([]string, 0, len(s.Licenses))
-	for _, license := range s.Licenses {
-		if license.ArtifactID != "" && license.Status != LicenseArtifactReleased {
-			ids = append(ids, license.ArtifactID)
-		}
-	}
-	return ids
-}
-
 type LicenseEnforcementView struct {
 	EffectiveState string `json:"effectiveState"`
 }
@@ -104,6 +56,41 @@ type LicenseArtifactView struct {
 	Status       string `json:"status,omitempty"`
 	StatusReason string `json:"statusReason,omitempty"`
 	TermEnd      string `json:"termEnd,omitempty"`
+}
+
+// LicenseArtifactReleased is the status of an artifact Ops Manager no longer holds. It keeps its row in the view.
+const LicenseArtifactReleased = "RELEASED"
+
+func (v *LicenseView) Artifact(artifactID string) (LicenseArtifactView, bool) {
+	if v == nil {
+		return LicenseArtifactView{}, false
+	}
+	for _, artifact := range v.Licenses {
+		if artifact.ArtifactID == artifactID {
+			return artifact, true
+		}
+	}
+	return LicenseArtifactView{}, false
+}
+
+func (v *LicenseView) HoldsArtifact(artifactID string) bool {
+	artifact, ok := v.Artifact(artifactID)
+	return ok && artifact.Status != LicenseArtifactReleased
+}
+
+func (v *LicenseView) HeldArtifact() (LicenseArtifactView, bool) {
+	if v == nil {
+		return LicenseArtifactView{}, false
+	}
+	for _, artifact := range v.Licenses {
+		// OM holds at most one non-released row: every install releases all older actives,
+		// DENIED ones included (IssuedArtifactDao.findActiveGeneratedBefore). The list is
+		// history plus this one row, so order never matters.
+		if artifact.ArtifactID != "" && artifact.Status != LicenseArtifactReleased {
+			return artifact, true
+		}
+	}
+	return LicenseArtifactView{}, false
 }
 
 // ArtifactIDFromRaw reads the artifact_id claim out of a raw signed artifact: the envelope's
