@@ -94,7 +94,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 
 	automaticRecoveryEnabled        bool
 	automaticRecoveryBackoffSeconds int
-	defaultImageType    architectures.ImageType
+	defaultImageType                architectures.ImageType
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
