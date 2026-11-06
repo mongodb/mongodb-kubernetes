@@ -18,7 +18,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/config"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/headless"
 	"github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/pkg/readiness/health"
-	"github.com/mongodb/mongodb-kubernetes/pkg/mongodbproxy"
 )
 
 const (
@@ -32,6 +31,18 @@ var logger *zap.SugaredLogger
 // the same container as this probe when the static-ga architecture is enabled.
 // It is a variable so tests can point it at a fake server.
 var proxyStatusURL = "http://127.0.0.1:8099/v1/process"
+
+// proxyStateRunning is the mongodb-proxy status value that reports a live
+// mongod or mongos child.
+const proxyStateRunning = "running"
+
+// proxyStatus is the part of the mongodb-proxy status response that the probe
+// reads. It is declared here so this binary does not import pkg/mongodbproxy:
+// the readinessprobe image build copies only the mongodb-community-operator
+// directory, and pkg is not part of its build context.
+type proxyStatus struct {
+	State string `json:"state"`
+}
 
 func init() {
 	// By default, we log to the output (convenient for tests)
@@ -118,12 +129,12 @@ func proxyProcessRunning(ctx context.Context) (running bool, reachable bool) {
 		return false, true
 	}
 
-	var status mongodbproxy.Status
+	var status proxyStatus
 	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
 		return false, true
 	}
 
-	return status.State == mongodbproxy.StateRunning, true
+	return status.State == proxyStateRunning, true
 }
 
 // isOnWaitingStep returns true if the agent is stuck on waiting for the other Agents or something else to happen.
