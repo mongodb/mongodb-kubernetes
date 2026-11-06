@@ -21,6 +21,8 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -575,4 +577,161 @@ func TestRetainedTrustedCAs(t *testing.T) {
 			assert.Equal(t, tc.expected, retainedTrustedCAs(tc.published, tc.primary))
 		})
 	}
+}
+
+func TestSelfSignedCACertificateSpec(t *testing.T) {
+	ctx := context.Background()
+	c, _ := mock.NewDefaultFakeClient()
+	owner, _, _ := managedCATestFixture(t, c)
+
+	require.True(t, ensureSelfSignedCA(ctx, c, owner, categoryServer).IsOK())
+
+	caCert := getCertificate(t, c, managedCACertName(owner, categoryServer))
+	require.NotNil(t, caCert.Spec.Duration)
+	assert.Equal(t, selfSignedCADuration, caCert.Spec.Duration.Duration)
+	require.NotNil(t, caCert.Spec.PrivateKey)
+	assert.Equal(t, certmanagerv1.RotationPolicyAlways, caCert.Spec.PrivateKey.RotationPolicy)
+	assert.Nil(t, caCert.Spec.RenewBefore, "renewBefore is left to the cert-manager default")
+
+	// An existing root created before these fields were set picks them up on the next ensure.
+	caCert.Spec.Duration = nil
+	caCert.Spec.PrivateKey = nil
+	require.NoError(t, c.Update(ctx, caCert))
+	require.True(t, ensureSelfSignedCA(ctx, c, owner, categoryServer).IsOK())
+
+	updated := getCertificate(t, c, managedCACertName(owner, categoryServer))
+	require.NotNil(t, updated.Spec.Duration)
+	assert.Equal(t, selfSignedCADuration, updated.Spec.Duration.Duration)
+	require.NotNil(t, updated.Spec.PrivateKey)
+	assert.Equal(t, certmanagerv1.RotationPolicyAlways, updated.Spec.PrivateKey.RotationPolicy)
+}
+
+func TestReissueLeavesOnRotatedSelfSignedCA(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	serverCA1, serverCA2 := newTestCA(t, "server-ca-1"), newTestCA(t, "server-ca-2")
+	clientCA1, clientCA2 := newTestCA(t, "client-ca-1"), newTestCA(t, "client-ca-2")
+
+	// newFixture sets up a resource with both categories self-signed, leaves signed by the first
+	// CA of each category, and the Certificate objects cert-manager would have created.
+	newFixture := func(t *testing.T) (*mdbv1.MongoDB, Options, kubernetesClient.Client) {
+		t.Helper()
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		opts.InternalClusterSecretName = resName + "-clusterfile"
+		setCAs(serverCA1.pem, clientCA1.pem)
+		setCategoryLeaves(t, c, owner, opts, serverCA1, clientCA1)
+		setLeafCertificates(t, c, opts.CertSecretName, opts.InternalClusterSecretName, owner.GetSecurity().AgentClientCertificateSecretName(resName))
+		return owner, opts, c
+	}
+
+	t.Run("a rotated server root reissues the server leaf only", func(t *testing.T) {
+		owner, opts, c := newFixture(t)
+		rotateSelfSignedCA(t, c, owner, categoryServer, serverCA2)
+
+		require.NoError(t, ReissueLeavesOnRotatedSelfSignedCA(ctx, c, owner, []Options{opts}, log))
+
+		assertCertificateIssuing(t, c, opts.CertSecretName, true)
+		assertCertificateIssuing(t, c, opts.InternalClusterSecretName, false)
+		assertCertificateIssuing(t, c, owner.GetSecurity().AgentClientCertificateSecretName(resName), false)
+	})
+
+	t.Run("a rotated client root reissues both client leaves", func(t *testing.T) {
+		owner, opts, c := newFixture(t)
+		rotateSelfSignedCA(t, c, owner, categoryClient, clientCA2)
+
+		require.NoError(t, ReissueLeavesOnRotatedSelfSignedCA(ctx, c, owner, []Options{opts}, log))
+
+		assertCertificateIssuing(t, c, opts.CertSecretName, false)
+		assertCertificateIssuing(t, c, opts.InternalClusterSecretName, true)
+		assertCertificateIssuing(t, c, owner.GetSecurity().AgentClientCertificateSecretName(resName), true)
+	})
+
+	t.Run("a leaf already Issuing is not updated a second time", func(t *testing.T) {
+		owner, opts, c := newFixture(t)
+		rotateSelfSignedCA(t, c, owner, categoryServer, serverCA2)
+
+		require.NoError(t, ReissueLeavesOnRotatedSelfSignedCA(ctx, c, owner, []Options{opts}, log))
+		before := getCertificate(t, c, opts.CertSecretName)
+
+		require.NoError(t, ReissueLeavesOnRotatedSelfSignedCA(ctx, c, owner, []Options{opts}, log))
+		after := getCertificate(t, c, opts.CertSecretName)
+
+		assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "an in-progress reissue must not be triggered again")
+	})
+
+	t.Run("a user issuer category is never touched", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{
+				Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "user-issuer", Kind: "Issuer"}},
+			}
+		})
+		opts := Options{ResourceName: resName, CertSecretName: resName + "-cert", Namespace: resNamespace}
+		// A cert that is not signed by any self-signed root; with a user issuer it must be left alone.
+		setSecret(t, c, opts.CertSecretName, map[string][]byte{corev1.TLSCertKey: serverCA1.issueLeaf(t, "leaf")})
+		setLeafCertificates(t, c, opts.CertSecretName)
+
+		require.NoError(t, ReissueLeavesOnRotatedSelfSignedCA(ctx, c, owner, []Options{opts}, log))
+
+		assertCertificateIssuing(t, c, opts.CertSecretName, false)
+	})
+
+	t.Run("a missing leaf secret or Certificate is tolerated", func(t *testing.T) {
+		owner, opts, c := newFixture(t)
+		rotateSelfSignedCA(t, c, owner, categoryServer, serverCA2)
+		rotateSelfSignedCA(t, c, owner, categoryClient, clientCA2)
+
+		agentName := owner.GetSecurity().AgentClientCertificateSecretName(resName)
+		require.NoError(t, c.DeleteSecret(ctx, types.NamespacedName{Name: agentName, Namespace: resNamespace}))
+		require.NoError(t, c.Delete(ctx, &certmanagerv1.Certificate{
+			ObjectMeta: metav1.ObjectMeta{Name: opts.InternalClusterSecretName, Namespace: resNamespace},
+		}))
+
+		require.NoError(t, ReissueLeavesOnRotatedSelfSignedCA(ctx, c, owner, []Options{opts}, log))
+
+		assertCertificateIssuing(t, c, opts.CertSecretName, true)
+		assertCertificateIssuing(t, c, agentName, false)
+	})
+}
+
+// setLeafCertificates creates the Certificate objects cert-manager would create for the issued
+// leaf secrets, so the reissue flow can set their Issuing condition.
+func setLeafCertificates(t *testing.T, c kubernetesClient.Client, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		require.NoError(t, c.Create(context.Background(), &certmanagerv1.Certificate{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: resNamespace, Generation: 1},
+		}))
+	}
+}
+
+func getCertificate(t *testing.T, c kubernetesClient.Client, name string) *certmanagerv1.Certificate {
+	t.Helper()
+	cert := &certmanagerv1.Certificate{}
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: name, Namespace: resNamespace}, cert))
+	return cert
+}
+
+func certificateIssuingCondition(cert *certmanagerv1.Certificate) *certmanagerv1.CertificateCondition {
+	for i := range cert.Status.Conditions {
+		if cert.Status.Conditions[i].Type == certmanagerv1.CertificateConditionIssuing {
+			return &cert.Status.Conditions[i]
+		}
+	}
+	return nil
+}
+
+func assertCertificateIssuing(t *testing.T, c kubernetesClient.Client, name string, expected bool) {
+	t.Helper()
+	condition := certificateIssuingCondition(getCertificate(t, c, name))
+	if !expected {
+		assert.Nil(t, condition, "certificate %s must not be reissued", name)
+		return
+	}
+	require.NotNil(t, condition, "certificate %s must be reissued", name)
+	assert.Equal(t, cmmeta.ConditionTrue, condition.Status)
+	assert.Equal(t, reasonManagedCARotated, condition.Reason)
+	assert.Equal(t, int64(1), condition.ObservedGeneration)
+	assert.NotNil(t, condition.LastTransitionTime)
 }

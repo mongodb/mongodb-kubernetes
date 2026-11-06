@@ -52,8 +52,7 @@ func markClientCertReady(ctx context.Context, t *testing.T, c client.Client, u *
 	cert.Status.Conditions = []certmanagerv1.CertificateCondition{{
 		Type: certmanagerv1.CertificateConditionReady, Status: cmmeta.ConditionTrue, ObservedGeneration: cert.Generation,
 	}}
-	// The fake client has no status subresource for Certificate, so a plain update writes the status.
-	require.NoError(t, c.Update(ctx, cert))
+	require.NoError(t, c.Status().Update(ctx, cert))
 }
 
 // reconcileUser reconciles the MongoDBUser once, and fails the test if the reconcile itself returns an error.
