@@ -3,12 +3,13 @@
 set -Eeou pipefail
 
 # One image per Ops Manager major, built from the latest build of its release branch. Each image is tagged
-# <major>-dev-<OPERATOR_VERSION>, the evergreen id of the run, see build_om_image. The tests run against the last
-# major, so CUSTOM_OM_VERSION is its tag, see single_e2e.sh.
+# <major>.0.0-dev-<OPERATOR_VERSION>, the evergreen id of the run, see build_om_image. The tag is a valid semver
+# version, since the operator and the tests parse spec.version. Semver pre-release parts allow no underscores, so
+# they become dashes. The tests run against the last major, so CUSTOM_OM_VERSION is its tag, see single_e2e.sh.
 export OM_DEV_RELEASE_LINES="8 9"
-export OM_VERSION="dev-${OPERATOR_VERSION}"
+export OM_VERSION="dev-${OPERATOR_VERSION//_/-}"
 export ops_manager_version="${OM_VERSION}"
-export CUSTOM_OM_VERSION="${OM_DEV_RELEASE_LINES##* }-dev-${OPERATOR_VERSION}"
+export CUSTOM_OM_VERSION="${OM_DEV_RELEASE_LINES##* }.0.0-${OM_VERSION}"
 
 # Build from the unreleased Ops Manager builds instead of the released ones.
 export OM_DEV_BUILD=true
