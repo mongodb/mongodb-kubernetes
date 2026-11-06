@@ -459,6 +459,38 @@ dump_pods() {
     fi
 }
 
+# dump_istio_proxy_config captures the Envoy endpoint view for every pod that
+# runs an Istio sidecar. It is best-effort: istioctl is available only when the
+# test environment installed Istio.
+dump_istio_proxy_config() {
+    local context="${1}"
+    local namespace="${2}"
+    local prefix="${3}"
+    local out_file="logs/${prefix}istio_proxy_config.txt"
+
+    local istioctl_bin
+    istioctl_bin=$(command -v istioctl 2>/dev/null || true)
+    if [[ -z "${istioctl_bin}" ]]; then
+        istioctl_bin=$(find . -maxdepth 3 -path '*/bin/istioctl' -type f 2>/dev/null | head -1)
+    fi
+    if [[ -z "${istioctl_bin}" ]]; then
+        return
+    fi
+
+    local pods
+    pods=$(get_all_pods "${context}" "${namespace}")
+    for pod in ${pods}; do
+        if ! kubectl --context="${context}" get pod -n "${namespace}" "${pod}" \
+            -o jsonpath='{.spec.containers[*].name}' 2>/dev/null | grep -qw istio-proxy; then
+            continue
+        fi
+        echo "=== Pod: ${pod} ===" >> "${out_file}"
+        run_with_timeout "${istioctl_bin}" proxy-config endpoints "${pod}" \
+            --context="${context}" -n "${namespace}" >> "${out_file}" 2>&1 || true
+        echo "" >> "${out_file}"
+    done
+}
+
 # dump_diagnostics writes only the *most important information* for debugging
 # tests, no more. Ideally the diagnostics file is as small as possible. Avoid
 # high density of information; the main objective of this file is to direct you
@@ -563,6 +595,7 @@ dump_namespace() {
 
     # 3. Print Pod logs
     dump_pods "${context}" "${namespace}" "${prefix}"
+    dump_istio_proxy_config "${context}" "${namespace}" "${prefix}"
 
     # 4. Print other Kubernetes resources
     dump_configmaps "${context}" "${namespace}" "${prefix}"
@@ -582,6 +615,7 @@ dump_namespace() {
     dump_objects "${context}" deploy "Deployments" "${namespace}" "describe" "logs/${prefix}z_deployments_describe.txt"
     dump_objects "${context}" sts "StatefulSets" "${namespace}" "describe" "logs/${prefix}z_statefulsets_describe.txt"
     dump_objects "${context}" sts "StatefulSets Yaml" "${namespace}" "get -o yaml" "logs/${prefix}z_statefulsets.txt"
+    dump_objects "${context}" endpointslices "EndpointSlices" "${namespace}" "get -o yaml" "logs/${prefix}z_endpointslices.txt"
     dump_objects "${context}" serviceaccounts "ServiceAccounts" "${namespace}" "get -o yaml" "logs/${prefix}z_service_accounts.txt"
     dump_objects "${context}" clusterrolebindings "ClusterRoleBindings" "${namespace}" "get -o yaml" "logs/${prefix}z_clusterrolebindings.txt"
     dump_objects "${context}" clusterroles "ClusterRoles" "${namespace}" "get -o yaml" "logs/${prefix}z_clusterroles.txt"
