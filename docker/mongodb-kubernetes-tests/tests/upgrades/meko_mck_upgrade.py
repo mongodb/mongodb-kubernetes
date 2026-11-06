@@ -68,6 +68,8 @@ def replica_set(
 
         resource.api = kubernetes.client.CustomObjectsApi(central_cluster_client)
         resource.set_architecture_annotation()
+        if resource["metadata"]["annotations"]["mongodb.com/v1.architecture"] == "static-ga":
+            resource["metadata"]["annotations"]["mongodb.com/v1.architecture"] = "static"
 
         try_load(resource)
         return resource
@@ -136,6 +138,7 @@ def test_upgrade_operator(
     central_cluster_client: client.ApiClient,
     member_cluster_clients: List[MultiClusterClient],
     member_cluster_names: List[str],
+    replica_set: MongoDB,
 ):
     logger.info("Installing the operator via repo helm chart")
     if is_multi_cluster():
@@ -156,6 +159,10 @@ def test_upgrade_operator(
         )
         operator.install()
     operator.wait_for_operator_ready()
+    if operator_installation_config["operator.mdbDefaultArchitecture"] == "static-ga":
+        replica_set.load()
+        replica_set["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static-ga"
+        replica_set.update()
     log_deployments_info(namespace)
 
 

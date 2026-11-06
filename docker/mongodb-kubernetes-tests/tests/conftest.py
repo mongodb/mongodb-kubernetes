@@ -61,7 +61,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import running_locally, with_custom_env_var
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -182,8 +182,7 @@ def multi_cluster_monitored_appdb_operator_installation_config(
     namespace: str,
     multi_cluster_operator_installation_config: dict[str, str],
 ) -> dict[str, str]:
-    multi_cluster_operator_installation_config["customEnvVars"] = f"OPS_MANAGER_MONITOR_APPDB=true"
-    return multi_cluster_operator_installation_config
+    return with_custom_env_var(multi_cluster_operator_installation_config, "OPS_MANAGER_MONITOR_APPDB", "true")
 
 
 @fixture(scope="module")
@@ -1013,6 +1012,9 @@ def install_official_operator(
     logger.debug(
         f"Installing latest released {'multi' if is_multi_cluster() else 'single'} cluster operator from helm charts"
     )
+    from kubetester.kubetester import released_agent_config
+
+    operator_installation_config = released_agent_config(operator_installation_config)
 
     # When running in Openshift "managedSecurityContext" will be true.
     # When running in kind "managedSecurityContext" will be false, but still use the ubi images.

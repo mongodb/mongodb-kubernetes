@@ -2,13 +2,125 @@ import json
 import os
 import re
 import tempfile
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List
 
 import kubetester
 import requests
 from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import run_periodically
+from kubetester.kubetester import (
+    assert_statefulset_architecture,
+    configured_proxy_image,
+    get_default_architecture,
+    validate_static_ga_config,
+)
+from kubetester.mongodb import MongoDB
+from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
+from kubetester.opsmanager import MongoDBOpsManager
+from pymongo import WriteConcern
+from pytest import fixture
+
+
+def get_initial_olm_architecture() -> str:
+    architecture = get_default_architecture()
+    return "static" if architecture == "static-ga" else architecture
+
+
+def set_olm_resource_architecture(resource: CustomObject, architecture: str):
+    resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = architecture
+
+
+def assert_olm_resource_architecture(resource: MongoDB | MongoDBOpsManager, architecture: str):
+    resource.load()
+    assert resource["metadata"]["annotations"]["mongodb.com/v1.architecture"] == architecture
+    if isinstance(resource, MongoDBOpsManager):
+        # The AppDB workload assertions are out of scope for ST1; only the resource annotation is checked.
+        return
+    if resource["spec"]["type"] == "ShardedCluster":
+        names = [resource.config_srv_statefulset_name(), resource.mongos_statefulset_name()]
+        names += [resource.shard_statefulset_name(index) for index in range(resource["spec"]["shardCount"])]
+        statefulsets = [client.AppsV1Api().read_namespaced_stateful_set(name, resource.namespace) for name in names]
+    else:
+        statefulsets = [resource.read_statefulset()]
+
+    for statefulset in statefulsets:
+        assert_statefulset_architecture(statefulset, architecture)
+        labels = statefulset.spec.selector.match_labels
+        assert labels
+        pods = (
+            client.CoreV1Api()
+            .list_namespaced_pod(
+                resource.namespace,
+                label_selector=",".join(f"{key}={value}" for key, value in labels.items()),
+            )
+            .items
+        )
+        assert len(pods) == statefulset.spec.replicas
+        expected = statefulset.spec.template.spec
+        for pod in pods:
+            assert pod.metadata.deletion_timestamp is None
+            assert any(owner.uid == statefulset.metadata.uid for owner in pod.metadata.owner_references or [])
+            assert any(
+                condition.type == "Ready" and condition.status == "True" for condition in pod.status.conditions or []
+            )
+            assert (pod.spec.share_process_namespace is True) == (expected.share_process_namespace is True)
+            expected_containers = {container.name: container for container in expected.containers}
+            actual_containers = {container.name: container for container in pod.spec.containers}
+            assert actual_containers.keys() == expected_containers.keys()
+            for name, container in expected_containers.items():
+                assert actual_containers[name].command == container.command
+                assert actual_containers[name].image == container.image
+            proxy_volumes = [volume for volume in pod.spec.volumes or [] if volume.name == "mongodb-proxy"]
+            if architecture == "static-ga":
+                assert len(proxy_volumes) == 1
+                expected_proxy = next(volume for volume in expected.volumes if volume.name == "mongodb-proxy")
+                assert proxy_volumes[0].image.reference == expected_proxy.image.reference
+            else:
+                assert not proxy_volumes
+
+
+@fixture(scope="module")
+def olm_upgrade_checks() -> Iterator[list[tuple[MongoTester, MongoDBBackgroundTester]]]:
+    checks = []
+    try:
+        yield checks
+    finally:
+        for _, checker in checks:
+            checker.stop()
+        for tester, checker in checks:
+            if checker.ident is not None:
+                checker.join()
+            tester.client.close()
+
+
+def start_olm_upgrade_checks(
+    ops_manager: MongoDBOpsManager,
+    databases: list[MongoDB],
+    ca_path: str,
+    checks: list[tuple[MongoTester, MongoDBBackgroundTester]],
+):
+    assert not checks
+    testers = [ops_manager.get_appdb_tester(authenticate=True)]
+    testers += [database.tester(ca_path=ca_path) for database in databases]
+    checks.extend((tester, MongoDBBackgroundTester(tester)) for tester in testers)
+    for tester, checker in checks:
+        collection = tester.client["olm_upgrade"]["sentinel"].with_options(write_concern=WriteConcern(w="majority"))
+        collection.replace_one({"_id": "st1"}, {"_id": "st1", "value": "preserved"}, upsert=True)
+        checker.start()
+
+
+def assert_olm_upgrade_checks(checks: list[tuple[MongoTester, MongoDBBackgroundTester]]):
+    assert len(checks) == 5
+    for _, checker in checks:
+        checker.stop()
+    for tester, checker in checks:
+        checker.join()
+        checker.assert_healthiness()
+        assert tester.client["olm_upgrade"]["sentinel"].find_one({"_id": "st1"}) == {
+            "_id": "st1",
+            "value": "preserved",
+        }
 
 
 def custom_object_from_yaml(yaml_string: str) -> CustomObject:
@@ -197,6 +309,7 @@ def get_registry_env_vars_for_subscription(
     This function returns the env vars in the format expected by OLM subscription config:
     [{"name": "ENV_VAR_NAME", "value": "value"}, ...]
     """
+    validate_static_ga_config(operator_installation_config)
     build_scenario = operator_installation_config.get("buildScenario", "")
 
     if build_scenario != "patch":
@@ -217,3 +330,23 @@ def get_registry_env_vars_for_subscription(
         env_vars.append({"name": "MDB_AGENT_IMAGE_REPOSITORY", "value": f"{registry}/mongodb-agent"})
 
     return env_vars
+
+
+def get_candidate_env_vars_for_subscription(config: dict[str, str]) -> list[dict[str, str]]:
+    validate_static_ga_config(config)
+    if config.get("operator.mdbDefaultArchitecture") != "static-ga":
+        return []
+    env = {
+        "MDB_DEFAULT_ARCHITECTURE": "static-ga",
+        "MDB_CUSTOM_AGENT_URL": config["agent.customAgentUrl"],
+        "MDB_MONGODB_PROXY_IMAGE": configured_proxy_image(config),
+    }
+    return [{"name": name, "value": value} for name, value in env.items()]
+
+
+def activate_candidate_subscription(subscription: CustomObject, config: dict[str, str]):
+    candidate = get_candidate_env_vars_for_subscription(config)
+    current = subscription["spec"].setdefault("config", {}).get("env", [])
+    env = {item["name"]: item for item in current}
+    env.update({item["name"]: item for item in candidate})
+    subscription["spec"]["config"]["env"] = list(env.values())

@@ -15,7 +15,12 @@ from kubetester import (
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
+from kubetester.kubetester import (
+    get_default_architecture,
+    is_default_architecture_static,
+    run_periodically,
+    skip_if_local,
+)
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
@@ -168,29 +173,28 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_pods_containers(self):
         for podname in self._get_pods("my-replica-set-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
-            c0 = pod.spec.containers[0]
             if is_default_architecture_static():
-                assert c0.name == "mongodb-agent"
+                assert any(container.name == "mongodb-agent" for container in pod.spec.containers)
             else:
-                assert c0.name == "mongodb-enterprise-database"
+                assert any(container.name == "mongodb-enterprise-database" for container in pod.spec.containers)
 
     def test_pods_containers_ports(self):
         for podname in self._get_pods("my-replica-set-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
-            c0 = pod.spec.containers[0]
-            assert c0.ports[0].container_port == 27017
-            assert c0.ports[0].host_ip is None
-            assert c0.ports[0].host_port is None
-            assert c0.ports[0].protocol == "TCP"
+            container = _primary_container(pod)
+            assert container.ports[0].container_port == 27017
+            assert container.ports[0].host_ip is None
+            assert container.ports[0].host_port is None
+            assert container.ports[0].protocol == "TCP"
 
     def test_pods_resources(self):
         for podname in self._get_pods("my-replica-set-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
-            c0 = pod.spec.containers[0]
-            assert c0.resources.limits["cpu"] == "1"
-            assert c0.resources.limits["memory"] == "2Gi"
-            assert c0.resources.requests["cpu"] == "500m"
-            assert c0.resources.requests["memory"] == "1Gi"
+            container = _primary_container(pod)
+            assert container.resources.limits["cpu"] == "1"
+            assert container.resources.limits["memory"] == "2Gi"
+            assert container.resources.requests["cpu"] == "500m"
+            assert container.resources.requests["memory"] == "1Gi"
 
     def test_pods_container_envvars(self):
         for pod_name in self._get_pods("my-replica-set-{}", 3):
@@ -217,7 +221,7 @@ class TestReplicaSetCreation(KubernetesTester):
         for podname in self._get_pods("my-replica-set-{}", 3):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
             assert_pod_security_context(pod, managed)
-            assert_pod_container_security_context(pod.spec.containers[0], managed)
+            assert_pod_container_security_context(_primary_container(pod), managed)
 
     @skip_if_local
     def test_security_context_operator(self, operator_installation_config: Dict[str, str]):
@@ -407,20 +411,20 @@ class TestReplicaSetScaleUp(KubernetesTester):
     def test_pods_containers(self):
         for podname in self._get_pods("my-replica-set-{}", 5):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
-            c0 = pod.spec.containers[0]
+            container = _primary_container(pod)
             if is_default_architecture_static():
-                assert c0.name == "mongodb-agent"
+                assert container.name == "mongodb-agent"
             else:
-                assert c0.name == "mongodb-enterprise-database"
+                assert container.name == "mongodb-enterprise-database"
 
     def test_pods_containers_ports(self):
         for podname in self._get_pods("my-replica-set-{}", 5):
             pod = self.corev1.read_namespaced_pod(podname, self.namespace)
-            c0 = pod.spec.containers[0]
-            assert c0.ports[0].container_port == 27017
-            assert c0.ports[0].host_ip is None
-            assert c0.ports[0].host_port is None
-            assert c0.ports[0].protocol == "TCP"
+            container = _primary_container(pod)
+            assert container.ports[0].container_port == 27017
+            assert container.ports[0].host_ip is None
+            assert container.ports[0].host_port is None
+            assert container.ports[0].protocol == "TCP"
 
     def test_pods_container_envvars(self):
         for pod_name in self._get_pods("my-replica-set-{}", 5):
@@ -573,15 +577,15 @@ class TestReplicaSetDelete(KubernetesTester):
 
 def assert_container_env_vars(namespace: str, pod_name: str):
     pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
-    c0 = pod.spec.containers[0]
-    for envvar in c0.env:
+    container = _primary_container(pod)
+    for envvar in container.env:
         if envvar.name == "AGENT_API_KEY":
             assert envvar.value is None, "cannot configure value and value_from"
-            assert envvar.value_from.secret_key_ref.name == f"{_get_group_id(c0.env)}-group-secret"
+            assert envvar.value_from.secret_key_ref.name == f"{_get_group_id(container.env)}-group-secret"
             assert envvar.value_from.secret_key_ref.key == "agentApiKey"
             continue
 
-        assert envvar.name in [
+        allowed_envvars = [
             "AGENT_FLAGS",
             "BASE_URL",
             "GROUP_ID",
@@ -598,4 +602,19 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             "MDB_LOG_FILE_MONGODB_AUDIT",
             "MDB_STATIC_CONTAINERS_ARCHITECTURE",
         ]
+        if get_default_architecture() == "static-ga":
+            allowed_envvars.extend(
+                [
+                    "MDB_CUSTOM_AGENT_URL",
+                    "MDB_INIT_ROOT",
+                    "MDB_MONGODB_PROXY_ADDRESS",
+                    "MDB_MONGOD_ROOT",
+                ]
+            )
+        assert envvar.name in allowed_envvars
         assert envvar.value is not None or envvar.name == "AGENT_FLAGS"
+
+
+def _primary_container(pod):
+    name = "mongodb-agent" if is_default_architecture_static() else "mongodb-enterprise-database"
+    return next(container for container in pod.spec.containers if container.name == name)

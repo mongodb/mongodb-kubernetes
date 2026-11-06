@@ -13,6 +13,36 @@ PERMANENT_STDERR = b"Error: chart version not found"
 ALREADY_EXISTS_STDERR = b"Error: cannot re-use a name: release: already exists"
 
 
+@pytest.mark.parametrize(
+    "chart,explicit,environment,expected",
+    [
+        ("oci://registry/chart", "patch-exact", "other-version", "patch-exact"),
+        ("oci://registry/chart", None, "patch-exact", "patch-exact"),
+        ("helm_chart", None, "", None),
+        ("mongodb/enterprise-operator", "1.27.0", "", "1.27.0"),
+    ],
+)
+def test_helm_template_uses_exact_chart_version(monkeypatch, chart, explicit, environment, expected):
+    monkeypatch.setenv(helm.OCI_HELM_VERSION_ENV_VAR_NAME, environment)
+    execute = MagicMock()
+    monkeypatch.setattr(helm, "process_run_and_check", execute)
+    filename = helm.helm_template({}, helm_chart_path=chart, custom_operator_version=explicit)
+    try:
+        command = execute.call_args.args[0]
+        assert (f"--version={expected}" in command) if expected else "--version=" not in command
+    finally:
+        helm.os.remove(filename)
+
+
+def test_helm_template_rejects_unversioned_oci_chart(monkeypatch):
+    monkeypatch.delenv(helm.OCI_HELM_VERSION_ENV_VAR_NAME, raising=False)
+    execute = MagicMock()
+    monkeypatch.setattr(helm, "process_run_and_check", execute)
+    with pytest.raises(ValueError, match="exact chart version"):
+        helm.helm_template({}, helm_chart_path="oci://registry/chart")
+    execute.assert_not_called()
+
+
 def helm_failure(stderr: bytes) -> subprocess.CalledProcessError:
     return subprocess.CalledProcessError(1, "helm", stderr=stderr)
 

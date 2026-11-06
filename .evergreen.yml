@@ -46,6 +46,8 @@ variables:
   # Once Static Containers are default, this piece can be cleaned up.
   - &base_om6_dependency
     depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
       - name: build_om_images
         variant: build_om60_images
       - name: build_operator_ubi
@@ -53,6 +55,8 @@ variables:
       - name: build_init_database_image_ubi
         variant: init_test_run
       - name: build_database_image_ubi
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
         variant: init_test_run
       - name: build_readiness_probe_image
         variant: init_test_run
@@ -67,11 +71,15 @@ variables:
 
   - &base_no_om_image_dependency
     depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
       - name: build_database_image_ubi
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
         variant: init_test_run
       - name: build_readiness_probe_image
         variant: init_test_run
@@ -154,6 +162,8 @@ variables:
 
   - &base_om7_dependency
     depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
       - name: build_om_images
         variant: build_om70_images
       - name: build_operator_ubi
@@ -161,6 +171,8 @@ variables:
       - name: build_init_database_image_ubi
         variant: init_test_run
       - name: build_database_image_ubi
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
         variant: init_test_run
       - name: build_readiness_probe_image
         variant: init_test_run
@@ -180,6 +192,10 @@ variables:
 
   - &base_om7_dependency_with_race
     depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
+        variant: init_test_run
       - name: build_om_images
         variant: build_om70_images
       - name: build_operator_race_ubi
@@ -210,6 +226,8 @@ variables:
         variant: init_test_run
       - name: build_database_image_ubi
         variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
+        variant: init_test_run
       - name: build_readiness_probe_image
         variant: init_test_run
       - name: build_version_upgrade_hook_image
@@ -237,6 +255,8 @@ variables:
       - name: build_init_database_image_ubi
         variant: init_test_run
       - name: build_database_image_ubi
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
         variant: init_test_run
       - name: build_readiness_probe_image
         variant: init_test_run
@@ -277,6 +297,10 @@ parameters:
     value: ""
     description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path. Agent builds also tag the image with the version in the filename, because the operator derives the Agent image tag from that filename."
 
+  - key: mdb_test_only_agent_executable_sha256
+    value: ""
+    description: "Test-only SHA-256 of the candidate Agent executable exported by the Agent build. Required for candidate runtime acceptance, not a tarball checksum."
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
@@ -311,6 +335,18 @@ patch_aliases:
     description: "Run all static container variants"
     variant_tags: [ "static" ]
     task: ".*"
+  - alias: "static_amd64"
+    description: "Run the amd64 static-ga acceptance suite, including manual-only OM60"
+    variant_tags: [ "static_amd64" ]
+    task: ".*"
+  # OM6/7 are unsupported for static-ga (ST1). The OM80 upgrade starts on OM7.
+  - alias: "static_ga_no_om67"
+    description: "Run supported amd64 static-ga contexts, including Cloud Manager"
+    variant: "^e2e_static_(mdb_kind_ubi_cloudqa|mdb_kind_ubi9_slim_cloudqa|custom_domain_mdb_kind_ubi_cloudqa|mdb_kind_ubi_cloudqa_large|openshift_mdb_ubi_cloudqa|openshift_mdb_ubi9_slim_cloudqa|om90_kind_ubi|om90_kind_ubi_large|om90_kind_ubi9_slim|multi_cluster_kind|multi_cluster_kind_ubi9_slim|multi_cluster_2_clusters|multi_cluster_2_clusters_ubi9_slim|multi_cluster_om_appdb|multi_cluster_om_appdb_ubi9_slim|operator_kind_ubi_cloudqa|kind_olm_ubi)$"
+    task: ".*"
+  - alias: "static_ga_no_om67"
+    variant: "^e2e_static_(om80_kind_ubi|om80_kind_ubi9_slim|om80_kind_ubi_large)$"
+    task: "^e2e_(om_(appdb_.*|external_.*|feature_controls|jvm_params|multiple|ops_manager_(backup_.*|pod_spec|prometheus|scale|secure_config)|update_before_reconciliation|validation_webhook|weak_password)|operator_upgrade_ops_manager|search_.*|vault_setup_om.*)$"
   - alias: "non_static"
     description: "Run all non-static container variants"
     variant_tags: [ "non_static" ]
@@ -1229,6 +1265,7 @@ task_groups:
       - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
+      - e2e_replica_set_mongodb_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
@@ -1723,7 +1760,7 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_amd64" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1733,7 +1770,7 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi9_slim_cloudqa
     display_name: e2e_static_mdb_kind_ubi9_slim_cloudqa
-    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static", "static_amd64" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1743,10 +1780,18 @@ buildvariants:
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_test_image
@@ -1754,6 +1799,8 @@ buildvariants:
       - name: build_init_om_images_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
         variant: init_test_run
       - name: publish_helm_chart
         variant: init_test_run
@@ -1774,7 +1821,7 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi_cloudqa_large
     display_name: e2e_static_mdb_kind_ubi_cloudqa_large
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -1802,13 +1849,23 @@ buildvariants:
 
   - name: e2e_static_openshift_mdb_ubi_cloudqa
     display_name: e2e_static_openshift_mdb_ubi_cloudqa
-    tags: [ "staging", "e2e_openshift_test_suite" ]
+    tags: [ "staging", "e2e_openshift_test_suite", "static", "static_amd64" ]
     depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_test_image
         variant: init_test_run
       - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
         variant: init_test_run
     run_on:
       - ubuntu2404-small
@@ -1818,8 +1875,18 @@ buildvariants:
 
   - name: e2e_static_openshift_mdb_ubi9_slim_cloudqa
     display_name: e2e_static_openshift_mdb_ubi9_slim_cloudqa
-    tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "static", "static_amd64" ]
     depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
+        variant: init_test_run
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_test_image
@@ -1860,7 +1927,7 @@ buildvariants:
   # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
   - name: e2e_static_om60_kind_ubi
     display_name: e2e_static_om60_kind_ubi
-    tags: [ "manual_patch", "e2e_test_suite" ]
+    tags: [ "manual_patch", "e2e_test_suite", "static", "static_amd64" ]
     allowed_requesters: [ "patch" ] # only on demand
     run_on:
       - ubuntu2404-large
@@ -1885,7 +1952,7 @@ buildvariants:
 
   - name: e2e_static_om70_kind_ubi
     display_name: e2e_static_om70_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om7", "static" ]
+    tags: [ "staging", "e2e_test_suite", "om7", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -1930,7 +1997,7 @@ buildvariants:
 
   - name: e2e_static_om90_kind_ubi
     display_name: e2e_static_om90_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -1953,7 +2020,7 @@ buildvariants:
 
   - name: e2e_static_om90_kind_ubi_large
     display_name: e2e_static_om90_kind_ubi_large
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -1963,7 +2030,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -1975,7 +2042,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi9_slim
     display_name: e2e_static_om80_kind_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -1984,7 +2051,7 @@ buildvariants:
 
   - name: e2e_static_om90_kind_ubi9_slim
     display_name: e2e_static_om90_kind_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2003,7 +2070,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi_large
     display_name: e2e_static_om80_kind_ubi_large
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2054,6 +2121,8 @@ buildvariants:
       - name: build_init_database_image_ubi
         variant: init_test_run
       - name: build_database_image_ubi
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
         variant: init_test_run
       - name: build_test_image_ibm_power
         variant: init_test_run_ibm_power
@@ -2116,6 +2185,8 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
+        variant: init_test_run
       - name: build_test_image_ibm_z
         variant: init_test_run_ibm_z
       - name: publish_helm_chart
@@ -2173,6 +2244,8 @@ buildvariants:
         variant: init_test_run
       - name: build_init_database_image_ubi
         variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
+        variant: init_test_run
       - name: build_test_image_arm
         variant: init_test_run_arm
       - name: publish_helm_chart
@@ -2210,7 +2283,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2220,7 +2293,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_kind_ubi9_slim
     display_name: e2e_static_multi_cluster_kind_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2238,7 +2311,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_2_clusters
     display_name: e2e_static_multi_cluster_2_clusters
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2247,7 +2320,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_2_clusters_ubi9_slim
     display_name: e2e_static_multi_cluster_2_clusters_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
+    tags: [ "staging", "e2e_test_suite", "cloudqa", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2266,7 +2339,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om_appdb
     display_name: e2e_static_multi_cluster_om_appdb
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2289,7 +2362,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om70_appdb_upgrade
     display_name: e2e_static_multi_cluster_om70_appdb_upgrade
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om7_dependency
@@ -2298,7 +2371,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_om_appdb_ubi9_slim
     display_name: e2e_static_multi_cluster_om_appdb_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2336,7 +2409,7 @@ buildvariants:
 
   - name: e2e_static_operator_kind_ubi_cloudqa
     display_name: e2e_static_operator_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -2376,10 +2449,18 @@ buildvariants:
 
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "static_amd64" ]
     run_on:
       - ubuntu2404-large
     depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_test_image
@@ -2389,6 +2470,8 @@ buildvariants:
       - name: prepare_and_upload_openshift_bundles_for_e2e
         variant: init_tests_with_olm
       - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: cve_scan_mongodb_proxy_image
         variant: init_test_run
     tasks:
       - name: e2e_kind_olm_group

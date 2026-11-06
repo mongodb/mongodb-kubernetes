@@ -316,9 +316,11 @@ cmd_test() {
     source "${CONTEXT_FILE}" >/dev/null 2>&1
     set +a
     set -u
-    export KUBECONFIG="${kubeconfig}" NAMESPACE="${NAMESPACE_NAME}" MDB_DEFAULT_ARCHITECTURE=static LOCAL_OPERATOR=true \
+    export KUBECONFIG="${kubeconfig}" NAMESPACE="${NAMESPACE_NAME}" MDB_DEFAULT_ARCHITECTURE=static-ga LOCAL_OPERATOR=true \
       "CUSTOM_MDB_VERSION=${MDB_VERSION}" "MDB_MONGODB_PROXY_IMAGE=${proxy_image}" \
-      "MDB_PROXY_TEST_AGENT_IMAGE=${agent_image}" PYTHONPATH=docker/mongodb-kubernetes-tests
+      PYTHONPATH=docker/mongodb-kubernetes-tests
+    source scripts/funcs/operator_deployment
+    prepare_operator_config_map "$(kubectl config current-context)" || exit "$?"
     venv/bin/pytest -m e2e_replica_set_mongodb_proxy docker/mongodb-kubernetes-tests/tests/replicaset/replica_set_mongodb_proxy.py \
       --disable-pytest-warnings -s -p no:cacheprovider 2>&1 | tee "${LOG_FILE}"
     exit "${PIPESTATUS[0]}"

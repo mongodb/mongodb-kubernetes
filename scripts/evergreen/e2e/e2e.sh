@@ -9,6 +9,10 @@ source scripts/funcs/printing
 source scripts/evergreen/e2e/dump_diagnostic_information.sh
 source scripts/evergreen/e2e/lib.sh
 source scripts/dev/set_env_context.sh
+source scripts/funcs/operator_deployment
+
+# Validate candidate inputs before namespace cleanup or other Kubernetes mutations.
+get_operator_helm_values >/dev/null
 
 run_e2e_mco_tests() {
   local cluster_wide="false"
