@@ -94,7 +94,7 @@ type ReconcileMongoDbReplicaSet struct {
 
 	automaticRecoveryEnabled        bool
 	automaticRecoveryBackoffSeconds int
-	defaultImageType    architectures.ImageType
+	defaultImageType                architectures.ImageType
 }
 
 type replicaSetDeploymentState struct {
@@ -448,7 +448,7 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 
 		automaticRecoveryEnabled:        automaticRecoveryEnabled,
 		automaticRecoveryBackoffSeconds: automaticRecoveryBackoffSeconds,
-		defaultImageType:    defaultImageType,
+		defaultImageType:                defaultImageType,
 	}
 }
 
