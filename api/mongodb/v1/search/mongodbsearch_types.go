@@ -479,9 +479,9 @@ type MongoDBSource struct {
 	// Mutually exclusive with PasswordSecretRef and Username.
 	// +optional
 	X509 *X509Auth `json:"x509,omitempty"`
-	// OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only).
-	// mongot obtains an access token from the identity provider's token endpoint instead of using
-	// username/password or x509; the source must have TLS enabled. Mutually exclusive with PasswordSecretRef, Username, and X509.
+	// OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only):
+	// mongot mints an access token at the IdP token endpoint and authenticates to the source with it via
+	// MONGODB-OIDC. Requires source TLS. Mutually exclusive with PasswordSecretRef, Username, and X509.
 	// +optional
 	OIDC *OIDCAuth `json:"oidc,omitempty"`
 	// TLS configures TLS transport settings for the sync source SCRAM connection.
