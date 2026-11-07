@@ -173,7 +173,9 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 			expectError:    true,
 			expectedErrMsg: errExternalDomainNotSupported.Error(),
 		},
-		// Authentication mode tests
+		// Authentication mode tests. The SCRAM-mode requirement moved to the reconcile-level
+		// validator (validateSCRAMAuthSource): the adapter cannot see the search resource's
+		// auth mode, and an OIDC-auth search needs no SCRAM on the source.
 		{
 			// Auth-mode pairing is gated by ValidateSearchSourceAuth, not by the source's own
 			// Validate: an x509-only source is valid for an x509 search.

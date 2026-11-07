@@ -77,7 +77,9 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 			authModes:   []mdbcv1.AuthMode{"SCRAM-SHA-256"},
 			expectError: false,
 		},
-		// Authentication mode tests - empty/nil cases
+		// Authentication mode tests - empty/nil cases. The SCRAM-mode requirement moved to the
+		// reconcile-level validator (validateSCRAMAuthSource): the adapter cannot see the search
+		// resource's auth mode, and an OIDC-auth search needs no SCRAM on the source.
 		{
 			name:        "Empty auth modes",
 			version:     "8.2.0",
