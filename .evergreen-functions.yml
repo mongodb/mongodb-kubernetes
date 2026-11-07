@@ -1014,6 +1014,11 @@ functions:
           - ${workdir}/bin
           - ${workdir}/google-cloud-sdk/bin
         script: |
+          # Clear results and skip logs so a restarted task reruns every snippet.
+          # Both are required: stale results must not attach, and a skip log
+          # without a result would hide a snippet from the test view.
+          rm -f logs/snippets.junit.suite
+          find docs public -name '*.run.log' -type f -exec rm -f {} +
           ./scripts/code_snippets/tests/${task_name}
 
   install_macos_notarization_service:
