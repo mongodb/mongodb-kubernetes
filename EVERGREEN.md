@@ -111,16 +111,19 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
-| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1000 tasks, complete e2e set (excludes multi-arch smoke tests)                                                |
-| `evergreen:e2e-default`    | `e2e_test_suite`     | ~540 tasks, e2e-all minus static, OM7 and race variants; close to the former default PR set                    |
-| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~250 tasks tagged `e2e_medium`: subset of e2e-all across static/non-static, OM 7/8/9, multi-cluster         |
-| `evergreen:e2e-light`      | `e2e_test_suite`     | ~125 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
+| `evergreen:e2e-default`    | `e2e_test_suite`     | ~550 tasks, e2e suite minus static, OM7 and race variants; close to the former default PR set                  |
+| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~330 tasks tagged `e2e_medium` across static/non-static, OM 7/8/9, multi-cluster                               |
+| `evergreen:e2e-light`      | `e2e_test_suite`     | ~175 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
 | `evergreen:e2e-static`     | `static`             | Static-container e2e variants + shared init/build (`init_test_run`, `init_tests_with_olm`, `build_om*_images`) |
 | `evergreen:e2e-non-static` | `non_static`         | Non-static e2e variants + shared init/build                                                                    |
 | `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (excluding OpenShift)                                                                        |
 | `evergreen:e2e-community`  | `e2e_mco_test_suite` | Community suites (`e2e_mdb_community`, `e2e_mco_tests`)                                                        |
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
+| `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
+
+There is no label for the full suite: master commits always run it. Combine labels (for example `e2e-default` with
+`e2e-static` and `om7`) when a change needs more than `e2e-default`.
 
 OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
 the `staging` alias.
@@ -142,7 +145,7 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 | `non_static` | Non-static container variants (shared init/build)             | With `evergreen:e2e-non-static` label |
 | `om7`        | Ops Manager 7.0 variants (static and non-static)              | With `evergreen:om7` label            |
 | `om9`        | Ops Manager 9.0 variants                                      | With `evergreen:om9` label            |
-| `race`       | Race detector variant                                         | With `evergreen:e2e-all` label        |
+| `race`       | Race detector variant                                         | With `evergreen:race` label           |
 | `smoke_test` | Smoke e2e suite (`patch-run` tasks)                           | No                                    |
 | `cloudqa`    | Cloud QA non-static variants                                  | With `evergreen:e2e-cloudqa` label    |
 
