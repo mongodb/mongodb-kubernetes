@@ -143,14 +143,11 @@ func Probe(original, override *corev1.Probe) *corev1.Probe {
 		return override
 	}
 	merged := *original
-	if override.Exec != nil {
-		merged.Exec = override.Exec
-	}
-	if override.HTTPGet != nil {
-		merged.HTTPGet = override.HTTPGet
-	}
-	if override.TCPSocket != nil {
-		merged.TCPSocket = override.TCPSocket
+	// A probe has exactly one handler. When the override names one, it replaces the original's
+	// handler as a whole, so that an exec override of a tcpSocket default, for example, doesn't
+	// produce a probe with two handlers, which the API server rejects.
+	if override.Exec != nil || override.HTTPGet != nil || override.TCPSocket != nil || override.GRPC != nil {
+		merged.ProbeHandler = override.ProbeHandler
 	}
 	if override.InitialDelaySeconds != 0 {
 		merged.InitialDelaySeconds = override.InitialDelaySeconds
