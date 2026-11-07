@@ -120,11 +120,12 @@ type DatabaseStatefulSetOptions struct {
 	InitDatabaseImage      string
 	DatabaseNonStaticImage string
 	MongodbImage           string
-	// MongodbProxyImage is the full reference of the mongodb-proxy image. The proxy runs mongod/mongos only
-	// for resources that carry MongodbProxyAnnotation.
-	MongodbProxyImage string
-	AgentImage        string
-	CustomAgentURL    string
+	// MongodbProxyImage is the full reference of the mongodb-proxy image.
+	MongodbProxyImage               string
+	AgentImage                      string
+	CustomAgentURL                  string
+	ProxyAgentCompatibilityVerified bool
+	ProxyDebug                      bool
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -400,6 +401,18 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 
 func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdb)
+	return databaseStatefulSet(mdb, stsOptions, log)
+}
+
+func DatabaseStatefulSetWithError(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, log *zap.SugaredLogger) (appsv1.StatefulSet, error) {
+	stsOptions := stsOptFunc(mdb)
+	if err := stsOptions.ValidateProxyPrerequisites(mdb.Name, mdb.Annotations); err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	return databaseStatefulSet(mdb, stsOptions, log), nil
+}
+
+func databaseStatefulSet(mdb mdbv1.MongoDB, stsOptions DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
 	dbSts := DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
 
 	if len(stsOptions.Annotations) > 0 {
@@ -433,8 +446,6 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 
 	extraEnvs = append(extraEnvs, ReadDatabaseProxyVarsFromEnv()...)
 	stsOpts.ExtraEnvs = extraEnvs
-
-	stsOpts.warnIfMongodbProxyIsIgnored(mdb, log)
 
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts, mdb)
 	sts := statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts, log))
@@ -859,6 +870,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		// The proxy replaces the marker command: it starts mongod/mongos only when the agent asks for it.
 		mongodContainerModifications = append(mongodContainerModifications,
 			container.WithCommand([]string{mongodbProxyBinaryPath}),
+			container.WithArgs(mongodbProxyArgs(opts.ProxyDebug)),
 			container.WithVolumeMounts([]corev1.VolumeMount{readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath)}),
 		)
 	}

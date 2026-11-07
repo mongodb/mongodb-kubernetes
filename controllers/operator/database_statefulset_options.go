@@ -144,6 +144,18 @@ func WithMongodbProxyImage(image string) func(*construct.DatabaseStatefulSetOpti
 	}
 }
 
+func WithProxyDebug(enabled bool) func(*construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.ProxyDebug = enabled
+	}
+}
+
+func WithProxyAgentCompatibilityVerified(verified bool) func(*construct.DatabaseStatefulSetOptions) {
+	return func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.ProxyAgentCompatibilityVerified = verified
+	}
+}
+
 // WithAgentImage sets the AgentImage field.
 func WithAgentImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 	return func(opts *construct.DatabaseStatefulSetOptions) {

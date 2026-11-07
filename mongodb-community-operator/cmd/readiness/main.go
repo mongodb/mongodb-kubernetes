@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"time"
 
@@ -26,6 +27,23 @@ const (
 
 var logger *zap.SugaredLogger
 
+// proxyStatusURL is the local mongodb-proxy status endpoint. The proxy runs in
+// the same container as this probe when the static-ga architecture is enabled.
+// It is a variable so tests can point it at a fake server.
+var proxyStatusURL = "http://127.0.0.1:8099/v1/process"
+
+// proxyStateRunning is the mongodb-proxy status value that reports a live
+// mongod or mongos child.
+const proxyStateRunning = "running"
+
+// proxyStatus is the part of the mongodb-proxy status response that the probe
+// reads. It is declared here so this binary does not import pkg/mongodbproxy:
+// the readinessprobe image build copies only the mongodb-community-operator
+// directory, and pkg is not part of its build context.
+type proxyStatus struct {
+	State string `json:"state"`
+}
+
 func init() {
 	// By default, we log to the output (convenient for tests)
 	cfg := zap.NewDevelopmentConfig()
@@ -43,6 +61,15 @@ func init() {
 // - if AppDB: the 'mmsStatus[0].lastGoalVersionAchieved' field is compared with the one from mounted automation config
 // Additionally if the previous check hasn't returned 'true' an additional check for wait steps is being performed
 func isPodReady(ctx context.Context, conf config.Config) (bool, error) {
+	// The mongodb-proxy is PID 1 of the database container in the static-ga
+	// architecture. It is reachable only in that architecture. A reachable proxy
+	// that is idle or has an exited child means mongod is not running, so the pod
+	// must not be Ready even when the agent itself is healthy.
+	if running, reachable := proxyProcessRunning(ctx); reachable && !running {
+		logger.Info("The mongodb-proxy has no running database process. Returning not ready.")
+		return false, nil
+	}
+
 	healthStatus, err := parseHealthStatus(conf.HealthStatusReader)
 	if err != nil {
 		logger.Errorf("There was problem parsing health status file: %s", err)
@@ -80,6 +107,34 @@ func isPodReady(ctx context.Context, conf config.Config) (bool, error) {
 
 	logger.Info("Reached the end of the check. Returning not ready.")
 	return false, nil
+}
+
+// proxyProcessRunning reports whether the mongodb-proxy is reachable and has a
+// running mongod/mongos process. reachable is false when the pod does not run
+// the proxy, in which case the caller falls back to the agent health status.
+func proxyProcessRunning(ctx context.Context) (running bool, reachable bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, proxyStatusURL, nil)
+	if err != nil {
+		return false, false
+	}
+
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, true
+	}
+
+	var status proxyStatus
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return false, true
+	}
+
+	return status.State == proxyStateRunning, true
 }
 
 // isOnWaitingStep returns true if the agent is stuck on waiting for the other Agents or something else to happen.

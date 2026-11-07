@@ -1,5 +1,7 @@
 """Test artifact data collection for E2E test summaries."""
 
+import json
+import math
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -63,6 +65,7 @@ class TestSummaryGenerator:
         self._detect_topology()
 
         print("Building resource inventory...", file=sys.stderr)
+        self._write_proxy_timelines()
         self._build_resource_inventory()
 
         print("Extracting errors from logs...", file=sys.stderr)
@@ -84,6 +87,121 @@ class TestSummaryGenerator:
         self._embed_log_tails()
 
         return self.data
+
+    def _write_proxy_timelines(self):
+        events = {
+            "process API listening",
+            "start requested",
+            "status requested",
+            "stop requested",
+            "process stopped",
+            "request failed",
+            "process started",
+            "process exited",
+            "sending SIGTERM",
+            "sending SIGKILL",
+            "forwarding SIGTERM to the child",
+            "proxy failed",
+            "termination signal received, stopping the child",
+            "terminating the child",
+        }
+        lifecycle = {
+            "MongoDB starting": "mongodb starting",
+            "Waiting for connections": "mongodb listening",
+            "Shutting down": "mongodb shutting down",
+            "mongod shutdown complete": "mongodb shutdown complete",
+            "Now exiting": "mongodb exiting",
+        }
+        suffixes = ("mongodb-enterprise-database", "mongod", "mongodb", "agent-verbose")
+        pods = defaultdict(list)
+        invalid_timestamps = defaultdict(int)
+        for path in sorted(self.logs_dir.glob("*.log")):
+            match = re.fullmatch(r"(.+)-(" + "|".join(suffixes) + r")(-previous)?\.log", path.name)
+            if not match:
+                continue
+            prefix, container = match.group(1), match.group(2)
+            resource, _ = self._parse_log_filename(path.name.replace("-previous.log", ".log"))
+            with path.open(errors="replace") as stream:
+                for line_number, line in enumerate(stream, 1):
+                    if container == "agent-verbose":
+                        marker = line.find('{"component":"agent-proxy"')
+                        if marker < 0:
+                            continue
+                        line = line[marker:]
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(record, dict):
+                        continue
+                    component = record.get("component")
+                    if (component == "proxy" and record.get("msg") in events) or (
+                        container == "agent-verbose"
+                        and component == "agent-proxy"
+                        and record.get("event") in ("start", "stop", "status")
+                    ):
+                        event = {
+                            "component": component,
+                            "event": record.get("event") if component == "agent-proxy" else record["msg"],
+                        }
+                        timestamp = record.get("ts")
+                        if component == "agent-proxy" and record.get("endpoint") in (
+                            "/v1/process",
+                            "/v1/process/start",
+                            "/v1/process/stop",
+                        ):
+                            event["endpoint"] = record["endpoint"]
+                        for key in ("request_id", "operation_id", "role", "error_class", "signal"):
+                            value = record.get(key)
+                            if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.-]{0,128}", value):
+                                event[key] = value
+                        if record.get("level") in ("debug", "info", "warn", "error"):
+                            event["level"] = record["level"]
+                        for key in ("pid", "http_status", "exitCode", "duration_ms"):
+                            value = record.get(key)
+                            if type(value) in (int, float) and math.isfinite(value):
+                                event[key] = value
+                    elif container == "mongodb" and record.get("msg") in lifecycle:
+                        event = {"component": "mongodb", "event": lifecycle[record["msg"]]}
+                        timestamp = record.get("t", {}).get("$date")
+                        attributes = record.get("attr", {})
+                        if isinstance(attributes, dict) and type(attributes.get("pid")) is int:
+                            event["pid"] = attributes["pid"]
+                        if type(record.get("id")) is int:
+                            event["event_id"] = record["id"]
+                    else:
+                        continue
+                    if not isinstance(timestamp, str):
+                        invalid_timestamps[path.name] += 1
+                        continue
+                    try:
+                        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    except ValueError:
+                        invalid_timestamps[path.name] += 1
+                        continue
+                    if parsed.tzinfo is None:
+                        invalid_timestamps[path.name] += 1
+                        continue
+                    event.update(
+                        ts=parsed.astimezone(timezone.utc).isoformat(),
+                        resource=resource,
+                        source_file=path.name,
+                        source_line=line_number,
+                    )
+                    pods[prefix].append(event)
+        self.data["meta"]["proxy_timeline_invalid_timestamps"] = dict(invalid_timestamps)
+        for filename, count in sorted(invalid_timestamps.items()):
+            print(f"Warning: skipped {count} timeline records with invalid timestamps in {filename}", file=sys.stderr)
+        for prefix, records in pods.items():
+            if not any(record["component"] == "proxy" for record in records):
+                continue
+            records.sort(
+                key=lambda event: (datetime.fromisoformat(event["ts"]), event["source_file"], event["source_line"])
+            )
+            output = self.logs_dir / f"{prefix}-proxy-timeline.log"
+            with output.open("w") as stream:
+                for record in records:
+                    stream.write(json.dumps(record, sort_keys=True) + "\n")
 
     def _collect_metadata(self):
         """Collect test metadata."""
@@ -383,7 +501,6 @@ class TestSummaryGenerator:
           - {prefix}{pod}-monitoring-agent-verbose.log
           - {prefix}{pod}-monitoring-agent.log
           - {prefix}{pod}-monitoring-agent-stdout.log
-          - {prefix}{pod}-mongod-container.log       (mongod container stdout)
           - {prefix}{pod}-mongodb-agent-container.log (agent container stdout)
           - {prefix}{pod}-mongodb.log                (mongod file log)
           - {prefix}{pod}-launcher.log               (launcher script log)
@@ -415,6 +532,8 @@ class TestSummaryGenerator:
                 files["describe"] = f.name
             elif suffix == "agent-health-status.json":
                 files["health"] = f.name
+            elif suffix == "proxy-state.json":
+                files["logs"].append(f.name)
             elif suffix in ("cluster-config.json", "automation-mongod.conf"):
                 files["config"].append(f.name)
             elif suffix.endswith(".log") and any(
@@ -857,6 +976,9 @@ class TestSummaryGenerator:
             "-mongodb-agent-container",
             "-mongod-container",
             "-mongodb-enterprise-database",
+            "-proxy-timeline",
+            "-mongodb-agent",
+            "-mongod",
             "-mongodb",
             "-launcher",
             "-readiness",

@@ -282,7 +282,14 @@ class TestOperatorDowngrade:
     Downgrade the Operator to 1.27, scale AppDB and ensure state correctness.
     """
 
-    def test_downscale_default_operator(self, namespace: str):
+    def test_downscale_default_operator(
+        self, namespace: str, ops_manager: MongoDBOpsManager, operator_installation_config: dict[str, str]
+    ):
+        if operator_installation_config["operator.mdbDefaultArchitecture"] == "static-ga":
+            ops_manager.load()
+            ops_manager["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static"
+            ops_manager.update()
+            ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=700)
         downscale_operator_deployment(deployment_name=MULTI_CLUSTER_OPERATOR_NAME, namespace=namespace)
 
     def test_install_legacy_state_official_operator(

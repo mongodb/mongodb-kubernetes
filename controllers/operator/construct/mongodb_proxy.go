@@ -1,7 +1,7 @@
 package construct
 
 import (
-	"go.uber.org/zap"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 
@@ -12,10 +12,6 @@ import (
 // the `mongodb-agent` container drives them over HTTP on localhost (see the agent flag -mongodProxyAddress).
 // The two containers no longer share a process namespace.
 const (
-	// MongodbProxyAnnotation turns the mode on for one resource. It only takes effect together with the
-	// static architecture and a configured proxy image (MDB_MONGODB_PROXY_IMAGE).
-	MongodbProxyAnnotation = "mongodb.com/v1.mongodbProxy"
-
 	// MongodbProxyAddress is where the proxy listens. It is the default address of the proxy.
 	MongodbProxyAddress = "127.0.0.1:8099"
 
@@ -44,22 +40,48 @@ const (
 
 // usesMongodbProxy reports whether the StatefulSet runs mongod/mongos through the proxy.
 func (d DatabaseStatefulSetOptions) usesMongodbProxy(mdb databaseStatefulSetSource) bool {
-	return mdb.GetAnnotations()[MongodbProxyAnnotation] == "true" &&
-		architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), d.DefaultArchitecture) &&
-		d.MongodbProxyImage != ""
+	return architectures.IsRunningStaticGAArchitecture(mdb.GetAnnotations(), d.DefaultArchitecture)
 }
 
-// warnIfMongodbProxyIsIgnored logs the cases in which the annotation is set but the StatefulSet is built
-// without the proxy, because there is no error path to report them on.
-func (d DatabaseStatefulSetOptions) warnIfMongodbProxyIsIgnored(mdb databaseStatefulSetSource, log *zap.SugaredLogger) {
-	if mdb.GetAnnotations()[MongodbProxyAnnotation] != "true" || d.usesMongodbProxy(mdb) {
-		return
+func (d DatabaseStatefulSetOptions) ValidateProxyPrerequisites(name string, annotations map[string]string) error {
+	return validateStaticGAProxyPrerequisites(
+		name,
+		annotations,
+		d.DefaultArchitecture,
+		d.MongodbProxyImage,
+		d.MongodbImage,
+		d.InitDatabaseImage,
+		d.CustomAgentURL,
+		d.ProxyAgentCompatibilityVerified,
+	)
+}
+
+func validateStaticGAProxyPrerequisites(
+	name string,
+	annotations map[string]string,
+	defaultArchitecture architectures.DefaultArchitecture,
+	proxyImage string,
+	mongodbImage string,
+	initDatabaseImage string,
+	customAgentURL string,
+	agentCompatibilityVerified bool,
+) error {
+	if !architectures.IsRunningStaticGAArchitecture(annotations, defaultArchitecture) {
+		return nil
 	}
-	if !architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), d.DefaultArchitecture) {
-		log.Warnf("Annotation %s is set on %s, but the proxy needs the static architecture. mongod runs without the proxy", MongodbProxyAnnotation, mdb.GetName())
-		return
+	if proxyImage == "" {
+		return fmt.Errorf("static-ga workload %q requires a MongoDB proxy image", name)
 	}
-	log.Warnf("Annotation %s is set on %s, but the proxy image is not configured (MDB_MONGODB_PROXY_IMAGE). mongod runs without the proxy", MongodbProxyAnnotation, mdb.GetName())
+	if customAgentURL == "" {
+		return fmt.Errorf("static-ga workload %q requires MDB_CUSTOM_AGENT_URL for the proxy-capable Agent", name)
+	}
+	if mongodbImage == "" || initDatabaseImage == "" {
+		return fmt.Errorf("static-ga workload %q requires MongoDB and init-database images for Agent image volumes", name)
+	}
+	if !agentCompatibilityVerified {
+		return fmt.Errorf("static-ga workload %q cannot roll out because Agent proxy compatibility is not verified", name)
+	}
+	return nil
 }
 
 func imageVolume(name, reference string) corev1.Volume {
@@ -76,4 +98,11 @@ func imageVolume(name, reference string) corev1.Volume {
 
 func readOnlyMount(name, path string) corev1.VolumeMount {
 	return corev1.VolumeMount{Name: name, MountPath: path, ReadOnly: true}
+}
+
+func mongodbProxyArgs(debug bool) []string {
+	if debug {
+		return []string{"--debug"}
+	}
+	return []string{}
 }

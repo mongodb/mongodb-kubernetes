@@ -569,7 +569,10 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 
 	// Build the replica set config
 	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	sts, err := construct.DatabaseStatefulSetWithError(*rs, rsConfig, log)
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to construct replica set StatefulSet: %w", err))
+	}
 
 	// Handle PVC resize if needed
 	if workflowStatus := r.handlePVCResize(ctx, &sts); !workflowStatus.IsOK() {
@@ -646,6 +649,8 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		WithCustomAgentURL(reconciler.customAgentURL),
 		WithMongodbImage(images.GetOfficialImage(reconciler.imageUrls, rs.Spec.Version, rs.GetAnnotations(), reconciler.defaultArchitecture, reconciler.defaultImageType)),
 		WithMongodbProxyImage(images.MongodbProxyImage(reconciler.imageUrls)),
+		WithProxyAgentCompatibilityVerified(reconciler.proxyAgentCompatibilityVerified),
+		WithProxyDebug(false),
 		WithAgentDebug(reconciler.agentDebug),
 		WithAgentDebugImage(reconciler.agentDebugImage),
 		WithDefaultArchitecture(reconciler.defaultArchitecture),
@@ -661,6 +666,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
 	// Create a new controller
 	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection)
+	reconciler.SetProxyAgentCompatibilityVerified(reconciler.customAgentURL != "")
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -868,7 +874,10 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // returning Err) use workflow.Failed and requeue after 10s (failedStatus default).
 func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []mdbv1.ExternalMember, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage string, log *zap.SugaredLogger) (reconcile.Result, error) {
 	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	sts, err := construct.DatabaseStatefulSetWithError(*rs, rsConfig, log)
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to construct connectivity validation StatefulSet: %w", err)))
+	}
 	replicaSetName := rs.Spec.ReplicaSetNameOverride
 	if replicaSetName == "" {
 		replicaSetName = rs.Name

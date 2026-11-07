@@ -80,6 +80,18 @@ func PodLabel(mdbmName string) map[string]string {
 
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdbm)
+	return multiClusterStatefulSet(mdbm, stsOptions)
+}
+
+func MultiClusterStatefulSetWithError(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions) (appsv1.StatefulSet, error) {
+	stsOptions := stsOptFunc(mdbm)
+	if err := stsOptions.ValidateProxyPrerequisites(mdbm.Name, mdbm.Annotations); err != nil {
+		return appsv1.StatefulSet{}, err
+	}
+	return multiClusterStatefulSet(mdbm, stsOptions), nil
+}
+
+func multiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptions construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	dbSts := construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
 
 	if len(stsOptions.Annotations) > 0 {

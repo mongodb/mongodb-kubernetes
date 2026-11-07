@@ -9,7 +9,7 @@ source "${script_dir}/root-context"
 source "${script_dir}/variables/om60"
 
 export KUBE_ENVIRONMENT_NAME=kind
-export MDB_DEFAULT_ARCHITECTURE=static
+export MDB_DEFAULT_ARCHITECTURE=static-ga
 
 # The earliest version supporting Static Containers for OM
 # We started supporting Static Containers in 6.0.21, except for OM

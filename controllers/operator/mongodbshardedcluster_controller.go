@@ -1539,7 +1539,10 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
-		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
+		mongosSts, err := construct.DatabaseStatefulSetWithError(*s, mongosOpts, log)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to construct Mongos StatefulSet: %w", err))
+		}
 
 		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, mongosSts, mongosOpts, log)
 		if err != nil {
@@ -1581,7 +1584,10 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
 			shardsNames[shardIdx] = s.ShardName(shardIdx)
 			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)
-			shardSts := construct.DatabaseStatefulSet(*s, shardOpts, log)
+			shardSts, err := construct.DatabaseStatefulSetWithError(*s, shardOpts, log)
+			if err != nil {
+				return workflow.Failed(xerrors.Errorf("failed to construct shard StatefulSet: %w", err))
+			}
 
 			if pvcStatus := r.handlePVCResize(ctx, memberCluster, &shardSts, log); !pvcStatus.IsOK() {
 				return pvcStatus
@@ -1629,7 +1635,10 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)
-		configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, log)
+		configSrvSts, err := construct.DatabaseStatefulSetWithError(*s, configSrvOpts, log)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to construct config server StatefulSet: %w", err))
+		}
 
 		if pvcStatus := r.handlePVCResize(ctx, memberCluster, &configSrvSts, log); !pvcStatus.IsOK() {
 			return pvcStatus
@@ -1875,6 +1884,7 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
 	// Create a new controller
 	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
+	reconciler.SetProxyAgentCompatibilityVerified(reconciler.customAgentURL != "")
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -2625,6 +2635,8 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+		WithProxyAgentCompatibilityVerified(r.commonController.proxyAgentCompatibilityVerified),
+		WithProxyDebug(false),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -2667,6 +2679,8 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+		WithProxyAgentCompatibilityVerified(r.commonController.proxyAgentCompatibilityVerified),
+		WithProxyDebug(false),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -2711,6 +2725,8 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+		WithProxyAgentCompatibilityVerified(r.commonController.proxyAgentCompatibilityVerified),
+		WithProxyDebug(false),
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -2790,7 +2806,10 @@ func (r *ShardedClusterReconcileHelper) runConnectivityValidationDryRun(ctx cont
 	}
 
 	mongosOptsFunc := r.getMongosOptions(ctx, *sc, opts, log, healthyClusters[0])
-	sts := construct.DatabaseStatefulSet(*sc, mongosOptsFunc, log)
+	sts, err := construct.DatabaseStatefulSetWithError(*sc, mongosOptsFunc, log)
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to construct connectivity validation StatefulSet: %w", err))
+	}
 	connectionString := fmt.Sprintf("mongodb://%s/", strings.Join(mongosHostnames, ","))
 
 	allHostnames := make([]string, 0, len(sc.Spec.GetExternalMembers()))

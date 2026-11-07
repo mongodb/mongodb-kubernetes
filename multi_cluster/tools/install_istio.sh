@@ -17,9 +17,9 @@ source multi_cluster/tools/download_istio.sh
 #
 cd "istio-${VERSION}"
 ## perform cleanup prior to install
-bin/istioctl x uninstall --context="${CTX_CLUSTER1}" --purge --skip-confirmation &
-bin/istioctl x uninstall --context="${CTX_CLUSTER2}" --purge --skip-confirmation &
-bin/istioctl x uninstall --context="${CTX_CLUSTER3}" --purge --skip-confirmation &
+bin/istioctl uninstall --context="${CTX_CLUSTER1}" --purge --skip-confirmation &
+bin/istioctl uninstall --context="${CTX_CLUSTER2}" --purge --skip-confirmation &
+bin/istioctl uninstall --context="${CTX_CLUSTER3}" --purge --skip-confirmation &
 wait
 
 rm -rf certs
@@ -75,12 +75,17 @@ spec:
       namespace: istio-system
       enabled: true
   meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
     defaultConfig:
       terminationDrainDuration: 30s
       proxyMetadata:
         ISTIO_META_DNS_AUTO_ALLOCATE: "true"
         ISTIO_META_DNS_CAPTURE: "true"
   values:
+    pilot:
+      env:
+        ENABLE_NATIVE_SIDECARS: "false"
     global:
       meshID: mesh1
       multiCluster:
@@ -100,12 +105,17 @@ spec:
       namespace: istio-system
       enabled: true
   meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
     defaultConfig:
       terminationDrainDuration: 30s
       proxyMetadata:
         ISTIO_META_DNS_AUTO_ALLOCATE: "true"
         ISTIO_META_DNS_CAPTURE: "true"
   values:
+    pilot:
+      env:
+        ENABLE_NATIVE_SIDECARS: "false"
     global:
       meshID: mesh1
       multiCluster:
@@ -125,12 +135,17 @@ spec:
       namespace: istio-system
       enabled: true
   meshConfig:
+    accessLogFile: /dev/stdout
+    accessLogEncoding: JSON
     defaultConfig:
       terminationDrainDuration: 30s
       proxyMetadata:
         ISTIO_META_DNS_AUTO_ALLOCATE: "true"
         ISTIO_META_DNS_CAPTURE: "true"
   values:
+    pilot:
+      env:
+        ENABLE_NATIVE_SIDECARS: "false"
     global:
       meshID: mesh1
       multiCluster:
@@ -153,42 +168,42 @@ fi
 
 # enable endpoint discovery
 # shellcheck disable=SC2086 # CLUSTER_X_ADDITIONAL_OPTS must not be quoted - empty string breaks istioctl
-bin/istioctl x create-remote-secret \
+bin/istioctl create-remote-secret \
   --context="${CTX_CLUSTER1}" \
   -n istio-system \
   --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER2}"
 
 # shellcheck disable=SC2086
-bin/istioctl x create-remote-secret \
+bin/istioctl create-remote-secret \
   --context="${CTX_CLUSTER1}" \
   -n istio-system \
   --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 # shellcheck disable=SC2086
-bin/istioctl x create-remote-secret \
+bin/istioctl create-remote-secret \
   --context="${CTX_CLUSTER2}" \
   -n istio-system \
   --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 # shellcheck disable=SC2086
-bin/istioctl x create-remote-secret \
+bin/istioctl create-remote-secret \
   --context="${CTX_CLUSTER2}" \
   -n istio-system \
   --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 # shellcheck disable=SC2086
-bin/istioctl x create-remote-secret \
+bin/istioctl create-remote-secret \
   --context="${CTX_CLUSTER3}" \
   -n istio-system \
   --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 # shellcheck disable=SC2086
-bin/istioctl x create-remote-secret \
+bin/istioctl create-remote-secret \
   --context="${CTX_CLUSTER3}" \
   -n istio-system \
   --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} |

@@ -190,12 +190,55 @@ is_mdb_resource_pod() {
     kubectl --context="${context}" exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-verbose.log &>/dev/null
 }
 
+dump_pod_proxy_state() {
+    local context="${1}" pod="${2}" namespace="${3}" prefix="${4}"
+    local pod_spec response body snapshot
+    local artifact="logs/${prefix}${pod}-proxy-state.json"
+    if ! pod_spec=$(run_with_timeout kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o json); then
+        echo "WARNING: proxy diagnostic pod inspection failed for ${pod}" >&2
+        return
+    fi
+    if ! printf '%s' "${pod_spec}" | jq -e '
+        any(.spec.containers[]; .name == "mongodb-agent" and
+            any(.env[]?; .name == "MDB_MONGODB_PROXY_ADDRESS" and .value == "127.0.0.1:8099"))
+    ' > /dev/null; then
+        return
+    fi
+    # shellcheck disable=SC2016
+    if ! response=$(run_with_timeout kubectl --context="${context}" --request-timeout=15s exec -n "${namespace}" "${pod}" -c mongodb-agent -- \
+        bash -c 'exec 3<>/dev/tcp/127.0.0.1/8099 || exit 1
+printf "GET /v1/process HTTP/1.0\r\nHost: proxy\r\n\r\n" >&3
+while IFS= read -r -t 5 line <&3; do printf "%s\n" "$line"; done' 2>/dev/null); then
+        printf '{"diagnostic_error":"request_failed"}\n' > "${artifact}"
+        echo "WARNING: proxy GET /v1/process failed for ${pod}" >&2
+        return
+    fi
+    body="${response#*$'\r\n\r\n'}"
+    if [[ "${response}" != HTTP/1.?[\ ]200* ]] || ! snapshot=$(printf '%s' "${body}" | jq -ce '
+        select(.state == "idle" or .state == "running" or .state == "exited") |
+        {state, role: (if .role == "main" or .role == "ephemeral" then .role else null end),
+         operationId: (if (.operationId | type) == "string" then
+             (.operationId | if test("^[A-Za-z0-9_.-]{1,128}$") then . else null end) else null end),
+         exitCode: (if (.exitCode | type) == "number" then .exitCode else null end),
+         signal: (if (.signal | type) == "string" then
+             (.signal | if test("^SIG[A-Z0-9]+$") then . else null end) else null end)} |
+        with_entries(select(.value != null))
+    '); then
+        printf '{"diagnostic_error":"invalid_response"}\n' > "${artifact}"
+        echo "WARNING: proxy GET /v1/process returned an invalid response for ${pod}" >&2
+        return
+    fi
+    printf '%s\n' "${snapshot}" > "${artifact}"
+}
+
 # dump_pod_logs dumps agent and mongodb logs.
 dump_pod_logs() {
     local context="${1}"
     local pod="${2}"
     local namespace="${3}"
     local prefix="${4}"
+
+    dump_pod_proxy_state "${context}" "${pod}" "${namespace}" "${prefix}"
 
     if is_mdb_resource_pod "${context}" "${pod}" "${namespace}"; then
         # for MDB resource Pods, we dump the log files from the file system
@@ -205,7 +248,6 @@ dump_pod_logs() {
         cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/monitoring-agent-verbose.log" "logs/${prefix}${pod}-monitoring-agent-verbose.log"
         cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/monitoring-agent.log" "logs/${prefix}${pod}-monitoring-agent.log"
         run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent-monitoring" > "logs/${prefix}${pod}-monitoring-agent-stdout.log" || true
-        run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongod" > "logs/${prefix}${pod}-mongod-container.log" || true
         run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "mongodb-agent" > "logs/${prefix}${pod}-mongodb-agent-container.log" || true
         cp_from_pod "${context}" "${namespace}" "${pod}" "" "/var/log/mongodb-mms-automation/mongodb.log" "logs/${prefix}${pod}-mongodb.log"
 
@@ -351,6 +393,38 @@ dump_pods() {
     fi
 }
 
+# dump_istio_proxy_config captures the Envoy endpoint view for every pod that
+# runs an Istio sidecar. It is best-effort: istioctl is available only when the
+# test environment installed Istio.
+dump_istio_proxy_config() {
+    local context="${1}"
+    local namespace="${2}"
+    local prefix="${3}"
+    local out_file="logs/${prefix}istio_proxy_config.txt"
+
+    local istioctl_bin
+    istioctl_bin=$(command -v istioctl 2>/dev/null || true)
+    if [[ -z "${istioctl_bin}" ]]; then
+        istioctl_bin=$(find . -maxdepth 3 -path '*/bin/istioctl' -type f 2>/dev/null | head -1)
+    fi
+    if [[ -z "${istioctl_bin}" ]]; then
+        return
+    fi
+
+    local pods
+    pods=$(get_all_pods "${context}" "${namespace}")
+    for pod in ${pods}; do
+        if ! kubectl --context="${context}" get pod -n "${namespace}" "${pod}" \
+            -o jsonpath='{.spec.containers[*].name}' 2>/dev/null | grep -qw istio-proxy; then
+            continue
+        fi
+        echo "=== Pod: ${pod} ===" >> "${out_file}"
+        run_with_timeout "${istioctl_bin}" proxy-config endpoints "${pod}" \
+            --context="${context}" -n "${namespace}" >> "${out_file}" 2>&1 || true
+        echo "" >> "${out_file}"
+    done
+}
+
 # dump_diagnostics writes only the *most important information* for debugging
 # tests, no more. Ideally the diagnostics file is as small as possible. Avoid
 # high density of information; the main objective of this file is to direct you
@@ -455,6 +529,7 @@ dump_namespace() {
 
     # 3. Print Pod logs
     dump_pods "${context}" "${namespace}" "${prefix}"
+    dump_istio_proxy_config "${context}" "${namespace}" "${prefix}"
 
     # 4. Print other Kubernetes resources
     dump_configmaps "${context}" "${namespace}" "${prefix}"
@@ -474,6 +549,7 @@ dump_namespace() {
     dump_objects "${context}" deploy "Deployments" "${namespace}" "describe" "logs/${prefix}z_deployments_describe.txt"
     dump_objects "${context}" sts "StatefulSets" "${namespace}" "describe" "logs/${prefix}z_statefulsets_describe.txt"
     dump_objects "${context}" sts "StatefulSets Yaml" "${namespace}" "get -o yaml" "logs/${prefix}z_statefulsets.txt"
+    dump_objects "${context}" endpointslices "EndpointSlices" "${namespace}" "get -o yaml" "logs/${prefix}z_endpointslices.txt"
     dump_objects "${context}" serviceaccounts "ServiceAccounts" "${namespace}" "get -o yaml" "logs/${prefix}z_service_accounts.txt"
     dump_objects "${context}" clusterrolebindings "ClusterRoleBindings" "${namespace}" "get -o yaml" "logs/${prefix}z_clusterrolebindings.txt"
     dump_objects "${context}" clusterroles "ClusterRoles" "${namespace}" "get -o yaml" "logs/${prefix}z_clusterroles.txt"

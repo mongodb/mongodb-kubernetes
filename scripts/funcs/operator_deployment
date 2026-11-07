@@ -6,6 +6,13 @@ get_operator_helm_values() {
   # shellcheck disable=SC2153
   local database_registry=${DATABASE_REGISTRY}
   local database_name=${DATABASE_NAME:=mongodb-kubernetes-database}
+  local proxy_image="${MDB_MONGODB_PROXY_IMAGE:-}"
+  if [[ -n "${proxy_image}" && ( "${proxy_image}" == *"@"* || "${proxy_image##*/}" != *":"* || "${proxy_image}" != *"/"* ) ]]; then
+    echo "MDB_MONGODB_PROXY_IMAGE requires a tagged registry/name:version reference for the Helm delivery path" >&2
+    return 1
+  fi
+  local proxy_repository="${proxy_image%:*}"
+  local proxy_version="${proxy_image##*:}"
 
   declare -a config=(
     "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
@@ -45,7 +52,13 @@ get_operator_helm_values() {
     "search.metricsForwarderImage=${MDB_SEARCH_METRICS_FORWARDER_IMAGE}"
     "community.registry.agent=${MDB_AGENT_REGISTRY}"
   )
-
+  if [[ -n "${proxy_image}" ]]; then
+    config+=(
+      "registry.mongodbProxy=${proxy_repository%/*}"
+      "mongodbProxy.name=${proxy_repository##*/}"
+      "mongodbProxy.version=${proxy_version}"
+    )
+  fi
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then
     config+=("operator.telemetry.installClusterRole=${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION}")
   fi
@@ -112,10 +125,13 @@ get_operator_helm_values() {
 
 prepare_operator_config_map() {
   local context=${1}
+  local helm_values_output
+  helm_values_output=$(get_operator_helm_values) || return "$?"
+  read -ra helm_values <<< "${helm_values_output}"
+
   kubectl --context "${context}" delete configmap operator-installation-config --ignore-not-found
   title "Preparing the ConfigMap with Operator installation configuration"
 
-  read -ra helm_values < <(get_operator_helm_values)
   declare -a config_map_values=()
   for param in "${helm_values[@]}"; do
     config_map_values+=("--from-literal" "${param}")
