@@ -1464,9 +1464,9 @@ spec:
                     type: object
                   oidc:
                     description: |-
-                      OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only).
-                      mongot obtains an access token from the identity provider's token endpoint instead of using
-                      username/password or x509; the source must have TLS enabled. Mutually exclusive with PasswordSecretRef, Username, and X509.
+                      OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only):
+                      mongot mints an access token at the IdP token endpoint and authenticates to the source with it via
+                      MONGODB-OIDC. Requires source TLS. Mutually exclusive with PasswordSecretRef, Username, and X509.
                     properties:
                       clientId:
                         description: ClientID is the OAuth2 client id mongot authenticates
