@@ -275,7 +275,7 @@ parameters:
 
   - key: mdb_custom_agent_url
     value: ""
-    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path."
+    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path. Agent builds also tag the image with the version in the filename, because the operator derives the Agent image tag from that filename."
 
 # Triggered manually or by PCT.
 patch_aliases:
@@ -694,6 +694,20 @@ tasks:
       - func: pipeline
         vars:
           image_name: mongodb-proxy
+
+  # Scans the mongodb-proxy image built in the same patch for known CVEs. The scan is notify-only, so it
+  # never blocks the build. TRIVY_SCAN_FORCE runs it outside the staging and release scenarios.
+  - name: cve_scan_mongodb_proxy_image
+    depends_on:
+      - name: build_mongodb_proxy_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_staging_login
+      - func: trivy_scan
+        vars:
+          image_name: mongodb-proxy
+          trivy_scan_force: "true"
 
   # Single CVE scan of all the images built in init_test_run and of the Ops Manager images (7.0, 8.0 and 9.0,
   # built in their own variants), reported in one Slack message. The OM versions are resolved by
@@ -2440,6 +2454,7 @@ buildvariants:
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
       - name: build_mongodb_proxy_image
+      - name: cve_scan_mongodb_proxy_image
       - name: cve_scan_images
       - name: build_kubectl_mongodb_plugin
       - name: prepare_aws

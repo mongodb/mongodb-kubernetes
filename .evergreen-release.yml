@@ -369,7 +369,7 @@ buildvariants:
 
   - name: e2e_static_smoke_release
     display_name: e2e_static_smoke
-    tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2404-large
     allowed_requesters: [ "patch", "github_tag" ]
@@ -398,7 +398,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_power_release
     display_name: e2e_static_smoke_ibm_power (release)
-    tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-power-small
       - rhel9-power-large
@@ -428,7 +428,7 @@ buildvariants:
 
   - name: e2e_static_smoke_ibm_z_release
     display_name: e2e_static_smoke_ibm_z (release)
-    tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - rhel9-zseries-small
       - rhel9-zseries-large
@@ -457,7 +457,7 @@ buildvariants:
 
   - name: e2e_static_smoke_arm_release
     display_name: e2e_static_smoke_arm (release)
-    tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
+    tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
       - ubuntu2404-arm64-large
     allowed_requesters: [ "patch", "github_tag" ]
