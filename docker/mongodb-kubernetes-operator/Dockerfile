@@ -52,14 +52,26 @@ COPY --from=builder /data/om_version_mapping.json /data/om_version_mapping.json
 
 ADD docker/mongodb-kubernetes-operator/licenses /data/licenses/
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal
+FROM registry.access.redhat.com/ubi9/ubi-micro AS micro
 
-# Building an UBI-based image: https://red.ht/3n6b9y0
-RUN microdnf update \
-    --disableplugin=subscription-manager \
-    --disablerepo=* --enablerepo=ubi-9-appstream-rpms --enablerepo=ubi-9-baseos-rpms -y \
-    && rm -rf /var/cache/yum
-RUN microdnf install -y glibc-langpack-en
+# ubi-micro has no package manager: packages are installed into a copy of its rootfs from a full UBI image.
+# Runs on the target platform because RPMs and their scriptlets are architecture specific.
+FROM registry.access.redhat.com/ubi9/ubi AS rootfs_builder
+COPY --from=micro / /mnt/rootfs
+# ubi-micro has no CA bundle, which the operator needs to talk to Ops Manager / Cloud Manager over HTTPS.
+# glibc-langpack-en was installed on the previous ubi-minimal base for the race detector build (CGO_ENABLED=1).
+RUN dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
+        --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
+        upgrade \
+    && dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
+        --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
+        install ca-certificates glibc-langpack-en \
+    && dnf --installroot=/mnt/rootfs clean all \
+    && rm -rf /mnt/rootfs/var/cache/dnf /mnt/rootfs/var/log/dnf* /mnt/rootfs/var/log/hawkey.log
+
+FROM registry.access.redhat.com/ubi9/ubi-micro
+
+COPY --from=rootfs_builder /mnt/rootfs/ /
 
 COPY --from=base /data/mongodb-kubernetes-operator /usr/local/bin/mongodb-kubernetes-operator
 COPY --from=base /data/connectivity-validator /usr/local/bin/connectivity-validator
