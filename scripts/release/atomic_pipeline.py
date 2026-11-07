@@ -365,6 +365,20 @@ def build_agent_pipeline(
             tools_version=tools_version,
         )
 
+    if build_configuration_copy.isolated:
+        missing_platforms = [
+            platform
+            for platform in build_configuration_copy.platforms
+            if f"mongodb_agent_version_{platform.split('/')[-1]}" not in platform_build_args
+        ]
+        if missing_platforms:
+            # Shared agent tags are normally never rebuilt (skip-if-exists), so agents whose tarballs are no longer
+            # downloadable (e.g. EOL Ops Manager versions) only surface in isolated builds, which always rebuild.
+            logger.warning(
+                f"Skipping isolated build of agent {agent_version}: no agent/tools tarball found for {missing_platforms}"
+            )
+            return
+
     tools_base_url = "https://fastdl.mongodb.org/tools/db"
 
     args = {
