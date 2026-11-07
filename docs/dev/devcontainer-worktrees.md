@@ -41,7 +41,9 @@ worktree of the current directory, except `delete`, which names the branch.
 
 - `wt-ctl create [--local-kind] [--single-cluster|--multi-cluster] [--context <name>] [<branch>]` creates the worktree
   `../<branch with / as _>`, or adopts the worktree that already has the branch checked out (one you made with
-  `git worktree add`, at any path). Without `<branch>` it adopts the checkout you run it in. Adopting copies the
+  `git worktree add`, at any path). A branch that exists on a remote, a fork included, becomes a local branch that
+  tracks that remote, as `git checkout <branch>` does. A branch on more than one remote is refused with the command
+  that checks it out explicitly. Without `<branch>` it adopts the checkout you run it in. Adopting copies the
   `private-context`, the `bin/` and a context into the worktree and builds its venv, which a bare worktree lacks: from
   the checkout you run `create` in, or from the main checkout when you run it inside the worktree. A bare worktree has
   no env of its own, so its `wt-ctl` runs the one of the main checkout, which must have the tooling. A worktree that has a `private-context` but no `.generated/.current_context` is refused: run `make switch` in it first. Then it gives the worktree the next free index and its prefix, switches its context, creates its kind clusters (on an Evergreen

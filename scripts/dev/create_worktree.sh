@@ -44,10 +44,24 @@ worktree_path="$(realpath "${PROJECT_DIR}/..")/${branch_dir}"
 if ! git worktree list | awk '{print $1}' | grep -Fxq "${worktree_path}"; then
   echo "Creating git worktree for branch '${branch}' at ${worktree_path}..."
 
-  # Check if branch exists (locally or remotely)
+  # Find the branch where `git checkout` would: locally, or as the remote-tracking branch of
+  # exactly one remote (a fork counts, not only origin). `git worktree add` then creates a local
+  # branch that tracks that remote.
   branch_exists=0
-  if git show-ref --verify --quiet "refs/heads/${branch}" || git show-ref --verify --quiet "refs/remotes/origin/${branch}"; then
+  if git show-ref --verify --quiet "refs/heads/${branch}"; then
     branch_exists=1
+  else
+    remote_refs="$(git for-each-ref --format='%(refname:short)' "refs/remotes/*/${branch}")"
+    remote_count=0
+    [[ -n "${remote_refs}" ]] && remote_count="$(printf '%s\n' "${remote_refs}" | wc -l | tr -d ' ')"
+    if [[ "${remote_count}" == 1 ]]; then
+      branch_exists=1
+    elif [[ "${remote_count}" -gt 1 ]]; then
+      echo "Error: branch '${branch}' exists in more than one remote:" >&2
+      while IFS= read -r remote_ref; do echo "  ${remote_ref}" >&2; done <<< "${remote_refs}"
+      echo "Check it out explicitly first: git worktree add --track -b ${branch} ${worktree_path} <remote>/${branch}" >&2
+      exit 1
+    fi
   fi
 
   if [[ ${branch_exists} == 1 ]]; then
