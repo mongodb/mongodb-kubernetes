@@ -177,7 +177,9 @@ func TestEnterpriseResourceSearchSource_Validate(t *testing.T) {
 		// validator (validateSCRAMAuthSource): the adapter cannot see the search resource's
 		// auth mode, and an OIDC-auth search needs no SCRAM on the source.
 		{
-			name:         "No SCRAM authentication modes",
+			// Auth-mode pairing is gated by ValidateSearchSourceAuth, not by the source's own
+			// Validate: an x509-only source is valid for an x509 search.
+			name:         "X509 mode only",
 			version:      "8.2.0",
 			topology:     mdbv1.ClusterTopologySingleCluster,
 			resourceType: mdbv1.ReplicaSet,

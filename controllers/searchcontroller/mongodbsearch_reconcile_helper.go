@@ -2894,33 +2894,16 @@ func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRe
 		return nil
 	}
 
-	var authModes []string
-	switch src := db.(type) {
-	case EnterpriseResourceSearchSource:
-		authModes = src.Spec.GetSecurityAuthenticationModes()
-	case *ShardedInternalSearchSource:
-		authModes = src.Spec.GetSecurityAuthenticationModes()
-	case *CommunitySearchSource:
-		for _, authMode := range src.Spec.Security.Authentication.Modes {
-			authModes = append(authModes, string(authMode))
-		}
-	default:
-		// External sources are unverifiable from the operator — no check.
+	modes, checkable := sourceAuthModes(db)
+	if !checkable || len(modes) == 0 {
 		return nil
 	}
-
-	for _, authMode := range authModes {
-		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
-		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
-			return nil
-		}
+	if slices.ContainsFunc(modes, func(mode string) bool {
+		return strings.HasPrefix(strings.ToUpper(mode), util.SCRAM)
+	}) {
+		return nil
 	}
-
-	if len(authModes) > 0 {
-		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled on the source MongoDB when using SCRAM sync-source authentication")
-	}
-
-	return nil
+	return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled on the source MongoDB when using SCRAM sync-source authentication")
 }
 
 func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
