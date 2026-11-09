@@ -2,6 +2,6 @@
 
 set -Eeou pipefail
 
-export MDB_SEARCH_VERSION="1.70.1"
+export MDB_SEARCH_VERSION="latest"
 export MDB_SEARCH_NAME="mongodb/mongodb-search"
 export MDB_SEARCH_REPO_URL="quay.io"
