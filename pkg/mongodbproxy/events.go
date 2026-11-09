@@ -62,6 +62,10 @@ func (l *eventLog) record(e Event) {
 	e.Event = truncateEventText(e.Event)
 	e.OperationID = logOperationID(e.OperationID)
 	e.ErrorClass = truncateEventText(e.ErrorClass)
+	// The role is accepted from the request before validation. Store only the known roles.
+	if e.Role != RoleMain && e.Role != RoleEphemeral {
+		e.Role = ""
+	}
 
 	l.events[l.next] = e
 	l.next = (l.next + 1) % maxEvents

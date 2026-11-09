@@ -51,6 +51,15 @@ func TestEventLogSanitizesAndTruncatesText(t *testing.T) {
 	assert.LessOrEqual(t, len(events[0].ErrorClass), maxEventText)
 }
 
+func TestEventLogDropsUnknownRoles(t *testing.T) {
+	l := newEventLog()
+	l.record(Event{Event: "start_rejected", Role: Role("secret payload")})
+
+	events, _ := l.snapshot(1)
+	require.Len(t, events, 1)
+	assert.Empty(t, events[0].Role)
+}
+
 func TestEventLogConcurrentRecord(t *testing.T) {
 	l := newEventLog()
 	var wg sync.WaitGroup
