@@ -56,6 +56,10 @@ func IsRunningStaticArchitecture(annotations map[string]string, defaultArchitect
 	return GetArchitecture(annotations, defaultArchitecture) != NonStatic
 }
 
+func IsRunningStaticGAArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) bool {
+	return GetArchitecture(annotations, defaultArchitecture) == StaticGA
+}
+
 func GetArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) DefaultArchitecture {
 	if architecture := DefaultArchitecture(annotations[ArchitectureAnnotation]); isKnownArchitecture(architecture) {
 		return architecture
