@@ -24,6 +24,8 @@ Key difference from managed LB internal test:
 - MongoDB shardOverrides are configured upfront (pointing to operator-managed proxy services)
 """
 
+from copy import deepcopy
+
 from kubernetes import client
 from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
@@ -35,6 +37,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import wait_for_search_service_metadata
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
@@ -68,6 +71,21 @@ CONFIG_SERVER_COUNT = 1
 # TLS configuration
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = "mdb-sh-ca"
+
+# Operator-owned "component" label values (controllers/searchcontroller). The CRD rejects
+# operator-managed keys such as "component" in service.metadata.labels, so the user's
+# "app.kubernetes.io/component" below must coexist with, not replace, the operator's value.
+MONGOT_COMPONENT = "mongot"
+PROXY_SERVICE_COMPONENT = "search-proxy"
+
+SERVICE_METADATA = {
+    "labels": {"example.com/team": "cluster", "app.kubernetes.io/component": "search"},
+    "annotations": {"example.com/owner": "cluster", "example.com/keep": "retained"},
+}
+SHARD_SERVICE_METADATA = {
+    "labels": {"example.com/team": "shard", "example.com/shard-only": "yes"},
+    "annotations": {"example.com/owner": "shard", "example.com/shard-only": "yes"},
+}
 
 
 @fixture(scope="module")
@@ -103,6 +121,10 @@ def mdbs(namespace: str, mdb: MongoDB, helper: SearchDeploymentHelper) -> MongoD
         mongot_user_name=MONGOT_USER_NAME,
         lb_mode="Managed",
         replicas=2,
+        shard_overrides=[
+            {"shardNames": [f"{MDB_RESOURCE_NAME}-0"], "service": {"metadata": deepcopy(SHARD_SERVICE_METADATA)}}
+        ],
+        service={"metadata": deepcopy(SERVICE_METADATA)},
     )
 
 
@@ -205,6 +227,37 @@ def test_verify_envoy_deployment(namespace: str):
 
     run_periodically(check_envoy_deployment, timeout=120, sleep_time=5, msg=f"Envoy Deployment {envoy_deployment_name}")
     logger.info(f"Envoy Deployment {envoy_deployment_name} is running")
+
+
+@mark.e2e_search_sharded_enterprise_external_mongod_managed_lb
+def test_verify_service_metadata(namespace: str):
+    """Cluster-level service metadata reaches every Service, shard-0 overrides merge on top of it
+    for shard-0's Services only, the mongos proxy Service gets cluster values only, and the
+    operator's component label is kept alongside the user's labels."""
+
+    def expected_metadata(component: str, shard_override: bool = False) -> dict:
+        metadata = deepcopy(SERVICE_METADATA)
+        if shard_override:
+            for field in ("labels", "annotations"):
+                metadata[field].update(SHARD_SERVICE_METADATA[field])
+        metadata["labels"]["component"] = component
+        return metadata
+
+    expected_by_name = {
+        search_resource_names.mc_proxy_svc_name(MDBS_RESOURCE_NAME, 0): expected_metadata(PROXY_SERVICE_COMPONENT)
+    }
+    for shard_index in range(SHARD_COUNT):
+        shard_name = f"{MDB_RESOURCE_NAME}-{shard_index}"
+        expected_by_name[search_resource_names.shard_service_name(MDBS_RESOURCE_NAME, shard_name)] = expected_metadata(
+            MONGOT_COMPONENT, shard_index == 0
+        )
+        expected_by_name[search_resource_names.shard_proxy_service_name(MDBS_RESOURCE_NAME, shard_name)] = (
+            expected_metadata(PROXY_SERVICE_COMPONENT, shard_index == 0)
+        )
+
+    keys = {field: SERVICE_METADATA[field].keys() | SHARD_SERVICE_METADATA[field].keys() for field in SERVICE_METADATA}
+    keys["labels"] |= {"component"}
+    wait_for_search_service_metadata(namespace, MDBS_RESOURCE_NAME, expected_by_name, keys)
 
 
 @mark.e2e_search_sharded_enterprise_external_mongod_managed_lb

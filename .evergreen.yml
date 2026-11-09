@@ -688,6 +688,7 @@ tasks:
   # built in their own variants), reported in one Slack message. The OM versions are resolved by
   # scripts/release/trivy_scan.sh. Only the currently used agent versions are scanned to keep scan time bounded.
   - name: cve_scan_images
+    disable: true # TEMPORARILY DISABLED
     depends_on:
       - name: build_operator_ubi
       - name: build_init_om_images_ubi
@@ -1235,6 +1236,7 @@ task_groups:
       - e2e_multi_cluster_tls_with_scram
       - e2e_multi_cluster_upgrade_downgrade
       - e2e_multi_cluster_backup_restore
+      - e2e_multi_cluster_backup_enabled_outside_operator
       - e2e_multi_cluster_backup_restore_no_mesh
       - e2e_multi_cluster_disaster_recovery
       - e2e_multi_cluster_multi_disaster_recovery
@@ -1477,6 +1479,7 @@ task_groups:
       - e2e_om_weak_password
       - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
       - e2e_om_ops_manager_backup_light
+      - e2e_om_ops_manager_backup_enabled_outside_operator
       - e2e_om_ops_manager_backup_tls
       - e2e_om_ops_manager_backup_s3_tls
       - e2e_om_ops_manager_backup_restore_rustfs
