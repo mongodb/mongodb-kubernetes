@@ -948,6 +948,16 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_om_ops_manager_queryable_backup_managedcert
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_queryable_backup_managedcert_issuer
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_om_feature_controls
     tags: [ "patch-run" ]
     commands:
