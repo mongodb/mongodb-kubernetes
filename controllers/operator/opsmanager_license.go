@@ -8,6 +8,8 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -49,6 +51,39 @@ func (r *OpsManagerReconciler) ensureOpsManagerLicense(ctx context.Context, opsM
 	return helper.Reconcile(ctx)
 }
 
+// reconcileLicenseDeletion releases the license the operator installed, keeping the finalizer until it succeeds.
+func (r *OpsManagerReconciler) reconcileLicenseDeletion(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (reconcile.Result, error) {
+	if !controllerutil.ContainsFinalizer(opsManager, util.OpsManagerLicenseFinalizer) {
+		return reconcile.Result{}, nil
+	}
+
+	log.Info("Releasing the Ops Manager license before the deletion")
+	omAdmin, err := r.licenseAdminClient(ctx, opsManager, log)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, licenseFailed(err, status.ReasonLicenseReleaseFailed), log, status.NewOMPartOption(status.OpsManager))
+	}
+
+	helper, err := r.newLicenseReconcilerHelper(opsManager, omAdmin, log)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, licenseFailed(err, status.ReasonLicenseReleaseFailed), log, status.NewOMPartOption(status.OpsManager))
+	}
+
+	st := helper.releaseOnDeletion(ctx)
+	if !st.IsOK() {
+		return r.updateStatus(ctx, opsManager, st, log, status.NewOMPartOption(status.OpsManager))
+	}
+	return st.ReconcileResult()
+}
+
+// licenseAdminClient builds the admin client for the release, without creating the first admin user.
+func (r *OpsManagerReconciler) licenseAdminClient(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (api.OpsManagerAdmin, error) {
+	ca, err := r.opsManagerCA(ctx, opsManager, log)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to retrieve om ca certificate to release the license: %w", err)
+	}
+	return r.opsManagerAdmin(ctx, opsManager, opsManager.CentralURL(), ca, log)
+}
+
 // Reconcile runs the license reconcile and reports the license Ops Manager holds.
 func (h *LicenseReconcilerHelper) Reconcile(ctx context.Context) workflow.Status {
 	st := h.reconcileLicense(ctx)
@@ -58,6 +93,12 @@ func (h *LicenseReconcilerHelper) Reconcile(ctx context.Context) workflow.Status
 }
 
 func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow.Status {
+	// Held while a license may be in Ops Manager, so a deletion can release it.
+	held := h.opsManager.Spec.License.InstallRequested() || h.lastInstallSecretRef != ""
+	if st := h.syncLicenseFinalizer(ctx, held); !st.IsOK() {
+		return st
+	}
+
 	// The identity rotation requested through an annotation runs before the license state is read.
 	if h.opsManager.LicenseRotateIdentityDue() {
 		if st := h.reconcileLicenseIdentity(ctx); !st.IsOK() {
@@ -95,6 +136,45 @@ func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow
 // releaseDue reports whether the install intent was removed while the last achieved spec still had one.
 func (h *LicenseReconcilerHelper) releaseDue() bool {
 	return !h.opsManager.Spec.License.InstallRequested() && h.lastInstallSecretRef != ""
+}
+
+func (h *LicenseReconcilerHelper) syncLicenseFinalizer(ctx context.Context, wanted bool) workflow.Status {
+	if wanted == controllerutil.ContainsFinalizer(h.opsManager, util.OpsManagerLicenseFinalizer) {
+		return workflow.OK()
+	}
+
+	if wanted {
+		controllerutil.AddFinalizer(h.opsManager, util.OpsManagerLicenseFinalizer)
+	} else {
+		controllerutil.RemoveFinalizer(h.opsManager, util.OpsManagerLicenseFinalizer)
+	}
+	if err := h.reconciler.client.Update(ctx, h.opsManager); err != nil {
+		return licenseFailed(xerrors.Errorf("failed to update the license finalizer: %w", err), status.ReasonLicenseFinalizerFailed)
+	}
+	return workflow.OK()
+}
+
+// releaseOnDeletion releases the license the operator installed, dropping the finalizer only on success.
+func (h *LicenseReconcilerHelper) releaseOnDeletion(ctx context.Context) workflow.Status {
+	receipts, st := h.resolveReleaseReceipts(ctx)
+	if !st.IsOK() {
+		return st
+	}
+
+	if st := h.observeLicense(ctx); !st.IsOK() {
+		return st
+	}
+
+	releasedID, st := h.releaseInstalledLicense(ctx)
+	if !st.IsOK() {
+		return st
+	}
+
+	if st := h.reconcileReleaseReceipts(ctx, receipts, releasedID); !st.IsOK() {
+		return st
+	}
+
+	return h.syncLicenseFinalizer(ctx, false)
 }
 
 // reconcileLicenseIntent applies the install or release the spec asks for and returns the artifact

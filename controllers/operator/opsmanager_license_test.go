@@ -1463,6 +1463,8 @@ func newOmLicenseReconciler(t *testing.T, opsManager *omv1.MongoDBOpsManager, ex
 	objects := append([]client.Object{opsManager.DeepCopy()}, extra...)
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
 	kubeClient := mock.NewEmptyFakeClientWithInterceptor(omConnectionFactory, objects...)
+	// The controller updates the resource it read, so sync the version the client holds.
+	require.NoError(t, kubeClient.Get(context.Background(), client.ObjectKeyFromObject(opsManager), opsManager))
 	return NewOpsManagerReconciler(context.Background(), kubeClient, nil, images.ImageUrls{}, "", "", architectures.NonStatic, "", omConnectionFactory.GetConnectionFunc, nil, nil)
 }
 

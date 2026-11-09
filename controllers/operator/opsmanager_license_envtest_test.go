@@ -13,10 +13,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -385,6 +387,116 @@ func TestLicenseE2E_InstallFails(t *testing.T) {
 	res, err := st.ReconcileResult()
 	require.NoError(t, err)
 	assert.Greater(t, res.RequeueAfter.Seconds(), float64(0))
+}
+
+// deleteAndRelease deletes the resource and runs the release the controller runs while the finalizer holds it.
+func (h *licenseEnvHarness) deleteAndRelease(name string) {
+	h.t.Helper()
+	om := h.loadOM(name)
+	require.NoError(h.t, h.client.Delete(h.ctx, om))
+
+	om = h.loadOM(name)
+	log := zap.NewNop().Sugar()
+	helper, err := h.reconciler.newLicenseReconcilerHelper(om, h.admin, log)
+	require.NoError(h.t, err)
+	_, _ = h.reconciler.updateStatus(h.ctx, om, helper.releaseOnDeletion(h.ctx), log, status.NewOMPartOption(status.OpsManager))
+}
+
+func (h *licenseEnvHarness) omGone(name string) bool {
+	h.t.Helper()
+	err := h.client.Get(h.ctx, client.ObjectKey{Namespace: h.namespace, Name: name}, &omv1.MongoDBOpsManager{})
+	return apierrors.IsNotFound(err)
+}
+
+func licenseReconciledCondition(t *testing.T, om *omv1.MongoDBOpsManager) metav1.Condition {
+	t.Helper()
+	c := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseReconciled)
+	require.NotNil(t, c)
+	return *c
+}
+
+func TestLicenseE2E_ReleasesOnDeletion(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = licensedView("LICENSED")
+
+	om := h.createOM(nil)
+	h.setInstallFromSecret(om, testLicenseArtifact)
+	got := h.reconcileExpectOK(om.Name)
+	require.Contains(t, got.Finalizers, util.OpsManagerLicenseFinalizer)
+
+	h.deleteAndRelease(om.Name)
+	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
+	assert.True(t, h.omGone(om.Name))
+}
+
+func TestLicenseE2E_DeletionWaitsForTheRelease(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = licensedView("LICENSED")
+
+	om := h.createOM(nil)
+	h.setInstallFromSecret(om, testLicenseArtifact)
+	h.reconcileExpectOK(om.Name)
+
+	h.admin.LicenseReadErr = fmt.Errorf("ops manager is unreachable")
+	h.deleteAndRelease(om.Name)
+
+	held := h.loadOM(om.Name)
+	assert.Contains(t, held.Finalizers, util.OpsManagerLicenseFinalizer)
+	assert.Empty(t, h.admin.ReleasedIDs)
+	assert.Contains(t, licenseReconciledCondition(t, held).Message, "unreachable")
+
+	// Ops Manager is back, the next attempt releases the license and lets the deletion finish.
+	h.admin.LicenseReadErr = nil
+	h.deleteAndRelease(om.Name)
+	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
+	assert.True(t, h.omGone(om.Name))
+}
+
+func TestLicenseE2E_DeletionLeavesAForeignLicenseAlone(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = licensedView("LICENSED")
+
+	om := h.createOM(nil)
+	h.setInstallFromSecret(om, testLicenseArtifact)
+	h.reconcileExpectOK(om.Name)
+
+	// A top up from EA replaced the license, so Ops Manager no longer holds the one the Secret names.
+	h.admin.LicenseState = viewWithLicenses("LICENSED", artifactView("art-ea"))
+	h.deleteAndRelease(om.Name)
+
+	assert.Empty(t, h.admin.ReleasedIDs)
+	assert.True(t, h.omGone(om.Name))
+}
+
+func TestLicenseE2E_NoFinalizerWithoutInstallIntent(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = viewWithLicenses("LICENSED", artifactView("ea-auto"))
+
+	om := h.createOM(func(om *omv1.MongoDBOpsManager) {
+		om.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+	})
+	got := h.reconcileExpectOK(om.Name)
+	assert.NotContains(t, got.Finalizers, util.OpsManagerLicenseFinalizer)
+}
+
+func TestLicenseE2E_FinalizerDropsAfterTheRelease(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = licensedView("LICENSED")
+
+	om := h.createOM(nil)
+	h.setInstallFromSecret(om, testLicenseArtifact)
+	h.reconcileExpectOK(om.Name)
+
+	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
+		om.Spec.License = &omv1.MongoDBOpsManagerLicense{}
+	})
+	h.reconcileExpectOK(om.Name)
+
+	// The reconcile that released still saw the install intent in the achieved spec, so the finalizer
+	// comes off on the next one.
+	got := h.reconcileExpectOK(om.Name)
+	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
+	assert.NotContains(t, got.Finalizers, util.OpsManagerLicenseFinalizer)
 }
 
 func TestLicenseE2E_MissingLicenseSecretFails(t *testing.T) {
