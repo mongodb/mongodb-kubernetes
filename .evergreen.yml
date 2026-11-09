@@ -1519,6 +1519,12 @@ task_groups:
     #    - e2e_om_ops_manager_https_enabled
     #    - e2e_om_ops_manager_https_enabled_prefix
 
+  - name: e2e_static_ga_om_kind_only_task_group
+    max_hosts: -1
+    <<: [ *setup_group, *setup_and_teardown_task, *teardown_group ]
+    tasks:
+      - e2e_om_static_ga_infra_revision
+
   - name: e2e_smoke_task_group
     max_hosts: -1
     <<: [ *setup_group, *setup_and_teardown_task, *teardown_group ]
@@ -1891,6 +1897,36 @@ buildvariants:
       - name: e2e_ops_manager_upgrade_only_task_group
       # e2e_operator_upgrade_only_task_group omitted for the same reason as in
       # e2e_om90_kind_ubi above.
+
+  # Runs a pre-built dev Ops Manager image whose version is hardcoded in the test, not in the context;
+  # intended for manual patches only.
+  - name: e2e_static_ga_om_kind_ubi
+    display_name: e2e_static_ga_om_kind_ubi
+    tags: [ "static_ga_dev" ]
+    allowed_requesters: [ "patch" ]
+    run_on:
+      - ubuntu2404-large
+    depends_on:
+      - name: build_operator_ubi
+        variant: init_test_run
+      - name: build_init_database_image_ubi
+        variant: init_test_run
+      - name: build_database_image_ubi
+        variant: init_test_run
+      - name: build_readiness_probe_image
+        variant: init_test_run
+      - name: build_version_upgrade_hook_image
+        variant: init_test_run
+      - name: build_test_image
+        variant: init_test_run
+      - name: build_init_om_images_ubi
+        variant: init_test_run
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: publish_helm_chart
+        variant: init_test_run
+    tasks:
+      - name: e2e_static_ga_om_kind_only_task_group
 
   - name: e2e_om90_kind_ubi_large
     display_name: e2e_om90_kind_ubi_large
