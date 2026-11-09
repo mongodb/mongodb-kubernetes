@@ -1,5 +1,5 @@
 from kubernetes import client
-from kubetester import try_load
+from kubetester import try_load, wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -72,8 +72,9 @@ def test_replica_set_reaches_running_phase(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 
-@mark.e2e_om_static_ga_infra_revision
-def test_infra_revision_matches_desired_infra_revision(replica_set: MongoDB, namespace: str):
+def assert_infra_revisions_match(replica_set: MongoDB, namespace: str) -> str:
+    """Asserts that each member's INFRA_REVISION, the automation config desiredInfraRevision and the StatefulSet
+    status.updateRevision agree, and returns that revision."""
     update_revision = replica_set.read_statefulset().status.update_revision
     assert update_revision, f"StatefulSet {REPLICA_SET_NAME} has no status.updateRevision"
 
@@ -103,3 +104,36 @@ def test_infra_revision_matches_desired_infra_revision(replica_set: MongoDB, nam
             f"automation config process {matching[0]['name']!r} desiredInfraRevision {desired_infra_revision!r} "
             f"does not match StatefulSet status.updateRevision {update_revision!r}"
         )
+
+    return update_revision
+
+
+@mark.e2e_om_static_ga_infra_revision
+def test_infra_revision_matches_desired_infra_revision(replica_set: MongoDB, namespace: str):
+    assert_infra_revisions_match(replica_set, namespace)
+
+
+@mark.e2e_om_static_ga_infra_revision
+def test_desired_infra_revision_follows_template_change(replica_set: MongoDB, namespace: str):
+    previous_revision = replica_set.read_statefulset().status.update_revision
+
+    # An agent container env var change is enough to produce a new StatefulSet revision.
+    replica_set.load()
+    replica_set["spec"].setdefault("agent", {}).setdefault("readinessProbe", {})["environmentVariables"] = {
+        "LOG_FILE_PATH": "/var/log/mongodb-mms-automation/static-ga-readiness.log"
+    }
+    replica_set.update()
+
+    # The rolling restart is done once pods, StatefulSet and automation config all agree on a new revision.
+    def converged_on_new_revision():
+        try:
+            revision = assert_infra_revisions_match(replica_set, namespace)
+        except Exception as e:
+            return False, str(e)
+        return revision != previous_revision, f"revision is {revision}, previous was {previous_revision}"
+
+    wait_until(
+        converged_on_new_revision, timeout=900, sleep_time=10, msg="infra revision to follow the template change"
+    )
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
+    assert assert_infra_revisions_match(replica_set, namespace) != previous_revision
