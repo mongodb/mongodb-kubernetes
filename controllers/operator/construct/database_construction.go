@@ -865,6 +865,8 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 			}),
 			container.WithCommand([]string{staticGAAgentLauncherPath}),
 			container.WithLivenessProbe(staticGALivenessProbe()),
+			container.WithStartupProbe(staticGAStartupProbe()),
+			container.WithReadinessProbe(staticGAReadinessProbe()),
 		)
 		// The proxy replaces the marker command: it starts mongod/mongos only when the agent asks for it.
 		mongodContainerModifications = append(mongodContainerModifications,
@@ -1199,6 +1201,15 @@ func staticGALivenessProbe() probes.Modification {
 	return databaseLivenessProbe(staticGAProbePath)
 }
 
+// staticGAStartupProbe uses the liveness script, as DatabaseStartupProbe does for the shared agent container.
+func staticGAStartupProbe() probes.Modification {
+	return databaseStartupProbe(staticGAProbePath)
+}
+
+func staticGAReadinessProbe() probes.Modification {
+	return databaseReadinessProbe(staticGAReadinessProbePath)
+}
+
 func databaseLivenessProbe(command string) probes.Modification {
 	return probes.Apply(
 		probes.WithExecCommand([]string{command}),
@@ -1211,8 +1222,12 @@ func databaseLivenessProbe(command string) probes.Modification {
 }
 
 func DatabaseReadinessProbe() probes.Modification {
+	return databaseReadinessProbe(databaseReadinessProbeCommand)
+}
+
+func databaseReadinessProbe(command string) probes.Modification {
 	return probes.Apply(
-		probes.WithExecCommand([]string{databaseReadinessProbeCommand}),
+		probes.WithExecCommand([]string{command}),
 		probes.WithFailureThreshold(4),
 		probes.WithInitialDelaySeconds(5),
 		probes.WithPeriodSeconds(5),
@@ -1220,8 +1235,12 @@ func DatabaseReadinessProbe() probes.Modification {
 }
 
 func DatabaseStartupProbe() probes.Modification {
+	return databaseStartupProbe(databaseLivenessProbeCommand)
+}
+
+func databaseStartupProbe(command string) probes.Modification {
 	return probes.Apply(
-		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
+		probes.WithExecCommand([]string{command}),
 		probes.WithInitialDelaySeconds(1),
 		probes.WithTimeoutSeconds(30),
 		probes.WithPeriodSeconds(20),

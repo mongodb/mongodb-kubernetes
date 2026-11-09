@@ -91,6 +91,10 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		assert.Equal(t, []string{"/mnt/init-database/scripts/agent-launcher.sh"}, agent.Command)
 		require.NotNil(t, agent.LivenessProbe)
 		assert.Equal(t, []string{"/mnt/init-database/probes/probe.sh"}, agent.LivenessProbe.Exec.Command)
+		require.NotNil(t, agent.StartupProbe)
+		assert.Equal(t, []string{"/mnt/init-database/probes/probe.sh"}, agent.StartupProbe.Exec.Command)
+		require.NotNil(t, agent.ReadinessProbe)
+		assert.Equal(t, []string{"/mnt/init-database/probes/readinessprobe"}, agent.ReadinessProbe.Exec.Command)
 
 		initVolume, found := volumeByName(sts, "mongodb-init-database")
 		require.True(t, found)

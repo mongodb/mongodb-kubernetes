@@ -32,6 +32,7 @@ const (
 	mongodbInitDatabaseMountPath  = "/mnt/init-database"
 	staticGAAgentLauncherPath     = mongodbInitDatabaseMountPath + "/scripts/agent-launcher.sh"
 	staticGAProbePath             = mongodbInitDatabaseMountPath + "/probes/probe.sh"
+	staticGAReadinessProbePath    = mongodbInitDatabaseMountPath + "/probes/readinessprobe"
 
 	// Environment variables of the agent container.
 	mongodbProxyAddressEnv = "MDB_MONGODB_PROXY_ADDRESS"
