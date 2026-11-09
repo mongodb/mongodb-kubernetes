@@ -77,11 +77,14 @@ func NewSupervisor(opts ...Option) *Supervisor {
 
 // Execution is one launched child.
 type Execution struct {
-	role       Role
-	configPath string
-	cmd        *exec.Cmd
-	output     *tailBuffer
-	done       chan struct{}
+	role        Role
+	configPath  string
+	operationID string
+	pid         int
+	launchEnv   LaunchEnvironment
+	cmd         *exec.Cmd
+	output      *tailBuffer
+	done        chan struct{}
 
 	// set under Supervisor.mu before done is closed
 	exitCode int
@@ -126,13 +129,18 @@ func (s *Supervisor) statusLocked(e *Execution) Status {
 	if e == nil {
 		return Status{State: StateIdle}
 	}
-	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath}
+	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath, OperationID: e.operationID}
 	if e.finished() {
 		code := e.exitCode
 		st.State = StateExited
 		st.ExitCode = &code
 		st.Signal = e.signal
 		st.Output = e.output.String()
+	} else {
+		pid := e.pid
+		launchEnv := e.launchEnv
+		st.PID = &pid
+		st.LaunchEnvironment = &launchEnv
 	}
 	return st
 }
@@ -205,11 +213,17 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 
 	e := &Execution{
-		role:       req.Role,
-		configPath: req.ConfigPath,
-		cmd:        cmd,
-		output:     output,
-		done:       make(chan struct{}),
+		role:        req.Role,
+		configPath:  req.ConfigPath,
+		operationID: req.OperationID,
+		pid:         cmd.Process.Pid,
+		launchEnv: LaunchEnvironment{
+			LdapCaPath:     req.Other.LdapCaPath,
+			KerberosKeytab: req.Other.KerberosKeytab,
+		},
+		cmd:    cmd,
+		output: output,
+		done:   make(chan struct{}),
 	}
 	s.current = e
 	s.log.Infow("process started", "role", e.role, "configPath", e.configPath, "pid", cmd.Process.Pid)

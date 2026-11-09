@@ -80,6 +80,10 @@ type Other struct {
 	DisableTHP bool `json:"disableTHP,omitempty"`
 	// NumaInterleave runs the child under "numactl --interleave=all".
 	NumaInterleave bool `json:"numaInterleave,omitempty"`
+	// NumaPolicy is the Agent's NUMA policy. "auto" runs the child under
+	// "numactl --interleave=all" when numactl is available, matching the Agent's
+	// direct-process path. The Agent sends "auto" for every start request.
+	NumaPolicy string `json:"numaPolicy,omitempty"`
 }
 
 // StartRequest is the body of POST /v1/process/start.
@@ -102,6 +106,14 @@ type StopRequest struct {
 	OperationID string `json:"operationId,omitempty"`
 }
 
+// LaunchEnvironment contains only the LDAP CA and Kerberos keytab paths supplied
+// to the tracked child at launch. It does not contain file contents or other
+// environment values.
+type LaunchEnvironment struct {
+	LdapCaPath     string `json:"ldapCaPath,omitempty"`
+	KerberosKeytab string `json:"kerberosKeytab,omitempty"`
+}
+
 // Status is the response of GET /v1/process and of start/stop.
 type Status struct {
 	State      State  `json:"state"`
@@ -113,4 +125,10 @@ type Status struct {
 	Signal string `json:"signal,omitempty"`
 	// Output is the tail of the child's stdout/stderr, available after exit.
 	Output string `json:"output,omitempty"`
+	// OperationID is the identity supplied at start, if any.
+	OperationID string `json:"operationId,omitempty"`
+	// PID and LaunchEnvironment are present together only for a running child.
+	// Their absence in a running response identifies a legacy proxy.
+	PID               *int               `json:"pid,omitempty"`
+	LaunchEnvironment *LaunchEnvironment `json:"launchEnvironment,omitempty"`
 }
