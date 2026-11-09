@@ -23,6 +23,11 @@ func TestIsRunningStaticArchitecture(t *testing.T) {
 			want:                true,
 		},
 		{
+			name:                "only default and is static-ga",
+			defaultArchitecture: StaticGA,
+			want:                true,
+		},
+		{
 			name:                "only default and is non-static",
 			defaultArchitecture: NonStatic,
 			want:                false,
@@ -32,6 +37,24 @@ func TestIsRunningStaticArchitecture(t *testing.T) {
 			annotations:         map[string]string{ArchitectureAnnotation: string(Static)},
 			defaultArchitecture: "",
 			want:                true,
+		},
+		{
+			name:                "only annotation and is static-ga",
+			annotations:         map[string]string{ArchitectureAnnotation: string(StaticGA)},
+			defaultArchitecture: "",
+			want:                true,
+		},
+		{
+			name:                "static-ga annotation takes precedence over non-static default",
+			annotations:         map[string]string{ArchitectureAnnotation: string(StaticGA)},
+			defaultArchitecture: NonStatic,
+			want:                true,
+		},
+		{
+			name:                "non-static annotation takes precedence over static-ga default",
+			annotations:         map[string]string{ArchitectureAnnotation: string(NonStatic)},
+			defaultArchitecture: StaticGA,
+			want:                false,
 		},
 		{
 			name:                "only annotation and is not static",
@@ -104,6 +127,17 @@ func TestGetImageType(t *testing.T) {
 		{
 			name:                "static without configuration defaults to ubi9",
 			defaultArchitecture: Static,
+			want:                ImageTypeUBI9,
+		},
+		{
+			name:                "static-ga without configuration defaults to ubi9",
+			defaultArchitecture: StaticGA,
+			want:                ImageTypeUBI9,
+		},
+		{
+			name:                "static-ga annotation defaults to ubi9",
+			annotations:         map[string]string{ArchitectureAnnotation: string(StaticGA)},
+			defaultArchitecture: NonStatic,
 			want:                ImageTypeUBI9,
 		},
 		{
@@ -212,6 +246,31 @@ func TestValidateDefaultImageType(t *testing.T) {
 	}
 }
 
+func TestGetArchitecture(t *testing.T) {
+	tests := []struct {
+		name                string
+		annotations         map[string]string
+		defaultArchitecture DefaultArchitecture
+		want                DefaultArchitecture
+	}{
+		{name: "empty default is non-static", want: NonStatic},
+		{name: "default static", defaultArchitecture: Static, want: Static},
+		{name: "default static-ga", defaultArchitecture: StaticGA, want: StaticGA},
+		{name: "unknown default is non-static", defaultArchitecture: "brokenValue", want: NonStatic},
+		{name: "annotation static", annotations: map[string]string{ArchitectureAnnotation: string(Static)}, defaultArchitecture: StaticGA, want: Static},
+		{name: "annotation static-ga", annotations: map[string]string{ArchitectureAnnotation: string(StaticGA)}, defaultArchitecture: Static, want: StaticGA},
+		{name: "annotation non-static", annotations: map[string]string{ArchitectureAnnotation: string(NonStatic)}, defaultArchitecture: StaticGA, want: NonStatic},
+		{name: "unknown annotation uses default", annotations: map[string]string{ArchitectureAnnotation: "brokenValue"}, defaultArchitecture: StaticGA, want: StaticGA},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GetArchitecture(tt.annotations, tt.defaultArchitecture); got != tt.want {
+				t.Errorf("GetArchitecture() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetMongoVersion(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -235,6 +294,14 @@ func TestGetMongoVersion(t *testing.T) {
 			version:         "8.0.0",
 			forceEnterprise: false,
 			architecture:    Static,
+			want:            "8.0.0-ent",
+		},
+		{
+			name:            "enterprise repo static-ga",
+			mongoDBImage:    "quay.io/mongodb/mongodb-enterprise-server",
+			version:         "8.0.0",
+			forceEnterprise: false,
+			architecture:    StaticGA,
 			want:            "8.0.0-ent",
 		},
 		{
