@@ -319,8 +319,9 @@ cmd_test() {
     export KUBECONFIG="${kubeconfig}" NAMESPACE="${NAMESPACE_NAME}" MDB_DEFAULT_ARCHITECTURE=static LOCAL_OPERATOR=true \
       "CUSTOM_MDB_VERSION=${MDB_VERSION}" "MDB_MONGODB_PROXY_IMAGE=${proxy_image}" \
       "MDB_PROXY_TEST_AGENT_IMAGE=${agent_image}" PYTHONPATH=docker/mongodb-kubernetes-tests
+    # PYTEST_K=<expression> runs only the matching tests (pytest -k), against the resource of an earlier run
     venv/bin/pytest -m e2e_replica_set_mongodb_proxy docker/mongodb-kubernetes-tests/tests/replicaset/replica_set_mongodb_proxy.py \
-      --disable-pytest-warnings -s -p no:cacheprovider 2>&1 | tee "${LOG_FILE}"
+      ${PYTEST_K:+-k "${PYTEST_K}"} --disable-pytest-warnings -s -p no:cacheprovider 2>&1 | tee "${LOG_FILE}"
     exit "${PIPESTATUS[0]}"
   )
   rc=$?

@@ -398,6 +398,74 @@ def test_agent_starts_mongod_again_after_it_was_killed(replica_set: MongoDB, nam
     assert any(e.get("signal") == "killed" for e in proxy_events(pod, namespace, "process exited"))
 
 
+def post_to_proxy(pod: str, namespace: str, path: str, body: dict) -> tuple[int, dict]:
+    """POSTs a JSON body to the proxy from the agent container, the way the agent does, and returns (status, body)."""
+    out = KubernetesTester.run_command_in_pod_container(
+        pod,
+        namespace,
+        [
+            "bash",
+            "-c",
+            'exec 3<>/dev/tcp/127.0.0.1/8099; '
+            'printf "POST %s HTTP/1.0\\r\\nHost: proxy\\r\\nContent-Type: application/json\\r\\n'
+            'Content-Length: %d\\r\\n\\r\\n%s" "$1" "${#2}" "$2" >&3; cat <&3',
+            "_",
+            path,
+            json.dumps(body),
+        ],
+        container=AGENT_CONTAINER,
+    )
+    head, _, payload = out.partition("\r\n\r\n")
+    return int(head.split(" ", 2)[1]), json.loads(payload) if payload.strip() else {}
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_proxy_stop_request_kills_a_mongod_that_does_not_exit(replica_set: MongoDB, namespace: str):
+    """A mongod that does not leave on SIGTERM is left alone by a stop, and killed by a stop with force.
+
+    The stop endpoint is what the agent calls when the shutdown command times out (StopProcess with force). No normal
+    planner move gets there on an MCK deployment, so the test makes the request itself, with the same fields as the
+    agent: role, operationId of the running process, a timeout and force. SIGSTOP makes mongod ignore SIGTERM (the
+    signal stays pending), which is a mongod that does not stop. The proxy must not kill it without force, must kill it
+    with force, and the agent must then start mongod again.
+    """
+    pod = f"{replica_set.name}-2"
+    identity = mongod_identity(pod, namespace)
+    restarts = restart_counts(pod, namespace)
+    assert identity
+    status = query_proxy(pod, namespace)
+    assert status["state"] == "running"
+    request = {"timeoutSeconds": 2, "role": status["role"]}
+    if status.get("operationId"):
+        request["operationId"] = status["operationId"]
+    kills_before = len(proxy_events(pod, namespace, "sending SIGKILL"))
+
+    KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["bash", "-c", f"kill -STOP {identity.split(':')[0]}"], container=DATABASE_CONTAINER
+    )
+
+    # Without force the proxy sends SIGTERM, waits for the timeout and leaves the process alone.
+    code, body = post_to_proxy(pod, namespace, "/v1/process/stop", request)
+    assert code == 504, (code, body)
+    assert body.get("code") == "stop_timeout" or "stop_timeout" in json.dumps(body), body
+    assert mongod_identity(pod, namespace) == identity, "a stop without force must not kill the process"
+    assert query_proxy(pod, namespace)["state"] == "running"
+    assert len(proxy_events(pod, namespace, "sending SIGKILL")) == kills_before
+    assert proxy_events(pod, namespace, "sending SIGTERM"), "the proxy must have asked the process to stop"
+
+    # With force it sends SIGKILL after the timeout and reports the process stopped.
+    code, body = post_to_proxy(pod, namespace, "/v1/process/stop", {**request, "force": True})
+    assert code == 200, (code, body)
+    assert body["state"] == "exited", body
+    assert body.get("signal") == "killed", body
+    assert len(proxy_events(pod, namespace, "sending SIGKILL")) == kills_before + 1
+
+    # The agent notices that mongod is down and starts it again, in the same container.
+    wait_for_new_mongod(pod, namespace, identity, timeout_seconds=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+    assert restart_counts(pod, namespace) == restarts, "the container was restarted, the proxy must have survived"
+
+
 @mark.e2e_replica_set_mongodb_proxy
 def test_agent_starts_mongod_again_after_the_database_container_restarted(replica_set: MongoDB, namespace: str):
     """A restarted proxy is idle and starts nothing by itself, so the agent has to notice and start mongod."""
