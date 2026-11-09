@@ -14,12 +14,11 @@ logger = test_logger.get_test_logger(__name__)
 
 EA_CONTROL_PLANE_URL = "https://cloud-dev.mongodb.com"
 
-# The telemetry exemption suppresses the telemetry requirement only, never enforcement, so the
-# enforcement tests still see a verdict. It also gives Ops Manager an active entitlement for the CR
-# mirror to match. Do not swap in exemption::enforcement, which would turn every verdict off.
+# Exempts telemetry only, so enforcement verdicts still apply. exemption::enforcement would turn them off.
 DEFAULT_ENTITLEMENTS = ["exemption::telemetry"]
 
 DEFAULT_VALIDITY_DAYS = 2
+
 
 # EA has not handled the request on these, so even the mint POST is safe to retry.
 TRANSIENT_STATUSES = [429, 502, 503, 504]
@@ -33,7 +32,7 @@ def _iso(moment: datetime) -> str:
 
 @dataclass(frozen=True)
 class GsaCredentials:
-    """The EA service account credentials. The repr hides them, since pytest prints locals on failure."""
+    """EA service account credentials, hidden from repr."""
 
     client_id: str = field(repr=False)
     client_secret: str = field(repr=False)
@@ -58,14 +57,12 @@ def mint_license(
     expiry: Optional[datetime] = None,
     grant_start: Optional[datetime] = None,
 ) -> Tuple[str, str]:
-    """Returns the artifact JSON and its artifact id.
-
-    Without a principal_id EA mints a customer less artifact, which Ops Manager installs but never claims.
-    """
+    """Returns the artifact JSON and its artifact id."""
     now = datetime.now(timezone.utc)
     body = {
         "type": "license",
         "scope": "single_instance",
+        # Without it Ops Manager installs the license but never claims it.
         "principal_id": principal_id,
         "external_id": principal_id,
         "holder_ids": holder_ids,
