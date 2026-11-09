@@ -40,6 +40,51 @@ BLOCKSTORE_RS_NAME = "my-mongodb-blockstore"
 USER_PASSWORD = "/qwerty@!#:"
 
 
+def interconnected_hostname(ops_manager: MongoDBOpsManager) -> str:
+    return f"om-backup.{ops_manager.namespace}.interconnected"
+
+
+def interconnected_base_url(ops_manager: MongoDBOpsManager) -> str:
+    """OM address that resolves in the member clusters and in the central cluster, see expose_om_to_member_clusters."""
+    return f"https://{interconnected_hostname(ops_manager)}:8443"
+
+
+def expose_om_to_member_clusters(
+    ops_manager: MongoDBOpsManager,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """Points CoreDNS of every cluster at OM's LoadBalancer IP and switches mms.centralUrl to that address,
+    so agents running in member clusters (and the test) can reach OM."""
+    ops_manager.load()
+    external_svc_name = ops_manager.external_svc_name()
+    svc = read_service(ops_manager.namespace, external_svc_name, api_client=central_cluster_client)
+    # we have no hostName, but the ip is resolvable.
+    ip = svc.status.load_balancer.ingress[0].ip
+
+    interconnected_field = interconnected_hostname(ops_manager)
+
+    # let's make sure that every client can connect to OM.
+    for c in member_cluster_clients:
+        update_coredns_hosts(
+            host_mappings=[(ip, interconnected_field)],
+            api_client=c.api_client,
+            cluster_name=c.cluster_name,
+        )
+
+    # let's make sure that the operator can connect to OM via that given address.
+    update_coredns_hosts(
+        host_mappings=[(ip, interconnected_field)],
+        api_client=central_cluster_client,
+        cluster_name="central-cluster",
+    )
+
+    # updating the central url app setting to point at the external address,
+    # this allows agents in other clusters to communicate correctly with this OM instance.
+    ops_manager["spec"]["configuration"]["mms.centralUrl"] = interconnected_base_url(ops_manager)
+    ops_manager.update()
+
+
 @fixture(scope="module")
 def ops_manager_certs(
     namespace: str,
@@ -353,10 +398,7 @@ class TestBackupForMongodb:
         The base_url makes OM accessible from member clusters via a special interconnected dns address.
         This address only works for member clusters.
         """
-        interconnected_field = f"https://om-backup.{ops_manager.namespace}.interconnected"
-        new_address = f"{interconnected_field}:8443"
-
-        return new_address
+        return interconnected_base_url(ops_manager)
 
     @fixture(scope="module")
     def project_one(
@@ -445,34 +487,7 @@ class TestBackupForMongodb:
         """
         The base_url makes OM accessible from member clusters via a special interconnected dns address.
         """
-        ops_manager.load()
-        external_svc_name = ops_manager.external_svc_name()
-        svc = read_service(ops_manager.namespace, external_svc_name, api_client=central_cluster_client)
-        # we have no hostName, but the ip is resolvable.
-        ip = svc.status.load_balancer.ingress[0].ip
-
-        interconnected_field = f"om-backup.{ops_manager.namespace}.interconnected"
-
-        # let's make sure that every client can connect to OM.
-        for c in member_cluster_clients:
-            update_coredns_hosts(
-                host_mappings=[(ip, interconnected_field)],
-                api_client=c.api_client,
-                cluster_name=c.cluster_name,
-            )
-
-        # let's make sure that the operator can connect to OM via that given address.
-        update_coredns_hosts(
-            host_mappings=[(ip, interconnected_field)],
-            api_client=central_cluster_client,
-            cluster_name="central-cluster",
-        )
-
-        new_address = f"https://{interconnected_field}:8443"
-        # updating the central url app setting to point at the external address,
-        # this allows agents in other clusters to communicate correctly with this OM instance.
-        ops_manager["spec"]["configuration"]["mms.centralUrl"] = new_address
-        ops_manager.update()
+        expose_om_to_member_clusters(ops_manager, central_cluster_client, member_cluster_clients)
 
     @mark.e2e_multi_cluster_backup_restore
     def test_mongodb_multi_one_running_state(self, mongodb_multi_one: MongoDBMulti):
