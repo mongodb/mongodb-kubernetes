@@ -383,6 +383,7 @@ class TestSummaryGenerator:
           - {prefix}{pod}-monitoring-agent-verbose.log
           - {prefix}{pod}-monitoring-agent.log
           - {prefix}{pod}-monitoring-agent-stdout.log
+          - {prefix}{pod}-mongod-container.log       (mongod container stdout)
           - {prefix}{pod}-mongodb-agent-container.log (agent container stdout)
           - {prefix}{pod}-mongodb.log                (mongod file log)
           - {prefix}{pod}-launcher.log               (launcher script log)
@@ -414,8 +415,6 @@ class TestSummaryGenerator:
                 files["describe"] = f.name
             elif suffix == "agent-health-status.json":
                 files["health"] = f.name
-            elif suffix in ("proxy-state.json", "proxy-events.json"):
-                files["logs"].append(f.name)
             elif suffix in ("cluster-config.json", "automation-mongod.conf"):
                 files["config"].append(f.name)
             elif suffix.endswith(".log") and any(
@@ -858,8 +857,6 @@ class TestSummaryGenerator:
             "-mongodb-agent-container",
             "-mongod-container",
             "-mongodb-enterprise-database",
-            "-mongodb-agent",
-            "-mongod",
             "-mongodb",
             "-launcher",
             "-readiness",

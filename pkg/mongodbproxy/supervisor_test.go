@@ -497,7 +497,7 @@ func TestTerminateRecordsShutdownEvent(t *testing.T) {
 
 	require.NoError(t, f.sup.Terminate(context.Background()))
 
-	events, _ := f.sup.eventSnapshot(10)
+	events, _ := f.sup.eventSnapshot()
 	var found bool
 	for _, event := range events {
 		if event.Action == "proxy_shutdown" {

@@ -15,25 +15,13 @@ func TestEventLogKeepsNewestAndCountsDrops(t *testing.T) {
 		l.record(Event{Action: "test", PID: i})
 	}
 
-	events, dropped := l.snapshot(10)
-	require.Len(t, events, 10)
+	events, dropped := l.snapshot()
+	require.Len(t, events, maxEvents)
 	assert.Equal(t, uint64(10), dropped)
 	assert.Equal(t, total-1, events[0].PID)
 	assert.Equal(t, maxEvents, events[9].PID)
 	assert.NotEmpty(t, events[0].Time)
 	assert.Equal(t, uint64(total), events[0].Seq)
-}
-
-func TestEventLogClampsTheLimit(t *testing.T) {
-	l := newEventLog()
-	for i := range 3 {
-		l.record(Event{Action: "test", PID: i})
-	}
-
-	events, _ := l.snapshot(1000)
-	assert.Len(t, events, 3)
-	events, _ = l.snapshot(0)
-	assert.Len(t, events, 3)
 }
 
 func TestEventLogSanitizesAndTruncatesText(t *testing.T) {
@@ -46,7 +34,7 @@ func TestEventLogSanitizesAndTruncatesText(t *testing.T) {
 		Returned:    "bad returned " + string(make([]byte, maxEventText*2)),
 	})
 
-	events, _ := l.snapshot(1)
+	events, _ := l.snapshot()
 	require.Len(t, events, 1)
 	assert.Equal(t, "[redacted]", events[0].RequestID)
 	assert.Equal(t, "[redacted]", events[0].OperationID)
@@ -65,7 +53,7 @@ func TestEventLogKeepsRequestAndReturned(t *testing.T) {
 		Returned:  "200",
 	})
 
-	events, _ := l.snapshot(1)
+	events, _ := l.snapshot()
 	require.Len(t, events, 1)
 	assert.Equal(t, "start", events[0].Action)
 	assert.Equal(t, "req-1", events[0].RequestID)
@@ -78,7 +66,7 @@ func TestEventLogDropsUnknownRoles(t *testing.T) {
 	l := newEventLog()
 	l.record(Event{Action: "start", Role: Role("secret payload")})
 
-	events, _ := l.snapshot(1)
+	events, _ := l.snapshot()
 	require.Len(t, events, 1)
 	assert.Empty(t, events[0].Role)
 }
@@ -97,6 +85,6 @@ func TestEventLogConcurrentRecord(t *testing.T) {
 	}
 	wg.Wait()
 
-	events, _ := l.snapshot(maxEvents)
+	events, _ := l.snapshot()
 	assert.Len(t, events, maxEvents)
 }

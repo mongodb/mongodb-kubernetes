@@ -175,11 +175,11 @@ func (s *Supervisor) recordEvent(e Event) {
 	}
 }
 
-func (s *Supervisor) eventSnapshot(limit int) ([]Event, uint64) {
+func (s *Supervisor) eventSnapshot() ([]Event, uint64) {
 	if s.events == nil {
 		return []Event{}, 0
 	}
-	return s.events.snapshot(limit)
+	return s.events.snapshot()
 }
 
 // Start launches the child and returns right after the process was spawned.

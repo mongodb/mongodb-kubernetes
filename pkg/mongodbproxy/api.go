@@ -125,21 +125,9 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 // getEvents returns the bounded in-memory event history, newest first.
 func (h *handler) getEvents(w http.ResponseWriter, r *http.Request) {
 	call := h.request(w, r)
-	limit := defaultEventLimit
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			h.fail(call, fmt.Errorf("%w: limit must be a positive integer", ErrInvalidRequest))
-			return
-		}
-		if n > maxEvents {
-			n = maxEvents
-		}
-		limit = n
-	}
-	events, dropped := h.s.eventSnapshot(limit)
+	events, dropped := h.s.eventSnapshot()
 	writeJSON(call, http.StatusOK, eventsResponse{Events: events, Dropped: dropped, Capacity: maxEvents})
-	h.log.Debugw("events requested", append(call.fields(), "limit", limit)...)
+	h.log.Debugw("events requested", call.fields()...)
 }
 
 func (h *handler) start(w http.ResponseWriter, r *http.Request) {

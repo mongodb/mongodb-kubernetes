@@ -275,13 +275,3 @@ func TestAPIEventsAndStatusTimestamps(t *testing.T) {
 	assert.Equal(t, 0, st.LastExit.ExitCode)
 	assert.NotEmpty(t, st.LastExit.ExitedAt)
 }
-
-func TestAPIEventsRejectsBadLimit(t *testing.T) {
-	_, srv := newServer(t)
-
-	resp, err := http.Get(srv.URL + "/v1/events?limit=0") //nolint:gosec,noctx
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-}

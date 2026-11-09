@@ -172,7 +172,7 @@ def test_proxy_reports_events_and_timestamps(replica_set: MongoDB, namespace: st
     assert status.get("startedAt"), status
     assert status.get("uptimeSeconds", 0) > 0, status
 
-    body = query_proxy_path(pod, namespace, "/v1/events?limit=10")
+    body = query_proxy_path(pod, namespace, "/v1/events")
     assert body["capacity"] == 256, body
     assert body["dropped"] == 0, body
     names = [event["action"] for event in body["events"]]
