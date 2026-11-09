@@ -30,7 +30,7 @@ RELEASED_STATUS = "RELEASED"
 LICENSE_READY_CONDITION = "LicenseReady"
 LICENSE_MANAGED_CONDITION = "LicenseManaged"
 
-# The EA principal every license of this run is minted for, which scopes the inventory reads to this run.
+# Unique per run, so inventory reads only see this run's licenses.
 RUN_PRINCIPAL_ID = f"mck-ci-{uuid.uuid4()}"
 
 _current_artifact: Optional[str] = None
@@ -38,8 +38,7 @@ _current_artifact: Optional[str] = None
 
 @fixture(scope="module", autouse=True)
 def hide_failure_values(request):
-    """Failures in the license suites show no runtime values, since pytest -l would print the EA
-    credentials, tokens and signed licenses held in locals and arguments."""
+    """Keeps locals out of failures, since they hold EA credentials and tokens."""
     option = request.config.option
     saved = option.showlocals, option.tbstyle
     option.showlocals, option.tbstyle = False, "short"
