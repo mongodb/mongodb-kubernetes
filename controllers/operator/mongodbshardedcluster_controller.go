@@ -1884,7 +1884,6 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
 	// Create a new controller
 	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
-	reconciler.SetProxyAgentCompatibilityVerified(reconciler.customAgentURL != "")
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -2635,8 +2634,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
-		WithProxyAgentCompatibilityVerified(r.commonController.proxyAgentCompatibilityVerified),
-		WithProxyDebug(false),
+
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -2679,8 +2677,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
-		WithProxyAgentCompatibilityVerified(r.commonController.proxyAgentCompatibilityVerified),
-		WithProxyDebug(false),
+
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -2725,8 +2722,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
-		WithProxyAgentCompatibilityVerified(r.commonController.proxyAgentCompatibilityVerified),
-		WithProxyDebug(false),
+
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),

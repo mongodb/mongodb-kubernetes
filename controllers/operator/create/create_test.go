@@ -45,9 +45,7 @@ func TestDatabaseInKubernetesProxyPrerequisites(t *testing.T) {
 		change func(*construct.DatabaseStatefulSetOptions)
 		want   string
 	}{
-		{"unverified Agent", func(o *construct.DatabaseStatefulSetOptions) { o.ProxyAgentCompatibilityVerified = false }, "Agent proxy compatibility is not verified"},
 		{"missing proxy image", func(o *construct.DatabaseStatefulSetOptions) { o.MongodbProxyImage = "" }, "requires a MongoDB proxy image"},
-		{"missing Agent URL", func(o *construct.DatabaseStatefulSetOptions) { o.CustomAgentURL = "" }, "requires MDB_CUSTOM_AGENT_URL"},
 		{"missing MongoDB image", func(o *construct.DatabaseStatefulSetOptions) { o.MongodbImage = "" }, "requires MongoDB and init-database images"},
 		{"missing init image", func(o *construct.DatabaseStatefulSetOptions) { o.InitDatabaseImage = "" }, "requires MongoDB and init-database images"},
 	}
@@ -67,11 +65,10 @@ func TestDatabaseInKubernetesProxyPrerequisites(t *testing.T) {
 				}
 				mdb.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.StaticGA)}
 				opts := construct.DatabaseStatefulSetOptions{
-					MongodbProxyImage:               "proxy:test",
-					MongodbImage:                    "mongodb:test",
-					InitDatabaseImage:               "init:test",
-					CustomAgentURL:                  "https://example.invalid/agent.tar.gz",
-					ProxyAgentCompatibilityVerified: true,
+					MongodbProxyImage: "proxy:test",
+					MongodbImage:      "mongodb:test",
+					InitDatabaseImage: "init:test",
+					CustomAgentURL:    "https://example.invalid/agent.tar.gz",
 				}
 				tt.change(&opts)
 				desired := *sts.DeepCopy()

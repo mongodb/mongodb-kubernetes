@@ -336,15 +336,30 @@ func TestMultiReplicaSetStaticGAControllerPrerequisites(t *testing.T) {
 						mrs.Annotations[architectures.ArchitectureAnnotation] = selection.annotation
 					}
 					require.NoError(t, kubeClient.Update(ctx, mrs))
+					if !missingProxy {
+						checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+						for name, memberClient := range memberClients {
+							after := appsv1.StatefulSetList{}
+							require.NoError(t, memberClient.List(ctx, &after))
+							require.NotEmpty(t, after.Items, name)
+							for _, sts := range after.Items {
+								foundProxy := false
+								for _, c := range sts.Spec.Template.Spec.Containers {
+									if c.Name == util.DatabaseContainerName {
+										assert.Equal(t, []string{"/mnt/proxy/proxy"}, c.Command)
+										foundProxy = true
+									}
+								}
+								assert.True(t, foundProxy, name)
+							}
+						}
+						return
+					}
 					_, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
 					require.NoError(t, err)
 					require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), mrs))
 					assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
-					message := "Agent proxy compatibility is not verified"
-					if missingProxy {
-						message = "requires a MongoDB proxy image"
-					}
-					assert.Contains(t, mrs.Status.Message, message)
+					assert.Contains(t, mrs.Status.Message, "requires a MongoDB proxy image")
 					for name, memberClient := range memberClients {
 						after := appsv1.StatefulSetList{}
 						require.NoError(t, memberClient.List(ctx, &after))

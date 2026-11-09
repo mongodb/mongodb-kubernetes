@@ -70,8 +70,7 @@ type ReconcileCommonController struct {
 
 	resourceWatcher *watch.ResourceWatcher
 
-	customAgentURL                  string
-	proxyAgentCompatibilityVerified bool
+	customAgentURL string
 }
 
 func NewReconcileCommonController(ctx context.Context, client client.Client) *ReconcileCommonController {
@@ -109,10 +108,6 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 		resourceWatcher: watch.NewResourceWatcher(),
 		customAgentURL:  customAgentURL,
 	}
-}
-
-func (r *ReconcileCommonController) SetProxyAgentCompatibilityVerified(verified bool) {
-	r.proxyAgentCompatibilityVerified = verified
 }
 
 func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) (map[string]string, []string, error) {

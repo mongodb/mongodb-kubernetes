@@ -606,7 +606,6 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             allowed_envvars.extend(
                 [
                     "MDB_CUSTOM_AGENT_URL",
-                    "MDB_INIT_ROOT",
                     "MDB_MONGODB_PROXY_ADDRESS",
                     "MDB_MONGOD_ROOT",
                 ]

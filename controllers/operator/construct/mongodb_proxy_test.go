@@ -1,7 +1,6 @@
 package construct
 
 import (
-	"fmt"
 	"slices"
 	"testing"
 
@@ -27,7 +26,6 @@ func proxyTestStatefulSet(
 	annotations map[string]string,
 	arch architectures.DefaultArchitecture,
 	proxyImage, mongodbImage, initDatabaseImage, customAgentURL string,
-	agentCompatibilityVerified bool,
 ) (appsv1.StatefulSet, error) {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
 	mdb.Annotations = annotations
@@ -39,7 +37,6 @@ func proxyTestStatefulSet(
 			o.MongodbImage = mongodbImage
 			o.InitDatabaseImage = initDatabaseImage
 			o.CustomAgentURL = customAgentURL
-			o.ProxyAgentCompatibilityVerified = agentCompatibilityVerified
 		},
 	), zap.S())
 }
@@ -67,7 +64,6 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		testMongodbImage,
 		testInitImage,
 		"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-		true,
 	)
 	require.NoError(t, err)
 
@@ -91,8 +87,10 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "127.0.0.1:8099"})
 		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGOD_ROOT", Value: "/mnt/mongodb"})
 		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-binaries", MountPath: "/mnt/mongodb", ReadOnly: true})
-		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_INIT_ROOT", Value: "/mnt/init-database"})
 		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-init-database", MountPath: "/mnt/init-database", ReadOnly: true})
+		assert.Equal(t, []string{"/mnt/init-database/scripts/agent-launcher.sh"}, agent.Command)
+		require.NotNil(t, agent.LivenessProbe)
+		assert.Equal(t, []string{"/mnt/init-database/probes/probe.sh"}, agent.LivenessProbe.Exec.Command)
 
 		initVolume, found := volumeByName(sts, "mongodb-init-database")
 		require.True(t, found)
@@ -118,29 +116,6 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 			assert.NotEqual(t, "mongodb-proxy", m.Name)
 		}
 	})
-}
-
-func TestMongodbProxyTestOnlyDebug(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprintf("debug=%t", enabled), func(t *testing.T) {
-			mdb := mdbv1.NewReplicaSetBuilder().Build()
-			sts, err := DatabaseStatefulSetWithError(*mdb, ReplicaSetOptions(
-				GetPodEnvOptions(), WithDefaultArchitecture(architectures.StaticGA),
-				func(o *DatabaseStatefulSetOptions) {
-					o.MongodbProxyImage, o.MongodbImage, o.InitDatabaseImage = testProxyImage, testMongodbImage, testInitImage
-					o.CustomAgentURL, o.ProxyAgentCompatibilityVerified = "https://example.com/agent.tar.gz", true
-					o.ProxyDebug = enabled
-				},
-			), zap.S())
-			require.NoError(t, err)
-			args := containerByName(t, sts, util.DatabaseContainerName).Args
-			if enabled {
-				assert.Equal(t, []string{"--debug"}, args)
-			} else {
-				assert.Empty(t, args)
-			}
-		})
-	}
 }
 
 func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
@@ -183,7 +158,6 @@ func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 				testMongodbImage,
 				testInitImage,
 				"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-				true,
 			)
 			require.NoError(t, err)
 
@@ -203,7 +177,6 @@ func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 					assert.NotEqual(t, []string{"/mnt/proxy/proxy"}, c.Command)
 					for _, e := range c.Env {
 						assert.NotEqual(t, "MDB_MONGODB_PROXY_ADDRESS", e.Name)
-						assert.NotEqual(t, "MDB_INIT_ROOT", e.Name)
 					}
 				}
 			}
@@ -216,45 +189,23 @@ func TestStaticGAProxyPrerequisitesFailClosed(t *testing.T) {
 		proxyImage   string
 		mongodbImage string
 		initImage    string
-		customURL    string
-		compatible   bool
 		wantError    string
 	}{
 		"proxy image missing": {
 			proxyImage:   "",
 			mongodbImage: testMongodbImage,
 			initImage:    testInitImage,
-			customURL:    "https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-			compatible:   true,
 			wantError:    "requires a MongoDB proxy image",
-		},
-		"custom agent URL missing": {
-			proxyImage:   testProxyImage,
-			mongodbImage: testMongodbImage,
-			initImage:    testInitImage,
-			compatible:   true,
-			wantError:    "requires MDB_CUSTOM_AGENT_URL",
 		},
 		"database image missing": {
 			proxyImage: testProxyImage,
 			initImage:  testInitImage,
-			customURL:  "https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-			compatible: true,
 			wantError:  "requires MongoDB and init-database images",
 		},
 		"init database image missing": {
 			proxyImage:   testProxyImage,
 			mongodbImage: testMongodbImage,
-			customURL:    "https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-			compatible:   true,
 			wantError:    "requires MongoDB and init-database images",
-		},
-		"agent compatibility not verified": {
-			proxyImage:   testProxyImage,
-			mongodbImage: testMongodbImage,
-			initImage:    testInitImage,
-			customURL:    "https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-			wantError:    "Agent proxy compatibility is not verified",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -264,8 +215,7 @@ func TestStaticGAProxyPrerequisitesFailClosed(t *testing.T) {
 				tc.proxyImage,
 				tc.mongodbImage,
 				tc.initImage,
-				tc.customURL,
-				tc.compatible,
+				"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
 			)
 			require.ErrorContains(t, err, tc.wantError)
 		})
@@ -280,7 +230,6 @@ func TestStaticArchitectureWithoutTheProxyKeepsTheSharedProcessNamespace(t *test
 		testMongodbImage,
 		testInitImage,
 		"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-		true,
 	)
 	require.NoError(t, err)
 

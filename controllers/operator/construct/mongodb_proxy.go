@@ -30,12 +30,12 @@ const (
 	// reached through /proc/<pid>/root of the utilities container, which needs a shared process namespace.
 	mongodbInitDatabaseVolumeName = "mongodb-init-database"
 	mongodbInitDatabaseMountPath  = "/mnt/init-database"
+	staticGAAgentLauncherPath     = mongodbInitDatabaseMountPath + "/scripts/agent-launcher.sh"
+	staticGAProbePath             = mongodbInitDatabaseMountPath + "/probes/probe.sh"
 
-	// Environment variables of the agent container, read by agent-launcher.sh and by the scripts of the agent
-	// image (setup-agent-files.sh and the probes).
+	// Environment variables of the agent container.
 	mongodbProxyAddressEnv = "MDB_MONGODB_PROXY_ADDRESS"
 	mongodRootEnv          = "MDB_MONGOD_ROOT"
-	initRootEnv            = "MDB_INIT_ROOT"
 )
 
 // usesMongodbProxy reports whether the StatefulSet runs mongod/mongos through the proxy.
@@ -51,8 +51,6 @@ func (d DatabaseStatefulSetOptions) ValidateProxyPrerequisites(name string, anno
 		d.MongodbProxyImage,
 		d.MongodbImage,
 		d.InitDatabaseImage,
-		d.CustomAgentURL,
-		d.ProxyAgentCompatibilityVerified,
 	)
 }
 
@@ -63,8 +61,6 @@ func validateStaticGAProxyPrerequisites(
 	proxyImage string,
 	mongodbImage string,
 	initDatabaseImage string,
-	customAgentURL string,
-	agentCompatibilityVerified bool,
 ) error {
 	if !architectures.IsRunningStaticGAArchitecture(annotations, defaultArchitecture) {
 		return nil
@@ -72,14 +68,8 @@ func validateStaticGAProxyPrerequisites(
 	if proxyImage == "" {
 		return fmt.Errorf("static-ga workload %q requires a MongoDB proxy image", name)
 	}
-	if customAgentURL == "" {
-		return fmt.Errorf("static-ga workload %q requires MDB_CUSTOM_AGENT_URL for the proxy-capable Agent", name)
-	}
 	if mongodbImage == "" || initDatabaseImage == "" {
 		return fmt.Errorf("static-ga workload %q requires MongoDB and init-database images for Agent image volumes", name)
-	}
-	if !agentCompatibilityVerified {
-		return fmt.Errorf("static-ga workload %q cannot roll out because Agent proxy compatibility is not verified", name)
 	}
 	return nil
 }
@@ -98,11 +88,4 @@ func imageVolume(name, reference string) corev1.Volume {
 
 func readOnlyMount(name, path string) corev1.VolumeMount {
 	return corev1.VolumeMount{Name: name, MountPath: path, ReadOnly: true}
-}
-
-func mongodbProxyArgs(debug bool) []string {
-	if debug {
-		return []string{"--debug"}
-	}
-	return []string{}
 }

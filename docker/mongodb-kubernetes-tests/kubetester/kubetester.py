@@ -1382,58 +1382,6 @@ class KubernetesTester(object):
         )
 
     @staticmethod
-    def assert_agent_executable_sha256(
-        pod_name: str,
-        namespace: str,
-        expected_sha256: str,
-        executable_path: str,
-        container: str,
-        api_client: Optional[kubernetes.client.ApiClient] = None,
-    ):
-        if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
-            raise ValueError("Candidate Agent acceptance requires a 64-character lowercase executable SHA-256")
-        command = r"""
-set -euo pipefail
-processes=()
-for process in /proc/[0-9]*; do
-    executable=$(readlink "${process}/exe") || continue
-    if [[ "${executable}" == "$1" || "${executable}" == "$1 (deleted)" ]]; then
-        processes+=("${process}")
-    fi
-done
-if [[ ${#processes[@]} != 1 ]]; then
-    echo "Expected exactly one live Agent executable, found ${#processes[@]}" >&2
-    exit 1
-fi
-process="${processes[0]}"
-before=$(cat "${process}/stat")
-before="${before##*) }"
-read -ra before_fields <<< "${before}"
-exec 3< "${process}/exe"
-checksum=$(sha256sum /dev/fd/3)
-after=$(cat "${process}/stat")
-after="${after##*) }"
-read -ra after_fields <<< "${after}"
-# Linux stat field 22 distinguishes process lifetimes across PID reuse.
-if [[ "${before_fields[19]}" != "${after_fields[19]}" || ! "${process}/exe" -ef /proc/$$/fd/3 ]]; then
-    echo "Agent process changed during executable verification" >&2
-    exit 1
-fi
-printf '%s\n' "${checksum%% *}"
-"""
-        actual = KubernetesTester.run_command_in_pod_container(
-            pod_name,
-            namespace,
-            ["bash", "-c", command, "verify-agent-executable", executable_path],
-            container=container,
-            api_client=api_client,
-        ).strip()
-        assert actual == expected_sha256, (
-            f"Agent executable identity mismatch in {namespace}/{pod_name} container {container}: "
-            f"expected {expected_sha256}, got {actual!r}"
-        )
-
-    @staticmethod
     def run_command_in_pod_container(
         pod_name: str,
         namespace: str,

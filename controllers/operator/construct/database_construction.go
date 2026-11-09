@@ -121,11 +121,9 @@ type DatabaseStatefulSetOptions struct {
 	DatabaseNonStaticImage string
 	MongodbImage           string
 	// MongodbProxyImage is the full reference of the mongodb-proxy image.
-	MongodbProxyImage               string
-	AgentImage                      string
-	CustomAgentURL                  string
-	ProxyAgentCompatibilityVerified bool
-	ProxyDebug                      bool
+	MongodbProxyImage string
+	AgentImage        string
+	CustomAgentURL    string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -860,17 +858,17 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 			container.WithEnvs(
 				corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress},
 				corev1.EnvVar{Name: mongodRootEnv, Value: mongodbBinariesMountPath},
-				corev1.EnvVar{Name: initRootEnv, Value: mongodbInitDatabaseMountPath},
 			),
 			container.WithVolumeMounts([]corev1.VolumeMount{
 				readOnlyMount(mongodbBinariesVolumeName, mongodbBinariesMountPath),
 				readOnlyMount(mongodbInitDatabaseVolumeName, mongodbInitDatabaseMountPath),
 			}),
+			container.WithCommand([]string{staticGAAgentLauncherPath}),
+			container.WithLivenessProbe(staticGALivenessProbe()),
 		)
 		// The proxy replaces the marker command: it starts mongod/mongos only when the agent asks for it.
 		mongodContainerModifications = append(mongodContainerModifications,
 			container.WithCommand([]string{mongodbProxyBinaryPath}),
-			container.WithArgs(mongodbProxyArgs(opts.ProxyDebug)),
 			container.WithVolumeMounts([]corev1.VolumeMount{readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath)}),
 		)
 	}
@@ -1194,8 +1192,16 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 }
 
 func DatabaseLivenessProbe() probes.Modification {
+	return databaseLivenessProbe(databaseLivenessProbeCommand)
+}
+
+func staticGALivenessProbe() probes.Modification {
+	return databaseLivenessProbe(staticGAProbePath)
+}
+
+func databaseLivenessProbe(command string) probes.Modification {
 	return probes.Apply(
-		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
+		probes.WithExecCommand([]string{command}),
 		probes.WithInitialDelaySeconds(10),
 		probes.WithTimeoutSeconds(30),
 		probes.WithPeriodSeconds(30),

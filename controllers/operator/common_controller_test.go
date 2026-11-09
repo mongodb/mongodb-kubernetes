@@ -56,93 +56,72 @@ func init() {
 
 func TestStaticGAControllerPrerequisites(t *testing.T) {
 	for _, topology := range []string{"replica set", "standalone", "sharded"} {
-		for _, compatibilityVerified := range []bool{false, true} {
-			for _, missingProxy := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/compatibilityVerified=%t/missingProxy=%t", topology, compatibilityVerified, missingProxy), func(t *testing.T) {
-					ctx := context.Background()
-					imageURLs := images.ImageUrls{
-						util.AgentImageUrlEnv:        "registry.example/agent",
-						util.MongodbImageEnv:         "registry.example/mongodb",
-						util.InitDatabaseImageUrlEnv: "registry.example/init",
-						util.MongodbProxyImageEnv:    "registry.example/proxy:test",
-					}
-					if missingProxy {
-						imageURLs[util.MongodbProxyImageEnv] = ""
-					}
-					var resource *mdbv1.MongoDB
-					var reconciler reconcile.Reconciler
-					var kubeClient kubernetesClient.Client
-					var factory *om.CachedOMConnectionFactory
-					switch topology {
-					case "replica set":
-						resource = DefaultReplicaSetBuilder().Build()
-						controller, c, f := defaultReplicaSetReconciler(ctx, imageURLs, "test", "test", resource, architectures.StaticGA)
-						controller.customAgentURL = "https://example.invalid/agent.tar.gz"
-						controller.SetProxyAgentCompatibilityVerified(compatibilityVerified)
-						reconciler, kubeClient, factory = controller, c, f
-					case "standalone":
-						resource = DefaultStandaloneBuilder().Build()
-						controller, c, f := defaultStandaloneReconciler(ctx, imageURLs, "test", "test", om.NewEmptyMockedOmConnection, resource, architectures.StaticGA)
-						controller.customAgentURL = "https://example.invalid/agent.tar.gz"
-						controller.SetProxyAgentCompatibilityVerified(compatibilityVerified)
-						reconciler, kubeClient, factory = controller, c, f
-					case "sharded":
-						resource = test.DefaultClusterBuilder().Build()
-						controller, _, c, f, err := defaultShardedClusterReconciler(ctx, imageURLs, "test", "test", resource, nil, testBackupEnableDelay, architectures.StaticGA)
-						require.NoError(t, err)
-						controller.customAgentURL = "https://example.invalid/agent.tar.gz"
-						controller.SetProxyAgentCompatibilityVerified(compatibilityVerified)
-						reconciler, kubeClient, factory = controller, c, f
-					}
-					factory.SetPostCreateHook(func(connection om.Connection) {
-						connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
-					})
-					resource.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}
-					require.NoError(t, kubeClient.Update(ctx, resource))
-					checkReconcileSuccessful(ctx, t, reconciler, resource, kubeClient)
-					existing := mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})
-					require.NotEmpty(t, existing)
-					resource.Annotations[architectures.ArchitectureAnnotation] = string(architectures.StaticGA)
-					require.NoError(t, kubeClient.Update(ctx, resource))
-					if compatibilityVerified && !missingProxy {
-						checkReconcileSuccessful(ctx, t, reconciler, resource, kubeClient)
-						current := mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})
-						require.NotEmpty(t, current)
-						for _, object := range current {
-							sts := object.(*appsv1.StatefulSet)
-							assert.Nil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
-							foundProxy := false
-							for _, container := range sts.Spec.Template.Spec.Containers {
-								if container.Name == util.DatabaseContainerName {
-									assert.Equal(t, []string{"/mnt/proxy/proxy"}, container.Command)
-									foundProxy = true
-								}
-							}
-							assert.True(t, foundProxy)
-						}
-						return
-					}
-					message := "Agent proxy compatibility is not verified"
-					if missingProxy {
-						message = "requires a MongoDB proxy image"
-					}
-					checkReconcileFailed(ctx, t, reconciler, resource, true, message, kubeClient)
-					assert.Equal(t, existing, mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{}))
+		for _, missingProxy := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/missingProxy=%t", topology, missingProxy), func(t *testing.T) {
+				ctx := context.Background()
+				imageURLs := images.ImageUrls{
+					util.AgentImageUrlEnv:        "registry.example/agent",
+					util.MongodbImageEnv:         "registry.example/mongodb",
+					util.InitDatabaseImageUrlEnv: "registry.example/init",
+					util.MongodbProxyImageEnv:    "registry.example/proxy:test",
+				}
+				if missingProxy {
+					imageURLs[util.MongodbProxyImageEnv] = ""
+				}
+				var resource *mdbv1.MongoDB
+				var reconciler reconcile.Reconciler
+				var kubeClient kubernetesClient.Client
+				var factory *om.CachedOMConnectionFactory
+				switch topology {
+				case "replica set":
+					resource = DefaultReplicaSetBuilder().Build()
+					controller, c, f := defaultReplicaSetReconciler(ctx, imageURLs, "test", "test", resource, architectures.StaticGA)
+					controller.customAgentURL = "https://example.invalid/agent.tar.gz"
+					reconciler, kubeClient, factory = controller, c, f
+				case "standalone":
+					resource = DefaultStandaloneBuilder().Build()
+					controller, c, f := defaultStandaloneReconciler(ctx, imageURLs, "test", "test", om.NewEmptyMockedOmConnection, resource, architectures.StaticGA)
+					controller.customAgentURL = "https://example.invalid/agent.tar.gz"
+					reconciler, kubeClient, factory = controller, c, f
+				case "sharded":
+					resource = test.DefaultClusterBuilder().Build()
+					controller, _, c, f, err := defaultShardedClusterReconciler(ctx, imageURLs, "test", "test", resource, nil, testBackupEnableDelay, architectures.StaticGA)
+					require.NoError(t, err)
+					controller.customAgentURL = "https://example.invalid/agent.tar.gz"
+					reconciler, kubeClient, factory = controller, c, f
+				}
+				factory.SetPostCreateHook(func(connection om.Connection) {
+					connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
 				})
-			}
+				resource.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}
+				require.NoError(t, kubeClient.Update(ctx, resource))
+				checkReconcileSuccessful(ctx, t, reconciler, resource, kubeClient)
+				existing := mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})
+				require.NotEmpty(t, existing)
+				resource.Annotations[architectures.ArchitectureAnnotation] = string(architectures.StaticGA)
+				require.NoError(t, kubeClient.Update(ctx, resource))
+				if !missingProxy {
+					checkReconcileSuccessful(ctx, t, reconciler, resource, kubeClient)
+					current := mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})
+					require.NotEmpty(t, current)
+					for _, object := range current {
+						sts := object.(*appsv1.StatefulSet)
+						assert.Nil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
+						foundProxy := false
+						for _, container := range sts.Spec.Template.Spec.Containers {
+							if container.Name == util.DatabaseContainerName {
+								assert.Equal(t, []string{"/mnt/proxy/proxy"}, container.Command)
+								foundProxy = true
+							}
+						}
+						assert.True(t, foundProxy)
+					}
+					return
+				}
+				checkReconcileFailed(ctx, t, reconciler, resource, true, "requires a MongoDB proxy image", kubeClient)
+				assert.Equal(t, existing, mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{}))
+			})
 		}
-	}
-}
-
-func TestTestOnlyProxyAgentCompatibilitySetting(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
-			client, _ := mock.NewDefaultFakeClient()
-			controller := NewReconcileCommonController(context.Background(), client)
-			assert.False(t, controller.proxyAgentCompatibilityVerified)
-			controller.SetProxyAgentCompatibilityVerified(enabled)
-			assert.Equal(t, enabled, controller.proxyAgentCompatibilityVerified)
-		})
 	}
 }
 
