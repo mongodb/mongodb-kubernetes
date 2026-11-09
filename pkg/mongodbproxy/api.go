@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,12 +25,14 @@ type errorResponse struct {
 }
 
 // GET  /v1/process
+// GET  /v1/events
 // POST /v1/process/start
 // POST /v1/process/stop
 func NewHandler(s *Supervisor, log *zap.SugaredLogger) http.Handler {
 	h := &handler{s: s, log: log}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/process", h.get)
+	mux.HandleFunc("GET /v1/events", h.getEvents)
 	mux.HandleFunc("POST /v1/process/start", h.start)
 	mux.HandleFunc("POST /v1/process/stop", h.stop)
 	return mux
@@ -94,6 +97,26 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	h.log.Debugw("status requested", append(call.fields(), "state", status.State)...)
 }
 
+// getEvents returns the bounded in-memory event history, newest first.
+func (h *handler) getEvents(w http.ResponseWriter, r *http.Request) {
+	call := h.request(w, r)
+	limit := defaultEventLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			h.fail(call, fmt.Errorf("%w: limit must be a positive integer", ErrInvalidRequest))
+			return
+		}
+		if n > maxEvents {
+			n = maxEvents
+		}
+		limit = n
+	}
+	events, dropped := h.s.eventSnapshot(limit)
+	writeJSON(call, http.StatusOK, eventsResponse{Events: events, Dropped: dropped, Capacity: maxEvents})
+	h.log.Debugw("events requested", append(call.fields(), "limit", limit)...)
+}
+
 func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 	call := h.request(w, r)
 	var req StartRequest
@@ -103,12 +126,15 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 	}()
 	if err := decode(call, r, &req); err != nil {
 		h.fail(call, err)
+		h.s.recordEvent(Event{Event: "start_rejected", Outcome: "rejected", ErrorClass: call.errorClass})
 		return
 	}
 	call.role, call.operationID = req.Role, req.OperationID
+	h.s.recordEvent(Event{Event: "start_requested", OperationID: req.OperationID, Role: req.Role, Outcome: "requested"})
 	e, err := h.s.Start(req)
 	if err != nil {
 		h.fail(call, err)
+		h.s.recordEvent(Event{Event: "start_rejected", OperationID: req.OperationID, Role: req.Role, Outcome: "rejected", ErrorClass: call.errorClass})
 		return
 	}
 
@@ -134,18 +160,32 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 	}()
 	if err := decode(call, r, &req); err != nil {
 		h.fail(call, err)
+		h.s.recordEvent(Event{Event: "stop_rejected", Outcome: "rejected", ErrorClass: call.errorClass})
 		return
 	}
 	call.role, call.operationID = req.Role, req.OperationID
 	if err := req.validate(); err != nil {
 		h.fail(call, err)
+		h.s.recordEvent(Event{Event: "stop_rejected", OperationID: req.OperationID, Role: req.Role, Outcome: "rejected", ErrorClass: call.errorClass})
 		return
 	}
 	timeout = time.Duration(req.TimeoutSeconds * float64(time.Second))
+	status := h.s.Status()
+	pid := 0
+	if status.PID != nil {
+		pid = *status.PID
+	}
+	h.s.recordEvent(Event{Event: "stop_requested", OperationID: req.OperationID, Role: req.Role, PID: pid, Outcome: "requested"})
 	if err := h.s.Stop(r.Context(), req.Role, timeout, req.Force); err != nil {
 		h.fail(call, err)
+		event := "stop_rejected"
+		if errors.Is(err, ErrStopTimeout) {
+			event = "stop_timeout"
+		}
+		h.s.recordEvent(Event{Event: event, OperationID: req.OperationID, Role: req.Role, PID: pid, Outcome: "failed", ErrorClass: call.errorClass})
 		return
 	}
+	h.s.recordEvent(Event{Event: "stop_completed", OperationID: req.OperationID, Role: req.Role, PID: pid, Outcome: "stopped"})
 	h.log.Infow("process stopped", append(call.fields(), "force", req.Force)...)
 	writeJSON(call, http.StatusOK, h.s.Status())
 }

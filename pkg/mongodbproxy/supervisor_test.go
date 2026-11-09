@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // fakeMongod behaves according to the content of the config file passed with -f:
@@ -426,3 +428,59 @@ func TestTailBufferKeepsTheLastBytes(t *testing.T) {
 // testEnv is the environment of the processes started by the tests. The package never reads the environment of the
 // proxy itself (main does), so the tests give the children a fixed one.
 var testEnv = []string{"PATH=/usr/local/bin:/usr/bin:/bin"}
+
+func TestStatusStartedAtAndLastExit(t *testing.T) {
+	f := newFixture(t)
+	e := f.start(RoleMain, "exit:3")
+	waitDone(t, e)
+
+	st := f.sup.Status()
+	assert.Equal(t, StateExited, st.State)
+	assert.NotEmpty(t, st.StartedAt)
+	require.NotNil(t, st.LastExit)
+	assert.Equal(t, 3, st.LastExit.ExitCode)
+	assert.NotEmpty(t, st.LastExit.ExitedAt)
+	assert.GreaterOrEqual(t, st.LastExit.UptimeSeconds, 0.0)
+}
+
+func TestChildLifecycleLogsCarryOperationID(t *testing.T) {
+	core, observed := observer.New(zap.InfoLevel)
+	f := newFixture(t)
+	f.sup.log = zap.New(core).Sugar()
+
+	e, err := f.sup.Start(StartRequest{
+		ConfigPath:  f.config("main", "exit:0"),
+		Role:        RoleMain,
+		OperationID: "operation-1",
+	})
+	require.NoError(t, err)
+	waitDone(t, e)
+
+	var started, exited bool
+	for _, entry := range observed.All() {
+		switch entry.Message {
+		case "process started":
+			started = entry.ContextMap()["operation_id"] == "operation-1"
+		case "process exited":
+			exited = entry.ContextMap()["operation_id"] == "operation-1"
+		}
+	}
+	assert.True(t, started, "process started log must carry the operation id")
+	assert.True(t, exited, "process exited log must carry the operation id")
+}
+
+func TestTerminateRecordsShutdownEvent(t *testing.T) {
+	f := newFixture(t)
+	f.start(RoleMain, "run")
+
+	require.NoError(t, f.sup.Terminate(context.Background()))
+
+	events, _ := f.sup.eventSnapshot(10)
+	var found bool
+	for _, event := range events {
+		if event.Event == "proxy_shutdown" {
+			found = true
+		}
+	}
+	assert.True(t, found, "Terminate must record a proxy_shutdown event")
+}

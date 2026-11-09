@@ -164,3 +164,63 @@ func TestAPIStartRejectsAConfigWithFork(t *testing.T) {
 	assert.Contains(t, body.Error, "processManagement.fork")
 	assert.Equal(t, StateIdle, getStatus(t, srv).State)
 }
+
+func getEvents(t *testing.T, srv *httptest.Server, query string) eventsResponse {
+	t.Helper()
+	resp, err := http.Get(srv.URL + "/v1/events" + query) //nolint:gosec,noctx
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out eventsResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	return out
+}
+
+func TestAPIEventsAndStatusTimestamps(t *testing.T) {
+	f, srv := newServer(t)
+	cfg := f.config("main", "run")
+	require.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/start", StartRequest{
+		ConfigPath:  cfg,
+		Role:        RoleMain,
+		OperationID: "op-1",
+	}, nil))
+	f.waitReady(cfg)
+
+	st := getStatus(t, srv)
+	assert.NotEmpty(t, st.StartedAt)
+	assert.GreaterOrEqual(t, st.UptimeSeconds, 0.0)
+	assert.Nil(t, st.LastExit)
+
+	events := getEvents(t, srv, "?limit=10")
+	assert.Equal(t, maxEvents, events.Capacity)
+	require.NotEmpty(t, events.Events)
+	assert.Equal(t, "child_started", events.Events[0].Event)
+	assert.Equal(t, "op-1", events.Events[0].OperationID)
+
+	require.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/stop", StopRequest{
+		TimeoutSeconds: 5,
+		Role:           RoleMain,
+		OperationID:    "stop-1",
+	}, nil))
+
+	events = getEvents(t, srv, "")
+	require.NotEmpty(t, events.Events)
+	assert.Equal(t, "stop_completed", events.Events[0].Event)
+	assert.Equal(t, "stop-1", events.Events[0].OperationID)
+
+	st = getStatus(t, srv)
+	require.NotNil(t, st.LastExit)
+	assert.Equal(t, 0, st.LastExit.ExitCode)
+	assert.NotEmpty(t, st.LastExit.ExitedAt)
+}
+
+func TestAPIEventsRejectsBadLimit(t *testing.T) {
+	_, srv := newServer(t)
+
+	resp, err := http.Get(srv.URL + "/v1/events?limit=0") //nolint:gosec,noctx
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}

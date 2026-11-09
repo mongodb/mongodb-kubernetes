@@ -2,7 +2,7 @@
 //
 // The proxy owns at most one direct mongod/mongos child and exposes a localhost HTTP API
 // (see NewHandler) that the automation agent uses instead of fork/kill/proc calls.
-// The proxy is stateless: it only keeps the last execution in memory.
+// The proxy keeps no state outside of memory: the last execution and a bounded event history.
 package mongodbproxy
 
 import "errors"
@@ -110,6 +110,14 @@ type LaunchEnvironment struct {
 	KerberosKeytab string `json:"kerberosKeytab,omitempty"`
 }
 
+// ExitStatus describes the last child that exited.
+type ExitStatus struct {
+	ExitCode      int     `json:"exitCode"`
+	Signal        string  `json:"signal,omitempty"`
+	ExitedAt      string  `json:"exitedAt,omitempty"`
+	UptimeSeconds float64 `json:"uptimeSeconds,omitempty"`
+}
+
 // Status is the response of GET /v1/process and of start/stop.
 type Status struct {
 	State      State  `json:"state"`
@@ -123,6 +131,12 @@ type Status struct {
 	Output string `json:"output,omitempty"`
 	// OperationID is the identity supplied at start, if any.
 	OperationID string `json:"operationId,omitempty"`
+	// StartedAt is when the current or last child was launched, in RFC3339Nano.
+	StartedAt string `json:"startedAt,omitempty"`
+	// UptimeSeconds is the running time of the current child.
+	UptimeSeconds float64 `json:"uptimeSeconds,omitempty"`
+	// LastExit describes the most recent child that exited, if any.
+	LastExit *ExitStatus `json:"lastExit,omitempty"`
 	// PID and LaunchEnvironment are present together only for a running child.
 	// Their absence in a running response identifies a legacy proxy.
 	PID               *int               `json:"pid,omitempty"`

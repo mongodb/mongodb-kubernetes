@@ -131,6 +131,24 @@ def query_proxy(pod: str, namespace: str) -> dict:
     return json.loads(body)
 
 
+def query_proxy_path(pod: str, namespace: str, path: str) -> dict:
+    """Calls one proxy endpoint from the agent container and returns the JSON body."""
+    output = KubernetesTester.run_command_in_pod_container(
+        pod,
+        namespace,
+        [
+            "bash",
+            "-c",
+            "exec 3<>/dev/tcp/127.0.0.1/8099; "
+            f"printf 'GET {path} HTTP/1.0\\r\\nHost: proxy\\r\\n\\r\\n' >&3; cat <&3",
+        ],
+        container=AGENT_CONTAINER,
+    )
+    headers, body = output.replace("\r\n", "\n").split("\n\n", 1)
+    assert re.match(r"HTTP/1\.[01] 200(?: |$)", headers), headers
+    return json.loads(body)
+
+
 @mark.e2e_replica_set_mongodb_proxy
 def test_install_operator(operator_with_proxy: Operator):
     # Installing the fixture already waited for the operator and its webhook.
@@ -187,6 +205,24 @@ def test_proxy_reports_the_running_database(replica_set: MongoDB, namespace: str
 
         assert status["state"] == "running", status
         assert status["role"] == "main", status
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_proxy_reports_events_and_timestamps(replica_set: MongoDB, namespace: str):
+    pod = f"{replica_set.name}-0"
+    status = query_proxy(pod, namespace)
+    assert status["state"] == "running", status
+    assert status.get("startedAt"), status
+    assert status.get("uptimeSeconds", 0) > 0, status
+
+    body = query_proxy_path(pod, namespace, "/v1/events?limit=10")
+    assert body["capacity"] == 256, body
+    assert body["dropped"] == 0, body
+    names = [event["event"] for event in body["events"]]
+    assert "child_started" in names, body
+    started = next(event for event in body["events"] if event["event"] == "child_started")
+    assert started["role"] == "main", started
+    assert started["pid"] > 0, started
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -377,6 +413,12 @@ def test_agent_restarts_mongod_through_the_proxy_on_a_config_change(replica_set:
         assert len(proxy_events(pod, namespace, "process started")) >= 2, pod
         assert not proxy_events(pod, namespace, "sending SIGKILL"), pod
 
+        status = query_proxy(pod, namespace)
+        last_exit = status.get("lastExit")
+        assert last_exit is not None, status
+        assert last_exit["exitCode"] == 0 and not last_exit.get("signal"), last_exit
+        assert last_exit.get("exitedAt"), last_exit
+
 
 @mark.e2e_replica_set_mongodb_proxy
 def test_agent_starts_mongod_again_after_it_was_killed(replica_set: MongoDB, namespace: str):
@@ -396,6 +438,8 @@ def test_agent_starts_mongod_again_after_it_was_killed(replica_set: MongoDB, nam
 
     # The proxy saw the crash and the agent's new start request.
     assert any(e.get("signal") == "killed" for e in proxy_events(pod, namespace, "process exited"))
+    last_exit = query_proxy(pod, namespace).get("lastExit")
+    assert last_exit is not None and last_exit.get("signal") == "killed", last_exit
 
 
 def post_to_proxy(pod: str, namespace: str, path: str, body: dict) -> tuple[int, dict]:
