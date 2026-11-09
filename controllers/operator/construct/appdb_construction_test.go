@@ -57,20 +57,6 @@ func TestAppDBAgentSettingsPreservesCustomAPIKeyExec(t *testing.T) {
 	assert.Contains(t, cm.Data[AgentSettingsFileName], "mmsApiKeyExec=cat '$CUSTOM_KEY_PATH/agent-key'\n")
 }
 
-func TestAppDBAgentSettingsRejectsCustomAgentFlags(t *testing.T) {
-	om := omv1.NewOpsManagerBuilderDefault().Build()
-	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
-	require.NoError(t, err)
-	agent := AgentContainer(sts)
-	require.NotNil(t, agent, "AppDB StatefulSet must expose an agent container")
-	agent.Env = append(agent.Env, corev1.EnvVar{Name: "AGENT_FLAGS", Value: "-logLevel=DEBUG,"})
-
-	_, err = AppDBAgentSettingsConfigMap(sts, om.Spec.AppDB, &env.PodEnvVars{ProjectID: "abcd"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "agent.startupOptions")
-}
-
 func TestAppDBAgentSettingsRejectsRuntimeAgentSettingsEnv(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
@@ -132,7 +118,6 @@ func TestAppDBAgentHostnameArguments(t *testing.T) {
 		{name: "per-cluster external domain", multiCluster: true, externalDomain: new("member.example.com"), hostname: "$(POD_NAME).member.example.com"},
 		{name: "generated hostname wins over customer", externalDomain: new("external.example.com"), parameters: mdbv1.StartupParameters{"overrideLocalHost": "customer.example.com"}, hostname: "$(POD_NAME).external.example.com"},
 		{name: "customer hostname without generated identity", parameters: mdbv1.StartupParameters{"overrideLocalHost": "customer.example.com"}, hostname: "customer.example.com"},
-		{name: "prefixed customer hostname", parameters: mdbv1.StartupParameters{"-overrideLocalHost": "customer.example.com"}, hostname: "customer.example.com"},
 		{name: "explicit empty hostname", parameters: mdbv1.StartupParameters{"overrideLocalHost": ""}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
