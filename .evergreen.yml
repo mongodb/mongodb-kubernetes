@@ -67,6 +67,10 @@ variables:
 
   - &base_no_om_image_dependency
     depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_mongodb_proxy_image
+        variant: init_test_run
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi
