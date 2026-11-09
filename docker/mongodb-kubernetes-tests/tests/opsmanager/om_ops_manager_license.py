@@ -4,11 +4,14 @@ Only behavior that needs a real Ops Manager or EA lives here. The operator's dec
 Ops Manager answer are covered by opsmanager_license_test.go and opsmanager_license_envtest_test.go.
 """
 
+from kubernetes.client.rest import ApiException
+from kubetester import run_periodically
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.opsmanager.license_e2e_helpers import (
     ENROLLMENT_RECONCILE_CRON,
+    LICENSE_FINALIZER,
     LICENSE_SECRET_NAME,
     LICENSE_STATE_EVALUATION_CRON,
     RECOMPUTE_ANNOTATION,
@@ -22,6 +25,7 @@ from tests.opsmanager.license_e2e_helpers import (
     current_artifact_id,
     current_receipt_secret_name,
     delete_secret_if_exists,
+    ea_artifact_row,
     ensure_license_artifact_secret,
     hide_failure_values,
     install_and_release_license,
@@ -62,6 +66,7 @@ from tests.opsmanager.license_e2e_helpers import (
     wait_for_license_reconciled_reason,
     wait_for_observed_api_state,
     wait_for_om_artifact_unusable,
+    wait_for_receipt_secret,
 )
 
 
@@ -270,3 +275,36 @@ class TestOpsManagerLicenseE2E:
     def test_reset_license_state(self, ops_manager: MongoDBOpsManager):
         """Leaves Ops Manager without a license so the run holds nothing at EA."""
         assert not installed_artifact_id(ops_manager)
+
+
+@mark.e2e_om_ops_manager_license
+class TestOpsManagerLicenseFinalizer:
+    """Deleting the resource releases the license the operator installed. It runs last, since it deletes the
+    resource every other test in this module uses."""
+
+    def test_deleting_the_resource_releases_the_license(self, ops_manager: MongoDBOpsManager, namespace: str):
+        """The operator holds the finalizer while it may have a license installed, and the deletion releases it
+        before the resource goes away. Ops Manager is gone by then, so the receipt written during the release,
+        which outlives the resource, is the proof."""
+        installed = install_license(ops_manager, namespace, auto_release_receipts=True)
+        receipt_name = current_receipt_secret_name()
+        assert_secret_absent(namespace, receipt_name)
+        assert LICENSE_FINALIZER in ops_manager.load()["metadata"].get("finalizers", [])
+
+        try:
+            ops_manager.delete()
+
+            def resource_deleted() -> bool:
+                try:
+                    ops_manager.load()
+                    return False
+                except ApiException:
+                    return True
+
+            run_periodically(resource_deleted, timeout=180)
+
+            assert wait_for_receipt_secret(namespace, receipt_name).raw
+        finally:
+            # Ops Manager is gone, so the release never reaches EA. Retire the license at EA instead.
+            if ea_artifact_row(ops_manager, installed).get("status") != "RELEASED":
+                revoke_at_ea(ops_manager, installed)
