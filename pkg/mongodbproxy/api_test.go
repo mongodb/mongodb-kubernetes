@@ -177,6 +177,15 @@ func getEvents(t *testing.T, srv *httptest.Server, query string) eventsResponse 
 	return out
 }
 
+func findEvent(events []Event, action string) *Event {
+	for i := range events {
+		if events[i].Action == action {
+			return &events[i]
+		}
+	}
+	return nil
+}
+
 func TestAPIEventsAndStatusTimestamps(t *testing.T) {
 	f, srv := newServer(t)
 	cfg := f.config("main", "run")
@@ -195,8 +204,22 @@ func TestAPIEventsAndStatusTimestamps(t *testing.T) {
 	events := getEvents(t, srv, "?limit=10")
 	assert.Equal(t, maxEvents, events.Capacity)
 	require.NotEmpty(t, events.Events)
-	assert.Equal(t, "child_started", events.Events[0].Event)
-	assert.Equal(t, "op-1", events.Events[0].OperationID)
+	started := events.Events[0]
+	assert.Equal(t, "start", started.Action)
+	assert.Equal(t, requestStart, started.Request)
+	assert.Equal(t, "success", started.Outcome)
+	assert.Equal(t, "200", started.Returned)
+	assert.NotEmpty(t, started.RequestID)
+	assert.Equal(t, "op-1", started.OperationID)
+	assert.Greater(t, started.PID, 0)
+
+	childStarted := findEvent(events.Events, "child_started")
+	require.NotNil(t, childStarted)
+	assert.Equal(t, started.RequestID, childStarted.RequestID)
+	assert.Equal(t, requestStart, childStarted.Request)
+	assert.Equal(t, "op-1", childStarted.OperationID)
+	assert.Equal(t, RoleMain, childStarted.Role)
+	assert.Greater(t, childStarted.PID, 0)
 
 	require.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/stop", StopRequest{
 		TimeoutSeconds: 5,
@@ -206,8 +229,21 @@ func TestAPIEventsAndStatusTimestamps(t *testing.T) {
 
 	events = getEvents(t, srv, "")
 	require.NotEmpty(t, events.Events)
-	assert.Equal(t, "stop_completed", events.Events[0].Event)
-	assert.Equal(t, "stop-1", events.Events[0].OperationID)
+	stopped := events.Events[0]
+	assert.Equal(t, "stop", stopped.Action)
+	assert.Equal(t, requestStop, stopped.Request)
+	assert.Equal(t, "success", stopped.Outcome)
+	assert.Equal(t, "200", stopped.Returned)
+	assert.NotEmpty(t, stopped.RequestID)
+	assert.Equal(t, "stop-1", stopped.OperationID)
+	assert.Greater(t, stopped.PID, 0)
+
+	childExited := findEvent(events.Events, "child_exited")
+	require.NotNil(t, childExited)
+	assert.Equal(t, stopped.RequestID, childExited.RequestID)
+	assert.Equal(t, requestStop, childExited.Request)
+	assert.Equal(t, "exited", childExited.Outcome)
+	assert.Equal(t, "exit 0", childExited.Returned)
 
 	st = getStatus(t, srv)
 	require.NotNil(t, st.LastExit)

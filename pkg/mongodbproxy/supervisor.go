@@ -82,13 +82,15 @@ type Execution struct {
 	role        Role
 	configPath  string
 	operationID string
+	requestID   string
 	pid         int
 	launchEnv   LaunchEnvironment
 	cmd         *exec.Cmd
 	output      *tailBuffer
 	done        chan struct{}
 
-	startedAt time.Time
+	startedAt     time.Time
+	stopRequestID string
 	// set under Supervisor.mu before done is closed
 	exitCode int
 	signal   string
@@ -252,6 +254,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		role:        req.Role,
 		configPath:  req.ConfigPath,
 		operationID: req.OperationID,
+		requestID:   req.RequestID,
 		pid:         cmd.Process.Pid,
 		startedAt:   time.Now().UTC(),
 		launchEnv: LaunchEnvironment{
@@ -264,7 +267,16 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 	s.current = e
 	s.log.Infow("process started", "operation_id", logOperationID(e.operationID), "role", e.role, "configPath", e.configPath, "pid", e.pid)
-	s.recordEvent(Event{Event: "child_started", OperationID: e.operationID, Role: e.role, PID: e.pid, Outcome: "started"})
+	s.recordEvent(Event{
+		Action:      "child_started",
+		RequestID:   e.requestID,
+		Request:     requestStart,
+		OperationID: e.operationID,
+		Role:        e.role,
+		PID:         e.pid,
+		Outcome:     "started",
+		Returned:    "started",
+	})
 	go s.wait(e)
 	if logPath != "" {
 		go tailLog(logPath, logInfoBefore, s.stdout, e.done, s.logPoll)
@@ -297,8 +309,30 @@ func (s *Supervisor) wait(e *Execution) {
 		outcome = "failed"
 	}
 	s.log.Infow("process exited", "operation_id", logOperationID(e.operationID), "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitCode, "signal", e.signal, "uptime_s", uptime)
-	s.recordEvent(Event{Event: "child_exited", OperationID: e.operationID, Role: e.role, PID: e.pid, Outcome: outcome, DurationMs: uptime * 1000, Signal: e.signal})
+	requestID, request := e.stopRequestID, ""
+	if requestID != "" {
+		request = requestStop
+	}
+	s.recordEvent(Event{
+		Action:      "child_exited",
+		RequestID:   requestID,
+		Request:     request,
+		OperationID: e.operationID,
+		Role:        e.role,
+		PID:         e.pid,
+		Outcome:     outcome,
+		Returned:    exitReturned(e.exitCode, e.signal),
+		DurationMs:  uptime * 1000,
+		Signal:      e.signal,
+	})
 	close(e.done)
+}
+
+func exitReturned(code int, signal string) string {
+	if signal != "" {
+		return "signal " + signal
+	}
+	return fmt.Sprintf("exit %d", code)
 }
 
 // resolveOptional is resolve for a program that may be missing. Without a bin dir the answer comes from PATH; with
@@ -330,6 +364,11 @@ func (s *Supervisor) resolve(binary string) (string, error) {
 //   - timeout elapsed with force: SIGKILL, then wait for exit
 //   - timeout 0 with force: SIGKILL right away
 func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration, force bool) error {
+	return s.StopWithRequest(ctx, role, timeout, force, "")
+}
+
+// StopWithRequest is Stop with the request identity that the event log records.
+func (s *Supervisor) StopWithRequest(ctx context.Context, role Role, timeout time.Duration, force bool, requestID string) error {
 	s.mu.Lock()
 	e := s.current
 	s.mu.Unlock()
@@ -340,11 +379,12 @@ func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration,
 	if role != "" && role != e.role {
 		return ErrRoleMismatch
 	}
+	if timeout <= 0 && !force {
+		return fmt.Errorf("%w: timeout must be > 0 unless force is set", ErrInvalidRequest)
+	}
 
+	s.setStopRequestID(e, requestID)
 	if timeout <= 0 {
-		if !force {
-			return fmt.Errorf("%w: timeout must be > 0 unless force is set", ErrInvalidRequest)
-		}
 		return s.kill(ctx, e)
 	}
 
@@ -365,6 +405,12 @@ func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration,
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (s *Supervisor) setStopRequestID(e *Execution, requestID string) {
+	s.mu.Lock()
+	e.stopRequestID = requestID
+	s.mu.Unlock()
 }
 
 func (s *Supervisor) kill(ctx context.Context, e *Execution) error {
@@ -389,7 +435,7 @@ func (s *Supervisor) Terminate(ctx context.Context) error {
 	e := s.current
 	s.mu.Unlock()
 
-	s.recordEvent(Event{Event: "proxy_shutdown", Outcome: "terminating"})
+	s.recordEvent(Event{Action: "proxy_shutdown", Outcome: "terminating"})
 
 	if e == nil || e.finished() {
 		return nil

@@ -89,6 +89,8 @@ type StartRequest struct {
 	OperationID string `json:"operationId,omitempty"`
 	Other       Other  `json:"other"`
 	WaitForExit bool   `json:"waitForExit,omitempty"`
+	// RequestID is the internal request identity of the event log. It is not part of the wire format.
+	RequestID string `json:"-"`
 }
 
 // StopRequest is the body of POST /v1/process/stop.
@@ -100,6 +102,8 @@ type StopRequest struct {
 	// Role restricts the stop to an execution with this role. Empty matches any.
 	Role        Role   `json:"role,omitempty"`
 	OperationID string `json:"operationId,omitempty"`
+	// RequestID is the internal request identity of the event log. It is not part of the wire format.
+	RequestID string `json:"-"`
 }
 
 // LaunchEnvironment contains only the LDAP CA and Kerberos keytab paths supplied

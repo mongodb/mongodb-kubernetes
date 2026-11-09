@@ -12,7 +12,7 @@ func TestEventLogKeepsNewestAndCountsDrops(t *testing.T) {
 	l := newEventLog()
 	total := maxEvents + 10
 	for i := range total {
-		l.record(Event{Event: "test", PID: i})
+		l.record(Event{Action: "test", PID: i})
 	}
 
 	events, dropped := l.snapshot(10)
@@ -27,7 +27,7 @@ func TestEventLogKeepsNewestAndCountsDrops(t *testing.T) {
 func TestEventLogClampsTheLimit(t *testing.T) {
 	l := newEventLog()
 	for i := range 3 {
-		l.record(Event{Event: "test", PID: i})
+		l.record(Event{Action: "test", PID: i})
 	}
 
 	events, _ := l.snapshot(1000)
@@ -39,21 +39,44 @@ func TestEventLogClampsTheLimit(t *testing.T) {
 func TestEventLogSanitizesAndTruncatesText(t *testing.T) {
 	l := newEventLog()
 	l.record(Event{
-		Event:       "bad event " + string(make([]byte, maxEventText*2)),
+		Action:      "bad event " + string(make([]byte, maxEventText*2)),
+		RequestID:   "bad request id",
 		OperationID: "bad id with spaces",
 		ErrorClass:  "bad error " + string(make([]byte, maxEventText*2)),
+		Returned:    "bad returned " + string(make([]byte, maxEventText*2)),
 	})
 
 	events, _ := l.snapshot(1)
 	require.Len(t, events, 1)
+	assert.Equal(t, "[redacted]", events[0].RequestID)
 	assert.Equal(t, "[redacted]", events[0].OperationID)
-	assert.LessOrEqual(t, len(events[0].Event), maxEventText)
+	assert.LessOrEqual(t, len(events[0].Action), maxEventText)
 	assert.LessOrEqual(t, len(events[0].ErrorClass), maxEventText)
+	assert.LessOrEqual(t, len(events[0].Returned), maxEventText)
+}
+
+func TestEventLogKeepsRequestAndReturned(t *testing.T) {
+	l := newEventLog()
+	l.record(Event{
+		Action:    "start",
+		RequestID: "req-1",
+		Request:   requestStart,
+		Outcome:   "success",
+		Returned:  "200",
+	})
+
+	events, _ := l.snapshot(1)
+	require.Len(t, events, 1)
+	assert.Equal(t, "start", events[0].Action)
+	assert.Equal(t, "req-1", events[0].RequestID)
+	assert.Equal(t, requestStart, events[0].Request)
+	assert.Equal(t, "success", events[0].Outcome)
+	assert.Equal(t, "200", events[0].Returned)
 }
 
 func TestEventLogDropsUnknownRoles(t *testing.T) {
 	l := newEventLog()
-	l.record(Event{Event: "start_rejected", Role: Role("secret payload")})
+	l.record(Event{Action: "start", Role: Role("secret payload")})
 
 	events, _ := l.snapshot(1)
 	require.Len(t, events, 1)
@@ -68,7 +91,7 @@ func TestEventLogConcurrentRecord(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := range 100 {
-				l.record(Event{Event: "test", PID: id*100 + j})
+				l.record(Event{Action: "test", PID: id*100 + j})
 			}
 		}(i)
 	}

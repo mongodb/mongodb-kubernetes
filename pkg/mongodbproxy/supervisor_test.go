@@ -478,7 +478,7 @@ func TestTerminateRecordsShutdownEvent(t *testing.T) {
 	events, _ := f.sup.eventSnapshot(10)
 	var found bool
 	for _, event := range events {
-		if event.Event == "proxy_shutdown" {
+		if event.Action == "proxy_shutdown" {
 			found = true
 		}
 	}

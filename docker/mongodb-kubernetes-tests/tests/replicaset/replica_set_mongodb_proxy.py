@@ -218,11 +218,19 @@ def test_proxy_reports_events_and_timestamps(replica_set: MongoDB, namespace: st
     body = query_proxy_path(pod, namespace, "/v1/events?limit=10")
     assert body["capacity"] == 256, body
     assert body["dropped"] == 0, body
-    names = [event["event"] for event in body["events"]]
+    names = [event["action"] for event in body["events"]]
     assert "child_started" in names, body
-    started = next(event for event in body["events"] if event["event"] == "child_started")
-    assert started["role"] == "main", started
-    assert started["pid"] > 0, started
+    child_started = next(event for event in body["events"] if event["action"] == "child_started")
+    assert child_started["role"] == "main", child_started
+    assert child_started["pid"] > 0, child_started
+
+    start_events = [event for event in body["events"] if event["action"] == "start"]
+    assert start_events, body
+    start_request = start_events[0]
+    assert start_request["request"] == "POST /v1/process/start", start_request
+    assert start_request["outcome"] == "success", start_request
+    assert start_request["returned"] == "200", start_request
+    assert start_request["requestId"], start_request
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -450,7 +458,7 @@ def post_to_proxy(pod: str, namespace: str, path: str, body: dict) -> tuple[int,
         [
             "bash",
             "-c",
-            'exec 3<>/dev/tcp/127.0.0.1/8099; '
+            "exec 3<>/dev/tcp/127.0.0.1/8099; "
             'printf "POST %s HTTP/1.0\\r\\nHost: proxy\\r\\nContent-Type: application/json\\r\\n'
             'Content-Length: %d\\r\\n\\r\\n%s" "$1" "${#2}" "$2" >&3; cat <&3',
             "_",

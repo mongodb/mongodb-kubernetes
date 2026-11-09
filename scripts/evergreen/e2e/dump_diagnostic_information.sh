@@ -272,12 +272,16 @@ dump_pod_proxy_events() {
            events: [.events[] |
              {seq: (if (.seq | type) == "number" then .seq else null end),
               time: (if (.time | type) == "string" then .time else null end),
-              event: (if (.event | type) == "string" then .event else null end),
+              requestId: (if (.requestId | type) == "string" then
+                  (.requestId | if test("^[A-Za-z0-9_.-]{1,128}$") then . else null end) else null end),
+              request: (if (.request | type) == "string" then .request else null end),
+              action: (if (.action | type) == "string" then .action else null end),
               operationId: (if (.operationId | type) == "string" then
                   (.operationId | if test("^[A-Za-z0-9_.-]{1,128}$") then . else null end) else null end),
               role: (if .role == "main" or .role == "ephemeral" then .role else null end),
               pid: (if (.pid | type) == "number" then .pid else null end),
               outcome: (if (.outcome | type) == "string" then .outcome else null end),
+              returned: (if (.returned | type) == "string" then .returned else null end),
               durationMs: (if (.durationMs | type) == "number" then .durationMs else null end),
               signal: (if (.signal | type) == "string" then
                   (.signal | if test("^([a-z]+|SIG[A-Z0-9]+)$") then . else null end) else null end),

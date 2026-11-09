@@ -51,6 +51,7 @@ type requestLog struct {
 	requestID   string
 	operationID string
 	role        Role
+	pid         int
 	status      int
 	errorClass  string
 }
@@ -89,6 +90,30 @@ func (r *requestLog) fields() []any {
 	}
 }
 
+// requestOutcome maps the HTTP response to the outcome of the event.
+func requestOutcome(status int) string {
+	switch {
+	case status == http.StatusOK:
+		return "success"
+	case status == http.StatusRequestTimeout:
+		return "canceled"
+	case status == http.StatusGatewayTimeout:
+		return "timeout"
+	case status >= http.StatusInternalServerError:
+		return "failed"
+	default:
+		return "rejected"
+	}
+}
+
+// returned is the HTTP result that the caller received.
+func returned(status int, errorClass string) string {
+	if errorClass == "" {
+		return strconv.Itoa(status)
+	}
+	return fmt.Sprintf("%d %s", status, errorClass)
+}
+
 func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	call := h.request(w, r)
 	status := h.s.Status()
@@ -123,20 +148,31 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 	// The deferred line also covers a request that fails before the process is spawned.
 	defer func() {
 		h.log.Infow("start requested", append(call.fields(), "waitForExit", req.WaitForExit)...)
+		h.s.recordEvent(Event{
+			Action:      "start",
+			RequestID:   call.requestID,
+			Request:     requestStart,
+			OperationID: req.OperationID,
+			Role:        req.Role,
+			PID:         call.pid,
+			Outcome:     requestOutcome(call.status),
+			Returned:    returned(call.status, call.errorClass),
+			ErrorClass:  call.errorClass,
+			DurationMs:  float64(time.Since(call.started).Microseconds()) / 1000,
+		})
 	}()
 	if err := decode(call, r, &req); err != nil {
 		h.fail(call, err)
-		h.s.recordEvent(Event{Event: "start_rejected", Outcome: "rejected", ErrorClass: call.errorClass})
 		return
 	}
 	call.role, call.operationID = req.Role, req.OperationID
-	h.s.recordEvent(Event{Event: "start_requested", OperationID: req.OperationID, Role: req.Role, Outcome: "requested"})
+	req.RequestID = call.requestID
 	e, err := h.s.Start(req)
 	if err != nil {
 		h.fail(call, err)
-		h.s.recordEvent(Event{Event: "start_rejected", OperationID: req.OperationID, Role: req.Role, Outcome: "rejected", ErrorClass: call.errorClass})
 		return
 	}
+	call.pid = e.pid
 
 	if req.WaitForExit {
 		// If the client goes away we stop waiting but leave the child alone.
@@ -157,35 +193,38 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		fields := append(call.fields(), "timeout", timeout.String(), "force", req.Force)
 		h.log.Infow("stop requested", fields...)
+		h.s.recordEvent(Event{
+			Action:      "stop",
+			RequestID:   call.requestID,
+			Request:     requestStop,
+			OperationID: req.OperationID,
+			Role:        req.Role,
+			PID:         call.pid,
+			Outcome:     requestOutcome(call.status),
+			Returned:    returned(call.status, call.errorClass),
+			ErrorClass:  call.errorClass,
+			DurationMs:  float64(time.Since(call.started).Microseconds()) / 1000,
+		})
 	}()
 	if err := decode(call, r, &req); err != nil {
 		h.fail(call, err)
-		h.s.recordEvent(Event{Event: "stop_rejected", Outcome: "rejected", ErrorClass: call.errorClass})
 		return
 	}
 	call.role, call.operationID = req.Role, req.OperationID
 	if err := req.validate(); err != nil {
 		h.fail(call, err)
-		h.s.recordEvent(Event{Event: "stop_rejected", OperationID: req.OperationID, Role: req.Role, Outcome: "rejected", ErrorClass: call.errorClass})
 		return
 	}
 	timeout = time.Duration(req.TimeoutSeconds * float64(time.Second))
 	status := h.s.Status()
-	pid := 0
 	if status.PID != nil {
-		pid = *status.PID
+		call.pid = *status.PID
 	}
-	h.s.recordEvent(Event{Event: "stop_requested", OperationID: req.OperationID, Role: req.Role, PID: pid, Outcome: "requested"})
-	if err := h.s.Stop(r.Context(), req.Role, timeout, req.Force); err != nil {
+	req.RequestID = call.requestID
+	if err := h.s.StopWithRequest(r.Context(), req.Role, timeout, req.Force, req.RequestID); err != nil {
 		h.fail(call, err)
-		event := "stop_rejected"
-		if errors.Is(err, ErrStopTimeout) {
-			event = "stop_timeout"
-		}
-		h.s.recordEvent(Event{Event: event, OperationID: req.OperationID, Role: req.Role, PID: pid, Outcome: "failed", ErrorClass: call.errorClass})
 		return
 	}
-	h.s.recordEvent(Event{Event: "stop_completed", OperationID: req.OperationID, Role: req.Role, PID: pid, Outcome: "stopped"})
 	h.log.Infow("process stopped", append(call.fields(), "force", req.Force)...)
 	writeJSON(call, http.StatusOK, h.s.Status())
 }

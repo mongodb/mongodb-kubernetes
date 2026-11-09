@@ -16,16 +16,26 @@ const (
 	maxEventText = 128
 )
 
-// Event is one proxy lifecycle event. It holds metadata only: no request bodies,
-// no config contents, and no child output.
+const (
+	requestStart = "POST /v1/process/start"
+	requestStop  = "POST /v1/process/stop"
+)
+
+// Event is one trace point of the proxy. Request identifies the HTTP call that
+// caused the action, Action names what the proxy did, Outcome and Returned give
+// the result, and OperationID, Role and PID tie child events to the request.
+// It holds metadata only: no request bodies, no config contents, and no child output.
 type Event struct {
 	Seq         uint64  `json:"seq"`
 	Time        string  `json:"time"`
-	Event       string  `json:"event"`
+	RequestID   string  `json:"requestId,omitempty"`
+	Request     string  `json:"request,omitempty"`
+	Action      string  `json:"action,omitempty"`
 	OperationID string  `json:"operationId,omitempty"`
 	Role        Role    `json:"role,omitempty"`
 	PID         int     `json:"pid,omitempty"`
 	Outcome     string  `json:"outcome,omitempty"`
+	Returned    string  `json:"returned,omitempty"`
 	DurationMs  float64 `json:"durationMs,omitempty"`
 	Signal      string  `json:"signal,omitempty"`
 	ErrorClass  string  `json:"errorClass,omitempty"`
@@ -59,8 +69,12 @@ func (l *eventLog) record(e Event) {
 	if e.Time == "" {
 		e.Time = time.Now().UTC().Format(time.RFC3339Nano)
 	}
-	e.Event = truncateEventText(e.Event)
+	e.RequestID = logOperationID(e.RequestID)
+	e.Request = truncateEventText(e.Request)
+	e.Action = truncateEventText(e.Action)
 	e.OperationID = logOperationID(e.OperationID)
+	e.Outcome = truncateEventText(e.Outcome)
+	e.Returned = truncateEventText(e.Returned)
 	e.ErrorClass = truncateEventText(e.ErrorClass)
 	// The role is accepted from the request before validation. Store only the known roles.
 	if e.Role != RoleMain && e.Role != RoleEphemeral {
