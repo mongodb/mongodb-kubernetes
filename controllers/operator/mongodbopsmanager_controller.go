@@ -401,6 +401,11 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return reconcileResult, err
 	}
 
+	// Deletion runs even when reconciliation is disabled, otherwise the finalizer would hold the resource forever.
+	if !opsManager.DeletionTimestamp.IsZero() {
+		return r.reconcileLicenseDeletion(ctx, opsManager, log)
+	}
+
 	if opsManager.IsReconciliationDisabled() {
 		log.Infof("OpsManager %s/%s reconciliation disabled by %s annotation; skipping",
 			opsManager.Namespace, opsManager.Name, util.DisableReconciliationAnnotation)

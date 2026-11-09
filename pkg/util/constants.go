@@ -392,6 +392,8 @@ const (
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
 
 	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
+
+	OpsManagerLicenseFinalizer = "mongodb.com/v1.opsManagerLicenseRemovalFinalizer"
 )
 
 const (
