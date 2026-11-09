@@ -814,6 +814,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
+		container.WithEnvs(staticGAEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
 		container.WithVolumeMounts(volumeMounts),
@@ -1017,6 +1018,19 @@ func staticContainersEnvVars(mdb databaseStatefulSetSource, defaultArchitecture 
 	var envVars []corev1.EnvVar
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
 		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
+	}
+	return envVars
+}
+
+func staticGAEnvVars(mdb databaseStatefulSetSource, defaultArchitecture architectures.DefaultArchitecture) []corev1.EnvVar {
+	var envVars []corev1.EnvVar
+	if architectures.IsRunningStaticGAArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
+		envVars = append(envVars, corev1.EnvVar{
+			Name: util.InfraRevisionEnv,
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['controller-revision-hash']"},
+			},
+		})
 	}
 	return envVars
 }
