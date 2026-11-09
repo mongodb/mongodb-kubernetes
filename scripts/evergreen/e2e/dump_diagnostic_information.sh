@@ -190,12 +190,55 @@ is_mdb_resource_pod() {
     kubectl --context="${context}" exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-verbose.log &>/dev/null
 }
 
+dump_pod_proxy_state() {
+    local context="${1}" pod="${2}" namespace="${3}" prefix="${4}"
+    local pod_spec response body snapshot
+    local artifact="logs/${prefix}${pod}-proxy-state.json"
+    if ! pod_spec=$(run_with_timeout kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o json); then
+        echo "WARNING: proxy diagnostic pod inspection failed for ${pod}" >&2
+        return
+    fi
+    if ! printf '%s' "${pod_spec}" | jq -e '
+        any(.spec.containers[]; .name == "mongodb-agent" and
+            any(.env[]?; .name == "MDB_MONGODB_PROXY_ADDRESS" and .value == "127.0.0.1:8099"))
+    ' > /dev/null; then
+        return
+    fi
+    # shellcheck disable=SC2016
+    if ! response=$(run_with_timeout kubectl --context="${context}" --request-timeout=15s exec -n "${namespace}" "${pod}" -c mongodb-agent -- \
+        bash -c 'exec 3<>/dev/tcp/127.0.0.1/8099 || exit 1
+printf "GET /v1/process HTTP/1.0\r\nHost: proxy\r\n\r\n" >&3
+while IFS= read -r -t 5 line <&3; do printf "%s\n" "$line"; done' 2>/dev/null); then
+        printf '{"diagnostic_error":"request_failed"}\n' > "${artifact}"
+        echo "WARNING: proxy GET /v1/process failed for ${pod}" >&2
+        return
+    fi
+    body="${response#*$'\r\n\r\n'}"
+    if [[ "${response}" != HTTP/1.?[\ ]200* ]] || ! snapshot=$(printf '%s' "${body}" | jq -ce '
+        select(.state == "idle" or .state == "running" or .state == "exited") |
+        {state, role: (if .role == "main" or .role == "ephemeral" then .role else null end),
+         operationId: (if (.operationId | type) == "string" then
+             (.operationId | if test("^[A-Za-z0-9_.-]{1,128}$") then . else null end) else null end),
+         exitCode: (if (.exitCode | type) == "number" then .exitCode else null end),
+         signal: (if (.signal | type) == "string" then
+             (.signal | if test("^SIG[A-Z0-9]+$") then . else null end) else null end)} |
+        with_entries(select(.value != null))
+    '); then
+        printf '{"diagnostic_error":"invalid_response"}\n' > "${artifact}"
+        echo "WARNING: proxy GET /v1/process returned an invalid response for ${pod}" >&2
+        return
+    fi
+    printf '%s\n' "${snapshot}" > "${artifact}"
+}
+
 # dump_pod_logs dumps agent and mongodb logs.
 dump_pod_logs() {
     local context="${1}"
     local pod="${2}"
     local namespace="${3}"
     local prefix="${4}"
+
+    dump_pod_proxy_state "${context}" "${pod}" "${namespace}" "${prefix}"
 
     if is_mdb_resource_pod "${context}" "${pod}" "${namespace}"; then
         # for MDB resource Pods, we dump the log files from the file system
