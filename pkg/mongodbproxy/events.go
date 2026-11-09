@@ -9,9 +9,6 @@ const (
 	// maxEvents bounds the in-memory history. The proxy is a small PID 1 process,
 	// so the history must never grow without a limit.
 	maxEvents = 256
-	// defaultEventLimit is the number of events returned when the caller does not
-	// ask for a specific limit.
-	defaultEventLimit = 50
 	// maxEventText bounds the free-text fields of one event.
 	maxEventText = 128
 )
@@ -90,21 +87,14 @@ func (l *eventLog) record(e Event) {
 	}
 }
 
-// snapshot returns up to limit events, newest first, and the number of events
-// that were overwritten since the proxy started.
-func (l *eventLog) snapshot(limit int) ([]Event, uint64) {
+// snapshot returns all events, newest first, and the number of events that
+// were overwritten since the proxy started.
+func (l *eventLog) snapshot() ([]Event, uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if limit <= 0 || limit > maxEvents {
-		limit = maxEvents
-	}
-	if limit > l.count {
-		limit = l.count
-	}
-
-	out := make([]Event, 0, limit)
-	for i := 1; i <= limit; i++ {
+	out := make([]Event, 0, l.count)
+	for i := 1; i <= l.count; i++ {
 		idx := (l.next - i + maxEvents) % maxEvents
 		out = append(out, l.events[idx])
 	}

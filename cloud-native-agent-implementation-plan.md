@@ -295,7 +295,7 @@ Where in the code (MCK):
 ## 4. Proxy API (`mongodb-proxy`, default `127.0.0.1:8099`)
 
 - `GET /v1/process`: state `idle`, `running` or `exited`. After an exit: exit code, signal and up to 64 KB of output. A running response also gives `startedAt` and `uptimeSeconds`. `lastExit` gives the exit code, signal, exit time and uptime of the most recent exit.
-- `GET /v1/events?limit=50`: the most recent proxy events, newest first. The history is a fixed ring of 256 events. The response gives `events`, `dropped` and `capacity`. Each event has `seq`, `time`, `requestId`, `request`, `action`, `operationId`, `role`, `pid`, `outcome`, `returned`, `durationMs`, `signal` and `errorClass`. The endpoint returns metadata only: no request bodies, config contents, or child output.
+- `GET /v1/events`: the most recent proxy events, newest first. The history is a fixed ring of 256 events. The response gives `events`, `dropped` and `capacity`. Each event has `seq`, `time`, `requestId`, `request`, `action`, `operationId`, `role`, `pid`, `outcome`, `returned`, `durationMs`, `signal` and `errorClass`. The endpoint returns metadata only: no request bodies, config contents, or child output.
 - `POST /v1/process/start`: `configPath`, `role` (`main` or `ephemeral`), `other`, `waitForExit`. Starting again with the same role while the child runs is a no-op.
 - `POST /v1/process/stop`: `timeoutSeconds`, `force`, `role`. SIGTERM, then SIGKILL after the timeout when `force` is set (immediately for a zero timeout).
 - Child lifecycle log lines carry `operation_id`, `role`, `pid`, `configPath`, `exitCode`, `signal` and `uptime_s`. A customer with `kubectl logs` sees the same events without `kubectl exec`. The HTTP API is localhost only, so `/v1/events` needs in-pod access.
