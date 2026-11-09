@@ -19,6 +19,7 @@ DEFAULT_ENTITLEMENTS = ["exemption::telemetry"]
 
 DEFAULT_VALIDITY_DAYS = 2
 
+
 # EA has not handled the request on these, so even the mint POST is safe to retry.
 TRANSIENT_STATUSES = [429, 502, 503, 504]
 
