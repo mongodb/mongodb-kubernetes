@@ -190,9 +190,27 @@ is_mdb_resource_pod() {
     kubectl --context="${context}" exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-verbose.log &>/dev/null
 }
 
+# pod_proxy_get prints the body of one proxy HTTP response. It returns non-zero
+# on a transport error or a non-200 status.
+pod_proxy_get() {
+    local context="${1}" pod="${2}" namespace="${3}" path="${4}"
+    local response
+    # shellcheck disable=SC2016
+    if ! response=$(run_with_timeout kubectl --context="${context}" --request-timeout=15s exec -n "${namespace}" "${pod}" -c mongodb-agent -- \
+        bash -c 'exec 3<>/dev/tcp/127.0.0.1/8099 || exit 1
+printf "GET %s HTTP/1.0\r\nHost: proxy\r\n\r\n" "$1" >&3
+while IFS= read -r -t 5 line <&3; do printf "%s\n" "$line"; done' _ "${path}" 2>/dev/null); then
+        return 1
+    fi
+    if [[ "${response}" != HTTP/1.?[\ ]200* ]]; then
+        return 1
+    fi
+    printf '%s' "${response#*$'\r\n\r\n'}"
+}
+
 dump_pod_proxy_state() {
     local context="${1}" pod="${2}" namespace="${3}" prefix="${4}"
-    local pod_spec response body snapshot
+    local pod_spec body snapshot
     local artifact="logs/${prefix}${pod}-proxy-state.json"
     if ! pod_spec=$(run_with_timeout kubectl --context="${context}" get pod -n "${namespace}" "${pod}" -o json); then
         echo "WARNING: proxy diagnostic pod inspection failed for ${pod}" >&2
@@ -204,28 +222,72 @@ dump_pod_proxy_state() {
     ' > /dev/null; then
         return
     fi
-    # shellcheck disable=SC2016
-    if ! response=$(run_with_timeout kubectl --context="${context}" --request-timeout=15s exec -n "${namespace}" "${pod}" -c mongodb-agent -- \
-        bash -c 'exec 3<>/dev/tcp/127.0.0.1/8099 || exit 1
-printf "GET /v1/process HTTP/1.0\r\nHost: proxy\r\n\r\n" >&3
-while IFS= read -r -t 5 line <&3; do printf "%s\n" "$line"; done' 2>/dev/null); then
+    if ! body=$(pod_proxy_get "${context}" "${pod}" "${namespace}" "/v1/process"); then
         printf '{"diagnostic_error":"request_failed"}\n' > "${artifact}"
         echo "WARNING: proxy GET /v1/process failed for ${pod}" >&2
         return
     fi
-    body="${response#*$'\r\n\r\n'}"
-    if [[ "${response}" != HTTP/1.?[\ ]200* ]] || ! snapshot=$(printf '%s' "${body}" | jq -ce '
+    if ! snapshot=$(printf '%s' "${body}" | jq -ce '
         select(.state == "idle" or .state == "running" or .state == "exited") |
-        {state, role: (if .role == "main" or .role == "ephemeral" then .role else null end),
+        {state,
+         role: (if .role == "main" or .role == "ephemeral" then .role else null end),
          operationId: (if (.operationId | type) == "string" then
              (.operationId | if test("^[A-Za-z0-9_.-]{1,128}$") then . else null end) else null end),
          exitCode: (if (.exitCode | type) == "number" then .exitCode else null end),
          signal: (if (.signal | type) == "string" then
-             (.signal | if test("^SIG[A-Z0-9]+$") then . else null end) else null end)} |
+             (.signal | if test("^([a-z]+|SIG[A-Z0-9]+)$") then . else null end) else null end),
+         startedAt: (if (.startedAt | type) == "string" then .startedAt else null end),
+         uptimeSeconds: (if (.uptimeSeconds | type) == "number" then .uptimeSeconds else null end),
+         lastExit: (if (.lastExit | type) == "object" then
+             {exitCode: (if (.lastExit.exitCode | type) == "number" then .lastExit.exitCode else null end),
+              signal: (if (.lastExit.signal | type) == "string" then
+                  (.lastExit.signal | if test("^([a-z]+|SIG[A-Z0-9]+)$") then . else null end) else null end),
+              exitedAt: (if (.lastExit.exitedAt | type) == "string" then .lastExit.exitedAt else null end),
+              uptimeSeconds: (if (.lastExit.uptimeSeconds | type) == "number" then .lastExit.uptimeSeconds else null end)} |
+             with_entries(select(.value != null))
+           else null end)} |
         with_entries(select(.value != null))
     '); then
         printf '{"diagnostic_error":"invalid_response"}\n' > "${artifact}"
         echo "WARNING: proxy GET /v1/process returned an invalid response for ${pod}" >&2
+        return
+    fi
+    printf '%s\n' "${snapshot}" > "${artifact}"
+    dump_pod_proxy_events "${context}" "${pod}" "${namespace}" "${prefix}"
+}
+
+dump_pod_proxy_events() {
+    local context="${1}" pod="${2}" namespace="${3}" prefix="${4}"
+    local body snapshot
+    local artifact="logs/${prefix}${pod}-proxy-events.json"
+    if ! body=$(pod_proxy_get "${context}" "${pod}" "${namespace}" "/v1/events?limit=256"); then
+        printf '{"diagnostic_error":"request_failed"}\n' > "${artifact}"
+        echo "WARNING: proxy GET /v1/events failed for ${pod}" >&2
+        return
+    fi
+    if ! snapshot=$(printf '%s' "${body}" | jq -ce '
+        if (.events | type) == "array" then
+          {capacity: (if (.capacity | type) == "number" then .capacity else null end),
+           dropped: (if (.dropped | type) == "number" then .dropped else null end),
+           events: [.events[] |
+             {seq: (if (.seq | type) == "number" then .seq else null end),
+              time: (if (.time | type) == "string" then .time else null end),
+              event: (if (.event | type) == "string" then .event else null end),
+              operationId: (if (.operationId | type) == "string" then
+                  (.operationId | if test("^[A-Za-z0-9_.-]{1,128}$") then . else null end) else null end),
+              role: (if .role == "main" or .role == "ephemeral" then .role else null end),
+              pid: (if (.pid | type) == "number" then .pid else null end),
+              outcome: (if (.outcome | type) == "string" then .outcome else null end),
+              durationMs: (if (.durationMs | type) == "number" then .durationMs else null end),
+              signal: (if (.signal | type) == "string" then
+                  (.signal | if test("^([a-z]+|SIG[A-Z0-9]+)$") then . else null end) else null end),
+              errorClass: (if (.errorClass | type) == "string" then .errorClass else null end)} |
+             with_entries(select(.value != null))]} |
+          with_entries(select(.value != null))
+        else null end
+    '); then
+        printf '{"diagnostic_error":"invalid_response"}\n' > "${artifact}"
+        echo "WARNING: proxy GET /v1/events returned an invalid response for ${pod}" >&2
         return
     fi
     printf '%s\n' "${snapshot}" > "${artifact}"

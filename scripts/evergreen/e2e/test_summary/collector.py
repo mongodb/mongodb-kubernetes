@@ -533,7 +533,7 @@ class TestSummaryGenerator:
                 files["describe"] = f.name
             elif suffix == "agent-health-status.json":
                 files["health"] = f.name
-            elif suffix == "proxy-state.json":
+            elif suffix in ("proxy-state.json", "proxy-events.json"):
                 files["logs"].append(f.name)
             elif suffix in ("cluster-config.json", "automation-mongod.conf"):
                 files["config"].append(f.name)
