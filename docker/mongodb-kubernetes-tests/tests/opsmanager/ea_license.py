@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
-import requests
+from kubetester.http import get_retriable_https_session
 from tests import test_logger
 
 logger = test_logger.get_test_logger(__name__)
@@ -20,6 +20,9 @@ EA_CONTROL_PLANE_URL = "https://cloud-dev.mongodb.com"
 DEFAULT_ENTITLEMENTS = ["exemption::telemetry"]
 
 DEFAULT_VALIDITY_DAYS = 2
+
+# EA has not handled the request on these, so even the mint POST is safe to retry.
+TRANSIENT_STATUSES = [429, 502, 503, 504]
 
 
 def _iso(moment: datetime) -> str:
@@ -37,7 +40,8 @@ class GsaCredentials:
 
 
 def fetch_token(credentials: GsaCredentials) -> str:
-    response = requests.post(
+    session = get_retriable_https_session(tls_verify=True, status_forcelist=TRANSIENT_STATUSES, allowed_methods=None)
+    response = session.post(
         f"{EA_CONTROL_PLANE_URL}/api/oauth/token",
         auth=(credentials.client_id, credentials.client_secret),
         data={"grant_type": "client_credentials"},
@@ -79,7 +83,8 @@ def mint_license(
             "metadata": {"source": "mck-ci"},
         },
     }
-    response = requests.post(
+    session = get_retriable_https_session(tls_verify=True, status_forcelist=TRANSIENT_STATUSES, allowed_methods=None)
+    response = session.post(
         f"{EA_CONTROL_PLANE_URL}/api/private/enterpriseAdvanced/tessera/issue",
         headers={"Authorization": f"Bearer {fetch_token(credentials)}"},
         json=body,
@@ -94,7 +99,8 @@ def mint_license(
 
 def read_artifact_inventory(credentials: GsaCredentials, principal_id: str) -> Dict[str, Dict]:
     """This principal's artifacts in the EA inventory, keyed by artifact id."""
-    response = requests.get(
+    session = get_retriable_https_session(tls_verify=True, status_forcelist=TRANSIENT_STATUSES, allowed_methods=None)
+    response = session.get(
         f"{EA_CONTROL_PLANE_URL}/api/private/enterpriseAdvanced/tessera/artifacts",
         params={"principal_id": principal_id, "limit": 100},
         headers={"Authorization": f"Bearer {fetch_token(credentials)}"},
