@@ -1,4 +1,4 @@
-"""Regression tests for the generic readiness helper and the operator resolution helper.
+"""Regression tests for the generic readiness helpers.
 
 Each test covers one defect that a #8863 e2e task hit: a component with zero members, pod selection by name prefix
 instead of ownership, the single readiness read after the wait, and the Vault container count. The last section
@@ -17,7 +17,6 @@ from kubetester.kubetester import (
     assert_no_statefulset_pods,
     automation_process_name,
     released_agent_config,
-    statefulset_pod_selector,
     statefulset_pods,
     with_custom_env_var,
 )
@@ -96,10 +95,6 @@ def statefulset(name, replicas, uid="sts-uid"):
 
 
 # --- pod selection -------------------------------------------------------------------------------------------
-
-
-def test_pod_selector_uses_the_statefulset_labels():
-    assert statefulset_pod_selector(statefulset("mdb-rs", 3)) == "app=mdb-rs-svc"
 
 
 def test_statefulset_pods_excludes_similarly_named_workloads(monkeypatch):
@@ -225,81 +220,6 @@ def test_database_pod_container_count_per_architecture(monkeypatch, architecture
         assert_database_pod_container_count(expected + 1)
 
 
-# --- operator resolution -------------------------------------------------------------------------------------
-
-
-def installation_config():
-    return {
-        "operator.mdbDefaultArchitecture": "static-ga",
-        "registry.operator": "quay.io/mongodb",
-        "operator.version": "1.15.1",
-        "agent.customAgentUrl": "https://example.invalid/mongodb-mms-automation-agent-110.0.0.9423-1.linux_x86_64.tar.gz",
-        "registry.mongodbProxy": "quay.io/mongodb",
-        "mongodbProxy.name": "mongodb-kubernetes-mongodb-proxy",
-        "mongodbProxy.version": "1.15.1",
-    }
-
-
-def test_operator_resolution_reads_the_resource_namespace(monkeypatch):
-    """An MCK-to-MCK migration runs the target operator in the target namespace."""
-    monkeypatch.setenv("MDB_DEFAULT_ARCHITECTURE", "static-ga")
-    monkeypatch.setenv("NAMESPACE", "source-ns")
-    core = MagicMock()
-    core.read_namespaced_config_map.return_value.data = installation_config()
-    apps = MagicMock()
-    apps.list_namespaced_deployment.return_value.items = []
-    monkeypatch.setattr(kubernetes.client, "CoreV1Api", lambda api_client=None: core)
-    monkeypatch.setattr(kubernetes.client, "AppsV1Api", lambda api_client=None: apps)
-    monkeypatch.setattr(
-        KubernetesTester,
-        "_active_olm_deployments",
-        staticmethod(lambda namespace, api_client=None: {}),
-    )
-    monkeypatch.setattr(
-        "kubetester.kubetester.validate_static_ga_config",
-        lambda config: None,
-    )
-
-    with pytest.raises(AssertionError, match="active current or historical operator"):
-        # The target namespace has the config but no operator deployment, so convergence is unproven.
-        KubernetesTester.static_ga_config_for_current_operator(namespace="target-ns")
-
-    core.read_namespaced_config_map.assert_called_once_with("operator-installation-config", "target-ns")
-    apps.list_namespaced_deployment.assert_called_once_with("target-ns")
-
-
-def test_operator_resolution_falls_back_to_the_operator_namespace(monkeypatch):
-    monkeypatch.setenv("MDB_DEFAULT_ARCHITECTURE", "static-ga")
-    monkeypatch.setenv("NAMESPACE", "operator-ns")
-    core = MagicMock()
-    core.read_namespaced_config_map.side_effect = kubernetes.client.exceptions.ApiException(status=404)
-    monkeypatch.setattr(kubernetes.client, "CoreV1Api", lambda api_client=None: core)
-    monkeypatch.setattr(kubernetes.client, "AppsV1Api", lambda api_client=None: MagicMock())
-
-    with pytest.raises(AssertionError, match="requires operator-installation-config"):
-        KubernetesTester.static_ga_config_for_current_operator(namespace="other-ns")
-
-
-def test_operator_resolution_fails_when_the_operator_namespace_has_no_config(monkeypatch):
-    monkeypatch.setenv("MDB_DEFAULT_ARCHITECTURE", "static-ga")
-    monkeypatch.setenv("NAMESPACE", "operator-ns")
-    core = MagicMock()
-    core.read_namespaced_config_map.side_effect = kubernetes.client.exceptions.ApiException(status=404)
-    monkeypatch.setattr(kubernetes.client, "CoreV1Api", lambda api_client=None: core)
-    with pytest.raises(AssertionError, match="requires operator-installation-config"):
-        KubernetesTester.static_ga_config_for_current_operator()
-
-
-def test_operator_resolution_raises_other_api_errors(monkeypatch):
-    monkeypatch.setenv("MDB_DEFAULT_ARCHITECTURE", "static-ga")
-    monkeypatch.setenv("NAMESPACE", "operator-ns")
-    core = MagicMock()
-    core.read_namespaced_config_map.side_effect = kubernetes.client.exceptions.ApiException(status=403)
-    monkeypatch.setattr(kubernetes.client, "CoreV1Api", lambda api_client=None: core)
-    with pytest.raises(kubernetes.client.exceptions.ApiException):
-        KubernetesTester.static_ga_config_for_current_operator()
-
-
 # --- automation process names --------------------------------------------------------------------------------
 
 
@@ -358,15 +278,12 @@ def test_generic_pod_helper_does_not_assert_proxy_internals(monkeypatch):
         calls[name] = probe
     architecture = MagicMock()
     monkeypatch.setattr("kubetester.kubetester.assert_statefulset_architecture", architecture)
-    validate = MagicMock()
-    monkeypatch.setattr("kubetester.kubetester.validate_static_ga_config", validate)
 
     KubernetesTester.assert_static_ga_pods(sts, NAMESPACE, database_running=True)
 
     for name, probe in calls.items():
         probe.assert_not_called()
     architecture.assert_not_called()
-    validate.assert_not_called()
 
 
 def test_phase_wait_does_not_enumerate_statefulsets(monkeypatch):

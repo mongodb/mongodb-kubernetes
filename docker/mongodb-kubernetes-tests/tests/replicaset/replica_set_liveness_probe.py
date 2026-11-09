@@ -11,11 +11,11 @@ from pytest import fixture
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version: str, operator_installation_config: dict[str, str]) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-liveness.yaml"), "my-replica-set", namespace, with_mdb_version_from_env=False
     )
-    if KubernetesTester.static_ga_config_for_current_operator() is not None:
+    if operator_installation_config.get("operator.mdbDefaultArchitecture") == "static-ga":
         resource["spec"]["version"] = custom_mdb_version
         # All members must start while unready, and the proxy must never spawn mongod.
         resource["spec"]["statefulSet"] = {
@@ -54,7 +54,7 @@ def _get_pods(podname_template: str, qty: int = 3):
 @skip_if_static_containers
 @pytest.mark.e2e_replica_set_liveness_probe
 @pytest.mark.flaky(reruns=10, reruns_delay=30)
-def test_pods_are_running(replica_set: MongoDB, namespace: str):
+def test_pods_are_running(replica_set: MongoDB, namespace: str, operator_installation_config: dict[str, str]):
     corev1_client = client.CoreV1Api()
     running_pods: Set[str] = set()
     # Wait for all the pods to be running
@@ -65,11 +65,11 @@ def test_pods_are_running(replica_set: MongoDB, namespace: str):
         if pod.status.phase == "Running":
             running_pods.add(podname)
     assert len(running_pods) == 3
-    assert_idle_static_ga_pods(replica_set)
+    assert_idle_static_ga_pods(replica_set, operator_installation_config)
 
 
-def assert_idle_static_ga_pods(replica_set: MongoDB):
-    if KubernetesTester.static_ga_config_for_current_operator() is None:
+def assert_idle_static_ga_pods(replica_set: MongoDB, operator_installation_config: dict[str, str]):
+    if operator_installation_config.get("operator.mdbDefaultArchitecture") != "static-ga":
         return
     statefulset = replica_set.read_statefulset()
     assert statefulset.spec.replicas == replica_set["spec"]["members"] > 0
@@ -78,7 +78,7 @@ def assert_idle_static_ga_pods(replica_set: MongoDB):
 
 @skip_if_static_containers
 @pytest.mark.e2e_replica_set_liveness_probe
-def test_no_pods_get_restarted(replica_set: MongoDB, namespace: str):
+def test_no_pods_get_restarted(replica_set: MongoDB, namespace: str, operator_installation_config: dict[str, str]):
     corev1_client = client.CoreV1Api()
     statefulset_liveness_probe = replica_set.read_statefulset().spec.template.spec.containers[0].liveness_probe
     failure_threshold = statefulset_liveness_probe.failure_threshold
@@ -91,7 +91,7 @@ def test_no_pods_get_restarted(replica_set: MongoDB, namespace: str):
 
         # Pods should not restart because of a missing mongod process
         assert pod.status.container_statuses[0].restart_count == 0
-    assert_idle_static_ga_pods(replica_set)
+    assert_idle_static_ga_pods(replica_set, operator_installation_config)
 
 
 @skip_if_static_containers

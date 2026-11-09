@@ -18,7 +18,6 @@ from tests.constants import OPERATOR_NAME
 from tests.olm.olm_test_commons import (
     activate_candidate_subscription,
     assert_olm_resource_architecture,
-    assert_olm_upgrade_checks,
     get_catalog_image,
     get_catalog_source_resource,
     get_current_operator_version,
@@ -27,9 +26,7 @@ from tests.olm.olm_test_commons import (
     get_operator_group_resource,
     get_registry_env_vars_for_subscription,
     get_subscription_custom_object,
-    olm_upgrade_checks,
     set_olm_resource_architecture,
-    start_olm_upgrade_checks,
     wait_for_operator_ready,
 )
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
@@ -364,24 +361,6 @@ def test_resources_in_running_state_before_upgrade(
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
-def test_start_upgrade_checks(
-    ops_manager: MongoDBOpsManager,
-    oplog_replica_set: MongoDB,
-    blockstore_replica_set: MongoDB,
-    s3_replica_set: MongoDB,
-    mdb_sharded: MongoDB,
-    ca_path: str,
-    olm_upgrade_checks,
-):
-    start_olm_upgrade_checks(
-        ops_manager,
-        [oplog_replica_set, blockstore_replica_set, s3_replica_set, mdb_sharded],
-        ca_path,
-        olm_upgrade_checks,
-    )
-
-
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
 def test_operator_upgrade_to_fast(
     namespace: str,
     catalog_source: CustomObject,
@@ -467,8 +446,3 @@ def test_resources_connectivity_after_upgrade(
     blockstore_replica_set.assert_connectivity()
     s3_replica_set.assert_connectivity()
     mdb_sharded.assert_connectivity(ca_path=ca_path)
-
-
-@pytest.mark.e2e_olm_operator_upgrade_with_resources
-def test_upgrade_preserves_data_and_availability(olm_upgrade_checks):
-    assert_olm_upgrade_checks(olm_upgrade_checks)

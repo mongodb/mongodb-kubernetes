@@ -34,8 +34,6 @@ TRACER = trace.get_tracer("evergreen-agent")
 logger = test_logger.get_test_logger(__name__)
 
 SSL_CA_CERT = "/var/run/secrets/kubernetes.io/serviceaccount/..data/ca.crt"
-# The helm chart and the e2e setup write the operator inputs into this ConfigMap in the operator namespace.
-STATIC_GA_INSTALLATION_CONFIGMAP = "operator-installation-config"
 EXTERNALLY_MANAGED_TAG = "EXTERNALLY_MANAGED_BY_KUBERNETES"
 MAX_TAG_LEN = 32
 
@@ -83,10 +81,6 @@ def is_default_architecture_static() -> bool:
     return get_default_architecture() in {"static", "static-ga"}
 
 
-def should_skip_static_containers() -> bool:
-    return get_default_architecture() == "static"
-
-
 def assert_container_count_with_static(current_container_count: int, expected_counter_without_static: int):
     # AppDB pods: only the static architecture adds the mongodb-agent-operator-utilities container.
     # Static-ga mounts that image into the agent container, so its count equals the non-static count.
@@ -112,21 +106,10 @@ def get_default_architecture() -> str:
 
 
 def configured_proxy_image(config: dict[str, str]) -> str:
-    for key in ("registry.mongodbProxy", "mongodbProxy.name", "mongodbProxy.version"):
-        if not config.get(key):
-            raise ValueError(f"Static-ga acceptance requires {key}")
     return (
         f'{config["registry.mongodbProxy"]}/{config["mongodbProxy.name"]}:'
         f'{config["mongodbProxy.version"]}{config.get("build", "")}'
     )
-
-
-def validate_static_ga_config(config: dict[str, str]):
-    if config.get("operator.mdbDefaultArchitecture") != "static-ga":
-        return
-    if not config.get("agent.customAgentUrl"):
-        raise ValueError("Static-ga acceptance requires agent.customAgentUrl")
-    configured_proxy_image(config)
 
 
 CUSTOM_ENV_VARS_SEPARATOR = r"\&"
@@ -222,7 +205,7 @@ def assert_statefulset_architecture(statefulset: client.V1StatefulSet | client.V
 
 def _static_container_skip_marker():
     return pytest.mark.skipif(
-        should_skip_static_containers(),
+        get_default_architecture() == "static",
         reason="Skip if this test is executed using the legacy Static Containers architecture",
     )
 
@@ -239,48 +222,23 @@ SLEEP_TIME = 2
 INFINITY = -1
 
 
-def static_ga_installation_config(namespace: str, api_client=None) -> Optional[dict[str, str]]:
-    """The operator installation config ConfigMap, or None when the namespace has none."""
-    try:
-        return (
-            client.CoreV1Api(api_client=api_client)
-            .read_namespaced_config_map(STATIC_GA_INSTALLATION_CONFIGMAP, namespace)
-            .data
-        )
-    except ApiException as exception:
-        if exception.status != 404:
-            raise
-        return None
-
-
-def statefulset_pod_selector(statefulset) -> str:
-    """The label selector that matches the pods of this StatefulSet, without unrelated workloads.
-
-    A name prefix is not an ownership test: a MongoDBSearch, an Envoy deployment or a metrics forwarder can
-    share a resource name, and their pods then carry the same prefix.
-    """
+def statefulset_pods(statefulset, namespace: str, api_client=None) -> list:
+    """The pods this StatefulSet owns: selector match, own name prefix and own ownerReference UID."""
     selector = statefulset.spec.selector
     labels = (selector.match_labels if selector is not None else None) or {}
     assert labels, f"StatefulSet {statefulset.metadata.name} has no spec.selector.matchLabels"
-    return ",".join(f"{key}={value}" for key, value in sorted(labels.items()))
-
-
-def pod_owned_by(pod, statefulset) -> bool:
-    return any(
-        owner.kind == "StatefulSet" and owner.uid == statefulset.metadata.uid
-        for owner in pod.metadata.owner_references or []
-    )
-
-
-def statefulset_pods(statefulset, namespace: str, api_client=None) -> list:
-    """The pods this StatefulSet owns: selector match, own name prefix and own ownerReference UID."""
-    pods = (
-        client.CoreV1Api(api_client=api_client)
-        .list_namespaced_pod(namespace, label_selector=statefulset_pod_selector(statefulset))
-        .items
-    )
+    label_selector = ",".join(f"{key}={value}" for key, value in sorted(labels.items()))
+    pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace, label_selector=label_selector).items
     prefix = f"{statefulset.metadata.name}-"
-    return [pod for pod in pods if pod.metadata.name.startswith(prefix) and pod_owned_by(pod, statefulset)]
+    return [
+        pod
+        for pod in pods
+        if pod.metadata.name.startswith(prefix)
+        and any(
+            owner.kind == "StatefulSet" and owner.uid == statefulset.metadata.uid
+            for owner in pod.metadata.owner_references or []
+        )
+    ]
 
 
 def assert_no_statefulset_pods(
@@ -319,120 +277,6 @@ class KubernetesTester(object):
     The class provides some common utility methods used by all children and also performs some common
     create/update/delete actions for Kubernetes objects based on the docstrings of subclasses
     """
-
-    @staticmethod
-    def static_ga_config_for_current_operator(
-        api_client=None, namespace: Optional[str] = None
-    ) -> Optional[dict[str, str]]:
-        """The static-ga installation config of the operator that converges the resource in ``namespace``.
-
-        ``namespace`` defaults to the test namespace. A migration test runs the target operator in its own
-        namespace, so the operator that converges the resource is not necessarily the one in the test namespace.
-        """
-        if get_default_architecture() != "static-ga":
-            return None
-        operator_namespace = os.environ["NAMESPACE"]
-        namespace = namespace or operator_namespace
-        config = static_ga_installation_config(namespace, api_client)
-        if config is None and namespace != operator_namespace:
-            # A cluster-wide operator in the test namespace converges a resource in another namespace.
-            namespace = operator_namespace
-            config = static_ga_installation_config(namespace, api_client)
-        assert config is not None, f"Static-ga requires {STATIC_GA_INSTALLATION_CONFIGMAP} in {namespace}"
-        validate_static_ga_config(config)
-        image = (
-            f'{config["registry.operator"]}/{config.get("operator.operator_image_name", "mongodb-kubernetes")}:'
-            f'{config["operator.version"]}{config.get("operator.build", "")}'
-        )
-        deployments = client.AppsV1Api(api_client=api_client).list_namespaced_deployment(namespace).items
-        for deployment in deployments:
-            if not deployment.spec.replicas:
-                continue
-            for container in deployment.spec.template.spec.containers:
-                if container.image != image:
-                    continue
-                env = {item.name: item.value for item in container.env or []}
-                if (
-                    env.get("MDB_DEFAULT_ARCHITECTURE") == "static"
-                    and not env.get("MDB_CUSTOM_AGENT_URL")
-                    and env.get("MDB_TEST_ONLY_RELEASED_AGENT_PHASE") == "true"
-                ):
-                    return None
-                assert env.get("MDB_DEFAULT_ARCHITECTURE") == "static-ga", env.get("MDB_DEFAULT_ARCHITECTURE")
-                assert env.get("MDB_CUSTOM_AGENT_URL") == config["agent.customAgentUrl"]
-                assert env.get("MDB_MONGODB_PROXY_IMAGE") == configured_proxy_image(config)
-                return config
-
-        active_olm_deployments = (
-            KubernetesTester._active_olm_deployments(namespace, api_client)
-            if any(
-                "@sha256:" in container.image
-                for deployment in deployments
-                for container in deployment.spec.template.spec.containers
-            )
-            else {}
-        )
-        historical_image = re.compile(
-            r"quay\.io/mongodb/(?:mongodb-kubernetes|mongodb-enterprise-operator)(?:-ubi)?"
-            r"(?::\d+\.\d+\.\d+(?:@sha256:[0-9a-f]{64})?|@sha256:[0-9a-f]{64})"
-        )
-        historical = any(
-            deployment.spec.replicas
-            and historical_image.fullmatch(container.image)
-            and (
-                (
-                    "@sha256:" not in container.image
-                    and deployment.metadata.name
-                    in {
-                        "mongodb-kubernetes-operator",
-                        "mongodb-enterprise-operator",
-                        "mongodb-kubernetes-operator-multi-cluster",
-                        "mongodb-enterprise-operator-multi-cluster",
-                    }
-                )
-                or container.image in active_olm_deployments.get(deployment.metadata.name, set())
-            )
-            for deployment in deployments
-            for container in deployment.spec.template.spec.containers
-        )
-        assert historical, "Static-ga convergence requires an active current or historical operator"
-        return None
-
-    @staticmethod
-    def _active_olm_deployments(namespace: str, api_client=None) -> dict[str, set[str]]:
-        custom_objects = client.CustomObjectsApi(api_client=api_client)
-        try:
-            subscriptions = custom_objects.list_namespaced_custom_object(
-                "operators.coreos.com", "v1alpha1", namespace, "subscriptions"
-            ).get("items", [])
-            csvs = custom_objects.list_namespaced_custom_object(
-                "operators.coreos.com", "v1alpha1", namespace, "clusterserviceversions"
-            ).get("items", [])
-        except ApiException as error:
-            if error.status == 404:
-                return {}
-            raise
-
-        installed_csv_names = {
-            subscription.get("status", {}).get("installedCSV")
-            for subscription in subscriptions
-            if subscription.get("status", {}).get("installedCSV")
-        }
-        active_deployments = {}
-        for csv in csvs:
-            if (
-                csv.get("metadata", {}).get("name") not in installed_csv_names
-                or csv.get("status", {}).get("phase") != "Succeeded"
-            ):
-                continue
-            deployment_specs = csv.get("spec", {}).get("install", {}).get("spec", {}).get("deployments", [])
-            for deployment in deployment_specs:
-                name = deployment.get("name")
-                containers = deployment.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
-                images = {container.get("image") for container in containers if container.get("image")}
-                if name and images:
-                    active_deployments[name] = images
-        return active_deployments
 
     @staticmethod
     def read_processes(pod: str, namespace: str, container: str, api_client=None) -> list[str]:

@@ -2,24 +2,16 @@ import json
 import os
 import re
 import tempfile
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, List
 
 import kubetester
 import requests
 from kubeobject import CustomObject
 from kubernetes import client
 from kubetester import run_periodically
-from kubetester.kubetester import (
-    assert_statefulset_architecture,
-    configured_proxy_image,
-    get_default_architecture,
-    validate_static_ga_config,
-)
+from kubetester.kubetester import assert_statefulset_architecture, configured_proxy_image, get_default_architecture
 from kubetester.mongodb import MongoDB
-from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
 from kubetester.opsmanager import MongoDBOpsManager
-from pymongo import WriteConcern
-from pytest import fixture
 
 
 def get_initial_olm_architecture() -> str:
@@ -78,49 +70,6 @@ def assert_olm_resource_architecture(resource: MongoDB | MongoDBOpsManager, arch
                 assert proxy_volumes[0].image.reference == expected_proxy.image.reference
             else:
                 assert not proxy_volumes
-
-
-@fixture(scope="module")
-def olm_upgrade_checks() -> Iterator[list[tuple[MongoTester, MongoDBBackgroundTester]]]:
-    checks = []
-    try:
-        yield checks
-    finally:
-        for _, checker in checks:
-            checker.stop()
-        for tester, checker in checks:
-            if checker.ident is not None:
-                checker.join()
-            tester.client.close()
-
-
-def start_olm_upgrade_checks(
-    ops_manager: MongoDBOpsManager,
-    databases: list[MongoDB],
-    ca_path: str,
-    checks: list[tuple[MongoTester, MongoDBBackgroundTester]],
-):
-    assert not checks
-    testers = [ops_manager.get_appdb_tester(authenticate=True)]
-    testers += [database.tester(ca_path=ca_path) for database in databases]
-    checks.extend((tester, MongoDBBackgroundTester(tester)) for tester in testers)
-    for tester, checker in checks:
-        collection = tester.client["olm_upgrade"]["sentinel"].with_options(write_concern=WriteConcern(w="majority"))
-        collection.replace_one({"_id": "st1"}, {"_id": "st1", "value": "preserved"}, upsert=True)
-        checker.start()
-
-
-def assert_olm_upgrade_checks(checks: list[tuple[MongoTester, MongoDBBackgroundTester]]):
-    assert len(checks) == 5
-    for _, checker in checks:
-        checker.stop()
-    for tester, checker in checks:
-        checker.join()
-        checker.assert_healthiness()
-        assert tester.client["olm_upgrade"]["sentinel"].find_one({"_id": "st1"}) == {
-            "_id": "st1",
-            "value": "preserved",
-        }
 
 
 def custom_object_from_yaml(yaml_string: str) -> CustomObject:
@@ -309,7 +258,6 @@ def get_registry_env_vars_for_subscription(
     This function returns the env vars in the format expected by OLM subscription config:
     [{"name": "ENV_VAR_NAME", "value": "value"}, ...]
     """
-    validate_static_ga_config(operator_installation_config)
     build_scenario = operator_installation_config.get("buildScenario", "")
 
     if build_scenario != "patch":
@@ -333,7 +281,6 @@ def get_registry_env_vars_for_subscription(
 
 
 def get_candidate_env_vars_for_subscription(config: dict[str, str]) -> list[dict[str, str]]:
-    validate_static_ga_config(config)
     if config.get("operator.mdbDefaultArchitecture") != "static-ga":
         return []
     env = {

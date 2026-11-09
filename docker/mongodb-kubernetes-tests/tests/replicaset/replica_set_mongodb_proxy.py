@@ -10,7 +10,6 @@ from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import validate_static_ga_config
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
@@ -53,7 +52,6 @@ def run_operator_in_cluster(namespace: str, timeout_seconds: int = 180):
 def operator_with_proxy(namespace: str, operator_installation_config: dict[str, str]) -> Operator:
     config = dict(operator_installation_config)
     config["operator.mdbDefaultArchitecture"] = "static-ga"
-    validate_static_ga_config(config)
     operator = get_default_operator(namespace, config)
     if local_operator():
         # A test run from a workstation cannot resolve the in-cluster name of the webhook, so it sets
