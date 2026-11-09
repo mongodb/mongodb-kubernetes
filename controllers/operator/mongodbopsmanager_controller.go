@@ -1330,6 +1330,24 @@ func detailedAPIErrorMsg(adminKeySecretName types.NamespacedName) string {
 		util.OmPrivateKey)
 }
 
+// opsManagerCA returns the CA used to reach Ops Manager, when a custom one is configured.
+func (r *OpsManagerReconciler) opsManagerCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (*string, error) {
+	if !opsManager.IsTLSEnabled() {
+		return nil, nil
+	}
+	opsManagerCA := opsManager.Spec.GetOpsManagerCA()
+	if opsManagerCA == "" {
+		log.Info("Custom CA was not provided, will use host root CA")
+		return nil, nil
+	}
+	//nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
+	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(opsManager.Namespace, opsManagerCA))
+	if err != nil {
+		return nil, err
+	}
+	return new(cm.Data["mms-ca.crt"]), nil
+}
+
 // prepareOpsManager ensures the admin user is created and the admin public key exists. It returns the instance of
 // api.OpsManagerAdmin to perform future Ops Manager configuration
 // Note the exception handling logic - if the controller fails to save the public API key secret - it cannot fix this
@@ -1360,15 +1378,9 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 	var ca *string
 	if opsManager.IsTLSEnabled() {
 		log.Debug("TLS is enabled, creating the first user with the mms-ca.crt")
-		opsManagerCA := opsManager.Spec.GetOpsManagerCA()
-		if opsManagerCA == "" {
-			log.Info("Custom CA was not provided, will use host root CA")
-		} else {
-			cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(opsManager.Namespace, opsManagerCA)) //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
-			if err != nil {
-				return workflow.Failed(xerrors.Errorf("failed to retrieve om ca certificate to create the initial user: %w", err)).WithRetry(30), nil
-			}
-			ca = new(cm.Data["mms-ca.crt"])
+		ca, err = r.opsManagerCA(ctx, opsManager, log)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to retrieve om ca certificate to create the initial user: %w", err)).WithRetry(30), nil
 		}
 	}
 
@@ -1432,19 +1444,27 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 			detailedAPIErrorMsg(adminKeySecretName), msg)).WithRetry(30), nil
 	}
 
+	admin, err := r.opsManagerAdmin(ctx, opsManager, centralURL, ca, log)
+	if err != nil {
+		return workflow.Failed(err), nil
+	}
+	return workflow.OK(), admin
+}
+
+// opsManagerAdmin builds the admin client from the api key Secret the operator created.
+func (r *OpsManagerReconciler) opsManagerAdmin(ctx context.Context, opsManager *omv1.MongoDBOpsManager, centralURL string, ca *string, log *zap.SugaredLogger) (api.OpsManagerAdmin, error) {
+	operatorVaultPath := r.VaultClient.OperatorSecretPathOrEmpty()
 	// Ops Manager api key Secret has the same structure as the MongoDB credentials secret
 	APIKeySecretName, err := opsManager.APIKeySecretName(ctx, r.SecretClient, operatorVaultPath)
 	if err != nil {
-		return workflow.Failed(err), nil
+		return nil, err
 	}
 
 	cred, err := project.ReadCredentials(ctx, r.SecretClient, kube.ObjectKey(operatorNamespace(), APIKeySecretName), log)
 	if err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to locate the api key secret. The error : %w", err)), nil
+		return nil, xerrors.Errorf("failed to locate the api key secret. The error : %w", err)
 	}
-
-	admin := r.omAdminProvider(centralURL, cred.PublicAPIKey, cred.PrivateAPIKey, ca)
-	return workflow.OK(), admin
+	return r.omAdminProvider(centralURL, cred.PublicAPIKey, cred.PrivateAPIKey, ca), nil
 }
 
 // prepareBackupInOpsManager makes the changes to backup admin configuration based on the Ops Manager spec
