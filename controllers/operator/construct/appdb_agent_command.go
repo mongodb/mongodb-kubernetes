@@ -2,6 +2,7 @@ package construct
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 
@@ -29,11 +30,7 @@ const (
 func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, podVars *env.PodEnvVars) (corev1.ConfigMap, error) {
 	parameters := appDB.AutomationAgent.StartupParameters
 	agent := AgentContainer(sts)
-	// Reject a custom AGENT_FLAGS here too, so AppDB behaves like every other resource type.
 	if agent != nil {
-		if err := ValidateNoCustomAgentFlags(*agent); err != nil {
-			return corev1.ConfigMap{}, err
-		}
 		if err := ValidateNoRuntimeAgentSettingsEnv(*agent); err != nil {
 			return corev1.ConfigMap{}, err
 		}
@@ -55,7 +52,11 @@ func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, 
 		settings["logFile"] = logFile
 		settings["maxLogFileDurationHrs"] = strconv.Itoa(appDB.GetAgentMaxLogFileDurationHours())
 	}
-	overrides := effectiveAgentSettingsOverrides(parameters)
+	// Match the database merge: an empty mmsBaseUrl or mmsApiKeyExec cannot mean "set this to empty".
+	overrides := maps.Clone(parameters)
+	maps.DeleteFunc(overrides, func(key, value string) bool {
+		return value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec")
+	})
 	_, rawKeyOverride := overrides["mmsApiKey"]
 	for key, value := range overrides {
 		if key == "mmsApiKey" || key == "overrideLocalHost" {
