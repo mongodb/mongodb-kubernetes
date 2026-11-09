@@ -65,6 +65,32 @@ func TestAPIStartGetStop(t *testing.T) {
 	assert.Equal(t, StateExited, getStatus(t, srv).State)
 }
 
+// TestAPIStartAcceptsAgentNumaPolicy verifies the proxy accepts the start body
+// the Agent sends and returns the launch metadata the Agent reads. The Agent adds
+// "numaPolicy":"auto" for every start, so the strict decoder must know the field.
+func TestAPIStartAcceptsAgentNumaPolicy(t *testing.T) {
+	f, srv := newServer(t)
+	cfg := f.config("main", "run")
+
+	var st Status
+	code := post(t, srv.URL+"/v1/process/start", map[string]any{
+		"configPath": cfg,
+		"role":       "main",
+		"other": map[string]any{
+			"binary":         "mongod",
+			"numaPolicy":     "auto",
+			"ldapCaPath":     "/etc/ldap/ca.pem",
+			"kerberosKeytab": "/etc/krb5.keytab",
+		},
+	}, &st)
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, StateRunning, st.State)
+	require.NotNil(t, st.PID)
+	require.NotNil(t, st.LaunchEnvironment)
+	assert.Equal(t, "/etc/ldap/ca.pem", st.LaunchEnvironment.LdapCaPath)
+	assert.Equal(t, "/etc/krb5.keytab", st.LaunchEnvironment.KerberosKeytab)
+}
+
 func TestAPIStartWaitForExitReturnsExitStatus(t *testing.T) {
 	f, srv := newServer(t)
 

@@ -80,6 +80,10 @@ type Other struct {
 	DisableTHP bool `json:"disableTHP,omitempty"`
 	// NumaInterleave runs the child under "numactl --interleave=all".
 	NumaInterleave bool `json:"numaInterleave,omitempty"`
+	// NumaPolicy is the Agent's NUMA policy. "auto" runs the child under
+	// "numactl --interleave=all" when numactl is available, matching the Agent's
+	// direct-process path. The Agent sends "auto" for every start request.
+	NumaPolicy string `json:"numaPolicy,omitempty"`
 }
 
 // StartRequest is the body of POST /v1/process/start.
