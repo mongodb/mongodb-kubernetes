@@ -239,6 +239,38 @@ func TestNumaInterleaveRunsUnderNumactl(t *testing.T) {
 	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
 }
 
+func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
+	f := newFixture(t)
+	cfg := f.config("main", "run")
+	e, err := f.sup.Start(StartRequest{
+		ConfigPath:  cfg,
+		Role:        RoleMain,
+		OperationID: "operation-1",
+		Other: Other{
+			LdapCaPath:     "/etc/ldap/ca.pem",
+			KerberosKeytab: "/etc/krb5.keytab",
+		},
+	})
+	require.NoError(t, err)
+	f.waitReady(cfg)
+
+	st := f.sup.Status()
+	require.NotNil(t, st.PID)
+	assert.Equal(t, e.pid, *st.PID)
+	require.NotNil(t, st.LaunchEnvironment)
+	assert.Equal(t, "/etc/ldap/ca.pem", st.LaunchEnvironment.LdapCaPath)
+	assert.Equal(t, "/etc/krb5.keytab", st.LaunchEnvironment.KerberosKeytab)
+	assert.Equal(t, "operation-1", st.OperationID)
+
+	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 5*time.Second, false))
+	waitDone(t, e)
+
+	st = f.sup.Status()
+	assert.Nil(t, st.PID, "pid is only present while the child runs")
+	assert.Nil(t, st.LaunchEnvironment, "launch environment is only present while the child runs")
+	assert.Equal(t, "operation-1", st.OperationID)
+}
+
 func TestNumaInterleaveWithoutNumactlStartsWithoutIt(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.Remove(filepath.Join(f.dir, binaryNumactl)))
