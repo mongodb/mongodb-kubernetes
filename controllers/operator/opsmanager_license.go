@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -143,14 +144,20 @@ func (h *LicenseReconcilerHelper) syncLicenseFinalizer(ctx context.Context, want
 		return workflow.OK()
 	}
 
+	// A patch keeps the spec out of the request, since a full update fails CRD validation on unset required fields.
+	// Like annotations.SetAnnotations it patches a copy, so the response does not overwrite the in memory spec.
+	patched := h.opsManager.DeepCopy()
+	patch := client.MergeFromWithOptions(h.opsManager, client.MergeFromWithOptimisticLock{})
 	if wanted {
-		controllerutil.AddFinalizer(h.opsManager, util.OpsManagerLicenseFinalizer)
+		controllerutil.AddFinalizer(patched, util.OpsManagerLicenseFinalizer)
 	} else {
-		controllerutil.RemoveFinalizer(h.opsManager, util.OpsManagerLicenseFinalizer)
+		controllerutil.RemoveFinalizer(patched, util.OpsManagerLicenseFinalizer)
 	}
-	if err := h.reconciler.client.Update(ctx, h.opsManager); err != nil {
+	if err := h.reconciler.client.Patch(ctx, patched, patch); err != nil {
 		return licenseFailed(xerrors.Errorf("failed to update the license finalizer: %w", err), status.ReasonLicenseFinalizerFailed)
 	}
+	h.opsManager.Finalizers = patched.Finalizers
+	h.opsManager.ResourceVersion = patched.ResourceVersion
 	return workflow.OK()
 }
 
