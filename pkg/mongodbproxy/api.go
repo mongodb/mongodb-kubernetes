@@ -220,8 +220,7 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 	if status.PID != nil {
 		call.pid = *status.PID
 	}
-	req.RequestID = call.requestID
-	if err := h.s.StopWithRequest(r.Context(), req.Role, timeout, req.Force, req.RequestID); err != nil {
+	if err := h.s.Stop(r.Context(), req.Role, timeout, req.Force); err != nil {
 		h.fail(call, err)
 		return
 	}

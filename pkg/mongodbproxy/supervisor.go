@@ -89,8 +89,7 @@ type Execution struct {
 	output      *tailBuffer
 	done        chan struct{}
 
-	startedAt     time.Time
-	stopRequestID string
+	startedAt time.Time
 	// set under Supervisor.mu before done is closed
 	exitCode int
 	signal   string
@@ -309,14 +308,8 @@ func (s *Supervisor) wait(e *Execution) {
 		outcome = "failed"
 	}
 	s.log.Infow("process exited", "operation_id", logOperationID(e.operationID), "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitCode, "signal", e.signal, "uptime_s", uptime)
-	requestID, request := e.stopRequestID, ""
-	if requestID != "" {
-		request = requestStop
-	}
 	s.recordEvent(Event{
 		Action:      "child_exited",
-		RequestID:   requestID,
-		Request:     request,
 		OperationID: e.operationID,
 		Role:        e.role,
 		PID:         e.pid,
@@ -364,11 +357,6 @@ func (s *Supervisor) resolve(binary string) (string, error) {
 //   - timeout elapsed with force: SIGKILL, then wait for exit
 //   - timeout 0 with force: SIGKILL right away
 func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration, force bool) error {
-	return s.StopWithRequest(ctx, role, timeout, force, "")
-}
-
-// StopWithRequest is Stop with the request identity that the event log records.
-func (s *Supervisor) StopWithRequest(ctx context.Context, role Role, timeout time.Duration, force bool, requestID string) error {
 	s.mu.Lock()
 	e := s.current
 	s.mu.Unlock()
@@ -379,12 +367,11 @@ func (s *Supervisor) StopWithRequest(ctx context.Context, role Role, timeout tim
 	if role != "" && role != e.role {
 		return ErrRoleMismatch
 	}
-	if timeout <= 0 && !force {
-		return fmt.Errorf("%w: timeout must be > 0 unless force is set", ErrInvalidRequest)
-	}
 
-	s.setStopRequestID(e, requestID)
 	if timeout <= 0 {
+		if !force {
+			return fmt.Errorf("%w: timeout must be > 0 unless force is set", ErrInvalidRequest)
+		}
 		return s.kill(ctx, e)
 	}
 
@@ -405,12 +392,6 @@ func (s *Supervisor) StopWithRequest(ctx context.Context, role Role, timeout tim
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-func (s *Supervisor) setStopRequestID(e *Execution, requestID string) {
-	s.mu.Lock()
-	e.stopRequestID = requestID
-	s.mu.Unlock()
 }
 
 func (s *Supervisor) kill(ctx context.Context, e *Execution) error {

@@ -240,8 +240,7 @@ func TestAPIEventsAndStatusTimestamps(t *testing.T) {
 
 	childExited := findEvent(events.Events, "child_exited")
 	require.NotNil(t, childExited)
-	assert.Equal(t, stopped.RequestID, childExited.RequestID)
-	assert.Equal(t, requestStop, childExited.Request)
+	assert.Equal(t, stopped.PID, childExited.PID)
 	assert.Equal(t, "exited", childExited.Outcome)
 	assert.Equal(t, "exit 0", childExited.Returned)
 
