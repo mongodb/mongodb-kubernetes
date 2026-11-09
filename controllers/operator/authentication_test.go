@@ -245,6 +245,86 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
 }
 
+func TestX509AgentAuthentication_ClientCertificateModeFollowsSpecChanges_ReplicaSet(t *testing.T) {
+	tests := map[string]struct {
+		updateSpec func(rs *mdbv1.MongoDB)
+	}{
+		"Removing SCRAM leaves X509 as the only mode": {
+			updateSpec: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{util.X509}
+			},
+		},
+		"Setting requireClientTLSAuthentication": {
+			updateSpec: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Security.Authentication.RequiresClientTLSAuthentication = true
+			},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			rs := DefaultReplicaSetBuilder().
+				SetName("my-rs").
+				SetMembers(3).
+				EnableTLS().
+				SetTLSCA("custom-ca").
+				AgentAuthMode(util.X509).
+				EnableX509().
+				EnableSCRAM().
+				Build()
+
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+			addKubernetesTlsResources(ctx, kubeClient, rs)
+			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
+
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+			ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			require.Equal(t, util.OptionalClientCertficates, ac.AgentSSL.ClientCertificateMode)
+
+			tc.updateSpec(rs)
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+			ac, err = omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, util.RequireClientCertificates, ac.AgentSSL.ClientCertificateMode)
+		})
+	}
+}
+
+// TestX509OnlyMode_AlwaysRequiresClientCertificates_ReplicaSet pins that X509 as the only mode implies REQUIRE,
+// regardless of requireClientTLSAuthentication.
+func TestX509OnlyMode_AlwaysRequiresClientCertificates_ReplicaSet(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().
+		SetName("my-rs").
+		SetMembers(3).
+		EnableTLS().
+		SetTLSCA("custom-ca").
+		AgentAuthMode(util.X509).
+		EnableX509().
+		Build()
+	rs.Spec.Security.Authentication.RequiresClientTLSAuthentication = true
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	addKubernetesTlsResources(ctx, kubeClient, rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	require.Equal(t, util.RequireClientCertificates, ac.AgentSSL.ClientCertificateMode)
+
+	rs.Spec.Security.Authentication.RequiresClientTLSAuthentication = false
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	ac, err = omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, util.RequireClientCertificates, ac.AgentSSL.ClientCertificateMode)
+}
+
 func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().EnableSCRAM().Build()
