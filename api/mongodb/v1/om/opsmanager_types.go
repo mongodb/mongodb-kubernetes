@@ -1052,6 +1052,10 @@ func (om *MongoDBOpsManager) GetOpsManagerCA() string {
 	return ""
 }
 
+func (om *MongoDBOpsManager) ManagedBackupCABundleConfigMapName() string {
+	return fmt.Sprintf("%s-managed-backup-ca-bundle", om.Name)
+}
+
 // QueryableBackupTLSSecretName returns the Secret the backup daemon consumes, which holds
 // queryable.pem. In managed mode it is the operator-derived Secret, not the cert-manager output.
 func (om *MongoDBOpsManager) QueryableBackupTLSSecretName() string {

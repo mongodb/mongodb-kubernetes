@@ -42,7 +42,10 @@ func BackupDaemonStatefulSet(ctx context.Context, centralClusterSecretClient sec
 		return appsv1.StatefulSet{}, err
 	}
 
-	secretName := opsManager.Spec.Backup.QueryableBackupSecretRef.Name
+	var secretName string
+	if opsManager.Spec.Backup != nil && (!opsManager.IsBackupManagedCertificateEnabled() || opsManager.Spec.Backup.Enabled) {
+		secretName = opsManager.QueryableBackupTLSSecretName()
+	}
 	opts.QueryableBackupPemSecretName = secretName
 	if secretName != "" {
 		// if the secret is specified, we must have a queryable.pem entry.
