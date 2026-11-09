@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -35,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/replicaset"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstringsecret"
@@ -2295,6 +2297,162 @@ func TestReplicaSetBuildStatefulSetOptionsCarriesOwnerLabels(t *testing.T) {
 	opts := helper.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptionsRS{})(*mdb)
 
 	assert.Equal(t, mdb.GetOwnerLabels(), opts.StsLabels, "buildStatefulSetOptions must carry the CR's owner labels in StsLabels")
+}
+
+func TestReplicaSetDesiredInfraRevision(t *testing.T) {
+	tests := []struct {
+		name                  string
+		annotations           map[string]string
+		defaultArchitecture   architectures.DefaultArchitecture
+		wantRevisionPublished bool
+	}{
+		{
+			name:                  "static-ga annotation",
+			annotations:           map[string]string{architectures.ArchitectureAnnotation: string(architectures.StaticGA)},
+			defaultArchitecture:   architectures.NonStatic,
+			wantRevisionPublished: true,
+		},
+		{
+			name:                  "static-ga operator default",
+			defaultArchitecture:   architectures.StaticGA,
+			wantRevisionPublished: true,
+		},
+		{
+			name:                "static annotation",
+			annotations:         map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)},
+			defaultArchitecture: architectures.NonStatic,
+		},
+		{
+			name:                "non-static",
+			defaultArchitecture: architectures.NonStatic,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			rs := DefaultReplicaSetBuilder().Build()
+			rs.Annotations = tt.annotations
+
+			reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, tt.defaultArchitecture)
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+			processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
+			require.Len(t, processes, rs.Spec.Members)
+			for _, p := range processes {
+				if tt.wantRevisionPublished {
+					assert.Equal(t, rs.Name+"-revision", p[om.DesiredInfraRevisionField], p.Name())
+				} else {
+					assert.NotContains(t, p, om.DesiredInfraRevisionField, p.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestPublishDesiredInfraRevision(t *testing.T) {
+	stsDeployment := func(rs *mdbv1.MongoDB) om.Deployment {
+		return deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)
+	}
+	legacyDeployment := func(rs *mdbv1.MongoDB) om.Deployment {
+		existingIds := make(map[string]int, rs.Spec.Members)
+		for i := range rs.Spec.Members {
+			existingIds[fmt.Sprintf("%s-%d", rs.Name, i)] = i
+		}
+		rsWithProcesses := replicaset.BuildFromMongoDBWithReplicas("fake-mongoDBImage", false, rs, rs.Spec.Members, "", "", architectures.StaticGA, existingIds)
+		d := om.NewDeployment()
+		d.MergeReplicaSet(rsWithProcesses, map[string]any{}, map[string]any{}, nil, zap.S())
+		return d
+	}
+
+	tests := []struct {
+		name               string
+		deployment         func(rs *mdbv1.MongoDB) om.Deployment
+		expectedGeneration int64
+		connectionError    error
+		wantPhase          status.Phase
+		wantProcesses      int
+		wantRevision       string
+	}{
+		{
+			name:          "processes use the k8s/<namespace>/<pod> names",
+			deployment:    stsDeployment,
+			wantPhase:     status.PhaseRunning,
+			wantProcesses: 3,
+			wantRevision:  "temple-revision",
+		},
+		{
+			name:          "processes use the legacy bare pod names",
+			deployment:    legacyDeployment,
+			wantPhase:     status.PhaseRunning,
+			wantProcesses: 3,
+			wantRevision:  "temple-revision",
+		},
+		{
+			name:          "no processes in the automation config yet",
+			deployment:    func(*mdbv1.MongoDB) om.Deployment { return om.NewDeployment() },
+			wantPhase:     status.PhaseRunning,
+			wantProcesses: 0,
+		},
+		{
+			name:               "StatefulSet generation not observed yet",
+			deployment:         stsDeployment,
+			expectedGeneration: 1,
+			wantPhase:          status.PhasePending,
+			wantProcesses:      3,
+		},
+		{
+			name:            "reading the deployment fails",
+			deployment:      stsDeployment,
+			connectionError: errors.New("boom"),
+			wantPhase:       status.PhaseFailed,
+			wantProcesses:   3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			rs := DefaultReplicaSetBuilder().Build()
+
+			sts := &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{Name: rs.Name, Namespace: rs.Namespace},
+				Spec:       appsv1.StatefulSetSpec{Replicas: new(int32(rs.Spec.Members))},
+			}
+			kubeClient, _ := mock.NewDefaultFakeClient(sts)
+			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.StaticGA, architectures.ImageTypeUBI9, nil)
+			helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
+
+			mockedConn := om.NewMockedOmConnection(tt.deployment(rs))
+			var conn om.Connection = mockedConn
+			if tt.connectionError != nil {
+				conn = failingReadUpdateDeploymentConnection{Connection: conn, err: tt.connectionError}
+			}
+
+			st := helper.publishDesiredInfraRevision(ctx, conn, tt.expectedGeneration)
+			assert.Equal(t, tt.wantPhase, st.Phase())
+
+			processes := mockedConn.GetProcesses()
+			require.Len(t, processes, tt.wantProcesses)
+			for _, p := range processes {
+				if tt.wantRevision != "" {
+					assert.Equal(t, tt.wantRevision, p[om.DesiredInfraRevisionField], p.Name())
+				} else {
+					assert.NotContains(t, p, om.DesiredInfraRevisionField, p.Name())
+				}
+			}
+		})
+	}
+}
+
+// failingReadUpdateDeploymentConnection overrides only ReadUpdateDeployment to simulate an Ops Manager read failure.
+type failingReadUpdateDeploymentConnection struct {
+	om.Connection
+	err error
+}
+
+func (c failingReadUpdateDeploymentConnection) ReadUpdateDeployment(context.Context, func(om.Deployment) error, *zap.SugaredLogger) error {
+	return c.err
 }
 
 func TestValidateAppDBForwardMigration(t *testing.T) {

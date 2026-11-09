@@ -587,13 +587,46 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 		return workflow.Failed(xerrors.Errorf("failed to create/update (Kubernetes reconciliation phase): %w", err))
 	}
 
-	// Check StatefulSet status
 	expectedGeneration := mutatedSts.GetGeneration()
+
+	// With a future OnDelete strategy the agents only make the StatefulSet ready once they see the desired revision.
+	if architectures.IsRunningStaticGAArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
+		if status := r.publishDesiredInfraRevision(ctx, conn, expectedGeneration); !status.IsOK() {
+			return status
+		}
+	}
+
+	// Check StatefulSet status
 	if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, expectedGeneration, reconciler.client); !status.IsOK() {
 		return status
 	}
 
 	log.Info("Updated StatefulSet for replica set")
+	return workflow.OK()
+}
+
+// publishDesiredInfraRevision publishes the StatefulSet revision that the agents should converge to.
+func (r *ReplicaSetReconcilerHelper) publishDesiredInfraRevision(ctx context.Context, conn om.Connection, expectedGeneration int64) workflow.Status {
+	rs := r.resource
+
+	revision, err := statefulset.GetUpdateRevision(ctx, rs.Namespace, rs.Name, expectedGeneration, r.reconciler.client)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+	if revision == "" {
+		return workflow.Pending("StatefulSet %s revision is not available yet", rs.Name).WithRetry(3)
+	}
+
+	err = conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
+		_, podNames := dns.GetDNSNames(rs.Name, rs.ServiceName(), rs.Namespace, rs.Spec.GetClusterDomain(), scale.ReplicasThisReconciliation(rs), rs.Spec.DbCommonSpec.GetExternalDomain())
+		processNames := replicaset.ConvertPodNamesToProcessNames(getReplicaSetProcessIdsFromReplicaSets(rs.GetReplicaSetName(), d), rs.Spec.GetExternalMemberProcessNames(), podNames, rs.Namespace)
+		d.SetDesiredInfraRevision(processNames, revision)
+		return nil
+	}, r.log)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
 	return workflow.OK()
 }
 
@@ -798,6 +831,15 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: deploymentOptions.prometheusCertHash,
 	}
 
+	// A stale revision is harmless here: in the "automation config first" order it is the one already published.
+	revision := ""
+	if architectures.IsRunningStaticGAArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
+		revision, err = statefulset.GetUpdateRevision(ctx, rs.Namespace, rs.Name, 0, reconciler.client)
+		if err != nil && !isRecovering {
+			return workflow.Failed(err)
+		}
+	}
+
 	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			if len(rs.Spec.GetExternalMembers()) > 0 {
@@ -811,7 +853,12 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+
+			if err := ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, log); err != nil {
+				return err
+			}
+			d.SetDesiredInfraRevision(processNames, revision)
+			return nil
 		},
 		log)
 

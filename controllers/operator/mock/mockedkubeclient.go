@@ -249,6 +249,7 @@ func markStatefulSetsReady(set *appsv1.StatefulSet, addOMHosts bool, omConn om.C
 	set.Status.UpdatedReplicas = *set.Spec.Replicas
 	set.Status.ReadyReplicas = *set.Spec.Replicas
 	set.Status.Replicas = *set.Spec.Replicas
+	set.Status.UpdateRevision = set.Name + "-revision"
 
 	if addOMHosts {
 		if mockedOMConnection, ok := omConn.(*om.MockedOmConnection); ok {
