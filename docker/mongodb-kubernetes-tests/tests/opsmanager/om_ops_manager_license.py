@@ -294,14 +294,14 @@ class TestOpsManagerLicenseFinalizer:
         try:
             ops_manager.delete()
 
-            def resource_deleted() -> bool:
+            def resource_is_deleted() -> bool:
                 try:
                     ops_manager.load()
                     return False
-                except ApiException:
-                    return True
+                except ApiException as e:
+                    return e.status == 404
 
-            run_periodically(resource_deleted, timeout=180)
+            run_periodically(resource_is_deleted, timeout=180)
 
             assert wait_for_receipt_secret(namespace, receipt_name).raw
         finally:
