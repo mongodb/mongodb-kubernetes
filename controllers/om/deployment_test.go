@@ -1033,3 +1033,78 @@ func TestSetDownloadBase(t *testing.T) {
 		assert.NotContains(t, d, "options")
 	})
 }
+
+func TestSetDesiredInfraRevision(t *testing.T) {
+	rsName := "fooRs"
+	allProcessNames := []string{rsName + "-0", rsName + "-1", rsName + "-2"}
+
+	tests := []struct {
+		name              string
+		processNames      []string
+		revision          string
+		existingRevisions map[string]string
+		expectedRevisions map[string]string
+	}{
+		{
+			name:         "sets revision on all named processes",
+			processNames: allProcessNames,
+			revision:     "rev-1",
+			expectedRevisions: map[string]string{
+				rsName + "-0": "rev-1",
+				rsName + "-1": "rev-1",
+				rsName + "-2": "rev-1",
+			},
+		},
+		{
+			name:         "leaves processes outside the named list untouched",
+			processNames: []string{rsName + "-1"},
+			revision:     "rev-1",
+			expectedRevisions: map[string]string{
+				rsName + "-1": "rev-1",
+			},
+		},
+		{
+			name:              "skips unknown process names",
+			processNames:      []string{"unknown-0"},
+			revision:          "rev-1",
+			expectedRevisions: map[string]string{},
+		},
+		{
+			name:              "empty revision is a no-op",
+			processNames:      allProcessNames,
+			revision:          "",
+			existingRevisions: map[string]string{rsName + "-0": "rev-old"},
+			expectedRevisions: map[string]string{rsName + "-0": "rev-old"},
+		},
+		{
+			name:              "overwrites an existing revision",
+			processNames:      []string{rsName + "-0"},
+			revision:          "rev-new",
+			existingRevisions: map[string]string{rsName + "-0": "rev-old"},
+			expectedRevisions: map[string]string{rsName + "-0": "rev-new"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := NewDeployment()
+			mergeReplicaSet(d, rsName, createReplicaSetProcesses(rsName))
+			for name, revision := range tt.existingRevisions {
+				d.ProcessMap()[name][DesiredInfraRevisionField] = revision
+			}
+
+			d.SetDesiredInfraRevision(tt.processNames, tt.revision)
+
+			processes := d.GetProcesses()
+			require.Len(t, processes, len(allProcessNames))
+			for _, p := range processes {
+				expectedRevision, ok := tt.expectedRevisions[p.Name()]
+				if !ok {
+					assert.NotContains(t, p, DesiredInfraRevisionField, p.Name())
+					continue
+				}
+				assert.Equal(t, expectedRevision, p[DesiredInfraRevisionField], p.Name())
+			}
+		})
+	}
+}
