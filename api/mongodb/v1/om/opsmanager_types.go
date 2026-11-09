@@ -197,9 +197,8 @@ type MongoDBOpsManagerLicense struct {
 	ReleaseReceiptsPolicy ReleaseReceiptsPolicy `json:"releaseReceiptsPolicy,omitempty"`
 
 	// ReleaseReceipts requests a release receipt for each entry.
-	// Each entry names the Secret that holds the released license, and the artifact id
-	// is read from the license in it. The operator creates one Secret per entry, named
-	// <artifactId>-release-receipt, containing the license release receipt.
+	// Each entry names the Secret that holds a released license. The operator writes
+	// the receipt to a Secret named <artifactId>-release-receipt.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
@@ -216,8 +215,7 @@ const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
 
 // +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
 type LicenseReleaseReceipt struct {
-	// SecretRef names a Secret that holds the released license. The artifact ID is read
-	// from the license.
+	// SecretRef names a Secret that holds the released license.
 	// +kubebuilder:validation:Required
 	SecretRef SecretRef `json:"secretRef"`
 }
