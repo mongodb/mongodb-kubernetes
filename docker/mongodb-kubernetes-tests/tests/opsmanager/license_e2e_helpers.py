@@ -13,7 +13,7 @@ import pytest
 import requests
 from kubernetes import client as k8s_client
 from kubernetes.client.rest import ApiException
-from kubetester import create_or_update_secret, delete_secret, read_secret, try_load
+from kubetester import create_or_update_secret, delete_secret, read_secret, run_periodically, try_load
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.opsmanager import MongoDBOpsManager
 from pytest import fixture
@@ -58,6 +58,9 @@ RELEASED_STATUS = "RELEASED"
 # The license conditions the operator writes on the Ops Manager resource.
 LICENSE_READY_CONDITION = "OpsManagerLicenseReady"
 LICENSE_RECONCILED_CONDITION = "LicenseReconciled"
+
+# The finalizer the operator holds while it may have a license installed in Ops Manager.
+LICENSE_FINALIZER = "mongodb.com/v1.opsManagerLicenseRemovalFinalizer"
 
 
 # Ops Manager runs these hourly, the tests trigger them instead of waiting.
@@ -673,6 +676,21 @@ def wait_for_license_receipt(ops_manager: MongoDBOpsManager, secret_name: str) -
 
     ops_manager.wait_for(written, timeout=DEFAULT_TIMEOUT)
     return ReleaseReceipt(read_secret(ops_manager.namespace, secret_name)[RECEIPT_SECRET_KEY])
+
+
+def wait_for_receipt_secret(namespace: str, secret_name: str) -> ReleaseReceipt:
+    """Waits for a receipt Secret without the resource, which outlives the resource it was written for."""
+
+    def written() -> bool:
+        try:
+            return RECEIPT_SECRET_KEY in read_secret(namespace, secret_name)
+        except ApiException as exc:
+            if exc.status != 404:
+                raise
+            return False
+
+    run_periodically(written, timeout=DEFAULT_TIMEOUT)
+    return ReleaseReceipt(read_secret(namespace, secret_name)[RECEIPT_SECRET_KEY])
 
 
 def wait_for_ea_artifact_state(ops_manager: MongoDBOpsManager, artifact_id: str, expected: str) -> None:
