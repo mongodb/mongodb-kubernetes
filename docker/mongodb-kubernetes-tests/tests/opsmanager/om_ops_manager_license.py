@@ -33,18 +33,19 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 @pytest.mark.e2e_om_ops_manager_license
 class TestOpsManagerLicenseE2E:
     def test_observe_only_license_status(self, ops_manager: MongoDBOpsManager):
-        """Without spec.license the CR mirrors the state and identity Ops Manager reports."""
-        cr, _ = wait_for_cr_license_sync(ops_manager, installed="")
+        """Without spec.license LicenseReady reports the state and identity Ops Manager reports."""
+        ready, _ = wait_for_cr_license_sync(ops_manager, installed="")
 
-        assert cr["enforcement"]["effectiveState"] == "GRACE"
-        assert cr["identity"]["holderId"] == om_holder_id(ops_manager)
+        assert ready["status"] == "False"
+        assert ready["reason"] == "LicenseGrace"
+        assert f"Holder ID {om_holder_id(ops_manager)}." in ready["message"]
 
     def test_recompute_annotation(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
         ops_manager["spec"]["license"] = {}
         ops_manager["metadata"].setdefault("annotations", {})[RECOMPUTE_ANNOTATION] = "true"
         ops_manager.update()
-        cr, _ = wait_for_cr_license_sync(ops_manager)
+        ready, _ = wait_for_cr_license_sync(ops_manager)
         assert RECOMPUTE_ANNOTATION not in ops_manager["metadata"].get("annotations", {})
 
-        assert cr["enforcement"]["effectiveState"] == "GRACE"
+        assert ready["reason"] == "LicenseGrace"
