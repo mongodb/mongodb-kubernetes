@@ -11,12 +11,14 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 
-	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -77,15 +79,20 @@ func (h *licenseEnvHarness) createOM(mutate func(*omv1.MongoDBOpsManager)) *omv1
 	om.GenerateName = "om-lic-"
 	om.ResourceVersion = ""
 	om.UID = ""
-	if om.Spec.AppDB != nil {
-		// The CRD still requires this deprecated field to be present.
-		//nolint:staticcheck
-		om.Spec.AppDB.MonitoringAgent.StartupParameters = mdbv1.StartupParameters{}
-	}
 	if mutate != nil {
 		mutate(om)
 	}
-	require.NoError(h.t, h.client.Create(h.ctx, om))
+	// Create it without spec.applicationDatabase.monitoringAgent like a user manifest, so the operator
+	// writes back an object the CRD validates the same way as in a real cluster.
+	content, err := runtime.DefaultUnstructuredConverter.ToUnstructured(om)
+	require.NoError(h.t, err)
+	unstructured.RemoveNestedField(content, "spec", "applicationDatabase", "monitoringAgent")
+	gvk, err := apiutil.GVKForObject(om, h.client.Scheme())
+	require.NoError(h.t, err)
+	obj := &unstructured.Unstructured{Object: content}
+	obj.SetGroupVersionKind(gvk)
+	require.NoError(h.t, h.client.Create(h.ctx, obj))
+	require.NoError(h.t, runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, om))
 	h.t.Cleanup(func() { _ = h.client.Delete(h.ctx, om) })
 	return om
 }
@@ -138,8 +145,9 @@ func (h *licenseEnvHarness) reconcileExpectOK(name string) *omv1.MongoDBOpsManag
 func (h *licenseEnvHarness) updateSpec(name string, mutate func(*omv1.MongoDBOpsManager)) {
 	h.t.Helper()
 	om := h.loadOM(name)
+	patch := client.MergeFrom(om.DeepCopy())
 	mutate(om)
-	require.NoError(h.t, h.client.Update(h.ctx, om))
+	require.NoError(h.t, h.client.Patch(h.ctx, om, patch))
 }
 
 func (h *licenseEnvHarness) setRotateAnnotation(name, value string) {
