@@ -6,6 +6,10 @@ get_operator_helm_values() {
   # shellcheck disable=SC2153
   local database_registry=${DATABASE_REGISTRY}
   local database_name=${DATABASE_NAME:=mongodb-kubernetes-database}
+  local proxy_image="${MDB_MONGODB_PROXY_IMAGE:-}"
+  local proxy_repository="${proxy_image%:*}"
+  local proxy_name="${proxy_repository##*/}"
+  local proxy_version="${proxy_image##*:}"
 
   declare -a config=(
     "managedSecurityContext=${MANAGED_SECURITY_CONTEXT:-false}"
@@ -45,7 +49,13 @@ get_operator_helm_values() {
     "search.metricsForwarderImage=${MDB_SEARCH_METRICS_FORWARDER_IMAGE}"
     "community.registry.agent=${MDB_AGENT_REGISTRY}"
   )
-
+  if [[ -n "${proxy_image}" ]]; then
+    config+=(
+      "registry.mongodbProxy=${proxy_repository%/*}"
+      "mongodbProxy.name=${proxy_name}"
+      "mongodbProxy.version=${proxy_version}"
+    )
+  fi
   if [[ "${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION:-}" != "" ]]; then
     config+=("operator.telemetry.installClusterRole=${MDB_OPERATOR_TELEMETRY_INSTALL_CLUSTER_ROLE_INSTALLATION}")
   fi
@@ -116,10 +126,27 @@ get_operator_helm_values() {
 
 prepare_operator_config_map() {
   local context=${1}
+  local helm_values_output
+  helm_values_output=$(get_operator_helm_values) || return "$?"
+  read -ra helm_values <<< "${helm_values_output}"
+
+  # Static arches download the Agent from the custom URL at start. Non-static pods
+  # use the agent image, so the URL must not appear in their operator install.
+  local architecture="${MDB_DEFAULT_ARCHITECTURE:-non-static}"
+  if [[ "${architecture}" != "static" && "${architecture}" != "static-ga" ]]; then
+    local filtered=()
+    local value
+    for value in "${helm_values[@]}"; do
+      if [[ "${value}" != "agent.customAgentUrl="* ]]; then
+        filtered+=("${value}")
+      fi
+    done
+    helm_values=("${filtered[@]}")
+  fi
+
   kubectl --context "${context}" delete configmap operator-installation-config --ignore-not-found
   title "Preparing the ConfigMap with Operator installation configuration"
 
-  read -ra helm_values < <(get_operator_helm_values)
   declare -a config_map_values=()
   for param in "${helm_values[@]}"; do
     config_map_values+=("--from-literal" "${param}")

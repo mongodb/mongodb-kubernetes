@@ -8,7 +8,7 @@ script_dir=$(dirname "${script_name}")
 source "${script_dir}/root-context"
 source "${script_dir}/variables/om70"
 
-export MDB_DEFAULT_ARCHITECTURE=static
+export MDB_DEFAULT_ARCHITECTURE=static-ga
 # For static smoke tests we need the previous MDB version to have a ubi9 binary
 export CUSTOM_MDB_PREV_VERSION=6.0.5
 

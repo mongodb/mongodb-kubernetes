@@ -17,13 +17,17 @@ from pytest import fixture
 from tests import test_logger
 from tests.constants import LEGACY_OPERATOR_NAME, OPERATOR_NAME
 from tests.olm.olm_test_commons import (
+    assert_olm_resource_architecture,
+    get_candidate_env_vars_for_subscription,
     get_catalog_image,
     get_catalog_source_resource,
     get_current_operator_version,
+    get_initial_olm_architecture,
     get_latest_released_operator_version,
     get_operator_group_resource,
     get_registry_env_vars_for_subscription,
     get_subscription_custom_object,
+    set_olm_resource_architecture,
     wait_for_operator_ready,
 )
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
@@ -65,7 +69,7 @@ def meko_subscription(namespace: str, catalog_source: CustomObject, operator_ins
     """
     Create subscription for the MEKO operator.
     """
-    static_value = get_default_architecture()
+    static_value = get_initial_olm_architecture()
     base_env_vars = [
         {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
         {"name": "OPERATOR_ENV", "value": "dev"},
@@ -108,7 +112,9 @@ def get_mck_subscription_object(
     ]
     # Add registry env vars for patch builds (ECR registries for unreleased images)
     registry_env_vars = get_registry_env_vars_for_subscription(operator_installation_config)
-    all_env_vars = base_env_vars + registry_env_vars
+    env = {item["name"]: item for item in base_env_vars + registry_env_vars}
+    env.update({item["name"]: item for item in get_candidate_env_vars_for_subscription(operator_installation_config)})
+    all_env_vars = list(env.values())
 
     return get_subscription_custom_object(
         OPERATOR_NAME,
@@ -174,6 +180,7 @@ def test_create_om(
     ops_manager.set_version(custom_version)
     ops_manager.set_appdb_version(custom_appdb_version)
     ops_manager.allow_mdb_rc_versions()
+    set_olm_resource_architecture(ops_manager, get_initial_olm_architecture())
 
     ops_manager.update()
 
@@ -328,6 +335,8 @@ def test_resources_created(
     oplog_user: MongoDBUser,
 ):
     """Creates mongodb databases all at once"""
+    for resource in (oplog_replica_set, s3_replica_set, blockstore_replica_set, mdb_sharded):
+        set_olm_resource_architecture(resource, get_initial_olm_architecture())
     oplog_replica_set.update()
     oplog_replica_set.assert_reaches_phase(Phase.Running)
     s3_replica_set.update()
@@ -384,6 +393,8 @@ def test_resources_in_running_state_before_upgrade(
     blockstore_replica_set.assert_reaches_phase(Phase.Running)
     s3_replica_set.assert_reaches_phase(Phase.Running)
     mdb_sharded.assert_reaches_phase(Phase.Running)
+    for resource in (ops_manager, oplog_replica_set, blockstore_replica_set, s3_replica_set, mdb_sharded):
+        assert_olm_resource_architecture(resource, get_initial_olm_architecture())
 
 
 # uninstall MEKO and install MCK operator instead
@@ -495,6 +506,21 @@ def test_install_mck_operator(
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
+def test_transition_resources_to_target_architecture(
+    ops_manager: MongoDBOpsManager,
+    oplog_replica_set: MongoDB,
+    blockstore_replica_set: MongoDB,
+    s3_replica_set: MongoDB,
+    mdb_sharded: MongoDB,
+):
+    if get_default_architecture() == "static-ga":
+        for resource in (ops_manager, oplog_replica_set, blockstore_replica_set, s3_replica_set, mdb_sharded):
+            resource.load()
+            set_olm_resource_architecture(resource, "static-ga")
+            resource.update()
+
+
+@pytest.mark.e2e_olm_meko_operator_upgrade_with_resources
 def test_one_resource_not_in_running_state(ops_manager: MongoDBOpsManager):
     # Wait for the first resource to become reconciling after operator replacement.
     # This confirms the MCK operator has started reconciling the resources
@@ -517,6 +543,8 @@ def test_resources_in_running_state_after_migration(
     blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=200)
     s3_replica_set.assert_reaches_phase(Phase.Running, timeout=200)
     mdb_sharded.assert_reaches_phase(Phase.Running, timeout=200)
+    for resource in (ops_manager, oplog_replica_set, blockstore_replica_set, s3_replica_set, mdb_sharded):
+        assert_olm_resource_architecture(resource, get_default_architecture())
 
 
 @pytest.mark.e2e_olm_meko_operator_upgrade_with_resources

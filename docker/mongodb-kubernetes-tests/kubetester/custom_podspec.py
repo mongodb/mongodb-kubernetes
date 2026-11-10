@@ -21,8 +21,10 @@ def assert_stateful_set_podspec(
     )
     if containers_spec is None:
         containers_spec = []
-    for i, expected_spec in enumerate(containers_spec):
-        spec = pod_template_spec.containers[i].to_dict()
+    for expected_spec in containers_spec:
+        matches = [container for container in pod_template_spec.containers if container.name == expected_spec["name"]]
+        assert len(matches) == 1, f"Expected one container named {expected_spec['name']}"
+        spec = matches[0].to_dict()
         # compare only the expected keys
         for k in expected_spec:
             if k == "volume_mounts":

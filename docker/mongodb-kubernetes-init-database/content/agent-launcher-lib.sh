@@ -32,7 +32,7 @@ cleanup() {
 
     # With the mongodb-proxy, mongod runs in another container and the pid in the lock file means nothing in this
     # process namespace. The proxy receives its own SIGTERM and stops mongod itself.
-    if [ -n "${MDB_MONGODB_PROXY_ADDRESS:-}" ]; then
+    if [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" = "static-ga" ]; then
       script_log "mongod is stopped by the mongodb-proxy. Automation agent process is shutdown"
       return 0
     fi

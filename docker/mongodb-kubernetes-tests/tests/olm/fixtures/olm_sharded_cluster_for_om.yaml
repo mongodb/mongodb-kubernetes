@@ -7,7 +7,7 @@ spec:
   shardCount: 2
   mongodsPerShardCount: 3
   mongosCount: 2
-  configServerCount: 2
+  configServerCount: 3
   type: ShardedCluster
   opsManager:
     configMapRef:

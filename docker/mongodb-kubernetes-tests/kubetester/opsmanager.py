@@ -17,7 +17,7 @@ from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
 from kubetester import create_configmap, create_or_update_secret, read_configmap, read_secret
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.kubetester import KubernetesTester, build_list_of_hosts, get_pods, is_default_architecture_static
+from kubetester.kubetester import KubernetesTester, build_list_of_hosts, get_migration_target_architecture, get_pods
 from kubetester.mongodb_common import MongoDBCommon
 from kubetester.mongodb_utils_state import in_desired_state
 from kubetester.mongotester import MongoTester, MultiReplicaSetTester, ReplicaSetTester
@@ -66,13 +66,8 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
 
     def trigger_architecture_migration(self):
         self.load()
-
-        if is_default_architecture_static():
-            self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "non-static"})
-            self.update()
-        else:
-            self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": "static"})
-            self.update()
+        self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": get_migration_target_architecture()})
+        self.update()
 
     def trigger_om_sts_restart(self):
         """

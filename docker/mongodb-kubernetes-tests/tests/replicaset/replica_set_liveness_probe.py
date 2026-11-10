@@ -11,8 +11,35 @@ from pytest import fixture
 
 
 @fixture(scope="module")
-def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
+def replica_set(namespace: str, custom_mdb_version: str, operator_installation_config: dict[str, str]) -> MongoDB:
     resource = MongoDB.from_yaml(yaml_fixture("replica-set-liveness.yaml"), "my-replica-set", namespace)
+    if operator_installation_config.get("operator.mdbDefaultArchitecture") == "static-ga":
+        resource["spec"]["version"] = custom_mdb_version
+        # One member is enough. The failed proxy leaves the pod unready, and
+        # OrderedReady would block the other members.
+        resource["spec"]["members"] = 1
+        # The proxy gets its binary from the image. The empty bin dir is the
+        # static-ga equivalent of the fake 4.4.100 version.
+        resource["spec"]["podSpec"] = {
+            "podTemplate": {
+                "spec": {
+                    "volumes": [{"name": "liveness-empty-bin", "emptyDir": {}}],
+                    "containers": [
+                        {
+                            "name": "mongodb-enterprise-database",
+                            "args": ["--bin-dir=/tmp/liveness-empty-bin"],
+                            "volumeMounts": [
+                                {
+                                    "name": "liveness-empty-bin",
+                                    "mountPath": "/tmp/liveness-empty-bin",
+                                    "readOnly": True,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            }
+        }
 
     resource.update()
 
@@ -32,11 +59,11 @@ def test_pods_are_running(replica_set: MongoDB, namespace: str):
     # Wait for all the pods to be running
     # We can't wait for the replica set to be running
     # as it will never get to it (mongod is not starting)
-    for podname in _get_pods("my-replica-set-{}", 3):
+    for podname in _get_pods("my-replica-set-{}", replica_set["spec"]["members"]):
         pod = corev1_client.read_namespaced_pod(podname, namespace)
         if pod.status.phase == "Running":
             running_pods.add(podname)
-    assert len(running_pods) == 3
+    assert len(running_pods) == replica_set["spec"]["members"]
 
 
 @skip_if_static_containers
@@ -49,7 +76,7 @@ def test_no_pods_get_restarted(replica_set: MongoDB, namespace: str):
 
     # Leave some extra time after the failure threshold just to be sure
     time.sleep(failure_threshold * period_seconds + 20)
-    for podname in _get_pods("my-replica-set-{}", 3):
+    for podname in _get_pods("my-replica-set-{}", replica_set["spec"]["members"]):
         pod = corev1_client.read_namespaced_pod(podname, namespace)
 
         # Pods should not restart because of a missing mongod process

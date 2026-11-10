@@ -77,7 +77,11 @@ class Operator(object):
     def install_from_template(self):
         """Uses helm to generate yaml specification and then uses python K8s client to apply them to the cluster
         This is equal to helm template...| kubectl apply -"""
-        yaml_file = helm_template(self.helm_arguments, helm_chart_path=self.helm_chart_path)
+        yaml_file = helm_template(
+            self.helm_arguments,
+            helm_chart_path=self.helm_chart_path,
+            custom_operator_version=self.operator_version,
+        )
         create_or_replace_from_yaml(client.api_client.ApiClient(), yaml_file)
         self.wait_for_operator_ready()
         self.wait_for_operator_webhook_ready()

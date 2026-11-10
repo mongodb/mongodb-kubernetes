@@ -45,6 +45,7 @@ def helm_template(
     helm_chart_path: Optional[str] = "helm_chart",
     templates: Optional[str] = None,
     helm_options: Optional[List[str]] = None,
+    custom_operator_version: Optional[str] = None,
 ) -> str:
     """generates yaml file using Helm and returns its name. Provide 'templates' if you need to run
     a specific template from the helm chart"""
@@ -55,6 +56,13 @@ def helm_template(
         command_args.append(templates)
 
     helm_chart_path = helm_chart_path or "helm_chart"
+    if helm_chart_path.startswith("oci://"):
+        version = custom_operator_version or os.environ.get(OCI_HELM_VERSION_ENV_VAR_NAME, "")
+        if not version:
+            raise ValueError("OCI Helm templates require an exact chart version")
+        command_args.append(f"--version={version}")
+    elif custom_operator_version:
+        command_args.append(f"--version={custom_operator_version}")
     args = ("helm", "template", *command_args, helm_chart_path)
     logger.info(" ".join(args))
 
