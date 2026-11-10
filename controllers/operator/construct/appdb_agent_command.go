@@ -82,7 +82,7 @@ func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, 
 		settings["mmsGroupId"] = podVars.ProjectID
 	}
 	if (ShouldEnableMonitoring(podVars) || rawKeyOverride) && settings[agentAPIKeyExecSetting] == "" {
-		settings[agentAPIKeyExecSetting] = "cat '/mongodb-automation/agent-api-key/agentApiKey'"
+		settings[agentAPIKeyExecSetting] = agentAPIKeyExecCommand()
 	}
 	return agentSettingsConfigMap(sts, settings)
 }
