@@ -37,12 +37,9 @@ func (p Project) key() (destKey, error) {
 
 // SameDestination reports whether p and o export to the same OM project, ignoring base URL spelling.
 func (p Project) SameDestination(o Project) bool {
-	pk, perr := p.key()
-	ok, oerr := o.key()
-	if perr != nil || oerr != nil {
-		return p == o
-	}
-	return pk == ok
+	thisKey, thisErr := p.key()
+	otherKey, otherErr := o.key()
+	return thisErr == nil && otherErr == nil && thisKey == otherKey
 }
 
 // ProjectFromLink parses a resource's status.link ("{baseURL}/v2/{groupID}"); ok is false for anything else.
