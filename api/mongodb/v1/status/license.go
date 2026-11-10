@@ -15,7 +15,7 @@ const (
 
 // Reasons of OpsManagerLicenseReady. Ready, Grace, Unlicensed and Expired follow the Ops Manager
 // license state. StateUnknown covers no state reported yet. Enforced marks a change Ops Manager
-// rejected.
+// rejected, set only on MongoDB and MongoDBMultiCluster.
 const (
 	ReasonLicenseReady        = "LicenseReady"
 	ReasonLicenseGrace        = "LicenseGrace"
@@ -61,8 +61,9 @@ func licenseCondition(conditionType string, ok bool, reason, message string) met
 	}
 }
 
-// ClearLicenseBlockIfPresent clears an enforcement block once it no longer applies.
-func ClearLicenseBlockIfPresent(conditions *[]metav1.Condition, generation int64) {
+// ClearLicenseBlockIfPresent removes an enforcement block once it no longer applies. The condition
+// is removed rather than set to ready, since the resource never reads the license Ops Manager holds.
+func ClearLicenseBlockIfPresent(conditions *[]metav1.Condition) {
 	if conditions == nil {
 		return
 	}
@@ -70,7 +71,5 @@ func ClearLicenseBlockIfPresent(conditions *[]metav1.Condition, generation int64
 	if ready == nil || ready.Status != metav1.ConditionFalse || ready.Reason != ReasonLicenseEnforced {
 		return
 	}
-	c := OpsManagerLicenseReadyCondition(true, ReasonLicenseReady, "")
-	c.ObservedGeneration = generation
-	_ = meta.SetStatusCondition(conditions, c)
+	meta.RemoveStatusCondition(conditions, ConditionOpsManagerLicenseReady)
 }
