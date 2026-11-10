@@ -288,7 +288,7 @@ The pod in proxy mode (static architecture only), compared with the old one:
 - The three scripts of the agent image (`setup-agent-files.sh`, `dummy-probe.sh`, `dummy-readinessprobe`) keep the old behaviour when `MDB_INIT_ROOT` is not set, so an agent image built from this branch works with an old operator.
 
 Where in the code (MCK):
-- `controllers/operator/construct/mongodb_proxy.go`: constants, `usesMongodbProxy`, the image volume helpers.
+- `controllers/operator/construct/mongodb_proxy.go`: constants and the image volume helpers.
 - `controllers/operator/construct/database_construction.go`: `buildStaticArchitecturePodTemplateSpec` (containers and volumes) and `buildDatabaseStatefulSetConfigurationFunction` (`ShareProcessNamespace`).
 - `controllers/operator/database_statefulset_options.go` and the replica set, standalone, sharded (3 places) and multi-cluster controllers: pass `MDB_MONGODB_PROXY_IMAGE` into the options.
 - `pkg/util/constants.go` (`MongodbProxyImageEnv`) and `pkg/images/Imageurls.go`.
@@ -362,7 +362,7 @@ What differs or is missing. Each item needs a decision or work, and the first fo
 
 | # | Topic | TD | Implemented | Action |
 |---|---|---|---|---|
-| 1 | Activation in MCK | New value `static-ga` of the `mongodb.com/v1.architecture` annotation (ST5, section 5) | Here: separate annotation `mongodb.com/v1.mongodbProxy: "true"` plus `static` plus `MDB_MONGODB_PROXY_IMAGE`. On Nam's branch (`nammn-st1-proxy-contract`, PR 1827) `static-ga` is implemented (`StaticGA`, `IsRunningStaticGAArchitecture`, `validateStaticGAProxyPrerequisites`, AppDB included) | Decided 2026-11-05: his `static-ga` is the implementation. Our annotation goes away when the two branches are merged; do not add a second `static-ga` here (one was written and dropped) |
+| 1 | Activation in MCK | New value `static-ga` of the `mongodb.com/v1.architecture` annotation (ST5, section 5) | Here: separate annotation `mongodb.com/v1.mongodbProxy: "true"` plus `static` plus `MDB_MONGODB_PROXY_IMAGE`. On Nam's branch (`nammn-st1-proxy-contract`, PR 1827) `static-ga` is implemented (`StaticGA`, `IsRunningStaticGAArchitecture`, AppDB included) | Decided 2026-11-05: his `static-ga` is the implementation. Our annotation goes away when the two branches are merged; do not add a second `static-ga` here (one was written and dropped) |
 | 2 | Version gate | `MinAgentVersionForCloudNative`, `MinOMVersionForCloudNative` | None | Implement in MCK (ST5) |
 | 3 | Logs of `mongod` | ST3 keeps file logging and the tail, `mongod` writes to a file | Done in the proxy: it follows the log file of `mongod` (`systemLog.path` of the config, `pkg/mongodbproxy/logtail.go`) and copies each line to its stdout, so `kubectl logs <pod> -c mongodb-enterprise-database` has the log of `mongod`, also of an ephemeral one. The file stays, the agent and Ops Manager read it as before. The utilities container stays removed (it ignored SIGTERM). Switch off with the proxy flag `-tail-mongod-log=false`. Tested e2e (`test_log_of_mongod_is_in_the_log_of_the_database_container`) | The log of the agent and of the monitoring and backup agents is a separate stream (ST3); the pod log of the agent container is as before |
 | 4 | Agent switch | An interface `ProcessCaller` (status quo) and `ProxyCaller` behind the planner steps | `if global.UsingMongodProxy()` branches inside `mongoctl` | Keep (simpler) or refactor to the interface; agree with the agent team |

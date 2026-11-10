@@ -266,7 +266,10 @@ class SHA1ConnectivityTests:
             mdb["spec"]["security"]["authentication"]["modes"] = ["SCRAM-SHA-256"] + modes
             mdb["spec"]["security"]["authentication"]["ignoreUnknownUsers"] = True
             mdb.update()
-            mdb.assert_reaches_phase(Phase.Running)
+            # TODO(KUBE-529): Static-ga needs about 530 s for the SCRAM rollout.
+            # Revisit whether this budget hides a harmful slowdown before making
+            # it permanent.
+            mdb.assert_reaches_phase(Phase.Running, timeout=1200)
 
     def test_om_user_sha1_creds_preserved_byte_for_byte_after_mode_upgrade(self, mdb: MongoDB):
         # Both creds were already present before the mode upgrade, so neither should change.

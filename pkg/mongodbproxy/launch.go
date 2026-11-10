@@ -11,6 +11,10 @@ import (
 
 const binaryNumactl = "numactl"
 
+// numaPolicyAuto is the NUMA policy the Agent sends for every start request. It
+// selects the same numactl behavior as the Agent's direct-process path.
+const numaPolicyAuto = "auto"
+
 // replSetName limits the replica set name so that it can never be mistaken for a flag.
 var replSetName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
@@ -81,7 +85,7 @@ func (r StartRequest) validate(baseEnv []string) (launchSpec, error) {
 		env = append(env, "SET_THP_DISABLED=yes")
 	}
 
-	return launchSpec{binary: binary, args: args, env: env, numactl: o.NumaInterleave, disableTHP: o.DisableTHP}, nil
+	return launchSpec{binary: binary, args: args, env: env, numactl: o.NumaInterleave || o.NumaPolicy == numaPolicyAuto, disableTHP: o.DisableTHP}, nil
 }
 
 func (r StopRequest) validate() error {

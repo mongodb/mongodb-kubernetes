@@ -15,6 +15,14 @@ source scripts/funcs/operator_deployment
 
 check_env_var "TEST_NAME" "The 'TEST_NAME' must be specified to run the Operator single e2e test"
 
+# The mongodb-proxy image is built in the same registry and version as the operator image. Derive its
+# reference so the operator installation and the test pod use the built image instead of the chart default,
+# which points at the private release registry.
+if [[ -z "${MDB_MONGODB_PROXY_IMAGE:-}" ]]; then
+    MDB_MONGODB_PROXY_IMAGE="${REGISTRY}/mongodb-kubernetes-mongodb-proxy:${OPERATOR_VERSION}"
+    export MDB_MONGODB_PROXY_IMAGE
+fi
+
 
 # Create a kubeconfig secret so the test pod can use kubectl / kubectl-mongodb.
 # Multi-cluster tests already do this in configure_multi_cluster_environment;
@@ -108,6 +116,7 @@ deploy_test_app() {
         "--set" "registry=${REGISTRY}"
         "--set" "mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
         "--set" "mdbDefaultImageType=${MDB_DEFAULT_IMAGE_TYPE:-}"
+        "--set" "mongodbProxyImage=${MDB_MONGODB_PROXY_IMAGE:-}"
         "--set" "clusterDomain=${CLUSTER_DOMAIN:-cluster.local}"
         "--set" "cognito_user_pool_id=${cognito_user_pool_id}"
         "--set" "cognito_workload_federation_client_id=${cognito_workload_federation_client_id}"

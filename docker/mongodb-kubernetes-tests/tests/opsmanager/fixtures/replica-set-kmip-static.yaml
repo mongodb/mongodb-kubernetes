@@ -36,6 +36,12 @@ spec:
     podTemplate:
       spec:
         containers:
+          - name: mongodb-enterprise-database
+            volumeMounts:
+              - name: mongodb-kmip-client-pem
+                mountPath: /kmip/cert
+              - name: mongodb-kmip-certificate-authority-pem
+                mountPath: /kmip/ca
           - name: mongodb-agent
             volumeMounts:
               - name: mongodb-kmip-client-pem

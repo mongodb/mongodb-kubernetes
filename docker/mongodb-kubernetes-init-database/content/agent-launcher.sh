@@ -140,7 +140,7 @@ if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
 else
   agentOpts+=("-operatorMode=true")
   # With the mongodb-proxy the agent starts and stops mongod/mongos through the proxy instead of running them.
-  if [ -n "${MDB_MONGODB_PROXY_ADDRESS:-}" ]; then
+  if [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" = "static-ga" ]; then
     agentOpts+=("-mongodProxyAddress=${MDB_MONGODB_PROXY_ADDRESS}")
   fi
 fi
@@ -191,7 +191,7 @@ if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   echo "Skipping creating symlinks because this is not Static Containers Architecture"
 else
   MONGOD_ROOT=""
-  if [ -n "${MDB_MONGOD_ROOT:-}" ]; then
+  if [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" = "static-ga" ]; then
     # The MongoDB image is mounted into this container (mongodb-proxy mode). There is no shared process
     # namespace in that mode, so the binaries cannot be reached through /proc/<pid>/root.
     MONGOD_ROOT="${MDB_MONGOD_ROOT}"

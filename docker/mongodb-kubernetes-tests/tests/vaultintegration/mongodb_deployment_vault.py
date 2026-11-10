@@ -8,9 +8,9 @@ from kubernetes.client.rest import ApiException
 from kubetester import create_configmap, delete_secret, get_statefulset, random_k8s_name, read_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_x509_agent_tls_certs, create_x509_mongodb_tls_certs
 from kubetester.http import https_endpoint_is_reachable
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, assert_database_pod_container_count
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import get_pods, is_default_architecture_static
+from kubetester.kubetester import get_pods
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
@@ -352,10 +352,8 @@ def test_mdb_created(replica_set: MongoDB, namespace: str):
     replica_set.assert_reaches_phase(Phase.Running, timeout=500, ignore_errors=True)
     for pod_name in get_pods(MDB_RESOURCE + "-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
-        if is_default_architecture_static():
-            assert len(pod.spec.containers) == 4
-        else:
-            assert len(pod.spec.containers) == 2
+        # static=4 (utilities container), static-ga=3 (proxy is an image volume), non-static=2.
+        assert_database_pod_container_count(len(pod.spec.containers))
 
 
 @mark.e2e_vault_setup

@@ -323,14 +323,14 @@ func TestMultiClusterStatefulSet_StaticContainersEnvVars(t *testing.T) {
 			name:                 "Default architecture - static, no annotations",
 			defaultArchitecture:  string(architectures.Static),
 			annotations:          nil,
-			expectedEnvVar:       corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"},
+			expectedEnvVar:       corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "static"},
 			expectAgentContainer: true,
 		},
 		{
 			name:                 "Default architecture - non-static, annotations - static",
 			defaultArchitecture:  string(architectures.NonStatic),
 			annotations:          map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)},
-			expectedEnvVar:       corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"},
+			expectedEnvVar:       corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "static"},
 			expectAgentContainer: true,
 		},
 		{

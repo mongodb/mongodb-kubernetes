@@ -302,6 +302,61 @@ func TestMultiReplicaSetContainerImageTypeAnnotationWarning(t *testing.T) {
 	}
 }
 
+func TestMultiReplicaSetStaticGAProxyCommand(t *testing.T) {
+	for _, selection := range []struct {
+		name        string
+		defaultArch architectures.DefaultArchitecture
+		annotation  string
+	}{
+		{name: "default", defaultArch: architectures.StaticGA},
+		{name: "annotation", defaultArch: architectures.Static, annotation: string(architectures.StaticGA)},
+	} {
+		for _, existing := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/existing=%t", selection.name, existing), func(t *testing.T) {
+				ctx := context.Background()
+				imageURLs := images.ImageUrls{
+					util.AgentImageUrlEnv:        "registry.example/agent",
+					util.MongodbImageEnv:         "registry.example/mongodb",
+					util.InitDatabaseImageUrlEnv: "registry.example/init",
+					util.MongodbProxyImageEnv:    "registry.example/proxy:test",
+				}
+				mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+				mrs.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}
+				reconciler, kubeClient, memberClients, factory := defaultMultiReplicaSetReconciler(ctx, imageURLs, "test", "test", mrs, selection.defaultArch)
+				reconciler.customAgentURL = "https://example.invalid/agent.tar.gz"
+				factory.SetPostCreateHook(func(connection om.Connection) {
+					connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+				})
+				if existing {
+					checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+				}
+				if selection.annotation == "" {
+					delete(mrs.Annotations, architectures.ArchitectureAnnotation)
+				} else {
+					mrs.Annotations[architectures.ArchitectureAnnotation] = selection.annotation
+				}
+				require.NoError(t, kubeClient.Update(ctx, mrs))
+				checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+				for name, memberClient := range memberClients {
+					after := appsv1.StatefulSetList{}
+					require.NoError(t, memberClient.List(ctx, &after))
+					require.NotEmpty(t, after.Items, name)
+					for _, sts := range after.Items {
+						foundProxy := false
+						for _, c := range sts.Spec.Template.Spec.Containers {
+							if c.Name == util.DatabaseContainerName {
+								assert.Equal(t, []string{"/mnt/proxy/proxy"}, c.Command)
+								foundProxy = true
+							}
+						}
+						assert.True(t, foundProxy, name)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestReconcilePVCResizeMultiCluster(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := context.Background()

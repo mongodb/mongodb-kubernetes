@@ -184,3 +184,8 @@ case ${BUILD_SCENARIO} in
     ;;
 esac
 echo "Setting REGISTRY=${REGISTRY} and OPERATOR_VERSION=${OPERATOR_VERSION}, READINESS_PROBE_VERSION=${READINESS_PROBE_VERSION}, VERSION_UPGRADE_HOOK_VERSION=${VERSION_UPGRADE_HOOK_VERSION} for ${BUILD_SCENARIO} build scenario"
+
+# The mongodb-proxy image is built in the same registry and version as the operator image. Export the
+# reference so every consumer of get_operator_helm_values (e2e installs and the OpenShift bundle
+# preparation) uses the built image instead of the private release default.
+export MDB_MONGODB_PROXY_IMAGE="${MDB_MONGODB_PROXY_IMAGE:-${REGISTRY}/mongodb-kubernetes-mongodb-proxy:${OPERATOR_VERSION}}"

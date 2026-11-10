@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -39,8 +40,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -51,6 +54,65 @@ const OperatorNamespace = "operatorNs"
 func init() {
 	util.OperatorVersion = "9.9.9-test"
 	_ = os.Setenv(util.CurrentNamespace, OperatorNamespace) // nolint:forbidigo
+}
+
+func TestStaticGAProxyCommand(t *testing.T) {
+	for _, topology := range []string{"replica set", "standalone", "sharded"} {
+		t.Run(topology, func(t *testing.T) {
+			ctx := context.Background()
+			imageURLs := images.ImageUrls{
+				util.AgentImageUrlEnv:        "registry.example/agent",
+				util.MongodbImageEnv:         "registry.example/mongodb",
+				util.InitDatabaseImageUrlEnv: "registry.example/init",
+				util.MongodbProxyImageEnv:    "registry.example/proxy:test",
+			}
+			var resource *mdbv1.MongoDB
+			var reconciler reconcile.Reconciler
+			var kubeClient kubernetesClient.Client
+			var factory *om.CachedOMConnectionFactory
+			switch topology {
+			case "replica set":
+				resource = DefaultReplicaSetBuilder().Build()
+				controller, c, f := defaultReplicaSetReconciler(ctx, imageURLs, "test", "test", resource, architectures.StaticGA)
+				controller.customAgentURL = "https://example.invalid/agent.tar.gz"
+				reconciler, kubeClient, factory = controller, c, f
+			case "standalone":
+				resource = DefaultStandaloneBuilder().Build()
+				controller, c, f := defaultStandaloneReconciler(ctx, imageURLs, "test", "test", om.NewEmptyMockedOmConnection, resource, architectures.StaticGA)
+				controller.customAgentURL = "https://example.invalid/agent.tar.gz"
+				reconciler, kubeClient, factory = controller, c, f
+			case "sharded":
+				resource = test.DefaultClusterBuilder().Build()
+				controller, _, c, f, err := defaultShardedClusterReconciler(ctx, imageURLs, "test", "test", resource, nil, testBackupEnableDelay, architectures.StaticGA)
+				require.NoError(t, err)
+				controller.customAgentURL = "https://example.invalid/agent.tar.gz"
+				reconciler, kubeClient, factory = controller, c, f
+			}
+			factory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+			resource.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}
+			require.NoError(t, kubeClient.Update(ctx, resource))
+			checkReconcileSuccessful(ctx, t, reconciler, resource, kubeClient)
+			resource.Annotations[architectures.ArchitectureAnnotation] = string(architectures.StaticGA)
+			require.NoError(t, kubeClient.Update(ctx, resource))
+			checkReconcileSuccessful(ctx, t, reconciler, resource, kubeClient)
+			current := mock.GetMapForObject(kubeClient, &appsv1.StatefulSet{})
+			require.NotEmpty(t, current)
+			for _, object := range current {
+				sts := object.(*appsv1.StatefulSet)
+				assert.Nil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
+				foundProxy := false
+				for _, container := range sts.Spec.Template.Spec.Containers {
+					if container.Name == util.DatabaseContainerName {
+						assert.Equal(t, []string{"/mnt/proxy/proxy"}, container.Command)
+						foundProxy = true
+					}
+				}
+				assert.True(t, foundProxy)
+			}
+		})
+	}
 }
 
 func TestEnsureTagAdded(t *testing.T) {

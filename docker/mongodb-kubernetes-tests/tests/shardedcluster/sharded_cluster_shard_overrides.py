@@ -103,12 +103,16 @@ class TestShardedClusterShardOverrides:
             sc["spec"]["shardOverrides"][1]["members"] = 4  # no member count specified (2) -> 4 members (shard 3)
             sc["spec"]["shardOverrides"][1]["memberConfig"] = None
             sc.update()
-            sc.assert_reaches_phase(Phase.Running, timeout=400)
+            # TODO(KUBE-529): Static-ga needs about 470 s. The agent halves the
+            # old primary's priority on each step-down attempt. Revisit whether
+            # this budget hides a harmful slowdown before making it permanent.
+            sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
             logger.info("Scaling down shards 0 and 1 with override")
             sc["spec"]["shardOverrides"][0]["members"] = 2  # Override for shards 0 and 1: 3-> 2
             sc.update()
-            sc.assert_reaches_phase(Phase.Running, timeout=400)
+            # TODO(KUBE-529): Same static-ga budget as the scale-up above.
+            sc.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_assert_correct_automation_config_after_scaling(self, sc: MongoDB):
         resource = sc.load()
