@@ -175,7 +175,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare Ops Manager connection: %w", err)), log)
 	}
-	r.EnsureOtelExporterForDeployment(conn, agentAPIKey, s, log)
 
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
 		return r.updateStatus(ctx, s, status, log)
@@ -191,6 +190,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if !reconcileResult.IsOK() {
 		return r.updateStatus(ctx, s, reconcileResult, log)
 	}
+	r.EnsureOtelExporterForDeployment(conn, agentAPIKey, s.Status.Link, s, log)
 
 	if status := controlledfeature.EnsureFeatureControls(ctx, *s, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, s, status, log)
@@ -405,7 +405,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 
 func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	s := obj.(*mdbv1.MongoDB)
-	r.ReleaseOtelExporterForProject(ctx, s, s.Status.ProjectId, log)
+	r.ReleaseOtelExporter(s.Status.Link, log)
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
@@ -418,7 +418,6 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 	if err != nil {
 		return err
 	}
-	r.ReleaseOtelExporterForConnection(conn, s.Status.ProjectId, log)
 
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(ctx,

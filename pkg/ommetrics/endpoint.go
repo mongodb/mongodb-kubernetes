@@ -35,6 +35,29 @@ func (p Project) key() (destKey, error) {
 	return destKey{base: base, groupID: p.GroupID}, nil
 }
 
+// SameDestination reports whether p and o export to the same OM project, ignoring base URL spelling.
+func (p Project) SameDestination(o Project) bool {
+	pk, perr := p.key()
+	ok, oerr := o.key()
+	if perr != nil || oerr != nil {
+		return p == o
+	}
+	return pk == ok
+}
+
+// ProjectFromLink parses a resource's status.link ("{baseURL}/v2/{groupID}"); ok is false for anything else.
+func ProjectFromLink(link string) (Project, bool) {
+	i := strings.LastIndex(link, "/v2/")
+	if i <= 0 {
+		return Project{}, false
+	}
+	p := Project{BaseURL: link[:i], GroupID: link[i+len("/v2/"):]}
+	if _, err := p.key(); err != nil {
+		return Project{}, false
+	}
+	return p, true
+}
+
 // canonicalBase normalizes an OM base URL so CRs pointing at the same OM share a destination key.
 func canonicalBase(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))

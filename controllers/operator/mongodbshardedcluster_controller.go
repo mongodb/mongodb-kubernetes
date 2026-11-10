@@ -858,7 +858,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
-	r.ReleaseOtelExporterForProject(ctx, sc, sc.Status.ProjectId, log)
+	r.ReleaseOtelExporter(sc.Status.Link, log)
 	if sc.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
@@ -915,7 +915,6 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
-	r.commonController.EnsureOtelExporterForDeployment(conn, agentAPIKey, sc, log)
 
 	if !architectures.IsRunningStaticArchitecture(sc.Annotations, r.defaultArchitecture) {
 		agents.UpgradeIfNeeded(ctx, sc, conn)
@@ -980,6 +979,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err := connection.EnsureTargetAutomationConfigSeeded(ctx, conn, sc.Status.ProjectId, projectConfig, credsConfig, r.omConnectionFactory, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
+	r.commonController.EnsureOtelExporterForDeployment(conn, agentAPIKey, sc.Status.Link, sc, log)
 
 	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, log)
 	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported || workflowStatus.Phase() == mdbstatus.PhaseConnectivityValidation {
@@ -1770,7 +1770,6 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	if err != nil {
 		return err
 	}
-	r.commonController.ReleaseOtelExporterForConnection(conn, sc.Status.ProjectId, log)
 
 	// A resource that still declares externalMembers is mid-migration from VMs: the sharded cluster in
 	// Ops Manager is partly made of processes the operator does not own. Removing it from the

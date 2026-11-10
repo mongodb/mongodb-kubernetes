@@ -110,9 +110,45 @@ def sharded_cluster_id(tester: OMTester, name: str) -> Optional[str]:
     return None
 
 
+class ReplicaSetTopology:
+    running_timeout = 600
+
+    def build(self, ops_manager: MongoDBOpsManager, namespace: str, mdb_version: str) -> MongoDB:
+        resource = MongoDB.from_yaml(yaml_fixture("replica-set-for-om.yaml"), namespace=namespace).configure(
+            ops_manager, "deploymentMappingsReplicaSet"
+        )
+        resource.set_version(mdb_version)
+        return resource
+
+    def deployment_name(self, mdb: MongoDB) -> str:
+        return mdb.name
+
+    def deployment_uuid(self, tester: OMTester, mdb: MongoDB) -> Optional[str]:
+        return replica_set_cluster_id(tester, mdb.name)
+
+
+class ShardedClusterTopology:
+    running_timeout = 1200
+
+    def build(self, ops_manager: MongoDBOpsManager, namespace: str, mdb_version: str) -> MongoDB:
+        resource = MongoDB.from_yaml(yaml_fixture("sharded-cluster-for-om.yaml"), namespace=namespace).configure(
+            ops_manager, "deploymentMappingsShardedCluster"
+        )
+        resource.set_version(mdb_version)
+        resource["spec"]["shardCount"] = 1
+        resource["spec"]["mongodsPerShardCount"] = 1
+        return resource
+
+    def deployment_name(self, mdb: MongoDB) -> str:
+        return mdb.name
+
+    def deployment_uuid(self, tester: OMTester, mdb: MongoDB) -> Optional[str]:
+        return sharded_cluster_id(tester, mdb.name)
+
+
 @mark.skipif(not om_supports_deployment_mappings(), reason="Ops Manager < 8.0.27 does not store deployment mappings")
-class DeploymentMappingsLifecycle:
-    """Test sequence shared by all topologies. Subclasses implement build, deployment_name and deployment_uuid."""
+class DeploymentMappingsBase:
+    """Fixtures and setup steps shared by the deployment mapping flows. Combine with a *Topology class."""
 
     running_timeout = 600
 
@@ -146,30 +182,7 @@ class DeploymentMappingsLifecycle:
     def _wait_for_mapping(self, ops_manager: MongoDBOpsManager, mdb: MongoDB):
         wait_for_mapping(ops_manager, mdb, self.deployment_name(mdb), lambda tester: self.deployment_uuid(tester, mdb))
 
-    def test_install_operator(self, operator: Operator):
-        operator.wait_for_operator_ready()
-
-    def test_create_ops_manager(self, ops_manager: MongoDBOpsManager):
-        ops_manager.update()
-        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
-        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
-
-    def test_create_mdb(self, mdb: MongoDB):
-        mdb.update()
-        mdb.assert_reaches_phase(Phase.Running, timeout=self.running_timeout)
-
-    def test_mapping_recorded(self, ops_manager: MongoDBOpsManager, mdb: MongoDB):
-        self._wait_for_mapping(ops_manager, mdb)
-
-    def test_mapping_exported_after_operator_restart(
-        self, ops_manager: MongoDBOpsManager, mdb: MongoDB, operator: Operator
-    ):
-        operator.restart_operator_deployment()
-        # Deleted only after the restart so that a re-created document proves the new operator pod exports.
-        delete_mapping_doc(ops_manager, project_id_of(mdb))
-        self._wait_for_mapping(ops_manager, mdb)
-
-    def test_export_stops_after_mdb_deleted(self, ops_manager: MongoDBOpsManager, mdb: MongoDB):
+    def _delete_mdb_and_assert_export_stops(self, ops_manager: MongoDBOpsManager, mdb: MongoDB):
         project_id = project_id_of(mdb)
         mdb.delete()
 
@@ -186,6 +199,36 @@ class DeploymentMappingsLifecycle:
         delete_mapping_doc(ops_manager, project_id)
         assert_mapping_doc_stays_absent(ops_manager, project_id)
 
+    def test_install_operator(self, operator: Operator):
+        operator.wait_for_operator_ready()
+
+    def test_create_ops_manager(self, ops_manager: MongoDBOpsManager):
+        ops_manager.update()
+        ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1200)
+        ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
+
+    def test_create_mdb(self, mdb: MongoDB):
+        mdb.update()
+        mdb.assert_reaches_phase(Phase.Running, timeout=self.running_timeout)
+
+    def test_mapping_recorded(self, ops_manager: MongoDBOpsManager, mdb: MongoDB):
+        self._wait_for_mapping(ops_manager, mdb)
+
+
+class DeploymentMappingsLifecycle(DeploymentMappingsBase):
+    """Operator restart, deletion and re-creation of a deployment."""
+
+    def test_mapping_exported_after_operator_restart(
+        self, ops_manager: MongoDBOpsManager, mdb: MongoDB, operator: Operator
+    ):
+        operator.restart_operator_deployment()
+        # Deleted only after the restart so that a re-created document proves the new operator pod exports.
+        delete_mapping_doc(ops_manager, project_id_of(mdb))
+        self._wait_for_mapping(ops_manager, mdb)
+
+    def test_export_stops_after_mdb_deleted(self, ops_manager: MongoDBOpsManager, mdb: MongoDB):
+        self._delete_mdb_and_assert_export_stops(ops_manager, mdb)
+
     def test_recreated_mdb_mapped_to_new_uid(
         self, ops_manager: MongoDBOpsManager, mdb: MongoDB, namespace: str, custom_mdb_version: str
     ):
@@ -196,3 +239,40 @@ class DeploymentMappingsLifecycle:
 
         assert recreated["metadata"]["uid"] != old_uid
         self._wait_for_mapping(ops_manager, recreated)
+
+
+class DeploymentMappingsSwitchProject(DeploymentMappingsBase):
+    """Moving a deployment to another Ops Manager project moves its mapping export with it."""
+
+    @fixture(scope="class")
+    def project_ids(self) -> dict[str, str]:
+        return {}
+
+    def test_switch_project(self, ops_manager: MongoDBOpsManager, mdb: MongoDB, project_ids: dict[str, str]):
+        mdb.load()
+        project_ids["first"] = project_id_of(mdb)
+        original_uid = mdb["metadata"]["uid"]
+
+        # Same Ops Manager and credentials, new project.
+        mdb["spec"]["opsManager"]["configMapRef"]["name"] = ops_manager.get_or_create_mongodb_connection_config_map(
+            f"{mdb.name}-second", f"{mdb.name}-second-project", mdb.namespace
+        )
+        mdb.update()
+        mdb.assert_reaches_phase(Phase.Running, timeout=self.running_timeout)
+
+        project_ids["second"] = project_id_of(mdb)
+        assert project_ids["second"] != project_ids["first"]
+        assert mdb["metadata"]["uid"] == original_uid
+
+    def test_mapping_recorded_in_second_project(self, ops_manager: MongoDBOpsManager, mdb: MongoDB):
+        self._wait_for_mapping(ops_manager, mdb)
+
+    def test_export_stops_for_first_project(self, ops_manager: MongoDBOpsManager, project_ids: dict[str, str]):
+        # Ops Manager keeps the first project's last mapping; only fresh exports matter.
+        # Let an export already in flight when the exporter was released land before clearing the document.
+        time.sleep(15)
+        delete_mapping_doc(ops_manager, project_ids["first"])
+        assert_mapping_doc_stays_absent(ops_manager, project_ids["first"])
+
+    def test_export_stops_after_mdb_deleted(self, ops_manager: MongoDBOpsManager, mdb: MongoDB):
+        self._delete_mdb_and_assert_export_stops(ops_manager, mdb)

@@ -37,6 +37,7 @@ import (
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
@@ -160,7 +161,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("error establishing connection to Ops Manager: %w", err)), log)
 	}
-	r.EnsureOtelExporterForDeployment(conn, agentAPIKey, &mrs, log)
+	r.EnsureOtelExporterForDeployment(conn, agentAPIKey, mrs.Status.Link, &mrs, log)
 
 	if !architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) {
 		agents.UpgradeIfNeededMC(ctx, &mrs, conn)
@@ -260,7 +261,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
-	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewPVCsStatusOptionEmptyStatus())
+	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
 // publishAutomationConfigFirstMultiCluster returns a boolean indicating whether Ops Manager
@@ -1201,6 +1202,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 // OnDelete cleans up Ops Manager state and all Kubernetes resources associated with this instance.
 func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	mrs := obj.(*mdbmultiv1.MongoDBMultiCluster)
+	r.ReleaseOtelExporter(mrs.Status.Link, log)
 	if mrs.IsReconciliationDisabled() {
 		log.Infof("MongoDBMultiCluster %s/%s OnDelete skipped due to %s annotation",
 			mrs.Namespace, mrs.Name, util.DisableReconciliationAnnotation)
@@ -1221,8 +1223,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	// TODO: add ProjectId to MongoDBMultiStatus so release works without OM, like MongoDB resources.
-	r.ReleaseOtelExporterForConnection(conn, "", log)
 
 	processNames := make([]string, 0)
 	err = conn.ReadUpdateDeployment(ctx,

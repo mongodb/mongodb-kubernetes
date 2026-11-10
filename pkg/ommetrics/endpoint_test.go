@@ -72,3 +72,51 @@ func TestMetricsURL(t *testing.T) {
 		t.Fatalf("metricsURL() = %q, want %q", got, want)
 	}
 }
+
+func TestProjectFromLink(t *testing.T) {
+	tests := []struct {
+		name   string
+		link   string
+		want   Project
+		wantOK bool
+	}{
+		{name: "status link", link: "https://om.example.com:8443/v2/g1", want: Project{BaseURL: "https://om.example.com:8443", GroupID: "g1"}, wantOK: true},
+		{name: "base path containing /v2/", link: "https://om.example.com/v2/proxy/v2/g1", want: Project{BaseURL: "https://om.example.com/v2/proxy", GroupID: "g1"}, wantOK: true},
+		{name: "empty", link: ""},
+		{name: "no /v2/", link: "https://om.example.com/g1"},
+		{name: "empty group", link: "https://om.example.com/v2/"},
+		{name: "unsafe group", link: "https://om.example.com/v2/g1/extra"},
+		{name: "no base", link: "/v2/g1"},
+		{name: "relative base", link: "om.example.com/v2/g1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := ProjectFromLink(tc.link)
+			if ok != tc.wantOK || got != tc.want {
+				t.Fatalf("ProjectFromLink(%q) = %+v, %v; want %+v, %v", tc.link, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestProjectSameDestination(t *testing.T) {
+	a := Project{BaseURL: "https://om.example.com", GroupID: "g1"}
+	tests := []struct {
+		name  string
+		other Project
+		want  bool
+	}{
+		{name: "identical", other: a, want: true},
+		{name: "different spelling", other: Project{BaseURL: "HTTPS://OM.example.com:443/", GroupID: "g1"}, want: true},
+		{name: "different group", other: Project{BaseURL: "https://om.example.com", GroupID: "g2"}},
+		{name: "different OM", other: Project{BaseURL: "https://om2.example.com", GroupID: "g1"}},
+		{name: "invalid other", other: Project{BaseURL: "https://om.example.com", GroupID: ""}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := a.SameDestination(tc.other); got != tc.want {
+				t.Fatalf("SameDestination(%+v) = %v, want %v", tc.other, got, tc.want)
+			}
+		})
+	}
+}

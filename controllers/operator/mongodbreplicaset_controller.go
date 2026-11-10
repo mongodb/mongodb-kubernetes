@@ -219,8 +219,6 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
 
-	r.reconciler.EnsureOtelExporterForDeployment(conn, agentApiKey, rs, log)
-
 	if status := ensureSupportedOpsManagerVersion(conn); status.Phase() != mdbstatus.PhaseRunning {
 		return r.updateStatus(ctx, status)
 	}
@@ -364,6 +362,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		}
 		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
 	}
+
+	reconciler.EnsureOtelExporterForDeployment(conn, agentApiKey, rs.Status.Link, rs, log)
 
 	if status := controlledfeature.EnsureFeatureControls(ctx, *rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, status)
@@ -1168,7 +1168,6 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	if err != nil {
 		return err
 	}
-	r.reconciler.ReleaseOtelExporterForConnection(conn, rs.Status.ProjectId, log)
 
 	// A resource that still declares externalMembers is mid-migration from VMs: the replica set in
 	// Ops Manager is partly made of processes the operator does not own. Removing it from the
@@ -1246,7 +1245,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
-	r.ReleaseOtelExporterForProject(ctx, rs, rs.Status.ProjectId, log)
+	r.ReleaseOtelExporter(rs.Status.Link, log)
 	if rs.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)

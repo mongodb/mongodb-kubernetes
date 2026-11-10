@@ -37,7 +37,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -84,32 +83,19 @@ type OMMetricsMultiplexer interface {
 	ReleaseProject(ommetrics.Project) error
 }
 
-// ReleaseOtelExporterForProject drops the resource's Ops Manager project from the metrics export
-// destinations. Reads only Kubernetes state, so it works when OM is unreachable. Fire-and-forget.
+// ReleaseOtelExporter drops the Ops Manager project recorded in the resource's status.link from the
+// metrics export destinations. Reads only the status, so it works when OM is unreachable. Fire-and-forget.
 // TODO: releases the whole project, which is correct only while MCK supports one deployment per project.
-func (r *ReconcileCommonController) ReleaseOtelExporterForProject(ctx context.Context, reader project.Reader, projectID string, log *zap.SugaredLogger) {
-	if r.omMetrics == nil || projectID == "" {
+func (r *ReconcileCommonController) ReleaseOtelExporter(statusLink string, log *zap.SugaredLogger) {
+	if r.omMetrics == nil {
 		return
 	}
-	projectConfig, err := project.ReadProjectConfig(ctx, r.client, kube.ObjectKey(reader.GetProjectConfigMapNamespace(), reader.GetProjectConfigMapName()), reader.GetName())
-	if err != nil {
-		log.Debugf("ommetrics: failed to read project config to release metrics destination for group %s: %v", projectID, err)
+	p, ok := ommetrics.ProjectFromLink(statusLink)
+	if !ok {
 		return
 	}
-	if err := r.omMetrics.ReleaseProject(ommetrics.Project{BaseURL: projectConfig.BaseURL, GroupID: projectID}); err != nil {
-		log.Debugf("ommetrics: failed to release metrics destination for group %s: %v", projectID, err)
-	}
-}
-
-// ReleaseOtelExporterForConnection is the fallback for resources without a status projectID:
-// a no-op when projectID is set, since ReleaseOtelExporterForProject already handled it.
-func (r *ReconcileCommonController) ReleaseOtelExporterForConnection(conn om.Connection, projectID string, log *zap.SugaredLogger) {
-	if r.omMetrics == nil || projectID != "" {
-		return
-	}
-	omCtx := conn.Context()
-	if err := r.omMetrics.ReleaseProject(ommetrics.Project{BaseURL: omCtx.BaseURL, GroupID: omCtx.GroupID}); err != nil {
-		log.Debugf("ommetrics: failed to release metrics destination for group %s: %v", omCtx.GroupID, err)
+	if err := r.omMetrics.ReleaseProject(p); err != nil {
+		log.Debugf("ommetrics: failed to release metrics destination for group %s: %v", p.GroupID, err)
 	}
 }
 
@@ -153,12 +139,19 @@ func NewReconcileCommonController(ctx context.Context, client client.Client, omM
 }
 
 // EnsureOtelExporterForDeployment registers the connection's Ops Manager project as a metrics export
-// destination for deployment. Fire-and-forget: telemetry must never fail a reconcile.
-func (r *ReconcileCommonController) EnsureOtelExporterForDeployment(conn om.Connection, agentAPIKey string, deployment ommetrics.MongoDBDeployment, log *zap.SugaredLogger) {
+// destination for deployment, first releasing the project in previousStatusLink if the resource moved.
+// Call it once the deployment lives in conn's project; if deleted before status.link catches up, PruneStale reclaims it.
+// Fire-and-forget: telemetry must never fail a reconcile.
+func (r *ReconcileCommonController) EnsureOtelExporterForDeployment(conn om.Connection, agentAPIKey string, previousStatusLink string, deployment ommetrics.MongoDBDeployment, log *zap.SugaredLogger) {
 	if r.omMetrics == nil {
 		return
 	}
 	omCtx := conn.Context()
+
+	// Not gated on the OM version below: the previous project may live on a different Ops Manager.
+	if previous, ok := ommetrics.ProjectFromLink(previousStatusLink); ok && !previous.SameDestination(ommetrics.Project{BaseURL: omCtx.BaseURL, GroupID: omCtx.GroupID}) {
+		r.ReleaseOtelExporter(previousStatusLink, log)
+	}
 
 	if omCtx.Version.IsUnknown() {
 		log.Debugf("ommetrics: Ops Manager version unknown yet; skipping metrics registration for group %s", omCtx.GroupID)
