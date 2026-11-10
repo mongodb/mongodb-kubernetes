@@ -116,7 +116,7 @@ func TestEnsureOpsManagerLicense_IdentityReadFailure(t *testing.T) {
 
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseObserveFailed)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
 }
 
 func TestEnsureOpsManagerLicense_ProvisioningModels(t *testing.T) {
@@ -178,7 +178,7 @@ func TestEnsureOpsManagerLicense_ProvisioningModels(t *testing.T) {
 			assert.Contains(t, ready.Message, "License state is LICENSED.")
 			assert.Contains(t, ready.Message, tc.wantArtifact)
 
-			wantReason := status.ReasonLicenseReconciled
+			wantReason := status.ReasonLicenseNotRequested
 			if tc.wantInstalled {
 				wantReason = status.ReasonLicenseInstalled
 			}
@@ -244,7 +244,7 @@ func TestEnsureOpsManagerLicense_IdentityReadErrorWithoutRotationFails(t *testin
 
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseObserveFailed)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
 }
 
 func TestMongoDBOpsManager_LicenseRotateIdentityDueRequiresTrue(t *testing.T) {
@@ -415,7 +415,7 @@ func TestEnsureOpsManagerLicense_ReleaseWithoutTheLicenseSecretFails(t *testing.
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReleaseFailed)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
 }
 
 func TestEnsureOpsManagerLicense_ReleaseWithSecretMissingKeySkipsWhenNothingHeld(t *testing.T) {
@@ -446,7 +446,7 @@ func TestEnsureOpsManagerLicense_InstallFailed(t *testing.T) {
 	c := reconciledCondition(t, st.StatusOptions())
 	assert.Equal(t, status.ConditionLicenseReconciled, c.Type)
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonLicenseInstallFailed, c.Reason)
+	assert.Equal(t, status.ReasonLicenseReconcileFailed, c.Reason)
 }
 
 func TestEnsureOpsManagerLicense_InstallConflictReportsOutdated(t *testing.T) {
@@ -515,7 +515,7 @@ func TestEnsureOpsManagerLicense_InstallConflictWithOtherCodeFails(t *testing.T)
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	c := reconciledCondition(t, st.StatusOptions())
-	assert.Equal(t, status.ReasonLicenseInstallFailed, c.Reason)
+	assert.Equal(t, status.ReasonLicenseReconcileFailed, c.Reason)
 	assert.Contains(t, c.Message, "SOME_OTHER_CONFLICT")
 }
 
@@ -565,7 +565,7 @@ func TestEnsureOpsManagerLicense_RotateNotRotatedFails(t *testing.T) {
 	c := reconciledCondition(t, st.StatusOptions())
 	assert.Equal(t, status.ConditionLicenseReconciled, c.Type)
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonIdentityRotationFailed, c.Reason)
+	assert.Equal(t, status.ReasonLicenseReconcileFailed, c.Reason)
 }
 
 func TestEnsureOpsManagerLicense_RecomputeOnAnnotation(t *testing.T) {
@@ -607,7 +607,7 @@ func TestEnsureOpsManagerLicense_RecomputeFailureClearsAnnotation(t *testing.T) 
 
 	c := reconciledCondition(t, st.StatusOptions())
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonLicenseRecomputeFailed, c.Reason)
+	assert.Equal(t, status.ReasonLicenseReconcileFailed, c.Reason)
 }
 
 func TestEnsureOpsManagerLicense_AutoReleaseOnSecretRefRemoval(t *testing.T) {
@@ -625,7 +625,7 @@ func TestEnsureOpsManagerLicense_AutoReleaseOnSecretRefRemoval(t *testing.T) {
 	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
 	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "no license")
 	c := reconciledCondition(t, st.StatusOptions())
-	assert.Equal(t, status.ReasonLicenseReleased, c.Reason)
+	assert.Equal(t, status.ReasonLicenseNotRequested, c.Reason)
 	assert.Equal(t, "Ops Manager no longer holds license art-1 from secretRef.", c.Message)
 }
 
@@ -639,7 +639,7 @@ func TestEnsureOpsManagerLicense_WithoutSecretRefInstallsNoLicense(t *testing.T)
 	assert.True(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
 	c := reconciledCondition(t, st.StatusOptions())
-	assert.Equal(t, status.ReasonLicenseReconciled, c.Reason)
+	assert.Equal(t, status.ReasonLicenseNotRequested, c.Reason)
 	assert.Equal(t, "secretRef is not set, so the operator installs no license.", c.Message)
 }
 
@@ -1119,7 +1119,7 @@ func TestEnsureOpsManagerLicense_MalformedLicenseArtifactFails(t *testing.T) {
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Nil(t, admin.InstalledLicense)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseArtifactInvalid)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptEntryWithMissingSecretFails(t *testing.T) {
@@ -1135,7 +1135,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryWithMissingSecretFails(t *testing.T
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReceiptFailed)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptEntryWithMalformedSecretFails(t *testing.T) {
@@ -1152,7 +1152,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryWithMalformedSecretFails(t *testing
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseArtifactInvalid)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
 }
 
 func TestEnsureOpsManagerLicense_InstallSucceedsWhenStateListsExtraArtifacts(t *testing.T) {
@@ -1227,7 +1227,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryOnInstalledLicenseFails(t *testing.
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Nil(t, admin.InstalledLicense)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseArtifactInvalid)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
 }
 
 func TestEnsureOpsManagerLicense_AutoReceiptsWriteReleaseReceipt(t *testing.T) {
@@ -1427,7 +1427,7 @@ func TestEnsureOpsManagerLicense_AutoReceiptNotFoundFails(t *testing.T) {
 
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReceiptFailed)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
 }
 
 func TestEnsureOpsManagerLicense_ListedReceiptNotFoundStillFails(t *testing.T) {
@@ -1440,7 +1440,7 @@ func TestEnsureOpsManagerLicense_ListedReceiptNotFoundStillFails(t *testing.T) {
 
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReceiptFailed)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptCheckReadsKubernetes(t *testing.T) {
@@ -1519,4 +1519,11 @@ func setLicenseRecomputeAnnotation(t *testing.T, ctx context.Context, kubeClient
 	require.NoError(t, annotations.SetAnnotations(ctx, opsManager, map[string]string{
 		util.LicenseRecomputeAnnotation: value,
 	}, kubeClient))
+}
+
+func TestLicenseStateReason(t *testing.T) {
+	assert.Equal(t, status.ReasonLicenseGrace, licenseStateReason("GRACE"))
+	assert.Equal(t, status.ReasonLicenseUnlicensed, licenseStateReason("UNLICENSED"))
+	assert.Equal(t, status.ReasonLicenseExpired, licenseStateReason("EXPIRED"))
+	assert.Equal(t, status.ReasonLicenseStateUnknown, licenseStateReason("SOMETHING_NEW"))
 }

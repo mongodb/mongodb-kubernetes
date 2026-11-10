@@ -668,7 +668,7 @@ func TestOpsManagerLicenseFailureDoesNotBlockBackupDaemon(t *testing.T) {
 	licenseCondition := meta.FindStatusCondition(testOm.Status.OpsManagerStatus.Conditions, status.ConditionLicenseReconciled)
 	require.NotNil(t, licenseCondition)
 	assert.Equal(t, metav1.ConditionFalse, licenseCondition.Status)
-	assert.Equal(t, status.ReasonLicenseInstallFailed, licenseCondition.Reason)
+	assert.Equal(t, status.ReasonLicenseReconcileFailed, licenseCondition.Reason)
 }
 
 func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
