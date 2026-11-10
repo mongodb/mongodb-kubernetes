@@ -132,6 +132,12 @@ func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig
 		return false
 	}
 
+	// An empty ClientCertificates can never be written to the automation config (omitempty + merge keeps the old
+	// value), so treat it as "not managed" to avoid re-enabling agent authentication on every reconcile.
+	if opts.ClientCertificates != "" && ac.AgentSSL != nil && ac.AgentSSL.ClientCertificateMode != opts.ClientCertificates {
+		return false
+	}
+
 	return true
 }
 
