@@ -42,7 +42,7 @@ func (p Project) SameDestination(o Project) bool {
 	return thisErr == nil && otherErr == nil && thisKey == otherKey
 }
 
-// ProjectFromLink parses a resource's status.link ("{baseURL}/v2/{groupID}"); ok is false for anything else.
+// ProjectFromLink parses a resource's status.link ("{baseURL}/v2/{groupID}"); returns empty Project and false for anything else.
 func ProjectFromLink(link string) (Project, bool) {
 	i := strings.LastIndex(link, "/v2/")
 	if i <= 0 {

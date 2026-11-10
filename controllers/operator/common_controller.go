@@ -166,9 +166,13 @@ func NewReconcileCommonController(ctx context.Context, client client.Client, omM
 	return rc
 }
 
-// EnsureOtelExporterForDeployment registers the connection's Ops Manager project as a metrics export
-// destination for deployment, first releasing the project in previousStatusLink if the resource moved.
-// Call it once the deployment lives in conn's project; if deleted before status.link catches up, PruneStale reclaims it.
+// EnsureOtelExporterForDeployment makes conn's Ops Manager project a metrics export destination for the specified deployment.
+// If previousStatusLink names a different project, the resource has moved, so that project's exporter is released first.
+//
+// Call it only after the deployment has been moved into conn's project. OnDelete releases the project in
+// status.link, so a resource deleted before status.link is updated leaves conn's project registered until
+// PruneStale removes it.
+//
 // Fire-and-forget: telemetry must never fail a reconcile.
 func (r *ReconcileCommonController) EnsureOtelExporterForDeployment(conn om.Connection, agentAPIKey string, previousStatusLink string, deployment ommetrics.MongoDBDeployment, log *zap.SugaredLogger) {
 	if r.omMetrics == nil {
@@ -176,7 +180,6 @@ func (r *ReconcileCommonController) EnsureOtelExporterForDeployment(conn om.Conn
 	}
 	omCtx := conn.Context()
 
-	// Not gated on the OM version below: the previous project may live on a different Ops Manager.
 	if previous, ok := ommetrics.ProjectFromLink(previousStatusLink); ok && !previous.SameDestination(ommetrics.Project{BaseURL: omCtx.BaseURL, GroupID: omCtx.GroupID}) {
 		r.ReleaseOtelExporter(previousStatusLink, log)
 	}
