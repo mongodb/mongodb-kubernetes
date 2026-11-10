@@ -1,7 +1,6 @@
 package util
 
 import (
-	"strings"
 	"time"
 )
 
@@ -427,13 +426,7 @@ const (
 // "operator specific" part of the version tag
 var OperatorVersion string
 
-var LogAutomationConfigDiff string
-
 var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
-
-func ShouldLogAutomationConfigDiff() bool {
-	return strings.EqualFold(LogAutomationConfigDiff, "true")
-}
 
 const (
 	TWENTY_FOUR_HOURS = 24 * time.Hour
