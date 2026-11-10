@@ -250,7 +250,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return workflow.OK()
 		},
 		func() workflow.Status {
-			return r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
+			st := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
+			if !st.IsOK() {
+				r.logAgentErrors(ctx, &mrs, conn, log)
+			}
+
+			return st
 		})
 
 	if !status.IsOK() {

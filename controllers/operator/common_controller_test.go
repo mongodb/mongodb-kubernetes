@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1987,4 +1989,144 @@ func TestValidateVotingLimitRS(t *testing.T) {
 	st := validateVotingLimitRS(mdb, rs)
 	require.False(t, st.IsOK())
 	assert.Contains(t, statusMsg(st), "8 voting members")
+}
+
+func TestLogAgentErrors(t *testing.T) {
+	tests := []struct {
+		name                string
+		processes           []om.ProcessStatus
+		readError           error
+		expectedErrors      []map[string]any
+		expectedReadFailure bool
+	}{
+		{
+			name: "error of a prefixed pod of the resource is logged",
+			processes: []om.ProcessStatus{
+				{Name: "k8s/ns/rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "could not connect to member"},
+			},
+			expectedErrors: []map[string]any{
+				{"process": "k8s/ns/rs-0", "errorCode": int64(106), "error": "could not connect to member"},
+			},
+		},
+		{
+			name: "error of a legacy pod of the resource is logged",
+			processes: []om.ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "could not connect to member"},
+			},
+			expectedErrors: []map[string]any{
+				{"process": "rs-0", "errorCode": int64(106), "error": "could not connect to member"},
+			},
+		},
+		{
+			name: "error of a process of another resource is ignored",
+			processes: []om.ProcessStatus{
+				{Name: "k8s/ns/other-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "boom"},
+			},
+		},
+		{
+			name: "error of a process at goal is ignored",
+			processes: []om.ProcessStatus{
+				{Name: "k8s/ns/rs-0", LastGoalVersionAchieved: 1, ErrorCode: 106, ErrorString: "boom"},
+			},
+		},
+		{
+			name: "blank error is ignored",
+			processes: []om.ProcessStatus{
+				{Name: "k8s/ns/rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: " \n\t "},
+			},
+		},
+		{
+			name:      "no processes",
+			processes: nil,
+		},
+		{
+			name:                "read error is logged as a warning",
+			readError:           xerrors.New("boom"),
+			expectedReadFailure: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := om.NewMockedOmConnection(om.NewDeployment())
+			conn.ReadAutomationStatusFunc = func() (*om.AutomationStatus, error) {
+				if tt.readError != nil {
+					return nil, tt.readError
+				}
+				return &om.AutomationStatus{GoalVersion: 1, Processes: tt.processes}, nil
+			}
+			core, logs := observer.New(zap.WarnLevel)
+			controller := &ReconcileCommonController{agentErrorsThrottle: util.NewThrottle(time.Hour)}
+
+			controller.logAgentErrors(context.Background(), &metav1.ObjectMeta{Namespace: "ns", Name: "rs"}, conn, zap.New(core).Sugar())
+
+			errorEntries := logs.FilterMessage("MongoDB agent reported an error").All()
+			require.Len(t, errorEntries, len(tt.expectedErrors))
+			for i, expectedFields := range tt.expectedErrors {
+				assert.Equal(t, zapcore.WarnLevel, errorEntries[i].Level)
+				assert.Equal(t, expectedFields, errorEntries[i].ContextMap())
+			}
+
+			readFailureEntries := logs.FilterMessage("failed to read agent errors: boom").All()
+			if tt.expectedReadFailure {
+				require.Len(t, readFailureEntries, 1)
+				return
+			}
+			require.Empty(t, readFailureEntries)
+		})
+	}
+}
+
+func TestLogAgentErrors_ThrottlesPerResource(t *testing.T) {
+	nsRS := types.NamespacedName{Namespace: "ns", Name: "rs"}
+	nsOther := types.NamespacedName{Namespace: "ns", Name: "other"}
+	otherRS := types.NamespacedName{Namespace: "other", Name: "rs"}
+
+	tests := []struct {
+		name             string
+		calls            []types.NamespacedName
+		expectedReads    int
+		expectedLogCount int
+	}{
+		{
+			name:             "repeated calls for the same resource read the status and log once",
+			calls:            []types.NamespacedName{nsRS, nsRS},
+			expectedReads:    1,
+			expectedLogCount: 1,
+		},
+		{
+			name:             "another resource has its own budget",
+			calls:            []types.NamespacedName{nsRS, nsOther},
+			expectedReads:    2,
+			expectedLogCount: 2,
+		},
+		{
+			name:             "the same name in another namespace is another resource",
+			calls:            []types.NamespacedName{nsRS, otherRS},
+			expectedReads:    2,
+			expectedLogCount: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reads := 0
+			conn := om.NewMockedOmConnection(om.NewDeployment())
+			conn.ReadAutomationStatusFunc = func() (*om.AutomationStatus, error) {
+				reads++
+				return &om.AutomationStatus{GoalVersion: 1, Processes: []om.ProcessStatus{
+					{Name: "k8s/ns/rs-0", ErrorCode: 106, ErrorString: "boom"},
+					{Name: "k8s/ns/other-0", ErrorCode: 106, ErrorString: "boom"},
+					{Name: "k8s/other/rs-0", ErrorCode: 106, ErrorString: "boom"},
+				}}, nil
+			}
+			core, logs := observer.New(zap.WarnLevel)
+			controller := &ReconcileCommonController{agentErrorsThrottle: util.NewThrottle(time.Hour)}
+
+			for _, call := range tt.calls {
+				controller.logAgentErrors(context.Background(), &metav1.ObjectMeta{Namespace: call.Namespace, Name: call.Name}, conn, zap.New(core).Sugar())
+			}
+
+			assert.Equal(t, tt.expectedReads, reads)
+			assert.Len(t, logs.FilterMessage("MongoDB agent reported an error").All(), tt.expectedLogCount)
+		})
+	}
 }
