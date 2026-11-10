@@ -7,11 +7,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
@@ -20,6 +24,43 @@ import (
 // env.Shared(t) instead of starting their own environment.
 func TestMain(m *testing.M) {
 	os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_mongodbsearch.yaml")))
+}
+
+func TestMongoDBSearchServiceMetadataPersistence(t *testing.T) {
+	k8sClient := env.Shared(t).Client
+	search := &searchv1.MongoDBSearch{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "service-metadata-", Namespace: "default"},
+		Spec: searchv1.MongoDBSearchSpec{
+			Source: &searchv1.MongoDBSource{ExternalMongoDBSource: &searchv1.ExternalMongoDBSource{
+				ShardedCluster: &searchv1.ExternalShardedClusterConfig{
+					Router: searchv1.ExternalRouterConfig{Hosts: []string{"mongos.example:27017"}},
+					Shards: []searchv1.ExternalShardConfig{{ShardName: "shard-0", Hosts: []string{"shard.example:27017"}}},
+				},
+			}},
+			Clusters: []searchv1.ClusterSpec{{
+				Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+					Labels:      map[string]string{"app.kubernetes.io/component": "search"},
+					Annotations: map[string]string{"example.com/note": "cluster"},
+				}},
+				ShardOverrides: []searchv1.ShardOverride{{
+					ShardNames: []string{"shard-0"},
+					Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+						Labels:      map[string]string{"example.com/team": "shard"},
+						Annotations: map[string]string{"example.com/note": "shard"},
+					}},
+				}},
+			}},
+		},
+	}
+	want := search.DeepCopy()
+	require.NoError(t, k8sClient.Create(t.Context(), search))
+	t.Cleanup(func() { require.NoError(t, k8sClient.Delete(context.Background(), search)) })
+	var fetched searchv1.MongoDBSearch
+	require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(search), &fetched))
+	require.Len(t, fetched.Spec.Clusters, 1)
+	require.Len(t, fetched.Spec.Clusters[0].ShardOverrides, 1)
+	assert.Equal(t, want.Spec.Clusters[0].Service, fetched.Spec.Clusters[0].Service)
+	assert.Equal(t, want.Spec.Clusters[0].ShardOverrides[0].Service, fetched.Spec.Clusters[0].ShardOverrides[0].Service)
 }
 
 // TestMongoDBSearchCELValidation proves that the CEL validation rules defined on
@@ -85,6 +126,19 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 			update:        []searchv1.ClusterSpec{{Name: "cluster-b", Index: new(int32(0))}},
 			errorContains: "clusters[].name is immutable for an existing cluster index",
 		},
+		{
+			name: "service labels accept non-operator keys",
+			create: []searchv1.ClusterSpec{{Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+				Labels: map[string]string{"app.kubernetes.io/component": "search"},
+			}}}},
+		},
+		{
+			name: "service labels reject operator-managed keys",
+			create: []searchv1.ClusterSpec{{Service: &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+				Labels: map[string]string{"component": "user"},
+			}}}},
+			errorContains: "must not set operator-managed label keys",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,6 +150,128 @@ func TestMongoDBSearchCELValidation(t *testing.T) {
 				search.Spec.Clusters = tc.update
 				err = k8sClient.Update(ctx, search)
 			}
+
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
+
+// TestMongoDBSearchCELValidationSourceOIDC proves the spec.source.oidc CEL rules on a
+// real Kubernetes API server (envtest), like TestMongoDBSearchCELValidation.
+func TestMongoDBSearchCELValidationSourceOIDC(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	newOIDCSearch := func(source *searchv1.MongoDBSource) *searchv1.MongoDBSearch {
+		return &searchv1.MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "test-cel-oidc-", Namespace: "default"},
+			Spec:       searchv1.MongoDBSearchSpec{Clusters: []searchv1.ClusterSpec{{}}, Source: source},
+		}
+	}
+
+	validOIDC := func() *searchv1.OIDCAuth {
+		return &searchv1.OIDCAuth{
+			TokenEndpoint:     "https://idp.example.com/realms/search/protocol/openid-connect/token",
+			ClientID:          "search-sync-source",
+			ClientSecretRef:   userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
+			IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "my-idp-ca"},
+		}
+	}
+
+	// One row per rule the CRD CEL markers enforce, with mutate fields instead of per-case
+	// closures. TestValidateOIDCAuthConfig pins the Go backstop branches for the same rules.
+	tests := []struct {
+		name          string
+		mutateOIDC    func(*searchv1.OIDCAuth)
+		mutateSource  func(*searchv1.MongoDBSource)
+		errorContains string
+	}{
+		{name: "valid spec.source.oidc is accepted"},
+		{
+			name:          "tokenEndpoint with a non-https scheme is rejected",
+			mutateOIDC:    func(o *searchv1.OIDCAuth) { o.TokenEndpoint = "http://idp.example.com/token" },
+			errorContains: "tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment",
+		},
+		{
+			name:          "tokenEndpoint with an empty host is rejected",
+			mutateOIDC:    func(o *searchv1.OIDCAuth) { o.TokenEndpoint = "https:///token" },
+			errorContains: "tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment",
+		},
+		{
+			name:          "tokenEndpoint with a port-only authority is rejected",
+			mutateOIDC:    func(o *searchv1.OIDCAuth) { o.TokenEndpoint = "https://:443/token" },
+			errorContains: "tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment",
+		},
+		{
+			name:          "tokenEndpoint with a non-numeric port is rejected",
+			mutateOIDC:    func(o *searchv1.OIDCAuth) { o.TokenEndpoint = "https://idp.example.com:port/token" },
+			errorContains: "tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment",
+		},
+		{
+			name:       "tokenEndpoint with @ in the path is accepted",
+			mutateOIDC: func(o *searchv1.OIDCAuth) { o.TokenEndpoint = "https://idp.example.com/oauth2/v2/token@alias" },
+		},
+		{
+			name:       "tokenEndpoint with a port and query is accepted",
+			mutateOIDC: func(o *searchv1.OIDCAuth) { o.TokenEndpoint = "https://idp.example.com:8443/oauth2/token?x=1" },
+		},
+		{
+			// The scheme is matched case-insensitively, matching url.Parse on the Go side.
+			name:       "tokenEndpoint with an uppercase https scheme is accepted",
+			mutateOIDC: func(o *searchv1.OIDCAuth) { o.TokenEndpoint = "HTTPS://idp.example.com/token" },
+		},
+		{
+			name: "oidc and x509 are mutually exclusive",
+			mutateSource: func(src *searchv1.MongoDBSource) {
+				src.X509 = &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "my-cert"}}
+			},
+			errorContains: "spec.source.oidc is mutually exclusive with spec.source.x509, spec.source.passwordSecretRef, and spec.source.username",
+		},
+		{
+			name: "oidc and passwordSecretRef are mutually exclusive",
+			mutateSource: func(src *searchv1.MongoDBSource) {
+				src.PasswordSecretRef = &userv1.SecretKeyRef{Name: "my-password"}
+			},
+			errorContains: "spec.source.oidc is mutually exclusive with spec.source.x509, spec.source.passwordSecretRef, and spec.source.username",
+		},
+		{
+			name: "oidc and username are mutually exclusive",
+			mutateSource: func(src *searchv1.MongoDBSource) {
+				src.Username = new("some-user")
+			},
+			errorContains: "spec.source.oidc is mutually exclusive with spec.source.x509, spec.source.passwordSecretRef, and spec.source.username",
+		},
+		{
+			name:          "clientSecretSecretRef without key is rejected",
+			mutateOIDC:    func(o *searchv1.OIDCAuth) { o.ClientSecretRef = userv1.SecretKeyRef{Name: "my-oidc-client-secret"} },
+			errorContains: "clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCAConfigMapRef.name must not be empty",
+		},
+		{
+			name:          "idpCAConfigMapRef with an empty name is rejected",
+			mutateOIDC:    func(o *searchv1.OIDCAuth) { o.IdPCAConfigMapRef = corev1.LocalObjectReference{} },
+			errorContains: "clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCAConfigMapRef.name must not be empty",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			oidc := validOIDC()
+			if tc.mutateOIDC != nil {
+				tc.mutateOIDC(oidc)
+			}
+			source := &searchv1.MongoDBSource{OIDC: oidc}
+			if tc.mutateSource != nil {
+				tc.mutateSource(source)
+			}
+
+			search := newOIDCSearch(source)
+			err := k8sClient.Create(ctx, search)
 
 			if tc.errorContains == "" {
 				require.NoError(t, err)

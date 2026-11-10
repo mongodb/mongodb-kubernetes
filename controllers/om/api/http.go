@@ -118,6 +118,9 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 				Username:  client.username,
 				Password:  client.password,
 				Transport: client.HTTPClient.Transport,
+				// Avoid broken pipes when Ops Manager rejects unauthenticated
+				// requests before reading their bodies.
+				ChallengeWithoutBody: true,
 			},
 		}
 	}

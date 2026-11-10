@@ -37,6 +37,7 @@ import (
 	rolev1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
@@ -91,11 +92,12 @@ type ReconcileMongoDbMultiReplicaSet struct {
 	agentDebug          bool
 	agentDebugImage     string
 	defaultArchitecture architectures.DefaultArchitecture
+	defaultImageType    architectures.ImageType
 }
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -121,6 +123,7 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		agentDebug:                        agentDebug,
 		agentDebugImage:                   agentDebugImage,
 		defaultArchitecture:               defaultArchitecture,
+		defaultImageType:                  defaultImageType,
 	}
 }
 
@@ -151,6 +154,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	if err := mrs.ProcessValidationsOnReconcile(nil); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
+	}
+	if warning := databaseContainerImageTypeAnnotationWarning(mrs.GetAnnotations(), r.defaultArchitecture); warning != "" {
+		log.Warn(warning)
+		mrs.AddWarningIfNotExists(mdbstatus.Warning(warning))
 	}
 
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, &mrs, log)
@@ -220,7 +227,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", mrs.Namespace, mrs.Name, mrs.Status.Phase, mrs.Status.LastTransition)
-		automationConfigError := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, true, log)
+		automationConfigError := r.updateOmDeploymentRs(ctx, conn, &mrs, agentCertPath, tlsCertPath, internalClusterCertPath, true, log)
 		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -237,7 +244,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
-			if err := r.updateOmDeploymentRs(ctx, conn, mrs, agentCertPath, tlsCertPath, internalClusterCertPath, false, log); err != nil {
+			if err := r.updateOmDeploymentRs(ctx, conn, &mrs, agentCertPath, tlsCertPath, internalClusterCertPath, false, log); err != nil {
 				return workflow.Failed(err)
 			}
 			return workflow.OK()
@@ -272,7 +279,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
-	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewPVCsStatusOptionEmptyStatus())
+	return r.updateStatus(ctx, &mrs, workflow.OK(), log, mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
 // publishAutomationConfigFirstMultiCluster returns a boolean indicating whether Ops Manager
@@ -810,7 +817,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithAgentImage(images.ContainerImage(r.imageUrls, util.AgentImageUrlEnv, automationAgentVersion)),
 			WithCustomAgentURL(r.customAgentURL),
 
-			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture)),
+			WithMongodbImage(images.GetOfficialImage(r.imageUrls, mrs.Spec.Version, mrs.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 			WithAgentDebug(r.agentDebug),
 			WithAgentDebugImage(r.agentDebugImage),
 			WithDefaultArchitecture(r.defaultArchitecture),
@@ -976,7 +983,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs *mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, log *zap.SugaredLogger) error {
 	reachableHostnames := make([]string, 0)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
@@ -1017,14 +1024,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	// If there is no replicaset configuration saved in OM, it might be a new project, so we check the ids saved in annotation
 	// A project migration can happen if .spec.opsManager.configMapRef is changed, or the original configMap has been modified.
 	if len(processIds) == 0 {
-		processIds, err = getReplicaSetProcessIdsFromAnnotation(mrs)
+		processIds, err = getReplicaSetProcessIdsFromAnnotation(*mrs)
 		if err != nil {
 			return xerrors.Errorf("failed to get member ids from annotation: %w", err)
 		}
 	}
 	log.Debugf("Existing process Ids: %+v", processIds)
 
-	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, mrs, tlsCertPath, r.defaultArchitecture, true)
+	processes, err := process.CreateMongodProcessesWithLimitMulti(r.imageUrls[util.MongodbImageEnv], r.forceEnterprise, *mrs, tlsCertPath, r.defaultArchitecture, true)
 	if err != nil && !isRecovering {
 		return err
 	}
@@ -1036,7 +1043,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	caFilePath := mrs.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), &mrs, agentCertPath, caFilePath, internalClusterCertPath, mrs.Spec.GetDownloadBase(), isRecovering, log)
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), mrs, agentCertPath, caFilePath, internalClusterCertPath, mrs.Spec.GetDownloadBase(), isRecovering, log)
 	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}
@@ -1054,10 +1061,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 
 	if mrs.IsRoleAppDB() {
-		if err := r.ensureAppDBRoleUser(ctx, &mrs, conn); err != nil {
+		if err := r.ensureAppDBRoleUser(ctx, mrs, conn); err != nil {
 			return err
 		}
-		if err := r.ensureAppDBRoleKeyfile(ctx, &mrs, conn); err != nil {
+		if err := r.ensureAppDBRoleKeyfile(ctx, mrs, conn); err != nil {
 			return err
 		}
 	}
@@ -1071,9 +1078,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return xerrors.Errorf("failed to complete reconciliation")
 	}
 
-	status = r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, &mrs, r.SecretClient, log, 0)
+	status = r.ensureBackupConfigurationAndUpdateStatus(ctx, conn, mrs, r.SecretClient, log, 0)
 	if !status.IsOK() && !isRecovering {
-		return xerrors.Errorf("failed to configure backup for MongoDBMultiCluster RS")
+		return xerrors.Errorf("failed to configure backup for MongoDBMultiCluster RS: %s", workflowStatusMessage(status))
 	}
 
 	reachableProcessNames := make([]string, 0)
@@ -1086,6 +1093,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return err
 	}
 	return nil
+}
+
+// workflowStatusMessage returns the message of the workflow status, e.g. the error returned by Ops Manager.
+func workflowStatusMessage(s workflow.Status) string {
+	if option, exists := mdbstatus.GetOption(s.StatusOptions(), mdbstatus.MessageOption{}); exists {
+		return option.(mdbstatus.MessageOption).Message
+	}
+	return ""
 }
 
 func getReplicaSetProcessIdsFromAnnotation(mrs mdbmultiv1.MongoDBMultiCluster) (map[string]int, error) {
@@ -1392,9 +1407,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster) error {
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap))
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err

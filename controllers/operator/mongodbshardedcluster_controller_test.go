@@ -25,8 +25,10 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
@@ -202,7 +204,7 @@ func TestShardedClusterRace(t *testing.T) {
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
 }
@@ -326,6 +328,104 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 
 			// Version from OM
 			VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
+		})
+	}
+}
+
+func TestShardedClusterReconcileContainerImageType(t *testing.T) {
+	testCases := []struct {
+		name             string
+		defaultImageType architectures.ImageType
+		annotations      map[string]string
+	}{
+		{
+			name:             "global slim image type",
+			defaultImageType: architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:             "annotation overrides global image type",
+			defaultImageType: architectures.ImageTypeUBI9,
+			annotations: map[string]string{
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			relatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_23_ubi9_slim", util.MongodbImageEnv)
+			imageUrlsMock := images.ImageUrls{
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+				relatedImageEnv:       "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE_SLIM",
+			}
+
+			ctx := context.Background()
+			sc := test.DefaultClusterBuilder().SetVersion("8.0.23").SetShardCountSpec(1).Build()
+			sc.SetAnnotations(tc.annotations)
+			reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, imageUrlsMock, "", "", sc, nil, testBackupEnableDelay, architectures.Static)
+			require.NoError(t, err)
+			reconciler.defaultImageType = tc.defaultImageType
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+			for _, stsName := range []string{sc.ConfigRsName(), sc.MongosRsName(), sc.ShardName(0)} {
+				sts := &appsv1.StatefulSet{}
+				err := kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, stsName), sts)
+				require.NoError(t, err)
+				assert.Equal(t, imageUrlsMock[relatedImageEnv], findContainerImage(sts.Spec.Template.Spec.Containers, util.DatabaseContainerName), stsName)
+			}
+		})
+	}
+}
+
+func TestShardedClusterContainerImageTypeAnnotationWarning(t *testing.T) {
+	testCases := []struct {
+		name                string
+		defaultArchitecture architectures.DefaultArchitecture
+		imageType           string
+		wantWarning         bool
+	}{
+		{
+			name:                "supported annotation on static has no warning",
+			defaultArchitecture: architectures.Static,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+		},
+		{
+			name:                "unsupported annotation on static warns",
+			defaultArchitecture: architectures.Static,
+			imageType:           "ubi9slim",
+			wantWarning:         true,
+		},
+		{
+			name:                "annotation on non-static warns",
+			defaultArchitecture: architectures.NonStatic,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+			wantWarning:         true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			imageUrlsMock := images.ImageUrls{
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+			}
+			sc := test.DefaultClusterBuilder().SetShardCountSpec(1).Build()
+			sc.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: tc.imageType})
+			reconciler, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, imageUrlsMock, "", "", sc, nil, testBackupEnableDelay, tc.defaultArchitecture)
+			require.NoError(t, err)
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+			assert.Equal(t, tc.wantWarning, hasContainerImageTypeWarning(sc.Status.Warnings), "status warnings: %v", sc.Status.Warnings)
 		})
 	}
 }
@@ -1081,7 +1181,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	sc := test.DefaultClusterBuilder().RemoveAuth().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1282,7 +1382,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1892,8 +1992,8 @@ func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.Image
 }
 
 func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay)
-	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), backupEnableDelay)
+	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay)
+	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, r.defaultImageType, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), backupEnableDelay)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2968,4 +3068,78 @@ func dropLastShardFromShardingSection(t *testing.T, dep om.Deployment) {
 		result = append(result, s)
 	}
 	dep["sharding"] = result
+}
+
+// TestApplySearchParametersForShards_AuthGateAllRoutingModes pins the auth gate for every
+// internal sharded routing mode: an OIDC search referencing a sharded source without OIDC
+// enabled must write no search parameters, in no-LB, unmanaged-LB, and managed-LB mode.
+func TestApplySearchParametersForShards_AuthGateAllRoutingModes(t *testing.T) {
+	ctx := context.Background()
+
+	newSearch := func(lb *searchv1.LoadBalancerConfig, oidc bool) *searchv1.MongoDBSearch {
+		search := &searchv1.MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "search", Namespace: mock.TestNamespace},
+			Spec: searchv1.MongoDBSearchSpec{
+				Clusters: []searchv1.ClusterSpec{{LoadBalancer: lb}},
+				Source: &searchv1.MongoDBSource{
+					MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: test.SCBuilderDefaultName},
+				},
+			},
+		}
+		if oidc {
+			search.Spec.Source.OIDC = &searchv1.OIDCAuth{
+				TokenEndpoint:     "https://idp.example.com/token",
+				ClientID:          "mongot-client",
+				ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+				IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+			}
+		}
+		return search
+	}
+
+	run := func(t *testing.T, sc *mdbv1.MongoDB, search *searchv1.MongoDBSearch) *ShardedClusterReconcileHelper {
+		t.Helper()
+		kubeClient, _ := mock.NewDefaultFakeClient(sc)
+		require.NoError(t, kubeClient.Create(ctx, search))
+		shards := make(map[int]*mdbv1.ShardedClusterComponentSpec)
+		for i := 0; i < sc.Spec.ShardCount; i++ {
+			shards[i] = &mdbv1.ShardedClusterComponentSpec{}
+		}
+		helper := &ShardedClusterReconcileHelper{
+			sc:                         sc,
+			commonController:           NewReconcileCommonController(ctx, kubeClient),
+			desiredShardsConfiguration: shards,
+			desiredMongosConfiguration: &mdbv1.ShardedClusterComponentSpec{},
+		}
+		require.NoError(t, helper.applySearchParametersForShards(ctx, zap.S()))
+		return helper
+	}
+
+	wired := func(h *ShardedClusterReconcileHelper) bool {
+		for _, cfg := range h.desiredShardsConfiguration {
+			if cfg.AdditionalMongodConfig != nil {
+				return true
+			}
+		}
+		return false
+	}
+
+	sc := test.DefaultClusterBuilder().Build()
+	oidcModes := []struct {
+		name string
+		lb   *searchv1.LoadBalancerConfig
+	}{
+		{name: "no load balancer"},
+		{name: "unmanaged load balancer", lb: &searchv1.LoadBalancerConfig{Unmanaged: &searchv1.UnmanagedLBConfig{Endpoint: "lb-{shardName}.example.com:27028"}}},
+		{name: "managed load balancer", lb: &searchv1.LoadBalancerConfig{Managed: &searchv1.ManagedLBConfig{}}},
+	}
+	for _, mode := range oidcModes {
+		t.Run("OIDC search on a source without OIDC writes no search parameters ("+mode.name+")", func(t *testing.T) {
+			assert.False(t, wired(run(t, sc, newSearch(mode.lb, true))))
+		})
+	}
+
+	t.Run("SCRAM search on the same source is wired", func(t *testing.T) {
+		assert.True(t, wired(run(t, sc, newSearch(nil, false))))
+	})
 }

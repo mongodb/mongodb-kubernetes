@@ -178,9 +178,25 @@ func (m mockedClient) List(_ context.Context, _ k8sClient.ObjectList, _ ...k8sCl
 	return nil
 }
 
-func (m mockedClient) Delete(_ context.Context, obj k8sClient.Object, _ ...k8sClient.DeleteOption) error {
+func (m mockedClient) Delete(_ context.Context, obj k8sClient.Object, opts ...k8sClient.DeleteOption) error {
 	relevantMap := m.ensureMapFor(obj)
 	objKey := k8sClient.ObjectKeyFromObject(obj)
+
+	// mirror the API server: a UID precondition fails when the stored object was replaced
+	deleteOptions := &k8sClient.DeleteOptions{}
+	for _, opt := range opts {
+		opt.ApplyToDelete(deleteOptions)
+	}
+	if preconditions := deleteOptions.Preconditions; preconditions != nil && preconditions.UID != nil {
+		existing, ok := relevantMap[objKey]
+		if !ok {
+			return notFoundError()
+		}
+		if existing.GetUID() != *preconditions.UID {
+			return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonConflict}}
+		}
+	}
+
 	delete(relevantMap, objKey)
 	return nil
 }
