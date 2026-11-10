@@ -38,6 +38,7 @@ from kubetester.mongodb_proxy import (
     proxy_image,
     proxy_log,
     query_proxy,
+    query_proxy_path,
     read_processes,
     restart_counts,
     run_operator_in_cluster,
@@ -48,7 +49,6 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark, skip
 from tests.conftest import get_default_operator, local_operator
-
 
 
 @fixture(scope="module")
@@ -146,6 +146,32 @@ def test_proxy_reports_the_running_database(replica_set: MongoDB, namespace: str
 
         assert status["state"] == "running", status
         assert status["role"] == "main", status
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_proxy_reports_events_and_timestamps(replica_set: MongoDB, namespace: str):
+    pod = f"{replica_set.name}-0"
+    status = query_proxy(pod, namespace)
+    assert status["state"] == "running", status
+    assert status.get("startedAt"), status
+    assert status.get("uptimeSeconds", 0) > 0, status
+
+    body = query_proxy_path(pod, namespace, "/v1/events")
+    assert body["capacity"] == 256, body
+    assert body["dropped"] == 0, body
+    names = [event["action"] for event in body["events"]]
+    assert "child_started" in names, body
+    child_started = next(event for event in body["events"] if event["action"] == "child_started")
+    assert child_started["role"] == "main", child_started
+    assert child_started["pid"] > 0, child_started
+
+    start_events = [event for event in body["events"] if event["action"] == "start"]
+    assert start_events, body
+    start_request = start_events[0]
+    assert start_request["request"] == "POST /v1/process/start", start_request
+    assert start_request["outcome"] == "success", start_request
+    assert start_request["returned"] == "200", start_request
+    assert start_request["requestId"], start_request
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -275,6 +301,12 @@ def test_agent_restarts_mongod_through_the_proxy_on_a_config_change(replica_set:
         assert len(proxy_events(pod, namespace, "process started")) >= 2, pod
         assert not proxy_events(pod, namespace, "sending SIGKILL"), pod
 
+        status = query_proxy(pod, namespace)
+        last_exit = status.get("lastExit")
+        assert last_exit is not None, status
+        assert last_exit["exitCode"] == 0 and not last_exit.get("signal"), last_exit
+        assert last_exit.get("exitedAt"), last_exit
+
 
 @mark.e2e_replica_set_mongodb_proxy
 def test_agent_starts_mongod_again_after_it_was_killed(replica_set: MongoDB, namespace: str):
@@ -294,6 +326,8 @@ def test_agent_starts_mongod_again_after_it_was_killed(replica_set: MongoDB, nam
 
     # The proxy saw the crash and the agent's new start request.
     assert any(e.get("signal") == "killed" for e in proxy_events(pod, namespace, "process exited"))
+    last_exit = query_proxy(pod, namespace).get("lastExit")
+    assert last_exit is not None and last_exit.get("signal") == "killed", last_exit
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -428,7 +462,11 @@ def test_agent_stops_a_leftover_ephemeral_mongod_when_it_starts(replica_set: Mon
     def member_runs_again() -> bool:
         current = mongod_identity(pod, namespace)
         state = query_proxy(pod, namespace)
-        return current not in ("", identity, ephemeral_identity) and state["role"] == "main" and state["state"] == "running"
+        return (
+            current not in ("", identity, ephemeral_identity)
+            and state["role"] == "main"
+            and state["state"] == "running"
+        )
 
     # the ephemeral mongod is a new process too, so only the role of the process in the proxy tells the member
     wait_until(f"{pod} to run the member again", member_runs_again, 600)
@@ -608,4 +646,3 @@ def test_agent_starts_mongod_without_authentication_when_it_is_switched_off(repl
     for pod in pod_members(replica_set):
         assert query_proxy(pod, namespace)["state"] == "running", pod
         assert unauthenticated_result(pod, namespace) == "allowed", pod
-

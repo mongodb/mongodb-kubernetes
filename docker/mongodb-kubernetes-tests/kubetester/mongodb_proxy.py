@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 from typing import Optional
 
@@ -16,6 +17,7 @@ DATABASE_CONTAINER = "mongodb-enterprise-database"
 def proxy_image() -> Optional[str]:
     return os.environ.get("MDB_MONGODB_PROXY_IMAGE") or None
 
+
 def proxy_helm_values(image: str) -> dict[str, str]:
     """The Helm values that make the chart pass `image` (registry/name:version) to the operator."""
     repository, _, version = image.rpartition(":")
@@ -25,6 +27,7 @@ def proxy_helm_values(image: str) -> dict[str, str]:
         "mongodbProxy.name": name,
         "mongodbProxy.version": version,
     }
+
 
 def run_operator_in_cluster(namespace: str, timeout_seconds: int = 180):
     apps = KubernetesTester.clients("appsv1")
@@ -37,6 +40,7 @@ def run_operator_in_cluster(namespace: str, timeout_seconds: int = 180):
         time.sleep(2)
     raise Exception(f"The operator did not become ready in {timeout_seconds}s")
 
+
 def read_processes(pod: str, namespace: str, container: str) -> list[str]:
     """Returns the names of the processes visible in the container."""
     out = KubernetesTester.run_command_in_pod_container(
@@ -46,6 +50,7 @@ def read_processes(pod: str, namespace: str, container: str) -> list[str]:
         container=container,
     )
     return [line.strip() for line in out.splitlines() if line.strip()]
+
 
 def query_proxy(pod: str, namespace: str) -> dict:
     """Asks the proxy for its state from the agent container, the way the agent does it."""
@@ -62,6 +67,25 @@ def query_proxy(pod: str, namespace: str) -> dict:
     )
     body = out.split("\r\n\r\n", 1)[-1]
     return json.loads(body)
+
+
+def query_proxy_path(pod: str, namespace: str, path: str) -> dict:
+    """Calls one proxy endpoint from the agent container and returns the JSON body."""
+    out = KubernetesTester.run_command_in_pod_container(
+        pod,
+        namespace,
+        [
+            "bash",
+            "-c",
+            "exec 3<>/dev/tcp/127.0.0.1/8099; "
+            f"printf 'GET {path} HTTP/1.0\\r\\nHost: proxy\\r\\n\\r\\n' >&3; cat <&3",
+        ],
+        container=AGENT_CONTAINER,
+    )
+    head, body = out.split("\r\n\r\n", 1)
+    assert re.match(r"HTTP/1\.[01] 200(?: |$)", head), head
+    return json.loads(body)
+
 
 def mongod_identity(pod: str, namespace: str) -> str:
     """Returns "<pid>:<start time>" of mongod in the database container, empty when it is not running.
@@ -81,6 +105,7 @@ def mongod_identity(pod: str, namespace: str) -> str:
     )
     return out.strip()
 
+
 def wait_until(description: str, check, timeout_seconds: int = 600, interval_seconds: int = 3):
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -88,6 +113,7 @@ def wait_until(description: str, check, timeout_seconds: int = 600, interval_sec
             return
         time.sleep(interval_seconds)
     raise Exception(f"Timed out after {timeout_seconds}s waiting for: {description}")
+
 
 def proxy_log(pod: str, namespace: str) -> list[dict]:
     """Returns the log entries of the proxy in the current database container (the mongod lines are left out)."""
@@ -102,12 +128,15 @@ def proxy_log(pod: str, namespace: str) -> list[dict]:
             entries.append(entry)
     return entries
 
+
 def proxy_events(pod: str, namespace: str, message: str) -> list[dict]:
     return [e for e in proxy_log(pod, namespace) if e["msg"] == message]
+
 
 def restart_counts(pod: str, namespace: str) -> dict[str, int]:
     current = KubernetesTester.clients("corev1").read_namespaced_pod(pod, namespace)
     return {c.name: c.restart_count for c in current.status.container_statuses}
+
 
 def wait_for_new_mongod(pod: str, namespace: str, old_identity: str, timeout_seconds: int = 600):
     """Waits until the pod runs a mongod other than old_identity and the proxy reports it running."""
@@ -118,6 +147,7 @@ def wait_for_new_mongod(pod: str, namespace: str, old_identity: str, timeout_sec
 
     wait_until(f"{pod} to run a new mongod", restarted, timeout_seconds)
 
+
 def post_to_proxy(pod: str, namespace: str, path: str, body: dict) -> tuple[int, dict]:
     """POSTs a JSON body to the proxy from the agent container, the way the agent does, and returns (status, body)."""
     out = KubernetesTester.run_command_in_pod_container(
@@ -126,7 +156,7 @@ def post_to_proxy(pod: str, namespace: str, path: str, body: dict) -> tuple[int,
         [
             "bash",
             "-c",
-            'exec 3<>/dev/tcp/127.0.0.1/8099; '
+            "exec 3<>/dev/tcp/127.0.0.1/8099; "
             'printf "POST %s HTTP/1.0\\r\\nHost: proxy\\r\\nContent-Type: application/json\\r\\n'
             'Content-Length: %d\\r\\n\\r\\n%s" "$1" "${#2}" "$2" >&3; cat <&3',
             "_",

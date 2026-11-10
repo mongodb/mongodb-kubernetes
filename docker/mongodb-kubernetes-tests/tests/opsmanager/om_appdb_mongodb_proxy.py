@@ -125,7 +125,9 @@ def test_replica_set_pods_run_the_proxy(replica_set: MongoDB, namespace: str):
 
 
 @mark.e2e_om_appdb_mongodb_proxy
-def test_replica_set_is_managed_by_the_ops_manager_of_the_operator(ops_manager: MongoDBOpsManager, replica_set: MongoDB):
+def test_replica_set_is_managed_by_the_ops_manager_of_the_operator(
+    ops_manager: MongoDBOpsManager, replica_set: MongoDB
+):
     # The operator reports Running only after the agents reached the goal state in Ops Manager, and the link in the
     # status leads to the project there. The Ops Manager API itself is not called: the test runs outside the cluster
     # and cannot resolve the service name of Ops Manager.

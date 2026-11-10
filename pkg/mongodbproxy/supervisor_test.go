@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // fakeMongod behaves according to the content of the config file passed with -f:
@@ -239,6 +241,38 @@ func TestNumaInterleaveRunsUnderNumactl(t *testing.T) {
 	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
 }
 
+func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
+	f := newFixture(t)
+	cfg := f.config("main", "run")
+	e, err := f.sup.Start(StartRequest{
+		ConfigPath:  cfg,
+		Role:        RoleMain,
+		OperationID: "operation-1",
+		Other: Other{
+			LdapCaPath:     "/etc/ldap/ca.pem",
+			KerberosKeytab: "/etc/krb5.keytab",
+		},
+	})
+	require.NoError(t, err)
+	f.waitReady(cfg)
+
+	st := f.sup.Status()
+	require.NotNil(t, st.PID)
+	assert.Equal(t, e.pid, *st.PID)
+	require.NotNil(t, st.LaunchEnvironment)
+	assert.Equal(t, "/etc/ldap/ca.pem", st.LaunchEnvironment.LdapCaPath)
+	assert.Equal(t, "/etc/krb5.keytab", st.LaunchEnvironment.KerberosKeytab)
+	assert.Equal(t, "operation-1", st.OperationID)
+
+	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 5*time.Second, false))
+	waitDone(t, e)
+
+	st = f.sup.Status()
+	assert.Nil(t, st.PID, "pid is only present while the child runs")
+	assert.Nil(t, st.LaunchEnvironment, "launch environment is only present while the child runs")
+	assert.Equal(t, "operation-1", st.OperationID)
+}
+
 func TestNumaInterleaveWithoutNumactlStartsWithoutIt(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.Remove(filepath.Join(f.dir, binaryNumactl)))
@@ -394,3 +428,59 @@ func TestTailBufferKeepsTheLastBytes(t *testing.T) {
 // testEnv is the environment of the processes started by the tests. The package never reads the environment of the
 // proxy itself (main does), so the tests give the children a fixed one.
 var testEnv = []string{"PATH=/usr/local/bin:/usr/bin:/bin"}
+
+func TestStatusStartedAtAndLastExit(t *testing.T) {
+	f := newFixture(t)
+	e := f.start(RoleMain, "exit:3")
+	waitDone(t, e)
+
+	st := f.sup.Status()
+	assert.Equal(t, StateExited, st.State)
+	assert.NotEmpty(t, st.StartedAt)
+	require.NotNil(t, st.LastExit)
+	assert.Equal(t, 3, st.LastExit.ExitCode)
+	assert.NotEmpty(t, st.LastExit.ExitedAt)
+	assert.GreaterOrEqual(t, st.LastExit.UptimeSeconds, 0.0)
+}
+
+func TestChildLifecycleLogsCarryOperationID(t *testing.T) {
+	core, observed := observer.New(zap.InfoLevel)
+	f := newFixture(t)
+	f.sup.log = zap.New(core).Sugar()
+
+	e, err := f.sup.Start(StartRequest{
+		ConfigPath:  f.config("main", "exit:0"),
+		Role:        RoleMain,
+		OperationID: "operation-1",
+	})
+	require.NoError(t, err)
+	waitDone(t, e)
+
+	var started, exited bool
+	for _, entry := range observed.All() {
+		switch entry.Message {
+		case "process started":
+			started = entry.ContextMap()["operation_id"] == "operation-1"
+		case "process exited":
+			exited = entry.ContextMap()["operation_id"] == "operation-1"
+		}
+	}
+	assert.True(t, started, "process started log must carry the operation id")
+	assert.True(t, exited, "process exited log must carry the operation id")
+}
+
+func TestTerminateRecordsShutdownEvent(t *testing.T) {
+	f := newFixture(t)
+	f.start(RoleMain, "run")
+
+	require.NoError(t, f.sup.Terminate(context.Background()))
+
+	events, _ := f.sup.eventSnapshot()
+	var found bool
+	for _, event := range events {
+		if event.Action == "proxy_shutdown" {
+			found = true
+		}
+	}
+	assert.True(t, found, "Terminate must record a proxy_shutdown event")
+}
