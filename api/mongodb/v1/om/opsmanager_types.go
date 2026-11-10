@@ -191,9 +191,11 @@ type MongoDBOpsManagerLicense struct {
 	SecretRef *SecretRef `json:"secretRef,omitempty"`
 
 	// ReleaseReceiptsPolicy controls which released licenses get a receipt.
-	// When unset, only the licenses listed in releaseReceipts get one.
-	// Automatic also covers every license the operator releases.
+	// OnlyListed writes a receipt only for the licenses listed in releaseReceipts.
+	// Automatic writes a receipt for every license the operator releases.
+	// Defaults to OnlyListed.
 	// +optional
+	// +kubebuilder:default=OnlyListed
 	ReleaseReceiptsPolicy ReleaseReceiptsPolicy `json:"releaseReceiptsPolicy,omitempty"`
 
 	// ReleaseReceipts requests a release receipt for each entry.
@@ -207,11 +209,14 @@ type MongoDBOpsManagerLicense struct {
 }
 
 // ReleaseReceiptsPolicy controls when the operator writes release receipts.
-// +kubebuilder:validation:Enum=Automatic
+// +kubebuilder:validation:Enum=OnlyListed;Automatic
 type ReleaseReceiptsPolicy string
 
 // ReleaseReceiptsAutomatic writes a receipt for every license the operator releases.
 const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
+
+// ReleaseReceiptsOnlyListed writes a receipt only for the licenses listed in releaseReceipts.
+const ReleaseReceiptsOnlyListed ReleaseReceiptsPolicy = "OnlyListed"
 
 // +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
 type LicenseReleaseReceipt struct {

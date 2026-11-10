@@ -542,11 +542,15 @@ func TestOpsManagerCELValidation_LicenseReleaseReceiptsPolicy(t *testing.T) {
 		{
 			name:          "OnDemand is rejected",
 			policy:        "OnDemand",
-			errorContains: `Unsupported value: "OnDemand": supported values: "Automatic"`,
+			errorContains: `Unsupported value: "OnDemand": supported values: "OnlyListed", "Automatic"`,
 		},
 		{
 			name:   "Automatic is accepted",
 			policy: omv1.ReleaseReceiptsAutomatic,
+		},
+		{
+			name:   "OnlyListed is accepted",
+			policy: omv1.ReleaseReceiptsOnlyListed,
 		},
 		{
 			name: "an unset policy is accepted",
@@ -554,7 +558,7 @@ func TestOpsManagerCELValidation_LicenseReleaseReceiptsPolicy(t *testing.T) {
 		{
 			name:          "an unknown policy is rejected",
 			policy:        "Sometimes",
-			errorContains: `Unsupported value: "Sometimes": supported values: "Automatic"`,
+			errorContains: `Unsupported value: "Sometimes": supported values: "OnlyListed", "Automatic"`,
 		},
 	}
 

@@ -40,3 +40,28 @@ func TestOpsManager_LicenseSpecRoundTrip(t *testing.T) {
 	assert.Equal(t, "om-license", got.Spec.License.SecretRef.Name)
 	assert.Equal(t, omv1.ReleaseReceiptsAutomatic, got.Spec.License.ReleaseReceiptsPolicy)
 }
+
+func TestOpsManager_LicenseReleaseReceiptsPolicyDefaultsToOnlyListed(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+	om := newOpsManager(t, func(om *omv1.MongoDBOpsManager) {
+		om.Spec.AppDB = &omv1.AppDBSpec{
+			Version: "6.0.0",
+			MonitoringAgent: mdbv1.MonitoringAgentConfig{
+				StartupParameters: mdbv1.StartupParameters{},
+			},
+		}
+		om.Spec.License = &omv1.MongoDBOpsManagerLicense{
+			SecretRef: &omv1.SecretRef{Name: "om-license"},
+		}
+	})
+	require.NoError(t, k8sClient.Create(ctx, om))
+	t.Cleanup(func() {
+		_ = k8sClient.Delete(ctx, om)
+	})
+
+	got := &omv1.MongoDBOpsManager{}
+	require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(om), got))
+	require.NotNil(t, got.Spec.License)
+	assert.Equal(t, omv1.ReleaseReceiptsOnlyListed, got.Spec.License.ReleaseReceiptsPolicy)
+}
