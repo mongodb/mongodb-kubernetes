@@ -1792,7 +1792,7 @@ func TestCollectOperatorSnapshot(t *testing.T) {
 
 			ctx := context.Background()
 
-			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, test.expectedProps.OperatorInstaller, DefaultKubeTimeout)
+			events := collectOperatorSnapshot(ctx, test.memberClusterMap, mgr, testOperatorUUID, test.expectedProps.OperatorInstaller)
 
 			require.Len(t, events, 1, "expected exactly one operator event")
 			event := events[0]
