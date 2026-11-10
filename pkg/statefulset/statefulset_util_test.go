@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -363,37 +364,48 @@ func TestGetUpdateRevision(t *testing.T) {
 	tests := []struct {
 		name               string
 		sts                *v1.StatefulSet
-		expectedGeneration int64
+		expectedGeneration *int64
 		clientErr          error
 		wantRevision       string
 		wantErr            bool
 	}{
 		{
-			name:               "returns update revision when observed",
+			name:               "returns update revision when the generation is observed",
 			sts:                statefulSetWithUpdateRevision(stsName, namespace, 2, 2, "rev-2"),
-			expectedGeneration: 2,
+			expectedGeneration: ptr.To[int64](2),
 			wantRevision:       "rev-2",
 		},
 		{
+			name:         "returns update revision when no generation is expected",
+			sts:          statefulSetWithUpdateRevision(stsName, namespace, 2, 1, "rev-2"),
+			wantRevision: "rev-2",
+		},
+		{
 			name:               "returns empty string when StatefulSet does not exist",
-			expectedGeneration: 1,
+			expectedGeneration: ptr.To[int64](1),
 			wantRevision:       "",
 		},
 		{
 			name:               "returns empty string when observed generation is behind",
 			sts:                statefulSetWithUpdateRevision(stsName, namespace, 2, 1, "rev-2"),
-			expectedGeneration: 2,
+			expectedGeneration: ptr.To[int64](2),
+			wantRevision:       "",
+		},
+		{
+			name:               "returns empty string when observed generation is ahead",
+			sts:                statefulSetWithUpdateRevision(stsName, namespace, 2, 3, "rev-2"),
+			expectedGeneration: ptr.To[int64](2),
 			wantRevision:       "",
 		},
 		{
 			name:               "returns empty string when no revision is set",
 			sts:                statefulSetWithUpdateRevision(stsName, namespace, 1, 1, ""),
-			expectedGeneration: 1,
+			expectedGeneration: ptr.To[int64](1),
 			wantRevision:       "",
 		},
 		{
 			name:               "returns the get error",
-			expectedGeneration: 1,
+			expectedGeneration: ptr.To[int64](1),
 			clientErr:          errors.New("boom"),
 			wantErr:            true,
 		},

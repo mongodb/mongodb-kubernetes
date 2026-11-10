@@ -43,6 +43,9 @@ const (
 	TestCredentialsSecretName = "my-credentials"
 	TestNamespace             = "my-namespace"
 	TestMongoDBName           = "my-mongodb"
+
+	// stsUpdateRevisionSuffix mimics the alphanumeric suffix Kubernetes appends to a StatefulSet name in status.updateRevision.
+	stsUpdateRevisionSuffix = "5d9f8b7c6d"
 )
 
 // NewDefaultFakeClient initializes returns fake kube client and omConnectionFactory that is suitable for most uses.
@@ -249,7 +252,7 @@ func markStatefulSetsReady(set *appsv1.StatefulSet, addOMHosts bool, omConn om.C
 	set.Status.UpdatedReplicas = *set.Spec.Replicas
 	set.Status.ReadyReplicas = *set.Spec.Replicas
 	set.Status.Replicas = *set.Spec.Replicas
-	set.Status.UpdateRevision = set.Name + "-revision"
+	set.Status.UpdateRevision = set.Name + "-" + stsUpdateRevisionSuffix
 
 	if addOMHosts {
 		if mockedOMConnection, ok := omConn.(*om.MockedOmConnection); ok {

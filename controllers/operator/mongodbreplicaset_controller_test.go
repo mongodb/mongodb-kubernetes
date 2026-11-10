@@ -2337,11 +2337,14 @@ func TestReplicaSetDesiredInfraRevision(t *testing.T) {
 			reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, tt.defaultArchitecture)
 			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
+			sts, err := kubeClient.GetStatefulSet(ctx, rs.ObjectKey())
+			require.NoError(t, err)
+
 			processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
 			require.Len(t, processes, rs.Spec.Members)
 			for _, p := range processes {
 				if tt.wantRevisionPublished {
-					assert.Equal(t, rs.Name+"-revision", p[om.DesiredInfraRevisionField], p.Name())
+					assert.Equal(t, sts.Status.UpdateRevision, p[om.DesiredInfraRevisionField], p.Name())
 				} else {
 					assert.NotContains(t, p, om.DesiredInfraRevisionField, p.Name())
 				}
@@ -2366,27 +2369,27 @@ func TestPublishDesiredInfraRevision(t *testing.T) {
 	}
 
 	tests := []struct {
-		name               string
-		deployment         func(rs *mdbv1.MongoDB) om.Deployment
-		expectedGeneration int64
-		connectionError    error
-		wantPhase          status.Phase
-		wantProcesses      int
-		wantRevision       string
+		name                  string
+		deployment            func(rs *mdbv1.MongoDB) om.Deployment
+		expectedGeneration    int64
+		connectionError       error
+		wantPhase             status.Phase
+		wantProcesses         int
+		wantRevisionPublished bool
 	}{
 		{
-			name:          "processes use the k8s/<namespace>/<pod> names",
-			deployment:    stsDeployment,
-			wantPhase:     status.PhaseRunning,
-			wantProcesses: 3,
-			wantRevision:  "temple-revision",
+			name:                  "processes use the k8s/<namespace>/<pod> names",
+			deployment:            stsDeployment,
+			wantPhase:             status.PhaseRunning,
+			wantProcesses:         3,
+			wantRevisionPublished: true,
 		},
 		{
-			name:          "processes use the legacy bare pod names",
-			deployment:    legacyDeployment,
-			wantPhase:     status.PhaseRunning,
-			wantProcesses: 3,
-			wantRevision:  "temple-revision",
+			name:                  "processes use the legacy bare pod names",
+			deployment:            legacyDeployment,
+			wantPhase:             status.PhaseRunning,
+			wantProcesses:         3,
+			wantRevisionPublished: true,
 		},
 		{
 			name:          "no processes in the automation config yet",
@@ -2432,11 +2435,13 @@ func TestPublishDesiredInfraRevision(t *testing.T) {
 			st := helper.publishDesiredInfraRevision(ctx, conn, tt.expectedGeneration)
 			assert.Equal(t, tt.wantPhase, st.Phase())
 
+			storedSts, err := kubeClient.GetStatefulSet(ctx, rs.ObjectKey())
+			require.NoError(t, err)
 			processes := mockedConn.GetProcesses()
 			require.Len(t, processes, tt.wantProcesses)
 			for _, p := range processes {
-				if tt.wantRevision != "" {
-					assert.Equal(t, tt.wantRevision, p[om.DesiredInfraRevisionField], p.Name())
+				if tt.wantRevisionPublished {
+					assert.Equal(t, storedSts.Status.UpdateRevision, p[om.DesiredInfraRevisionField], p.Name())
 				} else {
 					assert.NotContains(t, p, om.DesiredInfraRevisionField, p.Name())
 				}

@@ -1034,54 +1034,47 @@ func TestSetDownloadBase(t *testing.T) {
 	})
 }
 
-func TestSetDesiredInfraRevision(t *testing.T) {
+func TestSetDesiredInfraRevisions(t *testing.T) {
 	rsName := "fooRs"
 	allProcessNames := []string{rsName + "-0", rsName + "-1", rsName + "-2"}
 
 	tests := []struct {
 		name              string
-		processNames      []string
-		revision          string
+		revisions         map[string]string
 		existingRevisions map[string]string
 		expectedRevisions map[string]string
 	}{
 		{
-			name:         "sets revision on all named processes",
-			processNames: allProcessNames,
-			revision:     "rev-1",
-			expectedRevisions: map[string]string{
-				rsName + "-0": "rev-1",
-				rsName + "-1": "rev-1",
-				rsName + "-2": "rev-1",
+			name: "sets a different revision per process",
+			revisions: map[string]string{
+				allProcessNames[0]: "rev-0",
+				allProcessNames[1]: "rev-1",
 			},
-		},
-		{
-			name:         "leaves processes outside the named list untouched",
-			processNames: []string{rsName + "-1"},
-			revision:     "rev-1",
 			expectedRevisions: map[string]string{
-				rsName + "-1": "rev-1",
+				allProcessNames[0]: "rev-0",
+				allProcessNames[1]: "rev-1",
 			},
 		},
 		{
 			name:              "skips unknown process names",
-			processNames:      []string{"unknown-0"},
-			revision:          "rev-1",
+			revisions:         map[string]string{"unknown-0": "rev-1"},
 			expectedRevisions: map[string]string{},
 		},
 		{
-			name:              "empty revision is a no-op",
-			processNames:      allProcessNames,
-			revision:          "",
-			existingRevisions: map[string]string{rsName + "-0": "rev-old"},
-			expectedRevisions: map[string]string{rsName + "-0": "rev-old"},
+			name:              "skips an empty revision and leaves the existing value",
+			revisions:         map[string]string{allProcessNames[0]: ""},
+			existingRevisions: map[string]string{allProcessNames[0]: "rev-old"},
+			expectedRevisions: map[string]string{allProcessNames[0]: "rev-old"},
 		},
 		{
 			name:              "overwrites an existing revision",
-			processNames:      []string{rsName + "-0"},
-			revision:          "rev-new",
-			existingRevisions: map[string]string{rsName + "-0": "rev-old"},
-			expectedRevisions: map[string]string{rsName + "-0": "rev-new"},
+			revisions:         map[string]string{allProcessNames[0]: "rev-new"},
+			existingRevisions: map[string]string{allProcessNames[0]: "rev-old"},
+			expectedRevisions: map[string]string{allProcessNames[0]: "rev-new"},
+		},
+		{
+			name:              "empty map is a no-op",
+			expectedRevisions: map[string]string{},
 		},
 	}
 
@@ -1093,7 +1086,7 @@ func TestSetDesiredInfraRevision(t *testing.T) {
 				d.ProcessMap()[name][DesiredInfraRevisionField] = revision
 			}
 
-			d.SetDesiredInfraRevision(tt.processNames, tt.revision)
+			d.SetDesiredInfraRevisions(tt.revisions)
 
 			processes := d.GetProcesses()
 			require.Len(t, processes, len(allProcessNames))

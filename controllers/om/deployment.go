@@ -345,15 +345,12 @@ func (d Deployment) DisableProcesses(processNames []string) {
 	}
 }
 
-// SetDesiredInfraRevision sets the desired infra revision on the named processes.
-// Names missing from the deployment are skipped; an empty revision is a no-op.
-func (d Deployment) SetDesiredInfraRevision(processNames []string, revision string) {
-	if revision == "" {
-		return
-	}
+// SetDesiredInfraRevisions sets the desired infra revision on the processes named in revisions.
+// Names missing from the deployment and empty revisions are skipped; existing revisions are never deleted.
+func (d Deployment) SetDesiredInfraRevisions(revisions map[string]string) {
 	processes := d.ProcessMap()
-	for _, name := range processNames {
-		if p, ok := processes[name]; ok {
+	for name, revision := range revisions {
+		if p, ok := processes[name]; ok && revision != "" {
 			p[DesiredInfraRevisionField] = revision
 		}
 	}
