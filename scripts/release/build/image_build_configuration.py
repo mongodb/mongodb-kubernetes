@@ -29,6 +29,8 @@ class ImageBuildConfiguration:
     # Extra "latest" tag for backport branches (e.g. "latest-release-v1"), mirroring
     # latest_tag which only ever applies on master.
     branch_latest_tag: Optional[str] = None
+    # Built into a private namespace (pipeline.py --isolated-namespace), never into shared tags.
+    isolated: bool = False
 
     def is_release_scenario(self) -> bool:
         return self.scenario == BuildScenario.RELEASE

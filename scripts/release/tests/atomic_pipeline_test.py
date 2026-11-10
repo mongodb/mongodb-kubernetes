@@ -12,6 +12,9 @@ from scripts.release.agent.validation import (
     get_working_agent_filename,
     get_working_tools_filename,
 )
+from scripts.release.atomic_pipeline import build_agent_pipeline
+from scripts.release.build.build_scenario import BuildScenario
+from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 
 
 class TestBuildArgumentGeneration(unittest.TestCase):
@@ -190,3 +193,42 @@ class TestIntegration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestIsolatedAgentBuild(unittest.TestCase):
+    """Isolated builds always rebuild, so agents without downloadable tarballs must be skipped, not fail the build."""
+
+    def _config(self, isolated: bool) -> ImageBuildConfiguration:
+        return ImageBuildConfiguration(
+            scenario=BuildScenario.PATCH,
+            version="current",
+            latest_tag=False,
+            olm_tag=False,
+            registries=["268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/exp-1/mongodb-agent"],
+            dockerfile_path="docker/mongodb-agent/Dockerfile",
+            builder=None,
+            platforms=["linux/amd64"],
+            isolated=isolated,
+        )
+
+    @patch("scripts.release.atomic_pipeline.build_image")
+    @patch("scripts.release.atomic_pipeline.generate_agent_build_args", return_value={})
+    def test_isolated_skips_agent_without_tarball(self, _mock_args, mock_build_image):
+        build_agent_pipeline(self._config(isolated=True), "12.0.35.7911-1", "100.10.0")
+        mock_build_image.assert_not_called()
+
+    @patch("scripts.release.atomic_pipeline.build_image")
+    @patch(
+        "scripts.release.atomic_pipeline.generate_agent_build_args",
+        return_value={"mongodb_agent_version_amd64": "agent.tgz", "mongodb_tools_version_amd64": "tools.tgz"},
+    )
+    def test_isolated_builds_agent_with_tarball(self, _mock_args, mock_build_image):
+        build_agent_pipeline(self._config(isolated=True), "109.0.1.9310-1", "100.17.0")
+        mock_build_image.assert_called_once()
+
+    @patch("scripts.release.atomic_pipeline.build_image")
+    @patch("scripts.release.atomic_pipeline.generate_agent_build_args", return_value={})
+    def test_non_isolated_behavior_unchanged(self, _mock_args, mock_build_image):
+        # Shared builds rely on skip-if-exists inside build_image; missing tarballs must not short-circuit that.
+        build_agent_pipeline(self._config(isolated=False), "12.0.35.7911-1", "100.10.0")
+        mock_build_image.assert_called_once()

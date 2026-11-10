@@ -49,6 +49,7 @@ from scripts.release.build.build_info import (
 from scripts.release.build.build_scenario import SUPPORTED_SCENARIOS, BuildScenario
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
 from scripts.release.build.image_build_process import PodmanImageBuilder
+from scripts.release.build_cache import ensure_ecr_cache_repository
 
 CURRENT_AGENTS = "current"
 ALL_AGENTS = "all"
@@ -95,6 +96,25 @@ def build_image(image_name: str, build_configuration: ImageBuildConfiguration):
 
 
 _BACKPORT_BRANCH_RE = re.compile(r"^release-v(\d+)(-test)?$")
+_ISOLATED_NAMESPACE_RE = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+_ISOLATED_NAMESPACE_SCENARIOS = (BuildScenario.PATCH, BuildScenario.DEVELOPMENT)
+
+
+def isolated_repository(repository: str, namespace: str) -> str:
+    """
+    Inserts the namespace before the image name, e.g. "<ecr>/dev/mongodb-agent" -> "<ecr>/dev/<namespace>/mongodb-agent".
+    Images built into an isolated namespace never overwrite the shared tags used by other patches and branches.
+    """
+    parent, image_repository = repository.rsplit("/", 1)
+    return f"{parent}/{namespace}/{image_repository}"
+
+
+def ecr_repository_name(repository: str) -> Optional[str]:
+    """Returns the ECR repository name (without the registry host) or None for non-ECR repositories."""
+    host, _, name = repository.partition("/")
+    if ".dkr.ecr." not in host or not name:
+        return None
+    return name
 
 
 def branch_latest_tag_for(branch_name: str) -> Optional[str]:
@@ -143,6 +163,27 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         args.architecture_suffix if args.architecture_suffix is not None else image_build_info.architecture_suffix
     )
 
+    isolated_namespace = getattr(args, "isolated_namespace", None)
+    if isolated_namespace:
+        if build_scenario not in _ISOLATED_NAMESPACE_SCENARIOS:
+            raise ValueError(
+                f"--isolated-namespace is only allowed for {[str(s) for s in _ISOLATED_NAMESPACE_SCENARIOS]} scenarios, got '{build_scenario}'"
+            )
+        if not _ISOLATED_NAMESPACE_RE.match(isolated_namespace):
+            raise ValueError(
+                f"Invalid isolated namespace '{isolated_namespace}', expected {_ISOLATED_NAMESPACE_RE.pattern}"
+            )
+        if args.registry:
+            raise ValueError("--registry and --isolated-namespace are mutually exclusive")
+        registries = [isolated_repository(image_build_info.repository, isolated_namespace)]
+        # Always build: the namespace is private to the experiment, existing shared tags must not short-circuit the build.
+        skip_if_exists = False
+        sign = False
+        latest_tag = False
+        branch_latest_tag = None
+        olm_tag = False
+        logger.info(f"Isolated namespace '{isolated_namespace}': pushing only to {registries}")
+
     if architecture_suffix and len(platforms) > 1:
         raise ValueError("Cannot use architecture suffix with multi-platform builds")
 
@@ -187,6 +228,7 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         architecture_suffix=architecture_suffix,
         agent_tools_version=agent_tools_version,
         custom_agent_url=args.custom_agent_url,
+        isolated=bool(isolated_namespace),
     )
 
 
@@ -331,12 +373,28 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         default="",
         help="Custom agent URL for testing. Overrides the prod agent download URL.",
     )
+    parser.add_argument(
+        "--isolated-namespace",
+        metavar="",
+        action="store",
+        type=str,
+        default="",
+        help="Patch/development only. Push to '<repository-parent>/<namespace>/<image>' and always rebuild, so that "
+        "experimental images never overwrite shared tags (e.g. agent and Ops Manager images, which use skip-if-exists).",
+    )
 
     args = parser.parse_args()
 
     build_config = image_build_config_from_args(args)
     logger.info(f"Building image: {args.image}")
     logger.info(f"Build configuration: {build_config}")
+
+    if args.isolated_namespace:
+        for registry in build_config.registries:
+            repository_name = ecr_repository_name(registry)
+            if repository_name:
+                # Same 14-day expiry lifecycle policy as the cache repositories.
+                ensure_ecr_cache_repository(repository_name)
 
     # Create buildx builder
     # It must be initialized here as opposed to in build_images.py so that parallel calls (such as agent builds) can access it

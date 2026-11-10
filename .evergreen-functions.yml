@@ -11,6 +11,7 @@ variables:
       - GRS_PASSWORD
       - GRS_USERNAME
       - OVERRIDE_VERSION_ID
+      - isolated_image_namespace  # patch param: build/consume agent and OM images in isolation, see scripts/dev/contexts/isolated-image-namespace.sh
       - PKCS11_URI
       - branch_name
       - build_id
