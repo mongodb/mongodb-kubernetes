@@ -626,7 +626,7 @@ func TestEnsureOpsManagerLicense_AutoReleaseOnSecretRefRemoval(t *testing.T) {
 	assert.Contains(t, licenseReadyCondition(t, testOm).Message, "no license")
 	c := reconciledCondition(t, st.StatusOptions())
 	assert.Equal(t, status.ReasonLicenseNotRequested, c.Reason)
-	assert.Equal(t, "Ops Manager no longer holds license art-1 from secretRef.", c.Message)
+	assert.Equal(t, "The operator released license art-1 after secretRef was removed. OpsManagerLicenseReady reports the license Ops Manager holds.", c.Message)
 }
 
 func TestEnsureOpsManagerLicense_WithoutSecretRefInstallsNoLicense(t *testing.T) {
@@ -640,7 +640,7 @@ func TestEnsureOpsManagerLicense_WithoutSecretRefInstallsNoLicense(t *testing.T)
 	assert.Empty(t, admin.ReleasedIDs)
 	c := reconciledCondition(t, st.StatusOptions())
 	assert.Equal(t, status.ReasonLicenseNotRequested, c.Reason)
-	assert.Equal(t, "secretRef is not set, so the operator installs no license.", c.Message)
+	assert.Equal(t, "secretRef is not set, so the operator installs no license. OpsManagerLicenseReady reports the license Ops Manager holds.", c.Message)
 }
 
 func TestEnsureOpsManagerLicense_ReleaseOnLicenseSpecRemoval(t *testing.T) {
