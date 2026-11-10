@@ -1164,6 +1164,7 @@ task_groups:
     tasks:
       - e2e_replica_set_tls_managedcert_client
       - e2e_replica_set_tls_managedcert
+      - e2e_replica_set_tls_managedcert_renewal
       - e2e_replica_set_tls_managedcert_server
       - e2e_replica_set_tls_managedcert_both_configured
       - e2e_replica_set_tls_managedcert_internal_auth_keyfile

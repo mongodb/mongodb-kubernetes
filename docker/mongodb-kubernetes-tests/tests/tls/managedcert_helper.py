@@ -13,13 +13,16 @@ from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from cryptography import x509
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 from kubernetes import client
-from kubetester import read_configmap, read_secret, try_load
-from kubetester.certs import Certificate
+from kubetester import create_or_update_secret, read_configmap, read_secret, try_load
+from kubetester.certs import Certificate, Issuer
 from kubetester.crypto import cert_signed_by_bundle
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import with_x509
@@ -57,7 +60,11 @@ def client_certificate_user(mdb: MongoDB, namespace: str) -> MongoDBUser:
 
 
 def assert_reachable_with_client_certificate(
-    mdb: MongoDB, user: MongoDBUser, namespace: str, service_names: Optional[List[str]] = None
+    mdb: MongoDB,
+    user: MongoDBUser,
+    namespace: str,
+    service_names: Optional[List[str]] = None,
+    attempts: int = 50,
 ):
     """Connects as the user with its operator-issued certificate, the way an application would.
 
@@ -66,7 +73,9 @@ def assert_reachable_with_client_certificate(
     because x509 is the only authentication mode, and checks it against the client CA.
 
     service_names is only needed for a multi-cluster sharded deployment, which has no single mongos
-    service: the caller passes the service of each mongos pod.
+    service: the caller passes the service of each mongos pod. Each failed attempt waits for the
+    driver's server selection timeout, so lower attempts to fail fast where the deployment is
+    expected to be reachable already.
     """
     user.load()
     cert_status = user["status"]["clientCertificate"]
@@ -83,7 +92,7 @@ def assert_reachable_with_client_certificate(
         ca_file.write(server_ca)
 
     mdb.tester(use_ssl=True, ca_path=ca_file.name, service_names=service_names).assert_connectivity(
-        opts=[with_x509(cert_file.name, ca_file.name)]
+        attempts=attempts, opts=[with_x509(cert_file.name, ca_file.name)]
     )
 
 
@@ -385,6 +394,12 @@ def read_certificate_status(namespace: str, certificate_name: str) -> dict:
     return certificate["status"] if "status" in certificate else {}
 
 
+def read_certificate_spec(namespace: str, certificate_name: str) -> dict:
+    """The cert-manager Certificate's spec as the operator has applied it."""
+    certificate = Certificate(name=certificate_name, namespace=namespace).load()
+    return certificate["spec"] if "spec" in certificate else {}
+
+
 def pem_secret_hashes(namespace: str, secret_name: str) -> tuple[str, str]:
     """The current and previous certificate hashes in an operator-managed -pem secret.
 
@@ -393,6 +408,37 @@ def pem_secret_hashes(namespace: str, secret_name: str) -> tuple[str, str]:
     """
     secret = read_secret(namespace, secret_name)
     return secret.get("latestHash", ""), secret.get("previousHash", "")
+
+
+def wait_for_certificate_spec_fields(
+    namespace: str, certificate_name: str, fields: List[str], *, present: bool = True, timeout: int = 300
+):
+    """Waits until the operator applies or removes fields on the cert-manager Certificate.
+
+    The operator copies duration/renewBefore from the resource onto the Certificate, so the
+    Certificate spec is the proof that a resource change has reached cert-manager.
+    """
+
+    def matches() -> bool:
+        spec = read_certificate_spec(namespace, certificate_name)
+        if present:
+            return all(bool(spec.get(field)) for field in fields)
+        return all(not spec.get(field) for field in fields)
+
+    run_periodically(matches, timeout=timeout, sleep_time=3, msg=f"Certificate/{certificate_name} spec {fields}")
+
+
+def wait_for_certificate_renewals(resource: MongoDB, timeout: int = 300) -> dict:
+    """Returns status.certificateRenewals once the operator has reported it."""
+    run_periodically(
+        lambda: read_certificate_renewals(resource) is not None,
+        timeout=timeout,
+        sleep_time=3,
+        msg="status.certificateRenewals",
+    )
+    renewals = read_certificate_renewals(resource)
+    assert renewals is not None
+    return renewals
 
 
 def trigger_certificate_renewal(namespace: str, certificate_name: str, api_client=None):
@@ -423,4 +469,278 @@ def trigger_certificate_renewal(namespace: str, certificate_name: str, api_clien
         _CERTIFICATE_PLURAL,
         certificate_name,
         body={"status": {"conditions": conditions}},
+    )
+
+
+def clear_certificate_failure(namespace: str, certificate_name: str, api_client=None):
+    """Clears the failure state so cert-manager does not back off for an hour after a broken issuer.
+
+    cert-manager records lastFailureTime on a failed issuance and delays the next attempt with an
+    exponential backoff. A test that restores the issuer cannot wait that long, so it clears the
+    failure before triggering the retry.
+    """
+    client.CustomObjectsApi(api_client=api_client).patch_namespaced_custom_object_status(
+        _CERTIFICATE_GROUP,
+        _CERTIFICATE_VERSION,
+        namespace,
+        _CERTIFICATE_PLURAL,
+        certificate_name,
+        body={"status": {"lastFailureTime": None, "failedIssuanceAttempts": None}},
+    )
+
+
+def wait_for_certificate_failure(namespace: str, certificate_name: str, timeout: int = 600):
+    """Waits until cert-manager records a failed issuance on the Certificate.
+
+    cert-manager reads the issuer's CA through its informer cache, so an issuance triggered right after
+    the CA was broken can still be signed with the old key. When an attempt finishes without a failure,
+    it is triggered again until one fails.
+    """
+
+    def failed() -> bool:
+        status = read_certificate_status(namespace, certificate_name)
+        if status.get("lastFailureTime"):
+            return True
+        issuing = any(c.get("type") == "Issuing" and c.get("status") == "True" for c in status.get("conditions", []))
+        if not issuing:
+            trigger_certificate_renewal(namespace, certificate_name)
+        return False
+
+    run_periodically(
+        failed, timeout=timeout, sleep_time=5, msg=f"Certificate/{certificate_name} to record a failed issuance"
+    )
+
+
+def delete_failed_certificate_requests(namespace: str, certificate_name: str, api_client=None) -> int:
+    """Deletes the Certificate's failed CertificateRequests, so the next issuance creates a new one.
+
+    cert-manager only replaces a failed request of the current revision when the Issuing condition is
+    newer than the request's failure, which an external trigger cannot rely on. Without a request to
+    reuse, cert-manager has to create a new one, signed by the issuer as it is now.
+    """
+    api = client.CustomObjectsApi(api_client=api_client)
+    requests = api.list_namespaced_custom_object(
+        _CERTIFICATE_GROUP, _CERTIFICATE_VERSION, namespace, "certificaterequests"
+    )["items"]
+    deleted = 0
+    for request in requests:
+        annotations = request["metadata"].get("annotations") or {}
+        if annotations.get("cert-manager.io/certificate-name") != certificate_name:
+            continue
+        conditions = (request.get("status") or {}).get("conditions", [])
+        if any(c.get("type") == "Ready" and c.get("reason") in ("Failed", "Denied") for c in conditions):
+            api.delete_namespaced_custom_object(
+                _CERTIFICATE_GROUP, _CERTIFICATE_VERSION, namespace, "certificaterequests", request["metadata"]["name"]
+            )
+            deleted += 1
+    return deleted
+
+
+def retry_issuance_until_success(namespace: str, certificate_name: str, timeout: int = 600):
+    """Retries the issuance after the issuer was repaired, until an attempt no longer fails.
+
+    Each failed attempt makes cert-manager back off, for up to an hour, and its informer cache can still
+    hold the broken CA for the first retry. So every failed request is deleted, the recorded failure is
+    cleared and the issuance is triggered again, until an attempt succeeds.
+    """
+
+    def retry():
+        delete_failed_certificate_requests(namespace, certificate_name)
+        clear_certificate_failure(namespace, certificate_name)
+        trigger_certificate_renewal(namespace, certificate_name)
+
+    def retried() -> bool:
+        status = read_certificate_status(namespace, certificate_name)
+        issuing = any(c.get("type") == "Issuing" and c.get("status") == "True" for c in status.get("conditions", []))
+        if issuing:
+            return False
+        if status.get("lastFailureTime"):
+            retry()
+            return False
+        return True
+
+    retry()
+    run_periodically(
+        retried, timeout=timeout, sleep_time=5, msg=f"Certificate/{certificate_name} to issue again without a failure"
+    )
+
+
+def wait_for_certificate_issuance_settled(
+    namespace: str, certificate_name: str, pem_secret_name: str, timeout: int = 300
+) -> tuple[int, str]:
+    """Returns the Certificate revision and -pem hash once both stopped changing.
+
+    cert-manager bumps the revision before the operator has written the new hash into the -pem
+    secret. A test that wants to observe the next issuance needs a baseline where the two agree,
+    otherwise it can mistake the operator's lag for the next issuance.
+    """
+    state: dict[str, Optional[tuple[int, str]]] = {"last": None}
+
+    def settled() -> bool:
+        revision = read_certificate_status(namespace, certificate_name).get("revision", 0)
+        latest, _ = pem_secret_hashes(namespace, pem_secret_name)
+        if not latest:
+            return False
+        current = (revision, latest)
+        if state["last"] == current:
+            return True
+        state["last"] = current
+        return False
+
+    run_periodically(
+        settled,
+        timeout=timeout,
+        sleep_time=2,
+        msg=f"Certificate/{certificate_name} and its -pem secret to stop changing",
+    )
+    last = state["last"]
+    assert last is not None, "run_periodically only returns once a settled state was recorded"
+    return last
+
+
+def wait_for_certificate_issuance_after(
+    namespace: str,
+    certificate_name: str,
+    pem_secret_name: str,
+    after_revision: int,
+    previous_hash: str,
+    timeout: int = 600,
+) -> tuple[int, str, str]:
+    """Waits for a new issuance and for the operator to put its files in the -pem secret.
+
+    cert-manager increments status.revision per successful issuance, and then the operator writes the
+    new certificate under the hash in the -pem secret. Both have to change: waiting for the revision
+    alone can observe the moment before the operator has updated the files the pods use.
+    """
+    result = {}
+
+    def issued() -> bool:
+        revision = read_certificate_status(namespace, certificate_name).get("revision", 0)
+        if revision <= after_revision:
+            return False
+        latest, previous = pem_secret_hashes(namespace, pem_secret_name)
+        if not latest or latest == previous_hash:
+            return False
+        result["revision"] = revision
+        result["latest"] = latest
+        result["previous"] = previous
+        return True
+
+    run_periodically(
+        issued,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"Certificate/{certificate_name} revision past {after_revision} and new -pem hash",
+    )
+    return result["revision"], result["latest"], result["previous"]
+
+
+def certificates_ready_condition(resource: MongoDB) -> Optional[dict]:
+    """Returns the resource's CertificatesReady status condition, or None when it is not set yet."""
+    resource.load()
+    if "status" not in resource:
+        return None
+    for condition in resource["status"].get("conditions", []):
+        if condition.get("type") == "CertificatesReady":
+            return condition
+    return None
+
+
+def wait_for_certificates_ready_condition(
+    resource: MongoDB, status: str, reason: Optional[str] = None, timeout: int = 300
+) -> dict:
+    """Waits until CertificatesReady reports status (and reason when given) and returns the condition."""
+
+    def matches() -> bool:
+        condition = certificates_ready_condition(resource)
+        if condition is None or condition.get("status") != status:
+            return False
+        return reason is None or condition.get("reason") == reason
+
+    run_periodically(
+        matches, timeout=timeout, sleep_time=5, msg=f"{resource.name} CertificatesReady={status} {reason or ''}"
+    )
+    condition = certificates_ready_condition(resource)
+    assert condition is not None
+    return condition
+
+
+def wait_for_automation_config_version_above(resource: MongoDB, version: int, timeout: int = 600) -> int:
+    """Waits until the automation config version advances, which is how the operator applies new certs."""
+    run_periodically(
+        lambda: resource.get_automation_config_tester().automation_config["version"] > version,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"{resource.name} automation config version above {version}",
+    )
+    return resource.get_automation_config_tester().automation_config["version"]
+
+
+def assert_automation_config_uses_leaf_secrets(resource: MongoDB, namespace: str):
+    """The automation config must name the current member, clusterfile and agent certificate files."""
+    member_name, clusterfile_name, agent_name = leaf_secret_names(resource.name)
+    agent_hash, _ = pem_secret_hashes(namespace, f"{agent_name}-pem")
+    member_hash, _ = pem_secret_hashes(namespace, f"{member_name}-pem")
+    clusterfile_hash, _ = pem_secret_hashes(namespace, f"{clusterfile_name}-pem")
+    assert_automation_config_names_files(agent_hash, {resource.name: member_hash}, {resource.name: clusterfile_hash})
+
+
+def wait_for_automation_config_to_use_leaf_secrets(resource: MongoDB, namespace: str, timeout: int = 600):
+    """Waits until the automation config points at the certificates currently in the -pem secrets."""
+
+    def names_current_files() -> bool:
+        try:
+            assert_automation_config_uses_leaf_secrets(resource, namespace)
+            return True
+        except (AssertionError, KeyError):
+            return False
+
+    run_periodically(
+        names_current_files,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"{resource.name} automation config to point at the current certificates",
+    )
+
+
+def break_issuer_ca(namespace: str, issuer_name: str = "ca-issuer") -> tuple[str, dict]:
+    """Makes the user issuer unable to sign, returning what is needed to restore it.
+
+    The CA certificate is kept but its private key is replaced by an unrelated one. cert-manager only
+    checks that the CA Secret has a CA certificate and a key, so the Issuer stays Ready, but every
+    signature then fails: the request ends Failed (SigningError) and the Certificate records a failed
+    issuance. Deleting the Secret instead would only leave the request Pending, with no failure
+    recorded, because cert-manager waits for a missing CA to come back.
+    """
+    issuer = Issuer(name=issuer_name, namespace=namespace).load()
+    secret_name = issuer["spec"]["ca"]["secretName"]
+    data = read_secret(namespace, secret_name)
+    broken = dict(data)
+    broken["tls.key"] = _unrelated_private_key(data["tls.crt"])
+    create_or_update_secret(namespace, secret_name, broken)
+    return secret_name, data
+
+
+def _unrelated_private_key(ca_cert_pem: str) -> str:
+    """A new private key of the same type as the CA's, so signing fails on the key mismatch only."""
+    public_key = x509.load_pem_x509_certificate(ca_cert_pem.encode()).public_key()
+    if isinstance(public_key, rsa.RSAPublicKey):
+        key = rsa.generate_private_key(public_exponent=65537, key_size=public_key.key_size)
+    elif isinstance(public_key, ec.EllipticCurvePublicKey):
+        key = ec.generate_private_key(public_key.curve)
+    else:
+        raise AssertionError(f"unsupported CA key type {type(public_key).__name__}")
+    return key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    ).decode()
+
+
+def restore_issuer_ca(namespace: str, secret_name: str, data: dict, issuer_name: str = "ca-issuer", timeout: int = 300):
+    """Restores the issuer's CA Secret and waits until the Issuer can sign again."""
+    create_or_update_secret(namespace, secret_name, data)
+    run_periodically(
+        lambda: bool(Issuer(name=issuer_name, namespace=namespace).is_ready()),
+        timeout=timeout,
+        sleep_time=3,
+        msg=f"Issuer/{issuer_name} to be ready again",
     )
