@@ -30,6 +30,7 @@ rules:
       - watch
       - create
       - update
+      - delete
 {{- end }}
   - apiGroups:
       - ''

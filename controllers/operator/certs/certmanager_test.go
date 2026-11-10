@@ -776,6 +776,49 @@ func TestMemberClusterDNSNames(t *testing.T) {
 	})
 }
 
+// DeleteManagedCertificates removes the Certificates the operator created for the resource, and
+// leaves the ones that belong to somebody else.
+func TestDeleteManagedCertificates(t *testing.T) {
+	ctx := context.Background()
+	res := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.SetUID(types.UID("res-uid"))
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	})
+	ours := &certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{
+		Name:            managedCACertName(res, categoryServer),
+		Namespace:       resNamespace,
+		OwnerReferences: []metav1.OwnerReference{{Name: res.GetName(), UID: res.GetUID()}},
+	}}
+	someoneElses := &certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{
+		Name:            "someone-elses",
+		Namespace:       resNamespace,
+		OwnerReferences: []metav1.OwnerReference{{Name: "other", UID: types.UID("other-uid")}},
+	}}
+	c, _ := mock.NewDefaultFakeClient(ours, someoneElses)
+
+	require.True(t, DeleteManagedCertificates(ctx, c, res).IsOK())
+
+	assert.Error(t, c.Get(ctx, types.NamespacedName{Name: ours.GetName(), Namespace: resNamespace}, &certmanagerv1.Certificate{}))
+	assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: someoneElses.GetName(), Namespace: resNamespace}, &certmanagerv1.Certificate{}))
+}
+
+// The CA secrets have to carry the owner labels too: the operator's cleanup on deletion sweeps the
+// secrets by label, and cert-manager can write a CA secret again while the resource is being deleted.
+func TestEnsureSelfSignedCAAddsOwnerLabels(t *testing.T) {
+	ctx := context.Background()
+	res := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	})
+	c, _ := mock.NewDefaultFakeClient()
+
+	require.True(t, ensureSelfSignedCA(ctx, c, res, categoryServer).IsOK())
+
+	cert := &certmanagerv1.Certificate{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: managedCACertName(res, categoryServer), Namespace: resNamespace}, cert))
+	require.NotNil(t, cert.Spec.SecretTemplate, "the CA Certificate has to ask cert-manager for the owner labels")
+	assert.Equal(t, res.GetOwnerLabels(), cert.Spec.SecretTemplate.Labels)
+}
+
 func TestEnsureIssuedSecretsAreOwned(t *testing.T) {
 	ctx := context.Background()
 	res := newMongoDB(resName, func(m *mdbv1.MongoDB) {

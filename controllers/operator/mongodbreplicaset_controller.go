@@ -1247,7 +1247,17 @@ func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.O
 	// AppDB-role CR deletion is a reverse-migration handover, not a deprovision: the project
 	// is left stale and the user is responsible for cleaning it up after migration.
 	if !rs.IsRoleAppDB() {
+		// Before the Ops Manager cleanup, which can take minutes: while the Certificates are there,
+		// cert-manager writes their secrets again as soon as the deletion removes one.
+		if err := r.reconciler.stopManagedCertificateIssuance(ctx, rs, log); err != nil {
+			log.Errorf("Failed to delete the managed certificates: %s", err)
+		}
+
 		if err := r.cleanOpsManagerState(ctx, rs, log); err != nil {
+			return err
+		}
+
+		if err := r.reconciler.deleteManagedCertificateObjects(ctx, rs, log); err != nil {
 			return err
 		}
 	}

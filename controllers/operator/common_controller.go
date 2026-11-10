@@ -50,6 +50,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -1203,6 +1204,34 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 	r.resourceWatcher.RemoveDependentWatchedResources(resourceOwner.ObjectKey())
 
 	return errs
+}
+
+// stopManagedCertificateIssuance deletes the Certificates the operator created for a resource, so
+// that cert-manager stops writing their secrets. The delete handlers call it first, before the Ops
+// Manager cleanup, which can take minutes: cert-manager issues a Certificate again when the secret it
+// names is missing, which is what happens while the resource is being deleted, and the secret it
+// writes then has no owner reference to remove it.
+func (r *ReconcileCommonController) stopManagedCertificateIssuance(ctx context.Context, res certs.CertificateOwner, log *zap.SugaredLogger) error {
+	if sec := res.GetSecurity(); sec == nil || !sec.IsManagedCertificateEnabled() {
+		return nil
+	}
+	if status := certs.DeleteManagedCertificates(ctx, r.client, res); !status.IsOK() {
+		return xerrors.New(status.Message())
+	}
+	return nil
+}
+
+// deleteManagedCertificateObjects removes what operator-managed certificates created for a resource
+// from the cluster the operator runs in, by the labels every secret the feature creates carries. The
+// delete handlers call it last, after the Ops Manager cleanup: it removes the secrets the pods mount
+// and the objects running the pods, and the pods have to stay up while Ops Manager is cleaned up.
+// It catches a secret cert-manager wrote after its Certificate was deleted, which nothing else
+// removes.
+func (r *ReconcileCommonController) deleteManagedCertificateObjects(ctx context.Context, res certs.CertificateOwner, log *zap.SugaredLogger) error {
+	if sec := res.GetSecurity(); sec == nil || !sec.IsManagedCertificateEnabled() {
+		return nil
+	}
+	return deleteOwnedClusterResources(ctx, r.client, multicluster.LegacyCentralClusterName, res, log)
 }
 
 // deleteOwnedClusterResources removes the label-owned resources of the given resource owner in a given cluster.

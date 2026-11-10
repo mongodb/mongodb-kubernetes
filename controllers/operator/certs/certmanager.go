@@ -15,6 +15,7 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
@@ -743,6 +744,9 @@ func ensureSelfSignedCA(ctx context.Context, c kubernetesClient.Client, res Cert
 			SecretName: managedCACertName(res, cat),
 			CommonName: fmt.Sprintf("%s-%s-ca", res.GetName(), cat),
 			IssuerRef:  cmmeta.ObjectReference{Name: selfSignedIssuerName(res, cat), Kind: certmanagerv1.IssuerKind},
+			// cert-manager puts these labels on the secret it issues, so the operator's cleanup on
+			// deletion finds it by label, like the other secrets of the resource.
+			SecretTemplate: &certmanagerv1.CertificateSecretTemplate{Labels: res.GetOwnerLabels()},
 		},
 	}
 	if status := ensureCertificate(ctx, c, res, caCert); !status.IsOK() {
@@ -1099,6 +1103,37 @@ func ownerRefsForIssuedSecrets(res CertificateOwner) []metav1.OwnerReference {
 		ownerRefs[i].Controller = nil
 	}
 	return ownerRefs
+}
+
+// DeleteManagedCertificates deletes the Certificates the operator created for a resource, before
+// Kubernetes garbage collects them, so that cert-manager stops issuing their secrets. cert-manager
+// issues a Certificate again when the secret it names is missing, which happens while the resource is
+// being deleted: what it writes then has no owner reference and outlives the resource.
+func DeleteManagedCertificates(ctx context.Context, c kubernetesClient.Client, res CertificateOwner) workflow.Status {
+	list := &certmanagerv1.CertificateList{}
+	if err := c.List(ctx, list, client.InNamespace(res.GetNamespace())); err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to list the Certificates of %s: %w", res.GetName(), err))
+	}
+	for i := range list.Items {
+		cert := list.Items[i]
+		if !ownedByUID(cert.GetOwnerReferences(), res.GetUID()) {
+			continue
+		}
+		if err := c.Delete(ctx, &cert); err != nil && !apiErrors.IsNotFound(err) {
+			return workflow.Failed(xerrors.Errorf("failed to delete the Certificate %s: %w", cert.GetName(), err))
+		}
+	}
+	return workflow.OK()
+}
+
+// ownedByUID reports whether one of the owner references points at the object with this UID.
+func ownedByUID(ownerRefs []metav1.OwnerReference, uid types.UID) bool {
+	for _, ref := range ownerRefs {
+		if ref.UID == uid {
+			return true
+		}
+	}
+	return false
 }
 
 // readIssuedCertificate reads the leaf certificate cert-manager wrote into a TLS secret. found is
