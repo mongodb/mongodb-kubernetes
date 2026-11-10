@@ -13,28 +13,25 @@ const (
 	ConditionLicenseReconciled      = "LicenseReconciled"
 )
 
-// Reasons of OpsManagerLicenseReady. Any other license state, like GRACE, becomes LicenseGrace.
+// Reasons of OpsManagerLicenseReady. Ready, Grace, Unlicensed and Expired follow the Ops Manager
+// license state. StateUnknown covers no state reported yet. Enforced marks a change Ops Manager
+// rejected.
 const (
-	ReasonLicenseEnforced     = "LicenseEnforced"
 	ReasonLicenseReady        = "LicenseReady"
+	ReasonLicenseGrace        = "LicenseGrace"
+	ReasonLicenseUnlicensed   = "LicenseUnlicensed"
+	ReasonLicenseExpired      = "LicenseExpired"
+	ReasonLicenseEnforced     = "LicenseEnforced"
 	ReasonLicenseStateUnknown = "LicenseStateUnknown"
 )
 
-// Reasons of LicenseReconciled.
+// Reasons of LicenseReconciled. The message carries the detail of a failure.
 const (
-	ReasonLicenseReconciled      = "LicenseReconciled"
 	ReasonLicenseInstalled       = "LicenseInstalled"
-	ReasonLicenseReleased        = "LicenseReleased"
+	ReasonLicenseNotRequested    = "LicenseNotRequested"
 	ReasonLicenseOutdated        = "LicenseOutdated"
-	ReasonIdentityRotationFailed = "IdentityRotationFailed"
-	ReasonLicenseRecomputeFailed = "LicenseRecomputeFailed"
-	ReasonLicenseInstallFailed   = "LicenseInstallFailed"
-	ReasonLicenseReleaseFailed   = "LicenseReleaseFailed"
-	ReasonLicenseReceiptFailed   = "LicenseReceiptFailed"
-	ReasonLicenseSecretFailed    = "LicenseSecretFailed"
-	ReasonLicenseArtifactInvalid = "LicenseArtifactInvalid"
-	ReasonLicenseObserveFailed   = "LicenseObserveFailed"
-	ReasonLicenseStateFailed     = "LicenseStateFailed"
+	ReasonLicenseSecretInvalid   = "LicenseSecretInvalid"
+	ReasonLicenseReconcileFailed = "LicenseReconcileFailed"
 )
 
 func OpsManagerLicenseReadyCondition(ready bool, reason, message string) metav1.Condition {
