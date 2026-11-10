@@ -273,16 +273,13 @@ func (h *LicenseReconcilerHelper) observeLicense(ctx context.Context) workflow.S
 // installLicenseFromSecret installs the license the spec asks for and returns the artifact it
 // names plus the artifact that was replaced.
 func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, receipts []string) (requestedID, releasedID string, st workflow.Status) {
-	rawArtifact, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.opsManager.Spec.License.SecretRef.Name)
-	if invalid {
-		return "", "", licenseSecretInvalid(err)
-	}
+	rawArtifact, artifactID, _, err := h.readLicenseArtifact(ctx, h.opsManager.Spec.License.SecretRef.Name)
 	if err != nil {
 		return "", "", licenseFailed(err)
 	}
 	if slices.Contains(receipts, artifactID) {
 		err := xerrors.Errorf("license artifact %s in secretRef is also listed in releaseReceipts", artifactID)
-		return "", "", licenseSecretInvalid(err)
+		return "", "", licenseFailed(err)
 	}
 
 	observed := h.observed
@@ -318,7 +315,7 @@ func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (
 	_, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.lastInstallSecretRef)
 	if invalid {
 		if _, held := h.observed.HeldArtifact(); held {
-			return "", licenseSecretInvalid(xerrors.Errorf("cannot release the license Ops Manager holds, the license secret %s that identifies it is gone or no longer holds a license artifact", h.lastInstallSecretRef))
+			return "", licenseFailed(xerrors.Errorf("cannot release the license Ops Manager holds, the license secret %s that identifies it is gone or no longer holds a license artifact", h.lastInstallSecretRef))
 		}
 		return "", workflow.OK()
 	}
@@ -355,7 +352,7 @@ func (h *LicenseReconcilerHelper) resolveReleaseReceipts(ctx context.Context) ([
 			return nil, st
 		}
 		if slices.Contains(receipts, artifactID) {
-			return nil, licenseSecretInvalid(xerrors.Errorf("releaseReceipts entries resolve to the same artifact id %s", artifactID))
+			return nil, licenseFailed(xerrors.Errorf("releaseReceipts entries resolve to the same artifact id %s", artifactID))
 		}
 		receipts = append(receipts, artifactID)
 	}
@@ -363,10 +360,7 @@ func (h *LicenseReconcilerHelper) resolveReleaseReceipts(ctx context.Context) ([
 }
 
 func (h *LicenseReconcilerHelper) receiptArtifactID(ctx context.Context, entry omv1.LicenseReleaseReceipt) (string, workflow.Status) {
-	_, artifactID, invalid, err := h.readLicenseArtifact(ctx, entry.SecretRef.Name)
-	if invalid {
-		return "", licenseSecretInvalid(err)
-	}
+	_, artifactID, _, err := h.readLicenseArtifact(ctx, entry.SecretRef.Name)
 	if err != nil {
 		return "", licenseFailed(err)
 	}

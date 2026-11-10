@@ -415,7 +415,7 @@ func TestEnsureOpsManagerLicense_ReleaseWithoutTheLicenseSecretFails(t *testing.
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
 }
 
 func TestEnsureOpsManagerLicense_ReleaseWithSecretMissingKeySkipsWhenNothingHeld(t *testing.T) {
@@ -1119,7 +1119,7 @@ func TestEnsureOpsManagerLicense_MalformedLicenseArtifactFails(t *testing.T) {
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Nil(t, admin.InstalledLicense)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptEntryWithMissingSecretFails(t *testing.T) {
@@ -1135,7 +1135,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryWithMissingSecretFails(t *testing.T
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptEntryWithMalformedSecretFails(t *testing.T) {
@@ -1152,7 +1152,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryWithMalformedSecretFails(t *testing
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
 }
 
 func TestEnsureOpsManagerLicense_InstallSucceedsWhenStateListsExtraArtifacts(t *testing.T) {
@@ -1227,7 +1227,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryOnInstalledLicenseFails(t *testing.
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Nil(t, admin.InstalledLicense)
-	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseSecretInvalid)
+	assertLicenseReconcileReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
 }
 
 func TestEnsureOpsManagerLicense_AutoReceiptsWriteReleaseReceipt(t *testing.T) {
