@@ -16,23 +16,23 @@ func TestOpsManagerStatus_LicenseReconciledCondition(t *testing.T) {
 	om := NewOpsManagerBuilderDefault().Build()
 	om.UpdateStatus(status.PhaseFailed, status.NewOMPartOption(status.OpsManager),
 		status.NewLicenseStatusOptionWithCondition(
-			status.LicenseReconciledCondition(false, status.ReasonIdentityRotationFailed, "rotation failed"),
+			status.LicenseReconciledCondition(false, status.ReasonLicenseReconcileFailed, "rotation failed"),
 		))
 
 	cond := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseReconciled)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, status.ReasonIdentityRotationFailed, cond.Reason)
+	assert.Equal(t, status.ReasonLicenseReconcileFailed, cond.Reason)
 	assert.Equal(t, "rotation failed", cond.Message)
 	assert.Equal(t, om.GetGeneration(), cond.ObservedGeneration)
 
 	om.UpdateStatus(status.PhaseRunning, status.NewOMPartOption(status.OpsManager),
 		status.NewLicenseStatusOptionWithCondition(
-			status.LicenseReconciledCondition(true, status.ReasonLicenseReconciled, ""),
+			status.LicenseReconciledCondition(true, status.ReasonLicenseNotRequested, ""),
 		))
 
 	cond = meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseReconciled)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionTrue, cond.Status)
-	assert.Equal(t, status.ReasonLicenseReconciled, cond.Reason)
+	assert.Equal(t, status.ReasonLicenseNotRequested, cond.Reason)
 }
