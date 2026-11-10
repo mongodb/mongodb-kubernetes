@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"go.uber.org/zap"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -141,6 +142,7 @@ func (o appDBManagedCertificateOwner) GetName() string { return o.AppDBName() }
 func (o appDBManagedCertificateOwner) GetSecurity() *mdbv1.Security {
 	return o.Spec.AppDB.GetSecurity()
 }
+
 func (o appDBManagedCertificateOwner) ownerResource() v1.ObjectOwner {
 	return o.MongoDBOpsManager
 }
