@@ -9,12 +9,15 @@ source "${script_dir}/root-context"
 
 export ops_manager_version="cloud_qa"
 
+# This is required to be able to rebuild the om image and use that image which has been rebuilt
+export OPS_MANAGER_REGISTRY="${REGISTRY}"
 CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${PROJECT_DIR}"/.evergreen.yml | awk '{print $3}')
 export CUSTOM_OM_VERSION
 
-export CUSTOM_MDB_VERSION=7.0.22 # we only have ibm static images starting with 7.0.22
-export KUBE_ENVIRONMENT_NAME=kind
-export CLUSTER_TYPE=kind
-# Keep a small legacy-static suite next to the static-ga default. It proves that the static pod structure
-# (shared process namespace and the utilities holder) still works.
+export CUSTOM_MDB_PREV_VERSION=6.0.16
+export CUSTOM_MDB_VERSION=7.0.5
+
+# Keep a small legacy-static suite next to the static-ga default. The static
+# architecture keeps the shared process namespace, the utilities holder, and
+# the launcher symlinks.
 export MDB_DEFAULT_ARCHITECTURE=static
