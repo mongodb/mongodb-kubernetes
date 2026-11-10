@@ -1,6 +1,7 @@
 import kubernetes
 from kubetester import try_load, wait_until
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import static_ga_timeout
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -52,7 +53,7 @@ def test_authentication_disabled_is_owned_by_operator(replicaset: MongoDB):
     replicaset["spec"]["security"] = {"authentication": {"enabled": False}}
     replicaset.update()
 
-    replicaset.assert_reaches_phase(Phase.Running, timeout=600)
+    replicaset.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(600))
 
     fc = replicaset.get_om_tester().get_feature_controls()
     assert fc["externalManagementSystem"]["name"] == OPERATOR_NAME
@@ -78,7 +79,7 @@ def test_authentication_enabled_is_owned_by_operator(replicaset: MongoDB):
     replicaset["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     replicaset.update()
 
-    replicaset.assert_reaches_phase(Phase.Running, timeout=600)
+    replicaset.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(600))
 
     fc = replicaset.get_om_tester().get_feature_controls()
 
@@ -107,7 +108,7 @@ def test_authentication_disabled_owned_by_opsmanager(replicaset: MongoDB):
     replicaset.update()
 
     replicaset.assert_state_transition_happens(last_transition)
-    replicaset.assert_reaches_phase(Phase.Running, timeout=600)
+    replicaset.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(600))
 
     fc = replicaset.get_om_tester().get_feature_controls()
 

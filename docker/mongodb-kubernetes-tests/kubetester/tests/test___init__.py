@@ -8,6 +8,7 @@ from kubetester.kubetester import (
     _static_container_skip_marker,
     assert_statefulset_architecture,
     get_migration_target_architecture,
+    static_ga_timeout,
 )
 
 
@@ -175,6 +176,17 @@ class TestStaticGAArchitecture(unittest.TestCase):
                 self.assertEqual(get_migration_target_architecture(), expected)
                 self.assertFalse(_static_container_skip_marker().mark.args[0])
 
+    def test_static_ga_timeout(self):
+        with patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": "static-ga"}):
+            self.assertEqual(static_ga_timeout(600), 900)
+            self.assertEqual(static_ga_timeout(900, 1200), 1200)
+        for architecture in ("static", "non-static"):
+            with (
+                self.subTest(architecture=architecture),
+                patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": architecture}),
+            ):
+                self.assertEqual(static_ga_timeout(600), 600)
+
     def test_architecture_assertion_distinguishes_proxy_and_non_static(self):
         cases = (
             ("non-static", ["/opt/scripts/agent-launcher.sh"], None, None, False),
@@ -190,6 +202,7 @@ class TestStaticGAArchitecture(unittest.TestCase):
         for architecture, command, proxy_volume, share_process_namespace, expect_error in cases:
             with self.subTest(architecture=architecture, command=command):
                 containers = [kubernetes.client.V1Container(name="mongodb-enterprise-database", command=command)]
+                init_containers = []
                 volumes = []
                 if architecture != "non-static":
                     agent_env = [
@@ -205,7 +218,14 @@ class TestStaticGAArchitecture(unittest.TestCase):
                                 value="127.0.0.1:8099",
                             )
                         )
-                    containers.append(kubernetes.client.V1Container(name="mongodb-agent", env=agent_env))
+                    containers.append(
+                        kubernetes.client.V1Container(
+                            name="mongodb-agent",
+                            command=["/opt/scripts/agent-launcher.sh"],
+                            env=agent_env,
+                        )
+                    )
+                    init_containers.append(kubernetes.client.V1Container(name="mongodb-kubernetes-init-database"))
                 if proxy_volume is not None:
                     volumes.append(
                         kubernetes.client.V1Volume(
@@ -221,6 +241,7 @@ class TestStaticGAArchitecture(unittest.TestCase):
                         template=kubernetes.client.V1PodTemplateSpec(
                             spec=kubernetes.client.V1PodSpec(
                                 containers=containers,
+                                init_containers=init_containers,
                                 volumes=volumes,
                                 share_process_namespace=share_process_namespace,
                             )

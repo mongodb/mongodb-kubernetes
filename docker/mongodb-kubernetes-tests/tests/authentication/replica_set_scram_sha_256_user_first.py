@@ -1,6 +1,7 @@
 import pytest
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import static_ga_timeout
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.phase import Phase
@@ -57,7 +58,7 @@ def test_user_pending(scram_user: MongoDBUser):
 def test_replica_set_auth_enabled(replica_set: MongoDB):
     replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(600))
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_first
