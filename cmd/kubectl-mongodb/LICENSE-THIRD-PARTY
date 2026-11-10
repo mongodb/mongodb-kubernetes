@@ -57,7 +57,6 @@ github.com/prometheus/client_golang/prometheus,v1.24.1,Apache-2.0
 github.com/prometheus/client_model/go,v0.6.2,Apache-2.0
 github.com/prometheus/common,v0.70.1,Apache-2.0
 github.com/prometheus/procfs,v0.21.1,Apache-2.0
-github.com/r3labs/diff/v3,v3.0.2,MPL-2.0
 github.com/ryanuber/go-glob,v1.0.0,MIT
 github.com/spf13/cast,v1.10.0,MIT
 github.com/spf13/cobra,v1.10.2,Apache-2.0
@@ -66,8 +65,11 @@ github.com/stretchr/objx,v0.5.3,MIT
 github.com/stretchr/testify/assert,v1.12.1,MIT
 github.com/stretchr/testify/internal/difflib,v1.12.1,BSD-3-Clause
 github.com/stretchr/testify/internal/spew,v1.12.1,ISC
-github.com/vmihailenco/msgpack/v5,v5.4.1,BSD-2-Clause
-github.com/vmihailenco/tagparser/v2,v2.0.0,BSD-2-Clause
+github.com/viant/godiff,v0.4.3,Apache-2.0
+github.com/viant/parsly,v0.1.0,Apache-2.0
+github.com/viant/structology,v0.1.0,Apache-2.0
+github.com/viant/xreflect,v0.0.0-20230303201326-f50afb0feb0d,Unknown
+github.com/viant/xunsafe,v0.8.4,Apache-2.0
 github.com/x448/float16,v0.8.4,MIT
 github.com/xdg/stringprep,v1.0.3,Apache-2.0
 go.uber.org/multierr,v1.11.0,MIT

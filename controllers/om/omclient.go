@@ -15,7 +15,7 @@ import (
 	"sync"
 
 	"github.com/blang/semver"
-	"github.com/r3labs/diff/v3"
+	"github.com/viant/godiff"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -453,12 +453,9 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(ctx context.Context, changeDepl
 			return apierror.New(err)
 		}
 
-		changelog, err := diff.Diff(originalDeployment, deployment, diff.AllowTypeMismatch(true))
-		if err != nil {
+		if err := logDeploymentDiff(log, originalDeployment, deployment); err != nil {
 			return apierror.New(err)
 		}
-
-		log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
 	}
 	if err != nil {
 		return apierror.New(err)
@@ -512,17 +509,29 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(ctx context.Context, modi
 	// we are using UpdateAutomationConfig since we need to apply our changes.
 	err = oc.UpdateAutomationConfig(ctx, ac, log)
 	if util.ShouldLogAutomationConfigDiff() {
-		changelog, err := diff.Diff(original.Deployment, ac.Deployment, diff.AllowTypeMismatch(true))
-		if err != nil {
+		if err := logDeploymentDiff(log, original.Deployment, ac.Deployment); err != nil {
 			return apierror.New(err)
 		}
-
-		log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
 	}
 	if err != nil {
 		log.Errorf("error updating automation config. %s", err)
 		return apierror.New(err)
 	}
+	return nil
+}
+
+func logDeploymentDiff(log *zap.SugaredLogger, original, updated Deployment) error {
+	from, to := map[string]any(original), map[string]any(updated)
+	differ, err := godiff.New(reflect.TypeFor[map[string]any](), reflect.TypeFor[map[string]any]())
+	if err != nil {
+		return err
+	}
+	changelog := differ.Diff(from, to)
+	var changes strings.Builder
+	for _, change := range changelog.Changes {
+		fmt.Fprintf(&changes, "{%s %s: %v -> %v}", change.Type, change.Path.String(), change.From, change.To)
+	}
+	log.Debugf("Deployment diff (%d changes): %s", changelog.Size(), changes.String())
 	return nil
 }
 
