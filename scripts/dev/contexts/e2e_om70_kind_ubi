@@ -9,3 +9,7 @@ source "${script_dir}/root-context"
 source "${script_dir}/variables/om70"
 
 export KUBE_ENVIRONMENT_NAME=kind
+
+# this is the only variant to fully deactivate telemetry.
+# this is mostly used to verify that deactivation works on the helm chart level
+export MDB_OPERATOR_TELEMETRY_ENABLED=false
