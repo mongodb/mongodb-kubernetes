@@ -335,10 +335,9 @@ patch_aliases:
     description: "Run the amd64 static suite"
     variant_tags: [ "static_amd64" ]
     task: ".*"
-  # OM9-only version of the static suite. OM6/7/8 are covered by their own
-  # aliases. The smoke variants stay in so the alias matches the full static set.
+  # OM9-only version of the static suite. The static OM6/7/8 variants are removed.
   - alias: "static_om9"
-    description: "Run all static variants except smoke, with Ops Manager only on 9"
+    description: "Run the static suite with Ops Manager only on 9"
     variant: "^e2e_static_(mdb_kind_ubi_cloudqa|mdb_kind_ubi9_slim_cloudqa|custom_domain_mdb_kind_ubi_cloudqa|mdb_kind_ubi_cloudqa_large|openshift_mdb_ubi_cloudqa|openshift_mdb_ubi9_slim_cloudqa|om90_kind_ubi|om90_kind_ubi_large|om90_kind_ubi9_slim|multi_cluster_kind|multi_cluster_kind_ubi9_slim|multi_cluster_2_clusters|multi_cluster_2_clusters_ubi9_slim|multi_cluster_om_appdb|multi_cluster_om_appdb_ubi9_slim|operator_kind_ubi_cloudqa|kind_olm_ubi)$"
     task: ".*"
   - alias: "non_static"
@@ -1884,19 +1883,6 @@ buildvariants:
       - name: e2e_ops_manager_kind_6_0_only_task_group
       - name: e2e_operator_upgrade_only_task_group
 
-  # Isolated Ops Manager Tests for 6.0 version - kept for on-demand testing only
-  - name: e2e_static_om60_kind_ubi
-    display_name: e2e_static_om60_kind_ubi
-    tags: [ "manual_patch", "e2e_test_suite" ]
-    allowed_requesters: [ "patch" ] # only on demand
-    run_on:
-      - ubuntu2404-large
-    <<: *base_om6_dependency
-    tasks:
-      - name: e2e_static_ops_manager_kind_only_task_group
-      - name: e2e_static_ops_manager_kind_6_0_only_task_group
-      - name: e2e_operator_upgrade_only_task_group
-
   - name: e2e_om70_kind_ubi
     display_name: e2e_om70_kind_ubi
     tags: [ "staging", "e2e_test_suite", "om7", "patch", "non_static" ]
@@ -1907,18 +1893,6 @@ buildvariants:
       - name: e2e_ops_manager_kind_only_task_group
       - name: e2e_ops_manager_kind_5_0_only_task_group
       - name: e2e_ops_manager_kind_6_0_only_task_group
-      - name: e2e_ops_manager_upgrade_only_task_group
-      - name: e2e_operator_upgrade_only_task_group
-
-  - name: e2e_static_om70_kind_ubi
-    display_name: e2e_static_om70_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om7", "static" ]
-    run_on:
-      - ubuntu2404-large
-    <<: *base_om7_dependency
-    tasks:
-      - name: e2e_static_ops_manager_kind_only_task_group
-      - name: e2e_static_ops_manager_kind_6_0_only_task_group
       - name: e2e_ops_manager_upgrade_only_task_group
       - name: e2e_operator_upgrade_only_task_group
 
@@ -1988,27 +1962,6 @@ buildvariants:
       - name: e2e_om_kind_search_task_group
       - name: e2e_om_kind_search_large_task_group
 
-  - name: e2e_static_om80_kind_ubi
-    display_name: e2e_static_om80_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "static" ]
-    run_on:
-      - ubuntu2404-large
-    <<: *base_om8_dependency
-    tasks:
-      - name: e2e_static_ops_manager_kind_only_task_group
-      - name: e2e_static_ops_manager_kind_6_0_only_task_group
-      - name: e2e_ops_manager_upgrade_only_task_group
-      - name: e2e_operator_upgrade_only_task_group
-
-  - name: e2e_static_om80_kind_ubi9_slim
-    display_name: e2e_static_om80_kind_ubi9_slim
-    tags: [ "staging", "e2e_test_suite", "static" ]
-    run_on:
-      - ubuntu2404-large
-    <<: *base_om8_dependency
-    tasks:
-      - name: e2e_static_ops_manager_kind_only_task_group
-
   - name: e2e_static_om90_kind_ubi9_slim
     display_name: e2e_static_om90_kind_ubi9_slim
     tags: [ "staging", "e2e_test_suite", "om9", "static", "static_amd64" ]
@@ -2024,16 +1977,6 @@ buildvariants:
     <<: [ *production_code_paths, *base_om8_dependency ]
     run_on:
       - ubuntu2404-large
-    tasks:
-      - name: e2e_om_kind_search_task_group
-      - name: e2e_om_kind_search_large_task_group
-
-  - name: e2e_static_om80_kind_ubi_large
-    display_name: e2e_static_om80_kind_ubi_large
-    tags: [ "staging", "e2e_test_suite", "static" ]
-    run_on:
-      - ubuntu2404-large
-    <<: *base_om8_dependency
     tasks:
       - name: e2e_om_kind_search_task_group
       - name: e2e_om_kind_search_large_task_group
