@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -2335,6 +2336,12 @@ func TestReplicaSetDesiredInfraRevision(t *testing.T) {
 			rs.Annotations = tt.annotations
 
 			reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, tt.defaultArchitecture)
+			if tt.wantRevisionPublished {
+				omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+					restartTestReportConverged(connection.(*om.MockedOmConnection), rs)
+				})
+				createMemberPodsForOnDeleteStatefulSet(ctx, t, reconciler, kubeClient, rs)
+			}
 			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
 			sts, err := kubeClient.GetStatefulSet(ctx, rs.ObjectKey())
@@ -2350,6 +2357,27 @@ func TestReplicaSetDesiredInfraRevision(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// createMemberPodsForOnDeleteStatefulSet runs the reconcile that creates the static-ga StatefulSet and then creates
+// its member pods as Kubernetes would, because the reconcile blocks until they exist.
+func createMemberPodsForOnDeleteStatefulSet(ctx context.Context, t *testing.T, reconciler *ReconcileMongoDbReplicaSet, kubeClient kubernetesClient.Client, rs *mdbv1.MongoDB) {
+	t.Helper()
+
+	result, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	require.NotEqual(t, reconcile.Result{}, result)
+
+	require.NoError(t, kubeClient.Get(ctx, rs.ObjectKey(), rs))
+	require.Equal(t, status.PhasePending, rs.Status.Phase)
+	assert.Contains(t, rs.Status.Message, "not all pods are ready")
+
+	sts, err := kubeClient.GetStatefulSet(ctx, rs.ObjectKey())
+	require.NoError(t, err)
+	for i := range rs.Spec.Members {
+		pod := restartTestMemberPod(&sts, i, sts.Status.UpdateRevision, true)
+		require.NoError(t, kubeClient.Create(ctx, &pod))
 	}
 }
 
@@ -2448,6 +2476,193 @@ func TestPublishDesiredInfraRevision(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCoordinateRestarts(t *testing.T) {
+	ctx := context.Background()
+
+	convergedProcesses := func(rs *mdbv1.MongoDB) []om.ProcessStatus {
+		return restartTestMemberProcesses(rs, -1)
+	}
+	preparedProcesses := func(rs *mdbv1.MongoDB) []om.ProcessStatus {
+		return restartTestMemberProcesses(rs, 1)
+	}
+
+	tests := []struct {
+		name                  string
+		pods                  func(sts *appsv1.StatefulSet) []corev1.Pod
+		processes             func(rs *mdbv1.MongoDB) []om.ProcessStatus
+		conflictOnDelete      bool
+		expectedPhase         status.Phase
+		expectedDeletedPod    string
+		expectedKeptPods      []string
+		expectedMessage       string
+		expectedRolloutStatus string
+	}{
+		{
+			name:               "a prepared pod is deleted and the rollout is reported",
+			pods:               restartTestRolloutPods,
+			processes:          preparedProcesses,
+			expectedPhase:      status.PhaseRunning,
+			expectedDeletedPod: "temple-1",
+			expectedKeptPods:   []string{"temple-0", "temple-2"},
+			// Stored for the reconcile to report: deleting the pod is not the end of the rollout.
+			expectedRolloutStatus: "StatefulSet temple is rolling out revision temple-5d9f8b7c6d: 2/3 pods updated",
+		},
+		{
+			name:                  "a pod replaced before the deletion is not deleted again",
+			pods:                  restartTestRolloutPods,
+			processes:             preparedProcesses,
+			conflictOnDelete:      true,
+			expectedPhase:         status.PhasePending,
+			expectedKeptPods:      []string{"temple-0", "temple-1", "temple-2"},
+			expectedMessage:       "Pod temple-1 was replaced while it was being restarted",
+			expectedRolloutStatus: "StatefulSet temple is rolling out revision temple-5d9f8b7c6d: 2/3 pods updated",
+		},
+		{
+			name: "not rolling with a pod that is not ready blocks",
+			pods: func(sts *appsv1.StatefulSet) []corev1.Pod {
+				pods := restartTestConvergedPods(sts)
+				pods[1].Status.Conditions[0].Status = corev1.ConditionFalse
+				return pods
+			},
+			processes:        convergedProcesses,
+			expectedPhase:    status.PhasePending,
+			expectedKeptPods: []string{"temple-0", "temple-1", "temple-2"},
+			expectedMessage:  "StatefulSet temple: not all pods are ready (wanted: 3, ready: 2)",
+		},
+		{
+			name:             "not rolling with every pod ready proceeds",
+			pods:             restartTestConvergedPods,
+			processes:        convergedProcesses,
+			expectedPhase:    status.PhaseRunning,
+			expectedKeptPods: []string{"temple-0", "temple-1", "temple-2"},
+		},
+		{
+			name:                  "rolling without a prepared pod deletes nothing",
+			pods:                  restartTestRolloutPods,
+			processes:             convergedProcesses,
+			expectedPhase:         status.PhaseRunning,
+			expectedKeptPods:      []string{"temple-0", "temple-1", "temple-2"},
+			expectedRolloutStatus: "StatefulSet temple is rolling out revision temple-5d9f8b7c6d: 2/3 pods updated",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := DefaultReplicaSetBuilder().SetName(restartTestReplicaSetName).Build()
+			sts := restartTestStatefulSet(rs)
+			pods := tt.pods(&sts)
+			objects := make([]client.Object, 0, len(pods)+1)
+			objects = append(objects, &sts)
+			for i := range pods {
+				objects = append(objects, &pods[i])
+			}
+
+			helper, kubeClient := restartTestReconcilerHelper(t, rs, objects...)
+			if tt.conflictOnDelete {
+				helper.reconciler.client = restartTestConflictDeleteClient{Client: kubeClient}
+			}
+
+			st := helper.coordinateRestarts(ctx, restartTestOMConnection(tt.processes(rs)...), 0)
+
+			assert.Equal(t, tt.expectedPhase, st.Phase())
+			if tt.expectedMessage != "" {
+				assert.Equal(t, tt.expectedMessage, statusMessage(st))
+			}
+			for _, name := range tt.expectedKeptPods {
+				assert.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, name), &corev1.Pod{}), name)
+			}
+			if tt.expectedDeletedPod != "" {
+				err := kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, tt.expectedDeletedPod), &corev1.Pod{})
+				assert.True(t, apiErrors.IsNotFound(err), "expected pod %s to be deleted, got %v", tt.expectedDeletedPod, err)
+			}
+			if tt.expectedRolloutStatus == "" {
+				assert.Nil(t, helper.rolloutStatus)
+			} else {
+				require.NotNil(t, helper.rolloutStatus)
+				assert.Equal(t, status.PhasePending, helper.rolloutStatus.Phase())
+				assert.Equal(t, tt.expectedRolloutStatus, statusMessage(helper.rolloutStatus))
+			}
+		})
+	}
+}
+
+// TestReplicaSetRolloutReportsProgress checks that a static-ga rollout in progress is reported on the resource and
+// requeued, instead of finishing the reconcile while the members still run the previous revision.
+func TestReplicaSetRolloutReportsProgress(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName(restartTestReplicaSetName).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.StaticGA)
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		restartTestReportConverged(connection.(*om.MockedOmConnection), rs)
+	})
+	createMemberPodsForOnDeleteStatefulSet(ctx, t, reconciler, kubeClient, rs)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	// A template change produces a new revision: keep the member pods on the previous one.
+	sts, err := kubeClient.GetStatefulSet(ctx, rs.ObjectKey())
+	require.NoError(t, err)
+	for i := range rs.Spec.Members {
+		pod := &corev1.Pod{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, fmt.Sprintf("%s-%d", rs.Name, i)), pod))
+		pod.Labels[controllerRevisionHashLabel] = restartTestOldRevision
+		require.NoError(t, kubeClient.Update(ctx, pod))
+	}
+
+	result, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Second, result.RequeueAfter)
+
+	require.NoError(t, kubeClient.Get(ctx, rs.ObjectKey(), rs))
+	assert.Equal(t, status.PhasePending, rs.Status.Phase)
+	assert.Contains(t, rs.Status.Message, "is rolling out revision "+sts.Status.UpdateRevision)
+	for i := range rs.Spec.Members {
+		assert.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, fmt.Sprintf("%s-%d", rs.Name, i)), &corev1.Pod{}))
+	}
+}
+
+// TestCoordinateRestarts_OnlyForStaticGA checks that a prepared member is left alone unless the resource runs static-ga.
+func TestCoordinateRestarts_OnlyForStaticGA(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetName(restartTestReplicaSetName).Build()
+	reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.Static)
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	// Members are one revision behind and the second one is prepared for its replacement. Nothing may delete it.
+	sts, err := kubeClient.GetStatefulSet(ctx, rs.ObjectKey())
+	require.NoError(t, err)
+	for i := range rs.Spec.Members {
+		pod := restartTestMemberPod(&sts, i, restartTestOldRevision, true)
+		require.NoError(t, kubeClient.Create(ctx, &pod))
+	}
+	conn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+	conn.ReadAutomationStatusFunc = restartTestOMConnection(restartTestMemberProcesses(rs, 1)...).ReadAutomationStatusFunc
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	for i := range rs.Spec.Members {
+		pod := &corev1.Pod{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, fmt.Sprintf("%s-%d", rs.Name, i)), pod))
+	}
+}
+
+// restartTestReconcilerHelper builds a helper around a fake client and the static-ga architecture.
+func restartTestReconcilerHelper(t *testing.T, rs *mdbv1.MongoDB, objects ...client.Object) (*ReplicaSetReconcilerHelper, kubernetesClient.Client) {
+	t.Helper()
+	kubeClient, _ := mock.NewDefaultFakeClient(objects...)
+	reconciler := newReplicaSetReconciler(context.Background(), kubeClient, nil, "", "", false, false, false, "", architectures.StaticGA, architectures.ImageTypeUBI9, nil)
+
+	return &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}, kubeClient
+}
+
+// restartTestConflictDeleteClient fails pod deletion with the conflict the API server returns for a changed UID.
+type restartTestConflictDeleteClient struct {
+	kubernetesClient.Client
+}
+
+func (c restartTestConflictDeleteClient) Delete(_ context.Context, obj client.Object, _ ...client.DeleteOption) error {
+	return apiErrors.NewConflict(schema.GroupResource{Resource: "pods"}, obj.GetName(), errors.New("the object has been modified"))
 }
 
 // failingReadUpdateDeploymentConnection overrides only ReadUpdateDeployment to simulate an Ops Manager read failure.

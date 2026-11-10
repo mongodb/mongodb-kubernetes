@@ -111,6 +111,8 @@ type ReplicaSetReconcilerHelper struct {
 	reconciler             *ReconcileMongoDbReplicaSet
 	log                    *zap.SugaredLogger
 	automationAgentVersion string
+	// rolloutStatus is set while the static-ga member pods are being replaced: the reconcile cannot finish yet.
+	rolloutStatus workflow.Status
 }
 
 func (r *ReconcileMongoDbReplicaSet) newReconcilerHelper(
@@ -391,6 +393,11 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, status)
 	}
 
+	// A static-ga rollout outlives this reconcile: report its progress and requeue until the members are replaced.
+	if r.rolloutStatus != nil && !r.rolloutStatus.IsOK() {
+		return r.updateStatus(ctx, r.rolloutStatus)
+	}
+
 	// === 6. Final steps
 	if scale.IsStillScaling(rs) {
 		return r.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), mdbstatus.MembersOption(rs))
@@ -457,7 +464,7 @@ type deploymentOptionsRS struct {
 
 // Generic Kubernetes Resources
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=list;watch,namespace=placeholder
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch,namespace=placeholder
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;delete,namespace=placeholder
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update,namespace=placeholder
 // +kubebuilder:rbac:groups=core,resources={secrets,configmaps},verbs=get;list;watch;create;delete;update,namespace=placeholder
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=create;get;list;watch;delete;update,namespace=placeholder
@@ -593,6 +600,10 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	// With a future OnDelete strategy the agents only make the StatefulSet ready once they see the desired revision.
 	if architectures.IsRunningStaticGAArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
 		if status := r.publishDesiredInfraRevision(ctx, conn, expectedGeneration); !status.IsOK() {
+			return status
+		}
+		// Kubernetes never replaces the pods of an OnDelete StatefulSet, so the operator does it one at a time.
+		if status := r.coordinateRestarts(ctx, conn, expectedGeneration); !status.IsOK() {
 			return status
 		}
 	}
