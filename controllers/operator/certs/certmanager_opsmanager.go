@@ -91,7 +91,7 @@ func EnsureServerCertificateAndCA(
 	}
 	cm := configmap.Builder().
 		SetName(opts.CABundleName).
-		SetNamespace(res.GetNamespace()).
+		SetNamespace(owner.GetNamespace()).
 		SetOwnerReferences(certificateOwnerReferences(res)).
 		SetDataField(opts.CABundleKey, serverCA).
 		Build()
