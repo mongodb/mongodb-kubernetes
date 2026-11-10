@@ -23,6 +23,7 @@ MDB_RESOURCE = "sharded-cluster-scram-sha-256"
 USER_NAME = "mms-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
 USER_PASSWORD = "my-password"
+USER_NEW_PASSWORD = "my-new-password"
 USER_DATABASE = "admin"
 
 NON_ADMIN_USER_NAME = "mms-user-2"
@@ -151,13 +152,13 @@ class TestCanChangePassword(KubernetesTester):
         KubernetesTester.update_secret(
             KubernetesTester.get_namespace(),
             PASSWORD_SECRET_NAME,
-            {"password": "my-new-password"},
+            {"password": USER_NEW_PASSWORD},
         )
 
     def test_user_can_authenticate_with_new_password(self):
         tester = ShardedClusterTester(MDB_RESOURCE, 2)
         tester.assert_scram_sha_authentication(
-            password="my-new-password",
+            password=USER_NEW_PASSWORD,
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
@@ -169,6 +170,18 @@ class TestCanChangePassword(KubernetesTester):
             username="mms-user-1",
             auth_mechanism="SCRAM-SHA-256",
         )
+
+
+@pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity
+def test_credentials_secret_has_new_password(namespace: str):
+    # The operator rewrites the connection-string secret on a reconcile that may start before the password change
+    # is visible, so the secret can hold the old password for a while after the user is reported Updated.
+    secret_name = f"{MDB_RESOURCE}-{USER_NAME}-{USER_DATABASE}"
+    assert wait_until(
+        lambda: read_secret(namespace, secret_name)["password"] == USER_NEW_PASSWORD,
+        timeout=300,
+        msg=f"secret {secret_name} does not hold the new password",
+    )
 
 
 @pytest.mark.e2e_sharded_cluster_scram_sha_256_user_connectivity

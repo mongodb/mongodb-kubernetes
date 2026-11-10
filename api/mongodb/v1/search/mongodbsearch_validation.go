@@ -3,6 +3,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -83,6 +84,7 @@ func commonValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateJVMFlags,
 		validateClustersEnvoyResourceNames,
 		validateX509AuthConfig,
+		validateOIDCAuthConfig,
 		validateLBConfig,
 		validateMultipleReplicasRequireLB,
 		validateShardOverrides,
@@ -490,6 +492,72 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 
 	if s.Spec.Source.Username != nil {
 		return v1.ValidationError("x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.username cannot both be set")
+	}
+
+	return v1.ValidationSuccess()
+}
+
+// oidcTokenEndpointErr builds the shared tokenEndpoint rejection message; reason names the
+// specific check that failed.
+func oidcTokenEndpointErr(tokenEndpoint, reason string) v1.ValidationResult {
+	return v1.ValidationError(
+		"spec.source.oidc.tokenEndpoint must be an absolute HTTPS URI with no userinfo or fragment, got %q: %s",
+		tokenEndpoint, reason,
+	)
+}
+
+// validateOIDCAuthConfig validates that OIDC authentication is not configured alongside
+// the other authentication methods, and that the OIDC configuration is well-formed. It mirrors
+// the CRD CEL rules for objects the API server no longer gates: stored objects that survive a
+// CRD rollback, and schemas from releases with an older rule set.
+func validateOIDCAuthConfig(s *MongoDBSearch) v1.ValidationResult {
+	if s.Spec.Source == nil || s.Spec.Source.OIDC == nil {
+		return v1.ValidationSuccess()
+	}
+
+	if s.Spec.Source.X509 != nil {
+		return v1.ValidationError("spec.source.oidc and spec.source.x509 are mutually exclusive")
+	}
+
+	if s.Spec.Source.PasswordSecretRef != nil {
+		return v1.ValidationError("spec.source.oidc and spec.source.passwordSecretRef are mutually exclusive")
+	}
+
+	if s.Spec.Source.Username != nil {
+		return v1.ValidationError("spec.source.oidc and spec.source.username are mutually exclusive")
+	}
+
+	tokenEndpoint := s.Spec.Source.OIDC.TokenEndpoint
+	if tokenEndpoint == "" {
+		return v1.ValidationError("spec.source.oidc.tokenEndpoint must not be empty")
+	}
+	u, err := url.Parse(tokenEndpoint)
+	if err != nil {
+		return oidcTokenEndpointErr(tokenEndpoint, err.Error())
+	}
+	if u.Scheme != "https" {
+		return oidcTokenEndpointErr(tokenEndpoint, "scheme must be https")
+	}
+	if u.Hostname() == "" {
+		return oidcTokenEndpointErr(tokenEndpoint, "host is required")
+	}
+	if u.User != nil {
+		return oidcTokenEndpointErr(tokenEndpoint, "userinfo is not allowed")
+	}
+	if u.Fragment != "" {
+		return oidcTokenEndpointErr(tokenEndpoint, "fragment is not allowed")
+	}
+
+	if s.Spec.Source.OIDC.ClientSecretRef.Name == "" {
+		return v1.ValidationError("spec.source.oidc.clientSecretSecretRef.name must not be empty")
+	}
+
+	if s.Spec.Source.OIDC.ClientSecretRef.Key == "" {
+		return v1.ValidationError("spec.source.oidc.clientSecretSecretRef.key must not be empty")
+	}
+
+	if s.Spec.Source.OIDC.IdPCAConfigMapRef.Name == "" {
+		return v1.ValidationError("spec.source.oidc.idpCAConfigMapRef.name must not be empty")
 	}
 
 	return v1.ValidationSuccess()

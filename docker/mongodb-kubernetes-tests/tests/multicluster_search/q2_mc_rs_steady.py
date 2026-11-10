@@ -47,12 +47,13 @@ from tests.common.search import search_resource_names
 from tests.common.search.connectivity import (
     CLUSTER_LOCATION_TAG_KEY,
     mongot_data_pvc_names,
+    rotate_member_envoy_certificates,
     search_artifact_uids,
     wait_for_deployment_recreated,
     wait_for_search_artifacts_deleted,
     wait_for_search_deleted,
 )
-from tests.common.search.mc_search_helper import strip_k8s_process_name_prefix
+from tests.common.search.mc_search_helper import patch_per_cluster_mongot_host_via_om
 from tests.common.search.movies_search_helper import (
     EMBEDDING_QUERY_KEY_ENV_VAR,
     EmbeddedMoviesSearchHelper,
@@ -891,49 +892,12 @@ def test_patch_per_cluster_mongot_host(
     per-process AC keys are set directly. Leaving them out of spec ensures subsequent
     operator reconciles never clobber this per-cluster locality.
     """
-    om_tester = mdb.get_om_tester()
-    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
-    ac = om_tester.om_request("get", ac_path).json()
-
-    proxy_by_cluster_idx = {
-        helper.cluster_index(mcc.cluster_name): f"{helper.proxy_svc_fqdn(mcc.cluster_name)}:{ENVOY_PROXY_PORT}"
-        for mcc in member_cluster_clients
-    }
-    logger.info(f"per-cluster mongotHost map: {proxy_by_cluster_idx}")
-
-    process_prefix = f"{mdb.name}-"
-    patched_processes: List[str] = []
-    for process in ac.get("processes", []):
-        process_name = process.get("name", "")
-        pod_name = strip_k8s_process_name_prefix(process_name)
-        if not pod_name.startswith(process_prefix):
-            continue
-        try:
-            cluster_idx = int(pod_name[len(process_prefix) :].split("-")[0])
-        except ValueError:
-            continue
-        if cluster_idx not in proxy_by_cluster_idx:
-            continue
-
-        mongot_host = proxy_by_cluster_idx[cluster_idx]
-        set_parameter = process.setdefault("args2_6", {}).setdefault("setParameter", {})
-        set_parameter["mongotHost"] = mongot_host
-        set_parameter["searchIndexManagementHostAndPort"] = mongot_host
-        patched_processes.append(f"{process_name}->{mongot_host}")
-
-    assert patched_processes, (
-        f"no AC processes matched prefix {process_prefix!r}; "
-        f"AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+    patch_per_cluster_mongot_host_via_om(
+        mdb=mdb,
+        helper=helper,
+        member_cluster_clients=member_cluster_clients,
+        envoy_proxy_port=ENVOY_PROXY_PORT,
     )
-    logger.info(f"patched {len(patched_processes)} processes: {patched_processes}")
-
-    ac["version"] = ac.get("version", 0) + 1
-    om_tester.om_request("put", ac_path, json_object=ac)
-    logger.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
-
-    # Block until every mongod has applied the new goal version — setParameter
-    # changes here require a process restart.
-    om_tester.wait_agents_ready(timeout=900)
 
 
 @mark.e2e_search_q2_mc_rs_steady
@@ -1187,6 +1151,32 @@ def test_per_cluster_search_query(
             sleep_time=5,
             msg=f"cluster {cluster_index}: $search query to succeed",
         )
+
+
+@mark.e2e_search_q2_mc_rs_steady
+def test_rotate_lb_certificates_restarts_per_cluster_envoy(
+    namespace: str,
+    multi_cluster_issuer: str,
+    central_cluster_client: kubernetes.client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    mdbs: MongoDBSearch,
+    mdb: MongoDBMulti,
+    helper: MCSearchDeploymentHelper,
+):
+    """Write members first, central last: only central Secret names are watched,
+    while each Envoy hashes its member's data. No test-only reconcile nudge is used.
+    """
+    rotate_member_envoy_certificates(
+        namespace,
+        MDBS_RESOURCE_NAME,
+        MDBS_TLS_CERT_PREFIX,
+        multi_cluster_issuer,
+        member_cluster_clients,
+        central_cluster_client,
+    )
+
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+    test_per_cluster_search_query(mdb, helper, member_cluster_clients)
 
 
 @mark.e2e_search_q2_mc_rs_steady

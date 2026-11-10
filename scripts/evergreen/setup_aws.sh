@@ -4,38 +4,26 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 source scripts/funcs/install
 
-# Install AWS CLI v2 via binary download (for amd64 and arm64)
-install_aws_cli_binary() {
-    local arch="$1"
-    echo "Installing AWS CLI v2 via binary download for ${arch}..."
-
-    # Map architecture names for AWS CLI download URLs
+# The AWS CLI v2 installer ships a directory tree plus a `aws` entry point, so it
+# installs into ${PROJECT_DIR} rather than /usr/local. That keeps the same
+# ${PROJECT_DIR}/bin guard as every other tool, and it needs no sudo.
+fetch_aws_cli() {
     local aws_arch
     aws_arch=$(uname -m)
 
-    # Download and install AWS CLI v2
     local temp_dir
     temp_dir=$(mktemp -d)
-    cd "${temp_dir}"
 
     echo "Downloading AWS CLI v2 for ${aws_arch}..."
-    curl_with_retry -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "awscliv2.zip"
+    curl_with_retry -s "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o "${temp_dir}/awscliv2.zip"
 
+    pushd "${temp_dir}" > /dev/null
     unzip -q awscliv2.zip
-    sudo ./aws/install --update
+    mkdir -p "${PROJECT_DIR}/bin"
+    ./aws/install --update --install-dir "${PROJECT_DIR}/aws-cli" --bin-dir "${PROJECT_DIR}/bin"
+    popd > /dev/null
 
-    # Clean up
-    cd - > /dev/null
     rm -rf "${temp_dir}"
-
-    # Verify installation
-    if command -v aws &> /dev/null; then
-        echo "AWS CLI v2 installed successfully:"
-        aws --version
-    else
-        echo "Error: AWS CLI v2 installation failed" >&2
-        return 1
-    fi
 }
 
 # Install AWS CLI v1 via pip (for IBM architectures: ppc64le, s390x)
@@ -80,7 +68,7 @@ install_aws_cli() {
     case "${arch}" in
         amd64|arm64)
             echo "Standard architecture detected (${arch}). Using binary installation..."
-            install_aws_cli_binary "${arch}"
+            ensure_binary aws fetch_aws_cli
             ;;
         *)
             echo "Warning: Unknown architecture ${arch}. Falling back to pip installation..."

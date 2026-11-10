@@ -22,6 +22,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import rotate_envoy_certificates
 from tests.common.search.rs_search_helper import (
     create_rs_lb_certificates,
     create_rs_search_tls_cert,
@@ -241,6 +242,14 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
     # loadBalancer sub-phases Running.
     mdbs.assert_cluster_statuses(expected_count=1, expect_managed_lb=True)
     logger.info(f"MongoDBSearch {mdbs.name} is in Running phase")
+
+
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
+def test_rotate_lb_certificates_restarts_envoy(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
+    rotate_envoy_certificates(namespace, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbs.assert_lb_status()
+    verify_text_search_query(get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True))
 
 
 @mark.e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb

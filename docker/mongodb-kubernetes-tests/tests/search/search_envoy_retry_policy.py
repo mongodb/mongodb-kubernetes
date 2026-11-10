@@ -83,8 +83,8 @@ class TestEnvoyRetryPolicy:
     """Kill one mongot pod, burst requests, verify all succeed via retries."""
 
     @fixture(scope="module")
-    def search_tools_pod(self, namespace: str) -> mongodb_tools_pod.ToolsPod:
-        return get_tools_pod(namespace)
+    def search_tools_pod(self, namespace: str, custom_mdb_version: str) -> mongodb_tools_pod.ToolsPod:
+        return get_tools_pod(namespace, custom_mdb_version)
 
     def test_retry_on_pod_kill(
         self,

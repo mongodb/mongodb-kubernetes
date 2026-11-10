@@ -99,11 +99,12 @@ type OpsManagerReconciler struct {
 	initDatabaseVersion        string
 	initOpsManagerImageVersion string
 	defaultArchitecture        architectures.DefaultArchitecture
+	defaultImageType           architectures.ImageType
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
-func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
+func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
 		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient, nil),
 		omConnectionFactory:        omFunc,
@@ -116,6 +117,7 @@ func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memb
 		initDatabaseVersion:        initDatabaseVersion,
 		initOpsManagerImageVersion: initOpsManagerImageVersion,
 		defaultArchitecture:        defaultArchitecture,
+		defaultImageType:           defaultImageType,
 	}
 }
 
@@ -858,8 +860,8 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 	return create.OpsManagerInKubernetes(ctx, memberCluster, opsManager, sts, log)
 }
 
-func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture) error {
-	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
+	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -887,6 +889,12 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{},
 		&watch.ResourcesHandler{ResourceType: watch.MongoDB, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbmulti.MongoDBMultiCluster{},
+		&watch.ResourcesHandler{ResourceType: watch.MongoDBMultiCluster, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
@@ -992,7 +1000,12 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 	} else {
 		r.resourceWatcher.RemoveDependentWatchedResources(opsManager.ObjectKey())
 
-		r.resourceWatcher.AddWatchedResourceIfNotAdded(opsManager.Spec.ExternalAppDBRef.Name, opsManager.Namespace, watch.MongoDB, kube.ObjectKeyFromApiObject(opsManager))
+		watchedType := watch.MongoDB
+		if opsManager.Spec.ExternalAppDBRef.Kind == omv1.ExternalAppDBRefKindMongoDBMultiCluster {
+			watchedType = watch.MongoDBMultiCluster
+		}
+
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(opsManager.Spec.ExternalAppDBRef.Name, opsManager.Namespace, watchedType, kube.ObjectKeyFromApiObject(opsManager))
 	}
 
 	if opsManager.IsTLSEnabled() {
@@ -2098,7 +2111,7 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj any, log *zap.S
 }
 
 func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (AppDBReconciler, error) {
-	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager, r.ReconcileCommonController, r.omConnectionFactory, r.memberClustersMap, r.defaultArchitecture, log)
+	return NewAppDBReplicaSetReconciler(ctx, r.imageUrls, r.initDatabaseVersion, opsManager, r.ReconcileCommonController, r.omConnectionFactory, r.memberClustersMap, r.defaultArchitecture, r.defaultImageType, log)
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource

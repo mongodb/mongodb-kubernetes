@@ -491,7 +491,8 @@ class OMTester(object):
         """Performs the digest API request to Ops Manager. Note that the paths don't need to be prefixed with
         '/api../v1.0' as the method does it internally.
 
-        Only retries on 5xx server errors. Raises for any non-2xx status (3xx, 4xx, 5xx after retries exhausted)."""
+        Only retries on 5xx server errors and read timeouts. Raises for any non-2xx status (3xx, 4xx, 5xx after
+        retries exhausted)."""
         span = trace.get_current_span()
 
         headers = {"Content-Type": "application/json"}
@@ -505,7 +506,9 @@ class OMTester(object):
         start_time = time.time()
 
         session = requests.Session()
-        retry = Retry(backoff_factor=5)
+        # Read timeouts are retried in the loop below rather than by urllib3: urllib3 replays the identical
+        # request, including the digest Authorization header (same nonce count), which surfaces as a 401.
+        retry = Retry(backoff_factor=5, read=False)
         adapter = HTTPAdapter(max_retries=retry)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
@@ -516,15 +519,24 @@ class OMTester(object):
 
         retry_count = retries
         while True:
-            response = session.request(
-                url=endpoint,
-                method=method,
-                auth=auth,
-                headers=headers,
-                json=json_object,
-                timeout=30,
-                verify=False,
-            )
+            try:
+                response = session.request(
+                    url=endpoint,
+                    method=method,
+                    auth=auth,
+                    headers=headers,
+                    json=json_object,
+                    timeout=30,
+                    verify=False,
+                )
+            except requests.exceptions.ReadTimeout:
+                if retry_count == 0:
+                    raise
+                print(f"Ops Manager API read timed out, retrying ({retries - retry_count + 1}/{retries})")
+                span.set_attribute(key=f"mck.om.request.retries", value=retries - retry_count)
+                retry_count -= 1
+                time.sleep(1)
+                continue
             span.set_attribute(key=f"mck.om.request.duration", value=time.time() - start_time)
             span.set_attribute(key=f"mck.om.request.fullpath", value=path)
 

@@ -57,6 +57,21 @@ func WithCRDs(crdFileNames ...string) Option {
 	}
 }
 
+// WithWebhooks installs the given webhook configuration files from
+// config/webhooks (e.g. "webhooks.yaml"). envtest rewrites their service
+// references to point at the local webhook server the package's tests start.
+func WithWebhooks(webhookFileNames ...string) Option {
+	return func(e *envtest.Environment) {
+		e.WebhookInstallOptions = envtest.WebhookInstallOptions{
+			Paths:            make([]string, 0, len(webhookFileNames)),
+			LocalServingHost: "127.0.0.1",
+		}
+		for _, name := range webhookFileNames {
+			e.WebhookInstallOptions.Paths = append(e.WebhookInstallOptions.Paths, filepath.Join(repoRoot(), "config", "webhooks", name))
+		}
+	}
+}
+
 // shared is the package-wide environment started by RunShared.
 var shared *TestEnv
 

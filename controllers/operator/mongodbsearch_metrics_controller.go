@@ -95,6 +95,7 @@ type MongoDBSearchMetricsForwarderReconciler struct {
 	secretClient        secrets.SecretClient
 	watch               *watch.ResourceWatcher
 	defaultImage        string
+	imagePullPolicy     corev1.PullPolicy
 	omRequester         omAgentRequester
 	otelConfigTemplate  searchcontroller.MetricsForwarderOTelConfigTemplate
 	operatorClusterName string
@@ -103,7 +104,7 @@ type MongoDBSearchMetricsForwarderReconciler struct {
 	prepareSearch prepareSearchFuncs
 }
 
-func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage string, memberClusterMap map[string]client.Client, operatorClusterName string) *MongoDBSearchMetricsForwarderReconciler {
+func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage string, imagePullPolicy corev1.PullPolicy, memberClusterMap map[string]client.Client, operatorClusterName string) *MongoDBSearchMetricsForwarderReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClusterMap))
 	for k, v := range memberClusterMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
@@ -115,6 +116,7 @@ func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage st
 		secretClient:        secrets.SecretClient{KubeClient: central},
 		watch:               watch.NewResourceWatcher(),
 		defaultImage:        defaultImage,
+		imagePullPolicy:     imagePullPolicy,
 		omRequester:         omHTTPAgentRequester{},
 		otelConfigTemplate:  searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
 		operatorClusterName: operatorClusterName,
@@ -1242,7 +1244,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 						metricsForwarderConfigHashAnnotation: configHash,
 					},
 				},
-				Spec: buildMetricsForwarderPodSpec(search, agentKeySecretName, caConfigMapName, w.ClusterIndex, r.defaultImage, resources, managedSecurityContext),
+				Spec: buildMetricsForwarderPodSpec(search, agentKeySecretName, caConfigMapName, w.ClusterIndex, r.defaultImage, r.imagePullPolicy, resources, managedSecurityContext),
 			},
 		}
 
@@ -1264,7 +1266,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 	return nil
 }
 
-func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecretName, caConfigMapName string, clusterIndex int, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
+func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecretName, caConfigMapName string, clusterIndex int, image string, imagePullPolicy corev1.PullPolicy, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
 	volumes := []corev1.Volume{
 		{
 			Name: "metrics-forwarder-config",
@@ -1335,6 +1337,7 @@ func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecret
 			{
 				Name:            "metrics-forwarder",
 				Image:           image,
+				ImagePullPolicy: imagePullPolicy,
 				Args:            []string{"--config", metricsForwarderConfigPath + "/" + metricsForwarderConfigFileName},
 				Env:             envVars,
 				Resources:       resources,
@@ -1530,10 +1533,11 @@ func memberMongoDBSearchMetricsForwarderResourceWatches(r *MongoDBSearchMetricsF
 }
 
 // AddMongoDBSearchMetricsForwarderController registers the metrics forwarder controller with the manager.
-func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager.Manager, defaultImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
+func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager.Manager, defaultImage string, imagePullPolicy corev1.PullPolicy, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
 	r := newMongoDBSearchMetricsForwarderReconciler(
 		mgr.GetClient(),
 		defaultImage,
+		imagePullPolicy,
 		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
 		operatorClusterName,
 	)

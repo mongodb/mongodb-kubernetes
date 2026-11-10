@@ -64,7 +64,7 @@ def test_scale_up_without_tls_change(replica_set: MongoDB):
     replica_set["spec"]["members"] = 5
 
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=800)
 
 
 @pytest.mark.e2e_disable_tls_and_scale
@@ -85,4 +85,4 @@ def test_scale_down_after_tls_change(replica_set: MongoDB):
     replica_set["spec"]["members"] = 3
 
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=800)

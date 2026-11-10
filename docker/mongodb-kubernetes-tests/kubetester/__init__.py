@@ -9,6 +9,7 @@ import requests
 from kubeobject import CustomObject
 from kubernetes import client, utils
 from kubetester.kubetester import run_periodically
+from opentelemetry import trace
 from tests import test_logger
 
 # Re-exports
@@ -470,6 +471,8 @@ def get_pod_when_ready(
     Ready state.
     """
     cnt = 0
+    span = trace.get_current_span()
+    span.set_attribute("mck.wait.name", "get_pod_when_ready")
 
     while default_retry is not None and cnt < default_retry:
         print(f"get_pod_when_ready: namespace={namespace}, label_selector={label_selector}")
@@ -491,6 +494,7 @@ def get_pod_when_ready(
 
             for condition in pod.status.conditions:
                 if condition.type == "Ready" and condition.status == "True":
+                    span.set_attribute("mck.wait.attempts", cnt)
                     return pod
 
         except client.rest.ApiException as e:
@@ -498,6 +502,8 @@ def get_pod_when_ready(
             if e.status != 404:
                 raise
 
+    span.set_attribute("mck.wait.attempts", cnt)
+    span.set_attribute("mck.wait.error", f"pod with label_selector '{label_selector}' not ready after {cnt} attempts")
     print(f"bailed on getting pod ready after 10 retries")
 
 

@@ -111,13 +111,19 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
-| `evergreen:e2e-all`        | `e2e_test_suite`     | Main e2e set (excludes smoke and OpenShift suites)                                                             |
+| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1000 tasks, complete e2e set (excludes multi-arch smoke tests)                                                |
+| `evergreen:e2e-default`    | `e2e_test_suite`     | ~540 tasks, e2e-all minus static, OM7 and race variants; close to the former default PR set                    |
+| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~250 tasks tagged `e2e_medium`: subset of e2e-all across static/non-static, OM 7/8/9, multi-cluster         |
+| `evergreen:e2e-light`      | `e2e_test_suite`     | ~125 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
 | `evergreen:e2e-static`     | `static`             | Static-container e2e variants + shared init/build (`init_test_run`, `init_tests_with_olm`, `build_om*_images`) |
 | `evergreen:e2e-non-static` | `non_static`         | Non-static e2e variants + shared init/build                                                                    |
-| `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (including OpenShift)                                                                        |
+| `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (excluding OpenShift)                                                                        |
 | `evergreen:e2e-community`  | `e2e_mco_test_suite` | Community suites (`e2e_mdb_community`, `e2e_mco_tests`)                                                        |
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
+
+OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
+the `staging` alias.
 
 Labels are evaluated when the PR patch is created; adding one afterwards injects the newly-satisfied tasks into the
 existing patch in place. Removing a label is a no-op and never cancels running tasks. Variant `paths:` filtering still
@@ -191,48 +197,3 @@ ticket.
 Because of `patchable: false`, these tasks cannot be force-run in a patch — the only way to
 check whether the upstream issue is fixed is to look at the task's result on master, or
 temporarily flip `patchable: true` in a throwaway branch.
-
-## CVE Image Scanning (trivy)
-
-Every build-and-publish task runs a `trivy_scan` step (function in `.evergreen-functions.yml`)
-right after the image is pushed. The step invokes `scripts/release/trivy_scan.sh`, which
-resolves the image repository/tag the same way the build pipeline does (from `build_info.json`
-and the version env vars) and scans it with
-[trivy](https://github.com/aquasecurity/trivy) (pinned in `scripts/evergreen/setup_trivy.sh`).
-Only findings with an available fix are reported (stdout/Slack); unfixed findings are still
-captured in the uploaded raw JSON.
-
-Where scans run:
-
-- **Staging builds** (`init_test_run` build tasks, `build_om*_images`, `release_om_and_agents`)
-  after each image is pushed by the `pipeline` function on master merges.
-- **New release process** (`release_publish` variant): after `mckci_release_publish_images`
-  publishes the promoted image set to production, each published image is scanned at its
-  production ref with a fresh vulnerability DB. Skipped when `IS_DRYRUN=true`, since dry runs
-  publish to an override registry.
-- **Legacy release process** (`release_images` variant, deprecated): after each `release_*`
-  rebuild task.
-
-PR/patch builds skip the scan by default (only `staging`/`release` build scenarios are
-scanned). To force a scan on a regular PR patch (e.g. to test a trivy/pipeline change), add
-`--param TRIVY_SCAN_FORCE=true`:
-
-```shell
-evergreen patch -p mongodb-kubernetes -a pr_patch -d "test trivy scan" -u -y --param TRIVY_SCAN_FORCE=true
-```
-
-Raw trivy JSON reports are written to `trivy-reports/` in the task working directory and
-uploaded to S3 (bucket `operator-e2e-artifacts`, same bucket/pattern as `upload_e2e_logs`) at
-`trivy-reports/${task_id}/${execution}/`, so findings remain inspectable even for tasks that
-didn't trigger a Slack notification. These raw reports contain *all* findings, including the
-unfixed ones. The stdout/Slack report lists only vulnerabilities that have an available fix
-(a non-empty `FixedVersion`), since those are the only actionable ones, and states the total
-(fixable vs not fixable). Images with no findings, or with only unfixable findings, are
-omitted entirely: no stdout line, no Slack notification. The upload
-link is available on the task page in the Evergreen UI (Files tab). To run a scan locally:
-
-```bash
-scripts/evergreen/setup_trivy.sh
-scripts/dev/run_python.sh scripts/release/trivy_scan.py operator --build-scenario release \
-  --version 1.5.0 --platform linux/amd64 --dry-run
-```

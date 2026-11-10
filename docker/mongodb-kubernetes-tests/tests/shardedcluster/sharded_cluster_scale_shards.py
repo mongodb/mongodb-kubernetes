@@ -103,6 +103,22 @@ class TestShardedClusterScaleDownShards:
                 cluster_member_client.read_namespaced_stateful_set(shard_sts_name, sc.namespace)
             assert api_exception.value.status == 404
 
+    def test_removed_shard_hosts_deleted_from_ops_manager(self, sc: MongoDB):
+        """KUBE-481: the operator must delete the hosts of removed shards from Ops Manager"""
+        hostnames = [h["hostname"] for h in sc.get_om_tester().api_get_hosts()["results"]]
+
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            cluster_idx = cluster_member_client.cluster_index
+            remaining_shard = sc.shard_statefulset_name(0, cluster_idx)
+            removed_shard = sc.shard_statefulset_name(1, cluster_idx)
+
+            assert any(
+                remaining_shard in h for h in hostnames
+            ), f"Hosts of shard {remaining_shard} should still be present in Ops Manager"
+            assert not any(
+                removed_shard in h for h in hostnames
+            ), f"Hosts of removed shard {removed_shard} must be deleted from Ops Manager"
+
 
 @mark.e2e_sharded_cluster_scale_shards
 class TestShardedClusterScaleUpShards:

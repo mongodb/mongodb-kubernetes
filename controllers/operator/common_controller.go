@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -60,6 +61,30 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
+// A stuck resource is reconciled every few seconds, so the agent errors are logged at most once per interval.
+const agentErrorsLogInterval = 30 * time.Second
+
+// logAgentErrors logs the errors of the agents of a not ready resource at most once per agentErrorsLogInterval.
+func (r *ReconcileCommonController) logAgentErrors(ctx context.Context, resource metav1.Object, conn om.Connection, log *zap.SugaredLogger) {
+	namespacedName := types.NamespacedName{Namespace: resource.GetNamespace(), Name: resource.GetName()}
+	if !r.agentErrorsThrottle(namespacedName) {
+		log.Debugf("Skipping logging of agent errors for resource %s because it was logged recently", namespacedName.String())
+		return
+	}
+
+	as, err := conn.ReadAutomationStatus(ctx)
+	if err != nil {
+		log.Warnf("failed to read agent errors: %v", err)
+		return
+	}
+
+	for _, e := range om.GetAgentErrors(as, func(processName string) bool {
+		return process.IsResourceProcess(processName, resource.GetName(), resource.GetNamespace())
+	}) {
+		log.Warnw("MongoDB agent reported an error", "process", e.Process, "errorCode", e.Code, "error", e.Message)
+	}
+}
+
 func automationConfigFirstMsg(resourceType string, valueToSet string) string {
 	return fmt.Sprintf("About to set `%s` to %s. automationConfig needs to be updated first", resourceType, valueToSet)
 }
@@ -72,9 +97,9 @@ type ReconcileCommonController struct {
 
 	resourceWatcher *watch.ResourceWatcher
 
-	customAgentURL string
-
-	omMetrics OMMetricsMultiplexer
+	customAgentURL      string
+	omMetrics           OMMetricsMultiplexer
+	agentErrorsThrottle func(key any) bool
 }
 
 // OMMetricsMultiplexer must be passed as a true nil, not a typed-nil pointer.
@@ -131,9 +156,10 @@ func NewReconcileCommonController(ctx context.Context, client client.Client, omM
 			VaultClient: vaultClient,
 			KubeClient:  newClient,
 		},
-		resourceWatcher: watch.NewResourceWatcher(),
-		customAgentURL:  customAgentURL,
-		omMetrics:       omMetrics,
+		resourceWatcher:     watch.NewResourceWatcher(),
+		customAgentURL:      customAgentURL,
+		omMetrics:           omMetrics,
+		agentErrorsThrottle: util.NewThrottle(agentErrorsLogInterval),
 	}
 	return rc
 }
@@ -460,11 +486,17 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 // resource to another project (as recommended by the migration instructions).
 // If there are any externalMembers set, we will ignore the excess processes which appear in this list, as those are expected to be there and should not block the reconciliation.
 func checkIfHasExcessProcesses(ctx context.Context, conn om.Connection, resourceName string, externalMembers []string, log *zap.SugaredLogger) workflow.Status {
+	return checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, resourceName, externalMembers, nil, log)
+}
+
+// checkIfHasExcessProcessesWithShardsInRemoval is checkIfHasExcessProcesses for a sharded cluster that does not count
+// the processes of shardsInRemoval as excess.
+func checkIfHasExcessProcessesWithShardsInRemoval(ctx context.Context, conn om.Connection, resourceName string, externalMembers []string, shardsInRemoval []string, log *zap.SugaredLogger) workflow.Status {
 	deployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
 		return workflow.Failed(err)
 	}
-	excessProcesses := deployment.GetNumberOfExcessProcesses(resourceName, externalMembers)
+	excessProcesses := deployment.GetNumberOfExcessProcessesWithShardsInRemoval(resourceName, externalMembers, shardsInRemoval)
 	if excessProcesses == 0 {
 		// cluster is empty or this resource is the only one living on it
 		return workflow.OK()
@@ -1506,6 +1538,15 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 	}
 
 	return false
+}
+
+// databaseContainerImageTypeAnnotationWarning also warns on non-static database pods, which don't run the official MongoDB image.
+func databaseContainerImageTypeAnnotationWarning(annotations map[string]string, defaultArchitecture architectures.DefaultArchitecture) string {
+	if value, ok := annotations[architectures.ContainerImageTypeAnnotation]; ok && !architectures.IsRunningStaticArchitecture(annotations, defaultArchitecture) {
+		return fmt.Sprintf("Annotation %s=%q is ignored because the resource is not running the static architecture", architectures.ContainerImageTypeAnnotation, value)
+	}
+
+	return architectures.ContainerImageTypeAnnotationWarning(annotations)
 }
 
 // completionMessage is just a general message printed in the logs after mongodb resource is created/updated

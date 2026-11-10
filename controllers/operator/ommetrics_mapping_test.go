@@ -254,7 +254,7 @@ func TestReplicaSetReconcile_ExportsEvenWhenLaterStepsFail(t *testing.T) {
 		Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, false, false),
 	})
 	recorder := &recordedMonitoringMapping{}
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, recorder)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, recorder)
 
 	checkReconcilePending(ctx, t, reconciler, rs, "StatefulSet not ready", kubeClient, 3)
 

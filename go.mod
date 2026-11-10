@@ -18,6 +18,8 @@ require (
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/imdario/mergo v0.3.15
 	github.com/joho/godotenv v1.5.1
+	github.com/mitchellh/copystructure v1.2.0
+	github.com/mongodb-forks/digest v1.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/r3labs/diff/v3 v3.0.2
@@ -87,7 +89,7 @@ require (
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
@@ -122,13 +124,14 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josvazg/gobump v0.0.0-20260608144803-67f46bc53ed3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.3.0 // indirect
 	github.com/moby/moby/api v1.55.0 // indirect
@@ -203,7 +206,7 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )
 
-go 1.26.9
+go 1.26.10
 
 tool (
 	github.com/josvazg/gobump

@@ -6,6 +6,7 @@ set -Eeou pipefail
 
 source scripts/funcs/install
 source scripts/funcs/printing
+source scripts/dev/set_env_context.sh
 
 set_limits() {
   echo "Increasing fs.inotify.max_user_instances"
@@ -36,40 +37,26 @@ set_auto_recreate() {
   sudo systemctl enable kindclusters.service
 }
 
-# Detect architecture from the environment
-ARCH=$(detect_architecture standard)
-echo "Detected architecture: ${ARCH}"
-
-download_kind() {
-  scripts/evergreen/setup_kind.sh /usr/local
-}
-
-download_kubectl() {
-  # Use pinned version (KUBECTL_VERSION from root-context)
-  # Falls back to fetching stable.txt if KUBECTL_VERSION is not set
-  local version="${KUBECTL_VERSION:-}"
-  if [[ -z "${version}" ]]; then
-    version=$(curl_with_retry -Ls https://dl.k8s.io/release/stable.txt | tail -n1 | tr -d '\n')
-  fi
-
-  download_kubectl_binary "${version}" "${ARCH}"
-  sudo mv kubectl /usr/local/bin/kubectl
-}
-
-download_helm() {
-  download_helm_binary "${HELM_VERSION}" "${ARCH}"
-  sudo mv linux-"${ARCH}"/helm /usr/local/bin/helm
-  rm -rf linux-"${ARCH}/"
-}
-
 set_limits | prepend "set_limits"
-download_kind | prepend "download_kind" &
-download_kubectl | prepend "download_kubectl" &
-download_helm | prepend "download_helm" &
+
+# download_kube_tools already installed kind, kubectl and helm into ${PROJECT_DIR}/bin,
+# which is on PATH for this function. Re-running the same installers is idempotent and
+# repairs a partial install, so this script downloads nothing itself.
+scripts/evergreen/setup_kind.sh | prepend "download_kind" &
+kind_pid=$!
+scripts/evergreen/setup_kubectl.sh | prepend "download_kubectl" &
+kubectl_pid=$!
 
 AUTO_RECREATE=${1:-false}
 if [[ "${AUTO_RECREATE}" == "true" ]]; then
   set_auto_recreate | prepend "set_auto_recreate" &
+  auto_recreate_pid=$!
 fi
 
-wait
+# Explicit waits. A bare `wait` returns 0 even when a background job failed, which is
+# how the helm download stayed broken here without anyone noticing.
+wait "${kind_pid}" || { echo "kind installation failed" >&2; exit 1; }
+wait "${kubectl_pid}" || { echo "kubectl and helm installation failed" >&2; exit 1; }
+if [[ -n "${auto_recreate_pid:-}" ]]; then
+  wait "${auto_recreate_pid}" || { echo "auto recreate setup failed" >&2; exit 1; }
+fi

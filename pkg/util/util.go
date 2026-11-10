@@ -1,15 +1,14 @@
 package util
 
 import (
-	"bytes"
 	"context"
 	"crypto/md5" //nolint //Part of the algorithm
-	"encoding/gob"
 	"encoding/hex"
 	"fmt"
 	"net/url"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,6 +54,41 @@ func FindLeftDifference(left, right []string) []string {
 	return ans
 }
 
+func GetOwnershipLabels(stsLabels map[string]string) map[string]string {
+	labels := make(map[string]string)
+	if len(stsLabels) == 0 {
+		return labels
+	}
+
+	for _, key := range mongoDBOwnerLabels {
+		if stsLabels[key] != "" {
+			labels[key] = stsLabels[key]
+		}
+	}
+
+	return labels
+}
+
+// StripOwnerLabels removes all resource-owner labels from user-supplied labels
+func StripOwnerLabels(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
+
+	stripped := make(map[string]string, len(labels))
+	for key, value := range labels {
+		if !slices.Contains(mongoDBOwnerLabels, key) {
+			stripped[key] = value
+		}
+	}
+
+	if len(stripped) == 0 {
+		return nil
+	}
+
+	return stripped
+}
+
 func StripEnt(version string) string {
 	return strings.Trim(version, "-ent")
 }
@@ -95,28 +129,6 @@ func DoAndRetry(ctx context.Context, f func() (string, bool), log *zap.SugaredLo
 		}
 	}
 	return false, msg
-}
-
-// MapDeepCopy is a quick implementation of deep copy mechanism for any Go structures, it uses Go serialization and
-// deserialization mechanisms so will always be slower than any manual copy
-// https://rosettacode.org/wiki/Deepcopy#Go
-// TODO move to maputil
-func MapDeepCopy(m map[string]any) (map[string]any, error) {
-	gob.Register(map[string]any{})
-
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	dec := gob.NewDecoder(&buf)
-	err := enc.Encode(m)
-	if err != nil {
-		return nil, err
-	}
-	var copy map[string]any
-	err = dec.Decode(&copy)
-	if err != nil {
-		return nil, err
-	}
-	return copy, nil
 }
 
 func ReadOrCreateMap(m map[string]any, key string) map[string]any {
