@@ -190,12 +190,23 @@ is_mdb_resource_pod() {
     kubectl --context="${context}" exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-verbose.log &>/dev/null
 }
 
+# dump_pod_proxy writes one proxy endpoint response for a pod that runs the proxy.
+dump_pod_proxy() {
+    local context="${1}" pod="${2}" namespace="${3}" prefix="${4}" path="${5}" name="${6}"
+    local artifact="logs/${prefix}${pod}-${name}.json"
+    run_with_timeout kubectl --context="${context}" exec -n "${namespace}" "${pod}" -c mongodb-agent -- \
+        curl -fsS --noproxy '*' "http://127.0.0.1:8099${path}" > "${artifact}" 2>/dev/null || rm -f "${artifact}"
+}
+
 # dump_pod_logs dumps agent and mongodb logs.
 dump_pod_logs() {
     local context="${1}"
     local pod="${2}"
     local namespace="${3}"
     local prefix="${4}"
+
+    dump_pod_proxy "${context}" "${pod}" "${namespace}" "${prefix}" "/v1/process" "proxy-state"
+    dump_pod_proxy "${context}" "${pod}" "${namespace}" "${prefix}" "/v1/events" "proxy-events"
 
     if is_mdb_resource_pod "${context}" "${pod}" "${namespace}"; then
         # for MDB resource Pods, we dump the log files from the file system
