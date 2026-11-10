@@ -94,14 +94,5 @@ func licenseReconciled(reconciled bool, reason, message string) workflow.Status 
 }
 
 func licenseFailed(err error) workflow.Status {
-	return licenseFailedWithReason(err, status.ReasonLicenseReconcileFailed)
-}
-
-// licenseSecretInvalid reports a license Secret or releaseReceipts entry the user has to fix.
-func licenseSecretInvalid(err error) workflow.Status {
-	return licenseFailedWithReason(err, status.ReasonLicenseSecretInvalid)
-}
-
-func licenseFailedWithReason(err error, reason string) workflow.Status {
-	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseReconciledCondition(false, reason, err.Error())))
+	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseReconciledCondition(false, status.ReasonLicenseReconcileFailed, err.Error())))
 }
