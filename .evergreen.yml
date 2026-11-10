@@ -1732,14 +1732,14 @@ buildvariants:
       - name: e2e_mdb_kind_cloudqa_task_group
       - name: e2e_mdb_container_image_type_task_group
 
-  # Legacy static keeps the shared process namespace and the utilities holder. This variant runs the same
-  # cloudqa suite as the static-ga default so the old path keeps full coverage.
+  # Manual-only legacy static variant. It is not tagged for the static, cloudqa, or e2e-default aliases.
+  # Run it with `-v e2e_static_legacy_mdb_kind_ubi_cloudqa`.
   - name: e2e_static_legacy_mdb_kind_ubi_cloudqa
     display_name: e2e_static_legacy_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_amd64" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
+    allowed_requesters: [ "patch" ]
     tasks:
       - name: e2e_mdb_kind_cloudqa_task_group
       - name: e2e_mdb_container_image_type_task_group
