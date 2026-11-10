@@ -81,6 +81,23 @@ rules:
   - deletecollection
 
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-metrics-forwarder
+  namespace: member-namespace
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+
+---
 # Member Cluster, namespace-scoped resources
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -115,6 +132,22 @@ subjects:
   namespace: central-namespace
 
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-metrics-forwarder
+  namespace: member-namespace
+roleRef:
+  apiGroup: ""
+  kind: Role
+  name: mongodb-kubernetes-metrics-forwarder
+subjects:
+- kind: ServiceAccount
+  name: mongodb-kubernetes-metrics-forwarder
+
+---
 # Member Cluster, namespace-scoped resources
 apiVersion: v1
 kind: ServiceAccount
@@ -140,6 +173,15 @@ metadata:
   labels:
     multi-cluster: "true"
   name: mongodb-kubernetes-ops-manager
+  namespace: member-namespace
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-metrics-forwarder
   namespace: member-namespace
 
 ---

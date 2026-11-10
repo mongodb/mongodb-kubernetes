@@ -169,3 +169,12 @@ metadata:
   namespace: member-namespace
 
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    multi-cluster: "true"
+  name: mongodb-kubernetes-metrics-forwarder
+  namespace: member-namespace
+
+---
