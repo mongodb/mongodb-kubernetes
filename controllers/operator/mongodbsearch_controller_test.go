@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"strconv"
 	"testing"
 
@@ -28,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
@@ -759,6 +761,112 @@ func TestMongoDBSearchReconcile_RegistersOperatorTLSSecretWatch(t *testing.T) {
 	operatorTLS := search.TLSOperatorSecretNamespacedName()
 	watched := reconciler.watch.GetWatchedResources()
 	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: operatorTLS}], search.NamespacedName())
+}
+
+func TestMongoDBSearchReconcile_RegistersOIDCClientSecretWatch(t *testing.T) {
+	ctx := context.Background()
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	search.Spec.Source.OIDC = &searchv1.OIDCAuth{
+		TokenEndpoint:     "https://idp.example.com/token",
+		ClientID:          "mongot-client",
+		ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+		IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+	}
+
+	// The source must be an enterprise MongoDB with OIDC enabled so the reconcile
+	// passes the OIDC-aware source validation; it may still fail further down —
+	// the OIDC client-secret watch is registered before the helper reconcile.
+	mdb := &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: mock.TestNamespace},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				Version:      "8.2.0",
+				ResourceType: mdbv1.ReplicaSet,
+				Security: &mdbv1.Security{
+					Authentication: &mdbv1.Authentication{
+						Enabled: true,
+						Modes:   []mdbv1.AuthMode{"SCRAM", "OIDC"},
+						OIDCProviderConfigs: []mdbv1.OIDCProviderConfig{
+							{ConfigurationName: "test-provider"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	c := mock.NewEmptyFakeClientBuilder().
+		WithObjects(search, mdb).
+		Build()
+	reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
+	})
+	require.NoError(t, err)
+
+	// Rotating the user-provided OIDC client secret must trigger a reconcile of
+	// the search resource so oidcClientSecretContentHash rolls the mongot pods.
+	oidcClientSecret := types.NamespacedName{Name: "oidc-client-secret", Namespace: search.Namespace}
+	watched := reconciler.watch.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: oidcClientSecret}], search.NamespacedName())
+}
+
+// TestMemberMongoDBSearchResourceWatches_RoutesUnlabeledReferencedRotation pins the member-cluster
+// route for referenced user-provided objects (OIDC client secret, IdP CA ConfigMap): they carry no
+// search-owner labels, so they route by name through the dependency watcher.
+func TestMemberMongoDBSearchResourceWatches_RoutesUnlabeledReferencedRotation(t *testing.T) {
+	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
+	reconciler := newMongoDBSearchReconciler(mock.NewEmptyFakeClientBuilder().Build(), searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
+
+	// Reconcile-time registration of the referenced user-provided objects.
+	reconciler.watch.AddWatchedResourceIfNotAdded("oidc-client-secret", search.Namespace, watch.Secret, search.NamespacedName())
+	reconciler.watch.AddWatchedResourceIfNotAdded("oidc-idp-ca", search.Namespace, watch.ConfigMap, search.NamespacedName())
+
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "oidc-client-secret", Namespace: search.Namespace},
+		Data:       map[string][]byte{"clientSecret": []byte("old")},
+	}
+	newSecret := oldSecret.DeepCopy()
+	newSecret.Data["clientSecret"] = []byte("rotated")
+
+	oldCa := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: search.Namespace},
+		Data:       map[string]string{"ca.crt": "old-ca"},
+	}
+	newCa := oldCa.DeepCopy()
+	newCa.Data["ca.crt"] = "rotated-ca"
+
+	for _, tc := range []struct {
+		name string
+		old  client.Object
+		new  client.Object
+	}{
+		{name: "client secret", old: oldSecret, new: newSecret},
+		{name: "idp ca configmap", old: oldCa, new: newCa},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// The name-based route for the object type carries no owner-label predicates.
+			var nameBasedWatch *mongoDBSearchResourceWatch
+			watches := memberMongoDBSearchResourceWatches(reconciler)
+			for i := range watches {
+				if reflect.TypeOf(watches[i].obj) == reflect.TypeOf(tc.old) && len(watches[i].predicates) == 0 {
+					nameBasedWatch = &watches[i]
+				}
+			}
+			require.NotNil(t, nameBasedWatch, "member watches must include a name-based route for referenced %T", tc.old)
+
+			// An unlabeled member-side rotation (changed data) must enqueue the search CR.
+			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer q.ShutDown()
+			nameBasedWatch.handler.Update(t.Context(), event.TypedUpdateEvent[client.Object]{ObjectOld: tc.old, ObjectNew: tc.new}, q)
+			require.Equal(t, 1, q.Len())
+			req, shutdown := q.Get()
+			require.False(t, shutdown)
+			assert.Equal(t, search.NamespacedName(), req.NamespacedName)
+			q.Done(req)
+		})
+	}
 }
 
 // pinnedCluster builds a spec.clusters[] entry with an explicit clusterIndex

@@ -378,7 +378,12 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
+			st := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
+			if !st.IsOK() {
+				r.reconciler.logAgentErrors(ctx, rs, conn, log)
+			}
+
+			return st
 		})
 
 	if !status.IsOK() {
@@ -1341,8 +1346,9 @@ func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx conte
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
 		searchSource := searchcontroller.NewEnterpriseResourceSearchSource(rs)
-		if searchSource.Validate() == nil {
-			search = &searchList.Items[0]
+		searchCandidate := &searchList.Items[0]
+		if searchSource.Validate() == nil && searchcontroller.ValidateSearchSourceAuth(searchCandidate, searchSource) == nil {
+			search = searchCandidate
 		}
 	}
 	return search, nil

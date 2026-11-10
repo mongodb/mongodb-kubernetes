@@ -30,7 +30,6 @@ Open the PR manually if the snippet updates are wanted.
 |---|---|---|
 | Images / chart destination | `quay.io/mongodb` | `REGISTRY` (staging org by default) |
 | Kubectl plugin destination | `mongodb-kubernetes-release` S3 | **same prod bucket** — always promoted, not redirected |
-| Trivy CVE scan | prod image refs | overridden registry refs (still runs) |
 | Red Hat certification submission | submitted | off by default (`--param preflight_submit=true` to opt in) |
 | GitHub release | real `X.Y.Z` tag + assets | draft under `test-X.Y.Z` (auto-created), plugin assets attached there |
 | Helm chart PR | branch + PR on `mongodb/helm-charts` | branch only, no PR |
