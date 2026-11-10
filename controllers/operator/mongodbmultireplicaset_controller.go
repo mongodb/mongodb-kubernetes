@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"path"
@@ -10,7 +11,6 @@ import (
 	"sort"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -258,7 +258,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return workflow.OK()
 		},
 		func() workflow.Status {
-			return r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
+			st := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
+			if !st.IsOK() {
+				r.logAgentErrors(ctx, &mrs, conn, log)
+			}
+
+			return st
 		})
 
 	if !status.IsOK() {
@@ -1556,7 +1561,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	keepBackup := mrs.Spec.Backup != nil && !mrs.Spec.Backup.AutoTerminateOnDeletion
 	hostsToRemove, err := mrs.GetMultiClusterAgentHostnames()
 	if err != nil {
-		errs = multierror.Append(errs, xerrors.Errorf("failed to get multi-cluster agent hostnames. Continuing with cleanup: %w", err))
+		errs = errors.Join(errs, xerrors.Errorf("failed to get multi-cluster agent hostnames. Continuing with cleanup: %w", err))
 	}
 
 	if len(hostsToRemove) > 0 {
@@ -1567,7 +1572,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 		}
 		if err := host.StopMonitoring(ctx, conn, hostsToRemove, maxRemainingHosts, log); err != nil {
 			// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
-			errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
+			errs = errors.Join(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 		}
 	}
 
@@ -1578,7 +1583,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 	}
 
 	if err := authentication.Disable(ctx, r.client, conn, opts, true, log); err != nil {
-		errs = multierror.Append(errs, xerrors.Errorf("failed to disable authentication. Continuing with cleanup: %w", err))
+		errs = errors.Join(errs, xerrors.Errorf("failed to disable authentication. Continuing with cleanup: %w", err))
 	}
 
 	if errs != nil {
@@ -1597,18 +1602,18 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 	// the project and member-cluster resources are handed back to Ops Manager.
 	if !mrs.IsRoleAppDB() {
 		if err := r.cleanOpsManagerState(ctx, mrs, log); err != nil {
-			errs = multierror.Append(errs, err)
+			errs = errors.Join(errs, err)
 		}
 
 		clusterSpecList, err := mrs.GetClusterSpecItems()
 		if err != nil {
-			errs = multierror.Append(errs, err)
+			errs = errors.Join(errs, err)
 		} else {
 			for _, item := range clusterSpecList {
 				clusterName := item.ClusterName
 				clusterClient := r.memberClusterClientsMap[clusterName]
 				if err := r.deleteClusterResources(ctx, clusterClient, clusterName, &mrs, log); err != nil {
-					errs = multierror.Append(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+					errs = errors.Join(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
 				}
 			}
 		}

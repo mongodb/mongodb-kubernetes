@@ -2,6 +2,8 @@ package authentication
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,6 +81,108 @@ func TestConfigureX509(t *testing.T) {
 
 	assertAuthenticationEnabled(t, ac.Auth)
 	assertAuthenticationMechanism(t, ac.Auth, "MONGODB-X509")
+}
+
+// x509ClientCertificateModeValidatingOMConnection rejects automation config updates the same way Ops Manager does
+// when MONGODB-X509 is the only deployment mechanism and client certificates are not required.
+// The embedded mock still stores a rejected change, so state can't be asserted after a rejection.
+// Initial setup must not go through it: Configure enables X509 before SCRAM, which is briefly X509-only.
+type x509ClientCertificateModeValidatingOMConnection struct {
+	*om.MockedOmConnection
+}
+
+func (c x509ClientCertificateModeValidatingOMConnection) ReadUpdateAutomationConfig(ctx context.Context, modifyACFunc func(ac *om.AutomationConfig) error, log *zap.SugaredLogger) error {
+	return c.MockedOmConnection.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
+		if err := modifyACFunc(ac); err != nil {
+			return err
+		}
+		x509Only := len(ac.Auth.DeploymentAuthMechanisms) == 1 && ac.Auth.DeploymentAuthMechanisms[0] == string(MongoDBX509)
+		if x509Only && (ac.AgentSSL == nil || ac.AgentSSL.ClientCertificateMode != util.RequireClientCertificates) {
+			return errors.New(x509RequiresClientCertificatesOMError)
+		}
+		return nil
+	}, log)
+}
+
+const x509RequiresClientCertificatesOMError = "Status: 400 (Bad Request), Detail: Invalid config: If auth.deploymentAuthMechanisms is MONGODB-X509 tls.clientCertificateMode must be REQUIRE."
+
+// TestConfigureX509_ClientCertificateModeChange_WhenAgentAlreadyConfigured covers changing the client certificate
+// mode on a deployment whose agents already authenticate with X509, with and without removing SCRAM.
+func TestConfigureX509_ClientCertificateModeChange_WhenAgentAlreadyConfigured(t *testing.T) {
+	tests := map[string]struct {
+		initialMechanisms          []string
+		initialClientCertificates  string
+		desiredMechanisms          []string
+		desiredClientCertificates  string
+		expectedDeploymentMechsLen int
+	}{
+		"Removing SCRAM leaves X509 as the only mechanism": {
+			initialMechanisms:          []string{"X509", "SCRAM"},
+			initialClientCertificates:  util.OptionalClientCertficates,
+			desiredMechanisms:          []string{"X509"},
+			desiredClientCertificates:  util.RequireClientCertificates,
+			expectedDeploymentMechsLen: 1,
+		},
+		"Requiring client certificates with unchanged mechanisms": {
+			initialMechanisms:          []string{"X509", "SCRAM"},
+			initialClientCertificates:  util.OptionalClientCertficates,
+			desiredMechanisms:          []string{"X509", "SCRAM"},
+			desiredClientCertificates:  util.RequireClientCertificates,
+			expectedDeploymentMechsLen: 2,
+		},
+		"Making client certificates optional with unchanged mechanisms": {
+			initialMechanisms:          []string{"X509", "SCRAM"},
+			initialClientCertificates:  util.RequireClientCertificates,
+			desiredMechanisms:          []string{"X509", "SCRAM"},
+			desiredClientCertificates:  util.OptionalClientCertficates,
+			expectedDeploymentMechsLen: 2,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			kubeClient, _ := mock.NewDefaultFakeClient()
+			mockedConn := om.NewMockedOmConnection(om.NewDeployment())
+
+			opts := Options{
+				AuthoritativeSet:   true,
+				ProcessNames:       []string{"process-1", "process-2", "process-3"},
+				Mechanisms:         tc.initialMechanisms,
+				AgentMechanism:     "X509",
+				ClientCertificates: tc.initialClientCertificates,
+				UserOptions: UserOptions{
+					AutomationSubject: validSubject("automation"),
+				},
+				MongoDBResource: types.NamespacedName{Namespace: "test", Name: "test"},
+			}
+			require.NoError(t, Configure(ctx, kubeClient, mockedConn, opts, false, zap.S()))
+
+			ac, err := mockedConn.ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			require.Equal(t, tc.initialClientCertificates, ac.AgentSSL.ClientCertificateMode)
+
+			conn := x509ClientCertificateModeValidatingOMConnection{mockedConn}
+			opts.Mechanisms = tc.desiredMechanisms
+			opts.ClientCertificates = tc.desiredClientCertificates
+			require.NoError(t, Configure(ctx, kubeClient, conn, opts, false, zap.S()))
+
+			ac, err = conn.ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tc.desiredClientCertificates, ac.AgentSSL.ClientCertificateMode)
+			assert.Len(t, ac.Auth.DeploymentAuthMechanisms, tc.expectedDeploymentMechsLen)
+			assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
+			assert.Equal(t, []string{string(MongoDBX509)}, ac.Auth.AutoAuthMechanisms)
+
+			// once converged, reconfiguring with the same options must not reconfigure the agents again
+			mockedConn.CleanHistory()
+			require.NoError(t, Configure(ctx, kubeClient, conn, opts, false, zap.S()))
+			mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.ReadUpdateMonitoringAgentConfig), reflect.ValueOf(mockedConn.ReadUpdateBackupAgentConfig))
+
+			ac, err = conn.ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tc.desiredClientCertificates, ac.AgentSSL.ClientCertificateMode)
+		})
+	}
 }
 
 func TestConfigureScramSha1(t *testing.T) {

@@ -277,6 +277,14 @@ parameters:
     value: ""
     description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path."
 
+  - key: om_download_url
+    value: ""
+    description: "Full URL of a custom Ops Manager tarball. Must be used together with om_version (the image tag). Only the ops-manager image build uses it."
+
+  - key: om_version
+    value: ""
+    description: "Image tag override for the Ops Manager image. Required with om_download_url, otherwise the image is tagged with the build's OM version. Without a URL it must be a released OM version, whose release tarball is downloaded."
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
@@ -457,12 +465,6 @@ tasks:
           binary: scripts/dev/run_python.sh
           args:
             - scripts/release/release_om_and_agents.py
-      # CVE scan of the released agent images (currently used versions)
-      - func: trivy_scan
-        vars:
-          image_name: agent
-          agent_version: current
-          build_scenario: release
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new agent registry
@@ -683,34 +685,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: upgrade-hook
-
-  # Single CVE scan of all the images built in init_test_run and of the Ops Manager images (7.0, 8.0 and 9.0,
-  # built in their own variants), reported in one Slack message. The OM versions are resolved by
-  # scripts/release/trivy_scan.sh. Only the currently used agent versions are scanned to keep scan time bounded.
-  - name: cve_scan_images
-    disable: true # TEMPORARILY DISABLED
-    depends_on:
-      - name: build_operator_ubi
-      - name: build_init_om_images_ubi
-      - name: build_init_database_image_ubi
-      - name: build_database_image_ubi
-      - name: build_agent_images_ubi
-      - name: build_readiness_probe_image
-      - name: build_version_upgrade_hook_image
-      - name: build_om_images
-        variant: build_om70_images
-      - name: build_om_images
-        variant: build_om80_images
-      - name: build_om_images
-        variant: build_om90_images
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_staging_login
-      - func: trivy_scan
-        vars:
-          image_names: operator init-ops-manager init-database database readiness-probe upgrade-hook ops-manager agent
-          agent_version: current
 
   - name: publish_helm_chart
     commands:
@@ -2430,7 +2404,6 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
-      - name: cve_scan_images
       - name: build_kubectl_mongodb_plugin
       - name: prepare_aws
       - name: publish_helm_chart

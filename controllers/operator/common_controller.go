@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/blang/semver"
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,6 +25,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -59,6 +60,30 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
+// A stuck resource is reconciled every few seconds, so the agent errors are logged at most once per interval.
+const agentErrorsLogInterval = 30 * time.Second
+
+// logAgentErrors logs the errors of the agents of a not ready resource at most once per agentErrorsLogInterval.
+func (r *ReconcileCommonController) logAgentErrors(ctx context.Context, resource metav1.Object, conn om.Connection, log *zap.SugaredLogger) {
+	namespacedName := types.NamespacedName{Namespace: resource.GetNamespace(), Name: resource.GetName()}
+	if !r.agentErrorsThrottle(namespacedName) {
+		log.Debugf("Skipping logging of agent errors for resource %s because it was logged recently", namespacedName.String())
+		return
+	}
+
+	as, err := conn.ReadAutomationStatus(ctx)
+	if err != nil {
+		log.Warnf("failed to read agent errors: %v", err)
+		return
+	}
+
+	for _, e := range om.GetAgentErrors(as, func(processName string) bool {
+		return process.IsResourceProcess(processName, resource.GetName(), resource.GetNamespace())
+	}) {
+		log.Warnw("MongoDB agent reported an error", "process", e.Process, "errorCode", e.Code, "error", e.Message)
+	}
+}
+
 func automationConfigFirstMsg(resourceType string, valueToSet string) string {
 	return fmt.Sprintf("About to set `%s` to %s. automationConfig needs to be updated first", resourceType, valueToSet)
 }
@@ -72,6 +97,8 @@ type ReconcileCommonController struct {
 	resourceWatcher *watch.ResourceWatcher
 
 	customAgentURL string
+
+	agentErrorsThrottle func(key any) bool
 }
 
 func NewReconcileCommonController(ctx context.Context, client client.Client) *ReconcileCommonController {
@@ -106,8 +133,9 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 			VaultClient: vaultClient,
 			KubeClient:  newClient,
 		},
-		resourceWatcher: watch.NewResourceWatcher(),
-		customAgentURL:  customAgentURL,
+		resourceWatcher:     watch.NewResourceWatcher(),
+		customAgentURL:      customAgentURL,
+		agentErrorsThrottle: util.NewThrottle(agentErrorsLogInterval),
 	}
 }
 
@@ -1201,25 +1229,25 @@ func deleteOwnedClusterResources(ctx context.Context, client kubernetesClient.Cl
 
 	var errs error
 	if err := client.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	} else {
 		log.Infof("Removed Services associated with %s in cluster %s", objectKey, clusterName)
 	}
 
 	if err := client.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	} else {
 		log.Infof("Removed StatefulSets associated with %s in cluster %s", objectKey, clusterName)
 	}
 
 	if err := client.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	} else {
 		log.Infof("Removed ConfigMaps associated with %s in cluster %s", objectKey, clusterName)
 	}
 
 	if err := client.DeleteAllOf(ctx, &corev1.Secret{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	} else {
 		log.Infof("Removed Secrets associated with %s in cluster %s", objectKey, clusterName)
 	}
