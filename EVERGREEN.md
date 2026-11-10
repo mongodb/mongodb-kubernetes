@@ -203,7 +203,9 @@ evergreen patch --alias om7
 # Run race detector variant
 evergreen patch --alias race
 
-# Run all static container variants
+# Run all static container variants. The release smoke variants are not part of
+# this alias because they depend on `release_images`, which publishes images with
+# production Quay credentials. Use `--alias deprecated-release` for those.
 evergreen patch --alias static
 ```
 
