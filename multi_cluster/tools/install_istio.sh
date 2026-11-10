@@ -5,7 +5,7 @@ set -eux
 export CTX_CLUSTER1=${CTX_CLUSTER1:-e2e.cluster1.mongokubernetes.com}
 export CTX_CLUSTER2=${CTX_CLUSTER2:-e2e.cluster2.mongokubernetes.com}
 export CTX_CLUSTER3=${CTX_CLUSTER3:-e2e.cluster3.mongokubernetes.com}
-export VERSION=${VERSION:-1.31.3}
+export VERSION=${VERSION:-1.12.8}
 
 IS_KIND="false"
 if [[ ${CTX_CLUSTER1} = kind* ]]; then
@@ -17,9 +17,9 @@ source multi_cluster/tools/download_istio.sh
 #
 cd "istio-${VERSION}"
 ## perform cleanup prior to install
-bin/istioctl uninstall --context="${CTX_CLUSTER1}" --purge --skip-confirmation &
-bin/istioctl uninstall --context="${CTX_CLUSTER2}" --purge --skip-confirmation &
-bin/istioctl uninstall --context="${CTX_CLUSTER3}" --purge --skip-confirmation &
+bin/istioctl x uninstall --context="${CTX_CLUSTER1}" --purge --skip-confirmation &
+bin/istioctl x uninstall --context="${CTX_CLUSTER2}" --purge --skip-confirmation &
+bin/istioctl x uninstall --context="${CTX_CLUSTER3}" --purge --skip-confirmation &
 wait
 
 rm -rf certs
@@ -81,9 +81,6 @@ spec:
         ISTIO_META_DNS_AUTO_ALLOCATE: "true"
         ISTIO_META_DNS_CAPTURE: "true"
   values:
-    pilot:
-      env:
-        ENABLE_NATIVE_SIDECARS: "false"
     global:
       meshID: mesh1
       multiCluster:
@@ -109,9 +106,6 @@ spec:
         ISTIO_META_DNS_AUTO_ALLOCATE: "true"
         ISTIO_META_DNS_CAPTURE: "true"
   values:
-    pilot:
-      env:
-        ENABLE_NATIVE_SIDECARS: "false"
     global:
       meshID: mesh1
       multiCluster:
@@ -137,9 +131,6 @@ spec:
         ISTIO_META_DNS_AUTO_ALLOCATE: "true"
         ISTIO_META_DNS_CAPTURE: "true"
   values:
-    pilot:
-      env:
-        ENABLE_NATIVE_SIDECARS: "false"
     global:
       meshID: mesh1
       multiCluster:
@@ -162,42 +153,42 @@ fi
 
 # enable endpoint discovery
 # shellcheck disable=SC2086 # CLUSTER_X_ADDITIONAL_OPTS must not be quoted - empty string breaks istioctl
-bin/istioctl create-remote-secret \
+bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER1}" \
   -n istio-system \
   --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER2}"
 
 # shellcheck disable=SC2086
-bin/istioctl create-remote-secret \
+bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER1}" \
   -n istio-system \
   --name=cluster1 ${CLUSTER_1_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 # shellcheck disable=SC2086
-bin/istioctl create-remote-secret \
+bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER2}" \
   -n istio-system \
   --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 # shellcheck disable=SC2086
-bin/istioctl create-remote-secret \
+bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER2}" \
   -n istio-system \
   --name=cluster2 ${CLUSTER_2_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER3}"
 
 # shellcheck disable=SC2086
-bin/istioctl create-remote-secret \
+bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER3}" \
   -n istio-system \
   --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} |
   kubectl apply -f - --context="${CTX_CLUSTER1}"
 
 # shellcheck disable=SC2086
-bin/istioctl create-remote-secret \
+bin/istioctl x create-remote-secret \
   --context="${CTX_CLUSTER3}" \
   -n istio-system \
   --name=cluster3 ${CLUSTER_3_ADDITIONAL_OPTS} |
