@@ -39,7 +39,7 @@ type LicenseReconcilerHelper struct {
 func (r *OpsManagerReconciler) newLicenseReconcilerHelper(opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (*LicenseReconcilerHelper, error) {
 	lastInstallSecretRef, err := opsManager.GetLastInstallSecretRef()
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to read the license secretRef of the last achieved spec: %w", err)
 	}
 	return &LicenseReconcilerHelper{reconciler: r, opsManager: opsManager, omAdmin: omAdmin, log: log, lastInstallSecretRef: lastInstallSecretRef}, nil
 }
@@ -47,7 +47,7 @@ func (r *OpsManagerReconciler) newLicenseReconcilerHelper(opsManager *omv1.Mongo
 func (r *OpsManagerReconciler) ensureOpsManagerLicense(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) workflow.Status {
 	helper, err := r.newLicenseReconcilerHelper(opsManager, omAdmin, log)
 	if err != nil {
-		return licenseFailed(err, status.ReasonLicenseStateFailed)
+		return licenseFailed(err)
 	}
 	return helper.Reconcile(ctx)
 }
@@ -61,12 +61,12 @@ func (r *OpsManagerReconciler) reconcileLicenseDeletion(ctx context.Context, ops
 	log.Info("Releasing the Ops Manager license before the deletion")
 	omAdmin, err := r.licenseAdminClient(ctx, opsManager, log)
 	if err != nil {
-		return r.updateStatus(ctx, opsManager, licenseFailed(err, status.ReasonLicenseReleaseFailed), log, status.NewOMPartOption(status.OpsManager))
+		return r.updateStatus(ctx, opsManager, licenseFailed(xerrors.Errorf("failed to connect to Ops Manager to release the license: %w", err)), log, status.NewOMPartOption(status.OpsManager))
 	}
 
 	helper, err := r.newLicenseReconcilerHelper(opsManager, omAdmin, log)
 	if err != nil {
-		return r.updateStatus(ctx, opsManager, licenseFailed(err, status.ReasonLicenseReleaseFailed), log, status.NewOMPartOption(status.OpsManager))
+		return r.updateStatus(ctx, opsManager, licenseFailed(err), log, status.NewOMPartOption(status.OpsManager))
 	}
 
 	st := helper.releaseOnDeletion(ctx)
@@ -80,7 +80,7 @@ func (r *OpsManagerReconciler) reconcileLicenseDeletion(ctx context.Context, ops
 func (r *OpsManagerReconciler) licenseAdminClient(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (api.OpsManagerAdmin, error) {
 	ca, err := r.opsManagerCA(ctx, opsManager, log)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to retrieve om ca certificate to release the license: %w", err)
+		return nil, xerrors.Errorf("failed to retrieve om ca certificate: %w", err)
 	}
 	return r.opsManagerAdmin(ctx, opsManager, opsManager.CentralURL(), ca, log)
 }
@@ -154,7 +154,7 @@ func (h *LicenseReconcilerHelper) syncLicenseFinalizer(ctx context.Context, want
 		controllerutil.RemoveFinalizer(patched, util.OpsManagerLicenseFinalizer)
 	}
 	if err := h.reconciler.client.Patch(ctx, patched, patch); err != nil {
-		return licenseFailed(xerrors.Errorf("failed to update the license finalizer: %w", err), status.ReasonLicenseFinalizerFailed)
+		return licenseFailed(xerrors.Errorf("failed to update the license finalizer: %w", err))
 	}
 	h.opsManager.Finalizers = patched.Finalizers
 	h.opsManager.ResourceVersion = patched.ResourceVersion
@@ -199,21 +199,21 @@ func (h *LicenseReconcilerHelper) reconcileLicenseIntent(ctx context.Context, re
 
 func (h *LicenseReconcilerHelper) reconcileLicenseIdentity(ctx context.Context) workflow.Status {
 	if err := annotations.RemoveAnnotation(ctx, h.opsManager, util.LicenseRotateIdentityAnnotation, h.reconciler.client); err != nil {
-		return licenseFailed(err, status.ReasonIdentityRotationFailed)
+		return licenseFailed(xerrors.Errorf("failed to remove the license identity rotation annotation: %w", err))
 	}
 	if err := h.omAdmin.RotateLicenseIdentity(ctx); err != nil {
-		return licenseFailed(err, status.ReasonIdentityRotationFailed)
+		return licenseFailed(xerrors.Errorf("failed to rotate the Ops Manager license identity: %w", err))
 	}
 	return workflow.OK()
 }
 
 func (h *LicenseReconcilerHelper) reconcileLicenseRecompute(ctx context.Context) workflow.Status {
 	if err := annotations.RemoveAnnotation(ctx, h.opsManager, util.LicenseRecomputeAnnotation, h.reconciler.client); err != nil {
-		return licenseFailed(err, status.ReasonLicenseRecomputeFailed)
+		return licenseFailed(xerrors.Errorf("failed to remove the license recompute annotation: %w", err))
 	}
 	// The recomputed state is published by observeLicense, which reads it right after.
 	if _, err := h.omAdmin.RecomputeLicense(ctx); err != nil {
-		return licenseFailed(err, status.ReasonLicenseRecomputeFailed)
+		return licenseFailed(xerrors.Errorf("failed to recompute the Ops Manager license state: %w", err))
 	}
 	return workflow.OK()
 }
@@ -228,7 +228,7 @@ func (h *LicenseReconcilerHelper) reconcileReleaseReceipts(ctx context.Context, 
 		h.reconciler.resourceWatcher.AddWatchedResourceIfNotAdded(secretName, h.opsManager.Namespace, watch.Secret, kube.ObjectKeyFromApiObject(h.opsManager))
 		existing, err := h.reconciler.client.GetSecret(ctx, kube.ObjectKey(h.opsManager.Namespace, secretName))
 		if err != nil && !secret.SecretNotExist(err) {
-			return licenseFailed(err, status.ReasonLicenseReceiptFailed)
+			return licenseFailed(xerrors.Errorf("failed to read license receipt secret %s: %w", secretName, err))
 		}
 		if receipt := existing.Data[util.DefaultOpsManagerReleaseReceiptKey]; len(receipt) > 0 {
 			continue
@@ -241,10 +241,10 @@ func (h *LicenseReconcilerHelper) reconcileReleaseReceipts(ctx context.Context, 
 
 		receipt, err := h.omAdmin.ReadLicenseReceipt(ctx, artifactID)
 		if err != nil {
-			return licenseFailed(xerrors.Errorf("failed to read Ops Manager license receipt for %s: %w", artifactID, err), status.ReasonLicenseReceiptFailed)
+			return licenseFailed(xerrors.Errorf("failed to read Ops Manager license receipt for %s: %w", artifactID, err))
 		}
 		if err := h.createReleaseReceiptSecret(ctx, secretName, receipt); err != nil {
-			return licenseFailed(xerrors.Errorf("failed to write license receipt secret: %w", err), status.ReasonLicenseReceiptFailed)
+			return licenseFailed(xerrors.Errorf("failed to write license receipt secret %s: %w", secretName, err))
 		}
 	}
 	return workflow.OK()
@@ -257,14 +257,14 @@ func (h *LicenseReconcilerHelper) observeLicense(ctx context.Context) workflow.S
 		if h.lastInstallSecretRef == "" && apierror.NewNonNil(err).IsNotFound() {
 			return workflow.OK()
 		}
-		return licenseFailed(err, status.ReasonLicenseObserveFailed)
+		return licenseFailed(xerrors.Errorf("failed to read the Ops Manager license state: %w", err))
 	}
 
 	h.observed = &state
 	// Ops Manager versions with the license API but without the identity API are fine, the holder stays unset.
 	identity, err := h.omAdmin.ReadLicenseIdentity(ctx)
 	if err != nil && !apierror.NewNonNil(err).IsNotFound() {
-		return licenseFailed(err, status.ReasonLicenseObserveFailed)
+		return licenseFailed(xerrors.Errorf("failed to read the Ops Manager license identity: %w", err))
 	}
 	h.holderID = identity.HolderID
 	return workflow.OK()
@@ -275,14 +275,14 @@ func (h *LicenseReconcilerHelper) observeLicense(ctx context.Context) workflow.S
 func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, receipts []string) (requestedID, releasedID string, st workflow.Status) {
 	rawArtifact, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.opsManager.Spec.License.SecretRef.Name)
 	if invalid {
-		return "", "", licenseFailed(err, status.ReasonLicenseArtifactInvalid)
+		return "", "", licenseSecretInvalid(err)
 	}
 	if err != nil {
-		return "", "", licenseFailed(err, status.ReasonLicenseSecretFailed)
+		return "", "", licenseFailed(err)
 	}
 	if slices.Contains(receipts, artifactID) {
 		err := xerrors.Errorf("license artifact %s in secretRef is also listed in releaseReceipts", artifactID)
-		return "", "", licenseFailed(err, status.ReasonLicenseArtifactInvalid)
+		return "", "", licenseSecretInvalid(err)
 	}
 
 	observed := h.observed
@@ -296,7 +296,7 @@ func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, 
 		if apierror.NewNonNil(err).IsLicenseArtifactOutdated() {
 			return artifactID, "", workflow.OK()
 		}
-		return "", "", licenseFailed(xerrors.Errorf("failed to install Ops Manager license %s: %w", artifactID, err), status.ReasonLicenseInstallFailed)
+		return "", "", licenseFailed(xerrors.Errorf("failed to install Ops Manager license %s: %w", artifactID, err))
 	}
 	h.observed = &state
 	h.log.Info("Installed Ops Manager license from secret")
@@ -316,14 +316,14 @@ func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (
 		return "", workflow.OK()
 	}
 	_, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.lastInstallSecretRef)
-	if invalid || secret.SecretNotExist(err) {
+	if invalid {
 		if _, held := h.observed.HeldArtifact(); held {
-			return "", licenseFailed(xerrors.Errorf("cannot release the license Ops Manager holds, the license secret %s that identifies it is gone or no longer holds a license artifact", h.lastInstallSecretRef), status.ReasonLicenseReleaseFailed)
+			return "", licenseSecretInvalid(xerrors.Errorf("cannot release the license Ops Manager holds, the license secret %s that identifies it is gone or no longer holds a license artifact", h.lastInstallSecretRef))
 		}
 		return "", workflow.OK()
 	}
 	if err != nil {
-		return "", licenseFailed(err, status.ReasonLicenseReleaseFailed)
+		return "", licenseFailed(err)
 	}
 	// Ops Manager holds one license at a time. When it no longer holds ours, it was already
 	// released, and a license installed by someone else is left alone.
@@ -340,7 +340,7 @@ func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (
 		return "", workflow.OK()
 	}
 	if err != nil {
-		return "", licenseFailed(xerrors.Errorf("failed to release Ops Manager license %s: %w", artifactID, err), status.ReasonLicenseReleaseFailed)
+		return "", licenseFailed(xerrors.Errorf("failed to release Ops Manager license %s: %w", artifactID, err))
 	}
 	h.observed = &released
 	return artifactID, workflow.OK()
@@ -355,7 +355,7 @@ func (h *LicenseReconcilerHelper) resolveReleaseReceipts(ctx context.Context) ([
 			return nil, st
 		}
 		if slices.Contains(receipts, artifactID) {
-			return nil, licenseFailed(xerrors.Errorf("releaseReceipts entries resolve to the same artifact id %s", artifactID), status.ReasonLicenseArtifactInvalid)
+			return nil, licenseSecretInvalid(xerrors.Errorf("releaseReceipts entries resolve to the same artifact id %s", artifactID))
 		}
 		receipts = append(receipts, artifactID)
 	}
@@ -365,23 +365,23 @@ func (h *LicenseReconcilerHelper) resolveReleaseReceipts(ctx context.Context) ([
 func (h *LicenseReconcilerHelper) receiptArtifactID(ctx context.Context, entry omv1.LicenseReleaseReceipt) (string, workflow.Status) {
 	_, artifactID, invalid, err := h.readLicenseArtifact(ctx, entry.SecretRef.Name)
 	if invalid {
-		return "", licenseFailed(err, status.ReasonLicenseArtifactInvalid)
+		return "", licenseSecretInvalid(err)
 	}
 	if err != nil {
-		return "", licenseFailed(err, status.ReasonLicenseReceiptFailed)
+		return "", licenseFailed(err)
 	}
 	return artifactID, workflow.OK()
 }
 
-// readLicenseArtifact reads the license from a Secret, invalid is set when the Secret does not hold a license.
+// readLicenseArtifact reads the license from a Secret, invalid is set when the Secret is missing or does not hold a license.
 func (h *LicenseReconcilerHelper) readLicenseArtifact(ctx context.Context, secretName string) (rawArtifact, artifactID string, invalid bool, err error) {
 	namespace := h.opsManager.Namespace
 	data, err := h.reconciler.ReadSecret(ctx, kube.ObjectKey(namespace, secretName), h.reconciler.VaultClient.OpsManagerSecretPathOrEmpty())
 	if secret.SecretNotExist(err) {
-		return "", "", false, xerrors.Errorf("license secret %s/%s does not exist: %w", namespace, secretName, err)
+		return "", "", true, xerrors.Errorf("license secret %s/%s does not exist: %w", namespace, secretName, err)
 	}
 	if err != nil {
-		return "", "", false, err
+		return "", "", false, xerrors.Errorf("failed to read license secret %s/%s: %w", namespace, secretName, err)
 	}
 	rawArtifact = data[util.DefaultOpsManagerLicenseKey]
 	if rawArtifact == "" {

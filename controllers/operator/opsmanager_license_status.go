@@ -2,7 +2,6 @@ package operator
 
 import (
 	"fmt"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 
@@ -10,7 +9,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 )
 
-const licenseStateLicensed = "LICENSED"
+const (
+	licenseStateLicensed   = "LICENSED"
+	licenseStateGrace      = "GRACE"
+	licenseStateUnlicensed = "UNLICENSED"
+	licenseStateExpired    = "EXPIRED"
+)
 
 // reportOpsManagerLicenseReady sets OpsManagerLicenseReady to the license Ops Manager holds,
 // whoever installed it.
@@ -49,16 +53,19 @@ func (h *LicenseReconcilerHelper) reportOpsManagerLicenseReady() {
 	_ = meta.SetStatusCondition(&h.opsManager.Status.OpsManagerStatus.Conditions, condition)
 }
 
-// licenseStateReason turns a license state like GRACE into a reason like LicenseGrace.
+// licenseStateReason returns the reason of a license state other than LICENSED. A state the
+// operator does not recognize becomes LicenseStateUnknown, the message still names it.
 func licenseStateReason(state string) string {
-	var reason strings.Builder
-	reason.WriteString("License")
-	for word := range strings.SplitSeq(strings.ToLower(state), "_") {
-		if word != "" {
-			reason.WriteString(strings.ToUpper(word[:1]) + word[1:])
-		}
+	if state == licenseStateGrace {
+		return status.ReasonLicenseGrace
 	}
-	return reason.String()
+	if state == licenseStateUnlicensed {
+		return status.ReasonLicenseUnlicensed
+	}
+	if state == licenseStateExpired {
+		return status.ReasonLicenseExpired
+	}
+	return status.ReasonLicenseStateUnknown
 }
 
 // reportLicenseReconciled returns LicenseReconciled for what happened to the license in
@@ -67,10 +74,10 @@ func licenseStateReason(state string) string {
 // a newer one, so the reconcile is OK.
 func (h *LicenseReconcilerHelper) reportLicenseReconciled(requestedID, releasedID string) workflow.Status {
 	if requestedID == "" && releasedID != "" {
-		return licenseReconciled(true, status.ReasonLicenseReleased, fmt.Sprintf("Ops Manager no longer holds license %s from secretRef.", releasedID))
+		return licenseReconciled(true, status.ReasonLicenseNotRequested, fmt.Sprintf("Ops Manager no longer holds license %s from secretRef.", releasedID))
 	}
 	if requestedID == "" {
-		return licenseReconciled(true, status.ReasonLicenseReconciled, "secretRef is not set, so the operator installs no license.")
+		return licenseReconciled(true, status.ReasonLicenseNotRequested, "secretRef is not set, so the operator installs no license.")
 	}
 	if h.observed.HoldsArtifact(requestedID) {
 		return licenseReconciled(true, status.ReasonLicenseInstalled, fmt.Sprintf("Ops Manager holds license %s from secretRef.", requestedID))
@@ -86,6 +93,15 @@ func licenseReconciled(reconciled bool, reason, message string) workflow.Status 
 	return workflow.OK().WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseReconciledCondition(reconciled, reason, message)))
 }
 
-func licenseFailed(err error, reason string) workflow.Status {
+func licenseFailed(err error) workflow.Status {
+	return licenseFailedWithReason(err, status.ReasonLicenseReconcileFailed)
+}
+
+// licenseSecretInvalid reports a license Secret or releaseReceipts entry the user has to fix.
+func licenseSecretInvalid(err error) workflow.Status {
+	return licenseFailedWithReason(err, status.ReasonLicenseSecretInvalid)
+}
+
+func licenseFailedWithReason(err error, reason string) workflow.Status {
 	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseReconciledCondition(false, reason, err.Error())))
 }
