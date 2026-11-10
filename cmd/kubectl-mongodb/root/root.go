@@ -24,7 +24,7 @@ of MongoDB resources in your kubernetes cluster.
 }
 
 func init() {
-	rootCmd.AddCommand(cluster.MulticlusterCmd)
+	rootCmd.AddCommand(cluster.ClusterCmd)
 	rootCmd.AddCommand(migratetomck.MigrateCmd)
 }
 

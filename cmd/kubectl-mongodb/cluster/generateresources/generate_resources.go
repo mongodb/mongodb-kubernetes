@@ -20,8 +20,8 @@ var flags struct {
 }
 
 func init() {
-	GenerateMemberResourcesCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster for the operator's credentials. [required]")
-	GenerateMemberResourcesCmd.Flags().StringVar(&flags.workloadNamespaces, "workload-namespaces", "", "Comma-separated namespaces on the member cluster where MongoDB/Ops Manager workloads will run. [optional, default: --member-cluster-namespace]")
+	GenerateResourcesCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster for the operator's credentials. [required]")
+	GenerateResourcesCmd.Flags().StringVar(&flags.workloadNamespaces, "workload-namespaces", "", "Comma-separated namespaces on the member cluster where MongoDB/Ops Manager workloads will run. [optional, default: --member-cluster-namespace]")
 	// --operator-cluster-scoped is a distinct flag rather than "*" in --workload-namespaces for
 	// two reasons: workload namespaces are placement (you cannot create a ServiceAccount in "*"),
 	// and a cluster-wide operator builds its member-cluster caches without DefaultNamespaces,
@@ -29,16 +29,16 @@ func init() {
 	// via ClusterRole+ClusterRoleBinding (namespaced Roles never match a namespace-less request
 	// path). Namespaced-only member RBAC therefore cannot serve an operator watching all
 	// namespaces.
-	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.operatorClusterScoped, "operator-cluster-scoped", false, "Grant the operator access to all namespaces on this member cluster. Use when the operator is installed cluster-wide (watches all namespaces). Without this flag, the rendered operator permissions are namespaced Roles bound in each workload namespace. [optional]")
-	GenerateMemberResourcesCmd.Flags().BoolVar(&flags.operatorTelemetry, "operator-telemetry", true, "Allow the operator to collect cluster-level telemetry on this member cluster. Set to false to opt out. [optional]")
-	GenerateMemberResourcesCmd.Flags().StringVar(&flags.imagePullSecrets, "image-pull-secrets", "", "Name of an existing image pull Secret to set on the member-cluster workload ServiceAccounts, for pulling images from a private registry. The Secret must already exist in the workload namespace on the member cluster. [optional]")
+	GenerateResourcesCmd.Flags().BoolVar(&flags.operatorClusterScoped, "operator-cluster-scoped", false, "Grant the operator access to all namespaces on this member cluster. Use when the operator is installed cluster-wide (watches all namespaces). Without this flag, the rendered operator permissions are namespaced Roles bound in each workload namespace. [optional]")
+	GenerateResourcesCmd.Flags().BoolVar(&flags.operatorTelemetry, "operator-telemetry", true, "Allow the operator to collect cluster-level telemetry on this member cluster. Set to false to opt out. [optional]")
+	GenerateResourcesCmd.Flags().StringVar(&flags.imagePullSecrets, "image-pull-secrets", "", "Name of an existing image pull Secret to set on the member-cluster workload ServiceAccounts, for pulling images from a private registry. The Secret must already exist in the workload namespace on the member cluster. [optional]")
 }
 
-// GenerateMemberResourcesCmd renders member-cluster RBAC from the embedded Helm chart.
-var GenerateMemberResourcesCmd = &cobra.Command{
-	Use:   "generate-member-resources",
+// GenerateResourcesCmd renders member-cluster RBAC from the embedded Helm chart.
+var GenerateResourcesCmd = &cobra.Command{
+	Use:   "generate-resources",
 	Short: "Render member-cluster RBAC manifests for a single member cluster",
-	Long: `'generate-member-resources' outputs the RBAC a member cluster needs for
+	Long: `'generate-resources' outputs the RBAC a member cluster needs for
 multi-cluster operation. It is purely local: it contacts no cluster and writes the
 manifests as YAML to stdout.
 
@@ -51,11 +51,11 @@ single ClusterRoleBinding for a cluster-wide operator.
 
 Example (operator watching a single namespace):
 
-kubectl-mongodb multicluster generate-member-resources --member-cluster-namespace=mongodb | kubectl apply --context=east-ctx -f -
+kubectl-mongodb cluster generate-resources --member-cluster-namespace=mongodb | kubectl apply --context=east-ctx -f -
 
 Example (cluster-wide operator with workloads in two namespaces):
 
-kubectl-mongodb multicluster generate-member-resources --member-cluster-namespace=mongodb --operator-cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
+kubectl-mongodb cluster generate-resources --member-cluster-namespace=mongodb --operator-cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
 `,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		workloadNamespaces, err := parseFlags()

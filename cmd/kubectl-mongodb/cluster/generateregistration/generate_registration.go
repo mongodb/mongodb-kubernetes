@@ -27,22 +27,22 @@ var flags struct {
 }
 
 func init() {
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "RFC 1123 name of the member cluster; names the central-cluster resources (the MemberCluster CR's metadata.name and the credential Secret name suffix). Must be unique per member cluster on the central cluster. [required]")
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterContext, "member-cluster-context", "", "Kubeconfig context for the member cluster; the command reads the ServiceAccount token and API server URL from it. [required]")
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster holding the operator's credentials. [required]")
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace on the operator's cluster where the MemberCluster CR and credential Secret will be created. Must match the operator's installation namespace. [required]")
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterLogicalName, "member-cluster-logical-name", "", "Name that workloads use to reference this member cluster. Only needed when that name is not RFC 1123 compliant (e.g. it contains underscores). [optional, default: --member-cluster]")
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServer, "member-cluster-api-server", "", "API server address of the member cluster; must be reachable from the operator Pod. [optional, default: the server address from --member-cluster-context]")
-	GenerateMemberRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServerCA, "member-cluster-api-server-ca", "", "Path to a PEM file with the CA certificate the operator should use to verify the member cluster's API server. [optional, default: the CA from the member cluster's ServiceAccount token Secret]")
+	GenerateRegistrationCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "RFC 1123 name of the member cluster; names the central-cluster resources (the MemberCluster CR's metadata.name and the credential Secret name suffix). Must be unique per member cluster on the central cluster. [required]")
+	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterContext, "member-cluster-context", "", "Kubeconfig context for the member cluster; the command reads the ServiceAccount token and API server URL from it. [required]")
+	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster holding the operator's credentials. [required]")
+	GenerateRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace on the operator's cluster where the MemberCluster CR and credential Secret will be created. Must match the operator's installation namespace. [required]")
+	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterLogicalName, "member-cluster-logical-name", "", "Name that workloads use to reference this member cluster. Only needed when that name is not RFC 1123 compliant (e.g. it contains underscores). [optional, default: --member-cluster]")
+	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServer, "member-cluster-api-server", "", "API server address of the member cluster; must be reachable from the operator Pod. [optional, default: the server address from --member-cluster-context]")
+	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServerCA, "member-cluster-api-server-ca", "", "Path to a PEM file with the CA certificate the operator should use to verify the member cluster's API server. [optional, default: the CA from the member cluster's ServiceAccount token Secret]")
 }
 
-// GenerateMemberRegistrationCmd reads a member cluster's ServiceAccount token and emits the
+// GenerateRegistrationCmd reads a member cluster's ServiceAccount token and emits the
 // credential Secret + MemberCluster CR the operator needs to reach that cluster.
-var GenerateMemberRegistrationCmd = &cobra.Command{
-	Use:   "generate-member-registration",
+var GenerateRegistrationCmd = &cobra.Command{
+	Use:   "generate-registration",
 	Short: "Emit a credential Secret and MemberCluster CR for a single member cluster",
-	Long: `'generate-member-registration' connects to one member cluster, reads the ServiceAccount
-token that 'generate-member-resources' created on it, and writes a credential Secret (a
+	Long: `'generate-registration' connects to one member cluster, reads the ServiceAccount
+token that 'generate-resources' created on it, and writes a credential Secret (a
 single-context kubeconfig) and a MemberCluster CR as multi-document YAML to stdout.
 
 If the token Secret is not populated yet, the command waits up to a minute for Kubernetes to provision it.
@@ -53,7 +53,7 @@ Apply the output to the operator's cluster with kubectl, or commit it to Git for
 
 Example:
 
-kubectl-mongodb multicluster generate-member-registration --member-cluster=cluster-east --member-cluster-context=east-ctx --member-cluster-namespace=mongodb --operator-namespace=mongodb | kubectl apply --context=central-ctx -f -
+kubectl-mongodb cluster generate-registration --member-cluster=cluster-east --member-cluster-context=east-ctx --member-cluster-namespace=mongodb --operator-namespace=mongodb | kubectl apply --context=central-ctx -f -
 `,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		opts, err := parseFlags()
