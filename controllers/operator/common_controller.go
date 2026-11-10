@@ -1110,7 +1110,11 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
 		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName())
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), log)
+		// Only a deployment with operator-managed certificates gets an owner and labels on its secrets:
+		// they decide what the cleanup on deletion removes, and a deployment that brings its own
+		// certificates keeps the behaviour it had.
+		ownerReferences, ownerLabels := managedCertOwnership(security, configurator.GetOwnerReferences(), configurator.GetOwnerLabels())
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), ownerReferences, ownerLabels, log)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -1130,6 +1134,17 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 	}
 
 	return workflow.OK()
+}
+
+// managedCertOwnership returns the owner and the labels to put on the secrets the operator writes
+// itself for a resource (the -pem secrets), or nothing when the resource does not use
+// operator-managed certificates. The secrets cert-manager writes get their labels from the
+// Certificate's secretTemplate and their owner from ensureIssuedSecretsAreOwned.
+func managedCertOwnership(sec *mdbv1.Security, ownerReferences []metav1.OwnerReference, ownerLabels map[string]string) ([]metav1.OwnerReference, map[string]string) {
+	if sec == nil || !sec.IsManagedCertificateEnabled() {
+		return nil, nil
+	}
+	return ownerReferences, ownerLabels
 }
 
 // setupInternalClusterAuthIfItHasChanged enables internal cluster auth if possible in case the path has changed and did exist before.
@@ -1576,7 +1591,8 @@ func (r *ReconcileCommonController) ensureAgentSubjectDN(
 		// The connectivity Job mounts the operator-generated agent PEM secret. The full reconcile
 		// creates it in ensureX509SecretAndCheckTLSType, which the dry-run path skips, so create
 		// it here. Without it the Job pod stays Pending and the connectivity check never completes.
-		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), log); err != nil {
+		ownerReferences, ownerLabels := managedCertOwnership(sec, certs.OwnerReferenceFor(sec, mdb, !mdb.Spec.IsMultiCluster()), mdb.GetOwnerLabels())
+		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), ownerReferences, ownerLabels, log); err != nil {
 			return "", workflow.Failed(xerrors.Errorf("connectivity dry-run: ensure agent certificate: %w", err)).
 				WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
 					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSecretFailed", err.Error(),

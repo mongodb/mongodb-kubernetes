@@ -1339,7 +1339,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 
 		var errs error
 		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
-			err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(om.Namespace, secretName), secretHash, data, nil, certs.AppDB)
+			err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(om.Namespace, secretName), secretHash, data, nil, nil, certs.AppDB)
 			if err != nil {
 				errs = multierror.Append(errs, xerrors.Errorf("can't create concatenated PEM certificate in cluster %s: %w", memberCluster.Name, err))
 				continue

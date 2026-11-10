@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -19,7 +20,9 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -218,6 +221,8 @@ func TestComponentCertificates(t *testing.T) {
 		got := componentCertificates(ctx, fakeClient, owner, baseOpts)
 		require.Len(t, got, 1)
 		assert.Equal(t, baseOpts.CertSecretName, got[0].certName)
+		// cert-manager writes these labels onto the issued secret, so the cleanup on deletion finds it.
+		assert.Equal(t, owner.GetOwnerLabels(), got[0].spec.SecretTemplate.Labels)
 		// There is no clusterfile, so the members also present the member cert to each other.
 		assert.Equal(t, memberServerAndClientCertUsages, got[0].spec.Usages)
 		assert.Nil(t, got[0].spec.Subject, "member cert is SAN-only when internal auth is not x509")
@@ -768,5 +773,53 @@ func TestMemberClusterDNSNames(t *testing.T) {
 			"mrs-1-0-svc.ns.svc.cluster.local",
 			"mrs-1-0.example.com",
 		}, names)
+	})
+}
+
+func TestEnsureIssuedSecretsAreOwned(t *testing.T) {
+	ctx := context.Background()
+	res := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	})
+	ownerRefs := ownerRefsForIssuedSecrets(res)
+	require.NotEmpty(t, ownerRefs)
+	assert.Nil(t, ownerRefs[0].Controller, "cert-manager may already be the secret's controller, and Kubernetes allows only one")
+
+	put := func(c kubernetesClient.Client, name string, ownerRefs []metav1.OwnerReference) corev1.Secret {
+		s := secret.Builder().SetName(name).SetNamespace(resNamespace).SetOwnerReferences(ownerRefs).Build()
+		require.NoError(t, secrets.SecretClient{KubeClient: c}.PutSecret(ctx, s, Unused))
+		return s
+	}
+
+	t.Run("a secret cert-manager wrote without an owner gets one", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		put(c, "mdb-managed-cert", nil)
+
+		status := ensureIssuedSecretsAreOwned(ctx, c, res, []string{"mdb-managed-cert"})
+		require.True(t, status.IsOK(), status.Message())
+
+		got, err := c.GetSecret(ctx, types.NamespacedName{Name: "mdb-managed-cert", Namespace: resNamespace})
+		require.NoError(t, err)
+		assert.True(t, secret.HasOwnerReferences(got, ownerRefs))
+	})
+
+	t.Run("a secret that already has the owner is left alone", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		put(c, "mdb-managed-cert", ownerRefs)
+		before, err := c.GetSecret(ctx, types.NamespacedName{Name: "mdb-managed-cert", Namespace: resNamespace})
+		require.NoError(t, err)
+
+		status := ensureIssuedSecretsAreOwned(ctx, c, res, []string{"mdb-managed-cert"})
+		require.True(t, status.IsOK(), status.Message())
+
+		after, err := c.GetSecret(ctx, types.NamespacedName{Name: "mdb-managed-cert", Namespace: resNamespace})
+		require.NoError(t, err)
+		assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "the secret must not be written again")
+	})
+
+	t.Run("a secret that is not there yet is skipped", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		status := ensureIssuedSecretsAreOwned(ctx, c, res, []string{"mdb-managed-cert"})
+		assert.True(t, status.IsOK(), status.Message())
 	})
 }
