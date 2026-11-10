@@ -194,7 +194,7 @@ def _reconciled_as(ops_manager: MongoDBOpsManager, generation: int, installed: O
     if installed is None:
         return True
     if installed == "":
-        return condition["reason"] in ("LicenseReconciled", "LicenseReleased")
+        return condition["reason"] == "LicenseNotRequested"
     return condition["reason"] == "LicenseInstalled" and installed in condition["message"]
 
 
@@ -596,7 +596,7 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
         return True
 
     ops_manager.wait_for(release_failed, timeout=DEFAULT_TIMEOUT)
-    assert failure["reason"] == "LicenseReleaseFailed", failure["message"]
+    assert failure["reason"] == "LicenseSecretInvalid", failure["message"]
     assert "cannot release the license Ops Manager holds" in failure["message"], failure["message"]
 
     # The retry of the failed reconcile records the spec without secretRef and reports it reconciled.

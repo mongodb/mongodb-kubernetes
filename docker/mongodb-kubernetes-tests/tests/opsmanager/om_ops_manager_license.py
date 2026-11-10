@@ -124,7 +124,7 @@ class TestOpsManagerLicenseE2E:
         installed = install_license(ops_manager, namespace)
 
         ensure_license_artifact_secret(namespace, "not-a-license")
-        wait_for_license_reconciled_reason(ops_manager, "LicenseArtifactInvalid")
+        wait_for_license_reconciled_reason(ops_manager, "LicenseSecretInvalid")
         remove_install_intent_without_identity(ops_manager, installed)
 
         wait_for_ea_artifact_state(ops_manager, installed, "ACTIVE")
