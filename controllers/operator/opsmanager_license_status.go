@@ -74,10 +74,10 @@ func licenseStateReason(state string) string {
 // a newer one, so the reconcile is OK.
 func (h *LicenseReconcilerHelper) reportLicenseReconciled(requestedID, releasedID string) workflow.Status {
 	if requestedID == "" && releasedID != "" {
-		return licenseReconciled(true, status.ReasonLicenseNotRequested, fmt.Sprintf("Ops Manager no longer holds license %s from secretRef.", releasedID))
+		return licenseReconciled(true, status.ReasonLicenseNotRequested, fmt.Sprintf("The operator released license %s after secretRef was removed. %s reports the license Ops Manager holds.", releasedID, status.ConditionOpsManagerLicenseReady))
 	}
 	if requestedID == "" {
-		return licenseReconciled(true, status.ReasonLicenseNotRequested, "secretRef is not set, so the operator installs no license.")
+		return licenseReconciled(true, status.ReasonLicenseNotRequested, fmt.Sprintf("secretRef is not set, so the operator installs no license. %s reports the license Ops Manager holds.", status.ConditionOpsManagerLicenseReady))
 	}
 	if h.observed.HoldsArtifact(requestedID) {
 		return licenseReconciled(true, status.ReasonLicenseInstalled, fmt.Sprintf("Ops Manager holds license %s from secretRef.", requestedID))
