@@ -55,16 +55,16 @@ func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, 
 	// Match the database merge: an empty mmsBaseUrl or mmsApiKeyExec cannot mean "set this to empty".
 	overrides := maps.Clone(parameters)
 	maps.DeleteFunc(overrides, func(key, value string) bool {
-		return value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec")
+		return value == "" && (key == "mmsBaseUrl" || key == agentAPIKeyExecSetting)
 	})
-	_, rawKeyOverride := overrides["mmsApiKey"]
+	_, rawKeyOverride := overrides[agentAPIKeySetting]
 	for key, value := range overrides {
-		if key == "mmsApiKey" || key == "overrideLocalHost" {
+		if key == agentAPIKeySetting || key == "overrideLocalHost" {
 			continue
 		}
 		// A customer mmsApiKeyExec is a shell command for the agent. Expanding variables here
 		// would substitute the operator view and corrupt the command.
-		if key != "mmsApiKeyExec" {
+		if key != agentAPIKeyExecSetting {
 			if value == "" {
 				// The legacy AppDB command rendered an empty value as a bare flag, which meant true
 				// for boolean options. The settings file has no type information, so keep that meaning.
@@ -81,8 +81,8 @@ func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, 
 	if ShouldEnableMonitoring(podVars) {
 		settings["mmsGroupId"] = podVars.ProjectID
 	}
-	if (ShouldEnableMonitoring(podVars) || rawKeyOverride) && settings["mmsApiKeyExec"] == "" {
-		settings["mmsApiKeyExec"] = "cat '/mongodb-automation/agent-api-key/agentApiKey'"
+	if (ShouldEnableMonitoring(podVars) || rawKeyOverride) && settings[agentAPIKeyExecSetting] == "" {
+		settings[agentAPIKeyExecSetting] = "cat '/mongodb-automation/agent-api-key/agentApiKey'"
 	}
 	return agentSettingsConfigMap(sts, settings)
 }
