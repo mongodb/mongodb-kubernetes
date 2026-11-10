@@ -17,7 +17,7 @@ export CUSTOM_OM_VERSION
 export CUSTOM_MDB_PREV_VERSION=6.0.16
 export CUSTOM_MDB_VERSION=7.0.5
 
-# Keep a small legacy-static suite next to the static-ga default. The static
-# architecture keeps the shared process namespace, the utilities holder, and
-# the launcher symlinks.
+source "${script_dir}/variables/mongodb_search_dev"
+
+# Legacy static keeps the shared process namespace, the utilities holder, and the launcher symlinks.
 export MDB_DEFAULT_ARCHITECTURE=static
