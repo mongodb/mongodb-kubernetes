@@ -1147,6 +1147,8 @@ task_groups:
       - e2e_replica_set_tls_managedcert_both_configured
       - e2e_replica_set_tls_managedcert_internal_auth_keyfile
       - e2e_sharded_cluster_tls_managedcert
+      - e2e_replica_set_tls_managedcert_cleanup_on_delete
+      - e2e_sharded_cluster_tls_managedcert_cleanup_on_delete
       - e2e_managed_certificate_prerequisites
       - e2e_replica_set_tls_managedcert_legacy_migration
       - e2e_sharded_cluster_tls_managedcert_legacy_migration
@@ -1205,6 +1207,7 @@ task_groups:
       - e2e_multi_cluster_scram
       - e2e_multi_cluster_tls_with_x509
       - e2e_managed_certificate_multi_cluster_rs
+      - e2e_managed_certificate_multi_cluster_rs_cleanup_on_delete
       - e2e_managed_certificate_multi_cluster_rs_legacy_migration
       - e2e_managed_certificate_multi_cluster_sharded
       - e2e_managed_certificate_multi_cluster_rs_prerequisites
