@@ -441,10 +441,6 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 	})
 }
 
-// TestManagedServerCertificateWriteGenerationReadiness reproduces a cached read that lags the
-// Certificate write made during the same preparation pass. The Ready status for the previous
-// generation must not be accepted just because the cached object still reports
-// observedGeneration >= cached generation.
 func TestManagedServerCertificateWriteGenerationReadiness(t *testing.T) {
 	ctx := context.Background()
 	fallback := &corev1.ConfigMap{
