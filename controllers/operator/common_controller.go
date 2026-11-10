@@ -110,6 +110,8 @@ type OMMetricsMultiplexer interface {
 
 // ReleaseOtelExporter drops the Ops Manager project recorded in the resource's status.link from the
 // metrics export destinations. Reads only the status, so it works when OM is unreachable. Fire-and-forget.
+// Controllers should call this inside their OnDelete handler to proactively shut down the metrics exporter when a deployment is removed.
+// Without this the exporter will continue sending metrics until the ommetrics reaper collects on its own.
 // TODO(KUBE-683): releases the whole project, which is correct only while MCK supports one deployment per project.
 func (r *ReconcileCommonController) ReleaseOtelExporter(statusLink string, log *zap.SugaredLogger) {
 	if r.omMetrics == nil {
