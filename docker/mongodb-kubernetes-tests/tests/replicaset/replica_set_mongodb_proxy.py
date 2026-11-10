@@ -88,13 +88,20 @@ def test_pod_runs_the_proxy_in_the_database_container(replica_set: MongoDB, name
 
     containers = {c.name: c for c in pod_spec.containers}
     assert containers[DATABASE_CONTAINER].command == ["/mnt/proxy/proxy"]
+    assert containers[AGENT_CONTAINER].command == ["/opt/scripts/agent-launcher.sh"]
+
+    init_containers = {c.name: c for c in pod_spec.init_containers or []}
+    assert "mongodb-kubernetes-init-database" in init_containers
 
     volumes = {v.name: v for v in pod_spec.volumes}
     assert volumes["mongodb-proxy"].image.reference == proxy_image()
-    assert volumes["mongodb-binaries"].image is not None
+    assert "mongodb-binaries" not in volumes
+    assert "mongodb-init-database" not in volumes
 
     env = {e.name: e.value for e in containers[AGENT_CONTAINER].env}
     assert env["MDB_MONGODB_PROXY_ADDRESS"] == PROXY_ADDRESS
+    assert "-binariesFixedPath=/tools" in env["AGENT_FLAGS"]
+    assert f"-mongodProxyAddress={PROXY_ADDRESS}" in env["AGENT_FLAGS"]
 
 
 @mark.e2e_replica_set_mongodb_proxy

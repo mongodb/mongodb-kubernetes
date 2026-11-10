@@ -1,6 +1,12 @@
 # Cloud Native Agent: implementation plan, status and handoff (ST1)
 
 Last updated: 2026-11-02. Scope: ST1 of the "Cloud Native Agent" TD, the split of `mongod`/`mongos` and the agent into separate containers.
+
+> Update 2026-11-10: the current branch replaces the MongoDB and init-database image volumes with one init container.
+> The init container copies the init-database content into the `database-scripts` emptyDir at `/opt/scripts`. The
+> agent runs `/opt/scripts/agent-launcher.sh` and uses the tools from its own `/tools`. `MDB_MONGOD_ROOT`,
+> `MDB_INIT_ROOT`, the `mongodb-binaries` volume, and the launcher symlinks are gone. The sections below describe the
+> earlier design.
 ST2 (declarative config), ST3 (stdout logging) and ST4 (coordinated updates) are out of scope here except where noted.
 
 

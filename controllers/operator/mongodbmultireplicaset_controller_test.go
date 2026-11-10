@@ -323,7 +323,6 @@ func TestMultiReplicaSetStaticGAProxyCommand(t *testing.T) {
 				mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
 				mrs.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}
 				reconciler, kubeClient, memberClients, factory := defaultMultiReplicaSetReconciler(ctx, imageURLs, "test", "test", mrs, selection.defaultArch)
-				reconciler.customAgentURL = "https://example.invalid/agent.tar.gz"
 				factory.SetPostCreateHook(func(connection om.Connection) {
 					connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
 				})

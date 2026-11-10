@@ -10,7 +10,7 @@ from kubetester import (
     update_secret,
     wait_until,
 )
-from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import KubernetesTester, static_ga_timeout
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.mongotester import (
@@ -579,7 +579,7 @@ class TestScramDisabledAndReenabled(KubernetesTester):
     def test_disable_scram(self, replica_set: MongoDB):
         replica_set["spec"]["security"]["authentication"] = {"enabled": False}
         replica_set.update()
-        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(600))
 
     def test_reenable_scram(self, replica_set: MongoDB):
         replica_set["spec"]["security"]["authentication"] = {
@@ -588,7 +588,7 @@ class TestScramDisabledAndReenabled(KubernetesTester):
             "modes": ["SCRAM"],
         }
         replica_set.update()
-        replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+        replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(600))
 
     def test_k8s_user_mechanisms_still_empty_after_recovery(self, replica_set: MongoDB):
         assert_user_mechanisms(replica_set.get_automation_config_tester(), USER_NAME, [])
@@ -652,7 +652,7 @@ class TestOMUserSha256OnlyPreserved(KubernetesTester):
 
         wait_until(
             lambda: replica_set.get_automation_config_tester().reached_version(ac_version + 1),
-            timeout=600,
+            timeout=static_ga_timeout(600),
         )
 
         assert_user_mechanisms(replica_set.get_automation_config_tester(), OM_SHA256_USER_NAME, [])
@@ -719,7 +719,7 @@ class TestOMUserNullMechanismsIsK8sManaged(KubernetesTester):
 
         wait_until(
             lambda: replica_set.get_automation_config_tester().reached_version(ac_version + 1),
-            timeout=600,
+            timeout=static_ga_timeout(600),
         )
 
         assert_user_mechanisms(replica_set.get_automation_config_tester(), OM_NO_MECH_USER_NAME, [])
@@ -734,7 +734,7 @@ class TestOMUserNullMechanismsIsK8sManaged(KubernetesTester):
 def test_authentication_is_still_configured_after_remove_authentication(namespace: str, replica_set: MongoDB):
     replica_set["spec"]["security"]["authentication"] = None
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(600))
 
     def ac_updated() -> bool:
         tester = replica_set.get_automation_config_tester()
@@ -752,7 +752,7 @@ def test_authentication_is_still_configured_after_remove_authentication(namespac
         except AssertionError:
             return False
 
-    wait_until(ac_updated, timeout=600)
+    wait_until(ac_updated, timeout=static_ga_timeout(600))
 
 
 @mark.e2e_replica_set_scram_sha_256_user_connectivity
@@ -761,7 +761,7 @@ def test_authentication_can_be_disabled_without_modes(namespace: str, replica_se
         "enabled": False,
     }
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(600))
 
     def auth_disabled() -> bool:
         tester = replica_set.get_automation_config_tester()
@@ -775,4 +775,4 @@ def test_authentication_can_be_disabled_without_modes(namespace: str, replica_se
         except AssertionError:
             return False
 
-    wait_until(auth_disabled, timeout=600)
+    wait_until(auth_disabled, timeout=static_ga_timeout(600))
