@@ -2,12 +2,17 @@ package om
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
+	"golang.org/x/xerrors"
 )
 
 func TestCheckAutomationStatusIsGoal(t *testing.T) {
@@ -292,4 +297,268 @@ func TestWaitForReadyState_StopsRetryingWhenContextIsCancelled(t *testing.T) {
 	assert.Contains(t, err.Error(), "haven't reached READY state")
 	assert.Equal(t, 1, calls, "the wait must stop at the first check instead of completing all 30 retries")
 	assert.Less(t, time.Since(start), 3*time.Second, "must not wait out the retry interval once the context is cancelled")
+}
+
+func TestGetAgentErrors(t *testing.T) {
+	// Only the tail of a long error is kept, so the last 500 runes lie entirely within the trailing run.
+	longAgentError := strings.Repeat("é", 600) + strings.Repeat("ü", 500)
+	trimmedLongAgentError := "…" + strings.Repeat("ü", 500)
+
+	tests := []struct {
+		name             string
+		automationStatus *AutomationStatus
+		processNames     []string
+		expectedErrors   []AgentError
+	}{
+		{
+			name: "error of a process below goal is returned",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "could not connect to member"},
+			}},
+			processNames: []string{"rs-0"},
+			expectedErrors: []AgentError{
+				{Process: "rs-0", Code: 106, Message: "could not connect to member"},
+			},
+		},
+		{
+			name: "errors of two processes below goal are returned in status order",
+			automationStatus: &AutomationStatus{GoalVersion: 3, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 2, ErrorCode: 106, ErrorString: "first"},
+				{Name: "rs-1", LastGoalVersionAchieved: 2, ErrorCode: 5, ErrorString: "second"},
+			}},
+			processNames: []string{"rs-0", "rs-1"},
+			expectedErrors: []AgentError{
+				{Process: "rs-0", Code: 106, Message: "first"},
+				{Process: "rs-1", Code: 5, Message: "second"},
+			},
+		},
+		{
+			name: "whitespace in the error is collapsed",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "could not connect\n\tto   member"},
+			}},
+			processNames: []string{"rs-0"},
+			expectedErrors: []AgentError{
+				{Process: "rs-0", Code: 106, Message: "could not connect to member"},
+			},
+		},
+		{
+			name: "long error is trimmed keeping only the tail",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: longAgentError},
+			}},
+			processNames: []string{"rs-0"},
+			expectedErrors: []AgentError{
+				{Process: "rs-0", Code: 106, Message: trimmedLongAgentError},
+			},
+		},
+		{
+			name: "error of exactly the trimming threshold is not trimmed",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: strings.Repeat("é", 500)},
+			}},
+			processNames: []string{"rs-0"},
+			expectedErrors: []AgentError{
+				{Process: "rs-0", Code: 106, Message: strings.Repeat("é", 500)},
+			},
+		},
+		{
+			name: "error one rune above the trimming threshold is trimmed",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "é" + strings.Repeat("ü", 500)},
+			}},
+			processNames: []string{"rs-0"},
+			expectedErrors: []AgentError{
+				{Process: "rs-0", Code: 106, Message: "…" + strings.Repeat("ü", 500)},
+			},
+		},
+		{
+			name: "error of a process at goal is ignored",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0},
+				{Name: "rs-1", LastGoalVersionAchieved: 1, ErrorCode: 5, ErrorString: "boom"},
+			}},
+			processNames: []string{"rs-0", "rs-1"},
+		},
+		{
+			name: "error of a process not waited for is ignored",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0},
+				{Name: "rs-1", LastGoalVersionAchieved: 0, ErrorCode: 5, ErrorString: "boom"},
+			}},
+			processNames: []string{"rs-0"},
+		},
+		{
+			name: "blank error is ignored",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 5, ErrorString: " \n\t "},
+			}},
+			processNames: []string{"rs-0"},
+		},
+		{
+			name:             "no processes",
+			automationStatus: &AutomationStatus{GoalVersion: 1},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agentErrors := GetAgentErrors(tt.automationStatus, func(name string) bool {
+				return slices.Contains(tt.processNames, name)
+			})
+
+			assert.Equal(t, tt.expectedErrors, agentErrors)
+		})
+	}
+}
+
+func TestWaitForReadyState_LogsAgentErrors(t *testing.T) {
+	tests := []struct {
+		name             string
+		automationStatus *AutomationStatus
+		readError        error
+		processNames     []string
+		supressErrors    bool
+		expectedLogs     []map[string]any
+	}{
+		{
+			name: "error of a process below goal is logged",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "could not connect to member"},
+			}},
+			processNames: []string{"rs-0"},
+			expectedLogs: []map[string]any{
+				{"process": "rs-0", "errorCode": int64(106), "error": "could not connect to member"},
+			},
+		},
+		{
+			name: "errors of two processes below goal are logged in status order",
+			automationStatus: &AutomationStatus{GoalVersion: 3, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 2, ErrorCode: 106, ErrorString: "first"},
+				{Name: "rs-1", LastGoalVersionAchieved: 2, ErrorCode: 5, ErrorString: "second"},
+			}},
+			processNames: []string{"rs-0", "rs-1"},
+			expectedLogs: []map[string]any{
+				{"process": "rs-0", "errorCode": int64(106), "error": "first"},
+				{"process": "rs-1", "errorCode": int64(5), "error": "second"},
+			},
+		},
+		{
+			name: "error of a process not waited for is ignored",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0},
+				{Name: "rs-1", LastGoalVersionAchieved: 0, ErrorCode: 5, ErrorString: "boom"},
+			}},
+			processNames: []string{"rs-0"},
+		},
+		{
+			name: "error of a process below goal is logged during an auth transition",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 1, Plan: []string{"WaitAuthUpdate"}},
+				{Name: "rs-1", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "could not connect to member"},
+			}},
+			processNames: []string{"rs-0", "rs-1"},
+			expectedLogs: []map[string]any{
+				{"process": "rs-1", "errorCode": int64(106), "error": "could not connect to member"},
+			},
+		},
+		{
+			name:         "no error is logged when the automation status cannot be read",
+			readError:    xerrors.New("boom"),
+			processNames: []string{"rs-0"},
+		},
+		{
+			name: "no error is logged when the agents report none",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0},
+			}},
+			processNames: []string{"rs-0"},
+		},
+		{
+			name: "error is logged when errors are supressed",
+			automationStatus: &AutomationStatus{GoalVersion: 1, Processes: []ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "could not connect to member"},
+			}},
+			processNames:  []string{"rs-0"},
+			supressErrors: true,
+			expectedLogs: []map[string]any{
+				{"process": "rs-0", "errorCode": int64(106), "error": "could not connect to member"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := NewMockedOmConnection(NewDeployment())
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			conn.ReadAutomationStatusFunc = func() (*AutomationStatus, error) {
+				// stop the retry loop after the first status check
+				cancel()
+				return tt.automationStatus, tt.readError
+			}
+			core, logs := observer.New(zap.WarnLevel)
+
+			err := WaitForReadyState(ctx, conn, tt.processNames, tt.supressErrors, zap.New(core).Sugar())
+
+			entries := logs.FilterMessage("MongoDB agent reported an error").All()
+			require.Len(t, entries, len(tt.expectedLogs))
+			for i, expectedFields := range tt.expectedLogs {
+				assert.Equal(t, zapcore.WarnLevel, entries[i].Level)
+				assert.Equal(t, expectedFields, entries[i].ContextMap())
+			}
+
+			if tt.supressErrors {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "haven't reached READY state")
+			if tt.automationStatus == nil {
+				return
+			}
+			for _, p := range tt.automationStatus.Processes {
+				if msg := strings.Join(strings.Fields(p.ErrorString), " "); msg != "" {
+					assert.NotContains(t, err.Error(), msg)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildAutomationStatusFromBytes_ErrorFields(t *testing.T) {
+	tests := []struct {
+		name                string
+		payload             string
+		expectedErrorCode   int
+		expectedErrorString string
+	}{
+		{
+			name:    "error fields null",
+			payload: `{"processes":[{"name":"rs-0","errorCode":null,"errorString":null}]}`,
+		},
+		{
+			name:    "error fields absent",
+			payload: `{"processes":[{"name":"rs-0"}]}`,
+		},
+		{
+			name:    "error string empty",
+			payload: `{"processes":[{"name":"rs-0","errorString":""}]}`,
+		},
+		{
+			name:                "error fields populated",
+			payload:             `{"processes":[{"name":"rs-0","errorCode":106,"errorString":"could not connect to member"}]}`,
+			expectedErrorCode:   106,
+			expectedErrorString: "could not connect to member",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			as, err := buildAutomationStatusFromBytes([]byte(tt.payload))
+
+			require.NoError(t, err)
+			require.Len(t, as.Processes, 1)
+			assert.Equal(t, tt.expectedErrorCode, as.Processes[0].ErrorCode)
+			assert.Equal(t, tt.expectedErrorString, as.Processes[0].ErrorString)
+		})
+	}
 }

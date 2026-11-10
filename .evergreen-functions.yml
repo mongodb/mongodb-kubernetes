@@ -26,7 +26,6 @@ variables:
       - github_pr_head_branch
       - image_name
       - is_patch
-      - TRIVY_SCAN_FORCE
       - mms_eng_test_aws_access_key
       - mms_eng_test_aws_region
       - mms_eng_test_aws_secret
@@ -685,50 +684,6 @@ functions:
           AGENT_TOOLS_VERSION: ${agent_tools_version}
           MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
 
-  # Scans the images that were just built and pushed for known CVEs using trivy, and
-  # notifies Slack with a single message listing the ones that have fixable vulnerabilities
-  # (one line per image with the CRITICAL/HIGH fixable count, a link to its registry entry and
-  # a link to its raw JSON report) on mainline (staging/release) builds. Use `image_names` (space-separated) to scan
-  # several images in one message, or `image_name` for a single one. Per-CVE details stay in
-  # the raw JSON uploaded to S3; images without fixable vulnerabilities are not in the message.
-  # The scan is notify-only: continue_on_err ensures it never blocks the build-and-publish flow.
-  trivy_scan:
-    - command: subprocess.exec
-      type: setup
-      params:
-        continue_on_err: true
-        shell: bash
-        <<: *e2e_include_expansions_in_env
-        working_dir: src/github.com/mongodb/mongodb-kubernetes
-        add_to_path:
-          - ${workdir}/bin
-        binary: scripts/release/trivy_scan.sh
-        env:
-          IMAGE_NAME: ${image_name}
-          IMAGE_NAMES: ${image_names}
-          BUILD_SCENARIO_OVERRIDE: ${build_scenario}
-          AGENT_VERSION_OVERRIDE: ${agent_version}
-          TRIVY_SCAN_FLAGS: ${trivy_scan_flags}
-          TRIVY_SCAN_NOTIFY: ${TRIVY_SCAN_NOTIFY}
-          SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
-          TASK_ID: ${task_id}
-          # Used to presign the links to the reports uploaded below. Intentionally not named
-          # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY: trivy would use them to authenticate to ECR.
-          TRIVY_REPORTS_AWS_KEY: ${enterprise_aws_access_key_id}
-          TRIVY_REPORTS_AWS_SECRET: ${enterprise_aws_secret_access_key}
-    - command: s3.put
-      params:
-        continue_on_err: true
-        aws_key: ${enterprise_aws_access_key_id}
-        aws_secret: ${enterprise_aws_secret_access_key}
-        local_files_include_filter:
-          - src/github.com/mongodb/mongodb-kubernetes/trivy-reports/*
-        remote_file: trivy-reports/${task_id}/${execution}/
-        bucket: operator-e2e-artifacts
-        permissions: private
-        visibility: signed
-        content_type: application/json
-
   teardown_cloud_qa_all:
     - command: shell.exec
       type: setup
@@ -1014,6 +969,11 @@ functions:
           - ${workdir}/bin
           - ${workdir}/google-cloud-sdk/bin
         script: |
+          # Clear results and skip logs so a restarted task reruns every snippet.
+          # Both are required: stale results must not attach, and a skip log
+          # without a result would hide a snippet from the test view.
+          rm -f logs/snippets.junit.suite
+          find docs public -name '*.run.log' -type f -exec rm -f {} +
           ./scripts/code_snippets/tests/${task_name}
 
   install_macos_notarization_service:

@@ -1146,9 +1146,16 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 
 	searchClusterIndex := searchcontroller.ResolveSingleClusterIndex(search)
 
+	// The auth-mode check applies to every internal sharded routing mode; the endpoint
+	// validation below stays unmanaged-LB-only.
+	shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
+	if err := searchcontroller.ValidateSearchSourceAuth(search, shardedSource); err != nil {
+		log.Warnf("MongoDBSearch auth validation failed for sharded cluster %s/%s: %v", search.Namespace, search.Name, err)
+		return nil
+	}
+
 	// Validate unmanaged LB endpoint configuration (only when unmanaged LB)
 	if search.IsShardedUnmanagedLB() {
-		shardedSource := searchcontroller.NewShardedInternalSearchSource(sc, search)
 		if err := shardedSource.Validate(); err != nil {
 			log.Warnf("MongoDBSearch validation failed for sharded cluster: %v", err)
 			return nil
@@ -1352,7 +1359,12 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 			return r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, false, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			return r.createKubernetesResources(ctx, sc, opts, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
+			st := r.createKubernetesResources(ctx, sc, opts, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
+			if !st.IsOK() {
+				r.commonController.logAgentErrors(ctx, sc, conn, log)
+			}
+
+			return st
 		})
 
 	if !workflowStatus.IsOK() {

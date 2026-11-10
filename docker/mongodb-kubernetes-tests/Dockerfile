@@ -23,7 +23,7 @@ RUN python3 -m venv /venv  \
     && GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 pip install -r requirements.txt \
     && pip install awscli
 
-FROM scratch AS tools_downloader
+FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim AS tools
 
 ARG mongodb_tools_url="https://fastdl.mongodb.org/tools/db"
 
@@ -47,11 +47,19 @@ ADD "${mongosh_url}/mongosh-${mongosh_version}-linux-arm64.tgz" /data/arm64/mong
 ADD "${mongosh_url}/mongosh-${mongosh_version}-linux-s390x.tgz" /data/s390x/mongosh.tgz
 ADD "${mongosh_url}/mongosh-${mongosh_version}-linux-ppc64le.tgz" /data/ppc64le/mongosh.tgz
 
+# Extract the tools here and copy the binaries into the final image. The tarballs stay
+# in this stage, so they add no layer to the final image.
+ARG TARGETARCH
+RUN mkdir -p /out /tmp/mongodb-tools /tmp/mongosh \
+    && tar xfz "/data/${TARGETARCH}/mongodb_tools.tgz" -C /tmp/mongodb-tools \
+    && tar xfz "/data/${TARGETARCH}/mongosh.tgz" -C /tmp/mongosh \
+    && install -m 755 /tmp/mongodb-tools/*/bin/* /out/ \
+    && install -m 755 /tmp/mongosh/*/bin/mongosh /out/
+
 FROM public.ecr.aws/docker/library/python:${PYTHON_VERSION}-slim
 
 ARG TARGETARCH
-COPY --from=tools_downloader "/data/${TARGETARCH}/mongodb_tools.tgz" /tmp/mongodb-tools.tgz
-COPY --from=tools_downloader "/data/${TARGETARCH}/mongosh.tgz" /tmp/mongosh.tgz
+COPY --from=tools /out/ /usr/local/bin/
 
 RUN apt-get -qq update \
     && apt-get -y -qq install \
@@ -60,14 +68,6 @@ RUN apt-get -qq update \
     libsasl2-dev \
     git \
     openssl
-
-RUN mkdir -p /tmp/mongodb-tools /tmp/mongosh && \
-    tar xfz /tmp/mongodb-tools.tgz -C /tmp/mongodb-tools && \
-    tar xfz /tmp/mongosh.tgz -C /tmp/mongosh && \
-    cp /tmp/mongodb-tools/*/bin/* /usr/local/bin/ && \
-    cp /tmp/mongosh/*/bin/mongosh /usr/local/bin/ && \
-    rm -rf /tmp/mongodb-tools /tmp/mongodb-tools.tgz /tmp/mongosh /tmp/mongosh.tgz
-
 
 ENV HELM_NAME="helm-v3.17.1-linux-${TARGETARCH}.tar.gz"
 
@@ -100,7 +100,9 @@ COPY release.json /tests/release.json
 COPY public /mongodb-kubernetes/public
 
 # Only the VM migration tests use the plugin, and it is not built for every
-# architecture, so install it when the binary is present in the build context.
+# architecture, so install it when the binary is present in the build context. The
+# arch-suffixed copy is a build artifact and does not stay in the image.
 RUN if [ -f "/tests/kubectl-mongodb_${TARGETARCH}" ]; then \
     install -m 755 "/tests/kubectl-mongodb_${TARGETARCH}" /usr/local/bin/kubectl-mongodb; \
-    fi
+    fi \
+    && rm -f "/tests/kubectl-mongodb_${TARGETARCH}"
