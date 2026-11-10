@@ -1581,16 +1581,6 @@ task_groups:
     tasks:
       - e2e_replica_set
 
-  # Keep a small legacy-static suite. The other static variants run static-ga, so these three tasks prove that
-  # the static pod structure (shared process namespace, the utilities holder, and the launcher) still works.
-  - name: e2e_static_legacy_smoke_task_group
-    max_hosts: -1
-    <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
-    tasks:
-      - e2e_replica_set
-      - e2e_sharded_cluster
-      - e2e_replica_set_agent_flags_and_readinessProbe
-
   - name: e2e_smoke_ibm_task_group
     max_hosts: -1
     <<: [ *setup_group_ibm, *setup_and_teardown_task_cloudqa, *teardown_group ]
@@ -1734,6 +1724,18 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_amd64" ]
+    <<: [ *production_code_paths, *base_no_om_image_dependency ]
+    run_on:
+      - ubuntu2404-medium
+    tasks:
+      - name: e2e_mdb_kind_cloudqa_task_group
+      - name: e2e_mdb_container_image_type_task_group
+
+  # Legacy static keeps the shared process namespace and the utilities holder. This variant runs the same
+  # cloudqa suite as the static-ga default so the old path keeps full coverage.
+  - name: e2e_static_legacy_mdb_kind_ubi_cloudqa
+    display_name: e2e_static_legacy_mdb_kind_ubi_cloudqa
     tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_amd64" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
@@ -2226,16 +2228,6 @@ buildvariants:
         variant: init_test_run
     tasks:
       - name: e2e_smoke_arm_task_group
-
-  - name: e2e_static_legacy_smoke
-    display_name: e2e_static_legacy_smoke
-    tags: [ "staging", "e2e_smoke_test_suite", "static", "static_amd64" ]
-    <<: [ *production_code_paths, *base_no_om_image_dependency ]
-    run_on:
-      - ubuntu2404-medium
-    allowed_requesters: [ "patch", "commit" ]
-    tasks:
-      - name: e2e_static_legacy_smoke_task_group
 
   - name: e2e_static_smoke_arm_ubi9_slim
     display_name: e2e_static_smoke_arm_ubi9_slim
