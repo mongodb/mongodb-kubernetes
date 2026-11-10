@@ -15,6 +15,7 @@ def test_find_task_variants():
     result = find_task_variants(evergreen_file, "e2e_feature_controls_authentication")
     assert sorted(result) == [
         "e2e_mdb_kind_ubi_cloudqa",
+        "e2e_static_legacy_mdb_kind_ubi_cloudqa",
         "e2e_static_mdb_kind_ubi9_slim_cloudqa",
         "e2e_static_mdb_kind_ubi_cloudqa",
     ]
@@ -23,6 +24,7 @@ def test_find_task_variants():
     assert sorted(result) == [
         "e2e_mdb_kind_ubi_cloudqa",
         "e2e_multi_cluster_kind",
+        "e2e_static_legacy_mdb_kind_ubi_cloudqa",
         "e2e_static_mdb_kind_ubi9_slim_cloudqa",
         "e2e_static_mdb_kind_ubi_cloudqa",
         "e2e_static_multi_cluster_kind",
@@ -53,6 +55,7 @@ def test_main_output(monkeypatch):
     output = captured.getvalue().strip().splitlines()
     assert sorted(output) == [
         "e2e_mdb_kind_ubi_cloudqa",
+        "e2e_static_legacy_mdb_kind_ubi_cloudqa",
         "e2e_static_mdb_kind_ubi9_slim_cloudqa",
         "e2e_static_mdb_kind_ubi_cloudqa",
     ]
