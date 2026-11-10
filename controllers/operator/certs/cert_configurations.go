@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
@@ -30,6 +31,8 @@ type X509CertConfigurator interface {
 	GetCertOptions() []Options
 	GetSecretReadClient() secrets.SecretClient
 	GetSecretWriteClient() secrets.SecretClient
+	GetOwnerReferences() []metav1.OwnerReference
+	GetOwnerLabels() map[string]string
 }
 
 type ReplicaSetX509CertConfigurator struct {
@@ -53,6 +56,12 @@ func (rs ReplicaSetX509CertConfigurator) GetSecretWriteClient() secrets.SecretCl
 
 func (rs ReplicaSetX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
 	return &rs.Spec.DbCommonSpec
+}
+
+// GetOwnerReferences returns the owner reference to put on the secrets the operator writes for the
+// agent. The replica set runs in the same cluster as the resource, so it can point at it.
+func (rs ReplicaSetX509CertConfigurator) GetOwnerReferences() []metav1.OwnerReference {
+	return OwnerReferenceFor(rs.GetSecurity(), rs.MongoDB, true)
 }
 
 type ShardedSetX509CertConfigurator struct {
@@ -80,6 +89,13 @@ func (sc ShardedSetX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
 	return &sc.Spec.DbCommonSpec
 }
 
+// GetOwnerReferences returns the owner reference to put on the secrets the operator writes for the
+// agent. The secrets of a single-cluster sharded cluster are in the cluster that holds the resource, so
+// they can point at it; those of a multi-cluster one are in the member clusters, where they cannot.
+func (sc ShardedSetX509CertConfigurator) GetOwnerReferences() []metav1.OwnerReference {
+	return OwnerReferenceFor(sc.GetSecurity(), sc.MongoDB, !sc.Spec.IsMultiCluster())
+}
+
 type StandaloneX509CertConfigurator struct {
 	*mdbv1.MongoDB
 	SecretClient secrets.SecretClient
@@ -101,6 +117,12 @@ func (s StandaloneX509CertConfigurator) GetSecretWriteClient() secrets.SecretCli
 
 func (s StandaloneX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
 	return &s.Spec.DbCommonSpec
+}
+
+// GetOwnerReferences returns the owner reference to put on the secrets the operator writes for the
+// agent. The standalone runs in the same cluster as the resource, so it can point at it.
+func (s StandaloneX509CertConfigurator) GetOwnerReferences() []metav1.OwnerReference {
+	return OwnerReferenceFor(s.GetSecurity(), s.MongoDB, true)
 }
 
 type MongoDBMultiX509CertConfigurator struct {
@@ -128,6 +150,13 @@ func (mdbm MongoDBMultiX509CertConfigurator) GetSecretWriteClient() secrets.Secr
 
 func (mdbm MongoDBMultiX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
 	return &mdbm.Spec.DbCommonSpec
+}
+
+// GetOwnerReferences returns the owner reference to put on the secrets the operator writes for the
+// agent. Every secret of a multi-cluster replica set is in a member cluster, so none can point at the
+// resource: the owner labels remove them instead.
+func (mdbm MongoDBMultiX509CertConfigurator) GetOwnerReferences() []metav1.OwnerReference {
+	return OwnerReferenceFor(mdbm.GetSecurity(), mdbm.MongoDBMultiCluster, false)
 }
 
 // appDBManagedCertificateOwner presents the internal AppDB's MongoDB security to the shared
@@ -219,6 +248,11 @@ type Options struct {
 	WithholdsClientCertificate bool
 
 	OwnerReference []metav1.OwnerReference
+
+	// OwnerLabels are the labels the operator puts on the objects it creates for a resource, so its
+	// cleanup on deletion finds them by label. Secrets cannot carry an owner reference across
+	// clusters, so the copies of the -pem secrets in member clusters rely on these labels.
+	OwnerLabels map[string]string
 }
 
 // MemberCluster describes one member cluster's details to figure out the union SAN list of a
@@ -240,6 +274,37 @@ func (o Options) WithoutHostnames() Options {
 	return o
 }
 
+// ownerLabelsFor returns the labels the operator puts on the secrets it creates for a resource, or
+// nothing when the resource does not use operator-managed certificates. The labels decide what the
+// cleanup on deletion removes, and only the managed-certificate feature relies on that today: a
+// deployment that brings its own certificates keeps the behaviour it had.
+func ownerLabelsFor(sec *mdbv1.Security, labels map[string]string) map[string]string {
+	if sec == nil || !sec.IsManagedCertificateEnabled() {
+		return nil
+	}
+	return labels
+}
+
+// OwnerReferenceFor returns the owner reference the operator puts on the -pem secrets it writes itself
+// for a resource, or nothing when it must not set one.
+//
+// A deployment that brings its own certificates keeps the references it had. With operator-managed
+// certificates the reference points at the resource itself, so Kubernetes deletes the secrets together
+// with it. Only a secret in the cluster that holds the resource can have one: Kubernetes deletes a
+// dependent whose owner it cannot find, so a copy in a member cluster must not carry a reference to a
+// resource of another cluster. Those copies are removed by the owner labels instead.
+//
+// ownCluster says whether the secrets being written are in the cluster that holds the resource.
+func OwnerReferenceFor(sec *mdbv1.Security, owner v1.ObjectOwner, ownCluster bool) []metav1.OwnerReference {
+	if sec == nil || !sec.IsManagedCertificateEnabled() {
+		return owner.GetOwnerReferences()
+	}
+	if !ownCluster {
+		return nil
+	}
+	return kube.BaseOwnerReference(owner)
+}
+
 // StandaloneConfig returns a function which provides all of the configuration options required for the given Standalone.
 func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
@@ -250,7 +315,8 @@ func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 		Replicas:                     1,
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
-		OwnerReference:               mdb.GetOwnerReferences(),
+		OwnerReference:               OwnerReferenceFor(mdb.GetSecurity(), &mdb, true),
+		OwnerLabels:                  ownerLabelsFor(mdb.GetSecurity(), mdb.GetOwnerLabels()),
 		WithholdsClientCertificate:   WithholdsClientCertificate(mdb.Spec.AdditionalMongodConfig),
 		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
@@ -269,7 +335,8 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		horizons:                     mdb.Spec.Connectivity.ReplicaSetHorizons,
-		OwnerReference:               mdb.GetOwnerReferences(),
+		OwnerReference:               OwnerReferenceFor(mdb.GetSecurity(), &mdb, true),
+		OwnerLabels:                  ownerLabelsFor(mdb.GetSecurity(), mdb.GetOwnerLabels()),
 		WithholdsClientCertificate:   WithholdsClientCertificate(mdb.Spec.AdditionalMongodConfig),
 		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
@@ -347,7 +414,8 @@ func shardedComponentConfig(
 		ServiceName:                  serviceName,
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
-		OwnerReference:               mdb.GetOwnerReferences(),
+		OwnerReference:               OwnerReferenceFor(mdb.GetSecurity(), &mdb, !mdb.Spec.IsMultiCluster()),
+		OwnerLabels:                  ownerLabelsFor(mdb.GetSecurity(), mdb.GetOwnerLabels()),
 		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
 		ExternalDomain:               externalDomain,
 		Topology:                     mdb.Spec.GetTopology(),
@@ -367,21 +435,7 @@ func ShardConfig(
 		resourceName = mdb.MultiShardRsName(scaler.MemberClusterNum(), shardNum)
 	}
 
-	return Options{
-		ResourceName:                 resourceName,
-		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ShardName(shardNum)),
-		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ShardName(shardNum)),
-		Namespace:                    mdb.Namespace,
-		Replicas:                     scale.ReplicasThisReconciliation(scaler),
-		MembersToCover:               max(scaler.CurrentReplicas(), scaler.DesiredReplicas()),
-		ServiceName:                  mdb.ShardServiceName(),
-		ClusterDomain:                mdb.Spec.GetClusterDomain(),
-		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
-		OwnerReference:               mdb.GetOwnerReferences(),
-		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
-		ExternalDomain:               externalDomain,
-		Topology:                     mdb.Spec.GetTopology(),
-	}
+	return shardedComponentConfig(mdb, resourceName, mdb.ShardName(shardNum), mdb.ShardServiceName(), externalDomain, scaler, mongodConfig)
 }
 
 // MultiReplicaSetConfig returns a struct which provides all of the configuration required for a given MongoDB Multi Replicaset.
@@ -394,7 +448,8 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 		Replicas:                   replicas,
 		ClusterDomain:              mdbm.Spec.GetClusterDomain(),
 		Topology:                   mdbv1.ClusterTopologyMultiCluster,
-		OwnerReference:             mdbm.GetOwnerReferences(),
+		OwnerReference:             OwnerReferenceFor(mdbm.GetSecurity(), &mdbm, false),
+		OwnerLabels:                ownerLabelsFor(mdbm.GetSecurity(), mdbm.GetOwnerLabels()),
 		WithholdsClientCertificate: WithholdsClientCertificate(mdbm.Spec.AdditionalMongodConfig),
 		ExternalDomain:             mdbm.Spec.GetExternalDomainForMemberCluster(clusterName),
 	}
@@ -411,7 +466,8 @@ func MultiReplicaSetManagedCertConfig(mdbm mdbmulti.MongoDBMultiCluster, cluster
 		Namespace:                  mdbm.Namespace,
 		ClusterDomain:              mdbm.Spec.GetClusterDomain(),
 		Topology:                   mdbv1.ClusterTopologyMultiCluster,
-		OwnerReference:             mdbm.GetOwnerReferences(),
+		OwnerReference:             OwnerReferenceFor(mdbm.GetSecurity(), &mdbm, false),
+		OwnerLabels:                ownerLabelsFor(mdbm.GetSecurity(), mdbm.GetOwnerLabels()),
 		WithholdsClientCertificate: WithholdsClientCertificate(mdbm.Spec.AdditionalMongodConfig),
 		MultiClusterMembers:        clusters,
 	}
@@ -439,7 +495,8 @@ func MultiShardedComponentManagedCertConfig(
 		Namespace:                    sc.Namespace,
 		ClusterDomain:                sc.Spec.GetClusterDomain(),
 		Topology:                     mdbv1.ClusterTopologyMultiCluster,
-		OwnerReference:               sc.GetOwnerReferences(),
+		OwnerReference:               OwnerReferenceFor(sc.GetSecurity(), &sc, false),
+		OwnerLabels:                  ownerLabelsFor(sc.GetSecurity(), sc.GetOwnerLabels()),
 		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
 		MultiClusterMembers:          clusters,
 		additionalCertificateDomains: sc.Spec.Security.TLSConfig.AdditionalCertificateDomains,

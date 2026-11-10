@@ -60,6 +60,9 @@ func TestClientCertificate(t *testing.T) {
 		assert.Equal(t, []string{resNamespace}, clientCert.Spec.Subject.OrganizationalUnits)
 		// The certificate carries the subject the user is registered under.
 		assert.Equal(t, "CN=myapp,OU=ns,O=mdb-app-client", user.GetUsername())
+		// The secret belongs to the user, so it must not carry the deployment's labels, or the cleanup
+		// on the deployment's deletion would remove it.
+		assert.Nil(t, clientCert.Spec.SecretTemplate)
 	})
 
 	// The certificate is signed by whichever CA mongod checks client certificates against.

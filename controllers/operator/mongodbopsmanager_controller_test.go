@@ -2146,7 +2146,10 @@ func TestOpsManagerManagedQueryablePEM(t *testing.T) {
 			require.Len(t, derived.OwnerReferences, 1)
 			assert.Equal(t, om.UID, derived.OwnerReferences[0].UID)
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(source), source))
-			assert.Equal(t, sourceBefore, source, "cert-manager source must not be modified")
+			// The operator gives the secret an owner so it is deleted with the deployment, and leaves
+			// the certificate in it alone.
+			assert.Equal(t, sourceBefore.Data, source.Data, "cert-manager source must not be modified")
+			assert.Equal(t, sourceBefore.Type, source.Type, "cert-manager source must not be modified")
 
 			before := derived.DeepCopy()
 			require.True(t, r.ensureBackupCertAndCA(ctx, om, helper, zap.S()).status.IsOK())
@@ -3125,6 +3128,8 @@ func TestOpsManagerManagedHTTPSRenewal(t *testing.T) {
 		return sts, derived, hash
 	}
 	firstSTS, firstPEM, firstHash := build()
+	// Read the secret again: the operator gave it an owner since it was written.
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(issued), issued))
 	issued.Data["tls.crt"], issued.Data["tls.key"] = issue()
 	require.NoError(t, c.Update(ctx, issued))
 	secondSTS, secondPEM, secondHash := build()
@@ -3801,6 +3806,8 @@ func TestAppDBManagedHTTPSRenewal(t *testing.T) {
 	assert.Equal(t, firstResourceVersion, samePEM.ResourceVersion, "identical inputs must not rewrite the PEM Secret")
 
 	crt, key := issue()
+	// Read the secret again: the operator gave it an owner since it was written.
+	require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(source), source))
 	source.Type = corev1.SecretTypeTLS
 	source.Data = map[string][]byte{"tls.crt": crt, "tls.key": key, "ca.crt": source.Data["ca.crt"]}
 	require.NoError(t, c.Update(ctx, source))
