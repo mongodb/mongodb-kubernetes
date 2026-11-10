@@ -594,12 +594,12 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 	log *zap.SugaredLogger,
 ) (pendingTerminations bool, st workflow.Status) {
 	if err := r.replicateForwarderDependencies(ctx, search, agentSecretName, projectConfig.SSLMMSCAConfigMap, w, log); err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: failed to replicate dependencies: %w", w.ClusterName, err))
+		return false, workflow.Failed(fmt.Errorf("failed to replicate dependencies: %w", err))
 	}
 
 	pending, err := r.reconcileTopologyState(ctx, search, shardNames, groupID, projectConfig, agentSecretName, w, log)
 	if err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+		return false, workflow.Failed(err)
 	}
 
 	agentKeySecretName := search.MetricsForwarderAgentKeySecretNameForCluster(w.ClusterIndex)
@@ -622,15 +622,15 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 		ScrapeInterval:                    prometheusDefaultScrapeInterval,
 	})
 	if err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: failed to generate metrics forwarder config: %w", w.ClusterName, err))
+		return false, workflow.Failed(fmt.Errorf("failed to generate metrics forwarder config: %w", err))
 	}
 
 	if err := r.ensureMetricsForwarderConfigMap(ctx, search, configYAML, w, log); err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+		return false, workflow.Failed(err)
 	}
 
 	if err := r.ensureMetricsForwarderDeployment(ctx, search, configYAML, groupID, agentKeySecretName, caConfigMapName, w, log); err != nil {
-		return false, workflow.Failed(fmt.Errorf("cluster=%q: %w", w.ClusterName, err))
+		return false, workflow.Failed(err)
 	}
 
 	return pending, workflow.OK()
@@ -1270,7 +1270,22 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 		return fmt.Errorf("failed to ensure metrics forwarder Deployment: %w", err)
 	}
 	log.Infof("metrics forwarder Deployment created/updated (cluster=%q)", w.ClusterName)
+
+	if msg := deploymentReplicaFailure(dep); msg != "" {
+		return fmt.Errorf("metrics forwarder Deployment %s cannot create pods: %s", dep.Name, msg)
+	}
 	return nil
+}
+
+// deploymentReplicaFailure returns the message of the Deployment's ReplicaFailure condition, or "" if unset.
+// It is how a missing ServiceAccount shows up without needing RBAC on ServiceAccounts or Events.
+func deploymentReplicaFailure(dep *appsv1.Deployment) string {
+	for _, c := range dep.Status.Conditions {
+		if c.Type == appsv1.DeploymentReplicaFailure && c.Status == corev1.ConditionTrue {
+			return c.Message
+		}
+	}
+	return ""
 }
 
 func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecretName, caConfigMapName string, clusterIndex int, image string, imagePullPolicy corev1.PullPolicy, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
@@ -1339,7 +1354,8 @@ func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecret
 	}
 
 	return corev1.PodSpec{
-		SecurityContext: podSecurityContext,
+		ServiceAccountName: util.MetricsForwarderServiceAccount,
+		SecurityContext:    podSecurityContext,
 		Containers: []corev1.Container{
 			{
 				Name:            "metrics-forwarder",
