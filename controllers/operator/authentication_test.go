@@ -293,6 +293,53 @@ func TestX509AgentAuthentication_ClientCertificateModeFollowsSpecChanges_Replica
 	}
 }
 
+func TestX509AgentAuthentication_ClientCertificateModeFollowsSpecChanges_ShardedCluster(t *testing.T) {
+	tests := map[string]struct {
+		updateSpec func(sc *mdbv1.MongoDB)
+	}{
+		"Removing SCRAM leaves X509 as the only mode": {
+			updateSpec: func(sc *mdbv1.MongoDB) {
+				sc.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{util.X509}
+			},
+		},
+		"Setting requireClientTLSAuthentication": {
+			updateSpec: func(sc *mdbv1.MongoDB) {
+				sc.Spec.Security.Authentication.RequiresClientTLSAuthentication = true
+			},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			sc := test.DefaultClusterBuilder().
+				SetName("my-sc").
+				EnableTLS().
+				SetTLSCA("custom-ca").
+				EnableX509().
+				EnableSCRAM().
+				Build()
+			sc.Spec.Security.Authentication.Agents.Mode = util.X509
+
+			r, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+			require.NoError(t, err)
+			addKubernetesTlsResources(ctx, r.client, sc)
+
+			checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
+
+			ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			require.Equal(t, util.OptionalClientCertficates, ac.AgentSSL.ClientCertificateMode)
+
+			tc.updateSpec(sc)
+			checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
+
+			ac, err = omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, util.RequireClientCertificates, ac.AgentSSL.ClientCertificateMode)
+		})
+	}
+}
+
 // TestX509OnlyMode_AlwaysRequiresClientCertificates_ReplicaSet pins that X509 as the only mode implies REQUIRE,
 // regardless of requireClientTLSAuthentication.
 func TestX509OnlyMode_AlwaysRequiresClientCertificates_ReplicaSet(t *testing.T) {
