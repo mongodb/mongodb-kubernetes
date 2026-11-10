@@ -62,7 +62,7 @@ func CertManagerCRDsInstalled(restMapper apimeta.RESTMapper) bool {
 // every namespace?", which a namespaced Role never allows. When it watches the whole cluster the
 // namespace is "", and helm installs a ClusterRole, so the cluster-wide question is the right one.
 func certManagerAccessAllowed(ctx context.Context, c kubernetesClient.Client, watchedNamespaces []string) (bool, string) {
-	verbs := []string{"get", "list", "watch", "create", "update"}
+	verbs := []string{"get", "list", "watch", "create", "update", "delete"}
 	for _, namespace := range watchedNamespaces {
 		for _, resource := range []string{"certificates", "issuers"} {
 			for _, verb := range verbs {

@@ -112,12 +112,12 @@ func TestManagedCertificateObjectsAreCleanedUp(t *testing.T) {
 			issuedNames = append(issuedNames, agentCert.certName)
 
 			// 2. The two self-signed CAs, server and client. Play cert-manager again and write their
-			//    secrets. The operator builds the CA Certificates without a secretTemplate, so these
-			//    secrets have no labels. That is fine: they only exist in the cluster that holds the
-			//    resource, where the owner reference from step 3 removes them.
+			//    secrets, with the labels the operator asks for: cert-manager can issue a CA secret
+			//    again while the resource is being deleted, and the copy it writes then has no owner,
+			//    so the cleanup has to find it by label like the other secrets.
 			caNames := []string{managedCACertName(res, categoryServer), managedCACertName(res, categoryClient)}
 			for _, name := range caNames {
-				createCertManagerSecret(t, c, name, nil)
+				createCertManagerSecret(t, c, name, res.GetOwnerLabels())
 			}
 
 			// 3. The operator gives every secret cert-manager wrote (steps 1 and 2) an owner reference to
