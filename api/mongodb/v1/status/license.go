@@ -30,7 +30,6 @@ const (
 	ReasonLicenseInstalled       = "LicenseInstalled"
 	ReasonLicenseNotRequested    = "LicenseNotRequested"
 	ReasonLicenseOutdated        = "LicenseOutdated"
-	ReasonLicenseSecretInvalid   = "LicenseSecretInvalid"
 	ReasonLicenseReconcileFailed = "LicenseReconcileFailed"
 )
 
