@@ -160,10 +160,7 @@ func TestMultiReplicaSet_LicenseEnforcedBlocksAndRecoversWithoutRecreation(t *te
 	mocked.MutationErr = nil
 
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
-	ready = meta.FindStatusCondition(mrs.Status.Conditions, status.ConditionOpsManagerLicenseReady)
-	require.NotNil(t, ready)
-	assert.Equal(t, metav1.ConditionTrue, ready.Status)
-	assert.Equal(t, status.ReasonLicenseReady, ready.Reason)
+	assert.Nil(t, meta.FindStatusCondition(mrs.Status.Conditions, status.ConditionOpsManagerLicenseReady))
 }
 
 func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {

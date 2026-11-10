@@ -1777,7 +1777,7 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 		m.Status.Version = m.Spec.Version
 		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
 		m.Status.Message = ""
-		status.ClearLicenseBlockIfPresent(&m.Status.Conditions, m.GetGeneration())
+		status.ClearLicenseBlockIfPresent(&m.Status.Conditions)
 		// Only track the observed external-member count while a migration is in progress. When no
 		// external members remain, leave it nil so migration status is fully cleared (see
 		// applyComputedReplicaSetMigrationStatus).

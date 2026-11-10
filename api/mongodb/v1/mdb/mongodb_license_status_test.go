@@ -36,8 +36,5 @@ func TestMongoDB_UpdateStatus_RunningClearsLicenseEnforced(t *testing.T) {
 	}
 	meta.SetStatusCondition(&m.Status.Conditions, status.LicenseEnforcedCondition("blocked"))
 	m.UpdateStatus(status.PhaseRunning)
-	ready := meta.FindStatusCondition(m.Status.Conditions, status.ConditionOpsManagerLicenseReady)
-	require.NotNil(t, ready)
-	assert.Equal(t, metav1.ConditionTrue, ready.Status)
-	assert.Equal(t, status.ReasonLicenseReady, ready.Reason)
+	assert.Nil(t, meta.FindStatusCondition(m.Status.Conditions, status.ConditionOpsManagerLicenseReady))
 }

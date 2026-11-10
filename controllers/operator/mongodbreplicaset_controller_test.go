@@ -2608,10 +2608,7 @@ func TestReplicaSet_LicenseEnforcedBlocksAndRecoversWithoutRecreation(t *testing
 
 	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
 	assert.Equal(t, crUID, rs.UID)
-	ready = meta.FindStatusCondition(rs.Status.Conditions, status.ConditionOpsManagerLicenseReady)
-	require.NotNil(t, ready)
-	assert.Equal(t, metav1.ConditionTrue, ready.Status)
-	assert.Equal(t, status.ReasonLicenseReady, ready.Reason)
+	assert.Nil(t, meta.FindStatusCondition(rs.Status.Conditions, status.ConditionOpsManagerLicenseReady))
 
 	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), &sts))
 	assert.Equal(t, stsUID, sts.UID)

@@ -298,7 +298,7 @@ func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...
 
 	if phase == status.PhaseRunning {
 		m.Status.FeatureCompatibilityVersion = m.CalculateFeatureCompatibilityVersion()
-		status.ClearLicenseBlockIfPresent(&m.Status.Conditions, m.GetGeneration())
+		status.ClearLicenseBlockIfPresent(&m.Status.Conditions)
 	}
 }
 
