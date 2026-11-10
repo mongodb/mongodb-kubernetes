@@ -38,7 +38,6 @@ import (
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
-
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -2165,9 +2164,9 @@ func TestOpsManagerManagedCertificateStatusPersistence(t *testing.T) {
 	t.Run("root condition survives component patches and leaves other status intact", func(t *testing.T) {
 		opsManager := newManagedCertificateTestOM()
 		opsManager.Generation = 7
-		opsManager.Status.OpsManagerStatus.Common.Phase = status.PhaseRunning
-		opsManager.Status.AppDbStatus.Common.Phase = status.PhaseRunning
-		opsManager.Status.BackupStatus.Common.Phase = status.PhaseRunning
+		opsManager.Status.OpsManagerStatus.Phase = status.PhaseRunning
+		opsManager.Status.AppDbStatus.Phase = status.PhaseRunning
+		opsManager.Status.BackupStatus.Phase = status.PhaseRunning
 		opsManager.Status.Conditions = []metav1.Condition{{
 			Type:               "Unrelated",
 			Status:             metav1.ConditionTrue,
