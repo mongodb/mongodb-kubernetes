@@ -15,6 +15,10 @@ case ${IMAGE_NAME} in
     ;;
 
   "ops-manager")
+    if [[ "${OM_DOWNLOAD_URL:-}" != "" && "${OM_VERSION_OVERRIDE:-}" == "" ]]; then
+      echo "Error: om_version (OM_VERSION_OVERRIDE) must be set together with om_download_url (OM_DOWNLOAD_URL); it is the tag of the built image" >&2
+      exit 1
+    fi
     IMAGE_VERSION="${OM_VERSION_OVERRIDE:-${OM_VERSION}}"
     ;;
 
