@@ -124,7 +124,8 @@ class TestOpsManagerLicenseE2E:
         installed = install_license(ops_manager, namespace)
 
         ensure_license_artifact_secret(namespace, "not-a-license")
-        wait_for_license_reconciled_reason(ops_manager, "LicenseSecretInvalid")
+        failure = wait_for_license_reconciled_reason(ops_manager, "LicenseReconcileFailed")
+        assert "license artifact is not a valid JSON envelope" in failure["message"], failure["message"]
         remove_install_intent_without_identity(ops_manager, installed)
 
         wait_for_ea_artifact_state(ops_manager, installed, "ACTIVE")
