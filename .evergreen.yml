@@ -457,12 +457,6 @@ tasks:
           binary: scripts/dev/run_python.sh
           args:
             - scripts/release/release_om_and_agents.py
-      # CVE scan of the released agent images (currently used versions)
-      - func: trivy_scan
-        vars:
-          image_name: agent
-          agent_version: current
-          build_scenario: release
 
   - name: migrate_all_agents
     # this enables us to run this variant manually to build all the agents for the new agent registry
@@ -683,34 +677,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: upgrade-hook
-
-  # Single CVE scan of all the images built in init_test_run and of the Ops Manager images (7.0, 8.0 and 9.0,
-  # built in their own variants), reported in one Slack message. The OM versions are resolved by
-  # scripts/release/trivy_scan.sh. Only the currently used agent versions are scanned to keep scan time bounded.
-  - name: cve_scan_images
-    disable: true # TEMPORARILY DISABLED
-    depends_on:
-      - name: build_operator_ubi
-      - name: build_init_om_images_ubi
-      - name: build_init_database_image_ubi
-      - name: build_database_image_ubi
-      - name: build_agent_images_ubi
-      - name: build_readiness_probe_image
-      - name: build_version_upgrade_hook_image
-      - name: build_om_images
-        variant: build_om70_images
-      - name: build_om_images
-        variant: build_om80_images
-      - name: build_om_images
-        variant: build_om90_images
-    commands:
-      - func: clone
-      - func: setup_building_host
-      - func: quay_staging_login
-      - func: trivy_scan
-        vars:
-          image_names: operator init-ops-manager init-database database readiness-probe upgrade-hook ops-manager agent
-          agent_version: current
 
   - name: publish_helm_chart
     commands:
@@ -1236,6 +1202,7 @@ task_groups:
       - e2e_multi_cluster_tls_with_scram
       - e2e_multi_cluster_upgrade_downgrade
       - e2e_multi_cluster_backup_restore
+      - e2e_multi_cluster_backup_enabled_outside_operator
       - e2e_multi_cluster_backup_restore_no_mesh
       - e2e_multi_cluster_disaster_recovery
       - e2e_multi_cluster_multi_disaster_recovery
@@ -1478,6 +1445,7 @@ task_groups:
       - e2e_om_weak_password
       - e2e_om_ops_manager_backup_delete_sts_and_log_rotation
       - e2e_om_ops_manager_backup_light
+      - e2e_om_ops_manager_backup_enabled_outside_operator
       - e2e_om_ops_manager_backup_tls
       - e2e_om_ops_manager_backup_s3_tls
       - e2e_om_ops_manager_backup_restore_rustfs
@@ -2428,7 +2396,6 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
-      - name: cve_scan_images
       - name: build_kubectl_mongodb_plugin
       - name: prepare_aws
       - name: publish_helm_chart
