@@ -1,5 +1,5 @@
 from kubernetes import client
-from kubetester import try_load, wait_until
+from kubetester import pod_is_ready, try_load, wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -72,6 +72,16 @@ def test_replica_set_reaches_running_phase(replica_set: MongoDB):
     replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 
+@mark.e2e_om_static_ga_infra_revision
+def test_statefulset_uses_on_delete_update_strategy(replica_set: MongoDB):
+    update_strategy = replica_set.read_statefulset().spec.update_strategy
+    # OnDelete keeps Kubernetes from rolling pods itself; only the operator's restart coordinator replaces them.
+    assert update_strategy and update_strategy.type == "OnDelete", (
+        f"StatefulSet {REPLICA_SET_NAME} update strategy is {update_strategy and update_strategy.type!r}, "
+        "static-ga members must be replaced one at a time by the operator"
+    )
+
+
 def assert_infra_revisions_match(replica_set: MongoDB, namespace: str) -> str:
     """Asserts that each member's INFRA_REVISION, the automation config desiredInfraRevision and the StatefulSet
     status.updateRevision agree, and returns that revision."""
@@ -108,6 +118,30 @@ def assert_infra_revisions_match(replica_set: MongoDB, namespace: str) -> str:
     return update_revision
 
 
+def read_member_pods(replica_set: MongoDB) -> dict:
+    """Returns {pod_name: pod} for every member, mapping to None while the pod does not exist."""
+    core_v1 = client.CoreV1Api()
+    pods = {}
+    for idx in range(replica_set.get_members()):
+        pod_name = f"{REPLICA_SET_NAME}-{idx}"
+        try:
+            pods[pod_name] = core_v1.read_namespaced_pod(pod_name, replica_set.namespace)
+        except client.ApiException as e:
+            if e.status != 404:
+                raise
+            pods[pod_name] = None
+    return pods
+
+
+def count_unavailable_members(replica_set: MongoDB) -> int:
+    """Counts members whose pod is missing, terminating or not Ready."""
+    return sum(
+        1
+        for pod in read_member_pods(replica_set).values()
+        if pod is None or pod.metadata.deletion_timestamp or not pod_is_ready(pod)
+    )
+
+
 @mark.e2e_om_static_ga_infra_revision
 def test_infra_revision_matches_desired_infra_revision(replica_set: MongoDB, namespace: str):
     assert_infra_revisions_match(replica_set, namespace)
@@ -115,7 +149,13 @@ def test_infra_revision_matches_desired_infra_revision(replica_set: MongoDB, nam
 
 @mark.e2e_om_static_ga_infra_revision
 def test_desired_infra_revision_follows_template_change(replica_set: MongoDB, namespace: str):
+    """Rolls the members onto a new revision one at a time.
+
+    Needs an agent implementing the WaitNodeReplacement replacement handshake: run the Evergreen patch with
+    --param mdb_custom_agent_url=<agent tarball URL>, otherwise this test is expected to fail.
+    """
     previous_revision = replica_set.read_statefulset().status.update_revision
+    previous_uids = {pod_name: pod.metadata.uid for pod_name, pod in read_member_pods(replica_set).items()}
 
     # An agent container env var change is enough to produce a new StatefulSet revision.
     replica_set.load()
@@ -124,16 +164,37 @@ def test_desired_infra_revision_follows_template_change(replica_set: MongoDB, na
     }
     replica_set.update()
 
+    # shortcut: 5 s sampling can miss a brief two-pod overlap; tighten once the operator exposes a rollout gauge.
+    max_unavailable = 0
+
     # The rolling restart is done once pods, StatefulSet and automation config all agree on a new revision.
     def converged_on_new_revision():
+        nonlocal max_unavailable
         try:
+            max_unavailable = max(max_unavailable, count_unavailable_members(replica_set))
             revision = assert_infra_revisions_match(replica_set, namespace)
         except Exception as e:
             return False, str(e)
         return revision != previous_revision, f"revision is {revision}, previous was {previous_revision}"
 
     wait_until(
-        converged_on_new_revision, timeout=900, sleep_time=10, msg="infra revision to follow the template change"
+        converged_on_new_revision,
+        timeout=1200,
+        sleep_time=5,
+        msg="infra revision to follow the template change",
+    )
+    assert max_unavailable <= 1, (
+        f"{max_unavailable} members were unavailable at the same time during the rollout, "
+        "the coordinator must replace one member at a time"
     )
     replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
-    assert assert_infra_revisions_match(replica_set, namespace) != previous_revision
+
+    revision = assert_infra_revisions_match(replica_set, namespace)
+    assert revision != previous_revision, f"revision is still {revision!r}, the template change did not roll out"
+
+    # A replacement always produces a new pod UID; only "differs" is observable from here.
+    current_uids = {
+        pod_name: pod.metadata.uid if pod else None for pod_name, pod in read_member_pods(replica_set).items()
+    }
+    unreplaced = [pod_name for pod_name, uid in previous_uids.items() if current_uids[pod_name] == uid]
+    assert not unreplaced, f"member pods {unreplaced} were not replaced, uids {previous_uids} -> {current_uids}"
