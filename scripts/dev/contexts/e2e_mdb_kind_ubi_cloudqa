@@ -15,6 +15,7 @@ CUSTOM_OM_VERSION=$(grep -E "^\s*-\s*&ops_manager_70_latest\s+(\S+)\s+#" <"${PRO
 export CUSTOM_OM_VERSION
 
 export CUSTOM_MDB_VERSION=6.0.5
-export CUSTOM_MDB_PREV_VERSION=5.0.7
+# The database image is UBI 9 based: the agent downloads rhel9 MongoDB builds, which exist from 6.0.3 on.
+export CUSTOM_MDB_PREV_VERSION=6.0.4
 
 source "${script_dir}/variables/mongodb_search_dev"

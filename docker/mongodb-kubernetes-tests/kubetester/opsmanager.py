@@ -1027,6 +1027,9 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         distros = [
             f"mongodb-linux-x86_64-rhel80-{version}.tgz",
             f"mongodb-linux-x86_64-rhel8-{version}.tgz",
+            # The database image is UBI 9 based, its agent downloads rhel90 (MongoDB < 8.0) or rhel93 builds
+            f"mongodb-linux-x86_64-rhel90-{version}.tgz",
+            f"mongodb-linux-x86_64-rhel93-{version}.tgz",
             f"mongodb-linux-x86_64-ubuntu1604-{version}.tgz",
             f"mongodb-linux-x86_64-ubuntu1804-{version}.tgz",
         ]
