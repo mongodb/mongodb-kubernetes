@@ -16,7 +16,7 @@ The central-cluster RBAC the operator needs for multi-cluster operation always s
 Each member cluster needs RBAC that lets the operator manage workloads on it. The canonical way to produce it is the CLI:
 
 ``` shell
-kubectl mongodb multicluster generate-member-resources \
+kubectl mongodb cluster generate-resources \
   --member-cluster-namespace mongodb | kubectl apply -f -
 ```
 
@@ -38,7 +38,7 @@ metadata:
 type: Opaque
 stringData:
   # Single-context kubeconfig with the member cluster's API server URL, CA and
-  # ServiceAccount token. The real output comes from `generate-member-registration`.
+  # ServiceAccount token. The real output comes from `generate-registration`.
   kubeconfig: |
     apiVersion: v1
     kind: Config
@@ -74,7 +74,7 @@ spec:
 In practice, generate both documents from the live member cluster rather than hand-writing them:
 
 ``` shell
-kubectl mongodb multicluster generate-member-registration \
+kubectl mongodb cluster generate-registration \
   --member-cluster member-cluster --member-cluster-context member-cluster-ctx \
   --member-cluster-namespace mongodb --operator-namespace mongodb
 ```

@@ -16,8 +16,8 @@ K8S_CTX_2=$(echo "${MEMBER_CLUSTERS}" | awk '{print $3}')
 export K8S_CTX_2
 
 # kind API server endpoints (127.0.0.1:<port>) are not reachable from pods, so
-# the credential Secret emitted by `kubectl mongodb multicluster
-# generate-member-registration` -- which takes the API-server address from the
+# the credential Secret emitted by `kubectl mongodb cluster
+# generate-registration` -- which takes the API-server address from the
 # member cluster's kubeconfig context -- would leave the operator unable to
 # reach the member clusters. Build a kubeconfig variant pointing at each
 # cluster's node container IP on the shared docker network (port 6443),

@@ -40,8 +40,8 @@ see [../../01-fresh-start](../../01-fresh-start).
 ## Prerequisites
 
 - A **multi-cluster** Kubernetes environment: one central cluster and two member clusters, with the
-  `kubectl mongodb` plugin available (`multicluster generate-member-resources` /
-  `generate-member-registration`).
+  `kubectl mongodb` plugin available (`cluster generate-resources` /
+  `generate-registration`).
 - `kubectl` and `helm` configured with contexts for all three clusters.
 - An operator build with multi-cluster external-AppDB support (see note above).
 
@@ -69,8 +69,8 @@ Run the whole runbook:
 2. `eadb-mc-01_0045_create_namespaces.sh` — create the namespace in every cluster.
 3. `eadb-mc-01_0100_install_operator.sh` — install the operator in multi-cluster mode.
 4. `eadb-mc-01_0110_configure_member_clusters.sh` — configure the member clusters once the
-   `MemberCluster` CRD exists: apply member-cluster RBAC (`generate-member-resources`) on
-   every cluster, then register them with the operator (`generate-member-registration`).
+   `MemberCluster` CRD exists: apply member-cluster RBAC (`generate-resources`) on
+   every cluster, then register them with the operator (`generate-registration`).
 5. `eadb-mc-01_0200_create_om_admin_secret.sh` — create the Ops Manager admin secret.
 6. `eadb-mc-01_0205_install_cert_manager.sh` — install cert-manager (for AppDB TLS).
 7. `eadb-mc-01_0206_configure_tls_prerequisites.sh` — self-signed CA chain + CA ConfigMap.

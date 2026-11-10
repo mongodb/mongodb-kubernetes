@@ -156,13 +156,13 @@ central cluster:
 
 ```bash
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
-  kubectl mongodb multicluster generate-member-resources \
+  kubectl mongodb cluster generate-resources \
     --member-cluster-namespace="${MDB_NS}" \
     | kubectl apply --context "${ctx}" -f -
 done
 
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
-  kubectl mongodb multicluster generate-member-registration \
+  kubectl mongodb cluster generate-registration \
     --member-cluster="${ctx}" \
     --member-cluster-context="${ctx}" \
     --member-cluster-namespace="${MDB_NS}" \
