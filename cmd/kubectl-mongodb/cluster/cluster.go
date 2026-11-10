@@ -1,10 +1,10 @@
-package multicluster
+package cluster
 
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster/generatememberregistration"
-	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster/generatememberresources"
+	generatememberregistration "github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/cluster/generateregistration"
+	generatememberresources "github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/cluster/generateresources"
 )
 
 // MulticlusterCmd represents the multicluster command

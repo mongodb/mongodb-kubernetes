@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/cluster"
 	migratetomck "github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/migrate-to-mck"
-	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/cmd/kubectl-mongodb/utils"
 )
 
@@ -24,7 +24,7 @@ of MongoDB resources in your kubernetes cluster.
 }
 
 func init() {
-	rootCmd.AddCommand(multicluster.MulticlusterCmd)
+	rootCmd.AddCommand(cluster.MulticlusterCmd)
 	rootCmd.AddCommand(migratetomck.MigrateCmd)
 }
 
