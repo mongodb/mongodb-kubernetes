@@ -58,6 +58,7 @@ RELEASED_STATUS = "RELEASED"
 # The license conditions the operator writes on the Ops Manager resource.
 LICENSE_READY_CONDITION = "OpsManagerLicenseReady"
 LICENSE_RECONCILED_CONDITION = "LicenseReconciled"
+LICENSE_STATE_REASONS = {"GRACE": "LicenseGrace", "UNLICENSED": "LicenseUnlicensed", "EXPIRED": "LicenseExpired"}
 
 # The finalizer the operator holds while it may have a license installed in Ops Manager.
 LICENSE_FINALIZER = "mongodb.com/v1.opsManagerLicenseRemovalFinalizer"
@@ -243,8 +244,7 @@ def expected_ready_condition(om_view: dict, holder_id: str) -> tuple[str, str, s
         license = f"license {held['artifactId']}"
         if held.get("termEnd"):
             license += f", valid until {held['termEnd']}"
-    # The reason turns a state like GRACE into LicenseGrace.
-    status, reason = "False", "License" + "".join(word.capitalize() for word in effective_state.split("_") if word)
+    status, reason = "False", LICENSE_STATE_REASONS.get(effective_state, "LicenseStateUnknown")
     state_message = f"License state is {effective_state}."
     if effective_state == "LICENSED":
         status, reason = "True", "LicenseReady"
