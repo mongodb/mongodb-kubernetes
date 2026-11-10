@@ -15,6 +15,7 @@ REPOSITORIES_NAMES = [
     "dev/mongodb-kubernetes-database",
     "dev/mongodb-kubernetes-init-database",
     "dev/mongodb-kubernetes-init-ops-manager",
+    "dev/mongodb-kubernetes-mongodb-proxy",
     "dev/mongodb-enterprise-ops-manager-ubi",
     "dev/mongodb-kubernetes",
 ]
