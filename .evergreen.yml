@@ -1567,7 +1567,7 @@ task_groups:
 
   # Keep a small legacy-static suite. The other static variants run static-ga, so these three tasks prove that
   # the static pod structure (shared process namespace, the utilities holder, and the launcher) still works.
-  - name: e2e_static_legacy_smoke_arm_task_group
+  - name: e2e_static_legacy_smoke_task_group
     max_hosts: -1
     <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
     tasks:
@@ -2211,23 +2211,15 @@ buildvariants:
     tasks:
       - name: e2e_smoke_arm_task_group
 
-  - name: e2e_static_legacy_smoke_arm
-    display_name: e2e_static_legacy_smoke_arm
-    tags: [ "staging", "e2e_smoke_test_suite", "static" ]
+  - name: e2e_static_legacy_smoke
+    display_name: e2e_static_legacy_smoke
+    tags: [ "staging", "e2e_smoke_test_suite", "static", "static_amd64" ]
+    <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
-      - ubuntu2404-arm64-large
+      - ubuntu2404-medium
     allowed_requesters: [ "patch", "commit" ]
-    depends_on:
-      - name: build_operator_ubi
-        variant: init_test_run
-      - name: build_init_database_image_ubi
-        variant: init_test_run
-      - name: build_test_image_arm
-        variant: init_test_run_arm
-      - name: publish_helm_chart
-        variant: init_test_run
     tasks:
-      - name: e2e_static_legacy_smoke_arm_task_group
+      - name: e2e_static_legacy_smoke_task_group
 
   - name: e2e_static_smoke_arm_ubi9_slim
     display_name: e2e_static_smoke_arm_ubi9_slim
