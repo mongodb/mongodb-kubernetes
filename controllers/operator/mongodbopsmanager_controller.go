@@ -1275,6 +1275,23 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
 	}
 
+	if opsManager.IsManagedCertificateEnabled() {
+		cfg := opsManager.Spec.Security.ManagedCertificate
+		registerCA := func(ref mdbv1.CARef) {
+			resourceType := watch.ConfigMap
+			if ref.Kind == "Secret" {
+				resourceType = watch.Secret
+			}
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, opsManager.Namespace, resourceType, opsManager.ObjectKey())
+		}
+		if cfg.CA != nil {
+			registerCA(*cfg.CA)
+		}
+		for _, ref := range cfg.AdditionalTrustedCAs {
+			registerCA(ref)
+		}
+	}
+
 	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
 }
 

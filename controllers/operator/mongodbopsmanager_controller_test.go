@@ -291,6 +291,80 @@ func TestOMTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), KmipCaKey)
 }
 
+func TestOpsManagerManagedCAInputsAreWatchedAndUnwatched(t *testing.T) {
+	tests := []struct {
+		name         string
+		kind         string
+		resourceType watch.Type
+		primary      bool
+	}{
+		{name: "primary ConfigMap", kind: "ConfigMap", resourceType: watch.ConfigMap, primary: true},
+		{name: "primary Secret", kind: "Secret", resourceType: watch.Secret, primary: true},
+		{name: "additional ConfigMap", kind: "ConfigMap", resourceType: watch.ConfigMap},
+		{name: "additional Secret", kind: "Secret", resourceType: watch.Secret},
+	}
+	for _, tt := range tests {
+		for _, externalAppDB := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/externalAppDB=%t", tt.name, externalAppDB), func(t *testing.T) {
+				ctx := context.Background()
+				testOm := DefaultOpsManagerBuilder().Build()
+				if externalAppDB {
+					testOm = withExternalAppDBRef(testOm, &omv1.ExternalAppDBRef{Name: "external-appdb", Kind: omv1.ExternalAppDBRefKindMongoDB})
+				}
+				ref := mdbv1.CARef{Name: "input-ca", Kind: tt.kind, Key: "ca.crt"}
+				cfg := &omv1.ManagedCertificate{}
+				if tt.primary {
+					cfg.CA = &ref
+				} else {
+					cfg.AdditionalTrustedCAs = []mdbv1.CARef{ref, ref}
+				}
+				testOm.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: cfg}
+				reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+				reconciler.configureWatchersForDynamicResources(ctx, testOm, zap.S())
+				reconciler.configureWatchersForDynamicResources(ctx, testOm, zap.S())
+
+				key := getWatch(testOm.Namespace, "input-ca", tt.resourceType)
+				require.Equal(t, []types.NamespacedName{testOm.ObjectKey()}, reconciler.resourceWatcher.GetWatchedResources()[key])
+				assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources(), getWatch(testOm.Namespace, testOm.TLSCertificateSecretName(), watch.Secret))
+				assert.Contains(t, reconciler.resourceWatcher.GetWatchedResources(), getWatch(testOm.Namespace, testOm.GetOpsManagerCA(), watch.ConfigMap))
+
+				var oldObject, newObject client.Object
+				metadata := metav1.ObjectMeta{Name: "input-ca", Namespace: testOm.Namespace}
+				if tt.resourceType == watch.Secret {
+					oldObject = &corev1.Secret{ObjectMeta: metadata, Data: map[string][]byte{"ca.crt": []byte("old-ca")}}
+					newObject = &corev1.Secret{ObjectMeta: metadata, Data: map[string][]byte{"ca.crt": []byte("new-ca")}}
+				} else {
+					oldObject = &corev1.ConfigMap{ObjectMeta: metadata, Data: map[string]string{"ca.crt": "old-ca"}}
+					newObject = &corev1.ConfigMap{ObjectMeta: metadata, Data: map[string]string{"ca.crt": "new-ca"}}
+				}
+				handler := watch.ResourcesHandler{ResourceType: tt.resourceType, ResourceWatcher: reconciler.resourceWatcher}
+				queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+				defer queue.ShutDown()
+				handler.Update(ctx, event.TypedUpdateEvent[client.Object]{ObjectOld: oldObject, ObjectNew: newObject}, queue)
+				require.Equal(t, 1, queue.Len())
+				request, shutdown := queue.Get()
+				require.False(t, shutdown)
+				assert.Equal(t, testOm.ObjectKey(), request.NamespacedName)
+				queue.Done(request)
+
+				testOm.Spec.Security.ManagedCertificate = &omv1.ManagedCertificate{CertificateConfig: mdbv1.CertificateConfig{
+					AdditionalTrustedCAs: []mdbv1.CARef{{Name: "replacement-ca", Kind: tt.kind, Key: "ca.crt"}},
+				}}
+				reconciler.configureWatchersForDynamicResources(ctx, testOm, zap.S())
+				assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), key)
+				replacementKey := getWatch(testOm.Namespace, "replacement-ca", tt.resourceType)
+				require.Equal(t, []types.NamespacedName{testOm.ObjectKey()}, reconciler.resourceWatcher.GetWatchedResources()[replacementKey])
+				handler.Update(ctx, event.TypedUpdateEvent[client.Object]{ObjectOld: oldObject, ObjectNew: newObject}, queue)
+				assert.Zero(t, queue.Len())
+
+				testOm.Spec.Security.ManagedCertificate = nil
+				reconciler.configureWatchersForDynamicResources(ctx, testOm, zap.S())
+				assert.NotContains(t, reconciler.resourceWatcher.GetWatchedResources(), replacementKey)
+			})
+		}
+	}
+}
+
 func TestOpsManagerPrefixForTLSSecret(t *testing.T) {
 	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
 		Enabled: false,
