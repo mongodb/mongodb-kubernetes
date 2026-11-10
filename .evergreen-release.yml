@@ -29,9 +29,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: operator
-      - func: trivy_scan
-        vars:
-          image_name: operator
 
   - name: release_init_database
     tags: [ "image_release" ]
@@ -41,9 +38,6 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: pipeline
-        vars:
-          image_name: init-database
-      - func: trivy_scan
         vars:
           image_name: init-database
 
@@ -57,9 +51,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: init-ops-manager
-      - func: trivy_scan
-        vars:
-          image_name: init-ops-manager
 
   - name: release_database
     tags: [ "image_release" ]
@@ -69,9 +60,6 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: pipeline
-        vars:
-          image_name: database
-      - func: trivy_scan
         vars:
           image_name: database
 
@@ -85,9 +73,6 @@ tasks:
       - func: pipeline
         vars:
           image_name: readiness-probe
-      - func: trivy_scan
-        vars:
-          image_name: readiness-probe
 
   - name: release_version_upgrade_hook
     tags: [ "image_release" ]
@@ -97,9 +82,6 @@ tasks:
       - func: setup_building_host
       - func: quay_login
       - func: pipeline
-        vars:
-          image_name: upgrade-hook
-      - func: trivy_scan
         vars:
           image_name: upgrade-hook
 

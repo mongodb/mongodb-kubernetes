@@ -32,6 +32,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -112,6 +113,16 @@ func TestChangingFCVMultiCluster(t *testing.T) {
 	}
 
 	testFCVsCases(t, verifyFCV)
+}
+
+func TestLinkToOpsManagerIsReportedInStatus(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+
+	require.NoError(t, client.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), mrs))
+	assert.Equal(t, deployment.Link(om.TestURL, om.TestGroupID), mrs.Status.Link)
 }
 
 func TestCreateMultiReplicaSet(t *testing.T) {
