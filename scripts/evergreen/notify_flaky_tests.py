@@ -23,14 +23,17 @@ import re
 import sys
 import time
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import escape
 from pprint import pprint
+from textwrap import shorten
+from urllib.parse import quote
 
 import requests
 
 HONEYCOMB_API_BASE = "https://api.honeycomb.io/1"
 DATASET = "evergreen-agent"
+TEST_DATASET = "mongodb-e2e-tests"
 PROJECT_ID = "mongodb-kubernetes"
 TIME_RANGE_SECONDS = 604800  # 7 days
 HONEYCOMB_BOARD_URL = "https://ui.honeycomb.io/mongodb-4b/environments/production/board/EgX7rho7iH3/kubernetes-operator"
@@ -41,6 +44,13 @@ ID_BATCH_SIZE = 100
 # The Query Data API permits 10 query starts per minute. A 6.1-second interval leaves boundary headroom.
 QUERY_INTERVAL_SECONDS = 6.1
 _last_query_started = None
+SPAN_COLUMNS = [
+    "evergreen.task.id",
+    "evergreen.task.execution",
+    "trace.trace_id",
+    "trace.span_id",
+]
+OUTCOME_COLUMNS = [f"mck.pytest.outcome.{phase}" for phase in ("setup", "call", "teardown")]
 
 
 def _honeycomb_headers() -> dict[str, str]:
@@ -155,6 +165,80 @@ def _query_rows(
 
 
 @dataclass
+class FailureSummary:
+    nodeid: str
+    message: str
+    failed_executions: int
+    task_runs: int
+    task_id: str
+    execution: int
+    query_url: str
+
+
+@dataclass
+class FailureContext:
+    recovered_runs: int
+    covered_runs: int = 0
+    summaries: list[FailureSummary] = field(default_factory=list)
+
+
+def _failure_message(details: str) -> str:
+    lines = [re.sub(r"^E\s+", "", line) for line in details.splitlines() if re.match(r"^E\s+", line)]
+    exceptions = [line for line in lines if re.match(r"^[\w.]*?(?:Error|Exception|Failure)(?::|$)", line)]
+    if exceptions:
+        return exceptions[-1].strip()
+    if lines:
+        return lines[0].strip()
+    return next((line.strip() for line in reversed(details.splitlines()) if line.strip()), "")
+
+
+def _summarize_failures(recovered: dict[str, int], rows: list[dict]) -> FailureContext:
+    context = FailureContext(recovered_runs=len(recovered))
+    groups = defaultdict(dict)
+    for row in rows:
+        task_id, execution = row.get("evergreen.task.id"), _execution(row)
+        nodeid = row.get("mck.pytest.nodeid")
+        if (
+            not task_id
+            or not nodeid
+            or execution < 0
+            or execution >= recovered.get(task_id, -1)
+            or not any(row.get(column) == "failed" for column in OUTCOME_COLUMNS)
+        ):
+            continue
+        message = _failure_message(row.get("mck.pytest.error_details") or "")
+        if not message:
+            continue
+        poll = re.fullmatch(
+            r"([\w.]*AssertionError: Timed out executing .+?) after ([\d.]+) seconds and \d+ attempt\(s\)", message
+        )
+        signature = poll.group(1) if poll else message
+        if re.match(r"[\w.]*Exception: Timeout \(\d+\) reached while waiting", message):
+            signature = message.partition("| status:")[0].strip()
+        groups[(nodeid, signature)][(task_id, execution)] = {
+            **row,
+            "_failure_text": message,
+        }
+    context.covered_runs = len({task_id for attempts in groups.values() for task_id, _ in attempts})
+    # Keep the two largest failure groups within the five-task layout.
+    for (nodeid, _), attempts in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0]))[:2]:
+        task_id, execution = min(attempts)
+        example = attempts[(task_id, execution)]
+        context.summaries.append(
+            FailureSummary(
+                nodeid=nodeid,
+                message=example["_failure_text"],
+                failed_executions=len(attempts),
+                task_runs=len({key[0] for key in attempts}),
+                task_id=task_id,
+                execution=execution,
+                query_url=example.get("_query_url", ""),
+            )
+        )
+    return context
+
+
+@dataclass
 class FlakyTask:
     task_name: str
     variant: str
@@ -172,6 +256,7 @@ class WeeklyTask:
     retried_runs: dict[str, int]
     other_runs: int = 0
     counts_query_url: str = ""
+    failure_context: FailureContext | None = None
 
     @property
     def passed_without_retries(self) -> int:
@@ -296,6 +381,28 @@ def get_weekly_tasks(window: dict) -> list[WeeklyTask]:
     return tasks
 
 
+def enrich_flaky_tasks(flaky_tasks: list[WeeklyTask], window: dict) -> None:
+    for task in flaky_tasks[:5]:
+        print(f"Querying failed tests for {task.variant}/{task.task_name}...", file=sys.stderr)
+        failures = _query_rows(
+            window,
+            TEST_DATASET,
+            [
+                {"column": "status_code", "op": "=", "value": 2},
+                {"column": "mck.pytest.nodeid", "op": "exists"},
+            ],
+            [
+                *SPAN_COLUMNS,
+                *OUTCOME_COLUMNS,
+                "mck.pytest.nodeid",
+                "mck.pytest.error_details",
+            ],
+            "evergreen.task.id",
+            sorted(task.retried_runs),
+        )
+        task.failure_context = _summarize_failures(task.retried_runs, failures)
+
+
 def _slack_text(text: str) -> str:
     text = re.sub(r"(?i)(mongodb(?:\+srv)?://)[^\s/@]+@", r"\1[REDACTED]@", text)
     text = re.sub(
@@ -305,6 +412,29 @@ def _slack_text(text: str) -> str:
         text,
     )
     return escape(" ".join(text.split()).replace("`", "'"), quote=False)
+
+
+def _format_failure_context(context: FailureContext | None) -> str:
+    if context is None or not context.summaries:
+        return "↳ Failed-test details unavailable"
+    lines = []
+    for summary in context.summaries:
+        nodeid = summary.nodeid.partition("::")[2] or summary.nodeid
+        # Messages exceed 1,000 characters. These excerpts keep two examples with 400-character task IDs below Slack's 3,000-character section limit.
+        name = shorten(_slack_text(nodeid), width=120, placeholder="…")
+        message = shorten(_slack_text(summary.message), width=280, placeholder="…")
+        task_url = (
+            f"https://spruce.corp.mongodb.com/task/{quote(summary.task_id, safe='')}?execution={summary.execution}"
+        )
+        executions = "execution" if summary.failed_executions == 1 else "executions"
+        passed_runs = "run" if context.recovered_runs == 1 else "runs"
+        lines.append(
+            f"↳ `{name}` — {summary.task_runs} of {context.recovered_runs} {passed_runs} that passed with retries affected · "
+            f"{summary.failed_executions} failed pytest {executions}\n"
+            f"Example: `{message}`"
+        )
+        lines.append(f"<{task_url}|Evergreen> · <{summary.query_url}|Honeycomb>")
+    return "\n".join(lines)
 
 
 def get_flaky_tasks(window: dict | None = None) -> list[FlakyTask]:
@@ -406,7 +536,8 @@ def format_slack_message(flaky_tasks: list[WeeklyTask]) -> dict:
                         "One run = one Evergreen task ID, latest execution in the report window.\n"
                         "Passed without retries: execution 0 succeeded.\n"
                         "Passed with retries: a later execution succeeded.\n"
-                        "Didn't pass even with retries: no successful execution."
+                        "Didn't pass even with retries: no successful execution.\n"
+                        "Errors are from failed executions before a successful retry (`mck.pytest.error_details`)."
                     ),
                 }
             ],
@@ -430,11 +561,21 @@ def format_slack_message(flaky_tasks: list[WeeklyTask]) -> dict:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": (f"*{_slack_text(task.task_name)}*\n`{_slack_text(task.variant)}`\n" f"{outcomes}"),
+                    "text": (
+                        f"*{_slack_text(task.task_name)}*\n`{_slack_text(task.variant)}`\n"
+                        f"{outcomes}\n"
+                        f"{_format_failure_context(task.failure_context)}"
+                    ),
                 },
             }
         )
 
+    contexts = [task.failure_context for task in flaky_tasks[:5] if task.failure_context is not None]
+    coverage = (
+        f"Failure details: {sum(c.covered_runs for c in contexts)}/{sum(c.recovered_runs for c in contexts)} runs that passed with retries. "
+        if len(contexts) == len(flaky_tasks[:5])
+        else "Some failure details are unavailable. "
+    )
     blocks.append({"type": "divider"})
     blocks.append(
         {
@@ -442,7 +583,13 @@ def format_slack_message(flaky_tasks: list[WeeklyTask]) -> dict:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"<{HONEYCOMB_BOARD_URL}|View in Honeycomb>",
+                    "text": (
+                        f"<{HONEYCOMB_BOARD_URL}|View in Honeycomb> · "
+                        f"{coverage}A run can appear under multiple checks. "
+                        "Attempt counts in exception text are not Evergreen executions. "
+                        "Runs that didn't pass are counted above, but their errors are not included. "
+                        "Examples are not confirmed root causes."
+                    ),
                 }
             ],
         }
@@ -480,6 +627,10 @@ def main():
         end_time = int(time.time())
         window = {"start_time": end_time - TIME_RANGE_SECONDS, "end_time": end_time}
         flaky_tasks = get_weekly_tasks(window)
+        try:
+            enrich_flaky_tasks(flaky_tasks, window)
+        except (requests.RequestException, RuntimeError, ValueError) as e:
+            print(f"Failure details unavailable: {e}", file=sys.stderr)
 
         print(f"\nFound {len(flaky_tasks)} flaky tasks")
 
