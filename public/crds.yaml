@@ -8888,11 +8888,14 @@ spec:
                       rule: self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size()
                         == 1)
                   releaseReceiptsPolicy:
+                    default: OnlyListed
                     description: |-
                       ReleaseReceiptsPolicy controls which released licenses get a receipt.
-                      When unset, only the licenses listed in releaseReceipts get one.
-                      Automatic also covers every license the operator releases.
+                      OnlyListed writes a receipt only for the licenses listed in releaseReceipts.
+                      Automatic writes a receipt for every license the operator releases.
+                      Defaults to OnlyListed.
                     enum:
+                    - OnlyListed
                     - Automatic
                     type: string
                   secretRef:
