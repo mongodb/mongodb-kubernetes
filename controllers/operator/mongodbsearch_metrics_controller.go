@@ -608,6 +608,11 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 		caConfigMapName = search.MetricsForwarderCACertConfigMapNameForCluster(w.ClusterIndex)
 	}
 
+	mongotPodSelector, err := searchcontroller.MongotPodSelector(search, w.ClusterIndex, shardNames)
+	if err != nil {
+		return false, workflow.Failed(err)
+	}
+
 	configYAML, err := r.otelConfigTemplate.Execute(searchcontroller.MetricsForwarderConfigParams{
 		OMBaseURL:                         projectConfig.BaseURL,
 		HasOMCaCert:                       caConfigMapName != "",
@@ -619,6 +624,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) reconcileForCluster(
 		MongotVersion:                     search.Status.Version,
 		MongotName:                        search.Name,
 		MongotGRPCPort:                    int(search.GetMongotGrpcPort()),
+		MongotPodSelector:                 mongotPodSelector,
 		ScrapeInterval:                    prometheusDefaultScrapeInterval,
 	})
 	if err != nil {
