@@ -50,7 +50,6 @@ from pytest import fixture, mark, skip
 from tests.conftest import get_default_operator, local_operator
 
 
-
 @fixture(scope="module")
 def operator_with_proxy(namespace: str, operator_installation_config: dict[str, str]) -> Operator:
     image = proxy_image()
@@ -428,7 +427,11 @@ def test_agent_stops_a_leftover_ephemeral_mongod_when_it_starts(replica_set: Mon
     def member_runs_again() -> bool:
         current = mongod_identity(pod, namespace)
         state = query_proxy(pod, namespace)
-        return current not in ("", identity, ephemeral_identity) and state["role"] == "main" and state["state"] == "running"
+        return (
+            current not in ("", identity, ephemeral_identity)
+            and state["role"] == "main"
+            and state["state"] == "running"
+        )
 
     # the ephemeral mongod is a new process too, so only the role of the process in the proxy tells the member
     wait_until(f"{pod} to run the member again", member_runs_again, 600)
@@ -608,4 +611,3 @@ def test_agent_starts_mongod_without_authentication_when_it_is_switched_off(repl
     for pod in pod_members(replica_set):
         assert query_proxy(pod, namespace)["state"] == "running", pod
         assert unauthenticated_result(pod, namespace) == "allowed", pod
-
