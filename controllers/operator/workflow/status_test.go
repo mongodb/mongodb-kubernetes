@@ -36,7 +36,7 @@ func TestDisabledReconcileResult(t *testing.T) {
 func TestAutomationConfigConflictIsPending(t *testing.T) {
 	conflict := &apierror.Error{
 		Status:    new(409),
-		ErrorCode: apierror.AutomationConfigConcurrentModification,
+		ErrorCode: "AUTOMATION_CONFIG_CONCURRENT_MODIFICATION",
 	}
 
 	tests := []struct {

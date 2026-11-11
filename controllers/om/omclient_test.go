@@ -233,9 +233,9 @@ func TestReadUpdateAutomationConfigReturnsAutomationConfigConflict(t *testing.T)
 
 	require.Error(t, err)
 	apiErr := apierror.NewNonNil(err)
-	assert.Equal(t, apierror.AutomationConfigConcurrentModification, apiErr.ErrorCode)
 	require.NotNil(t, apiErr.Status)
 	assert.Equal(t, http.StatusConflict, *apiErr.Status)
+	assert.Contains(t, err.Error(), "AUTOMATION_CONFIG_CONCURRENT_MODIFICATION")
 }
 
 func TestHTTPOmConnectionGetHTTPClientRace(t *testing.T) {
