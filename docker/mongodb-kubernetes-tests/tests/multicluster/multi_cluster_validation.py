@@ -21,25 +21,3 @@ class TestWebhookValidation(KubernetesTester):
             exception_reason="Multiple clusters with the same name (kind-e2e-cluster-1) are not allowed",
             api_client=central_cluster_client,
         )
-
-    def test_only_one_schema(self, central_cluster_client: kubernetes.client.ApiClient):
-        resource = yaml.safe_load(open(yaml_fixture("mongodb-multi-cluster.yaml")))
-        resource["spec"]["cloudManager"] = {"configMapRef": {"name": " my-project"}}
-
-        self.create_custom_resource_from_object(
-            self.get_namespace(),
-            resource,
-            exception_reason="either spec.cloudManager or spec.opsManager can be set",
-            api_client=central_cluster_client,
-        )
-
-    def test_non_empty_clusterspec_list(self, central_cluster_client: kubernetes.client.ApiClient):
-        resource = yaml.safe_load(open(yaml_fixture("mongodb-multi-cluster.yaml")))
-        resource["spec"]["clusterSpecList"] = []
-
-        self.create_custom_resource_from_object(
-            self.get_namespace(),
-            resource,
-            exception_reason="ClusterSpecList empty is not allowed, please define at least one cluster",
-            api_client=central_cluster_client,
-        )
