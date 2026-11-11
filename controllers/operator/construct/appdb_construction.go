@@ -386,7 +386,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture))
 	agentArgs := []string{"-f", path.Join(AgentSettingsPath, AgentSettingsFileName)}
-	overrideLocalHost, hasOverrideLocalHost := appDb.AutomationAgent.StartupParameters["overrideLocalHost"]
+	overrideLocalHost, hasOverrideLocalHost := AgentSettingsOverrides(appDb.AutomationAgent.StartupParameters)["overrideLocalHost"]
 	if externalDomain != nil {
 		overrideLocalHost = "$(POD_NAME)." + *externalDomain
 		hasOverrideLocalHost = true

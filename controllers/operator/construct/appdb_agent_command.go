@@ -53,7 +53,7 @@ func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, 
 		settings["maxLogFileDurationHrs"] = strconv.Itoa(appDB.GetAgentMaxLogFileDurationHours())
 	}
 	// Match the database merge: an empty mmsBaseUrl or mmsApiKeyExec cannot mean "set this to empty".
-	overrides := maps.Clone(parameters)
+	overrides := AgentSettingsOverrides(parameters)
 	maps.DeleteFunc(overrides, func(key, value string) bool {
 		return value == "" && (key == "mmsBaseUrl" || key == agentAPIKeyExecSetting)
 	})
