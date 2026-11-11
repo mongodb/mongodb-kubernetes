@@ -1511,7 +1511,7 @@ def generate_and_apply_member_resources(
             plugin,
             "cluster",
             "generate-resources",
-            "--member-cluster-namespace",
+            "--operator-namespace",
             member_namespace,
         ]
         if workload_namespaces:
@@ -1525,7 +1525,6 @@ def generate_and_apply_member_resources(
 
 def generate_and_apply_member_registration(
     member_clusters: List[str],
-    member_namespace: str,
     operator_namespace: str,
     central_cluster: str,
 ):
@@ -1545,8 +1544,6 @@ def generate_and_apply_member_registration(
             cluster,
             "--member-cluster-context",
             cluster,
-            "--member-cluster-namespace",
-            member_namespace,
             "--operator-namespace",
             operator_namespace,
         ]
@@ -1566,7 +1563,7 @@ def configure_multi_cluster_members(
     """Apply member-cluster RBAC to each member cluster, then register each cluster with the
     operator's cluster."""
     generate_and_apply_member_resources(member_clusters, member_namespace, workload_namespaces, operator_cluster_scoped)
-    generate_and_apply_member_registration(member_clusters, member_namespace, operator_namespace, central_cluster)
+    generate_and_apply_member_registration(member_clusters, operator_namespace, central_cluster)
 
 
 def get_api_servers_from_kubeconfig_secret(
