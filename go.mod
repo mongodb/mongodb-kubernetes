@@ -41,6 +41,7 @@ require (
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	k8s.io/api v0.34.12
+	k8s.io/apiextensions-apiserver v0.33.0
 	k8s.io/apimachinery v0.34.12
 	k8s.io/client-go v0.34.12
 	k8s.io/code-generator v0.34.12
@@ -196,7 +197,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools/gotestsum v1.12.3 // indirect
-	k8s.io/apiextensions-apiserver v0.33.0 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250604051438-85fd79dbfd9f // indirect
 	k8s.io/kube-openapi v0.0.0-20250710124328-f3f2b991d03b // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
