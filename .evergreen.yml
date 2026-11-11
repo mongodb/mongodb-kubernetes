@@ -323,6 +323,10 @@ patch_aliases:
     description: "Run all non-static container variants"
     variant_tags: [ "non_static" ]
     task: ".*"
+  - alias: "multi_cluster"
+    description: "Run all non-static multi-cluster variants"
+    variant_tags: [ "multi_cluster" ]
+    task: ".*"
   - alias: "om7"
     description: "Run OM7 variants (static and non-static)"
     variant_tags: [ "om7" ]
@@ -358,6 +362,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-non-static"
+  - variant_tags: [ "multi_cluster" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:multi-cluster"
   - variant_tags: [ "cloudqa" ]
     task: ".*"
     required_labels:
@@ -2163,7 +2171,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om8_dependency]
     run_on:
       - ubuntu2404-large
@@ -2192,7 +2200,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [ *production_code_paths, *base_om7_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2220,7 +2228,7 @@ buildvariants:
   # The multi-cluster OM variants below run against the 9.0 release candidate.
   - name: e2e_multi_cluster_om_appdb
     display_name: e2e_multi_cluster_om_appdb
-    tags: [ "staging", "e2e_test_suite", "om9", "non_static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large
@@ -2243,7 +2251,7 @@ buildvariants:
   # variants, as it did on master.
   - name: e2e_multi_cluster_om70_appdb_upgrade
     display_name: e2e_multi_cluster_om70_appdb_upgrade
-    tags: [ "staging", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om7_dependency]
     run_on:
       - ubuntu2404-large
@@ -2270,7 +2278,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om80_search
     display_name: e2e_multi_cluster_om80_search
-    tags: [ "staging", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [ *production_code_paths, *base_om8_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2279,7 +2287,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
-    tags: [ "staging", "e2e_test_suite", "om9", "non_static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large
