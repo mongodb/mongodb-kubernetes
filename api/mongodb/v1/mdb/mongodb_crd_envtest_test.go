@@ -17,7 +17,11 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_mongodb.yaml")))
+	os.Exit(env.RunShared(m,
+		// ClusterMongoDBRole is installed here so that every CRD is installed by at least one package.
+		env.WithCRDs("mongodb.com_mongodb.yaml", "mongodb.com_clustermongodbroles.yaml"),
+		env.WithWebhooks("webhooks.yaml"),
+	))
 }
 
 func newMongoDB(t *testing.T, mutate func(*mdbv1.MongoDB)) *mdbv1.MongoDB {

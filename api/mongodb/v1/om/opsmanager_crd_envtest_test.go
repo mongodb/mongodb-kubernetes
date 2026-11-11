@@ -19,7 +19,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_opsmanagers.yaml")))
+	os.Exit(env.RunShared(m,
+		env.WithCRDs("mongodb.com_opsmanagers.yaml"),
+		env.WithWebhooks("webhooks.yaml"),
+	))
 }
 
 func newOpsManager(t *testing.T, mutate func(*omv1.MongoDBOpsManager)) *omv1.MongoDBOpsManager {
