@@ -50,12 +50,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/ommetrics"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -95,12 +97,36 @@ type ReconcileCommonController struct {
 
 	resourceWatcher *watch.ResourceWatcher
 
-	customAgentURL string
-
+	customAgentURL      string
+	omMetrics           OMMetricsMultiplexer
 	agentErrorsThrottle func(key any) bool
 }
 
-func NewReconcileCommonController(ctx context.Context, client client.Client) *ReconcileCommonController {
+// OMMetricsMultiplexer must be passed as a true nil, not a typed-nil pointer.
+type OMMetricsMultiplexer interface {
+	EnsureProject(ommetrics.Project, string, ommetrics.TLSOptions, ommetrics.MongoDBDeployment) error
+	ReleaseProject(ommetrics.Project) error
+}
+
+// ReleaseOtelExporter drops the Ops Manager project recorded in the resource's status.link from the
+// metrics export destinations. Reads only the status, so it works when OM is unreachable. Fire-and-forget.
+// Controllers should call this inside their OnDelete handler to proactively shut down the metrics exporter when a deployment is removed.
+// Without this the exporter will continue sending metrics until the ommetrics reaper collects on its own.
+// TODO(KUBE-683): releases the whole project, which is correct only while MCK supports one deployment per project.
+func (r *ReconcileCommonController) ReleaseOtelExporter(statusLink string, log *zap.SugaredLogger) {
+	if r.omMetrics == nil {
+		return
+	}
+	p, ok := ommetrics.ProjectFromLink(statusLink)
+	if !ok {
+		return
+	}
+	if err := r.omMetrics.ReleaseProject(p); err != nil {
+		log.Debugf("ommetrics: failed to release metrics destination for group %s: %v", p.GroupID, err)
+	}
+}
+
+func NewReconcileCommonController(ctx context.Context, client client.Client, omMetrics OMMetricsMultiplexer) *ReconcileCommonController {
 	newClient := kubernetesClient.NewClient(client)
 	var vaultClient *vault.VaultClient
 
@@ -126,7 +152,7 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 	customAgentURL := env.ReadOrDefault(util.EnvVarCustomAgentURL, "") // nolint:forbidigo
 
-	return &ReconcileCommonController{
+	rc := &ReconcileCommonController{
 		client: newClient,
 		SecretClient: secrets.SecretClient{
 			VaultClient: vaultClient,
@@ -134,7 +160,53 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 		},
 		resourceWatcher:     watch.NewResourceWatcher(),
 		customAgentURL:      customAgentURL,
+		omMetrics:           omMetrics,
 		agentErrorsThrottle: util.NewThrottle(agentErrorsLogInterval),
+	}
+	return rc
+}
+
+// EnsureOtelExporterForDeployment makes conn's Ops Manager project a metrics export destination for the specified deployment.
+// If previousStatusLink names a different project, the resource has moved, so that project's exporter is released first.
+//
+// Call it only after the deployment has been moved into conn's project. OnDelete releases the project in
+// status.link, so a resource deleted before status.link is updated leaves conn's project registered until
+// PruneStale removes it.
+//
+// Fire-and-forget: telemetry must never fail a reconcile.
+func (r *ReconcileCommonController) EnsureOtelExporterForDeployment(conn om.Connection, agentAPIKey string, previousStatusLink string, deployment ommetrics.MongoDBDeployment, log *zap.SugaredLogger) {
+	if r.omMetrics == nil {
+		return
+	}
+	omCtx := conn.Context()
+
+	if previous, ok := ommetrics.ProjectFromLink(previousStatusLink); ok && !previous.SameDestination(ommetrics.Project{BaseURL: omCtx.BaseURL, GroupID: omCtx.GroupID}) {
+		r.ReleaseOtelExporter(previousStatusLink, log)
+	}
+
+	if omCtx.Version.IsUnknown() {
+		log.Debugf("ommetrics: Ops Manager version unknown yet; skipping metrics registration for group %s", omCtx.GroupID)
+		return
+	} else if omCtx.Version.IsCloudManager() {
+		// Cloud Manager has no OTLP ingestion endpoint.
+		return
+	}
+	sv, err := omCtx.Version.Semver()
+	if err != nil {
+		log.Debugf("ommetrics: failed to parse Ops Manager version %q for group %s: %v", omCtx.Version, omCtx.GroupID, err)
+		return
+	}
+	if !sv.GTE(versionutil.MinOTLPMetricsOpsManagerSemver) {
+		log.Debugf("ommetrics: Ops Manager %s does not support the metrics endpoint (minimum: %s) for group %s",
+			omCtx.Version, versionutil.MinOTLPMetricsOpsManagerSemver, omCtx.GroupID)
+		return
+	}
+
+	if err := r.omMetrics.EnsureProject(ommetrics.Project{BaseURL: omCtx.BaseURL, GroupID: omCtx.GroupID}, agentAPIKey, ommetrics.TLSOptions{
+		CACertificate:              omCtx.CACertificate,
+		AllowInvalidSSLCertificate: omCtx.AllowInvalidSSLCertificate,
+	}, deployment); err != nil {
+		log.Debugf("ommetrics: failed to register metrics destination for group %s: %v", omCtx.GroupID, err)
 	}
 }
 
