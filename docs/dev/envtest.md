@@ -56,6 +56,12 @@ Guidelines:
   can never silently skip envtest coverage.
 - envtest runs no controllers: objects are stored and validated, but nothing reconciles
   them, and namespaces cannot be deleted.
+- To test an admission webhook, add `env.WithWebhooks("webhooks.yaml")` to the package's
+  `TestMain` and call `env.Shared(t).StartWebhookServer` in the test, registering the
+  validator. The server stops with the test: while it runs, it rejects the invalid objects
+  other tests of the package create. The configuration ignores unreachable webhooks, so
+  pair every rejected object with an accepted one and assert the denial
+  (`env.DeniedByWebhook`).
 
-See `api/mongodb/v1/search/mongodbsearch_cel_envtest_test.go` for a complete example:
+See `api/mongodb/v1/search/mongodbsearch_crd_envtest_test.go` for a complete example:
 it verifies the CEL rules declared on the `MongoDBSearch` type in the very same package.
