@@ -15,7 +15,7 @@ source scripts/funcs/operator_deployment
 # No released agent defines -mongodProxyAddress, so the static-ga default set runs this candidate build.
 # The artifact is rhel8_x86_64 and the S3 lifecycle expires it on 2027-11-06.
 if [[ "${MDB_DEFAULT_ARCHITECTURE:-}" == "static-ga" && "$(uname -m)" == "x86_64" && -z "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
-  export MDB_CUSTOM_AGENT_URL="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6aec7805bec40d0007fe0ae1/automation-agent/local/mongodb-mms-automation-agent-110.0.0.9427-1.rhel8_x86_64.tar.gz"
+  export MDB_CUSTOM_AGENT_URL="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6af45677f320d90007382c7b/automation-agent/local/mongodb-mms-automation-agent-110.0.0.9427-1.rhel8_x86_64.tar.gz"
 fi
 
 # Validate candidate inputs before namespace cleanup or other Kubernetes mutations.
