@@ -532,6 +532,21 @@ func TestDatabaseAgentSettingsHostname(t *testing.T) {
 	}
 }
 
+func TestDatabaseAgentHostnameKeyAcceptsLeadingDash(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().SetNamespace(mock.TestNamespace).SetAgentConfig(mdbv1.AgentConfig{
+		StartupParameters: mdbv1.StartupParameters{"-overrideLocalHost": "customer.example.com"},
+	}).Build()
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions())
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	require.NoError(t, err)
+	agent := construct.AgentContainer(*created)
+	require.NotNil(t, agent)
+	assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: "customer.example.com"}, agent.Env[len(agent.Env)-1])
+}
+
 func TestDatabaseAgentHostnameEnvFollowsMergedEnvironment(t *testing.T) {
 	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
 		t.Run(string(architecture), func(t *testing.T) {
