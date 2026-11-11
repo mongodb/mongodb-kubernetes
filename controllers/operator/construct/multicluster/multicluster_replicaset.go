@@ -20,20 +20,20 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			stsSpec = mdbm.Spec.StatefulSetConfiguration.SpecWrapper.Spec
 		}
 		opts := construct.DatabaseStatefulSetOptions{
-			Name:                          mdbm.Name,
-			ServicePort:                   mdbm.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
-			Persistent:                    mdbm.Spec.Persistent,
-			AgentConfig:                   &mdbm.Spec.Agent,
-			PodSpec:                       construct.NewDefaultPodSpecWrapper(*mdbv1.NewMongoDbPodSpec()),
-			Labels:                        mdbm.Labels,
-			StsLabels:                     mdbm.GetOwnerLabels(),
-			OwnerReference:                nil,
-			MultiClusterMode:              true,
-			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
-			StatefulSetSpecOverride:       &stsSpec,
-			StsType:                       construct.MultiReplicaSet,
-			DownloadBase:                  mdbm.Spec.GetDownloadBase(),
-			Annotations:                   handler.MultiClusterStatefulSetAnnotations(mdbm.Name),
+			Name:                    mdbm.Name,
+			ServicePort:             mdbm.Spec.GetAdditionalMongodConfig().GetPortOrDefault(),
+			Persistent:              mdbm.Spec.Persistent,
+			AgentConfig:             &mdbm.Spec.Agent,
+			PodSpec:                 construct.NewDefaultPodSpecWrapper(*mdbv1.NewMongoDbPodSpec()),
+			Labels:                  mdbm.Labels,
+			StsLabels:               mdbm.GetOwnerLabels(),
+			OwnerReference:          nil,
+			MultiClusterMode:        true,
+			AgentHostnameOverride:   construct.AgentHostnameOverride(nil, true, mdbm.Namespace, mdbm.Spec.GetClusterDomain()),
+			StatefulSetSpecOverride: &stsSpec,
+			StsType:                 construct.MultiReplicaSet,
+			DownloadBase:            mdbm.Spec.GetDownloadBase(),
+			Annotations:             handler.MultiClusterStatefulSetAnnotations(mdbm.Name),
 		}
 		for _, opt := range additionalOpts {
 			opt(&opts)
@@ -46,6 +46,13 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 func WithServiceName(serviceName string) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
 		options.ServiceName = serviceName
+	}
+}
+
+// WithAgentHostnameOverride sets the hostname for one member cluster, whose external domain can differ from the others.
+func WithAgentHostnameOverride(hostname string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentHostnameOverride = hostname
 	}
 }
 

@@ -251,14 +251,23 @@ func AgentReadsMountedAPIKey(opts DatabaseStatefulSetOptions) bool {
 	return databaseAgentSettings(opts, agentRuntime{})["mmsApiKeyExec"] == agentAPIKeyExecCommand()
 }
 
-// setAgentHostnameEnv passes a customer overrideLocalHost to the launcher. It is appended last
+// setAgentHostnameEnv passes the advertised hostname to the launcher, which is the customer's
+// overrideLocalHost or else the one the operator generated from the pod name. It is appended last
 // because Kubernetes expands references using the entries that precede them.
 func setAgentHostnameEnv(agent *corev1.Container, opts DatabaseStatefulSetOptions) {
 	agent.Env = slices.DeleteFunc(agent.Env, func(variable corev1.EnvVar) bool { return variable.Name == agentHostnameOverrideEnv })
-	if opts.AgentConfig == nil {
-		return
+	var hostname string
+	var ok bool
+	if opts.AgentConfig != nil {
+		hostname, ok = AgentSettingsOverrides(opts.AgentConfig.StartupParameters)["overrideLocalHost"]
 	}
-	if hostname, ok := AgentSettingsOverrides(opts.AgentConfig.StartupParameters)["overrideLocalHost"]; ok {
+	if !ok && opts.AgentHostnameOverride != "" {
+		hostname, ok = opts.AgentHostnameOverride, true
+		if _, defined := env.ToMap(agent.Env...)[PodNameEnv]; !defined {
+			agent.Env = append(agent.Env, PodNameEnvVar())
+		}
+	}
+	if ok {
 		agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
 	}
 }
@@ -302,4 +311,28 @@ func replaceVolume(template *corev1.PodTemplateSpec, volume corev1.Volume) {
 		}
 	}
 	template.Spec.Volumes = append(template.Spec.Volumes, volume)
+}
+
+// PodNameEnv holds the pod name from the Downward API so AgentHostnameOverride can reference it.
+const PodNameEnv = "POD_NAME"
+
+// AgentHostnameOverride returns the hostname the agent advertises, or "" to keep the pod's own hostname.
+// It must match the hostnames the operator registers in the automation config (see pkg/dns).
+func AgentHostnameOverride(externalDomain *string, multiCluster bool, namespace, clusterDomain string) string {
+	if externalDomain != nil && *externalDomain != "" {
+		return fmt.Sprintf("$(%s).%s", PodNameEnv, *externalDomain)
+	}
+	if !multiCluster {
+		return ""
+	}
+	domain := "cluster.local"
+	if clusterDomain != "" {
+		domain = strings.TrimPrefix(clusterDomain, ".")
+	}
+	return fmt.Sprintf("$(%s)-svc.%s.svc.%s", PodNameEnv, namespace, domain)
+}
+
+// PodNameEnvVar exposes the pod name through the Downward API.
+func PodNameEnvVar() corev1.EnvVar {
+	return corev1.EnvVar{Name: PodNameEnv, ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}}
 }

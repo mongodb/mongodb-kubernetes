@@ -254,10 +254,6 @@ func (m *MongoDB) GetSecretsMountedIntoDBPod(projectID string) []string {
 	return secrets
 }
 
-func (m *MongoDB) GetHostNameOverrideConfigmapName() string {
-	return fmt.Sprintf("%s-hostname-override", m.Name)
-}
-
 func (m *MongoDB) GetReplicaSetName() string {
 	if !m.IsReplicaSet() {
 		panic(errors.Errorf("ReplicaSetName is only applicable for ReplicaSet topology, but got %s", m.Spec.Topology))
