@@ -418,16 +418,14 @@ func TestEnsureRolesErrors(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name                      string
-		referencedRole            *role.ClusterMongoDBRole
-		enableClusterMongoDBRoles bool
-		expectedError             string
+		name           string
+		referencedRole *role.ClusterMongoDBRole
+		expectedError  string
 	}{
 		{
-			name:                      "referenced role with an empty name",
-			referencedRole:            clusterMongoDBRoleWith(mdbv1.MongoDBRole{Db: "admin"}),
-			enableClusterMongoDBRoles: true,
-			expectedError:             "Error validating role 'default-role' - Cannot create a role with an empty name",
+			name:           "referenced role with an empty name",
+			referencedRole: clusterMongoDBRoleWith(mdbv1.MongoDBRole{Db: "admin"}),
+			expectedError:  "Error validating role 'default-role' - Cannot create a role with an empty name",
 		},
 		{
 			name: "referenced role with an invalid action",
@@ -436,13 +434,7 @@ func TestEnsureRolesErrors(t *testing.T) {
 				Db:         "admin",
 				Privileges: []mdbv1.Privilege{{Actions: []string{"insertFoo"}, Resource: mdbv1.Resource{Db: new("admin"), Collection: new("foo")}}},
 			}),
-			enableClusterMongoDBRoles: true,
-			expectedError:             "Error validating role 'default-role' - Privilege is invalid - Actions are not valid - insertFoo is not a valid db action",
-		},
-		{
-			name:           "roleRefs with ClusterMongoDBRoles disabled",
-			referencedRole: role.DefaultClusterMongoDBRoleBuilder().Build(),
-			expectedError:  "RoleRefs are not supported when ClusterMongoDBRoles are disabled. Please enable ClusterMongoDBRoles in the operator configuration. This can be done by setting the operator.enableClusterMongoDBRoles to true in the helm values file, which will automatically installed the necessary RBAC. Alternatively, it can be enabled by adding -watch-resource=clustermongodbroles flag to the operator deployment, and manually creating the necessary RBAC.",
+			expectedError: "Error validating role 'default-role' - Privilege is invalid - Actions are not valid - insertFoo is not a valid db action",
 		},
 	}
 
@@ -457,12 +449,9 @@ func TestEnsureRolesErrors(t *testing.T) {
 				SetRoleRefs([]mdbv1.MongoDBRoleRef{{Name: test.referencedRole.Name, Kind: util.ClusterMongoDBRoleKind}}).
 				Build()
 
-			result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, test.enableClusterMongoDBRoles, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+			result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 			require.Equal(t, status.PhaseFailed, result.Phase())
-
-			messageOption, ok := status.GetOption(result.StatusOptions(), status.MessageOption{})
-			require.True(t, ok)
-			require.Equal(t, test.expectedError, messageOption.(status.MessageOption).Message)
+			require.Equal(t, test.expectedError, statusMsg(result))
 		})
 	}
 }

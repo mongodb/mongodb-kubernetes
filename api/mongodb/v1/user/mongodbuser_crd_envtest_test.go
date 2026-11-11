@@ -47,7 +47,7 @@ func firstRole(spec map[string]any) map[string]any {
 	return spec["roles"].([]any)[0].(map[string]any)
 }
 
-func TestMongoDBUserCRDValidation(t *testing.T) {
+func TestMongoDBUserCRDSchemaValidation(t *testing.T) {
 	ctx := context.Background()
 	k8sClient := env.Shared(t).Client
 

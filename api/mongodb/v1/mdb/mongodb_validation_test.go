@@ -253,14 +253,6 @@ func TestCommonValidators_Errors(t *testing.T) {
 			expectedError: "automationLdapGroupDN must be specified if LDAP authorization is used and agent auth mode is $external (x509 or LDAP)",
 		},
 		{
-			name: "multiple authentication modes without agent mode",
-			mdb: replicaSetWithAuth(enterpriseMongoVersion, &Authentication{
-				Enabled: true,
-				Modes:   []AuthMode{util.SCRAM, util.LDAP},
-			}),
-			expectedError: "spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes",
-		},
-		{
 			name: "OIDC authentication on a community build",
 			mdb: replicaSetWithAuth(communityMongoVersion, &Authentication{
 				Enabled:             true,
@@ -287,11 +279,6 @@ func TestCommonValidators_Errors(t *testing.T) {
 			require.EqualError(t, tt.mdb.ProcessValidationsOnReconcile(nil), tt.expectedError)
 		})
 	}
-}
-
-func TestValidateNonEmptyClusterSpecList(t *testing.T) {
-	assert.Equal(t, v1.ValidationError("ClusterSpecList empty is not allowed, please define at least one cluster"), ValidateNonEmptyClusterSpecList(ClusterSpecList{}))
-	assert.Equal(t, v1.ValidationSuccess(), ValidateNonEmptyClusterSpecList(ClusterSpecList{{ClusterName: "kind-e2e-cluster-0"}}))
 }
 
 func TestMongoDB_MultipleAuthsButNoAgentAuth_Error(t *testing.T) {

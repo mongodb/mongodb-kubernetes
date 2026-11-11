@@ -151,7 +151,7 @@ func TestOpsManagerCRDSchemaValidation(t *testing.T) {
 		{
 			name:          "externalConnectivity with an unknown type is rejected",
 			mutate:        withField("nginx", "spec", "externalConnectivity", "type"),
-			errorContains: `Unsupported value: "nginx"`,
+			errorContains: `spec.externalConnectivity.type: Unsupported value: "nginx"`,
 		},
 		{
 			name:          "applicationDatabase version not matching the pattern is rejected",

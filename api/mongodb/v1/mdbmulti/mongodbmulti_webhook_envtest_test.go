@@ -4,10 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	mcdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
@@ -22,8 +20,6 @@ func newWebhookMultiCluster(name string, clusterNames []string) *mcdbmulti.Mongo
 	return mrs
 }
 
-// The webhook configuration ignores failures, so an unregistered path would accept the
-// invalid objects: every rejected row only passes if the webhook is actually reached.
 func TestMongoDBMultiClusterWebhook_RejectsInvalidResources(t *testing.T) {
 	ctx := context.Background()
 	shared := env.Shared(t)
@@ -43,7 +39,7 @@ func TestMongoDBMultiClusterWebhook_RejectsInvalidResources(t *testing.T) {
 		{
 			name:          "empty clusterSpecList is rejected",
 			object:        newWebhookMultiCluster("invalid-multi-cluster", nil),
-			expectedError: env.DeniedByWebhook(mongodbMultiClusterWebhookName, "ClusterSpecList empty is not allowed, please define at least one cluster"),
+			expectedError: "ClusterSpecList empty is not allowed, please define at least one cluster",
 		},
 	}
 
@@ -57,8 +53,7 @@ func TestMongoDBMultiClusterWebhook_RejectsInvalidResources(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
-			assert.True(t, apierrors.IsForbidden(err), "expected the admission webhook to deny the request, got: %v", err)
-			require.EqualError(t, err, tc.expectedError)
+			env.RequireDeniedByWebhook(t, err, mongodbMultiClusterWebhookName, tc.expectedError)
 		})
 	}
 }
