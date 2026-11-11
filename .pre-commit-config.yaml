@@ -164,7 +164,7 @@ repos:
         priority: 6
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       # TODO: Enable these hooks in a follow-up PR - they modify 200+ files
       # - id: trailing-whitespace
@@ -219,7 +219,7 @@ repos:
         priority: 6
 
   - repo: https://github.com/koalaman/shellcheck-precommit
-    rev: v0.10.0
+    rev: v0.11.0
     hooks:
       - id: shellcheck
         exclude: |
