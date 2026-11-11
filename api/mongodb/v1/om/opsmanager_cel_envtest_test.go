@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +35,147 @@ func newOpsManager(t *testing.T, mutate func(*omv1.MongoDBOpsManager)) *omv1.Mon
 		mutate(om)
 	}
 	return om
+}
+
+// newOpsManagerUnstructured returns a valid baseline object. A typed OM cannot express
+// a missing required field: its struct tags always serialize the zero value.
+func newOpsManagerUnstructured() *unstructured.Unstructured {
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "mongodb.com/v1",
+		"kind":       "MongoDBOpsManager",
+		"metadata":   map[string]any{"generateName": "test-schema-", "namespace": "default"},
+		"spec": map[string]any{
+			"version":  "8.0.19",
+			"replicas": int64(1),
+			"applicationDatabase": map[string]any{
+				"version": "6.0.5",
+				"members": int64(3),
+			},
+			"backup": map[string]any{
+				"enabled": true,
+				"opLogStores": []any{
+					map[string]any{"name": "oplog", "mongodbResourceRef": map[string]any{"name": "appdb"}},
+				},
+				"s3Stores": []any{
+					map[string]any{
+						"name":                   "s3",
+						"pathStyleAccessEnabled": true,
+						"s3BucketEndpoint":       "http://minio:9000",
+						"s3BucketName":           "backups",
+					},
+				},
+			},
+			"externalConnectivity": map[string]any{"type": "LoadBalancer"},
+		},
+	}}
+}
+
+func withoutField(path ...string) func(*unstructured.Unstructured) {
+	return func(u *unstructured.Unstructured) { unstructured.RemoveNestedField(u.Object, path...) }
+}
+
+// withoutStoreField rewrites the whole store list: RemoveNestedField does not
+// descend into slices.
+func withoutStoreField(store, field string) func(*unstructured.Unstructured) {
+	return func(u *unstructured.Unstructured) {
+		stores, _, _ := unstructured.NestedSlice(u.Object, "spec", "backup", store)
+		delete(stores[0].(map[string]any), field)
+		_ = unstructured.SetNestedSlice(u.Object, stores, "spec", "backup", store)
+	}
+}
+
+func withField(value any, path ...string) func(*unstructured.Unstructured) {
+	return func(u *unstructured.Unstructured) { _ = unstructured.SetNestedField(u.Object, value, path...) }
+}
+
+func TestOpsManagerCRDSchemaValidation(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	tests := []struct {
+		name          string
+		mutate        func(*unstructured.Unstructured)
+		errorContains string
+	}{
+		{
+			name: "valid baseline is accepted",
+		},
+		{
+			name:          "applicationDatabase members below the minimum is rejected",
+			mutate:        withField(int64(2), "spec", "applicationDatabase", "members"),
+			errorContains: "spec.applicationDatabase.members in body should be greater than or equal to 3",
+		},
+		{
+			name:          "backup without enabled is rejected",
+			mutate:        withoutField("spec", "backup", "enabled"),
+			errorContains: "spec.backup.enabled: Required value",
+		},
+		{
+			name:          "opLogStores entry without name is rejected",
+			mutate:        withoutStoreField("opLogStores", "name"),
+			errorContains: "spec.backup.opLogStores[0].name: Required value",
+		},
+		{
+			name:          "opLogStores entry without mongodbResourceRef is rejected",
+			mutate:        withoutStoreField("opLogStores", "mongodbResourceRef"),
+			errorContains: "spec.backup.opLogStores[0].mongodbResourceRef: Required value",
+		},
+		{
+			name:          "s3Stores entry without name is rejected",
+			mutate:        withoutStoreField("s3Stores", "name"),
+			errorContains: "spec.backup.s3Stores[0].name: Required value",
+		},
+		{
+			name:          "s3Stores entry without pathStyleAccessEnabled is rejected",
+			mutate:        withoutStoreField("s3Stores", "pathStyleAccessEnabled"),
+			errorContains: "spec.backup.s3Stores[0].pathStyleAccessEnabled: Required value",
+		},
+		{
+			name:          "s3Stores entry without s3BucketEndpoint is rejected",
+			mutate:        withoutStoreField("s3Stores", "s3BucketEndpoint"),
+			errorContains: "spec.backup.s3Stores[0].s3BucketEndpoint: Required value",
+		},
+		{
+			name:          "s3Stores entry without s3BucketName is rejected",
+			mutate:        withoutStoreField("s3Stores", "s3BucketName"),
+			errorContains: "spec.backup.s3Stores[0].s3BucketName: Required value",
+		},
+		{
+			name:          "externalConnectivity without type is rejected",
+			mutate:        withoutField("spec", "externalConnectivity", "type"),
+			errorContains: "spec.externalConnectivity.type: Required value",
+		},
+		{
+			name:          "externalConnectivity with an unknown type is rejected",
+			mutate:        withField("nginx", "spec", "externalConnectivity", "type"),
+			errorContains: `Unsupported value: "nginx"`,
+		},
+		{
+			name:          "applicationDatabase version not matching the pattern is rejected",
+			mutate:        withField("4.4.10.10", "spec", "applicationDatabase", "version"),
+			errorContains: "spec.applicationDatabase.version in body should match",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := newOpsManagerUnstructured()
+			if tc.mutate != nil {
+				tc.mutate(om)
+			}
+			t.Cleanup(func() { _ = k8sClient.Delete(ctx, om) })
+
+			err := k8sClient.Create(ctx, om)
+
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
 }
 
 func TestOpsManagerCELValidation_ObjectLockRetention(t *testing.T) {

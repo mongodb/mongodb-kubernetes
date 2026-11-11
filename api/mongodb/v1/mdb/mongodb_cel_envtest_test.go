@@ -328,3 +328,140 @@ func TestExternalMongosPruneRateCELValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), "at most one external mongod may be removed per update")
 	})
 }
+
+func TestMongoDBSchemaValidation(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	tests := []struct {
+		name          string
+		mutate        func(*mdbv1.MongoDB)
+		errorContains string
+	}{
+		{
+			name: "valid type ReplicaSet is accepted",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.ResourceType = mdbv1.ReplicaSet
+			},
+		},
+		{
+			name: "valid type ShardedCluster is accepted",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.ResourceType = mdbv1.ShardedCluster
+			},
+		},
+		{
+			name: "invalid type is rejected",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.ResourceType = mdbv1.ResourceType("InvalidReplicaSetType")
+			},
+			errorContains: `spec.type: Unsupported value: "InvalidReplicaSetType"`,
+		},
+		{
+			name: "valid logLevel is accepted",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.LogLevel = mdbv1.LogLevel("WARN")
+			},
+		},
+		{
+			name: "invalid logLevel is rejected",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.LogLevel = mdbv1.LogLevel("NotWARNING")
+			},
+			errorContains: `spec.logLevel: Unsupported value: "NotWARNING"`,
+		},
+		{
+			name: "supported authentication mode is accepted",
+			mutate: func(rs *mdbv1.MongoDB) {
+				withAppDBSecurity(rs)
+			},
+		},
+		{
+			name: "unsupported authentication mode is rejected",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Security = &mdbv1.Security{
+					Authentication: &mdbv1.Authentication{
+						Enabled: true,
+						Modes:   []mdbv1.AuthMode{mdbv1.AuthMode("SHA")},
+					},
+				}
+			},
+			errorContains: `spec.security.authentication.modes[0]: Unsupported value: "SHA"`,
+		},
+		{
+			name: "valid full incremental day of week is accepted",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Backup = &mdbv1.Backup{Mode: "enabled", SnapshotSchedule: &mdbv1.SnapshotSchedule{FullIncrementalDayOfWeek: new("SUNDAY")}}
+			},
+		},
+		{
+			name: "invalid full incremental day of week is rejected",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Backup = &mdbv1.Backup{Mode: "enabled", SnapshotSchedule: &mdbv1.SnapshotSchedule{FullIncrementalDayOfWeek: new("January")}}
+			},
+			errorContains: `spec.backup.snapshotSchedule.fullIncrementalDayOfWeek: Unsupported value: "January"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := newMongoDB(t, tc.mutate)
+			err := k8sClient.Create(ctx, rs)
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
+
+func TestMongoDBCELValidation_SecurityRoles(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	roles := []mdbv1.MongoDBRole{{Role: "read", Db: "admin"}}
+	roleRefs := []mdbv1.MongoDBRoleRef{{Name: "my-role", Kind: "ClusterMongoDBRole"}}
+
+	tests := []struct {
+		name          string
+		mutate        func(*mdbv1.MongoDB)
+		errorContains string
+	}{
+		{
+			name: "only roles is accepted",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Security = &mdbv1.Security{Roles: roles}
+			},
+		},
+		{
+			name: "only roleRefs is accepted",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Security = &mdbv1.Security{RoleRefs: roleRefs}
+			},
+		},
+		{
+			name: "roles together with roleRefs is rejected",
+			mutate: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Security = &mdbv1.Security{Roles: roles, RoleRefs: roleRefs}
+			},
+			errorContains: "At most one of roles or roleRefs can be non-empty",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := newMongoDB(t, tc.mutate)
+			err := k8sClient.Create(ctx, rs)
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}

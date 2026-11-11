@@ -27,7 +27,7 @@ func TestMongoDB_ProcessValidations_BadHorizonsMemberCount(t *testing.T) {
 	rs.Spec.Connectivity = &MongoDBConnectivity{}
 	rs.Spec.Connectivity.ReplicaSetHorizons = replicaSetHorizons
 	err := rs.ProcessValidationsOnReconcile(nil)
-	assert.Contains(t, "Number of horizons must be equal to number of members in replica set", err.Error())
+	require.EqualError(t, err, "Number of horizons must be equal to number of members in replica set")
 }
 
 func TestMongoDB_ProcessValidations_HorizonsWithoutTLS(t *testing.T) {
@@ -193,6 +193,107 @@ func TestMongoDB_StandaloneDeprecationWarning(t *testing.T) {
 	})
 }
 
+const (
+	communityMongoVersion  = "4.0.12"
+	enterpriseMongoVersion = "4.0.12-ent"
+)
+
+func replicaSetWithAuth(version string, auth *Authentication) *MongoDB {
+	rs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().SetVersion(version).Build()
+	rs.Spec.Security.Authentication = auth
+	return rs
+}
+
+func withCloudAndOpsManagerConfig(builder *MongoDBBuilder) *MongoDB {
+	mdb := builder.AddDummyOpsManagerConfig().Build()
+	mdb.Spec.CloudManagerConfig = &PrivateCloudConfig{ConfigMapRef: ConfigMapRef{Name: "cloud-manager"}}
+	return mdb
+}
+
+func TestCommonValidators_Errors(t *testing.T) {
+	ldapAuthz := &Ldap{AuthzQueryTemplate: "{USER}?memberOf?base"}
+	validOIDCConfig := []OIDCProviderConfig{{ConfigurationName: "OIDC-test", IssuerURI: "https://example.com"}}
+
+	tests := []struct {
+		name          string
+		mdb           *MongoDB
+		expectedError string
+	}{
+		{
+			name:          "authentication enabled without modes",
+			mdb:           replicaSetWithAuth(communityMongoVersion, &Authentication{Enabled: true}),
+			expectedError: "Cannot enable authentication without modes specified",
+		},
+		{
+			name: "agent auth mode not in authentication modes",
+			mdb: replicaSetWithAuth(communityMongoVersion, &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.SCRAM},
+				Agents:  AgentAuthentication{Mode: util.X509},
+			}),
+			expectedError: "Cannot configure an Agent authentication mechanism that is not specified in authentication modes",
+		},
+		{
+			name: "LDAP authentication on a community build",
+			mdb: replicaSetWithAuth(communityMongoVersion, &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.SCRAM, util.LDAP},
+				Agents:  AgentAuthentication{Mode: util.SCRAM},
+			}),
+			expectedError: "Cannot enable LDAP authentication with MongoDB Community Builds",
+		},
+		{
+			name: "LDAP authorization without automationLdapGroupDN",
+			mdb: replicaSetWithAuth(enterpriseMongoVersion, &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.SCRAM, util.LDAP},
+				Agents:  AgentAuthentication{Mode: util.LDAP},
+				Ldap:    ldapAuthz,
+			}),
+			expectedError: "automationLdapGroupDN must be specified if LDAP authorization is used and agent auth mode is $external (x509 or LDAP)",
+		},
+		{
+			name: "multiple authentication modes without agent mode",
+			mdb: replicaSetWithAuth(enterpriseMongoVersion, &Authentication{
+				Enabled: true,
+				Modes:   []AuthMode{util.SCRAM, util.LDAP},
+			}),
+			expectedError: "spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes",
+		},
+		{
+			name: "OIDC authentication on a community build",
+			mdb: replicaSetWithAuth(communityMongoVersion, &Authentication{
+				Enabled:             true,
+				Modes:               []AuthMode{util.SCRAM, util.OIDC},
+				Agents:              AgentAuthentication{Mode: util.SCRAM},
+				OIDCProviderConfigs: validOIDCConfig,
+			}),
+			expectedError: "Cannot enable OIDC authentication with MongoDB Community Builds",
+		},
+		{
+			name:          "both cloudManager and opsManager configured for a replica set",
+			mdb:           withCloudAndOpsManagerConfig(NewReplicaSetBuilder()),
+			expectedError: "either spec.cloudManager or spec.opsManager can be set",
+		},
+		{
+			name:          "both cloudManager and opsManager configured for a sharded cluster",
+			mdb:           withCloudAndOpsManagerConfig(NewClusterBuilder()),
+			expectedError: "either spec.cloudManager or spec.opsManager can be set",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.EqualError(t, tt.mdb.ProcessValidationsOnReconcile(nil), tt.expectedError)
+		})
+	}
+}
+
+func TestValidateNonEmptyClusterSpecList(t *testing.T) {
+	assert.Equal(t, v1.ValidationError("ClusterSpecList empty is not allowed, please define at least one cluster"), ValidateNonEmptyClusterSpecList(ClusterSpecList{}))
+	assert.Equal(t, v1.ValidationSuccess(), ValidateNonEmptyClusterSpecList(ClusterSpecList{{ClusterName: "kind-e2e-cluster-0"}}))
+}
+
 func TestMongoDB_MultipleAuthsButNoAgentAuth_Error(t *testing.T) {
 	rs := NewReplicaSetBuilder().SetVersion("4.0.2-ent").Build()
 	rs.Spec.Security = &Security{
@@ -203,14 +304,14 @@ func TestMongoDB_MultipleAuthsButNoAgentAuth_Error(t *testing.T) {
 		},
 	}
 	_, err := validator.ValidateCreate(ctx, rs)
-	assert.Errorf(t, err, "spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes")
+	require.EqualError(t, err, "spec.security.authentication.agents.mode must be specified if more than one entry is present in spec.security.authentication.modes")
 }
 
 func TestMongoDB_ResourceTypeImmutable(t *testing.T) {
-	newRs := NewReplicaSetBuilder().Build()
-	oldRs := NewReplicaSetBuilder().setType(ShardedCluster).Build()
+	newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+	oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().setType(ShardedCluster).Build()
 	_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
-	assert.Errorf(t, err, "'resourceType' cannot be changed once created")
+	require.EqualError(t, err, "'resourceType' cannot be changed once created")
 }
 
 func TestMongoDB_DownloadBaseImmutable(t *testing.T) {
@@ -376,8 +477,7 @@ func TestScramSha1AuthValidation(t *testing.T) {
 func TestReplicasetMemberIsSpecified(t *testing.T) {
 	rs := NewDefaultReplicaSetBuilder().Build()
 	err := rs.ProcessValidationsOnReconcile(nil)
-	require.Error(t, err)
-	assert.Errorf(t, err, "'spec.members' must be specified if type of MongoDB is ReplicaSet")
+	require.EqualError(t, err, "'spec.members' must be specified if type of MongoDB is ReplicaSet")
 
 	rs = NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
 	rs.Spec.Members = 0
@@ -579,6 +679,21 @@ func TestOIDCAuthValidation(t *testing.T) {
 				},
 			},
 			expectedErrorMessage: "Invalid IssuerURI in OIDC provider config \"test-provider\": missing URL scheme: invalid-uri",
+		},
+		{
+			name: "Unsupported issuer URI scheme",
+			auth: &Authentication{
+				Enabled: true,
+				Agents:  AgentAuthentication{Mode: util.SCRAMSHA256},
+				Modes:   []AuthMode{util.OIDC, util.SCRAMSHA256},
+				OIDCProviderConfigs: []OIDCProviderConfig{
+					{
+						ConfigurationName: "OIDC-test",
+						IssuerURI:         "hps://example-issuer.com",
+					},
+				},
+			},
+			expectedErrorMessage: "Invalid IssuerURI in OIDC provider config \"OIDC-test\": invalid URL scheme (http or https): hps://example-issuer.com",
 		},
 		{
 			name: "Non-HTTPS issuer URI - warning",
