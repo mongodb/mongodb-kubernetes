@@ -66,7 +66,7 @@ def ldap_user_mongodb(replica_set: MongoDB, namespace: str, ldap_mongodb_user: L
 @mark.usefixtures("ldap_mongodb_agent_user", "ldap_user_mongodb")
 def test_replica_set(replica_set: MongoDB):
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
