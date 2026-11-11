@@ -1,7 +1,7 @@
 // Package memberregistration produces the registration a member cluster needs so the MCK
 // operator can reach it: a credential Secret (a single-context kubeconfig) and a MemberCluster
 // CR referencing that Secret. It reads the ServiceAccount token that
-// `generate-member-resources` created on the member cluster and writes both resources as a
+// `generate-resources` created on the member cluster and writes both resources as a
 // multi-document YAML string. It holds the logic; the CLI wiring lives in cmd/kubectl-mongodb.
 package memberregistration
 
@@ -40,7 +40,7 @@ type Options struct {
 	// registration emits: the MemberCluster CR's metadata.name and the credential Secret name
 	// suffix. It must be unique per member cluster on the central cluster. The token Secret on
 	// the member cluster is the fixed mck-member-token, so this name need not match anything
-	// from generate-member-resources.
+	// from generate-resources.
 	MemberClusterName string
 	// MemberClusterLogicalName is the logical cluster identity set as spec.clusterName on the MemberCluster CR.
 	// Used to resolve clusterSpecList[].clusterName references in workload CRs.
@@ -122,7 +122,7 @@ func Generate(ctx context.Context, memberClusterClient kubernetes.Interface, mem
 func readTokenSecret(ctx context.Context, memberClusterClient kubernetes.Interface, namespace, name string) (token, ca []byte, err error) {
 	secret, err := memberClusterClient.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return nil, nil, xerrors.Errorf("reading token secret %s/%s on the member cluster (was 'generate-member-resources' applied to it?): %v", namespace, name, err)
+		return nil, nil, xerrors.Errorf("failed to read token secret %s/%s on the member cluster: %v", namespace, name, err)
 	}
 	if token = secret.Data[corev1.ServiceAccountTokenKey]; len(token) == 0 {
 		return nil, nil, xerrors.Errorf("token secret %s/%s has no %q key yet; wait for Kubernetes to populate the ServiceAccount token", namespace, name, corev1.ServiceAccountTokenKey)

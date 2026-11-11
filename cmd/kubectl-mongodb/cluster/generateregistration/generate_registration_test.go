@@ -1,4 +1,4 @@
-package generatememberregistration
+package generateregistration
 
 import (
 	"crypto/ecdsa"

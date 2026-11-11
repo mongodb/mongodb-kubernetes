@@ -37,7 +37,7 @@ const (
 	testCA                = "test-ca-data"
 )
 
-// tokenSecret returns a ServiceAccount token Secret as generate-member-resources would have
+// tokenSecret returns a ServiceAccount token Secret as generate-resources would have
 // created it on the member cluster (the fixed mck-member-token name).
 func tokenSecret(namespace string, data map[string][]byte) *corev1.Secret {
 	return &corev1.Secret{
@@ -261,7 +261,7 @@ func TestGenerate_Errors(t *testing.T) {
 	}{
 		"missing token secret": {
 			objects:     nil,
-			wantErrText: "reading token secret",
+			wantErrText: "failed to read token secret",
 		},
 		"missing token key": {
 			objects: []*corev1.Secret{tokenSecret(testNamespace, map[string][]byte{
@@ -349,7 +349,7 @@ func TestGenerate_TokenWaitTimeout(t *testing.T) {
 			objects: nil,
 			wantErrText: []string{
 				"timed out after 50ms",
-				"was 'generate-member-resources' applied to it?",
+				"failed to read token secret",
 			},
 		},
 		"secret never populated": {
