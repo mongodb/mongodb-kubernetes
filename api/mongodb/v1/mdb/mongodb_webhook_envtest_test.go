@@ -59,23 +59,15 @@ func (w *warningCollector) collected() []string {
 	return append([]string(nil), w.warnings...)
 }
 
-// newWarningClient returns a client that records the warnings the API server returns.
-func newWarningClient(t *testing.T, shared *env.TestEnv) (client.Client, *warningCollector) {
-	t.Helper()
-
-	collector := &warningCollector{}
-	warnCfg := rest.CopyConfig(shared.Config)
-	warnCfg.WarningHandler = collector
-	warnClient, err := client.New(warnCfg, client.Options{Scheme: shared.Client.Scheme()})
-	require.NoError(t, err)
-
-	return warnClient, collector
-}
-
 func TestMongoDBWebhook_StandaloneDeprecationWarning(t *testing.T) {
 	ctx := context.Background()
 	shared := startMongoDBWebhookServer(t)
-	warnClient, warnings := newWarningClient(t, shared)
+
+	warnings := &warningCollector{}
+	warnCfg := rest.CopyConfig(shared.Config)
+	warnCfg.WarningHandler = warnings
+	warnClient, err := client.New(warnCfg, client.Options{Scheme: shared.Client.Scheme()})
+	require.NoError(t, err)
 
 	standalone := mdbv1.NewStandaloneBuilder().AddDummyOpsManagerConfig().Build()
 	standalone.Name = "test-standalone"
