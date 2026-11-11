@@ -79,28 +79,8 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_replica_set_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_sharded_cluster_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_sharded_cluster_external_access
     tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_users_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_crd_validation
-    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -201,11 +181,6 @@ tasks:
 
   - name: e2e_mongodb_validation_webhook
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_mongodb_roles_validation_webhook
-    tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
@@ -816,11 +791,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_om_appdb_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_om_external_appdb_forward
     tags: [ "patch-run" ]
     commands:
@@ -1097,16 +1067,6 @@ tasks:
 
   - name: e2e_multi_cluster_backup_restore_no_mesh
     tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
-  - name: e2e_multi_cluster_appdb_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
-  - name: e2e_multi_cluster_om_validation
-    tags: [ "patch-run", "e2e_medium" ]
     commands:
       - func: e2e_test
 

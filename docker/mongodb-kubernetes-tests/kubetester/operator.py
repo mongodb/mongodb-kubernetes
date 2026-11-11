@@ -187,17 +187,6 @@ class Operator(object):
             logger.info("Operator spec: %s", pods[0].spec)
             logger.info("Operator status: %s", pods[0].status)
 
-    def disable_webhook(self):
-        webhook_api = client.AdmissionregistrationV1Api()
-
-        # break the existing webhook
-        webhook = webhook_api.read_validating_webhook_configuration("mdbpolicy.mongodb.com")
-
-        # First webhook is for mongodb validations, second is for ops manager
-        webhook.webhooks[1].client_config.service.name = "a-non-existent-service"
-        webhook.metadata.uid = ""
-        webhook_api.replace_validating_webhook_configuration("mdbpolicy.mongodb.com", webhook)
-
     def restart_operator_deployment(self):
         client.AppsV1Api(api_client=self.api_client).patch_namespaced_deployment_scale(
             self.name,
