@@ -110,7 +110,7 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, s
 }
 
 // ReconcileDatabaseAgentSettings renders the native agent settings, reconciles the settings
-// ConfigMap and credential, and supplies the optional custom hostname to the launcher.
+// ConfigMap and credential, and supplies the advertised hostname to the launcher.
 func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, opts construct.DatabaseStatefulSetOptions) error {
 	cm, err := construct.DatabaseAgentSettingsConfigMap(*sts, opts)
 	if err != nil {
@@ -132,7 +132,7 @@ func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient
 	}
 	// The launcher takes everything from the settings file, so no arguments are passed.
 	container.WithArgs(nil)(agent)
-	setAgentHostnameEnv(agent, parameters)
+	setAgentHostnameEnv(agent, parameters, opts.AgentHostnameOverride)
 	return nil
 }
 
@@ -174,11 +174,19 @@ func vaultDatabaseSecretPath(secretClient secrets.SecretClient) string {
 	return secretClient.VaultClient.DatabaseSecretPath()
 }
 
-// setAgentHostnameEnv passes a customer overrideLocalHost to the launcher. It is appended last
+// setAgentHostnameEnv passes the advertised hostname to the launcher, which is the customer's
+// overrideLocalHost or else the one the operator generated from the pod name. It is appended last
 // because Kubernetes expands references using the entries that precede them.
-func setAgentHostnameEnv(agent *corev1.Container, parameters mdbv1.StartupParameters) {
+func setAgentHostnameEnv(agent *corev1.Container, parameters mdbv1.StartupParameters, generated string) {
 	agent.Env = slices.DeleteFunc(agent.Env, func(variable corev1.EnvVar) bool { return variable.Name == agentHostnameOverrideEnv })
-	if hostname, ok := parameters["overrideLocalHost"]; ok {
+	hostname, ok := parameters["overrideLocalHost"]
+	if !ok && generated != "" {
+		hostname, ok = generated, true
+		if _, defined := env.ToMap(agent.Env...)[construct.PodNameEnv]; !defined {
+			agent.Env = append(agent.Env, construct.PodNameEnvVar())
+		}
+	}
+	if ok {
 		agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
 	}
 }

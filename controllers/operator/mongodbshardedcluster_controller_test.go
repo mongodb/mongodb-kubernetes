@@ -2878,55 +2878,6 @@ func TestReconcileCreateSingleClusterShardedClusterWithPerTierExternalDomains(t 
 	}
 }
 
-// TestShardedClusterHostnameOverrideConfigMap_SingleClusterPerTierExternalDomain guards against pods
-// mounting a ConfigMap that was never created: the StatefulSets mount it whenever a tier resolves to
-// an external domain, so creation must not be gated on the top-level spec.externalAccess alone.
-func TestShardedClusterHostnameOverrideConfigMap_SingleClusterPerTierExternalDomain(t *testing.T) {
-	ctx := context.Background()
-
-	testCases := map[string]struct {
-		sc             *mdbv1.MongoDB
-		expectedExists bool
-	}{
-		"no external domain": {
-			sc:             test.DefaultClusterBuilder().Build(),
-			expectedExists: false,
-		},
-		"per-tier external domains only": {
-			sc: test.DefaultClusterBuilder().
-				SetPerTierExternalAccessDomains(test.ExampleExternalClusterDomains).
-				Build(),
-			expectedExists: true,
-		},
-		"top-level external domain only": {
-			sc: test.DefaultClusterBuilder().
-				SetExternalAccessDomain(test.SingleExternalClusterDomains).
-				Build(),
-			expectedExists: true,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(createDeploymentFromShardedCluster(t, tc.sc)))
-			kubeClient, _ := mock.NewDefaultFakeClient(tc.sc)
-			_, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", tc.sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
-			require.NoError(t, err)
-
-			require.NoError(t, reconcileHelper.reconcileHostnameOverrideConfigMap(ctx, zap.S()))
-
-			cm := corev1.ConfigMap{}
-			err = kubeClient.Get(ctx, types.NamespacedName{Name: tc.sc.GetHostNameOverrideConfigmapName(), Namespace: tc.sc.Namespace}, &cm)
-			if !tc.expectedExists {
-				assert.True(t, errors.IsNotFound(err), "expected no hostname override ConfigMap, got err: %v", err)
-				return
-			}
-			require.NoError(t, err)
-			assert.NotEmpty(t, cm.Data)
-		})
-	}
-}
-
 func TestShardedClusterDeploymentState_ShardsInRemovalBackwardCompatibility(t *testing.T) {
 	var legacy ShardedClusterDeploymentState
 	require.NoError(t, json.Unmarshal([]byte(`{"lastAchievedSpec":null,"lastConfiguredRoles":[],"status":{}}`), &legacy))

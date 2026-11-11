@@ -101,13 +101,8 @@ fi
 
 agentOpts=(-f /etc/mongodb-agent/automation-agent.conf)
 
-# The hostname ConfigMap maps each pod name to its advertised service or external hostname.
-override_file="/opt/scripts/config/$(hostname)"
 if [[ ${MDB_AGENT_HOSTNAME_OVERRIDE+x} ]]; then
   agentOpts+=("-overrideLocalHost=${MDB_AGENT_HOSTNAME_OVERRIDE}")
-elif [[ -f "${override_file}" ]]; then
-  override="$(cat "${override_file}")"
-  agentOpts+=("-overrideLocalHost=${override}")
 fi
 
 # Remove stale agent health status file if exists.

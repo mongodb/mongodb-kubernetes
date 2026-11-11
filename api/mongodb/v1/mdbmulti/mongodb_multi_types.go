@@ -172,10 +172,6 @@ func (m *MongoDBMultiCluster) GetLDAP(password, caContents string) *ldap.Ldap {
 	}
 }
 
-func (m *MongoDBMultiCluster) GetHostNameOverrideConfigmapName() string {
-	return fmt.Sprintf("%s-hostname-override", m.Name)
-}
-
 func (m *MongoDBMultiCluster) ObjectKey() client.ObjectKey {
 	return kube.ObjectKey(m.Namespace, m.Name)
 }

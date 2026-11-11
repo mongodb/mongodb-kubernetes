@@ -85,11 +85,11 @@ PY
     [ "$(cat "${CAPTURE_FILE}")" = $'-f\n/etc/mongodb-agent/automation-agent.conf\n-overrideLocalHost=pod-0.example.com' ]
 }
 
-@test "hostname ConfigMap supplies external and multicluster hostnames in both architectures" {
+@test "hostname environment supplies external and multicluster hostnames in both architectures" {
     for architecture in "" true; do
         export MDB_STATIC_CONTAINERS_ARCHITECTURE="${architecture}"
         for hostname in "pod-0.example.com" "pod-0-svc.ns.svc.custom.local" ""; do
-            printf '%s\n' "${hostname}" > "${FIXTURE_ROOT}/scripts/config/pod-0"
+            export MDB_AGENT_HOSTNAME_OVERRIDE="${hostname}"
             run bash "${FIXTURE_ROOT}/scripts/agent-launcher.sh"
             [ "${status}" -eq 0 ]
             [ "$(cat "${CAPTURE_FILE}")" = "$(printf '%s\n' -f /etc/mongodb-agent/automation-agent.conf "-overrideLocalHost=${hostname}")" ]
@@ -97,18 +97,16 @@ PY
     done
 }
 
-@test "explicit custom hostname wins over the generated hostname without shell evaluation" {
-    printf 'generated.example.com\n' > "${FIXTURE_ROOT}/scripts/config/pod-0"
+@test "hostname is passed through without shell evaluation" {
     export MDB_AGENT_HOSTNAME_OVERRIDE='$(not-a-command); $HOME, "host"'
     run bash "${FIXTURE_ROOT}/scripts/agent-launcher.sh"
     [ "${status}" -eq 0 ]
     [ "$(cat "${CAPTURE_FILE}")" = "$(printf '%s\n' -f /etc/mongodb-agent/automation-agent.conf "-overrideLocalHost=${MDB_AGENT_HOSTNAME_OVERRIDE}")" ]
 }
 
-@test "explicit empty custom hostname suppresses the generated hostname" {
+@test "a leftover hostname ConfigMap file is ignored" {
     printf 'generated.example.com\n' > "${FIXTURE_ROOT}/scripts/config/pod-0"
-    export MDB_AGENT_HOSTNAME_OVERRIDE=""
     run bash "${FIXTURE_ROOT}/scripts/agent-launcher.sh"
     [ "${status}" -eq 0 ]
-    [ "$(cat "${CAPTURE_FILE}")" = $'-f\n/etc/mongodb-agent/automation-agent.conf\n-overrideLocalHost=' ]
+    [ "$(cat "${CAPTURE_FILE}")" = $'-f\n/etc/mongodb-agent/automation-agent.conf' ]
 }

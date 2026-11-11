@@ -60,7 +60,7 @@ class MongoDBMulti(MongoDB):
         configmaps = {}
         for mcc in clients:
             configmaps[mcc.cluster_name] = mcc.read_namespaced_config_map(
-                f"{self.name}-hostname-override", self.namespace
+                f"{self.name}-{mcc.cluster_index}-agent-settings", self.namespace
             )
         return configmaps
 
