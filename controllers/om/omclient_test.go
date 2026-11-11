@@ -205,6 +205,39 @@ func TestRetriesOnWritingAutomationConfig(t *testing.T) {
 	assert.Equal(t, 3, counters.getHitCount)
 }
 
+func TestReadUpdateAutomationConfigReturnsAutomationConfigConflict(t *testing.T) {
+	ctx := t.Context()
+	logger := zap.NewNop().Sugar()
+	testAutomationConfig := getTestAutomationConfig()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/public/v1.0/groups/1/automationConfig", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			data, _ := json.Marshal(testAutomationConfig.Deployment)
+			_, _ = w.Write(data)
+			return
+		}
+
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":409,"reason":"Conflict","errorCode":"AUTOMATION_CONFIG_CONCURRENT_MODIFICATION","detail":"Another session or user has already published changes."}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	connection := NewOpsManagerConnection(&OMContext{BaseURL: srv.URL, GroupID: "1"})
+
+	err := connection.ReadUpdateAutomationConfig(ctx, func(ac *AutomationConfig) error {
+		ac.Auth.AutoUser = "operator-updated"
+		return nil
+	}, logger)
+
+	require.Error(t, err)
+	apiErr := apierror.NewNonNil(err)
+	assert.Equal(t, apierror.AutomationConfigConcurrentModification, apiErr.ErrorCode)
+	require.NotNil(t, apiErr.Status)
+	assert.Equal(t, http.StatusConflict, *apiErr.Status)
+}
+
 func TestHTTPOmConnectionGetHTTPClientRace(t *testing.T) {
 	successfulResponse := automationConfigResponse{config: getTestAutomationConfig()}
 	errorResponse := automationConfigResponse{errorCode: 500, errorString: "testing"}
