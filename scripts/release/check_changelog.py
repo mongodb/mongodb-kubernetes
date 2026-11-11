@@ -3,7 +3,7 @@ import pathlib
 
 from git import Repo
 
-from scripts.release.argparse_utils import str2bool
+from scripts.release.argparse_bool import str2bool
 from scripts.release.changelog import get_changelog_entries
 from scripts.release.constants import DEFAULT_CHANGELOG_PATH, DEFAULT_REPOSITORY_PATH
 
