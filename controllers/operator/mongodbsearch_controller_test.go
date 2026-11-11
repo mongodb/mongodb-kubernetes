@@ -810,7 +810,7 @@ func TestMongoDBSearchReconcile_RegistersOIDCClientSecretWatch(t *testing.T) {
 	c := mock.NewEmptyFakeClientBuilder().
 		WithObjects(search, mdb).
 		Build()
-	reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
+	reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, multicluster.NewProvider(), "")
 
 	_, err := reconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
@@ -829,7 +829,7 @@ func TestMongoDBSearchReconcile_RegistersOIDCClientSecretWatch(t *testing.T) {
 // search-owner labels, so they route by name through the dependency watcher.
 func TestMemberMongoDBSearchResourceWatches_RoutesUnlabeledReferencedRotation(t *testing.T) {
 	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-	reconciler := newMongoDBSearchReconciler(mock.NewEmptyFakeClientBuilder().Build(), searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
+	reconciler := newMongoDBSearchReconciler(mock.NewEmptyFakeClientBuilder().Build(), searchcontroller.OperatorSearchConfig{}, multicluster.NewProvider(), "")
 
 	// Reconcile-time registration of the referenced user-provided objects.
 	reconciler.watch.AddWatchedResourceIfNotAdded("oidc-client-secret", search.Namespace, watch.Secret, search.NamespacedName())

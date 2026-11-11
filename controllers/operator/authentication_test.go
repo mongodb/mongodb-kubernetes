@@ -275,7 +275,7 @@ func TestX509AgentAuthentication_ClientCertificateModeFollowsSpecChanges_Replica
 
 			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 			addKubernetesTlsResources(ctx, kubeClient, rs)
-			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
+			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, false, true, 1200, omConnectionFactory.GetConnectionFunc)
 
 			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
@@ -356,7 +356,7 @@ func TestX509OnlyMode_AlwaysRequiresClientCertificates_ReplicaSet(t *testing.T) 
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	addKubernetesTlsResources(ctx, kubeClient, rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, false, true, 1200, omConnectionFactory.GetConnectionFunc)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
