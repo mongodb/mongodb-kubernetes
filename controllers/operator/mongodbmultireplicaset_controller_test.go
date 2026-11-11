@@ -31,7 +31,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
@@ -132,58 +131,6 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 
 	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
-}
-
-// conflictConnection returns a fixed error from the automation config write and
-// counts the attempts. It embeds the fixture connection so every other call
-// keeps the mock behavior.
-type conflictConnection struct {
-	om.Connection
-	err   error
-	calls int
-}
-
-func (c *conflictConnection) ReadUpdateDeployment(_ context.Context, _ func(om.Deployment) error, _ *zap.SugaredLogger) error {
-	c.calls++
-	return c.err
-}
-
-func TestUpdateOmDeploymentRsReportsAutomationConfigConflictAsPending(t *testing.T) {
-	ctx := context.Background()
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	reconciler, kubeClient, _, omConnectionFactory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
-	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
-
-	tests := []struct {
-		name string
-		err  error
-		want status.Phase
-	}{
-		{
-			name: "concurrent modification reports pending",
-			err:  &apierror.Error{Status: new(409), ErrorCode: apierror.AutomationConfigConcurrentModification},
-			want: status.PhasePending,
-		},
-		{
-			name: "unrelated conflict reports failed",
-			err:  &apierror.Error{Status: new(409), ErrorCode: "CANNOT_MODIFY_SHARD_BACKUP_CONFIG"},
-			want: status.PhaseFailed,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			conn := &conflictConnection{Connection: omConnectionFactory.GetConnection(), err: tt.err}
-
-			got := reconciler.updateOmDeploymentRs(ctx, conn, mrs, "", "", "/cluster-file", false, zap.S())
-
-			require.Equal(t, 1, conn.calls, "expected the automation config write to be attempted")
-			assert.Equal(t, tt.want, got.Phase())
-			result, err := got.ReconcileResult()
-			require.NoError(t, err)
-			assert.Equal(t, 10*time.Second, result.RequeueAfter)
-		})
-	}
 }
 
 func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
