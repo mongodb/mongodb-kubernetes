@@ -12,6 +12,8 @@ const (
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
 	DuplicateWhitelistEntry    = "DUPLICATE_GLOBAL_WHITELIST_ENTRY"
+
+	AutomationConfigConcurrentModification = "AUTOMATION_CONFIG_CONCURRENT_MODIFICATION"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the

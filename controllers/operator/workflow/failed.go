@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	omapierror "github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/apierrors"
 )
 
@@ -69,7 +70,8 @@ func (f *failedStatus) StatusOptions() []status.Option {
 }
 
 func (f *failedStatus) Phase() status.Phase {
-	if apierrors.IsTransientMessage(f.msg) {
+	if omapierror.NewNonNil(f.err).ErrorCode == omapierror.AutomationConfigConcurrentModification ||
+		apierrors.IsTransientMessage(f.msg) {
 		return status.PhasePending
 	}
 	return status.PhaseFailed
