@@ -15,7 +15,9 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.constants import TEST_DATA
 from tests.conftest import assert_data_got_restored
-from tests.multicluster_appdb.multicluster_appdb_external_test_helpers import APPDB_NAME
+from tests.multicluster_appdb.multicluster_appdb_external_test_helpers import (
+    APPDB_NAME,
+)
 from tests.multicluster_appdb.multicluster_appdb_external_test_helpers import (
     appdb_ca_configmap as helper_appdb_ca_configmap,
 )

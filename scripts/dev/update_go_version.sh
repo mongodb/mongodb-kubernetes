@@ -83,7 +83,10 @@ update_files "^go .*" "go ${FULL_VERSION}" "${GO_MOD_FILES[@]}"
 update_files "^golang .*" "golang ${FULL_VERSION}" "${TOOL_VERSION_FILES[@]}"
 update_files "golang:[0-9.]*" "golang:${MINOR_VERSION}" "${DOCKERFILE_FILES[@]}"
 update_files "/opt/golang/go[0-9.]*" "/opt/golang/go${MINOR_VERSION}" "${DEV_SCRIPT_FILES[@]}"
-update_files "language_version:.*" "language_version: ${FULL_VERSION}" "${HOOK_CONFIG_FILES[@]}"
+# Only the golangci-lint hooks pin a Go toolchain via language_version; the
+# trailing "# go-version" marker keeps this sed away from Python hooks
+# (black/isort), which pin their own Python interpreter the same way.
+update_files "language_version: .* # go-version" "language_version: ${FULL_VERSION} # go-version" "${HOOK_CONFIG_FILES[@]}"
 
 echo ""
 echo "Done. Run 'git diff' to review changes."

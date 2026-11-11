@@ -204,16 +204,18 @@ repos:
         priority: 6
 
   - repo: https://github.com/psf/black
-    rev: 24.10.0
+    rev: 26.10.1
     hooks:
       - id: black
+        language_version: "3.13"
         priority: 6
 
   - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
+    rev: 9.0.2
     hooks:
       - id: isort
         args: ["--profile", "black"]
+        language_version: "3.13"
         priority: 6
 
   - repo: https://github.com/koalaman/shellcheck-precommit
@@ -261,8 +263,8 @@ repos:
       # staticcheck) see the full codebase and pre-existing violations are not silently skipped.
       - id: golangci-lint-full
         args: [--timeout=10m]
-        language_version: 1.26.10
+        language_version: 1.26.10 # go-version
         priority: 6
       - id: golangci-lint-fmt
-        language_version: 1.26.10
+        language_version: 1.26.10 # go-version
         priority: 6
