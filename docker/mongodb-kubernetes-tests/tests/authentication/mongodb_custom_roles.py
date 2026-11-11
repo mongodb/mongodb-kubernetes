@@ -1,3 +1,4 @@
+# fmt: off
 from kubetester import create_or_update_configmap, find_fixture, read_configmap, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.mongodb import MongoDB, Phase
@@ -8,7 +9,6 @@ from pytest import fixture, mark
 from tests.multicluster.conftest import cluster_spec_list
 
 
-# fmt: off
 def get_expected_role(role_name: str) -> dict:
     return {
         "role": role_name,
