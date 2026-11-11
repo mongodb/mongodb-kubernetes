@@ -57,6 +57,19 @@ func TestAppDBAgentSettingsPreservesCustomAPIKeyExec(t *testing.T) {
 	assert.Contains(t, cm.Data[AgentSettingsFileName], "mmsApiKeyExec=cat '$CUSTOM_KEY_PATH/agent-key'\n")
 }
 
+func TestAppDBAgentSettingsAcceptLeadingDash(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	om.Spec.AppDB.AutomationAgent.StartupParameters = mdbv1.StartupParameters{"-logLevel": "DEBUG"}
+	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
+		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
+	require.NoError(t, err)
+
+	cm, err := AppDBAgentSettingsConfigMap(sts, om.Spec.AppDB, &env.PodEnvVars{ProjectID: "abcd"})
+	require.NoError(t, err)
+	assert.Contains(t, cm.Data[AgentSettingsFileName], "logLevel=DEBUG\n")
+	assert.NotContains(t, cm.Data[AgentSettingsFileName], "-logLevel")
+}
+
 func TestAppDBAgentSettingsRejectsRuntimeAgentSettingsEnv(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
@@ -118,6 +131,7 @@ func TestAppDBAgentHostnameArguments(t *testing.T) {
 		{name: "per-cluster external domain", multiCluster: true, externalDomain: new("member.example.com"), hostname: "$(POD_NAME).member.example.com"},
 		{name: "generated hostname wins over customer", externalDomain: new("external.example.com"), parameters: mdbv1.StartupParameters{"overrideLocalHost": "customer.example.com"}, hostname: "$(POD_NAME).external.example.com"},
 		{name: "customer hostname without generated identity", parameters: mdbv1.StartupParameters{"overrideLocalHost": "customer.example.com"}, hostname: "customer.example.com"},
+		{name: "prefixed customer hostname", parameters: mdbv1.StartupParameters{"-overrideLocalHost": "customer.example.com"}, hostname: "customer.example.com"},
 		{name: "explicit empty hostname", parameters: mdbv1.StartupParameters{"overrideLocalHost": ""}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

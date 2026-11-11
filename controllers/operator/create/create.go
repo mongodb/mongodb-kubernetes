@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -725,7 +724,7 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, secr
 	if secretClient.VaultClient != nil {
 		basePath = secretClient.VaultClient.AppDBSecretPath()
 	}
-	parameters := maps.Clone(opsManager.Spec.AppDB.AutomationAgent.StartupParameters)
+	parameters := construct.AgentSettingsOverrides(opsManager.Spec.AppDB.AutomationAgent.StartupParameters)
 	if construct.ShouldEnableMonitoring(podVars) {
 		// The legacy command appended the monitoring project and key after customer startup
 		// options, so the monitoring key wins over a raw key. A customer mmsApiKeyExec remains
