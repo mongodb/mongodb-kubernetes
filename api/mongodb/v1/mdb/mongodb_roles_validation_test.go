@@ -21,97 +21,84 @@ func validRole() MongoDBRole {
 func TestRoleIsCorrectlyConfigured(t *testing.T) {
 	tests := []struct {
 		name          string
-		role          MongoDBRole
+		mutate        func(*MongoDBRole)
 		expectedError string
 	}{
 		{
 			name: "valid role",
-			role: validRole(),
 		},
 		{
 			name: "valid cluster privilege",
-			role: MongoDBRole{
-				Role:       "role",
-				Db:         "admin",
-				Privileges: []Privilege{{Actions: []string{"listDatabases"}, Resource: Resource{Cluster: new(true)}}},
+			mutate: func(r *MongoDBRole) {
+				r.Privileges = []Privilege{{Actions: []string{"listDatabases"}, Resource: Resource{Cluster: new(true)}}}
 			},
 		},
 		{
 			name:          "empty role name",
-			role:          MongoDBRole{Db: "admin"},
+			mutate:        func(r *MongoDBRole) { r.Role = "" },
 			expectedError: "Cannot create a role with an empty name",
 		},
 		{
 			name:          "empty db",
-			role:          MongoDBRole{Role: "role"},
+			mutate:        func(r *MongoDBRole) { r.Db = "" },
 			expectedError: "Cannot create a role with an empty db",
 		},
 		{
 			name:          "inherited role with an empty name",
-			role:          MongoDBRole{Role: "role", Db: "admin", Roles: []InheritedRole{{Db: "admin"}}},
+			mutate:        func(r *MongoDBRole) { r.Roles = []InheritedRole{{Db: "admin"}} },
 			expectedError: "Cannot inherit from a role with an empty name",
 		},
 		{
 			name:          "inherited role with an empty db",
-			role:          MongoDBRole{Role: "role", Db: "admin", Roles: []InheritedRole{{Role: "role"}}},
+			mutate:        func(r *MongoDBRole) { r.Roles = []InheritedRole{{Role: "role"}} },
 			expectedError: "Cannot inherit from a role with an empty db",
 		},
 		{
 			name: "authentication restriction with an invalid clientSource",
-			role: MongoDBRole{
-				Role:                       "role",
-				Db:                         "admin",
-				AuthenticationRestrictions: []AuthenticationRestriction{{ClientSource: []string{"355.127.0.1"}}},
+			mutate: func(r *MongoDBRole) {
+				r.AuthenticationRestrictions = []AuthenticationRestriction{{ClientSource: []string{"355.127.0.1"}}}
 			},
 			expectedError: "AuthenticationRestriction is invalid - clientSource 355.127.0.1 is neither a valid IP address nor a valid CIDR range",
 		},
 		{
 			name: "authentication restriction with an invalid serverAddress",
-			role: MongoDBRole{
-				Role:                       "role",
-				Db:                         "admin",
-				AuthenticationRestrictions: []AuthenticationRestriction{{ServerAddress: []string{"355.127.0.1"}}},
+			mutate: func(r *MongoDBRole) {
+				r.AuthenticationRestrictions = []AuthenticationRestriction{{ServerAddress: []string{"355.127.0.1"}}}
 			},
 			expectedError: "AuthenticationRestriction is invalid - serverAddress 355.127.0.1 is neither a valid IP address nor a valid CIDR range",
 		},
 		{
 			name: "cluster privilege combined with db and collection",
-			role: MongoDBRole{
-				Role: "role",
-				Db:   "admin",
-				Privileges: []Privilege{
-					{Actions: []string{"insert"}, Resource: Resource{Cluster: new(true), Db: new("admin"), Collection: new("foo")}},
-				},
+			mutate: func(r *MongoDBRole) {
+				r.Privileges[0].Resource.Cluster = new(true)
 			},
 			expectedError: "Privilege is invalid - Cluster: true is not compatible with setting db/collection",
 		},
 		{
 			name: "cluster privilege set to false",
-			role: MongoDBRole{
-				Role:       "role",
-				Db:         "admin",
-				Privileges: []Privilege{{Actions: []string{"insert"}, Resource: Resource{Cluster: new(false)}}},
+			mutate: func(r *MongoDBRole) {
+				r.Privileges = []Privilege{{Actions: []string{"insert"}, Resource: Resource{Cluster: new(false)}}}
 			},
 			expectedError: "Privilege is invalid - The only valid value for privilege.cluster, if set, is true",
 		},
 		{
-			name: "invalid db action",
-			role: MongoDBRole{
-				Role:       "role",
-				Db:         "admin",
-				Privileges: []Privilege{{Actions: []string{"insertFoo"}, Resource: Resource{Db: new("admin"), Collection: new("foo")}}},
-			},
+			name:          "invalid db action",
+			mutate:        func(r *MongoDBRole) { r.Privileges[0].Actions = []string{"insertFoo"} },
 			expectedError: "Privilege is invalid - Actions are not valid - insertFoo is not a valid db action",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			role := validRole()
+			if tt.mutate != nil {
+				tt.mutate(&role)
+			}
 			expected := v1.ValidationSuccess()
 			if tt.expectedError != "" {
-				expected = v1.ValidationResult{Msg: tt.expectedError, Level: v1.ErrorLevel}
+				expected = v1.ValidationError("%s", tt.expectedError)
 			}
-			require.Equal(t, expected, RoleIsCorrectlyConfigured(tt.role, communityMongoVersion))
+			require.Equal(t, expected, RoleIsCorrectlyConfigured(role, communityMongoVersion))
 		})
 	}
 }

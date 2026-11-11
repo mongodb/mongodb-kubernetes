@@ -10,7 +10,6 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -97,8 +96,6 @@ func TestMongoDBWebhook_StandaloneDeprecationWarning(t *testing.T) {
 	assert.Len(t, warnings.collected(), beforeReplicaSet, "a ReplicaSet must not produce the Standalone warning")
 }
 
-// The webhook configuration ignores failures, so an unregistered path would accept the
-// invalid objects: every rejected row only passes if the webhook is actually reached.
 func TestMongoDBWebhook_RejectsInvalidResources(t *testing.T) {
 	ctx := context.Background()
 	shared := startMongoDBWebhookServer(t)
@@ -119,13 +116,13 @@ func TestMongoDBWebhook_RejectsInvalidResources(t *testing.T) {
 		{
 			name:          "replica set horizons without TLS are rejected",
 			object:        horizonsWithoutTLS,
-			expectedError: env.DeniedByWebhook(mongodbWebhookName, "TLS must be enabled in order to use replica set horizons"),
+			expectedError: "TLS must be enabled in order to use replica set horizons",
 		},
 		{
 			name:          "changing downloadBase is rejected",
 			object:        newReplicaSet("immutable-download-base"),
 			update:        func(rs *mdbv1.MongoDB) { rs.Spec.DownloadBase = "/custom/download/base" },
-			expectedError: env.DeniedByWebhook(mongodbWebhookName, "'spec.downloadBase' cannot be changed once created"),
+			expectedError: "'spec.downloadBase' cannot be changed once created",
 		},
 	}
 
@@ -144,8 +141,7 @@ func TestMongoDBWebhook_RejectsInvalidResources(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
-			assert.True(t, apierrors.IsForbidden(err), "expected the admission webhook to deny the request, got: %v", err)
-			require.EqualError(t, err, tc.expectedError)
+			env.RequireDeniedByWebhook(t, err, mongodbWebhookName, tc.expectedError)
 		})
 	}
 }

@@ -13,12 +13,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
 func TestMain(m *testing.M) {
 	os.Exit(env.RunShared(m,
-		// ClusterMongoDBRole is installed here so that every CRD is installed by at least one package.
 		env.WithCRDs("mongodb.com_mongodb.yaml", "mongodb.com_clustermongodbroles.yaml"),
 		env.WithWebhooks("webhooks.yaml"),
 	))
@@ -333,7 +333,7 @@ func TestExternalMongosPruneRateCELValidation(t *testing.T) {
 	})
 }
 
-func TestMongoDBSchemaValidation(t *testing.T) {
+func TestMongoDBCRDSchemaValidation(t *testing.T) {
 	ctx := context.Background()
 	k8sClient := env.Shared(t).Client
 
@@ -468,4 +468,17 @@ func TestMongoDBCELValidation_SecurityRoles(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.errorContains)
 		})
 	}
+}
+
+// The API server accepts any role content: it is validated when a MongoDB referencing the role is reconciled.
+func TestClusterMongoDBRoleCRD_AcceptsRoleWithEmptyName(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	clusterRole := role.DefaultClusterMongoDBRoleBuilder().Build()
+	clusterRole.Name = "empty-role-name"
+	clusterRole.Spec.Role = ""
+	t.Cleanup(func() { _ = k8sClient.Delete(ctx, clusterRole) })
+
+	require.NoError(t, k8sClient.Create(ctx, clusterRole))
 }

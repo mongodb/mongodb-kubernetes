@@ -346,6 +346,14 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedPart:         status.OpsManager,
 			expectedErrorMessage: "At least one ClusterSpecList item must have backup members configured",
 		},
+		"Multi cluster OM with backup members configured is valid": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test", Members: 1, Backup: &MongoDBOpsManagerBackupClusterSpecItem{Members: 1}}}).
+				SetBackup(MongoDBOpsManagerBackup{Enabled: true}).
+				Build(),
+			expectedPart: status.None,
+		},
 		"Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList": {
 			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
 				SetOpsManagerTopology(mdbv1.ClusterTopologySingleCluster).

@@ -4,10 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
@@ -28,8 +26,6 @@ func newWebhookOpsManager(name, version string) *omv1.MongoDBOpsManager {
 		Build()
 }
 
-// The webhook configuration ignores failures, so an unregistered path would accept the
-// invalid objects: every rejected row only passes if the webhook is actually reached.
 func TestOpsManagerWebhook_RejectsInvalidResources(t *testing.T) {
 	ctx := context.Background()
 	shared := env.Shared(t)
@@ -49,7 +45,7 @@ func TestOpsManagerWebhook_RejectsInvalidResources(t *testing.T) {
 		{
 			name:          "invalid version is rejected",
 			object:        newWebhookOpsManager("invalid-ops-manager", "4.4.4.4"),
-			expectedError: env.DeniedByWebhook(opsManagerWebhookName, "'4.4.4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.4.4 is invalid"),
+			expectedError: "'4.4.4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.4.4 is invalid",
 		},
 	}
 
@@ -63,8 +59,7 @@ func TestOpsManagerWebhook_RejectsInvalidResources(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
-			assert.True(t, apierrors.IsForbidden(err), "expected the admission webhook to deny the request, got: %v", err)
-			require.EqualError(t, err, tc.expectedError)
+			env.RequireDeniedByWebhook(t, err, opsManagerWebhookName, tc.expectedError)
 		})
 	}
 }

@@ -15,12 +15,12 @@
 package env
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -123,6 +123,7 @@ func (e *TestEnv) StartWebhookServer(t *testing.T, register func(ctrl.Manager) e
 	t.Helper()
 
 	options := e.Environment.WebhookInstallOptions
+	require.NotZero(t, options.LocalServingPort, "add env.WithWebhooks to the package's TestMain")
 	mgr, err := ctrl.NewManager(e.Config, ctrl.Options{
 		Scheme: e.Client.Scheme(),
 		WebhookServer: webhook.NewServer(webhook.Options{
@@ -136,7 +137,7 @@ func (e *TestEnv) StartWebhookServer(t *testing.T, register func(ctrl.Manager) e
 	require.NoError(t, err)
 	require.NoError(t, register(mgr))
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
@@ -145,13 +146,11 @@ func (e *TestEnv) StartWebhookServer(t *testing.T, register func(ctrl.Manager) e
 		}
 	}()
 	// Wait for the server to release the port, the next test starts its own on it.
-	t.Cleanup(func() {
-		cancel()
-		<-stopped
-	})
+	t.Cleanup(func() { <-stopped })
 
+	address := net.JoinHostPort(options.LocalServingHost, strconv.Itoa(options.LocalServingPort))
 	require.Eventually(t, func() bool {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", options.LocalServingHost, options.LocalServingPort), time.Second)
+		conn, err := net.DialTimeout("tcp", address, time.Second)
 		if err != nil {
 			return false
 		}
@@ -160,9 +159,12 @@ func (e *TestEnv) StartWebhookServer(t *testing.T, register func(ctrl.Manager) e
 	}, 30*time.Second, 100*time.Millisecond, "webhook server did not become reachable")
 }
 
-// DeniedByWebhook is the error the API server reports when the named webhook denies a request.
-func DeniedByWebhook(webhookName, message string) string {
-	return fmt.Sprintf("admission webhook %q denied the request: %s", webhookName, message)
+// RequireDeniedByWebhook asserts that the named webhook denied the request with the message.
+// The webhook configuration ignores unreachable webhooks, so a denial is the proof that the
+// webhook was reached: pair every rejected object with an accepted one.
+func RequireDeniedByWebhook(t *testing.T, err error, webhookName, message string) {
+	t.Helper()
+	require.EqualError(t, err, fmt.Sprintf("admission webhook %q denied the request: %s", webhookName, message))
 }
 
 // start boots the control plane and builds the client; RunShared stops it
