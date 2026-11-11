@@ -438,20 +438,20 @@ func TestEnsureRolesErrors(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 			controller := NewReconcileCommonController(ctx, kubeClient)
 			mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-			require.NoError(t, kubeClient.Create(ctx, test.referencedRole))
+			require.NoError(t, kubeClient.Create(ctx, tt.referencedRole))
 			rs := mdbv1.NewDefaultReplicaSetBuilder().
-				SetRoleRefs([]mdbv1.MongoDBRoleRef{{Name: test.referencedRole.Name, Kind: util.ClusterMongoDBRoleKind}}).
+				SetRoleRefs([]mdbv1.MongoDBRoleRef{{Name: tt.referencedRole.Name, Kind: util.ClusterMongoDBRoleKind}}).
 				Build()
 
 			result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 			require.Equal(t, status.PhaseFailed, result.Phase())
-			require.Equal(t, test.expectedError, statusMsg(result))
+			require.Equal(t, tt.expectedError, statusMsg(result))
 		})
 	}
 }
