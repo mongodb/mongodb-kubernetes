@@ -88,6 +88,37 @@ var memberServerAndClientCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageClientAuth,
 }
 
+// WithholdsClientCertificate returns whether a mongodb CR sets
+// setParameter.tlsWithholdClientCertificate. A process that withholds its certificate does not present
+// it when it connects to the other members of the deployment, so the certificate is never used as a
+// client certificate.
+//
+// The parameter takes true or 1, and the value arrives as free-form YAML, so accept the shapes a user
+// can write.
+func WithholdsClientCertificate(cfg *mdbv1.AdditionalMongodConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	setParameter, ok := cfg.ToMap()["setParameter"].(map[string]any)
+	if !ok {
+		return false
+	}
+	switch value := setParameter["tlsWithholdClientCertificate"].(type) {
+	case bool:
+		return value
+	case int:
+		return value == 1
+	case int64:
+		return value == 1
+	case float64:
+		return value == 1
+	case string:
+		return value == "true" || value == "1"
+	default:
+		return false
+	}
+}
+
 var clientAuthCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageDigitalSignature,
 	certmanagerv1.UsageKeyEncipherment,
@@ -402,8 +433,11 @@ func componentCertificates(ctx context.Context, c kubernetesClient.Client, res C
 		memberSub, memberCN = serverSubject(res)
 		// Member to member connections are mutual TLS even without x509 internal authentication, and
 		// there is no clusterfile, so the member certificate is what they present to each other even as client,
-		// that's why it needs both key usages.
-		memberUsages = memberServerAndClientCertUsages
+		// that's why it needs both key usages. A deployment whose mongod config withholds the
+		// certificate presents nothing to the other members, so the client usage is not needed.
+		if !opts.WithholdsClientCertificate {
+			memberUsages = memberServerAndClientCertUsages
+		}
 	}
 
 	required := []certToEnsure{

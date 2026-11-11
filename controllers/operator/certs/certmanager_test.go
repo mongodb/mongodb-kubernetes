@@ -223,6 +223,19 @@ func TestComponentCertificates(t *testing.T) {
 		assert.Nil(t, got[0].spec.Subject, "member cert is SAN-only when internal auth is not x509")
 	})
 
+	t.Run("keyfile internal auth with the client certificate withheld: serverAuth only", func(t *testing.T) {
+		opts := baseOpts
+		opts.WithholdsClientCertificate = true
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		})
+		got := componentCertificates(ctx, fakeClient, owner, opts)
+		require.Len(t, got, 1)
+		// The mongod config withholds the certificate, so the members present nothing to each other
+		// and the certificate is never used as a client certificate.
+		assert.Equal(t, memberServerCertUsages, got[0].spec.Usages)
+	})
+
 	t.Run("x509 internal auth: member + clusterfile, both carry the same membership subject", func(t *testing.T) {
 		opts := baseOpts
 		opts.InternalClusterSecretName = fmt.Sprintf("%s-clusterfile", resName)
@@ -551,9 +564,9 @@ func TestShardedComponentConfigsSetMembersToCover(t *testing.T) {
 	scaler := fakeScaler{current: 3, desired: 5}
 
 	builders := map[string]Options{
-		"shard":  ShardConfig(*mdb, 0, nil, scaler),
-		"mongos": MongosConfig(*mdb, nil, scaler),
-		"config": ConfigSrvConfig(*mdb, nil, scaler),
+		"shard":  ShardConfig(*mdb, 0, nil, scaler, nil),
+		"mongos": MongosConfig(*mdb, nil, scaler, nil),
+		"config": ConfigSrvConfig(*mdb, nil, scaler, nil),
 	}
 	for name, opts := range builders {
 		assert.Equal(t, 5, opts.MembersToCover, "%s cert Options must set MembersToCover to max(current, desired)", name)
@@ -690,7 +703,7 @@ func TestMultiShardedComponentManagedCertConfig(t *testing.T) {
 		{ClusterNum: 1, ClusterName: "cluster-1", Members: 3},
 	}
 
-	opts := MultiShardedComponentManagedCertConfig(*sc, "mdb-0", clusters)
+	opts := MultiShardedComponentManagedCertConfig(*sc, "mdb-0", clusters, nil)
 
 	assert.Equal(t, "mdb-0", opts.ResourceName, "the hostname base, not the per-cluster StatefulSet name")
 	assert.Equal(t, "mdb-0-managed-cert", opts.CertSecretName)
@@ -724,7 +737,7 @@ func TestMultiShardedComponentManagedCertSANs(t *testing.T) {
 		{ClusterNum: 0, ClusterName: "cluster-0", Members: 2, ExternalDomain: &ext0},
 		{ClusterNum: 1, ClusterName: "cluster-1", Members: 1},
 		{ClusterNum: 2, ClusterName: "cluster-2", Members: 1, ExternalDomain: &ext2},
-	})
+	}, nil)
 
 	got := componentCertificates(ctx, fakeClient, sc, opts)
 	require.Len(t, got, 2, "x509 internal auth adds the clusterfile certificate")

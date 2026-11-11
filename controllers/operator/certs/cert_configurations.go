@@ -158,6 +158,13 @@ type Options struct {
 
 	Topology string
 
+	// WithholdsClientCertificate is true when the mongod configuration of the component these options
+	// are for sets setParameter.tlsWithholdClientCertificate using MongoDB CR. It only matters when x509 is not the
+	// internal cluster authentication because in that the member cert is used/issued with dual EKU. To make
+	// sure the member cert is not issued with dual EKU, customers can set setParameter.tlsWithholdClientCertificate
+	// and member certs would just have serverAuth EKU because in that case member certs are not treated as client certs.
+	WithholdsClientCertificate bool
+
 	OwnerReference []metav1.OwnerReference
 }
 
@@ -181,6 +188,7 @@ func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		WithholdsClientCertificate:   WithholdsClientCertificate(mdb.Spec.AdditionalMongodConfig),
 		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
 }
@@ -199,6 +207,7 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		horizons:                     mdb.Spec.Connectivity.ReplicaSetHorizons,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		WithholdsClientCertificate:   WithholdsClientCertificate(mdb.Spec.AdditionalMongodConfig),
 		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
 }
@@ -244,7 +253,13 @@ func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interf
 }
 
 // ShardConfig returns a struct which provides all the configuration options required for the given shard.
-func ShardConfig(mdb mdbv1.MongoDB, shardNum int, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
+func ShardConfig(
+	mdb mdbv1.MongoDB,
+	shardNum int,
+	externalDomain *string,
+	scaler interfaces.MultiClusterReplicaSetScaler,
+	mongodConfig *mdbv1.AdditionalMongodConfig,
+) Options {
 	resourceName := mdb.ShardName(shardNum)
 	if mdb.Spec.IsMultiCluster() {
 		resourceName = mdb.MultiShardRsName(scaler.MemberClusterNum(), shardNum)
@@ -261,6 +276,7 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, externalDomain *string, scaler
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
 		ExternalDomain:               externalDomain,
 		Topology:                     mdb.Spec.GetTopology(),
 	}
@@ -269,15 +285,16 @@ func ShardConfig(mdb mdbv1.MongoDB, shardNum int, externalDomain *string, scaler
 // MultiReplicaSetConfig returns a struct which provides all of the configuration required for a given MongoDB Multi Replicaset.
 func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, clusterName string, replicas int) Options {
 	return Options{
-		ResourceName:              mdbm.MultiStatefulsetName(clusterNum),
-		CertSecretName:            mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
-		InternalClusterSecretName: mdbm.Spec.GetSecurity().InternalClusterAuthSecretName(mdbm.Name),
-		Namespace:                 mdbm.Namespace,
-		Replicas:                  replicas,
-		ClusterDomain:             mdbm.Spec.GetClusterDomain(),
-		Topology:                  mdbv1.ClusterTopologyMultiCluster,
-		OwnerReference:            mdbm.GetOwnerReferences(),
-		ExternalDomain:            mdbm.Spec.GetExternalDomainForMemberCluster(clusterName),
+		ResourceName:               mdbm.MultiStatefulsetName(clusterNum),
+		CertSecretName:             mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
+		InternalClusterSecretName:  mdbm.Spec.GetSecurity().InternalClusterAuthSecretName(mdbm.Name),
+		Namespace:                  mdbm.Namespace,
+		Replicas:                   replicas,
+		ClusterDomain:              mdbm.Spec.GetClusterDomain(),
+		Topology:                   mdbv1.ClusterTopologyMultiCluster,
+		OwnerReference:             mdbm.GetOwnerReferences(),
+		WithholdsClientCertificate: WithholdsClientCertificate(mdbm.Spec.AdditionalMongodConfig),
+		ExternalDomain:             mdbm.Spec.GetExternalDomainForMemberCluster(clusterName),
 	}
 }
 
@@ -286,14 +303,15 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 // across clusters.
 func MultiReplicaSetManagedCertConfig(mdbm mdbmulti.MongoDBMultiCluster, clusters []MemberCluster) Options {
 	return Options{
-		ResourceName:              mdbm.Name,
-		CertSecretName:            mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
-		InternalClusterSecretName: mdbm.Spec.GetSecurity().InternalClusterAuthSecretName(mdbm.Name),
-		Namespace:                 mdbm.Namespace,
-		ClusterDomain:             mdbm.Spec.GetClusterDomain(),
-		Topology:                  mdbv1.ClusterTopologyMultiCluster,
-		OwnerReference:            mdbm.GetOwnerReferences(),
-		MultiClusterMembers:       clusters,
+		ResourceName:               mdbm.Name,
+		CertSecretName:             mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
+		InternalClusterSecretName:  mdbm.Spec.GetSecurity().InternalClusterAuthSecretName(mdbm.Name),
+		Namespace:                  mdbm.Namespace,
+		ClusterDomain:              mdbm.Spec.GetClusterDomain(),
+		Topology:                   mdbv1.ClusterTopologyMultiCluster,
+		OwnerReference:             mdbm.GetOwnerReferences(),
+		WithholdsClientCertificate: WithholdsClientCertificate(mdbm.Spec.AdditionalMongodConfig),
+		MultiClusterMembers:        clusters,
 	}
 }
 
@@ -306,7 +324,12 @@ func MultiReplicaSetManagedCertConfig(mdbm mdbmulti.MongoDBMultiCluster, cluster
 // the per-cluster StatefulSet name: the pods are addressed as
 // <baseName>-<cluster index>-<pod>-svc.<namespace>.svc.<clusterDomain>, so passing the StatefulSet
 // name would put the cluster index in the hostname twice.
-func MultiShardedComponentManagedCertConfig(sc mdbv1.MongoDB, baseName string, clusters []MemberCluster) Options {
+func MultiShardedComponentManagedCertConfig(
+	sc mdbv1.MongoDB,
+	baseName string,
+	clusters []MemberCluster,
+	mongodConfig *mdbv1.AdditionalMongodConfig,
+) Options {
 	return Options{
 		ResourceName:                 baseName,
 		CertSecretName:               sc.GetSecurity().MemberCertificateSecretName(baseName),
@@ -315,13 +338,19 @@ func MultiShardedComponentManagedCertConfig(sc mdbv1.MongoDB, baseName string, c
 		ClusterDomain:                sc.Spec.GetClusterDomain(),
 		Topology:                     mdbv1.ClusterTopologyMultiCluster,
 		OwnerReference:               sc.GetOwnerReferences(),
+		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
 		MultiClusterMembers:          clusters,
 		additionalCertificateDomains: sc.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 	}
 }
 
 // MongosConfig returns a struct which provides all of the configuration options required for the given Mongos.
-func MongosConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
+func MongosConfig(
+	mdb mdbv1.MongoDB,
+	externalDomain *string,
+	scaler interfaces.MultiClusterReplicaSetScaler,
+	mongodConfig *mdbv1.AdditionalMongodConfig,
+) Options {
 	resourceName := mdb.MongosRsName()
 	if mdb.Spec.IsMultiCluster() {
 		resourceName = mdb.MultiMongosRsName(scaler.MemberClusterNum())
@@ -338,13 +367,14 @@ func MongosConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interfaces.M
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
 		ExternalDomain:               externalDomain,
 		Topology:                     mdb.Spec.GetTopology(),
 	}
 }
 
 // ConfigSrvConfig returns a struct which provides all of the configuration options required for the given ConfigServer.
-func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler) Options {
+func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interfaces.MultiClusterReplicaSetScaler, mongodConfig *mdbv1.AdditionalMongodConfig) Options {
 	resourceName := mdb.ConfigRsName()
 	if mdb.Spec.IsMultiCluster() {
 		resourceName = mdb.MultiConfigRsName(scaler.MemberClusterNum())
@@ -361,6 +391,7 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interface
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               mdb.GetOwnerReferences(),
+		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
 		ExternalDomain:               externalDomain,
 		Topology:                     mdb.Spec.GetTopology(),
 	}
