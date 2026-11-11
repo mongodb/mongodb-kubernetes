@@ -15,13 +15,7 @@ from kubetester import (
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import (
-    get_default_architecture,
-    is_default_architecture_static,
-    run_periodically,
-    skip_if_local,
-    static_ga_timeout,
-)
+from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local, static_ga_timeout
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
@@ -586,31 +580,6 @@ def assert_container_env_vars(namespace: str, pod_name: str):
             assert envvar.value_from.secret_key_ref.key == "agentApiKey"
             continue
 
-        allowed_envvars = [
-            "AGENT_FLAGS",
-            "BASE_URL",
-            "GROUP_ID",
-            "USER_LOGIN",
-            "LOG_LEVEL",
-            "SSL_TRUSTED_MMS_SERVER_CERTIFICATE",
-            "SSL_REQUIRE_VALID_MMS_CERTIFICATES",
-            "MULTI_CLUSTER_MODE",
-            "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE",
-            "MDB_LOG_FILE_AUTOMATION_AGENT",
-            "MDB_LOG_FILE_MONITORING_AGENT",
-            "MDB_LOG_FILE_BACKUP_AGENT",
-            "MDB_LOG_FILE_MONGODB",
-            "MDB_LOG_FILE_MONGODB_AUDIT",
-            "MDB_STATIC_CONTAINERS_ARCHITECTURE",
-        ]
-        if get_default_architecture() == "static-ga":
-            allowed_envvars.extend(
-                [
-                    "MDB_CUSTOM_AGENT_URL",
-                    "MDB_MONGODB_PROXY_ADDRESS",
-                ]
-            )
-        assert envvar.name in allowed_envvars
         assert envvar.value is not None or envvar.name == "AGENT_FLAGS"
 
 

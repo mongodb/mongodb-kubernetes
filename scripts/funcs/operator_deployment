@@ -130,20 +130,6 @@ prepare_operator_config_map() {
   helm_values_output=$(get_operator_helm_values) || return "$?"
   read -ra helm_values <<< "${helm_values_output}"
 
-  # Static arches download the Agent from the custom URL at start. Non-static pods
-  # use the agent image, so the URL must not appear in their operator install.
-  local architecture="${MDB_DEFAULT_ARCHITECTURE:-non-static}"
-  if [[ "${architecture}" != "static" && "${architecture}" != "static-ga" ]]; then
-    local filtered=()
-    local value
-    for value in "${helm_values[@]}"; do
-      if [[ "${value}" != "agent.customAgentUrl="* ]]; then
-        filtered+=("${value}")
-      fi
-    done
-    helm_values=("${filtered[@]}")
-  fi
-
   kubectl --context "${context}" delete configmap operator-installation-config --ignore-not-found
   title "Preparing the ConfigMap with Operator installation configuration"
 
