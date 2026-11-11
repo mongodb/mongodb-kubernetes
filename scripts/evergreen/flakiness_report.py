@@ -8,13 +8,11 @@ EVERGREEN_API = "https://evergreen.mongodb.com/api"
 
 
 def print_usage():
-    print(
-        """Set EVERGREEN_USER and EVERGREEN_API_KEY env. variables
+    print("""Set EVERGREEN_USER and EVERGREEN_API_KEY env. variables
 Obtain the version from either Evergreen UI or Github checks
 Call
   python flakiness-report.py <patch version number>
-  python flakiness-report.py 62cfba5957e85a64e1f801fa"""
-    )
+  python flakiness-report.py 62cfba5957e85a64e1f801fa""")
 
 
 def get_variants_with_retried_tasks() -> dict[str, list[dict]]:
