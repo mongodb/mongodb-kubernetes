@@ -27,7 +27,6 @@ generate_standalone_yaml() {
   FILES=(
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-base.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml"
-    "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-telemetry.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-webhook.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml"
@@ -48,20 +47,14 @@ generate_standalone_yaml() {
   # generate openshift files for kustomize used for generating OLM bundle
   rm -rf "${charttmpdir:?}"/*
   helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-openshift.yaml \
-    --set operator.webhook.registerConfiguration=false --set operator.webhook.installClusterRole=false --set operator.installationMethod=yaml "$@"
+    --set operator.webhook.registerConfiguration=false --set operator.installationMethod=yaml "$@"
 
   # update kustomize files for OLM bundle with files generated for openshift
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator.yaml" config/manager/manager.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml" config/rbac/database-roles.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-base.yaml" config/rbac/operator-roles-base.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml" config/rbac/operator-roles-clustermongodbroles.yaml
-  cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml" config/rbac/operator-roles-pvc-resize.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-telemetry.yaml" config/rbac/operator-roles-telemetry.yaml
-
-  # generate multi-cluster public example
-  rm -rf "${charttmpdir:?}"/*
-  helm template --namespace mongodb -f helm_chart/values.yaml helm_chart --output-dir "${charttmpdir}" --values helm_chart/values-multi-cluster.yaml --set operator.installationMethod=yaml "$@"
-  cat "${FILES[@]}" >public/mongodb-kubernetes-multi-cluster.yaml
 }
 
 generate_manifests() {
@@ -87,12 +80,9 @@ update_release_json() {
 }
 
 regenerate_public_rbac_multi_cluster() {
-  if [[ "${MDB_REGENERATE_RBAC:-""}" == "true" ]]; then
-    echo 'regenerating multicluster RBAC public example'
-    pushd pkg/kubectl-mongodb/common/
-    EXPORT_RBAC_SAMPLES="true" go test ./... -run TestPrintingOutRolesServiceAccountsAndRoleBindings
-    popd
-  fi
+  echo 'regenerating multicluster RBAC public example'
+  go run ./cmd/kubectl-mongodb cluster generate-resources --member-cluster-namespace mongodb > public/samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_member_cluster.yaml
+  go run ./cmd/kubectl-mongodb cluster generate-resources --member-cluster-namespace mongodb --operator-cluster-scoped > public/samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_member_cluster.yaml
 }
 
 update_licenses() {

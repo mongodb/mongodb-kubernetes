@@ -1,0 +1,103 @@
+{{- /*
+Member-cluster credentials and multi-cluster-only RBAC.
+
+Rendered only when `memberCluster.enabled=true`, which is set exclusively by
+`kubectl` plugin.
+*/ -}}
+
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false -}}
+{{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
+
+{{- if $memberMode }}
+    {{- $name := "mck-member" }}
+    {{- $clusterScoped := $memberCluster.clusterScoped | default false }}
+    {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default ($operatorNamespace | list) }}
+    {{- $bindingNamespaces := concat $workloadNamespaces ($operatorNamespace | list) | uniq }}
+
+    {{- /*
+    One Role per binding namespace: only a cluster-scoped operator renders a ClusterRole.
+    */ -}}
+    {{- $roleScope := "Role" -}}
+    {{- if $clusterScoped -}}
+        {{- $roleScope = "ClusterRole" -}}
+        {{- $bindingNamespaces = list $operatorNamespace -}}
+    {{- end }}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-sa
+  namespace: {{ $operatorNamespace }}
+  annotations:
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
+---
+{{- /*
+Long-lived token for the member ServiceAccount. Since Kubernetes 1.24 these are no
+longer auto-created, so we create one explicitly for the operator to authenticate with.
+*/}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}-token
+  namespace: {{ $operatorNamespace }}
+  annotations:
+    kubernetes.io/service-account.name: {{ $name }}-sa
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
+type: kubernetes.io/service-account-token
+
+{{- range $idx, $ns := $bindingNamespaces }}
+---
+kind: {{ $roleScope }}
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $name }}-role-multicluster
+{{- if eq $roleScope "Role" }}
+  namespace: {{ $ns }}
+{{- end }}
+  annotations:
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
+rules:
+{{- /*
+    deletecollection is required for multi-cluster operation: owner references
+    don't work across clusters, so removing a multi-cluster workload (or a whole member
+    cluster) deletes its resources via DeleteAllOf. Single-cluster deletion relies on
+    Kubernetes garbage collection instead, so the base installation role doesn't grant
+    this verb on these resources.
+*/}}
+  - apiGroups:
+      - ''
+    resources:
+      - secrets
+      - configmaps
+      - services
+    verbs:
+      - deletecollection
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - deployments
+    verbs:
+      - deletecollection
+---
+kind: {{ $roleScope }}Binding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ $name }}-role-multicluster-binding
+{{- if eq $roleScope "Role" }}
+  namespace: {{ $ns }}
+{{- end }}
+  annotations:
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $roleScope }}
+  name: {{ $name }}-role-multicluster
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-sa
+    namespace: {{ $operatorNamespace }}
+{{- end }}
+{{- end }}

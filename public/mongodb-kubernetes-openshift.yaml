@@ -5,6 +5,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 rules:
   - apiGroups:
       - ''
@@ -62,6 +64,14 @@ rules:
       - delete
       - deletecollection
   - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - list
+      - watch
+      - update
+  - apiGroups:
       - mongodbcommunity.mongodb.com
     resources:
       - mongodbcommunity
@@ -98,6 +108,15 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - operatorconfigs
+      - memberclusters
+    verbs:
+      - get
+      - list
+      - watch
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
@@ -105,6 +124,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -141,46 +162,14 @@ subjects:
     name: mongodb-kubernetes-operator
     namespace: mongodb
 ---
-# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
-kind: Role
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-pvc-resize
-  namespace: mongodb
-rules:
-  - apiGroups:
-      - ''
-    resources:
-      - persistentvolumeclaims
-    verbs:
-      - get
-      - delete
-      - list
-      - watch
-      - patch
-      - update
----
-# Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
-kind: RoleBinding
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: mongodb-kubernetes-operator-pvc-resize-binding
-  namespace: mongodb
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: mongodb-kubernetes-operator-pvc-resize
-subjects:
-  - kind: ServiceAccount
-    name: mongodb-kubernetes-operator
-    namespace: mongodb
----
 # Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # Additional ClusterRole for clusterVersionDetection
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator-cluster-telemetry
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 rules:
   # Non-resource URL permissions
   - nonResourceURLs:
@@ -209,6 +198,8 @@ kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator-mongodb-cluster-telemetry-binding
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -265,6 +256,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -272,6 +265,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -279,6 +274,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: Role
@@ -286,6 +283,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 rules:
   - apiGroups:
       - ''
@@ -308,6 +307,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -349,16 +350,8 @@ spec:
       serviceAccountName: mongodb-kubernetes-operator
       containers:
         - name: mongodb-kubernetes-operator
-          image: "quay.io/mongodb/mongodb-kubernetes:1.15.1"
+          image: "quay.io/mongodb/mongodb-kubernetes:2.0.0"
           imagePullPolicy: Always
-          args:
-            - -watch-resource=mongodb
-            - -watch-resource=opsmanagers
-            - -watch-resource=mongodbusers
-            - -watch-resource=mongodbcommunity
-            - -watch-resource=mongodbsearch
-            - -watch-resource=voyageais
-            - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator
           volumeMounts:
@@ -372,10 +365,6 @@ spec:
               cpu: 500m
               memory: 200Mi
           env:
-            - name: OPERATOR_ENV
-              value: prod
-            - name: MDB_DEFAULT_ARCHITECTURE
-              value: non-static
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
@@ -383,7 +372,7 @@ spec:
             # Migration dry-run job image.
             # Optional: it can be resolved from the API server.
             - name: MDB_OPERATOR_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes:1.15.1"
+              value: "quay.io/mongodb/mongodb-kubernetes:2.0.0"
             - name: WATCH_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -394,10 +383,6 @@ spec:
               value: "1h"
             - name: MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY
               value: "168h"
-            - name: CLUSTER_CLIENT_TIMEOUT
-              value: "10"
-            - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
-              value: "5"
             - name: IMAGE_PULL_POLICY
               value: Always
             # Database
@@ -406,16 +391,16 @@ spec:
             - name: INIT_DATABASE_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-database
             - name: INIT_DATABASE_VERSION
-              value: "1.15.1"
+              value: "2.0.0"
             - name: DATABASE_VERSION
-              value: "1.15.1"
+              value: "2.0.0"
             # Ops Manager
             - name: OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-enterprise-ops-manager-ubi
             - name: INIT_OPS_MANAGER_IMAGE_REPOSITORY
               value: quay.io/mongodb/mongodb-kubernetes-init-ops-manager
             - name: INIT_OPS_MANAGER_VERSION
-              value: "1.15.1"
+              value: "2.0.0"
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
@@ -428,8 +413,6 @@ spec:
               value: quay.io/mongodb
             - name: PERFORM_FAILOVER
               value: 'true'
-            - name: MDB_MAX_CONCURRENT_RECONCILES
-              value: "1"
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -454,12 +437,12 @@ spec:
             - name: MDB_COMMUNITY_IMAGE_TYPE
               value: "ubi8"
             # Community Env Vars End
-            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_1_15_1
-              value: "quay.io/mongodb/mongodb-kubernetes-database:1.15.1"
-            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_1_15_1
-              value: "quay.io/mongodb/mongodb-kubernetes-init-database:1.15.1"
-            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_1_15_1
-              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:1.15.1"
+            - name: RELATED_IMAGE_MONGODB_ENTERPRISE_DATABASE_IMAGE_2_0_0
+              value: "quay.io/mongodb/mongodb-kubernetes-database:2.0.0"
+            - name: RELATED_IMAGE_INIT_DATABASE_IMAGE_REPOSITORY_2_0_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-database:2.0.0"
+            - name: RELATED_IMAGE_INIT_OPS_MANAGER_IMAGE_REPOSITORY_2_0_0
+              value: "quay.io/mongodb/mongodb-kubernetes-init-ops-manager:2.0.0"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_12_8669_1
               value: "quay.io/mongodb/mongodb-agent:107.0.12.8669-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_107_0_13_8702_1

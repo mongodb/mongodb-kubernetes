@@ -12,7 +12,6 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +25,7 @@ import (
 	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -50,42 +50,42 @@ type ConfigClient interface {
 }
 
 type LeaderRunnable struct {
-	memberClusterObjectsMap map[string]cluster.Cluster
-	operatorMgr             manager.Manager
-	atlasClient             *Client
-	currentNamespace        string
-	mongodbImage            string
-	databaseNonStaticImage  string
-	installerMethod         string
-	configuredOperatorEnv   util.OperatorEnvironment
-	defaultArchitecture     architectures.DefaultArchitecture
+	memberClustersProvider *multicluster.Provider
+	operatorMgr            manager.Manager
+	atlasClient            *Client
+	currentNamespace       string
+	mongodbImage           string
+	databaseNonStaticImage string
+	installerMethod        string
+	configuredOperatorEnv  util.OperatorEnvironment
+	defaultArchitecture    architectures.DefaultArchitecture
 }
 
 func (l *LeaderRunnable) NeedLeaderElection() bool {
 	return true
 }
 
-func NewLeaderRunnable(operatorMgr manager.Manager, memberClusterObjectsMap map[string]cluster.Cluster, currentNamespace, mongodbImage, databaseNonStaticImage, installerMethod string, operatorEnv util.OperatorEnvironment, defaultArchitecture architectures.DefaultArchitecture) (*LeaderRunnable, error) {
+func NewLeaderRunnable(operatorMgr manager.Manager, memberClustersProvider *multicluster.Provider, currentNamespace, mongodbImage, databaseNonStaticImage, installerMethod string, operatorEnv util.OperatorEnvironment, defaultArchitecture architectures.DefaultArchitecture) (*LeaderRunnable, error) {
 	atlasClient, err := NewClient(nil)
 	if err != nil {
 		return nil, xerrors.Errorf("Failed creating atlas telemetry client: %w", err)
 	}
 	return &LeaderRunnable{
-		atlasClient:             atlasClient,
-		operatorMgr:             operatorMgr,
-		memberClusterObjectsMap: memberClusterObjectsMap,
-		currentNamespace:        currentNamespace,
-		configuredOperatorEnv:   operatorEnv,
-		mongodbImage:            mongodbImage,
-		databaseNonStaticImage:  databaseNonStaticImage,
-		installerMethod:         installerMethod,
-		defaultArchitecture:     defaultArchitecture,
+		atlasClient:            atlasClient,
+		operatorMgr:            operatorMgr,
+		memberClustersProvider: memberClustersProvider,
+		currentNamespace:       currentNamespace,
+		configuredOperatorEnv:  operatorEnv,
+		mongodbImage:           mongodbImage,
+		databaseNonStaticImage: databaseNonStaticImage,
+		installerMethod:        installerMethod,
+		defaultArchitecture:    defaultArchitecture,
 	}, nil
 }
 
 func (l *LeaderRunnable) Start(ctx context.Context) error {
 	Logger.Debug("Starting leader-only telemetry goroutine")
-	RunTelemetry(ctx, l.mongodbImage, l.databaseNonStaticImage, l.currentNamespace, l.installerMethod, l.operatorMgr, l.memberClusterObjectsMap, l.atlasClient, l.configuredOperatorEnv, l.defaultArchitecture)
+	RunTelemetry(ctx, l.mongodbImage, l.databaseNonStaticImage, l.currentNamespace, l.installerMethod, l.operatorMgr, l.memberClustersProvider, l.atlasClient, l.configuredOperatorEnv, l.defaultArchitecture)
 
 	return nil
 }
@@ -93,7 +93,7 @@ func (l *LeaderRunnable) Start(ctx context.Context) error {
 type snapshotCollector func(ctx context.Context, memberClusterMap map[string]ConfigClient, operatorClusterMgr manager.Manager, operatorUUID, mongodbImage, databaseNonStaticImage string) []Event
 
 // RunTelemetry lists the specified CRDs and sends them as events to Segment
-func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticImage, namespace, installerMethod string, operatorClusterMgr manager.Manager, clusterMap map[string]cluster.Cluster, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment, defaultArchitecture architectures.DefaultArchitecture) {
+func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticImage, namespace, installerMethod string, operatorClusterMgr manager.Manager, memberClustersProvider *multicluster.Provider, atlasClient *Client, configuredOperatorEnv util.OperatorEnvironment, defaultArchitecture architectures.DefaultArchitecture) {
 	Logger.Debug("Collecting telemetry!")
 	ctx, span := TRACER.Start(leaderTrace, "RunTelemetry")
 	span.SetAttributes(
@@ -110,9 +110,12 @@ func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticIm
 	Logger.Debugf("%s is set to: %s", CollectionFrequency, duration)
 
 	// converting to a smaller interface for better testing and clearer responsibilities
-	cc := map[string]ConfigClient{}
-	for s, c := range clusterMap {
-		cc[s] = c
+	memberClusterConfigClients := func() map[string]ConfigClient {
+		cc := map[string]ConfigClient{}
+		for s, e := range memberClustersProvider.Entries() {
+			cc[s] = e.Cluster
+		}
+		return cc
 	}
 
 	// Mapping of snapshot types to their respective collector functions
@@ -135,6 +138,7 @@ func RunTelemetry(leaderTrace context.Context, mongodbImage, databaseNonStaticIm
 		// we are calling this per "ticker" as customers might enable RBACs after the operator has been deployed
 		operatorUUID := getOrGenerateOperatorUUID(ctx, operatorClusterMgr.GetClient(), namespace)
 
+		cc := memberClusterConfigClients()
 		for eventType, f := range snapshotCollectors {
 			collectAndSendSnapshot(ctx, eventType, f, cc, operatorClusterMgr, operatorUUID, mongodbImage, databaseNonStaticImage, namespace, atlasClient, configuredOperatorEnv)
 		}

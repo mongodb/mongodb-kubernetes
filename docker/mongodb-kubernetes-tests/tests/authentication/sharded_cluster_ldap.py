@@ -1,5 +1,5 @@
 import time
-from typing import Dict, List
+from typing import List
 
 from kubetester import try_load, wait_until
 from kubetester.kubetester import KubernetesTester
@@ -13,8 +13,10 @@ from pytest import fixture, mark
 
 
 @fixture(scope="module")
-def operator_installation_config(operator_installation_config_quick_recovery: Dict[str, str]) -> Dict[str, str]:
-    return operator_installation_config_quick_recovery
+def operator_config_extra_spec() -> dict:
+    """Shortens the automatic recovery back-off (CLOUDP-229222) so recovery triggers within the test
+    window. The back-off lives in the OperatorConfig CR (.spec.automaticRecovery.delay)."""
+    return {"automaticRecovery": {"delay": 120}}
 
 
 @fixture(scope="module")

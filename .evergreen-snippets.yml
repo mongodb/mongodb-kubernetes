@@ -37,9 +37,10 @@ variables:
       - func: teardown_kubernetes_environment
       - func: teardown_cloud_qa
 
-  # Same as the kind group, plus the kubectl-mongodb plugin needed by
-  # `kubectl mongodb multicluster setup`. The multi-cluster kind environment
-  # itself comes from the variant context (KUBE_ENVIRONMENT_NAME=multi).
+  # Same as the kind group, plus the kubectl-mongodb plugin used by
+  # `kubectl mongodb cluster generate-resources` and
+  # `kubectl mongodb cluster generate-registration`. The multi-cluster kind
+  # environment itself comes from the variant context (KUBE_ENVIRONMENT_NAME=multi).
   - &setup_and_teardown_group_kind_multi_cluster_code_snippets
     setup_task_can_fail_task: true
     setup_group_can_fail_task: true

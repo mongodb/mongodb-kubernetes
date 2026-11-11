@@ -5,6 +5,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 rules:
   - apiGroups:
       - ''
@@ -62,6 +64,14 @@ rules:
       - delete
       - deletecollection
   - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - list
+      - watch
+      - update
+  - apiGroups:
       - mongodbcommunity.mongodb.com
     resources:
       - mongodbcommunity
@@ -98,6 +108,15 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - operatorconfigs
+      - memberclusters
+    verbs:
+      - get
+      - list
+      - watch
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
@@ -105,6 +124,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 metadata:
   name: mongodb-kubernetes-operator
   namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role

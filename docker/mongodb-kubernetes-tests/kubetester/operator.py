@@ -20,8 +20,10 @@ from kubetester.helm import (
 from tests import test_logger
 
 OPERATOR_CRDS = (
+    "memberclusters.operator.mongodb.com",
     "mongodb.mongodb.com",
     "mongodbusers.mongodb.com",
+    "operatorconfigs.operator.mongodb.com",
     "opsmanagers.mongodb.com",
 )
 
@@ -58,7 +60,8 @@ class Operator(object):
             helm_args = {}
 
         helm_args["namespace"] = namespace
-        helm_args["operator.env"] = "dev"
+
+        add_to_custom_env_vars_value(helm_args, "OPERATOR_ENV", "dev")
 
         # the import is done here to prevent circular dependency
         from tests.conftest import local_operator
@@ -145,6 +148,38 @@ class Operator(object):
     def read_deployment(self) -> V1Deployment:
         return client.AppsV1Api(api_client=self.api_client).read_namespaced_deployment(self.name, self.namespace)
 
+    def apply_operator_config_and_wait(
+        self,
+        multi_cluster: bool = False,
+        extra_spec: Optional[dict] = None,
+    ):
+        """Creates the OperatorConfig CR from test env vars (if any non-default settings exist) and waits
+        for the operator to restart, reload its configuration and become ready again.
+
+        This is a thin Helm-specific wrapper around the installation-method-agnostic
+        apply_operator_config_from_test_env helper: it supplies the Helm post-restart readiness check
+        (deployment ready plus the validating webhook), since creating the CR triggers a graceful restart
+        during which the webhook is briefly unavailable.
+
+        Callers can pass extra_spec to configure OperatorConfig fields explicitly on the CR (e.g.
+        {"watchedResources": [...]} or {"automaticRecovery": {"delay": 10}}). It is merged on top of the
+        spec built from the test environment.
+        """
+        # the import is done here to prevent circular dependency
+        from kubetester.kubetester import apply_operator_config_from_test_env
+
+        def wait_for_ready():
+            self.wait_for_operator_ready()
+            self.wait_for_operator_webhook_ready(multi_cluster=multi_cluster)
+
+        apply_operator_config_from_test_env(
+            self.namespace,
+            api_client=self.api_client,
+            name=self.name,
+            wait_for_ready=wait_for_ready,
+            extra_spec=extra_spec or None,
+        )
+
     def wait_for_operator_ready(self, retries: int = 60):
         """waits until the Operator deployment is ready."""
 
@@ -174,7 +209,22 @@ class Operator(object):
 
         raise Exception(f"Operator hasn't started in specified time after {retries} retries.")
 
+    def webhook_registration_enabled(self) -> bool:
+        """Returns False if the operator was installed with operator.webhook.registerConfiguration=false,
+        meaning the operator doesn't serve the admission webhook at all; it removes the operator-webhook
+        service and the ValidatingWebhookConfiguration on startup - so we likely want to skip checking the webhook"""
+        value = self.helm_arguments.get("operator.webhook.registerConfiguration", True)
+        if isinstance(value, str):
+            return value.lower() != "false"
+        return bool(value)
+
     def wait_for_operator_webhook_ready(self, retries: int = 10, multi_cluster: bool = False):
+        if not self.webhook_registration_enabled():
+            logger.info(
+                "Skipping waiting for the operator webhook: the operator was installed with "
+                "operator.webhook.registerConfiguration=false, so no webhook service is served"
+            )
+            return
         return wait_for_webhook(namespace=self.namespace, retries=retries, multi_cluster=multi_cluster)
 
     def print_diagnostics(self):
@@ -241,3 +291,11 @@ def list_operator_crds() -> List[V1CustomResourceDefinition]:
         ],
         key=lambda crd: crd.metadata.name,
     )
+
+
+def add_to_custom_env_vars_value(helm_args: dict, key: str, value: str) -> None:
+    existing = helm_args.get("customEnvVars")
+    # the value is passed to helm through a shell, so "&" must stay escaped
+    env_vars = existing.split("\\&") if existing else []
+    env_vars.append(f"{key}={value}")
+    helm_args["customEnvVars"] = "\\&".join(env_vars)

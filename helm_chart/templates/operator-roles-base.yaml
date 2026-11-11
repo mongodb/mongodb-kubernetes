@@ -1,22 +1,63 @@
-{{ if .Values.operator.createOperatorServiceAccount }}
-{{- $watchNamespace := include "mongodb-kubernetes-operator.namespace" . | list }}
-{{- if .Values.operator.watchNamespace }}
-{{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 }}
-{{- $watchNamespace = concat $watchNamespace (include "mongodb-kubernetes-operator.namespace" . | list) | uniq }}
-{{- end }}
+{{- /*
+Template used directly by Helm and by kubectl plugin when rendering RBAC for member clusters.
+*/ -}}
 
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false -}}
+{{- $operatorNamespace := include "mongodb-kubernetes-operator.namespace" . -}}
+
+{{- $name := .Values.operator.name -}}
+{{- $bindingName := .Values.operator.name -}}
+{{- $saName := .Values.operator.name -}}
+{{- if $memberMode -}}
+    {{- /*
+    In member mode, change resource names. Member RBAC must never
+    override RBAC from base installation (usually managed by Helm or OLM).
+    */ -}}
+    {{- $memberPrefix := "mck-member" -}}
+    {{- $name = printf "%s-role-base" $memberPrefix -}}
+    {{- $bindingName = printf "%s-role-base-binding" $memberPrefix -}}
+    {{- $saName = printf "%s-sa" $memberPrefix -}}
+{{- end -}}
+
+{{- $watchNamespace := list $operatorNamespace -}}
+{{- if .Values.operator.watchNamespace -}}
+    {{- $watchNamespace = regexSplit "," .Values.operator.watchNamespace -1 -}}
+    {{- $watchNamespace = concat $watchNamespace (list $operatorNamespace) | uniq -}}
+{{- end -}}
+{{- if $memberMode -}}
+    {{- /*
+    In member mode the member SA is bound in memberCluster.workloadNamespaces plus the
+    operator namespace (which holds the SA and the token Secret).
+    */ -}}
+    {{- $workloadNamespaces := $memberCluster.workloadNamespaces | default (list $operatorNamespace) -}}
+    {{- $watchNamespace = concat $workloadNamespaces (list $operatorNamespace) | uniq -}}
+
+    {{- if $memberCluster.clusterScoped | default false -}}
+        {{- $watchNamespace = list "*" -}}
+    {{- end -}}
+{{- end -}}
+
+{{- /*
+One Role per namespace: only a cluster-wide operator renders a ClusterRole.
+*/ -}}
 {{- $roleScope := "Role" -}}
-{{- if or (gt (len $watchNamespace) 1) (eq (first $watchNamespace) "*") }}
-{{- $roleScope = "ClusterRole" }}
-{{- end }}
+{{- if has "*" $watchNamespace -}}
+    {{- $roleScope = "ClusterRole" -}}
+    {{- $watchNamespace = list "*" -}}
+{{- end -}}
+
+{{- range $idx, $namespace := $watchNamespace }}
 ---
 kind: {{ $roleScope }}
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}
+  name: {{ $name }}
 {{- if eq $roleScope "Role" }}
-  namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+  namespace: {{ $namespace }}
 {{- end }}
+  annotations:
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 rules:
   - apiGroups:
       - ''
@@ -74,6 +115,15 @@ rules:
       - delete
       - deletecollection
   - apiGroups:
+      - ''
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - list
+      - watch
+      - update
+{{- if not $memberMode }}
+  - apiGroups:
       - mongodbcommunity.mongodb.com
     resources:
       - mongodbcommunity
@@ -110,6 +160,15 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
+  - apiGroups:
+      - operator.mongodb.com
+    resources:
+      - operatorconfigs
+      - memberclusters
+    verbs:
+      - get
+      - list
+      - watch
 {{- if eq $roleScope "ClusterRole" }}
   - apiGroups:
       - ''
@@ -119,31 +178,23 @@ rules:
       - list
       - watch
 {{- end}}
-{{- range $idx, $namespace := $watchNamespace }}
-
-{{- $namespaceBlock := "" }}
-{{- if not (eq $namespace "*") }}
-{{- $namespaceBlock = printf "namespace: %s" $namespace }}
 {{- end }}
-
 ---
-{{- if eq $namespace "*" }}
-kind: ClusterRoleBinding
-{{- else }}
-kind: RoleBinding
-{{- end }}
+kind: {{ $roleScope }}Binding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ $.Values.operator.name }}
-  {{ $namespaceBlock }}
+  name: {{ $bindingName }}
+{{- if eq $roleScope "Role" }}
+  namespace: {{ $namespace }}
+{{- end }}
+  annotations:
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: {{ $roleScope }}
-  name: {{ $.Values.operator.name }}
+  name: {{ $name }}
 subjects:
   - kind: ServiceAccount
-    name: {{ $.Values.operator.name }}
-    namespace: {{ include "mongodb-kubernetes-operator.namespace" $ }}
-{{- end }}
-
+    name: {{ $saName }}
+    namespace: {{ $operatorNamespace }}
 {{- end }}
