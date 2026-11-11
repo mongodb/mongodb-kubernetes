@@ -270,6 +270,22 @@ func TestDatabaseAgentSettings(t *testing.T) {
 			want:       mdbv1.StartupParameters{"logLevel": "DEBUG", "logFile": "/custom logs/agent.log", "maxLogFileDurationHrs": "12", "futureAgentSetting": "one,two=three"},
 		},
 		{
+			name:       "leading dash on a startupOptions key is accepted",
+			parameters: mdbv1.StartupParameters{"-logLevel": "DEBUG", "-futureAgentSetting": "one"},
+			want:       mdbv1.StartupParameters{"logLevel": "DEBUG", "futureAgentSetting": "one"},
+			absent:     []string{"-logLevel", "-futureAgentSetting"},
+		},
+		{
+			name:       "a key without the dash wins over the same key with one",
+			parameters: mdbv1.StartupParameters{"-logLevel": "DEBUG", "logLevel": "WARN"},
+			want:       mdbv1.StartupParameters{"logLevel": "WARN"},
+		},
+		{
+			name:       "leading dash on special keys behaves like the plain key",
+			parameters: mdbv1.StartupParameters{"-mmsApiKey": "secret-api-key-value", "-mmsBaseUrl": ""},
+			absent:     []string{"mmsApiKey", "-mmsApiKey", "-mmsBaseUrl"},
+		},
+		{
 			name:       "intentional empty setting is preserved",
 			parameters: mdbv1.StartupParameters{"futureAgentSetting": ""},
 			want:       mdbv1.StartupParameters{"futureAgentSetting": ""},
@@ -357,6 +373,11 @@ func TestDatabaseAgentSettings(t *testing.T) {
 			assert.NotContains(t, content, "secret-api-key-value")
 		})
 	}
+}
+
+func TestAutomationLogEnvironmentAcceptsLeadingDash(t *testing.T) {
+	envVars := getAutomationLogEnvVars(mdbv1.StartupParameters{"-logFile": "/custom/agent.log"})
+	assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: "/custom/agent.log"})
 }
 
 func TestDatabaseAgentSettingsConfigMap(t *testing.T) {

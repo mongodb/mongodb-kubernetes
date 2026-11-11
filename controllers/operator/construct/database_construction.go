@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1017,6 +1018,17 @@ func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, variables map[st
 	return settings
 }
 
+// AgentSettingsOverrides drops the optional leading dash from customer startupOptions keys, so
+// "-logLevel" keeps working as it did when the launcher built command line flags. Keys are applied
+// in sorted order, so "logLevel" wins over "-logLevel" deterministically.
+func AgentSettingsOverrides(parameters mdbv1.StartupParameters) mdbv1.StartupParameters {
+	overrides := make(mdbv1.StartupParameters, len(parameters))
+	for _, key := range slices.Sorted(maps.Keys(parameters)) {
+		overrides[strings.TrimPrefix(key, "-")] = parameters[key]
+	}
+	return overrides
+}
+
 func mergeAgentSettingsOverrides(settings mdbv1.StartupParameters, agentConfig *mdbv1.AgentConfig) bool {
 	if agentConfig == nil {
 		return false
@@ -1025,7 +1037,7 @@ func mergeAgentSettingsOverrides(settings mdbv1.StartupParameters, agentConfig *
 	// An empty mmsBaseUrl must not leave the settings file with neither mmsBaseUrl nor the
 	// headless cluster/serveStatusPort keys, because the agent would have no usable mode.
 	hasAPIKeyOverride := false
-	for key, value := range agentConfig.StartupParameters {
+	for key, value := range AgentSettingsOverrides(agentConfig.StartupParameters) {
 		if value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec") {
 			continue
 		}
@@ -1188,7 +1200,7 @@ func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) cor
 
 func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar {
 	automationLogFile := path.Join(util.PvcMountPathLogs, "automation-agent.log")
-	if logFileValue, ok := parameters["logFile"]; ok && len(logFileValue) > 0 {
+	if logFileValue, ok := AgentSettingsOverrides(parameters)["logFile"]; ok && len(logFileValue) > 0 {
 		automationLogFile = logFileValue
 	}
 
