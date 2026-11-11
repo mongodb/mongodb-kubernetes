@@ -2,7 +2,7 @@
 echo "Applying member-cluster RBAC..."
 
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
-  kubectl mongodb multicluster generate-member-resources \
+  kubectl mongodb cluster generate-resources \
     --member-cluster-namespace="${MDB_NS}" \
     ${IMAGE_PULL_SECRET_NAME:+--image-pull-secrets="${IMAGE_PULL_SECRET_NAME}"} \
     | kubectl apply --context "${ctx}" -f -
@@ -13,7 +13,7 @@ echo "[ok] Member-cluster RBAC applied"
 echo "Registering member clusters with the operator..."
 
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
-  kubectl mongodb multicluster generate-member-registration \
+  kubectl mongodb cluster generate-registration \
     --member-cluster="${ctx}" \
     --member-cluster-context="${ctx}" \
     --member-cluster-namespace="${MDB_NS}" \

@@ -902,7 +902,7 @@ def _install_multi_cluster_operator(
     )
 
     # Only the released baseline needs this: it renders the chart's database-roles onto the member
-    # clusters, which generate-member-resources already does for the new path.
+    # clusters, which generate-resources already does for the new path.
     if configure_member_clusters is None:
         prepare_multi_cluster_namespaces(
             namespace,
@@ -1124,7 +1124,7 @@ def install_official_operator(
         assert central_cluster_name is not None
         os.environ["HELM_KUBECONTEXT"] = central_cluster_name
         # Every baseline we install today is pre-2.x, so the legacy flow is hardcoded. A baseline on a
-        # released 2.x chart would instead need generate-member-resources/-registration from a released
+        # released 2.x chart would instead need generate-resources/-registration from a released
         # 2.x plugin, so dispatch on the baseline's major once that exists.
         # Skipped for a local operator: installing a released in-cluster baseline is a CI-only flow.
         if not local_operator():
@@ -1509,8 +1509,8 @@ def generate_and_apply_member_resources(
     for cluster in member_clusters:
         args = [
             plugin,
-            "multicluster",
-            "generate-member-resources",
+            "cluster",
+            "generate-resources",
             "--member-cluster-namespace",
             member_namespace,
         ]
@@ -1539,8 +1539,8 @@ def generate_and_apply_member_registration(
     for cluster in member_clusters:
         args = [
             plugin,
-            "multicluster",
-            "generate-member-registration",
+            "cluster",
+            "generate-registration",
             "--member-cluster",
             cluster,
             "--member-cluster-context",
