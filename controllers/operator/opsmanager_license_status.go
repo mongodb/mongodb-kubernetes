@@ -83,5 +83,5 @@ func licenseManaged(managed bool, reason, message string) workflow.Status {
 }
 
 func licenseFailed(err error) workflow.Status {
-	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseManagedCondition(false, status.ReasonLicenseReconcileFailed, err.Error())))
+	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseManagedCondition(false, status.ReasonLicenseNotManaged, err.Error())))
 }

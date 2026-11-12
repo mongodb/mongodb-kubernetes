@@ -116,7 +116,7 @@ func TestEnsureOpsManagerLicense_IdentityReadFailure(t *testing.T) {
 
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
-	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
+	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
 }
 
 func TestEnsureOpsManagerLicense_ProvisioningModels(t *testing.T) {
@@ -244,7 +244,7 @@ func TestEnsureOpsManagerLicense_IdentityReadErrorWithoutRotationFails(t *testin
 
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
-	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
+	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
 }
 
 func TestMongoDBOpsManager_LicenseRotateIdentityDueRequiresTrue(t *testing.T) {
@@ -415,7 +415,7 @@ func TestEnsureOpsManagerLicense_ReleaseWithoutTheLicenseSecretFails(t *testing.
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
+	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
 }
 
 func TestEnsureOpsManagerLicense_ReleaseWithSecretMissingKeySkipsWhenNothingHeld(t *testing.T) {
@@ -446,7 +446,7 @@ func TestEnsureOpsManagerLicense_InstallFailed(t *testing.T) {
 	c := managedCondition(t, st.StatusOptions())
 	assert.Equal(t, status.ConditionLicenseManaged, c.Type)
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonLicenseReconcileFailed, c.Reason)
+	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
 }
 
 func TestEnsureOpsManagerLicense_InstallConflictReportsNotManaged(t *testing.T) {
@@ -513,7 +513,7 @@ func TestEnsureOpsManagerLicense_InstallConflictWithOtherCodeFails(t *testing.T)
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	c := managedCondition(t, st.StatusOptions())
-	assert.Equal(t, status.ReasonLicenseReconcileFailed, c.Reason)
+	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
 	assert.Contains(t, c.Message, "SOME_OTHER_CONFLICT")
 }
 
@@ -563,7 +563,7 @@ func TestEnsureOpsManagerLicense_RotateNotRotatedFails(t *testing.T) {
 	c := managedCondition(t, st.StatusOptions())
 	assert.Equal(t, status.ConditionLicenseManaged, c.Type)
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonLicenseReconcileFailed, c.Reason)
+	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
 }
 
 func TestEnsureOpsManagerLicense_RecomputeOnAnnotation(t *testing.T) {
@@ -605,7 +605,7 @@ func TestEnsureOpsManagerLicense_RecomputeFailureClearsAnnotation(t *testing.T) 
 
 	c := managedCondition(t, st.StatusOptions())
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonLicenseReconcileFailed, c.Reason)
+	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
 }
 
 func TestEnsureOpsManagerLicense_AutoReleaseOnSecretRefRemoval(t *testing.T) {
@@ -1117,7 +1117,7 @@ func TestEnsureOpsManagerLicense_MalformedLicenseArtifactFails(t *testing.T) {
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Nil(t, admin.InstalledLicense)
-	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
+	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptEntryWithMissingSecretFails(t *testing.T) {
@@ -1133,7 +1133,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryWithMissingSecretFails(t *testing.T
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
+	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptEntryWithMalformedSecretFails(t *testing.T) {
@@ -1150,7 +1150,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryWithMalformedSecretFails(t *testing
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
+	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
 }
 
 func TestEnsureOpsManagerLicense_InstallSucceedsWhenStateListsExtraArtifacts(t *testing.T) {
@@ -1225,7 +1225,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryOnInstalledLicenseFails(t *testing.
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
 	assert.Nil(t, admin.InstalledLicense)
-	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
+	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
 }
 
 func TestEnsureOpsManagerLicense_AutoReceiptsWriteReleaseReceipt(t *testing.T) {
@@ -1425,7 +1425,7 @@ func TestEnsureOpsManagerLicense_AutoReceiptNotFoundFails(t *testing.T) {
 
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
-	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
+	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
 }
 
 func TestEnsureOpsManagerLicense_ListedReceiptNotFoundStillFails(t *testing.T) {
@@ -1438,7 +1438,7 @@ func TestEnsureOpsManagerLicense_ListedReceiptNotFoundStillFails(t *testing.T) {
 
 	st := r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S())
 	assert.False(t, st.IsOK())
-	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseReconcileFailed)
+	assertLicenseManagedReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptCheckReadsKubernetes(t *testing.T) {
