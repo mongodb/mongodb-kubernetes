@@ -56,7 +56,7 @@ RUN_PRINCIPAL_ID = f"mck-ci-{uuid.uuid4()}"
 RELEASED_STATUS = "RELEASED"
 
 # The license conditions the operator writes on the Ops Manager resource.
-LICENSE_READY_CONDITION = "OpsManagerLicenseReady"
+LICENSE_READY_CONDITION = "LicenseReady"
 LICENSE_MANAGED_CONDITION = "LicenseManaged"
 LICENSE_STATE_REASONS = {"GRACE": "LicenseNotReady", "UNLICENSED": "LicenseNotReady", "EXPIRED": "LicenseNotReady"}
 
