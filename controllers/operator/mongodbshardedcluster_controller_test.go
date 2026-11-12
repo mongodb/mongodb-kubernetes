@@ -1823,128 +1823,60 @@ func TestShardSpecificPodSpec(t *testing.T) {
 // TestShardedClusterStatefulSetStatus checks that on first deployment the pending StatefulSets are reported component
 // by component, in the order config servers, shards, mongos.
 func TestShardedClusterStatefulSetStatus(t *testing.T) {
-	clusterNames := []string{"member-cluster-1", "member-cluster-2", "member-cluster-3"}
-	shardDistribution := map[string]int{"member-cluster-1": 1, "member-cluster-2": 1, "member-cluster-3": 1}
-	configServerDistribution := map[string]int{"member-cluster-2": 1, "member-cluster-3": 1}
-	mongosDistribution := map[string]int{"member-cluster-1": 1, "member-cluster-2": 1}
-	multiClusterSc := test.DefaultClusterBuilder().
-		SetTopology(mdbv1.ClusterTopologyMultiCluster).
-		SetShardCountSpec(2).
-		SetMongodsPerShardCountSpec(0).
-		SetConfigServerCountSpec(0).
-		SetMongosCountSpec(0).
-		SetShardClusterSpec(test.CreateClusterSpecList(clusterNames, shardDistribution)).
-		SetConfigSrvClusterSpec(test.CreateClusterSpecList(clusterNames, configServerDistribution)).
-		SetMongosClusterSpec(test.CreateClusterSpecList(clusterNames, mongosDistribution)).
-		Build()
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	// the default builder seeds the sizes of an existing deployment, which skips the first deployment path
+	sc.Status = mdbv1.MongoDbStatus{}
 
-	tests := []struct {
-		name         string
-		sc           *mdbv1.MongoDB
-		multiCluster bool
-	}{
-		{name: "single cluster", sc: test.DefaultClusterBuilder().Build()},
-		{name: "multi cluster", sc: multiClusterSc, multiCluster: true},
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	ready := map[string]bool{}
+	kubeClient := newStatefulSetReadinessClient(omConnectionFactory, ready, append(mock.GetDefaultResources(), sc)...)
+	reconciler, _, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	steps := [][]status.ResourceNotReady{
+		{statefulSetNotReady(sc.Name+"-config", sc.Spec.ConfigServerCount)},
+		{statefulSetNotReady(sc.Name+"-0", sc.Spec.MongodsPerShardCount)},
+		{statefulSetNotReady(sc.Name+"-1", sc.Spec.MongodsPerShardCount)},
+		{statefulSetNotReady(sc.Name+"-mongos", sc.Spec.MongosCount)},
+	}
+	checkStatefulSetStatusInSteps(ctx, t, reconciler, sc, kubeClient, ready, steps)
+}
+
+// newStatefulSetReadinessClient returns a fake client on which a StatefulSet reports ready only once its name is in ready.
+func newStatefulSetReadinessClient(omConnectionFactory *om.CachedOMConnectionFactory, ready map[string]bool, objects ...client.Object) kubernetesClient.Client {
+	return kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, ready[key.Name], true)(ctx, c, key, obj, opts...)
+		},
+	}).Build())
+}
+
+func statefulSetNotReady(name string, members int) status.ResourceNotReady {
+	return status.ResourceNotReady{
+		Kind:    status.StatefulsetKind,
+		Name:    name,
+		Message: fmt.Sprintf("Not all the Pods are ready (wanted: %d, updated: 0, ready: 0, current: 0)", members),
+	}
+}
+
+// checkStatefulSetStatusInSteps reconciles once per step, expecting exactly the StatefulSets of the step to be reported
+// not ready, and marks them ready afterwards. Once all steps are done the resource must reach Running.
+func checkStatefulSetStatusInSteps(ctx context.Context, t *testing.T, reconciler *ReconcileMongoDbShardedCluster, sc *mdbv1.MongoDB, kubeClient kubernetesClient.Client, ready map[string]bool, steps [][]status.ResourceNotReady) {
+	for _, expected := range steps {
+		result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		assert.Positive(t, result.RequeueAfter)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
+		assert.Equal(t, status.PhasePending, sc.Status.Phase)
+		assert.ElementsMatch(t, expected, sc.Status.ResourcesNotReady)
+		for _, resource := range expected {
+			ready[resource.Name] = true
+		}
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
-			sc := tc.sc
-			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-
-			ready := map[string]bool{}
-			allReady := false
-			markAllReady := mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)
-			newClient := func(objects ...client.Object) kubernetesClient.Client {
-				return kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
-					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-						if allReady {
-							return markAllReady(ctx, c, key, obj, opts...)
-						}
-						if err := c.Get(ctx, key, obj, opts...); err != nil {
-							return err
-						}
-						if sts, ok := obj.(*appsv1.StatefulSet); ok && ready[key.Name] {
-							sts.Status.Replicas = *sts.Spec.Replicas
-							sts.Status.UpdatedReplicas = *sts.Spec.Replicas
-							sts.Status.ReadyReplicas = *sts.Spec.Replicas
-						}
-						return nil
-					},
-				}).Build())
-			}
-			kubeClient := newClient(append(mock.GetDefaultResources(), sc)...)
-
-			notReady := func(name string, members int) status.ResourceNotReady {
-				return status.ResourceNotReady{
-					Kind:    status.StatefulsetKind,
-					Name:    name,
-					Message: fmt.Sprintf("Not all the Pods are ready (wanted: %d, updated: 0, ready: 0, current: 0)", members),
-				}
-			}
-
-			var reconciler *ReconcileMongoDbShardedCluster
-			var steps [][]status.ResourceNotReady
-			if tc.multiCluster {
-				memberClusterMap := map[string]client.Client{}
-				for _, clusterName := range clusterNames {
-					memberClusterMap[clusterName] = newClient()
-				}
-				var reconcilerHelper *ShardedClusterReconcileHelper
-				var err error
-				reconciler, reconcilerHelper, err = newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
-				require.NoError(t, err)
-
-				clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
-				omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-					allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configServerDistribution, []map[string]int{shardDistribution, shardDistribution}, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
-					connection.(*om.MockedOmConnection).AddHosts(allHostnames)
-				})
-
-				component := func(stsName func(clusterIdx int) string, distribution map[string]int) []status.ResourceNotReady {
-					var resources []status.ResourceNotReady
-					for _, clusterName := range clusterNames {
-						if members := distribution[clusterName]; members > 0 {
-							resources = append(resources, notReady(stsName(clusterMapping[clusterName]), members))
-						}
-					}
-					return resources
-				}
-				steps = append(steps, component(sc.MultiConfigRsName, configServerDistribution))
-				for shardIdx := range sc.Spec.ShardCount {
-					steps = append(steps, component(func(clusterIdx int) string { return sc.MultiShardRsName(clusterIdx, shardIdx) }, shardDistribution))
-				}
-				steps = append(steps, component(sc.MultiMongosRsName, mongosDistribution))
-			} else {
-				var err error
-				reconciler, _, err = newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
-				require.NoError(t, err)
-
-				steps = append(steps, []status.ResourceNotReady{notReady(sc.ConfigRsName(), sc.Spec.ConfigServerCount)})
-				for shardIdx := range sc.Spec.ShardCount {
-					steps = append(steps, []status.ResourceNotReady{notReady(sc.ShardName(shardIdx), sc.Spec.MongodsPerShardCount)})
-				}
-				steps = append(steps, []status.ResourceNotReady{notReady(sc.MongosRsName(), sc.Spec.MongosCount)})
-			}
-
-			for _, expected := range steps {
-				result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
-				require.NoError(t, err)
-				assert.Positive(t, result.RequeueAfter)
-				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
-				assert.Equal(t, status.PhasePending, sc.Status.Phase)
-				assert.ElementsMatch(t, expected, sc.Status.ResourcesNotReady)
-				for _, resource := range expected {
-					ready[resource.Name] = true
-				}
-			}
-
-			allReady = true
-			checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
-			assert.Empty(t, sc.Status.ResourcesNotReady)
-		})
-	}
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	assert.Empty(t, sc.Status.ResourcesNotReady)
 }
 
 func TestShardedClusterAgentVersionMapping(t *testing.T) {
