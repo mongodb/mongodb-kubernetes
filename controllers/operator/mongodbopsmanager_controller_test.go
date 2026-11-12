@@ -665,7 +665,7 @@ func TestOpsManagerLicenseFailureDoesNotBlockBackupDaemon(t *testing.T) {
 	require.NoError(t, client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), backupStatefulSet))
 
 	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
-	licenseCondition := meta.FindStatusCondition(testOm.Status.OpsManagerStatus.Conditions, status.ConditionLicenseReconciled)
+	licenseCondition := meta.FindStatusCondition(testOm.Status.OpsManagerStatus.Conditions, status.ConditionLicenseManaged)
 	require.NotNil(t, licenseCondition)
 	assert.Equal(t, metav1.ConditionFalse, licenseCondition.Status)
 	assert.Equal(t, status.ReasonLicenseReconcileFailed, licenseCondition.Reason)

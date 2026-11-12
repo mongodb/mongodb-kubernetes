@@ -9,4 +9,4 @@ date: 2026-10-27
   * In air gapped deployments, the operator writes release receipts to Secrets named `<artifactId>-release-receipt`. List the Secrets of released licenses in `spec.license.releaseReceipts`. `spec.license.releaseReceiptsPolicy` defaults to `OnlyListed`, which covers only those licenses. Set it to `Automatic` to get a receipt for every license the operator releases.
   * The `mongodb.com/license-recompute` and `mongodb.com/license-rotate-identity` annotations ask Ops Manager to recompute its license state or rotate its license identity.
   * The `OpsManagerLicenseReady` condition reports the license state, the license Ops Manager holds and its holder ID.
-  * The `LicenseReconciled` condition reports whether the license configuration was applied, and the reason when it was not.
+  * The `LicenseManaged` condition reports whether the operator manages the license from `.spec.license.secretRef`, and the reason when it does not.

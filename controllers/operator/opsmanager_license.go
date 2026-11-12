@@ -122,16 +122,16 @@ func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow
 		return st
 	}
 
-	requestedID, releasedID, licenseStatus := h.reconcileLicenseIntent(ctx, receipts)
-	if !licenseStatus.IsOK() {
-		return licenseStatus
+	requestedID, releasedID, st := h.reconcileLicenseIntent(ctx, receipts)
+	if !st.IsOK() {
+		return st
 	}
 
 	if st := h.reconcileReleaseReceipts(ctx, receipts, releasedID); !st.IsOK() {
 		return st
 	}
 
-	return h.reportLicenseReconciled(requestedID, releasedID)
+	return h.reportLicenseManaged(requestedID)
 }
 
 // releaseDue reports whether the install intent was removed while the last achieved spec still had one.
@@ -289,7 +289,7 @@ func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, 
 
 	state, err := h.omAdmin.InstallLicense(ctx, json.RawMessage(rawArtifact))
 	if err != nil {
-		// reportLicenseReconciled reports an outdated artifact.
+		// Ops Manager keeps the license it held, reportLicenseManaged reports the artifact as rejected.
 		if apierror.NewNonNil(err).IsLicenseArtifactOutdated() {
 			return artifactID, "", workflow.OK()
 		}

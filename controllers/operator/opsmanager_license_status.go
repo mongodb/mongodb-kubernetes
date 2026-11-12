@@ -62,31 +62,24 @@ func licenseStateReason(state string) string {
 	return status.ReasonLicenseStateUnknown
 }
 
-// reportLicenseReconciled returns LicenseReconciled for what happened to the license in
-// secretRef. A requested artifact Ops Manager does not hold was rejected as outdated by its anti
-// rollback check. The license is not applied then, but retrying cannot help until the Secret holds
-// a newer one, so the reconcile is OK.
-func (h *LicenseReconcilerHelper) reportLicenseReconciled(requestedID, releasedID string) workflow.Status {
-	if requestedID == "" && releasedID != "" {
-		return licenseReconciled(true, status.ReasonLicenseNotRequested, fmt.Sprintf("The operator released license %s after secretRef was removed. %s reports the license Ops Manager holds.", releasedID, status.ConditionOpsManagerLicenseReady))
-	}
+// reportLicenseManaged returns LicenseManaged for the license in secretRef. Every install failure
+// except an outdated artifact fails the reconcile before this point, so a requested artifact Ops
+// Manager does not hold was rejected as outdated. Retrying cannot help until the Secret holds a
+// newer one, so the reconcile is OK.
+func (h *LicenseReconcilerHelper) reportLicenseManaged(requestedID string) workflow.Status {
 	if requestedID == "" {
-		return licenseReconciled(true, status.ReasonLicenseNotRequested, fmt.Sprintf("secretRef is not set, so the operator installs no license. %s reports the license Ops Manager holds.", status.ConditionOpsManagerLicenseReady))
+		return licenseManaged(false, status.ReasonLicenseNotProvided, ".spec.license.secretRef is not set, so the operator doesn't manage the license.")
 	}
 	if h.observed.HoldsArtifact(requestedID) {
-		return licenseReconciled(true, status.ReasonLicenseInstalled, fmt.Sprintf("Ops Manager holds license %s from secretRef.", requestedID))
+		return licenseManaged(true, status.ReasonLicenseManaged, fmt.Sprintf("License %s from .spec.license.secretRef is managed by the operator.", requestedID))
 	}
-	message := fmt.Sprintf("Ops Manager rejected license %s, a license this new or newer was already installed", requestedID)
-	if held, ok := h.observed.HeldArtifact(); ok {
-		message += fmt.Sprintf(". It holds license %s", held.ArtifactID)
-	}
-	return licenseReconciled(false, status.ReasonLicenseOutdated, message+". Bring a newer artifact in the license Secret.")
+	return licenseManaged(false, status.ReasonLicenseNotManaged, fmt.Sprintf("License %s from .spec.license.secretRef was rejected because a license this new or newer was already installed and not managed by operator.", requestedID))
 }
 
-func licenseReconciled(reconciled bool, reason, message string) workflow.Status {
-	return workflow.OK().WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseReconciledCondition(reconciled, reason, message)))
+func licenseManaged(managed bool, reason, message string) workflow.Status {
+	return workflow.OK().WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseManagedCondition(managed, reason, message)))
 }
 
 func licenseFailed(err error) workflow.Status {
-	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseReconciledCondition(false, status.ReasonLicenseReconcileFailed, err.Error())))
+	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.LicenseManagedCondition(false, status.ReasonLicenseReconcileFailed, err.Error())))
 }

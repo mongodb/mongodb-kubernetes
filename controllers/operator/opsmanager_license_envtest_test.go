@@ -416,9 +416,9 @@ func (h *licenseEnvHarness) omGone(name string) bool {
 	return apierrors.IsNotFound(err)
 }
 
-func licenseReconciledCondition(t *testing.T, om *omv1.MongoDBOpsManager) metav1.Condition {
+func licenseManagedCondition(t *testing.T, om *omv1.MongoDBOpsManager) metav1.Condition {
 	t.Helper()
-	c := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseReconciled)
+	c := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseManaged)
 	require.NotNil(t, c)
 	return *c
 }
@@ -451,7 +451,7 @@ func TestLicenseE2E_DeletionWaitsForTheRelease(t *testing.T) {
 	held := h.loadOM(om.Name)
 	assert.Contains(t, held.Finalizers, util.OpsManagerLicenseFinalizer)
 	assert.Empty(t, h.admin.ReleasedIDs)
-	assert.Contains(t, licenseReconciledCondition(t, held).Message, "unreachable")
+	assert.Contains(t, licenseManagedCondition(t, held).Message, "unreachable")
 
 	// Ops Manager is back, the next attempt releases the license and lets the deletion finish.
 	h.admin.LicenseReadErr = nil
