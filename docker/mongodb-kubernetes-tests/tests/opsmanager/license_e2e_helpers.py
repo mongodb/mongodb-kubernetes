@@ -259,6 +259,8 @@ def expected_ready_condition(om_view: dict, holder_id: str) -> tuple[str, str, s
         status, reason = "True", "LicenseReady"
     if effective_state == "":
         reason, state_message = "LicenseStateUnknown", "Ops Manager has not reported a license state yet."
+    if reason == "LicenseStateUnknown":
+        status = "Unknown"
     message = f"{state_message} Ops Manager holds {license}."
     if holder_id:
         message += f" Holder ID {holder_id}."
