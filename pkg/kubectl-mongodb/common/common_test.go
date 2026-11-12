@@ -29,7 +29,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	cryptorand "crypto/rand"
-
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -272,10 +271,8 @@ func getClusterRole(t *testing.T, ctx context.Context, clientMap map[string]Kube
 
 func containsCertManagerRules(role rbacv1.ClusterRole) bool {
 	for _, rule := range role.Rules {
-		for _, group := range rule.APIGroups {
-			if group == "cert-manager.io" {
-				return true
-			}
+		if slices.Contains(rule.APIGroups, "cert-manager.io") {
+			return true
 		}
 	}
 	return false
