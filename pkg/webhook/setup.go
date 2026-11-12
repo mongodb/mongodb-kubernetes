@@ -48,7 +48,7 @@ func createWebhookService(ctx context.Context, client client.Client, location ty
 					Name:       "operator",
 					Port:       443,
 					Protocol:   corev1.ProtocolTCP,
-					TargetPort: intstr.FromInt32(int32(webhookPort)),
+					TargetPort: intstr.FromInt(webhookPort),
 				},
 			},
 			Selector: map[string]string{
