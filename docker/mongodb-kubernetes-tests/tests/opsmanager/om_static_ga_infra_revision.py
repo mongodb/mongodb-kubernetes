@@ -1,3 +1,5 @@
+import pymongo
+import pytest
 from kubernetes import client
 from kubetester import pod_is_ready, try_load, wait_until
 from kubetester.kubetester import KubernetesTester
@@ -69,6 +71,32 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 @mark.e2e_om_static_ga_infra_revision
 def test_replica_set_reaches_running_phase(replica_set: MongoDB):
     replica_set.update()
+
+    def reports_execution_step():
+        try:
+            automation_status = replica_set.get_om_tester().api_get_automation_status()
+        except Exception as e:
+            return False, f"automationStatus is not available: {e}"
+        steps = {
+            process.get("name"): process["execution"]["step"]
+            for process in automation_status.get("processes", [])
+            if isinstance(process.get("execution"), dict) and "step" in process["execution"]
+        }
+        return bool(steps), f"reported steps: {steps}"
+
+    try:
+        wait_until(
+            reports_execution_step,
+            timeout=600,
+            sleep_time=5,
+            msg="Ops Manager to report an execution step in automationStatus",
+        )
+    except AssertionError:
+        pytest.fail(
+            "Ops Manager never reported `execution` in automationStatus during the deployment; "
+            "the OM build lacks the execution API (KUBE-549)"
+        )
+
     replica_set.assert_reaches_phase(Phase.Running, timeout=600, ignore_errors=True)
 
 
@@ -118,6 +146,18 @@ def assert_infra_revisions_match(replica_set: MongoDB, namespace: str) -> str:
     return update_revision
 
 
+def read_replica_set_status(replica_set: MongoDB) -> dict:
+    """Returns replSetGetStatus as reported by the current primary."""
+    return replica_set.tester().client.admin.command("replSetGetStatus", read_preference=pymongo.ReadPreference.PRIMARY)
+
+
+def primary_pod_name(status: dict) -> str:
+    """Returns the pod of the member currently reported as PRIMARY."""
+    member = next(m for m in status["members"] if m["stateStr"] == "PRIMARY")
+    # member["name"] is the mongod host, e.g. mdb-1.mdb-svc.<namespace>.svc.cluster.local:27017.
+    return member["name"].split(".")[0]
+
+
 def read_member_pods(replica_set: MongoDB) -> dict:
     """Returns {pod_name: pod} for every member, mapping to None while the pod does not exist."""
     core_v1 = client.CoreV1Api()
@@ -149,13 +189,16 @@ def test_infra_revision_matches_desired_infra_revision(replica_set: MongoDB, nam
 
 @mark.e2e_om_static_ga_infra_revision
 def test_desired_infra_revision_follows_template_change(replica_set: MongoDB, namespace: str):
-    """Rolls the members onto a new revision one at a time.
+    """Rolls the members onto a new revision one at a time, primary last, with at most one election.
 
     Needs an agent implementing the WaitNodeReplacement replacement handshake: run the Evergreen patch with
     --param mdb_custom_agent_url=<agent tarball URL>, otherwise this test is expected to fail.
     """
     previous_revision = replica_set.read_statefulset().status.update_revision
     previous_uids = {pod_name: pod.metadata.uid for pod_name, pod in read_member_pods(replica_set).items()}
+    status_before = read_replica_set_status(replica_set)
+    previous_primary = primary_pod_name(status_before)
+    previous_term = status_before["term"]
 
     # An agent container env var change is enough to produce a new StatefulSet revision.
     replica_set.load()
@@ -198,3 +241,24 @@ def test_desired_infra_revision_follows_template_change(replica_set: MongoDB, na
     }
     unreplaced = [pod_name for pod_name, uid in previous_uids.items() if current_uids[pod_name] == uid]
     assert not unreplaced, f"member pods {unreplaced} were not replaced, uids {previous_uids} -> {current_uids}"
+
+    status_after = read_replica_set_status(replica_set)
+    term_delta = status_after["term"] - previous_term
+    assert term_delta <= 1, (
+        f"replica set term went from {previous_term} to {status_after['term']} during the rollout, "
+        f"the coordinator must step the primary down at most once (primary was {previous_primary})"
+    )
+
+    creation_timestamps = {
+        pod_name: pod.metadata.creation_timestamp for pod_name, pod in read_member_pods(replica_set).items()
+    }
+    members_created_after_primary = [
+        pod_name
+        for pod_name, created in creation_timestamps.items()
+        if pod_name != previous_primary and created >= creation_timestamps[previous_primary]
+    ]
+    assert not members_created_after_primary, (
+        f"primary pod {previous_primary} was not replaced last: {members_created_after_primary} were created at or "
+        f"after it, creation timestamps {creation_timestamps}, primary term went from {previous_term} to "
+        f"{status_after['term']}"
+    )
