@@ -137,8 +137,9 @@ const (
 	FsGroup   = 2000
 
 	// Service accounts
-	OpsManagerServiceAccount = "mongodb-kubernetes-ops-manager"
-	MongoDBServiceAccount    = "mongodb-kubernetes-database-pods"
+	OpsManagerServiceAccount       = "mongodb-kubernetes-ops-manager"
+	MongoDBServiceAccount          = "mongodb-kubernetes-database-pods"
+	MetricsForwarderServiceAccount = "mongodb-kubernetes-metrics-forwarder"
 
 	// Authentication
 	AgentSecretName                   = "agent-certs"

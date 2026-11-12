@@ -19,6 +19,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -270,7 +272,7 @@ func (r *MongoDBSearchReconcileHelper) buildReplicaSetPlan(rsSource SearchSource
 			headlessSvc:        headlessSvc,
 			proxySvc:           proxySvc,
 			configMapName:      configMapName,
-			podLabels:          map[string]string{appLabelKey: headlessSvc.Name},
+			podLabels:          mongotPodLabels(r.mdbSearch, w.ClusterIndex, ""),
 			extraHeadlessPorts: extraPorts,
 			tlsResource:        r.mdbSearch,
 			mongotConfigFn:     mongotConfigFn,
@@ -419,7 +421,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 			headlessSvc:         r.mdbSearch.MongotServiceForClusterShard(w.ClusterIndex, w.ShardName),
 			proxySvc:            r.mdbSearch.ProxyServiceNameForClusterShard(w.ClusterIndex, w.ShardName),
 			configMapName:       r.mdbSearch.MongotConfigMapForClusterShard(w.ClusterIndex, w.ShardName),
-			podLabels:           map[string]string{appLabelKey: stsName.Name, shardLabelKey: w.ShardName},
+			podLabels:           mongotPodLabels(r.mdbSearch, w.ClusterIndex, w.ShardName),
 			additionalSvcLabels: map[string]string{shardLabelKey: w.ShardName},
 			publishNotReady:     true,
 			logFields:           logFields,
@@ -1551,6 +1553,33 @@ const (
 	voyageAILabelValue = "voyageai"
 	operatorLabelValue = "mongodb-kubernetes-operator"
 )
+
+// mongotPodLabels returns the labels of mongot pods; an empty shardName means a non-sharded source.
+func mongotPodLabels(search *searchv1.MongoDBSearch, clusterIndex int, shardName string) map[string]string {
+	if shardName == "" {
+		return map[string]string{appLabelKey: search.SearchServiceNamespacedNameForCluster(clusterIndex).Name}
+	}
+	return map[string]string{
+		appLabelKey:   search.MongotStatefulSetForClusterShard(clusterIndex, shardName).Name,
+		shardLabelKey: shardName,
+	}
+}
+
+// MongotPodSelector returns a label selector matching all mongot pods of a MongoDBSearch in one member cluster.
+func MongotPodSelector(search *searchv1.MongoDBSearch, clusterIndex int, shardNames []string) (string, error) {
+	if len(shardNames) == 0 {
+		return labels.SelectorFromSet(mongotPodLabels(search, clusterIndex, "")).String(), nil
+	}
+	apps := make([]string, len(shardNames))
+	for i, shardName := range shardNames {
+		apps[i] = mongotPodLabels(search, clusterIndex, shardName)[appLabelKey]
+	}
+	req, err := labels.NewRequirement(appLabelKey, selection.In, apps)
+	if err != nil {
+		return "", fmt.Errorf("failed to build mongot pod selector: %w", err)
+	}
+	return labels.NewSelector().Add(*req).String(), nil
+}
 
 // serviceMetadata returns a Service's labels and annotations: the user metadata from cfg
 // with operatorLabels applied last, so user labels can never override the operator's

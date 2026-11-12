@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -6250,4 +6251,31 @@ func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
 	// cluster-b's unit was still applied despite cluster-a failing first.
 	require.NoError(t, clusterB.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
+}
+
+func TestMongotPodSelector(t *testing.T) {
+	search := newTestMongoDBSearch("mdbs", "ns")
+
+	t.Run("replica set", func(t *testing.T) {
+		selector, err := MongotPodSelector(search, 1, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "app=mdbs-search-1-svc", selector)
+
+		parsed, err := labels.Parse(selector)
+		require.NoError(t, err)
+		assert.True(t, parsed.Matches(labels.Set(mongotPodLabels(search, 1, ""))))
+		assert.False(t, parsed.Matches(labels.Set(mongotPodLabels(search, 0, ""))))
+	})
+
+	t.Run("sharded", func(t *testing.T) {
+		selector, err := MongotPodSelector(search, 0, []string{"sh-0", "sh-1"})
+		require.NoError(t, err)
+		assert.Equal(t, "app in (mdbs-search-0-sh-0,mdbs-search-0-sh-1)", selector)
+
+		parsed, err := labels.Parse(selector)
+		require.NoError(t, err)
+		assert.True(t, parsed.Matches(labels.Set(mongotPodLabels(search, 0, "sh-0"))))
+		assert.True(t, parsed.Matches(labels.Set(mongotPodLabels(search, 0, "sh-1"))))
+		assert.False(t, parsed.Matches(labels.Set(mongotPodLabels(search, 1, "sh-0"))))
+	})
 }

@@ -23,6 +23,7 @@ type MetricsForwarderConfigParams struct {
 	MongotVersion                     string
 	MongotName                        string
 	MongotGRPCPort                    int
+	MongotPodSelector                 string
 	// ScrapeInterval is the global scrape_interval for the Prometheus receiver.
 	// It must match prometheusDefaultScrapeInterval in the controller so the
 	// hostDeletionDeferralWindow calculation stays correct.
