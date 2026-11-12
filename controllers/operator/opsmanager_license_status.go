@@ -17,9 +17,8 @@ const (
 	licenseStateExpired    = "EXPIRED"
 )
 
-// reportOpsManagerLicenseActive sets OpsManagerLicenseActive to the license Ops Manager holds,
-// whoever installed it.
-func (h *LicenseReconcilerHelper) reportOpsManagerLicenseActive() {
+// reportLicenseActive sets LicenseActive to the license Ops Manager holds, whoever installed it.
+func (h *LicenseReconcilerHelper) reportLicenseActive() {
 	if h.observed == nil {
 		return
 	}
@@ -50,7 +49,7 @@ func (h *LicenseReconcilerHelper) reportOpsManagerLicenseActive() {
 		message += fmt.Sprintf(" Holder ID %s.", h.holderID)
 	}
 
-	condition := status.OpsManagerLicenseActiveCondition(active, reason, message)
+	condition := status.LicenseActiveCondition(active, reason, message)
 	condition.ObservedGeneration = h.opsManager.GetGeneration()
 	_ = meta.SetStatusCondition(&h.opsManager.Status.OpsManagerStatus.Conditions, condition)
 }

@@ -72,7 +72,7 @@ func seedInstalled(t *testing.T, om *omv1.MongoDBOpsManager, licenseSecretName s
 
 func licenseActiveCondition(t *testing.T, om *omv1.MongoDBOpsManager) metav1.Condition {
 	t.Helper()
-	c := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionOpsManagerLicenseActive)
+	c := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseActive)
 	require.NotNil(t, c)
 	return *c
 }
