@@ -8,5 +8,5 @@ date: 2026-10-27
   * Deleting the `MongoDBOpsManager` resource releases the license the operator installed, holding the resource with a finalizer until the release succeeds.
   * In air gapped deployments, the operator writes release receipts to Secrets named `<artifactId>-release-receipt`. List the Secrets of released licenses in `spec.license.releaseReceipts`. `spec.license.releaseReceiptsPolicy` defaults to `OnlyListed`, which covers only those licenses. Set it to `Automatic` to get a receipt for every license the operator releases.
   * The `mongodb.com/license-recompute` and `mongodb.com/license-rotate-identity` annotations ask Ops Manager to recompute its license state or rotate its license identity.
-  * The `OpsManagerLicenseReady` condition reports the license state, the license Ops Manager holds and its holder ID.
+  * The `LicenseReady` condition reports the license state, the license Ops Manager holds and its holder ID.
   * The `LicenseManaged` condition reports whether the operator manages the license from `.spec.license.secretRef`, and the reason when it does not.

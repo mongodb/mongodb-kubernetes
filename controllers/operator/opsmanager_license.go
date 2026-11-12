@@ -89,7 +89,7 @@ func (r *OpsManagerReconciler) licenseAdminClient(ctx context.Context, opsManage
 func (h *LicenseReconcilerHelper) Reconcile(ctx context.Context) workflow.Status {
 	st := h.reconcileLicense(ctx)
 
-	h.reportOpsManagerLicenseReady()
+	h.reportLicenseReady()
 	return st
 }
 
