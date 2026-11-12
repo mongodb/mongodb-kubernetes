@@ -13,7 +13,8 @@ const (
 
 // Reasons of OpsManagerLicenseReady. Ready means the license Ops Manager holds is licensed.
 // NotReady covers every other license state (grace, unlicensed, expired); the message names
-// the state. StateUnknown covers no state reported yet.
+// the state. StateUnknown covers no state reported yet, and carries status Unknown rather than
+// False, since the operator has not checked the license, not found it missing.
 const (
 	ReasonLicenseReady        = "LicenseReady"
 	ReasonLicenseNotReady     = "LicenseNotReady"
@@ -28,22 +29,22 @@ const (
 	ReasonLicenseReconcileFailed = "LicenseReconcileFailed"
 )
 
-func OpsManagerLicenseReadyCondition(ready bool, reason, message string) metav1.Condition {
-	return licenseCondition(ConditionOpsManagerLicenseReady, ready, reason, message)
+func OpsManagerLicenseReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
+	return licenseCondition(ConditionOpsManagerLicenseReady, status, reason, message)
 }
 
 func LicenseManagedCondition(managed bool, reason, message string) metav1.Condition {
-	return licenseCondition(ConditionLicenseManaged, managed, reason, message)
-}
-
-func licenseCondition(conditionType string, ok bool, reason, message string) metav1.Condition {
 	st := metav1.ConditionFalse
-	if ok {
+	if managed {
 		st = metav1.ConditionTrue
 	}
+	return licenseCondition(ConditionLicenseManaged, st, reason, message)
+}
+
+func licenseCondition(conditionType string, status metav1.ConditionStatus, reason, message string) metav1.Condition {
 	return metav1.Condition{
 		Type:               conditionType,
-		Status:             st,
+		Status:             status,
 		Reason:             reason,
 		Message:            message,
 		LastTransitionTime: metav1.Now(),
