@@ -99,4 +99,7 @@ def test_rbac_granted_recovers(namespace: str, mongodb_multi: MongoDBMulti):
     # recover.
     _install_operator(namespace, managed_certificate_roles=True).restart_operator_deployment()
 
-    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
+    # The resource is still Failed from the previous phase, and the restarted operator needs a moment
+    # to reconcile it. ignore_errors keeps that stale Failed from failing the assertion before the
+    # operator has had a chance to move the resource to Running.
+    mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)

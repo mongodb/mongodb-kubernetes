@@ -13,7 +13,7 @@ controllers with separate checks.
 """
 
 import pytest
-from kubetester import try_load
+from kubetester import create_or_update_configmap, read_configmap, try_load
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
@@ -41,10 +41,28 @@ def _install_operator(namespace: str, managed_certificates: bool) -> Operator:
     return get_default_operator(namespace, config)
 
 
+def _own_project(resource: MongoDB, namespace: str) -> None:
+    """Moves the resource to its own Ops Manager project.
+
+    The operator allows a single MongoDB deployment per Ops Manager project. This module runs three
+    resources in one namespace, and the namespace's project ConfigMap names a single project for all
+    of them, so each resource gets a copy of it with its own projectName. Without this, whichever
+    resource reconciles first fills the project with its processes and the others stay Pending with
+    "cannot have more than 1 MongoDB Cluster per project" instead of reaching the state under test.
+    """
+    project_config = read_configmap(namespace, resource.config_map_name)
+    project_config["projectName"] = f"{namespace}-{resource.name}"
+    config_map_name = f"{resource.name}-project-config"
+    create_or_update_configmap(namespace, config_map_name, project_config)
+    resource["spec"]["opsManager"]["configMapRef"]["name"] = config_map_name
+
+
 # managed_rs is managed certificate single cluster replicaset
 @pytest.fixture(scope="module")
 def managed_rs(namespace: str, custom_mdb_version: str) -> MongoDB:
-    return managed_cert_replica_set(RS_RESOURCE, namespace, custom_mdb_version, {})
+    resource = managed_cert_replica_set(RS_RESOURCE, namespace, custom_mdb_version, {})
+    _own_project(resource, namespace)
+    return resource
 
 
 # managed_sc is managed certificate enabled single cluster sharded cluster deployment
@@ -53,6 +71,7 @@ def managed_sc(namespace: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-tls-sc-managedcert.yaml"), name=SC_RESOURCE, namespace=namespace)
     resource["spec"]["security"]["managedCertificate"] = {}
     try_load(resource)
+    _own_project(resource, namespace)
     return resource
 
 
@@ -63,6 +82,7 @@ def plain_rs(namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(load_fixture("test-no-tls-no-status.yaml"), name=PLAIN_RESOURCE, namespace=namespace)
     resource.set_version(custom_mdb_version)
     try_load(resource)
+    _own_project(resource, namespace)
     return resource
 
 
@@ -111,5 +131,8 @@ def test_rbac_granted_recovers(namespace: str, managed_rs: MongoDB, managed_sc: 
     # restart again to pick it up, and the resources that failed before have to recover.
     _install_operator(namespace, managed_certificates=True).restart_operator_deployment()
 
-    managed_rs.assert_reaches_phase(Phase.Running, timeout=1800)
-    managed_sc.assert_reaches_phase(Phase.Running, timeout=1800)
+    # The resources are still Failed from the previous phase, and the restarted operator needs a
+    # moment to reconcile them. ignore_errors keeps that stale Failed from failing the assertion
+    # before the operator has had a chance to move the resources to Running.
+    managed_rs.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
+    managed_sc.assert_reaches_phase(Phase.Running, timeout=1800, ignore_errors=True)
