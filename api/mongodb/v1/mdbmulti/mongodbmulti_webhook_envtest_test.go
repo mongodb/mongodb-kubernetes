@@ -12,7 +12,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
-const mongodbMultiClusterWebhookName = "validate-mongodbmulticluster.mongodb.com"
+const mongodbMultiClusterWebhookName = "mdbmultipolicy.mongodb.com"
 
 func newWebhookMultiCluster(name string, clusterNames []string) *mcdbmulti.MongoDBMultiCluster {
 	mrs := mcdbmulti.DefaultMultiReplicaSetBuilder().SetName(name).SetClusterSpecList(clusterNames).Build()

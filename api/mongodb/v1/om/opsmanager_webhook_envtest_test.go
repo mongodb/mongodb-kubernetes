@@ -12,7 +12,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
-const opsManagerWebhookName = "validate-opsmanagers.mongodb.com"
+const opsManagerWebhookName = "ompolicy.mongodb.com"
 
 // newWebhookOpsManager returns an Ops Manager with an external AppDB, which the webhook
 // requires to be named after the resource.
