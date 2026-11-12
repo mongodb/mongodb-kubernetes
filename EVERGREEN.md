@@ -111,7 +111,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
-| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1370 tasks, every e2e variant; opt-in only, see "Choosing a label"                                            |
+| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1370 tasks, every e2e variant; It **MUST** only be applied manually by a human engineer because it's extremely expensive (see "Choosing a label") |
 | `evergreen:e2e-default`    | `e2e_test_suite`     | ~550 tasks, e2e suite minus static, OM7 and race variants; close to the former default PR set                  |
 | `evergreen:e2e-medium`     | `e2e_test_suite`     | ~330 tasks tagged `e2e_medium` across static/non-static, OM 7/8/9, multi-cluster                               |
 | `evergreen:e2e-light`      | `e2e_test_suite`     | ~175 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
@@ -135,15 +135,12 @@ applies on top — a labeled variant whose paths don't match the PR's changed fi
 Start with `evergreen:e2e-light` and add `e2e-medium`, `e2e-default` or a dimension label (`e2e-static`, `om7`, `om9`,
 `race`, ...) only when the change touches that area.
 
-**Do not add `evergreen:e2e-all` by default.** It schedules ~1370 tasks (about 2.5x `e2e-default`) and runs again on
-every push while the label is on. Master already runs the full suite on every merge, plus variants `e2e-all` does not
-select (OpenShift, multi-arch smoke, release). Use `e2e-all` only when:
-
-- the change is core reconcile logic or a shared library used by every resource type, and the full result is needed
-  before merge;
-- a reviewer or code owner explicitly asks for it.
-
-Remove the label once the run you needed has finished, so later pushes do not schedule the whole set again.
+**Do not use `evergreen:e2e-all`.** It MUST only be applied manually by a human engineer: it schedules ~1370 tasks
+(about 2.5x `e2e-default`), runs again on every push while the label is on, and master already runs the full suite on
+every merge (plus variants `e2e-all` does not select: OpenShift, multi-arch smoke, release). AI agents and automation
+must never apply it. A human who needs the full result before merge (for example for core reconcile logic or a shared
+library used by every resource type) applies it by hand and removes it once the run has finished, so later pushes do
+not schedule the whole set again.
 
 ## Manual Variant Aliases
 
