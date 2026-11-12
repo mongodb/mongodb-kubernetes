@@ -125,7 +125,7 @@ class TestOpsManagerLicenseE2E:
         installed = install_license(ops_manager, namespace)
 
         ensure_license_artifact_secret(namespace, "not-a-license")
-        failure = wait_for_license_managed_reason(ops_manager, "LicenseReconcileFailed")
+        failure = wait_for_license_managed_reason(ops_manager, "LicenseNotManaged")
         assert "license artifact is not a valid JSON envelope" in failure["message"], failure["message"]
         remove_install_intent_without_identity(ops_manager, installed)
 
@@ -170,7 +170,7 @@ class TestOpsManagerLicenseE2E:
             before = read_om_license_view(ops_manager)
 
             ensure_license_artifact_secret(namespace, older_raw)
-            managed = wait_for_license_managed_reason(ops_manager, "LicenseReconcileFailed")
+            managed = wait_for_license_managed_reason(ops_manager, "LicenseNotManaged")
 
             assert managed["status"] == "False", managed["message"]
             assert managed["message"] == rejected_message(older_id), managed["message"]
@@ -207,7 +207,7 @@ class TestOpsManagerLicenseE2E:
 
         top_up = issue_top_up_and_auto_install(ops_manager)
         wait_for_ea_artifact_state(ops_manager, original, "RELEASED")
-        managed = wait_for_license_managed_reason(ops_manager, "LicenseReconcileFailed")
+        managed = wait_for_license_managed_reason(ops_manager, "LicenseNotManaged")
         om_view = read_om_license_view(ops_manager)
 
         assert managed["status"] == "False", managed["message"]

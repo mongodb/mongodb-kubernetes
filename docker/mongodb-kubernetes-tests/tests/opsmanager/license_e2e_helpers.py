@@ -216,8 +216,8 @@ def _managed_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optio
     condition = om_condition(ops_manager, LICENSE_MANAGED_CONDITION)
     if condition is None or condition["observedGeneration"] < generation:
         return None
-    if condition["reason"] in ("LicenseNotManaged", "LicenseReconcileFailed"):
-        pytest.fail(f"LicenseManaged is {condition['reason']}: {condition['message']}")
+    if condition["reason"] == "LicenseNotManaged":
+        pytest.fail(f"LicenseManaged is LicenseNotManaged: {condition['message']}")
     return condition
 
 
@@ -601,7 +601,7 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
         condition = om_condition(ops_manager, LICENSE_MANAGED_CONDITION)
         if condition is None or condition["observedGeneration"] < generation:
             return False
-        if condition["reason"] != "LicenseReconcileFailed":
+        if condition["reason"] != "LicenseNotManaged":
             pytest.fail(
                 f"LicenseManaged settled as {condition['reason']} before the release failure was seen: {condition['message']}"
             )
@@ -609,7 +609,7 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
         return True
 
     ops_manager.wait_for(release_failed, timeout=DEFAULT_TIMEOUT)
-    assert failure["reason"] == "LicenseReconcileFailed", failure["message"]
+    assert failure["reason"] == "LicenseNotManaged", failure["message"]
     assert "cannot release the license Ops Manager holds" in failure["message"], failure["message"]
 
     # The retry of the failed reconcile records the spec without secretRef and reports it not provided.
