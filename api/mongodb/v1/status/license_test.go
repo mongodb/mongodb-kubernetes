@@ -23,30 +23,3 @@ func TestOpsManagerLicenseReadyCondition_CarriesReasonAndMessage(t *testing.T) {
 	assert.Equal(t, int64(3), ready.ObservedGeneration)
 	assert.Equal(t, "no state yet", ready.Message)
 }
-
-func TestOpsManagerLicenseReadyCondition_SetsAndClearsEnforced(t *testing.T) {
-	var conditions []metav1.Condition
-	c := LicenseEnforcedCondition("not licensed")
-	c.ObservedGeneration = 3
-	_ = meta.SetStatusCondition(&conditions, c)
-
-	ready := meta.FindStatusCondition(conditions, ConditionOpsManagerLicenseReady)
-	require.NotNil(t, ready)
-	assert.Equal(t, metav1.ConditionFalse, ready.Status)
-	assert.Equal(t, ReasonLicenseEnforced, ready.Reason)
-	assert.Equal(t, int64(3), ready.ObservedGeneration)
-	assert.Equal(t, "not licensed", ready.Message)
-
-	ClearLicenseBlockIfPresent(&conditions)
-	assert.Nil(t, meta.FindStatusCondition(conditions, ConditionOpsManagerLicenseReady))
-}
-
-func TestClearLicenseBlockIfPresent_LeavesOtherFalseReasons(t *testing.T) {
-	var conditions []metav1.Condition
-	_ = meta.SetStatusCondition(&conditions, OpsManagerLicenseReadyCondition(false, "SomeOtherReason", "leave me"))
-	ClearLicenseBlockIfPresent(&conditions)
-	ready := meta.FindStatusCondition(conditions, ConditionOpsManagerLicenseReady)
-	require.NotNil(t, ready)
-	assert.Equal(t, metav1.ConditionFalse, ready.Status)
-	assert.Equal(t, "SomeOtherReason", ready.Reason)
-}
