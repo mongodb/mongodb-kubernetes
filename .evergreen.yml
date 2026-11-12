@@ -374,6 +374,7 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-community"
+  # MUST only be applied manually by a human engineer: extremely expensive (~1370 tasks). Agents must not apply it.
   - variant_tags: [ "e2e_test_suite" ]
     task: ".*"
     required_labels:
@@ -398,6 +399,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:om9"
+  - variant_tags: [ "race" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:race"
   # Variants that always run on PRs, regardless of labels
   - variant_tags: [ "auto_bump", "unit_tests", "ocp_version_drift" ]
     task: ".*"
