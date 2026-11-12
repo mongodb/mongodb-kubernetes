@@ -4,7 +4,7 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
 go version
-GOBIN="$(go env GOPATH)/bin" go install github.com/nammn/go-licenses/v2@fb890e106eb4d7b91c569f8885ef32bdc0d44d67
+GOBIN="$(go env GOPATH)/bin" go install github.com/nammn/go-licenses/v2@bbc4f3dc8815be2eeacfe8ddaab7a13bcf00218c
 
 # Define the root of the repo and the scripts directory
 REPO_DIR=$(dirname "$(dirname "$(dirname "$(readlink -f "$0")")")")
