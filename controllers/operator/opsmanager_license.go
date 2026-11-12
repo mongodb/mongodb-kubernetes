@@ -289,7 +289,7 @@ func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, 
 
 	state, err := h.omAdmin.InstallLicense(ctx, json.RawMessage(rawArtifact))
 	if err != nil {
-		// Ops Manager keeps the license it held, reportLicenseManaged reports the artifact as rejected.
+		// Ops Manager keeps the license it held, reportLicenseManaged reports the artifact as not installed.
 		if apierror.NewNonNil(err).IsLicenseArtifactOutdated() {
 			return artifactID, "", workflow.OK()
 		}

@@ -471,7 +471,7 @@ func TestEnsureOpsManagerLicense_InstallConflictReportsNotManaged(t *testing.T) 
 	c := managedCondition(t, st.StatusOptions())
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
 	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
-	assert.Equal(t, "License art-1 from .spec.license.secretRef was rejected because a license this new or newer was already installed and not managed by operator.", c.Message)
+	assert.Equal(t, "License art-1 from .spec.license.secretRef is not installed, because Ops Manager already holds a license this new or newer that the operator doesn't manage.", c.Message)
 }
 
 func TestEnsureOpsManagerLicense_InstallConflictWhenOMHoldsNothing(t *testing.T) {
@@ -494,7 +494,7 @@ func TestEnsureOpsManagerLicense_InstallConflictWhenOMHoldsNothing(t *testing.T)
 	c := managedCondition(t, st.StatusOptions())
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
 	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
-	assert.Contains(t, c.Message, "a license this new or newer was already installed and not managed by operator")
+	assert.Contains(t, c.Message, "Ops Manager already holds a license this new or newer that the operator doesn't manage")
 	assert.NotContains(t, c.Message, "It holds license")
 }
 
