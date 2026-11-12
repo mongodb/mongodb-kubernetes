@@ -919,9 +919,9 @@ class OMTester(object):
         """The enrollment identity of this Ops Manager, the holder a minted license is bound to."""
         return self.om_request("get", "/admin/artifacts/identity").json()
 
-    def ui_cron(self, username: str, password: str, action: str, cron_name: str) -> None:
-        """Runs a Control Panel cron action: trigger, manualDisable or manualEnable. These are UI calls, so it logs
-        in as the global owner first."""
+    def ui_trigger_cron(self, username: str, password: str, cron_name: str) -> None:
+        """Triggers an Ops Manager cron from the Control Panel. This is a UI call, so it logs in as the global owner
+        first."""
         session = requests.Session()
         login = session.post(
             f"{self.context.base_url}/user/v1/auth",
@@ -934,7 +934,7 @@ class OMTester(object):
         if body.get("errorCode", "NONE") != "NONE":
             raise Exception(f"Ops Manager UI login failed: {body}")
         response = session.post(
-            f"{self.context.base_url}/admin/control_panel/cronJobs/{action}/{cron_name}",
+            f"{self.context.base_url}/admin/control_panel/cronJobs/trigger/{cron_name}",
             headers={"X-CSRF-Token": body["csrfToken"], "X-CSRF-Time": str(body["csrfTime"])},
             json={},
             timeout=30,
