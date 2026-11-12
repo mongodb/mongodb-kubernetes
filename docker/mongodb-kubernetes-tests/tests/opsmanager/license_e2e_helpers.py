@@ -103,8 +103,7 @@ def expected_ready_condition(om_view: dict, holder_id: str) -> tuple[str, str, s
         license = f"license {held['artifactId']}"
         if held.get("termEnd"):
             license += f", valid until {held['termEnd']}"
-    # The reason turns a state like GRACE into LicenseGrace.
-    status, reason = "False", "License" + "".join(word.capitalize() for word in effective_state.split("_") if word)
+    status, reason = "False", "LicenseNotReady"
     state_message = f"License state is {effective_state}."
     if effective_state == "LICENSED":
         status, reason = "True", "LicenseReady"
