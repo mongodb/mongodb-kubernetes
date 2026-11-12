@@ -23,7 +23,7 @@ RECOMPUTE_ANNOTATION = "mongodb.com/license-recompute"
 
 RELEASED_STATUS = "RELEASED"
 
-LICENSE_READY_CONDITION = "OpsManagerLicenseReady"
+LICENSE_READY_CONDITION = "LicenseReady"
 LICENSE_MANAGED_CONDITION = "LicenseManaged"
 
 
