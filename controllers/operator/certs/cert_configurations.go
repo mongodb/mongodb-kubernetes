@@ -170,6 +170,16 @@ type MemberCluster struct {
 	ExternalDomain *string
 }
 
+// WithoutHostnames returns a copy of the options that asks the certificate for none of the hostnames
+// the deployment is reached by: the external domain, the additional certificate domains and the
+// replica set horizons. The rest of the options, such as where the -pem secret is written, is kept.
+func (o Options) WithoutHostnames() Options {
+	o.ExternalDomain = nil
+	o.additionalCertificateDomains = nil
+	o.horizons = nil
+	return o
+}
+
 // StandaloneConfig returns a function which provides all of the configuration options required for the given Standalone.
 func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 	return Options{
