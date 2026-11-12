@@ -185,11 +185,12 @@ def installed_artifact_id(ops_manager: MongoDBOpsManager) -> str:
     return match.group(1) if match else ""
 
 
-def rejected_message(artifact_id: str) -> str:
-    """The LicenseManaged message for a license from secretRef Ops Manager rejected as outdated."""
+def not_installed_message(artifact_id: str) -> str:
+    """The LicenseManaged message for a license from secretRef Ops Manager does not hold, since it
+    already holds a license this new or newer."""
     return (
-        f"License {artifact_id} from .spec.license.secretRef was rejected because a license this new or newer "
-        "was already installed and not managed by operator."
+        f"License {artifact_id} from .spec.license.secretRef is not installed, because Ops Manager already holds "
+        "a license this new or newer that the operator doesn't manage."
     )
 
 

@@ -36,6 +36,7 @@ from tests.opsmanager.license_e2e_helpers import (
     issue_top_up_and_auto_install,
     license_ready_condition,
     mint_run_license,
+    not_installed_message,
     nudge_reconcile,
     om_artifact_ids,
     om_artifact_released,
@@ -45,7 +46,6 @@ from tests.opsmanager.license_e2e_helpers import (
     paused_cron,
     prepare_for_license_install,
     read_om_license_view,
-    rejected_message,
     remove_install_intent_without_identity,
     renew_license,
     reset_license_e2e_state,
@@ -173,7 +173,7 @@ class TestOpsManagerLicenseE2E:
             managed = wait_for_license_managed_reason(ops_manager, "LicenseNotManaged")
 
             assert managed["status"] == "False", managed["message"]
-            assert managed["message"] == rejected_message(older_id), managed["message"]
+            assert managed["message"] == not_installed_message(older_id), managed["message"]
             assert_om_license_unchanged(before, read_om_license_view(ops_manager))
         finally:
             # Ops Manager never held the older license, so only a revoke retires it at EA.
@@ -211,7 +211,7 @@ class TestOpsManagerLicenseE2E:
         om_view = read_om_license_view(ops_manager)
 
         assert managed["status"] == "False", managed["message"]
-        assert managed["message"] == rejected_message(original), managed["message"]
+        assert managed["message"] == not_installed_message(original), managed["message"]
         assert cr_matches_om_license(ops_manager, om_view)
         assert om_artifact_released(ops_manager, original)
         assert top_up in om_artifact_ids(ops_manager)
