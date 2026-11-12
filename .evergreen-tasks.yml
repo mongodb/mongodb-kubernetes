@@ -179,11 +179,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_mongodb_validation_webhook
-    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_mongodb_custom_roles
     tags: [ "patch-run" ]
     commands:
@@ -910,11 +905,6 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_om_validation_webhook
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_om_ops_manager_https_enabled
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
@@ -1161,11 +1151,6 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_replica_set_ignore_unknown_users
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
-  - name: e2e_multi_cluster_validation_webhook
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

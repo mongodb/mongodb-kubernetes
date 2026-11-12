@@ -960,8 +960,6 @@ task_groups:
       - e2e_sharded_cluster_scram_sha_and_x509
       - e2e_sharded_cluster_x509_to_scram_transition
       - e2e_sharded_cluster_internal_cluster_transition
-      # e2e_webhook_validation_task_group
-      - e2e_mongodb_validation_webhook
       - e2e_vault_setup
       - e2e_vault_setup_tls
       # this test will either migrate from static to non-static or the other way around
@@ -1222,7 +1220,6 @@ task_groups:
       - e2e_multi_cluster_disaster_recovery
       - e2e_multi_cluster_multi_disaster_recovery
       - e2e_multi_cluster_recover_network_partition
-      - e2e_multi_cluster_validation_webhook
       - e2e_multi_cluster_agent_flags
       - e2e_multi_cluster_replica_set_ignore_unknown_users
       - e2e_multi_cluster_pvc_resize
@@ -1467,7 +1464,6 @@ task_groups:
       - e2e_om_ops_manager_https_enabled_internet_mode
       - e2e_om_ops_manager_https_enabled_prefix
       - e2e_om_ops_manager_scale
-      - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple
@@ -1503,7 +1499,6 @@ task_groups:
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_scale
-      - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple
