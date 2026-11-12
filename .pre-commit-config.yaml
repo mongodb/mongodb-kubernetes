@@ -199,7 +199,8 @@ repos:
         exclude: |
           (?x)^(
             vendor/.*|
-            testdata/.*
+            testdata/.*|
+            \.devcontainer/devcontainer\.json$
           )
         priority: 6
 

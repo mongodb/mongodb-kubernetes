@@ -17,6 +17,7 @@ setup() {
     BRANCH_DIR="${TEST_BRANCH//\//_}"
     PARENT_DIR="$(cd "${PROJECT_DIR}/.." && pwd)"
     WORKTREE_PATH="${PARENT_DIR}/${BRANCH_DIR}"
+    REMOTE_DIR=""
 
     # Hooks always live in the main clone's .git/hooks/, even when fired from
     # a linked worktree.
@@ -31,6 +32,8 @@ setup() {
 teardown() {
     git -C "${PROJECT_DIR}" worktree remove --force "${WORKTREE_PATH}" 2>/dev/null || true
     git -C "${PROJECT_DIR}" branch -D "${TEST_BRANCH}" 2>/dev/null || true
+    git -C "${PROJECT_DIR}" remote remove autotest 2>/dev/null || true
+    [[ -n "${REMOTE_DIR}" ]] && rm -rf "${REMOTE_DIR}"
 
     if [[ "${HOOK_WAS_PRESENT}" == "false" ]]; then
         rm -f "${HOOK_PATH}"
@@ -128,6 +131,21 @@ install_hook() {
 
     [ "$status" -eq 0 ]
     [[ -d "${WORKTREE_PATH}" ]]
+}
+
+@test "create_worktree: checks out a branch that exists only on a non-origin remote" {
+    # `git checkout <branch>` resolves a branch that exists on exactly one remote, whichever it is.
+    # create_worktree.sh must not treat it as missing and start a new branch from HEAD.
+    REMOTE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wt-remote.XXXXXX")"
+    git init -q --bare "${REMOTE_DIR}/prototyping.git"
+    git -C "${PROJECT_DIR}" remote add autotest "${REMOTE_DIR}/prototyping.git"
+    git -C "${PROJECT_DIR}" push -q autotest "HEAD:refs/heads/${TEST_BRANCH}"
+    git -C "${PROJECT_DIR}" fetch -q autotest
+
+    run env PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/scripts/dev/create_worktree.sh" "${TEST_BRANCH}"
+
+    [ "$status" -eq 0 ]
+    [ "$(git -C "${WORKTREE_PATH}" rev-parse --abbrev-ref '@{upstream}')" = "autotest/${TEST_BRANCH}" ]
 }
 
 @test "create_worktree -f: re-initializes an already-initialized worktree" {

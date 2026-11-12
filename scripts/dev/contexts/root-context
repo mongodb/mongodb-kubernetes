@@ -58,7 +58,11 @@ if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
   # Normally, the pod is loading it from a path that is mounted from the mongodb-enterprise-operator-multi-cluster-kubeconfig secret.
   # When running locally, we use cli tool to generate that kubeconfig secret and write it to this file.
   # This way, the local operator is using kubeconfig create by cli tool the same way as it's used when running in a pod.
-  export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
+  if [[ -f /.dockerenv ]]; then
+    export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster.devc.kubeconfig"
+  else
+    export KUBE_CONFIG_PATH="${PROJECT_DIR}/.generated/multicluster_kubeconfig"
+  fi
   export PERFORM_FAILOVER=false
 fi
 
@@ -112,9 +116,13 @@ export VERSION_UPGRADE_HOOK_IMAGE="${VERSION_UPGRADE_HOOK_REGISTRY}/mongodb-kube
 export KUBE_ENVIRONMENT_NAME=kind
 
 # A checkout keeps its own kubeconfig, also when its clusters run on an EVG ec2 instance
-# (evg_host.sh copies the file from there). Evergreen tasks keep using ~/.kube/config.
-if [[ "${RUNNING_IN_EVG:-}" == "true" ]]; then
+# (evg_host.sh copies the file from there). Evergreen tasks keep using ~/.kube/config, unless the
+# checkout has a worktree prefix: worktrees with a prefix on one host would share that file. A devcontainer that mounts the
+# checkout reads the copy that wt-ctl rewrites for its side.
+if [[ "${RUNNING_IN_EVG:-}" == "true" && -z "${WORKTREE_PREFIX}" ]]; then
   export KUBECONFIG=~/.kube/config
+elif [[ -f /.dockerenv ]]; then
+  export KUBECONFIG="${PROJECT_DIR}/.generated/current.devc.kubeconfig"
 else
   export KUBECONFIG="${PROJECT_DIR}/.generated/current.kubeconfig"
 fi
