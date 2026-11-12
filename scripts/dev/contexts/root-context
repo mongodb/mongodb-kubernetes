@@ -124,7 +124,7 @@ MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
 export MDB_SEARCH_VERSION
 #MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
 #export MDB_SEARCH_VERSION
-#export MDB_SEARCH_NAME="mongodb-search"
+#export MDB_SEARCH_NAME="mongodb-enterprise-search"
 #export MDB_SEARCH_REPO_URL="quay.io/mongodb"
 
 # Temporary image to point to master-built mongot
