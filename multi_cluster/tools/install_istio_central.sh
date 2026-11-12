@@ -2,7 +2,7 @@
 
 set -eux
 
-export VERSION=${VERSION:-1.31.3}
+export VERSION=${VERSION:-1.30.8}
 
 export CTX_CLUSTER=${CTX_CLUSTER:-e2e.operator.mongokubernetes.com}
 

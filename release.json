@@ -1,12 +1,12 @@
 {
   "mongodbToolsBundle": {
-    "ubi": "mongodb-database-tools-rhel88-x86_64-100.17.0.tgz"
+    "ubi": "mongodb-database-tools-rhel88-x86_64-100.20.1.tgz"
   },
   "mongodbOperator": "1.15.1",
   "initDatabaseVersion": "1.15.1",
   "initOpsManagerVersion": "1.15.1",
   "databaseImageVersion": "1.15.1",
-  "agentVersion": "109.0.1.9310-1",
+  "agentVersion": "109.0.2.9380-1",
   "readinessProbeVersion": "1.0.24",
   "versionUpgradeHookVersion": "1.0.10",
   "openshift": {
@@ -30,14 +30,14 @@
     },
     {
       "8": {
-        "opsManagerVersion": "8.0.27",
-        "agentVersion": "108.0.27.9091-1"
+        "opsManagerVersion": "8.0.28",
+        "agentVersion": "108.0.28.9122-1"
       }
     },
     {
       "9": {
-        "opsManagerVersion": "9.0.1",
-        "agentVersion": "109.0.1.9310-1"
+        "opsManagerVersion": "9.0.2",
+        "agentVersion": "109.0.2.9380-1"
       }
     }
   ],
@@ -84,8 +84,10 @@
         "8.0.25",
         "8.0.26",
         "8.0.27",
+        "8.0.28",
         "9.0.0",
-        "9.0.1"
+        "9.0.1",
+        "9.0.2"
       ],
       "variants": [
         "ubi"
@@ -312,6 +314,14 @@
           "9.0.1": {
             "agent_version": "109.0.1.9310-1",
             "tools_version": "100.17.0"
+          },
+          "9.0.2": {
+            "agent_version": "109.0.2.9380-1",
+            "tools_version": "100.20.1"
+          },
+          "8.0.28": {
+            "agent_version": "108.0.28.9122-1",
+            "tools_version": "100.20.1"
           }
         }
       },
