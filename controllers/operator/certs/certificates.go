@@ -311,16 +311,23 @@ func GetAdditionalCertDomainsForMember(opts Options, member int) (hostnames []st
 	for _, certDomain := range opts.additionalCertificateDomains {
 		hostnames = append(hostnames, podNames[member]+"."+certDomain)
 	}
-	// A certificate is built for every member the deployment still has, so during a scale-down
-	// there can be more members than horizons configured. Make sur we are not reading horizon
-	// for he member that's being removed.
+	// A certificate is built for every member the deployment still has, so during a scale-down there
+	// can be more members than horizons configured. The horizons of the member that is being removed
+	// are not read.
 	if member < len(opts.horizons) {
-		for _, externalHost := range opts.horizons[member] {
-			// need to use the URL struct directly instead of url.Parse as
-			// Parse expects the URL to have a scheme.
-			hostURL := url.URL{Host: externalHost}
-			hostnames = append(hostnames, hostURL.Hostname())
-		}
+		hostnames = append(hostnames, horizonHostnames(opts.horizons[member])...)
+	}
+	return hostnames
+}
+
+// horizonHostnames returns the hostnames of one member's horizon configuration, without their ports.
+func horizonHostnames(horizon mdbv1.MongoDBHorizonConfig) []string {
+	hostnames := make([]string, 0, len(horizon))
+	for _, externalHost := range horizon {
+		// need to use the URL struct directly instead of url.Parse as
+		// Parse expects the URL to have a scheme.
+		hostURL := url.URL{Host: externalHost}
+		hostnames = append(hostnames, hostURL.Hostname())
 	}
 	return hostnames
 }

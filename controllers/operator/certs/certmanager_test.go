@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -748,6 +749,25 @@ func TestMultiShardedComponentManagedCertSANs(t *testing.T) {
 	}, got[0].spec.DNSNames)
 }
 
+// multiClusterReplicaSetForCertTest builds a multi-cluster replica set with two member clusters, and
+// twoClustersOf the member clusters the certificate covers, which is what the SAN builder takes.
+func multiClusterReplicaSetForCertTest(name string) *mdbmulti.MongoDBMultiCluster {
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetName(name).Build()
+	mrs.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{
+		{ClusterName: "cluster-0", Members: 2},
+		{ClusterName: "cluster-1", Members: 2},
+	}
+	return mrs
+}
+
+func twoClustersOf(members int) []MemberCluster {
+	return []MemberCluster{
+		{ClusterNum: 0, ClusterName: "cluster-0", Members: members},
+		{ClusterNum: 1, ClusterName: "cluster-1", Members: members},
+	}
+}
+
 // TestMemberClusterDNSNames covers the per-cluster SAN generation for the multi-cluster member
 // cert, the internal per-pod service FQDNs, plus the external hostnames when the cluster is exposed.
 func TestMemberClusterDNSNames(t *testing.T) {
@@ -768,5 +788,96 @@ func TestMemberClusterDNSNames(t *testing.T) {
 			"mrs-1-0-svc.ns.svc.cluster.local",
 			"mrs-1-0.example.com",
 		}, names)
+	})
+
+	t.Run("additional certificate domains are added for every member", func(t *testing.T) {
+		opts := opts
+		opts.additionalCertificateDomains = []string{"additional.example.org"}
+		names := memberClusterDNSNames(opts, 0, 2, nil)
+		assert.ElementsMatch(t, []string{
+			"mrs-0-0-svc.ns.svc.cluster.local",
+			"mrs-0-1-svc.ns.svc.cluster.local",
+			"mrs-0-0.additional.example.org",
+			"mrs-0-1.additional.example.org",
+		}, names)
+	})
+}
+
+// TestMultiClusterMemberCertCoversHorizons covers the horizon hostnames in the multi-cluster member
+// certificate. The members of a multi-cluster replica set are created cluster by cluster and pod by
+// pod inside a cluster, and the operator hands the horizons to them in that order, so the certificate
+// covers the hostnames of every member that is there.
+func TestMultiClusterMemberCertCoversHorizons(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	sc := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	})
+
+	t.Run("no horizons, only the internal hostnames of every member", func(t *testing.T) {
+		opts := MultiReplicaSetManagedCertConfig(*multiClusterReplicaSetForCertTest(resName), twoClustersOf(2))
+		got := componentCertificates(ctx, fakeClient, sc, opts)
+
+		require.Len(t, got, 1)
+		assert.ElementsMatch(t, []string{
+			"mdb-0-0-svc.my-namespace.svc.cluster.local",
+			"mdb-0-1-svc.my-namespace.svc.cluster.local",
+			"mdb-1-0-svc.my-namespace.svc.cluster.local",
+			"mdb-1-1-svc.my-namespace.svc.cluster.local",
+		}, got[0].spec.DNSNames, "both members of both clusters, and nothing else")
+	})
+
+	t.Run("every member's horizon hostname is in the certificate", func(t *testing.T) {
+		mrs := multiClusterReplicaSetForCertTest(resName)
+		mrs.Spec.Connectivity.ReplicaSetHorizons = []mdbv1.MongoDBHorizonConfig{
+			{"external": "mdb-0-0.example.com:27017"},
+			{"external": "mdb-0-1.example.com:27017"},
+			{"external": "mdb-1-0.example.com:27017"},
+			{"external": "mdb-1-1.example.com:27017"},
+		}
+		opts := MultiReplicaSetManagedCertConfig(*mrs, twoClustersOf(2))
+		got := componentCertificates(ctx, fakeClient, sc, opts)
+
+		require.Len(t, got, 1)
+		for _, hostname := range []string{
+			"mdb-0-0.example.com",
+			"mdb-0-1.example.com",
+			"mdb-1-0.example.com",
+			"mdb-1-1.example.com",
+		} {
+			assert.Contains(t, got[0].spec.DNSNames, hostname, "the member certificate has to be usable for %s", hostname)
+		}
+		assert.NotContains(t, got[0].spec.DNSNames, "mdb-0-0.example.com:27017", "ports are not part of a certificate name")
+	})
+
+	t.Run("more horizon configurations than members, the extra ones are not read", func(t *testing.T) {
+		mrs := multiClusterReplicaSetForCertTest(resName)
+		mrs.Spec.Connectivity.ReplicaSetHorizons = []mdbv1.MongoDBHorizonConfig{
+			{"external": "mdb-0-0.example.com:27017"},
+			{"external": "mdb-0-1.example.com:27017"},
+			{"external": "mdb-1-0.example.com:27017"},
+			{"external": "mdb-1-1.example.com:27017"},
+			{"external": "mdb-2-0.example.com:27017"},
+		}
+		opts := MultiReplicaSetManagedCertConfig(*mrs, twoClustersOf(2))
+		got := componentCertificates(ctx, fakeClient, sc, opts)
+
+		require.Len(t, got, 1)
+		for _, hostname := range []string{"mdb-0-0.example.com", "mdb-0-1.example.com", "mdb-1-0.example.com", "mdb-1-1.example.com"} {
+			assert.Contains(t, got[0].spec.DNSNames, hostname)
+		}
+		assert.NotContains(t, got[0].spec.DNSNames, "mdb-2-0.example.com", "a horizon of a member that is not there is not read")
+	})
+
+	t.Run("more members than horizon configurations, the extra ones are left out", func(t *testing.T) {
+		mrs := multiClusterReplicaSetForCertTest(resName)
+		mrs.Spec.Connectivity.ReplicaSetHorizons = []mdbv1.MongoDBHorizonConfig{
+			{"external": "mdb-0-0.example.com:27017"},
+		}
+		opts := MultiReplicaSetManagedCertConfig(*mrs, twoClustersOf(2))
+		got := componentCertificates(ctx, fakeClient, sc, opts)
+
+		require.Len(t, got, 1)
+		assert.Contains(t, got[0].spec.DNSNames, "mdb-0-0.example.com")
 	})
 }
