@@ -4,14 +4,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// OpsManagerLicenseReady reports the license Ops Manager holds, whoever installed it. LicenseManaged
+// LicenseReady reports the license Ops Manager holds, whoever installed it. LicenseManaged
 // reports whether the operator manages the license from .spec.license.secretRef.
 const (
-	ConditionOpsManagerLicenseReady = "OpsManagerLicenseReady"
-	ConditionLicenseManaged         = "LicenseManaged"
+	ConditionLicenseReady   = "LicenseReady"
+	ConditionLicenseManaged = "LicenseManaged"
 )
 
-// Reasons of OpsManagerLicenseReady. Ready means the license Ops Manager holds is licensed.
+// Reasons of LicenseReady. Ready means the license Ops Manager holds is licensed.
 // NotReady covers every other license state (grace, unlicensed, expired); the message names
 // the state. StateUnknown covers no state reported yet, and carries status Unknown rather than
 // False, since the operator has not checked the license, not found it missing.
@@ -29,8 +29,8 @@ const (
 	ReasonLicenseReconcileFailed = "LicenseReconcileFailed"
 )
 
-func OpsManagerLicenseReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
-	return licenseCondition(ConditionOpsManagerLicenseReady, status, reason, message)
+func LicenseReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
+	return licenseCondition(ConditionLicenseReady, status, reason, message)
 }
 
 func LicenseManagedCondition(managed bool, reason, message string) metav1.Condition {
