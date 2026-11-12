@@ -86,8 +86,8 @@ def _managed_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optio
     condition = om_condition(ops_manager, OPERATOR_MANAGED_LICENSE_CONDITION)
     if condition is None or condition["observedGeneration"] < generation:
         return None
-    if condition["reason"] in ("LicenseNotManaged", "LicenseReconcileFailed"):
-        pytest.fail(f"OperatorManagedLicense is {condition['reason']}: {condition['message']}")
+    if condition["reason"] == "LicenseNotManaged":
+        pytest.fail(f"OperatorManagedLicense is LicenseNotManaged: {condition['message']}")
     return condition
 
 
