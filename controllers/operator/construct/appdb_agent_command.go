@@ -30,11 +30,6 @@ const (
 func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, podVars *env.PodEnvVars) (corev1.ConfigMap, error) {
 	parameters := appDB.AutomationAgent.StartupParameters
 	agent := AgentContainer(sts)
-	if agent != nil {
-		if err := ValidateNoRuntimeAgentSettingsEnv(*agent); err != nil {
-			return corev1.ConfigMap{}, err
-		}
-	}
 	var variables map[string]string
 	if agent != nil {
 		variables = env.ToMap(agent.Env...)

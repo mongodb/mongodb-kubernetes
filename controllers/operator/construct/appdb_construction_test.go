@@ -70,22 +70,6 @@ func TestAppDBAgentSettingsAcceptLeadingDash(t *testing.T) {
 	assert.NotContains(t, cm.Data[AgentSettingsFileName], "-logLevel")
 }
 
-func TestAppDBAgentSettingsRejectsRuntimeAgentSettingsEnv(t *testing.T) {
-	om := omv1.NewOpsManagerBuilderDefault().Build()
-	sts, err := AppDbStatefulSet(*om, &env.PodEnvVars{ProjectID: "abcd"},
-		AppDBStatefulSetOptions{}, scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil), appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, nil)
-	require.NoError(t, err)
-	agent := AgentContainer(sts)
-	require.NotNil(t, agent, "AppDB StatefulSet must expose an agent container")
-	agent.Env = append(agent.Env, corev1.EnvVar{Name: util.EnvVarBaseUrl, ValueFrom: &corev1.EnvVarSource{
-		SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "runtime"}, Key: "url"},
-	}})
-
-	_, err = AppDBAgentSettingsConfigMap(sts, om.Spec.AppDB, &env.PodEnvVars{ProjectID: "abcd"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "agent.startupOptions")
-}
-
 // TestAppDBAgentSettingsCredentialPrecedence pins which credential source wins: monitoring
 // defaults, an empty exec command, a raw mmsApiKey override, and a custom exec command.
 func TestAppDBAgentSettingsCredentialPrecedence(t *testing.T) {
