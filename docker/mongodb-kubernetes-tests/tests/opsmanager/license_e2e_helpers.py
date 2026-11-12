@@ -58,7 +58,7 @@ RELEASED_STATUS = "RELEASED"
 # The license conditions the operator writes on the Ops Manager resource.
 LICENSE_READY_CONDITION = "OpsManagerLicenseReady"
 LICENSE_RECONCILED_CONDITION = "LicenseReconciled"
-LICENSE_STATE_REASONS = {"GRACE": "LicenseGrace", "UNLICENSED": "LicenseUnlicensed", "EXPIRED": "LicenseExpired"}
+LICENSE_STATE_REASONS = {"GRACE": "LicenseNotReady", "UNLICENSED": "LicenseNotReady", "EXPIRED": "LicenseNotReady"}
 
 # The finalizer the operator holds while it may have a license installed in Ops Manager.
 LICENSE_FINALIZER = "mongodb.com/v1.opsManagerLicenseRemovalFinalizer"

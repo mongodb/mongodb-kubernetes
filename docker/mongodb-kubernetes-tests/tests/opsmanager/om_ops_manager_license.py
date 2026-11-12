@@ -91,7 +91,7 @@ class TestOpsManagerLicenseE2E:
         ready, _ = wait_for_cr_license_sync(ops_manager, installed="")
 
         assert ready["status"] == "False"
-        assert ready["reason"] == "LicenseGrace"
+        assert ready["reason"] == "LicenseNotReady"
         assert f"Holder ID {om_holder_id(ops_manager)}." in ready["message"]
 
     def test_install_and_claim(self, ops_manager: MongoDBOpsManager, namespace: str):
@@ -197,7 +197,7 @@ class TestOpsManagerLicenseE2E:
         ready, _ = wait_for_observed_api_state(ops_manager, effective_state="GRACE", installed="")
 
         assert om_artifact_released(ops_manager, released)
-        assert ready["reason"] == "LicenseGrace"
+        assert ready["reason"] == "LicenseNotReady"
 
     def test_auto_installed_top_up_is_reported_not_overridden(self, ops_manager: MongoDBOpsManager, namespace: str):
         """A top up Ops Manager pulls from EA replaces the license from the Secret. The CR reports it, Ops
@@ -237,7 +237,7 @@ class TestOpsManagerLicenseE2E:
             ready, om_view = wait_for_observed_api_state(ops_manager, effective_state="GRACE", installed=revoked)
 
         assert cr_matches_om_license(ops_manager, om_view)
-        assert ready["reason"] == "LicenseGrace"
+        assert ready["reason"] == "LicenseNotReady"
         assert not om_artifact_usable(ops_manager, revoked)
 
         set_license_release_spec(ops_manager)
@@ -266,7 +266,7 @@ class TestOpsManagerLicenseE2E:
         )
 
         assert cr_matches_om_license(ops_manager, om_view)
-        assert ready["reason"] == "LicenseExpired"
+        assert ready["reason"] == "LicenseNotReady"
         assert om_view["enforcement"]["cause"].split(":")[-1] == "EXPIRED"
 
         install_license(ops_manager, namespace)
