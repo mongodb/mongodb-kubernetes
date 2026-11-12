@@ -10,13 +10,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestOpsManagerLicenseReadyCondition_CarriesReasonAndMessage(t *testing.T) {
+func TestLicenseReadyCondition_CarriesReasonAndMessage(t *testing.T) {
 	var conditions []metav1.Condition
-	c := OpsManagerLicenseReadyCondition(metav1.ConditionFalse, ReasonLicenseNotReady, "license state is grace")
+	c := LicenseReadyCondition(metav1.ConditionFalse, ReasonLicenseNotReady, "license state is grace")
 	c.ObservedGeneration = 3
 	_ = meta.SetStatusCondition(&conditions, c)
 
-	ready := meta.FindStatusCondition(conditions, ConditionOpsManagerLicenseReady)
+	ready := meta.FindStatusCondition(conditions, ConditionLicenseReady)
 	require.NotNil(t, ready)
 	assert.Equal(t, metav1.ConditionFalse, ready.Status)
 	assert.Equal(t, ReasonLicenseNotReady, ready.Reason)
@@ -24,12 +24,12 @@ func TestOpsManagerLicenseReadyCondition_CarriesReasonAndMessage(t *testing.T) {
 	assert.Equal(t, "license state is grace", ready.Message)
 }
 
-func TestOpsManagerLicenseReadyCondition_StateUnknownIsUnknownNotFalse(t *testing.T) {
+func TestLicenseReadyCondition_StateUnknownIsUnknownNotFalse(t *testing.T) {
 	var conditions []metav1.Condition
-	c := OpsManagerLicenseReadyCondition(metav1.ConditionUnknown, ReasonLicenseStateUnknown, "no state yet")
+	c := LicenseReadyCondition(metav1.ConditionUnknown, ReasonLicenseStateUnknown, "no state yet")
 	_ = meta.SetStatusCondition(&conditions, c)
 
-	ready := meta.FindStatusCondition(conditions, ConditionOpsManagerLicenseReady)
+	ready := meta.FindStatusCondition(conditions, ConditionLicenseReady)
 	require.NotNil(t, ready)
 	assert.Equal(t, metav1.ConditionUnknown, ready.Status)
 	assert.Equal(t, ReasonLicenseStateUnknown, ready.Reason)
