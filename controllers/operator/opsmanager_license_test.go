@@ -282,7 +282,7 @@ func TestEnsureOpsManagerLicense_WritesReadyConditionFromGet(t *testing.T) {
 	}
 	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, admin, zap.S()).IsOK())
 	active := licenseActiveCondition(t, testOm)
-	assert.Equal(t, "LicenseGrace", active.Reason)
+	assert.Equal(t, status.ReasonLicenseNotReady, active.Reason)
 	assert.Contains(t, active.Message, "License state is GRACE.")
 	assert.Contains(t, active.Message, "license art-1")
 }
@@ -1522,8 +1522,8 @@ func setLicenseRecomputeAnnotation(t *testing.T, ctx context.Context, kubeClient
 }
 
 func TestLicenseStateReason(t *testing.T) {
-	assert.Equal(t, status.ReasonLicenseGrace, licenseStateReason("GRACE"))
-	assert.Equal(t, status.ReasonLicenseUnlicensed, licenseStateReason("UNLICENSED"))
-	assert.Equal(t, status.ReasonLicenseExpired, licenseStateReason("EXPIRED"))
+	assert.Equal(t, status.ReasonLicenseNotReady, licenseStateReason("GRACE"))
+	assert.Equal(t, status.ReasonLicenseNotReady, licenseStateReason("UNLICENSED"))
+	assert.Equal(t, status.ReasonLicenseNotReady, licenseStateReason("EXPIRED"))
 	assert.Equal(t, status.ReasonLicenseStateUnknown, licenseStateReason("SOMETHING_NEW"))
 }
