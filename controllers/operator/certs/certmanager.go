@@ -89,12 +89,9 @@ var memberServerAndClientCertUsages = []certmanagerv1.KeyUsage{
 }
 
 // WithholdsClientCertificate returns whether a mongodb CR sets
-// setParameter.tlsWithholdClientCertificate. A process that withholds its certificate does not present
-// it when it connects to the other members of the deployment, so the certificate is never used as a
-// client certificate.
-//
-// The parameter takes true or 1, and the value arrives as free-form YAML, so accept the shapes a user
-// can write.
+// setParameter.tlsWithholdClientCertificate to true. A process that withholds its certificate does not
+// send it when it connects to the other members of the deployment: without a clusterfile that is the
+// member certificate, so the certificate is never used as a client certificate. Only a boolean true counts.
 func WithholdsClientCertificate(cfg *mdbv1.AdditionalMongodConfig) bool {
 	if cfg == nil {
 		return false
@@ -103,20 +100,8 @@ func WithholdsClientCertificate(cfg *mdbv1.AdditionalMongodConfig) bool {
 	if !ok {
 		return false
 	}
-	switch value := setParameter["tlsWithholdClientCertificate"].(type) {
-	case bool:
-		return value
-	case int:
-		return value == 1
-	case int64:
-		return value == 1
-	case float64:
-		return value == 1
-	case string:
-		return value == "true" || value == "1"
-	default:
-		return false
-	}
+	withhold, ok := setParameter["tlsWithholdClientCertificate"].(bool)
+	return ok && withhold
 }
 
 var clientAuthCertUsages = []certmanagerv1.KeyUsage{

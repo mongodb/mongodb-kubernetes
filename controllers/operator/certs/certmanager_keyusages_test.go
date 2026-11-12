@@ -69,10 +69,12 @@ func TestWithholdsClientCertificate(t *testing.T) {
 		want           bool
 	}{
 		{tcName: "true in bool", parameterValue: "true", want: true},
-		{tcName: "1", parameterValue: "1", want: true},
-		{tcName: "quoted true", parameterValue: `"true"`, want: true},
-		{tcName: "quoted 1", parameterValue: `"1"`, want: true},
 		{tcName: "false", parameterValue: "false", want: false},
+		// Only a boolean true is the form verified end to end. Anything else keeps the client usage,
+		// which is the safe side: the members can still present the certificate.
+		{tcName: "1", parameterValue: "1", want: false},
+		{tcName: "quoted true", parameterValue: `"true"`, want: false},
+		{tcName: "quoted 1", parameterValue: `"1"`, want: false},
 		{tcName: "0", parameterValue: "0", want: false},
 	} {
 		t.Run(tc.tcName, func(t *testing.T) {
