@@ -95,7 +95,7 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc fun
 	}
 
 	if stsOptions.StatefulSetSpecOverride != nil {
-		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
+		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, construct.WithoutHolderContainer(*stsOptions.StatefulSetSpecOverride, nil))
 	}
 
 	return dbSts

@@ -158,7 +158,7 @@ func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	assert.NoError(t, err)
 
 	assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, sts.Spec.Template.Spec.Containers, 3)
+	require.Len(t, sts.Spec.Template.Spec.Containers, 2)
 
 	// Version from OM
 	VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
@@ -704,7 +704,7 @@ func TestReplicaSetCustomPodSpecTemplateStatic(t *testing.T) {
 	assertPodSpecSts(t, &statefulSet, podSpec.NodeName, podSpec.Hostname, podSpec.RestartPolicy, architectures.Static)
 
 	podSpecTemplate := statefulSet.Spec.Template.Spec
-	assert.Len(t, podSpecTemplate.Containers, 4, "Should have 4 containers now")
+	assert.Len(t, podSpecTemplate.Containers, 3, "Should have 3 containers now")
 	assert.Equal(t, util.AgentContainerName, podSpecTemplate.Containers[0].Name, "Agent container should be first alphabetically")
 	assert.Equal(t, "my-custom-container", podSpecTemplate.Containers[len(podSpecTemplate.Containers)-1].Name, "Custom container should be last")
 }

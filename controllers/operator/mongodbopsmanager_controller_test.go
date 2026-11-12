@@ -776,7 +776,7 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	require.NoError(t, err)
 
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 0)
-	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
+	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 2)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
 }
 
