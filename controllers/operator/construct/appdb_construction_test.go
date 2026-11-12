@@ -15,6 +15,7 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -442,7 +443,45 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 		assert.NotContains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
 		assert.NotContains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
+		assert.NotContains(t, cmd[2], "setup-agent-files.sh")
 	})
+}
+
+func TestAppDbStatefulSet_StaticMountsInitDatabaseImage(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{InitAppDBImage: "init-appdb:1.0"}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.Static, zap.S())
+	require.NoError(t, err)
+
+	spec := sts.Spec.Template.Spec
+	for _, c := range spec.Containers {
+		assert.NotEqual(t, util.AgentContainerUtilitiesName, c.Name)
+	}
+
+	volume := findVolumeByName(spec.Volumes, initDatabaseVolumeName)
+	require.NotNil(t, volume)
+	require.NotNil(t, volume.Image)
+	assert.Equal(t, "init-appdb:1.0", volume.Image.Reference)
+
+	agent := container.GetByName(util.AgentContainerName, spec.Containers)
+	require.NotNil(t, agent)
+	assert.Contains(t, agent.VolumeMounts, initDatabaseImageVolumeMount())
+	assert.Equal(t, []string{staticDatabaseReadinessProbeCmd}, agent.ReadinessProbe.Exec.Command)
+}
+
+func TestAppDbStatefulSet_StaticIgnoresHolderContainerInPodTemplate(t *testing.T) {
+	podTemplate := corev1.PodTemplateSpec{}
+	podTemplate.Spec.Containers = []corev1.Container{{Name: util.AgentContainerUtilitiesName}, {Name: "my-sidecar", Image: "sidecar:1.0"}}
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	om.Spec.AppDB.PodSpec.PodTemplateWrapper = v1.PodTemplateSpecWrapper{PodTemplate: &podTemplate}
+
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.Static, zap.S())
+	require.NoError(t, err)
+
+	assert.Nil(t, container.GetByName(util.AgentContainerUtilitiesName, sts.Spec.Template.Spec.Containers))
+	assert.NotNil(t, container.GetByName("my-sidecar", sts.Spec.Template.Spec.Containers))
+	assert.Len(t, podTemplate.Spec.Containers, 2, "the resource's pod template must not be modified")
 }
 
 // TestAppDbStatefulSet_LabelsNotPropagatedToVolumeClaimTemplates asserts that the Ops Manager

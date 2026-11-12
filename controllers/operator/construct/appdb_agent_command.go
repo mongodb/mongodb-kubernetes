@@ -77,25 +77,20 @@ func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLeve
 		downloadSnippet = downloadCustomAgentIfSet()
 	}
 
-	return []string{"/bin/bash", "-c", GetMongodbUserCommand(withStatic, withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
+	return []string{"/bin/bash", "-c", GetMongodbUserCommand(withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
 }
 
 // GetMongodbUserCommand returns the bash preamble for the automation agent. When
 // withAgentAPIKeyExport is true it also exports AGENT_API_KEY from the mounted
 // agent-api-key secret, which the agent uses to register with Ops Manager for monitoring.
-func GetMongodbUserCommand(withStatic bool, withAgentAPIKeyExport bool) string {
-	agentPrepareScript := ""
-	if withStatic {
-		agentPrepareScript = "/usr/local/bin/setup-agent-files.sh\n"
-	}
-
+func GetMongodbUserCommand(withAgentAPIKeyExport bool) string {
 	apiKeyExport := ""
 	if withAgentAPIKeyExport {
 		//nolint:gosec //The credentials path is hardcoded in the container.
 		apiKeyExport = "AGENT_API_KEY=\"$(cat /mongodb-automation/agent-api-key/agentApiKey)\"\n"
 	}
 
-	return fmt.Sprintf(`%scurrent_uid=$(id -u)
+	return fmt.Sprintf(`current_uid=$(id -u)
 %sdeclare -r current_uid
 if ! grep -q "${current_uid}" /etc/passwd ; then
 sed -e "s/^mongodb:/builder:/" /etc/passwd > /tmp/passwd
@@ -104,5 +99,5 @@ export NSS_WRAPPER_PASSWD=/tmp/passwd
 export LD_PRELOAD=libnss_wrapper.so
 export NSS_WRAPPER_GROUP=/etc/group
 fi
-`, agentPrepareScript, apiKeyExport)
+`, apiKeyExport)
 }
