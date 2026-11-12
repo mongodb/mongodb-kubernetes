@@ -564,6 +564,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_tls_managedcert_external_domain
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_managed_certificate_prerequisites
     tags: [ "patch-run" ]
     commands:
