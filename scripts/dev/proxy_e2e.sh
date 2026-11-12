@@ -199,8 +199,10 @@ build_agent() {
     public.ecr.aws/docker/library/golang:1.26 \
     sh -c 'CGO_ENABLED=1 go build -buildvcs=false -tags=mongointernal -o /out/automation-agent ./main'
 
-  cp "${MCK}/docker/mongodb-agent/setup-agent-files.sh" "${MCK}/docker/mongodb-agent/dummy-probe.sh" \
-    "${MCK}/docker/mongodb-agent/dummy-readinessprobe" "${out}/"
+  # docker/mongodb-agent has the legacy scripts, which wait for the utilities container that a proxy pod does not have.
+  # These copies read the init-database image volume (MDB_INIT_ROOT); see the README there.
+  cp "${SCRIPT_DIR}/proxy_e2e_agent/setup-agent-files.sh" "${SCRIPT_DIR}/proxy_e2e_agent/dummy-probe.sh" \
+    "${SCRIPT_DIR}/proxy_e2e_agent/dummy-readinessprobe" "${out}/"
   cat >"${out}/Dockerfile" <<'EOF'
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
