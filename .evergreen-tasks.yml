@@ -1190,6 +1190,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_managed_certificate_multi_cluster_rs_external_domains
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_managed_certificate_multi_cluster_rs_legacy_migration
     tags: [ "patch-run" ]
     commands:
