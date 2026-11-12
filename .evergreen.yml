@@ -358,6 +358,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-community"
+  - variant_tags: [ "e2e_test_suite" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:e2e-all"
   - variant_tags: [ "e2e_test_suite !static !om7 !race" ]
     task: ".*"
     required_labels:

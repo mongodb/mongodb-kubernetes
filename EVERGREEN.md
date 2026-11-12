@@ -111,6 +111,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
+| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1370 tasks, every e2e variant; opt-in only, see "Choosing a label"                                            |
 | `evergreen:e2e-default`    | `e2e_test_suite`     | ~550 tasks, e2e suite minus static, OM7 and race variants; close to the former default PR set                  |
 | `evergreen:e2e-medium`     | `e2e_test_suite`     | ~330 tasks tagged `e2e_medium` across static/non-static, OM 7/8/9, multi-cluster                               |
 | `evergreen:e2e-light`      | `e2e_test_suite`     | ~175 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
@@ -122,15 +123,27 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
 | `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
 
-There is no label for the full suite: master commits always run it. Combine labels (for example `e2e-default` with
-`e2e-static` and `om7`) when a change needs more than `e2e-default`.
-
 OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
 the `staging` alias.
 
 Labels are evaluated when the PR patch is created; adding one afterwards injects the newly-satisfied tasks into the
 existing patch in place. Removing a label is a no-op and never cancels running tasks. Variant `paths:` filtering still
 applies on top — a labeled variant whose paths don't match the PR's changed files is skipped.
+
+### Choosing a label
+
+Start with `evergreen:e2e-light` and add `e2e-medium`, `e2e-default` or a dimension label (`e2e-static`, `om7`, `om9`,
+`race`, ...) only when the change touches that area.
+
+**Do not add `evergreen:e2e-all` by default.** It schedules ~1370 tasks (about 2.5x `e2e-default`) and runs again on
+every push while the label is on. Master already runs the full suite on every merge, plus variants `e2e-all` does not
+select (OpenShift, multi-arch smoke, release). Use `e2e-all` only when:
+
+- the change is core reconcile logic or a shared library used by every resource type, and the full result is needed
+  before merge;
+- a reviewer or code owner explicitly asks for it.
+
+Remove the label once the run you needed has finished, so later pushes do not schedule the whole set again.
 
 ## Manual Variant Aliases
 
