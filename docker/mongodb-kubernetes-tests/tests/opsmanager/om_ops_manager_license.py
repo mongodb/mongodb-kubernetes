@@ -37,7 +37,7 @@ class TestOpsManagerLicenseE2E:
         active, _ = wait_for_cr_license_sync(ops_manager, installed="")
 
         assert active["status"] == "False"
-        assert active["reason"] == "LicenseGrace"
+        assert active["reason"] == "LicenseNotReady"
         assert f"Holder ID {om_holder_id(ops_manager)}." in active["message"]
 
     def test_recompute_annotation(self, ops_manager: MongoDBOpsManager):
@@ -48,4 +48,4 @@ class TestOpsManagerLicenseE2E:
         active, _ = wait_for_cr_license_sync(ops_manager)
         assert RECOMPUTE_ANNOTATION not in ops_manager["metadata"].get("annotations", {})
 
-        assert active["reason"] == "LicenseGrace"
+        assert active["reason"] == "LicenseNotReady"
