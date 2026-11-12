@@ -377,6 +377,7 @@ github_pr_aliases:
   - variant_tags: [ "e2e_test_suite" ]
     task: ".*"
     required_labels:
+      # This label MUST only be applied manually by a human engineer because it's extremely expensive
       - "evergreen:e2e-all"
   - variant_tags: [ "e2e_test_suite !static !om7 !race" ]
     task: ".*"

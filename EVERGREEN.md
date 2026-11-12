@@ -141,7 +141,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
-| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1000 tasks, complete e2e set (excludes multi-arch smoke tests)                                                |
+| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1400 tasks, complete e2e set (excludes multi-arch smoke tests). It **MUST** only be applied manually by a human engineer because it's extremely expensive |
 | `evergreen:e2e-default`    | `e2e_test_suite`     | ~540 tasks, e2e-all minus static, OM7 and race variants; close to the former default PR set                    |
 | `evergreen:e2e-medium`     | `e2e_test_suite`     | ~250 tasks tagged `e2e_medium`: subset of e2e-all across static/non-static, OM 7/8/9, multi-cluster         |
 | `evergreen:e2e-light`      | `e2e_test_suite`     | ~125 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
@@ -173,7 +173,7 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 | `non_static` | Non-static container variants (shared init/build)             | With `evergreen:e2e-non-static` label |
 | `om7`        | Ops Manager 7.0 variants (static and non-static)              | With `evergreen:om7` label            |
 | `om9`        | Ops Manager 9.0 variants                                      | With `evergreen:om9` label            |
-| `race`       | Race detector variant                                         | With `evergreen:e2e-all` label        |
+| `race`       | Race detector variant                                         | With `evergreen:e2e-all` label. Note that `evergreen:e2e-all` **MUST** only be applied manually by a human engineer because it's extremely expensive|
 | `smoke_test` | Smoke e2e suite (`patch-run` tasks)                           | No                                    |
 | `cloudqa`    | Cloud QA non-static variants                                  | With `evergreen:e2e-cloudqa` label    |
 
