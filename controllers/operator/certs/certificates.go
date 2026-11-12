@@ -2,11 +2,11 @@ package certs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
@@ -260,7 +260,7 @@ func validatePemData(data []byte, additionalDomains []string) error {
 		for _, domain := range additionalDomains {
 			if !stringutil.CheckCertificateAddresses(cert.DNSNames, domain) {
 				err = xerrors.Errorf("domain %s is not contained in the list of DNSNames %v\n", domain, cert.DNSNames)
-				errs = multierror.Append(errs, err)
+				errs = errors.Join(errs, err)
 			}
 		}
 		if err == nil {

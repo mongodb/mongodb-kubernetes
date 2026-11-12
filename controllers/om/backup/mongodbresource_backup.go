@@ -108,6 +108,9 @@ func ensureGroupConfig(ctx context.Context, mdb ConfigReaderUpdater, secretsRead
 
 // ensureBackupConfigStatuses makes sure that every config in the project has reached the desired state.
 func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, projectConfigs []*Config, desiredConfig *Config, log *zap.SugaredLogger, configReadUpdater ConfigHostReadUpdater, backupEnableDelay time.Duration) (workflow.Status, []status.Option) {
+	// Status of the config that matches this resource when there is nothing to change in Ops Manager. Backup might
+	// have been configured outside the operator (e.g. started in the Ops Manager UI), the CR status must still show it.
+	var currentStatusOpts []status.Option
 	for _, config := range projectConfigs {
 		var result workflow.Status = workflow.OK()
 
@@ -157,6 +160,7 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 		// we don't send this state to OM, or we will get
 		// CANNOT_STOP_BACKUP_INVALID_STATE, Detail: Cannot stop backup unless the cluster is in the STARTED state.
 		if desiredConfig.Status == Stopped && config.Status == Inactive {
+			currentStatusOpts = []status.Option{status.NewBackupStatusOption(string(config.Status))}
 			continue
 		}
 
@@ -174,6 +178,7 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 			// we are already in the desired state, nothing to change
 			// if we attempt to send the desired state again we get
 			// CANNOT_START_BACKUP_INVALID_STATE: Cannot start backup unless the cluster is in the INACTIVE or STOPPED state.
+			currentStatusOpts = []status.Option{status.NewBackupStatusOption(string(config.Status))}
 			continue
 		}
 
@@ -214,7 +219,7 @@ func ensureBackupConfigStatuses(ctx context.Context, mdb ConfigReaderUpdater, pr
 		return result, backupOpts
 	}
 
-	return workflow.OK(), nil
+	return workflow.OK(), currentStatusOpts
 }
 
 // applyShardedClusterBackupEnableDelay waits before enabling backup for sharded clusters.

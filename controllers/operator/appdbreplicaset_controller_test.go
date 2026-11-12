@@ -449,11 +449,14 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(ctx, hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(ctx, opsManager.Spec.AppDB.GetSecurity(), hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
 		assert.NoError(t, err)
 
 		hosts, _ := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetHosts(ctx)
 		assert.Len(t, hosts.Results, 3)
+		for _, h := range hosts.Results {
+			assert.False(t, h.SSLEnabled, "AppDB TLS is not enabled, so host %s must be registered with SSL off", h.Hostname)
+		}
 	})
 
 	t.Run("Ensure hosts are added when scaled up", func(t *testing.T) {
@@ -461,7 +464,7 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(ctx, hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(ctx, opsManager.Spec.AppDB.GetSecurity(), hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
 		assert.NoError(t, err)
 
 		hosts, _ := omConnectionFactory.GetConnection().GetHosts(ctx)
@@ -473,12 +476,26 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(ctx, hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(ctx, opsManager.Spec.AppDB.GetSecurity(), hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
 		assert.NoError(t, err)
 
 		// After scale-down, hosts should be removed from monitoring
 		hosts, _ := omConnectionFactory.GetConnection().GetHosts(ctx)
 		assert.Len(t, hosts.Results, 3, "Expected 3 hosts after scaling down from 5 to 3 members")
+	})
+
+	t.Run("Ensure hosts are registered with SSL on when the AppDB has TLS enabled", func(t *testing.T) {
+		opsManager.Spec.AppDB.Security = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
+
+		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
+		err = reconciler.registerAppDBHostsWithProject(ctx, opsManager.Spec.AppDB.GetSecurity(), hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		require.NoError(t, err)
+
+		hosts, _ := omConnectionFactory.GetConnection().GetHosts(ctx)
+		require.Len(t, hosts.Results, 3)
+		for _, h := range hosts.Results {
+			assert.True(t, h.SSLEnabled, "host %s should be registered with SSL on", h.Hostname)
+		}
 	})
 }
 
