@@ -4,7 +4,7 @@ set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
 go version
-go install github.com/nammn/go-licenses/v2@f43a3a422a28cd9830a03d2199cdafe5477d7f5b
+GOBIN="$(go env GOPATH)/bin" go install github.com/nammn/go-licenses/v2@bbc4f3dc8815be2eeacfe8ddaab7a13bcf00218c
 
 # Define the root of the repo and the scripts directory
 REPO_DIR=$(dirname "$(dirname "$(dirname "$(readlink -f "$0")")")")
@@ -28,7 +28,7 @@ process_licenses() {
     PATH="${REAL_GOROOT}/bin:$(go env GOPATH)/bin:${PATH}" \
     GOTOOLCHAIN=local GOROOT="${REAL_GOROOT}" \
     GOOS=linux GOARCH=amd64 GOFLAGS="-mod=mod" \
-    "$(go env GOPATH)"/bin/go-licenses report . --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv
+    "$(go env GOPATH)"/bin/go-licenses report . --skip_url --template "${SCRIPTS_DIR}/update_licenses.tpl" > licenses_full.csv
 
     # Filter and sort the licenses report
     # Use LC_ALL=C to ensure consistent ASCII sorting across macOS and Linux
