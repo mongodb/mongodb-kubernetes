@@ -17,8 +17,6 @@ rules:
       - watch
       - patch
       - update
-
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
 kind: RoleBinding
@@ -34,4 +32,3 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
-
