@@ -201,12 +201,18 @@ def assert_statefulset_architecture(statefulset: client.V1StatefulSet | client.V
         (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
     )
     assert static_env_var is not None and static_env_var.value == "static-ga"
-    assert agent_container.command == ["/opt/scripts/agent-launcher.sh"]
+    assert agent_container.command == ["/mnt/init-database/scripts/agent-launcher.sh"]
     assert database_container is not None
     assert database_container.command == ["/mnt/proxy/proxy"]
     assert pod_spec.share_process_namespace is not True
     init_containers = {container.name for container in pod_spec.init_containers or []}
-    assert "mongodb-kubernetes-init-database" in init_containers
+    assert "mongodb-kubernetes-init-database" not in init_containers
+    init_database_volume = next(
+        (volume for volume in pod_spec.volumes or [] if volume.name == "mongodb-init-database"), None
+    )
+    assert init_database_volume is not None and init_database_volume.image is not None
+    assert init_database_volume.image.reference
+    assert not any(volume.name == "database-scripts" for volume in pod_spec.volumes or [])
     proxy_volume = next((volume for volume in pod_spec.volumes or [] if volume.name == "mongodb-proxy"), None)
     assert proxy_volume is not None and proxy_volume.image is not None
     assert proxy_volume.image.reference

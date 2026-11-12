@@ -19,11 +19,14 @@ const (
 	mongodbProxyMountPath  = "/mnt/proxy"
 	mongodbProxyBinaryPath = mongodbProxyMountPath + "/proxy"
 
-	// The init container copies the init-database image into /opt/scripts. The agent runs the launcher from that
-	// directory, so it needs no image volume and no /proc/<pid>/root lookup.
-	staticGAAgentLauncherPath  = "/opt/scripts/agent-launcher.sh"
-	staticGAProbePath          = "/opt/scripts/probe.sh"
-	staticGAReadinessProbePath = "/opt/scripts/readinessprobe"
+	// The init-database image is mounted at /mnt/init-database. The agent runs the launcher and probes from the
+	// read-only image, so it needs no copy and no /proc/<pid>/root lookup.
+	mongodbInitDatabaseVolumeName = "mongodb-init-database"
+	mongodbInitDatabaseMountPath  = "/mnt/init-database"
+
+	staticGAAgentLauncherPath  = mongodbInitDatabaseMountPath + "/scripts/agent-launcher.sh"
+	staticGAProbePath          = mongodbInitDatabaseMountPath + "/probes/probe.sh"
+	staticGAReadinessProbePath = mongodbInitDatabaseMountPath + "/probes/readinessprobe"
 
 	// The agent image carries the database tools in /tools. The proxy owns mongod/mongos in static-ga, so the
 	// agent needs only the tools and no MongoDB image volume.

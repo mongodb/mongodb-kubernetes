@@ -813,12 +813,18 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 
 // buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for a static architecture.
 func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource, architecture architectures.DefaultArchitecture) podtemplatespec.Modification {
-	// scripts volume is needed for agent-launcher-shim.sh to copy scripts
-	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
-	databaseScriptsVolumeMount := databaseScriptsVolumeMount(false) // writable for shim script
-
-	volumes := []corev1.Volume{scriptsVolume}
-	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
+	volumes := []corev1.Volume{}
+	volumeMounts := []corev1.VolumeMount{}
+	switch architecture {
+	case architectures.Static:
+		// The legacy static setup links the init-database launcher scripts into this writable volume.
+		volumes = append(volumes, statefulset.CreateVolumeFromEmptyDir(PvcNameDatabaseScripts))
+		volumeMounts = append(volumeMounts, databaseScriptsVolumeMount(false))
+	case architectures.StaticGA:
+		// The agent runs the launcher and probes directly from the read-only init-database image.
+		volumes = append(volumes, imageVolume(mongodbInitDatabaseVolumeName, opts.InitDatabaseImage))
+		volumeMounts = append(volumeMounts, readOnlyMount(mongodbInitDatabaseVolumeName, mongodbInitDatabaseMountPath))
+	}
 
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -898,15 +904,10 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
 		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
 	}
-	switch architecture {
-	case architectures.Static:
+	if architecture == architectures.Static {
 		// The utilities container holds the init-database image. The agent reaches its scripts and probes through
 		// /proc/<pid>/root, which needs the shared process namespace.
 		mods = append(mods, podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...))
-	case architectures.StaticGA:
-		// Static-ga has no shared process namespace. An init container copies the init-database image into the
-		// database-scripts volume before the agent starts, so the agent runs the launcher and probes from /opt/scripts.
-		mods = append(mods, podtemplatespec.WithInitContainer(InitDatabaseContainerName, buildDatabaseInitContainer(opts.InitDatabaseImage)))
 	}
 
 	return podtemplatespec.Apply(mods...)

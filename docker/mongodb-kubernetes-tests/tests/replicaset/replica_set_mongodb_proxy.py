@@ -88,17 +88,24 @@ def test_pod_runs_the_proxy_in_the_database_container(replica_set: MongoDB, name
 
     containers = {c.name: c for c in pod_spec.containers}
     assert containers[DATABASE_CONTAINER].command == ["/mnt/proxy/proxy"]
-    assert containers[AGENT_CONTAINER].command == ["/opt/scripts/agent-launcher.sh"]
+    agent = containers[AGENT_CONTAINER]
+    assert agent.command == ["/mnt/init-database/scripts/agent-launcher.sh"]
+    agent_mounts = {m.name: m for m in agent.volume_mounts or []}
+    assert agent_mounts["mongodb-init-database"].mount_path == "/mnt/init-database"
+    assert agent.liveness_probe.exec.command == ["/mnt/init-database/probes/probe.sh"]
+    assert agent.startup_probe.exec.command == ["/mnt/init-database/probes/probe.sh"]
+    assert agent.readiness_probe.exec.command == ["/mnt/init-database/probes/readinessprobe"]
 
     init_containers = {c.name: c for c in pod_spec.init_containers or []}
-    assert "mongodb-kubernetes-init-database" in init_containers
+    assert "mongodb-kubernetes-init-database" not in init_containers
 
     volumes = {v.name: v for v in pod_spec.volumes}
     assert volumes["mongodb-proxy"].image.reference == proxy_image()
+    assert volumes["mongodb-init-database"].image.reference
     assert "mongodb-binaries" not in volumes
-    assert "mongodb-init-database" not in volumes
+    assert "database-scripts" not in volumes
 
-    env = {e.name: e.value for e in containers[AGENT_CONTAINER].env}
+    env = {e.name: e.value for e in agent.env}
     assert env["MDB_MONGODB_PROXY_ADDRESS"] == PROXY_ADDRESS
     assert "-binariesFixedPath=/tools" in env["AGENT_FLAGS"]
     assert f"-mongodProxyAddress={PROXY_ADDRESS}" in env["AGENT_FLAGS"]

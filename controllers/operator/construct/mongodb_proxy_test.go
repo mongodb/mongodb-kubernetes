@@ -48,13 +48,6 @@ func containerByName(t *testing.T, sts appsv1.StatefulSet, name string) corev1.C
 	return sts.Spec.Template.Spec.Containers[i]
 }
 
-func initContainerByName(t *testing.T, sts appsv1.StatefulSet, name string) corev1.Container {
-	t.Helper()
-	i := slices.IndexFunc(sts.Spec.Template.Spec.InitContainers, func(c corev1.Container) bool { return c.Name == name })
-	require.NotEqual(t, -1, i, "init container %s", name)
-	return sts.Spec.Template.Spec.InitContainers[i]
-}
-
 func volumeByName(sts appsv1.StatefulSet, name string) (corev1.Volume, bool) {
 	i := slices.IndexFunc(sts.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool { return v.Name == name })
 	if i == -1 {
@@ -88,7 +81,7 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		assert.Equal(t, testProxyImage, volume.Image.Reference)
 	})
 
-	t.Run("the agent container runs the launcher from the init container", func(t *testing.T) {
+	t.Run("the agent container runs the launcher and probes from the init-database image", func(t *testing.T) {
 		agent := containerByName(t, sts, util.AgentContainerName)
 		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "static-ga"})
 		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "127.0.0.1:8099"})
@@ -97,23 +90,32 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 			Value: "-binariesFixedPath=/tools,-logFile=/var/log/mongodb-mms-automation/automation-agent.log," +
 				"-mongodProxyAddress=127.0.0.1:8099,",
 		})
-		assert.Equal(t, []string{"/opt/scripts/agent-launcher.sh"}, agent.Command)
-		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "database-scripts", MountPath: "/opt/scripts"})
+		assert.Equal(t, []string{"/mnt/init-database/scripts/agent-launcher.sh"}, agent.Command)
+		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{
+			Name:      "mongodb-init-database",
+			MountPath: "/mnt/init-database",
+			ReadOnly:  true,
+		})
 		require.NotNil(t, agent.LivenessProbe)
-		assert.Equal(t, []string{"/opt/scripts/probe.sh"}, agent.LivenessProbe.Exec.Command)
+		assert.Equal(t, []string{"/mnt/init-database/probes/probe.sh"}, agent.LivenessProbe.Exec.Command)
 		require.NotNil(t, agent.StartupProbe)
-		assert.Equal(t, []string{"/opt/scripts/probe.sh"}, agent.StartupProbe.Exec.Command)
+		assert.Equal(t, []string{"/mnt/init-database/probes/probe.sh"}, agent.StartupProbe.Exec.Command)
 		require.NotNil(t, agent.ReadinessProbe)
-		assert.Equal(t, []string{"/opt/scripts/readinessprobe"}, agent.ReadinessProbe.Exec.Command)
+		assert.Equal(t, []string{"/mnt/init-database/probes/readinessprobe"}, agent.ReadinessProbe.Exec.Command)
 
-		init := initContainerByName(t, sts, InitDatabaseContainerName)
-		assert.Equal(t, testInitImage, init.Image)
-		assert.Contains(t, init.VolumeMounts, corev1.VolumeMount{Name: "database-scripts", MountPath: "/opt/scripts"})
+		initVolume, hasInitVolume := volumeByName(sts, "mongodb-init-database")
+		require.True(t, hasInitVolume)
+		require.NotNil(t, initVolume.Image)
+		assert.Equal(t, testInitImage, initVolume.Image.Reference)
 
 		_, hasBinariesVolume := volumeByName(sts, "mongodb-binaries")
-		_, hasInitVolume := volumeByName(sts, "mongodb-init-database")
 		assert.False(t, hasBinariesVolume)
-		assert.False(t, hasInitVolume)
+		_, hasScriptsVolume := volumeByName(sts, "database-scripts")
+		assert.False(t, hasScriptsVolume)
+
+		for _, c := range sts.Spec.Template.Spec.InitContainers {
+			assert.NotEqual(t, InitDatabaseContainerName, c.Name)
+		}
 	})
 
 	t.Run("the utilities container is not part of the pod", func(t *testing.T) {

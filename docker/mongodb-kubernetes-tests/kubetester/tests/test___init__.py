@@ -190,7 +190,6 @@ class TestStaticGAArchitecture(unittest.TestCase):
         for architecture, command, proxy_volume, share_process_namespace, expect_error in cases:
             with self.subTest(architecture=architecture, command=command):
                 containers = [kubernetes.client.V1Container(name="mongodb-enterprise-database", command=command)]
-                init_containers = []
                 volumes = []
                 if architecture != "non-static":
                     agent_env = [
@@ -209,16 +208,22 @@ class TestStaticGAArchitecture(unittest.TestCase):
                     containers.append(
                         kubernetes.client.V1Container(
                             name="mongodb-agent",
-                            command=["/opt/scripts/agent-launcher.sh"],
+                            command=["/mnt/init-database/scripts/agent-launcher.sh"],
                             env=agent_env,
                         )
                     )
-                    init_containers.append(kubernetes.client.V1Container(name="mongodb-kubernetes-init-database"))
                 if proxy_volume is not None:
                     volumes.append(
                         kubernetes.client.V1Volume(
                             name="mongodb-proxy",
                             image=kubernetes.client.V1ImageVolumeSource(reference=proxy_volume),
+                        )
+                    )
+                if architecture == "static-ga" and not expect_error:
+                    volumes.append(
+                        kubernetes.client.V1Volume(
+                            name="mongodb-init-database",
+                            image=kubernetes.client.V1ImageVolumeSource(reference="init-image"),
                         )
                     )
 
@@ -229,7 +234,6 @@ class TestStaticGAArchitecture(unittest.TestCase):
                         template=kubernetes.client.V1PodTemplateSpec(
                             spec=kubernetes.client.V1PodSpec(
                                 containers=containers,
-                                init_containers=init_containers,
                                 volumes=volumes,
                                 share_process_namespace=share_process_namespace,
                             )
