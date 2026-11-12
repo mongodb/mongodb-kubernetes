@@ -4,6 +4,7 @@ import (
 	"go.uber.org/zap"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -16,8 +17,14 @@ const (
 	// static architecture and a configured proxy image (MDB_MONGODB_PROXY_IMAGE).
 	MongodbProxyAnnotation = "mongodb.com/v1.mongodbProxy"
 
-	// MongodbProxyAddress is where the proxy listens. It is the default address of the proxy.
-	MongodbProxyAddress = "127.0.0.1:8099"
+	// MongodbProxyAddress is where the proxy listens: a Unix domain socket on a volume that only the agent and the
+	// proxy containers mount. The proxy creates it with mode 0600, so the other containers of the pod (a sidecar of
+	// the user, for example) cannot start or stop the database. The agent is told the same address.
+	MongodbProxyAddress = "unix://" + mongodbProxySocketPath
+
+	mongodbProxySocketVolumeName = "mongodb-proxy-socket"
+	mongodbProxySocketDir        = "/var/run/mongodb-proxy"
+	mongodbProxySocketPath       = mongodbProxySocketDir + "/proxy.sock"
 
 	mongodbProxyVolumeName = "mongodb-proxy"
 	// The proxy image is mounted here, read-only, and contains only the binary.
@@ -72,6 +79,21 @@ func imageVolume(name, reference string) corev1.Volume {
 			},
 		},
 	}
+}
+
+// mongodbProxySocketVolume holds only the socket file.
+func mongodbProxySocketVolume() corev1.Volume {
+	limit := resource.MustParse("1Mi")
+	return corev1.Volume{
+		Name: mongodbProxySocketVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: &limit},
+		},
+	}
+}
+
+func mongodbProxySocketMount() corev1.VolumeMount {
+	return corev1.VolumeMount{Name: mongodbProxySocketVolumeName, MountPath: mongodbProxySocketDir}
 }
 
 func readOnlyMount(name, path string) corev1.VolumeMount {

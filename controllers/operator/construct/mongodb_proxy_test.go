@@ -71,7 +71,7 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 
 	t.Run("the agent container gets the MongoDB image and the proxy address", func(t *testing.T) {
 		agent := containerByName(t, sts, util.AgentContainerName)
-		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "127.0.0.1:8099"})
+		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "unix:///var/run/mongodb-proxy/proxy.sock"})
 		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGOD_ROOT", Value: "/mnt/mongodb"})
 		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-binaries", MountPath: "/mnt/mongodb", ReadOnly: true})
 		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_INIT_ROOT", Value: "/mnt/init-database"})
@@ -86,6 +86,37 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		require.True(t, found)
 		require.NotNil(t, volume.Image)
 		assert.Equal(t, testMongodbImage, volume.Image.Reference)
+	})
+
+	t.Run("the proxy listens on a socket that only the agent and the database container mount", func(t *testing.T) {
+		socketMount := corev1.VolumeMount{Name: "mongodb-proxy-socket", MountPath: "/var/run/mongodb-proxy"}
+
+		mongod := containerByName(t, sts, util.DatabaseContainerName)
+		assert.Equal(t, []string{"-listen", "unix:///var/run/mongodb-proxy/proxy.sock"}, mongod.Args)
+		assert.Contains(t, mongod.VolumeMounts, socketMount)
+		assert.Contains(t, containerByName(t, sts, util.AgentContainerName).VolumeMounts, socketMount)
+
+		volume, found := volumeByName(sts, "mongodb-proxy-socket")
+		require.True(t, found)
+		require.NotNil(t, volume.EmptyDir, "the socket lives on an emptyDir")
+		require.NotNil(t, volume.EmptyDir.SizeLimit)
+		assert.Equal(t, "1Mi", volume.EmptyDir.SizeLimit.String())
+
+		// The operator mounts it in no other container. A container that the user adds is not the operator's.
+		mounting := 0
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			for _, m := range c.VolumeMounts {
+				if m.Name == "mongodb-proxy-socket" {
+					mounting++
+				}
+			}
+		}
+		assert.Equal(t, 2, mounting)
+		for _, c := range sts.Spec.Template.Spec.InitContainers {
+			for _, m := range c.VolumeMounts {
+				assert.NotEqual(t, "mongodb-proxy-socket", m.Name, "init container %s", c.Name)
+			}
+		}
 	})
 
 	t.Run("the utilities container is not part of the pod", func(t *testing.T) {
@@ -124,6 +155,8 @@ func TestMongodbProxyIsOffUnlessAllConditionsHold(t *testing.T) {
 			assert.False(t, hasProxyVolume)
 			assert.False(t, hasBinariesVolume)
 			assert.False(t, hasInitVolume)
+			_, hasSocketVolume := volumeByName(sts, "mongodb-proxy-socket")
+			assert.False(t, hasSocketVolume)
 			for _, c := range sts.Spec.Template.Spec.Containers {
 				assert.NotContains(t, c.Command, "/mnt/proxy/proxy")
 				for _, e := range c.Env {

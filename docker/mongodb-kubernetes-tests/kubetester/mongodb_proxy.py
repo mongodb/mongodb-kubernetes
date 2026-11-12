@@ -8,7 +8,8 @@ from typing import Optional
 from kubetester.kubetester import KubernetesTester
 
 PROXY_ANNOTATION = "mongodb.com/v1.mongodbProxy"
-PROXY_ADDRESS = "127.0.0.1:8099"
+PROXY_SOCKET = "/var/run/mongodb-proxy/proxy.sock"
+PROXY_ADDRESS = f"unix://{PROXY_SOCKET}"
 AGENT_CONTAINER = "mongodb-agent"
 DATABASE_CONTAINER = "mongodb-enterprise-database"
 
@@ -52,20 +53,18 @@ def read_processes(pod: str, namespace: str, container: str) -> list[str]:
 
 
 def query_proxy(pod: str, namespace: str) -> dict:
-    """Asks the proxy for its state from the agent container, the way the agent does it."""
+    """Asks the proxy for its state from the agent container, the way the agent does it: over the socket."""
+    # The status code is appended on a line of its own. The Kubernetes client turns an output that is only JSON into a
+    # dict and returns its Python repr, which json.loads cannot read; the extra line keeps the output a plain string.
     out = KubernetesTester.run_command_in_pod_container(
         pod,
         namespace,
-        [
-            "bash",
-            "-c",
-            "exec 3<>/dev/tcp/127.0.0.1/8099; "
-            "printf 'GET /v1/process HTTP/1.0\\r\\nHost: proxy\\r\\n\\r\\n' >&3; cat <&3",
-        ],
+        ["curl", "-sS", "--unix-socket", PROXY_SOCKET, "-w", "\n%{http_code}", "http://proxy/v1/process"],
         container=AGENT_CONTAINER,
     )
-    body = out.split("\r\n\r\n", 1)[-1]
-    return json.loads(body)
+    payload, _, status = out.rpartition("\n")
+    assert status == "200", f"{pod}: the proxy answered {status}: {payload}"
+    return json.loads(payload)
 
 
 def mongod_identity(pod: str, namespace: str) -> str:
@@ -135,16 +134,21 @@ def post_to_proxy(pod: str, namespace: str, path: str, body: dict) -> tuple[int,
         pod,
         namespace,
         [
-            "bash",
-            "-c",
-            "exec 3<>/dev/tcp/127.0.0.1/8099; "
-            'printf "POST %s HTTP/1.0\\r\\nHost: proxy\\r\\nContent-Type: application/json\\r\\n'
-            'Content-Length: %d\\r\\n\\r\\n%s" "$1" "${#2}" "$2" >&3; cat <&3',
-            "_",
-            path,
+            "curl",
+            "-sS",
+            "--unix-socket",
+            PROXY_SOCKET,
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "--data",
             json.dumps(body),
+            "-w",
+            "\n%{http_code}",
+            f"http://proxy{path}",
         ],
         container=AGENT_CONTAINER,
     )
-    head, _, payload = out.partition("\r\n\r\n")
-    return int(head.split(" ", 2)[1]), json.loads(payload) if payload.strip() else {}
+    payload, _, status = out.rpartition("\n")
+    return int(status), json.loads(payload) if payload.strip() else {}
