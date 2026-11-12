@@ -75,7 +75,7 @@ func (h *LicenseReconcilerHelper) reportOperatorManagedLicense(requestedID strin
 	if h.observed.HoldsArtifact(requestedID) {
 		return operatorManagedLicense(true, status.ReasonLicenseManaged, fmt.Sprintf("License %s from .spec.license.secretRef is managed by the operator.", requestedID))
 	}
-	return operatorManagedLicense(false, status.ReasonLicenseNotManaged, fmt.Sprintf("License %s from .spec.license.secretRef was rejected because a license this new or newer was already installed and not managed by operator.", requestedID))
+	return operatorManagedLicense(false, status.ReasonLicenseNotManaged, fmt.Sprintf("License %s from .spec.license.secretRef is not installed, because Ops Manager already holds a license this new or newer that the operator doesn't manage.", requestedID))
 }
 
 func operatorManagedLicense(managed bool, reason, message string) workflow.Status {
