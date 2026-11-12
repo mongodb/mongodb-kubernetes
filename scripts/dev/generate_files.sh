@@ -81,8 +81,8 @@ update_release_json() {
 
 regenerate_public_rbac_multi_cluster() {
   echo 'regenerating multicluster RBAC public example'
-  go run ./cmd/kubectl-mongodb cluster generate-resources --member-cluster-namespace mongodb > public/samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_member_cluster.yaml
-  go run ./cmd/kubectl-mongodb cluster generate-resources --member-cluster-namespace mongodb --operator-cluster-scoped > public/samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_member_cluster.yaml
+  go run ./cmd/kubectl-mongodb cluster generate-resources --operator-namespace mongodb > public/samples/multi-cluster-cli-gitops/resources/rbac/namespace_scoped_member_cluster.yaml
+  go run ./cmd/kubectl-mongodb cluster generate-resources --operator-namespace mongodb --operator-cluster-scoped > public/samples/multi-cluster-cli-gitops/resources/rbac/cluster_scoped_member_cluster.yaml
 }
 
 update_licenses() {

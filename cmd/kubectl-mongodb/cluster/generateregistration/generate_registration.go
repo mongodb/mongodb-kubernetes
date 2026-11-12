@@ -19,7 +19,6 @@ import (
 var flags struct {
 	memberCluster            string
 	memberClusterContext     string
-	memberClusterNamespace   string
 	operatorNamespace        string
 	memberClusterLogicalName string
 	memberClusterApiServer   string
@@ -29,8 +28,7 @@ var flags struct {
 func init() {
 	GenerateRegistrationCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "RFC 1123 name of the member cluster; names the central-cluster resources (the MemberCluster CR's metadata.name and the credential Secret name suffix). Must be unique per member cluster on the central cluster. [required]")
 	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterContext, "member-cluster-context", "", "Kubeconfig context for the member cluster; the command reads the ServiceAccount token and API server URL from it. [required]")
-	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterNamespace, "member-cluster-namespace", "", "Namespace on the member cluster holding the operator's credentials. [required]")
-	GenerateRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace on the operator's cluster where the MemberCluster CR and credential Secret will be created. Must match the operator's installation namespace. [required]")
+	GenerateRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace where the operator is installed. Used to locate the operator's credentials (ServiceAccount token Secret) on the member cluster, and as the namespace for the MemberCluster CR and credential Secret on the operator's cluster. [required]")
 	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterLogicalName, "member-cluster-logical-name", "", "Name that workloads use to reference this member cluster. Only needed when that name is not RFC 1123 compliant (e.g. it contains underscores). [optional, default: --member-cluster]")
 	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServer, "member-cluster-api-server", "", "API server address of the member cluster; must be reachable from the operator Pod. [optional, default: the server address from --member-cluster-context]")
 	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServerCA, "member-cluster-api-server-ca", "", "Path to a PEM file with the CA certificate the operator should use to verify the member cluster's API server. [optional, default: the CA from the member cluster's ServiceAccount token Secret]")
@@ -53,7 +51,7 @@ Apply the output to the operator's cluster with kubectl, or commit it to Git for
 
 Example:
 
-kubectl-mongodb cluster generate-registration --member-cluster=cluster-east --member-cluster-context=east-ctx --member-cluster-namespace=mongodb --operator-namespace=mongodb | kubectl apply --context=central-ctx -f -
+kubectl-mongodb cluster generate-registration --member-cluster=cluster-east --member-cluster-context=east-ctx --operator-namespace=mongodb | kubectl apply --context=central-ctx -f -
 `,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		opts, err := parseFlags()
@@ -85,9 +83,8 @@ kubectl-mongodb cluster generate-registration --member-cluster=cluster-east --me
 func parseFlags() (memberregistration.Options, error) {
 	if strings.TrimSpace(flags.memberCluster) == "" ||
 		strings.TrimSpace(flags.memberClusterContext) == "" ||
-		strings.TrimSpace(flags.memberClusterNamespace) == "" ||
 		strings.TrimSpace(flags.operatorNamespace) == "" {
-		return memberregistration.Options{}, xerrors.Errorf("non-empty values are required for [member-cluster, member-cluster-context, member-cluster-namespace, operator-namespace]")
+		return memberregistration.Options{}, xerrors.Errorf("non-empty values are required for [member-cluster, member-cluster-context, operator-namespace]")
 	}
 
 	memberClusterLogicalName := flags.memberClusterLogicalName
@@ -113,7 +110,7 @@ func parseFlags() (memberregistration.Options, error) {
 
 	return memberregistration.Options{
 		MemberClusterName:        flags.memberCluster,
-		MemberClusterNamespace:   flags.memberClusterNamespace,
+		MemberClusterNamespace:   flags.operatorNamespace,
 		OperatorNamespace:        flags.operatorNamespace,
 		MemberClusterLogicalName: memberClusterLogicalName,
 		MemberClusterApiServer:   memberClusterApiServer,
