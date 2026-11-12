@@ -24,7 +24,7 @@ RECOMPUTE_ANNOTATION = "mongodb.com/license-recompute"
 RELEASED_STATUS = "RELEASED"
 
 LICENSE_READY_CONDITION = "OpsManagerLicenseReady"
-LICENSE_RECONCILED_CONDITION = "LicenseReconciled"
+LICENSE_MANAGED_CONDITION = "LicenseManaged"
 
 
 @fixture(scope="module")
@@ -64,29 +64,30 @@ def license_ready_condition(ops_manager: MongoDBOpsManager) -> dict:
     return condition
 
 
-def _reconciled_as(ops_manager: MongoDBOpsManager, generation: int, installed: Optional[str]) -> bool:
-    """Whether LicenseReconciled settled this generation as expected. An empty installed expects no
+def _managed_as(ops_manager: MongoDBOpsManager, generation: int, installed: Optional[str]) -> bool:
+    """Whether LicenseManaged settled this generation as expected. An empty installed expects no
     license from secretRef, an artifact id expects Ops Manager to hold it, and None skips the check."""
-    condition = _reconciled_condition(ops_manager, generation)
+    condition = _managed_condition(ops_manager, generation)
     if condition is None:
         return False
     if installed is None:
         return True
     if installed == "":
-        return condition["reason"] in ("LicenseReconciled", "LicenseReleased")
-    return condition["reason"] == "LicenseInstalled" and installed in condition["message"]
+        return condition["reason"] == "LicenseNotProvided"
+    return condition["reason"] == "LicenseManaged" and installed in condition["message"]
 
 
-def _reconciled_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optional[dict]:
-    """The LicenseReconciled condition, or None while it still describes an older generation.
+def _managed_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optional[dict]:
+    """The LicenseManaged condition, or None while it still describes an older generation.
 
-    Fails at once when the operator settled this generation with LicenseReconciled False.
+    Fails at once when the operator settled this generation as not managed, a failed reconcile or a
+    rejected license.
     """
-    condition = om_condition(ops_manager, LICENSE_RECONCILED_CONDITION)
+    condition = om_condition(ops_manager, LICENSE_MANAGED_CONDITION)
     if condition is None or condition["observedGeneration"] < generation:
         return None
-    if condition["status"] != "True":
-        pytest.fail(f"LicenseReconciled is {condition['status']}: {condition['message']}")
+    if condition["reason"] in ("LicenseNotManaged", "LicenseReconcileFailed"):
+        pytest.fail(f"LicenseManaged is {condition['reason']}: {condition['message']}")
     return condition
 
 
@@ -150,14 +151,14 @@ def set_annotation_and_wait_cleared(ops_manager: MongoDBOpsManager, annotation: 
 def wait_for_cr_license_sync(ops_manager: MongoDBOpsManager, *, installed: Optional[str] = None) -> tuple[dict, dict]:
     """Waits until the current generation is reconciled and LicenseReady reports the Ops Manager view.
 
-    installed is the license from secretRef LicenseReconciled must report Ops Manager holds, empty for
+    installed is the license from secretRef LicenseManaged must report the operator manages, empty for
     none. None skips the check. Returns the LicenseReady condition and the Ops Manager view.
     """
     generation = generation_of(ops_manager)
 
     def synced(_: MongoDBOpsManager) -> bool:
         om_view = read_om_license_view(ops_manager)
-        in_sync = _reconciled_as(ops_manager, generation, installed) and cr_matches_om_license(ops_manager, om_view)
+        in_sync = _managed_as(ops_manager, generation, installed) and cr_matches_om_license(ops_manager, om_view)
         if not in_sync:
             logger.info(
                 f"License conditions not in sync yet, CR: {ops_manager['status']['opsManager'].get('conditions')}, "
