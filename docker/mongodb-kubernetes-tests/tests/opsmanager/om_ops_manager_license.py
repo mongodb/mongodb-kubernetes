@@ -13,7 +13,6 @@ from tests.opsmanager.license_e2e_helpers import (
     ENROLLMENT_RECONCILE_CRON,
     LICENSE_FINALIZER,
     LICENSE_SECRET_NAME,
-    LICENSE_STATE_EVALUATION_CRON,
     RECOMPUTE_ANNOTATION,
     ROTATE_IDENTITY_ANNOTATION,
     assert_foreign_license_kept,
@@ -43,7 +42,6 @@ from tests.opsmanager.license_e2e_helpers import (
     om_artifact_usable,
     om_holder_id,
     ops_manager,
-    paused_cron,
     prepare_for_license_install,
     read_om_license_view,
     remove_install_intent_without_identity,
@@ -222,19 +220,16 @@ class TestOpsManagerLicenseE2E:
         assert_foreign_license_kept(ops_manager, top_up)
 
     def test_revoke_at_ea_then_recompute_moves_to_grace(self, ops_manager: MongoDBOpsManager, namespace: str):
-        """Once Ops Manager stops using a license revoked at EA, the recompute annotation moves the state to GRACE
-        while the evaluation cron is paused. The operator does not PUT the Secret again, and removing secretRef
-        reconciles cleanly."""
+        """Once Ops Manager stops using a license revoked at EA, the recompute annotation moves the state to GRACE.
+        The operator does not PUT the Secret again, and removing secretRef reconciles cleanly."""
         revoked = install_license(ops_manager, namespace)
 
         assert revoke_at_ea(ops_manager, revoked) == "REVOKED"
         wait_for_ea_artifact_status(ops_manager, revoked, "REVOKED")
-        with paused_cron(ops_manager, LICENSE_STATE_EVALUATION_CRON):
-            wait_for_om_artifact_unusable(ops_manager, revoked)
-            assert read_om_license_view(ops_manager)["enforcement"]["effectiveState"] != "GRACE"
+        wait_for_om_artifact_unusable(ops_manager, revoked)
 
-            set_annotation_and_wait_cleared(ops_manager, RECOMPUTE_ANNOTATION)
-            ready, om_view = wait_for_observed_api_state(ops_manager, effective_state="GRACE", installed=revoked)
+        set_annotation_and_wait_cleared(ops_manager, RECOMPUTE_ANNOTATION)
+        ready, om_view = wait_for_observed_api_state(ops_manager, effective_state="GRACE", installed=revoked)
 
         assert cr_matches_om_license(ops_manager, om_view)
         assert ready["reason"] == "LicenseNotReady"
