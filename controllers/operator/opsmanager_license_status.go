@@ -53,17 +53,11 @@ func (h *LicenseReconcilerHelper) reportOpsManagerLicenseReady() {
 	_ = meta.SetStatusCondition(&h.opsManager.Status.OpsManagerStatus.Conditions, condition)
 }
 
-// licenseStateReason returns the reason of a license state other than LICENSED. A state the
-// operator does not recognize becomes LicenseStateUnknown, the message still names it.
+// licenseStateReason returns the reason of a license state other than LICENSED. The message
+// names the actual state; a state the operator does not recognize becomes LicenseStateUnknown.
 func licenseStateReason(state string) string {
-	if state == licenseStateGrace {
-		return status.ReasonLicenseGrace
-	}
-	if state == licenseStateUnlicensed {
-		return status.ReasonLicenseUnlicensed
-	}
-	if state == licenseStateExpired {
-		return status.ReasonLicenseExpired
+	if state == licenseStateGrace || state == licenseStateUnlicensed || state == licenseStateExpired {
+		return status.ReasonLicenseNotReady
 	}
 	return status.ReasonLicenseStateUnknown
 }
