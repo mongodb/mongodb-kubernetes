@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -34,13 +35,14 @@ func (h *LicenseReconcilerHelper) reportOpsManagerLicenseReady() {
 		}
 	}
 
-	ready, reason := true, status.ReasonLicenseReady
+	ready, reason := metav1.ConditionTrue, status.ReasonLicenseReady
 	stateMessage := fmt.Sprintf("License state is %s.", state)
 	if state == "" {
-		// A fresh Ops Manager reports no license state until its first recompute.
-		ready, reason, stateMessage = false, status.ReasonLicenseStateUnknown, "Ops Manager has not reported a license state yet."
+		// A fresh Ops Manager reports no license state until its first recompute. The operator has
+		// not checked the license yet, so the condition is Unknown rather than False.
+		ready, reason, stateMessage = metav1.ConditionUnknown, status.ReasonLicenseStateUnknown, "Ops Manager has not reported a license state yet."
 	} else if state != licenseStateLicensed {
-		ready, reason = false, licenseStateReason(state)
+		ready, reason = licenseStateCondition(state)
 	}
 
 	message := fmt.Sprintf("%s Ops Manager holds %s.", stateMessage, license)
@@ -53,13 +55,14 @@ func (h *LicenseReconcilerHelper) reportOpsManagerLicenseReady() {
 	_ = meta.SetStatusCondition(&h.opsManager.Status.OpsManagerStatus.Conditions, condition)
 }
 
-// licenseStateReason returns the reason of a license state other than LICENSED. The message
-// names the actual state; a state the operator does not recognize becomes LicenseStateUnknown.
-func licenseStateReason(state string) string {
+// licenseStateCondition returns the status and reason of a license state other than LICENSED. The
+// message names the actual state. A state the operator does not recognize is Unknown rather than
+// False, since the operator cannot tell whether that state means the license is ready.
+func licenseStateCondition(state string) (metav1.ConditionStatus, string) {
 	if state == licenseStateGrace || state == licenseStateUnlicensed || state == licenseStateExpired {
-		return status.ReasonLicenseNotReady
+		return metav1.ConditionFalse, status.ReasonLicenseNotReady
 	}
-	return status.ReasonLicenseStateUnknown
+	return metav1.ConditionUnknown, status.ReasonLicenseStateUnknown
 }
 
 // reportLicenseManaged returns LicenseManaged for the license in secretRef. Every install failure

@@ -294,7 +294,7 @@ func TestEnsureOpsManagerLicense_UnknownStateBeforeFirstRecompute(t *testing.T) 
 
 	assert.True(t, r.ensureOpsManagerLicense(context.Background(), testOm, &api.MockedOmAdmin{}, zap.S()).IsOK())
 	ready := licenseReadyCondition(t, testOm)
-	assert.Equal(t, metav1.ConditionFalse, ready.Status)
+	assert.Equal(t, metav1.ConditionUnknown, ready.Status)
 	assert.Equal(t, status.ReasonLicenseStateUnknown, ready.Reason)
 	assert.Contains(t, ready.Message, "has not reported a license state yet")
 }
@@ -1520,8 +1520,13 @@ func setLicenseRecomputeAnnotation(t *testing.T, ctx context.Context, kubeClient
 }
 
 func TestLicenseStateReason(t *testing.T) {
-	assert.Equal(t, status.ReasonLicenseNotReady, licenseStateReason("GRACE"))
-	assert.Equal(t, status.ReasonLicenseNotReady, licenseStateReason("UNLICENSED"))
-	assert.Equal(t, status.ReasonLicenseNotReady, licenseStateReason("EXPIRED"))
-	assert.Equal(t, status.ReasonLicenseStateUnknown, licenseStateReason("SOMETHING_NEW"))
+	for _, state := range []string{"GRACE", "UNLICENSED", "EXPIRED"} {
+		st, reason := licenseStateCondition(state)
+		assert.Equal(t, metav1.ConditionFalse, st)
+		assert.Equal(t, status.ReasonLicenseNotReady, reason)
+	}
+
+	st, reason := licenseStateCondition("SOMETHING_NEW")
+	assert.Equal(t, metav1.ConditionUnknown, st)
+	assert.Equal(t, status.ReasonLicenseStateUnknown, reason)
 }
