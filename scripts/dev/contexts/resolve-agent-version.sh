@@ -16,7 +16,10 @@ if [[ -z "${MDB_AGENT_IMAGE_REPOSITORY:-}" ]]; then
   exit 1
 fi
 
-if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
+if [[ -n "${MDB_CUSTOM_AGENT_VERSION:-}" ]]; then
+  # Candidate e2e Agent override. Scoped to the contexts that set it.
+  AGENT_VERSION="${MDB_CUSTOM_AGENT_VERSION}"
+elif [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
   AGENT_VERSION="$(jq -r --arg om "${CUSTOM_OM_VERSION}" \
     '.supportedImages."mongodb-agent".opsManagerMapping.ops_manager[$om].agent_version // empty' \
     "${PROJECT_DIR}/release.json")"

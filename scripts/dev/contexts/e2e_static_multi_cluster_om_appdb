@@ -16,6 +16,8 @@ export TEST_POD_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="${CUSTOM_OM_VERSION}"
 export MDB_DEFAULT_ARCHITECTURE=static-ga
+export MDB_CUSTOM_AGENT_URL="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6af47fb6bdb4ff00078d94c8/automation-agent/local/mongodb-mms-automation-agent-110.0.0.9428-1.rhel8_x86_64.tar.gz"
+export MDB_CUSTOM_AGENT_VERSION=110.0.0.9428-1
 
 # clear cloud-qa settings
 export OM_ORGID=""

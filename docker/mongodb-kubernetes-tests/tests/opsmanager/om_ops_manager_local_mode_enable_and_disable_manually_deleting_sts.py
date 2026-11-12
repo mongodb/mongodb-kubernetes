@@ -3,13 +3,18 @@ from typing import Optional
 from kubetester import delete_pod, delete_statefulset, get_pod_when_ready, try_load
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_static_containers
+from kubetester.kubetester import is_default_architecture_static, skip_if_static_containers
 from kubetester.mongodb import MongoDB
 from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import get_member_cluster_api_client, is_multi_cluster
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
+
+pytestmark = mark.skipif(
+    is_default_architecture_static(),
+    reason="Local mode downloads MongoDB binaries, which the static architectures do not use",
+)
 
 
 @fixture(scope="module")

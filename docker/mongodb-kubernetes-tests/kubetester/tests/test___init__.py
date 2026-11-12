@@ -253,3 +253,34 @@ class TestStaticGAArchitecture(unittest.TestCase):
                         assert_statefulset_architecture(statefulset, architecture)
                 else:
                     assert_statefulset_architecture(statefulset, architecture)
+
+    def test_architecture_assertion_accepts_legacy_static(self):
+        containers = [
+            kubernetes.client.V1Container(
+                name="mongodb-enterprise-database",
+                command=["bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"],
+            ),
+            kubernetes.client.V1Container(
+                name="mongodb-agent",
+                command=["/usr/local/bin/agent-launcher-shim.sh"],
+                env=[kubernetes.client.V1EnvVar(name="MDB_STATIC_CONTAINERS_ARCHITECTURE", value="true")],
+            ),
+        ]
+
+        def statefulset(share_process_namespace: bool) -> kubernetes.client.V1StatefulSet:
+            return kubernetes.client.V1StatefulSet(
+                spec=kubernetes.client.V1StatefulSetSpec(
+                    selector=kubernetes.client.V1LabelSelector(match_labels={"app": "test"}),
+                    service_name="test",
+                    template=kubernetes.client.V1PodTemplateSpec(
+                        spec=kubernetes.client.V1PodSpec(
+                            containers=containers,
+                            share_process_namespace=share_process_namespace,
+                        )
+                    ),
+                )
+            )
+
+        assert_statefulset_architecture(statefulset(share_process_namespace=True), "static")
+        with self.assertRaises(AssertionError):
+            assert_statefulset_architecture(statefulset(share_process_namespace=False), "static")

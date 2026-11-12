@@ -11,12 +11,8 @@ source scripts/evergreen/e2e/lib.sh
 source scripts/dev/set_env_context.sh
 source scripts/funcs/operator_deployment
 
-# TODO(KUBE-530): remove the pin when the Agent 110 release is the default agent in release.json.
-# No released agent defines -mongodProxyAddress, so the static-ga default set runs this candidate build.
-# The artifact is rhel8_x86_64 and the S3 lifecycle expires it on 2027-11-12.
-if [[ "${MDB_DEFAULT_ARCHITECTURE:-}" == "static-ga" && "$(uname -m)" == "x86_64" && -z "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
-  export MDB_CUSTOM_AGENT_URL="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6af47fb6bdb4ff00078d94c8/automation-agent/local/mongodb-mms-automation-agent-110.0.0.9428-1.rhel8_x86_64.tar.gz"
-fi
+# The Agent 110 candidate URL is set by the static-ga and non-static migration
+# contexts. Tests that must use the released Agent clear it in their helpers.
 
 # Validate candidate inputs before namespace cleanup or other Kubernetes mutations.
 get_operator_helm_values >/dev/null

@@ -190,6 +190,18 @@ def assert_statefulset_architecture(statefulset: client.V1StatefulSet | client.V
         assert not any(volume.name == "mongodb-proxy" for volume in pod_spec.volumes or [])
         return
 
+    if architecture == "static":
+        # The released operator predates static-ga. It labels its resources "static",
+        # runs the agent from the agent image and shares the pod process namespace.
+        assert agent_container is not None
+        static_env_var = next(
+            (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
+        )
+        assert static_env_var is not None and static_env_var.value == "true"
+        assert pod_spec.share_process_namespace is True
+        assert not any(volume.name == "mongodb-proxy" for volume in pod_spec.volumes or [])
+        return
+
     assert architecture == "static-ga"
     assert agent_container is not None
     static_env_var = next(
