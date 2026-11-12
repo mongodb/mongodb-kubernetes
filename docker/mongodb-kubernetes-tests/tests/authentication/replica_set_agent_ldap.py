@@ -1,5 +1,5 @@
 from kubetester import create_secret, find_fixture, try_load
-from kubetester.kubetester import ensure_ent_version, static_ga_timeout
+from kubetester.kubetester import ensure_ent_version
 from kubetester.ldap import LDAPUser, OpenLDAP
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser, Role, generic_user
@@ -125,7 +125,7 @@ def test_disable_agent_auth(replica_set: MongoDB):
     replica_set.reload()
     replica_set["spec"]["security"]["authentication"]["enabled"] = False
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(900, 1200))
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
@@ -145,7 +145,7 @@ def test_enable_SCRAM_auth(replica_set: MongoDB):
     replica_set["spec"]["security"]["authentication"]["agents"]["mode"] = "SCRAM"
     replica_set["spec"]["security"]["authentication"]["enabled"] = True
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(900, 1200))
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_replica_set_ldap_agent_auth
@@ -159,7 +159,7 @@ def test_change_version_to_latest(replica_set: MongoDB, custom_mdb_version: str)
     replica_set.reload()
     replica_set.set_version(ensure_ent_version(custom_mdb_version))
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(900, 1200))
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_replica_set_ldap_agent_auth

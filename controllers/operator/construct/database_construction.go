@@ -1079,7 +1079,12 @@ func staticContainersEnvVars(mdb databaseStatefulSetSource, defaultArchitecture 
 	if architecture == architectures.NonStatic {
 		return nil
 	}
-	return []corev1.EnvVar{{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: string(architecture)}}
+	// Legacy static keeps the historical "true" value. Static-ga uses its own value.
+	value := "true"
+	if architecture == architectures.StaticGA {
+		value = string(architecture)
+	}
+	return []corev1.EnvVar{{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: value}}
 }
 
 func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) corev1.EnvVar {

@@ -8,7 +8,6 @@ from kubetester.kubetester import (
     _static_container_skip_marker,
     assert_statefulset_architecture,
     get_migration_target_architecture,
-    static_ga_timeout,
 )
 
 
@@ -175,17 +174,6 @@ class TestStaticGAArchitecture(unittest.TestCase):
             with self.subTest(current=current), patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": current}):
                 self.assertEqual(get_migration_target_architecture(), expected)
                 self.assertFalse(_static_container_skip_marker().mark.args[0])
-
-    def test_static_ga_timeout(self):
-        with patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": "static-ga"}):
-            self.assertEqual(static_ga_timeout(600), 900)
-            self.assertEqual(static_ga_timeout(900, 1200), 1200)
-        for architecture in ("static", "non-static"):
-            with (
-                self.subTest(architecture=architecture),
-                patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": architecture}),
-            ):
-                self.assertEqual(static_ga_timeout(600), 600)
 
     def test_architecture_assertion_distinguishes_proxy_and_non_static(self):
         cases = (

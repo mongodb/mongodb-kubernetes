@@ -104,13 +104,6 @@ def get_default_architecture() -> str:
     return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static")
 
 
-def static_ga_timeout(default_seconds: int, static_ga_seconds: int = 900) -> int:
-    """Return the longer timeout when the proxy-backed static architecture is active."""
-    if get_default_architecture() == "static-ga":
-        return static_ga_seconds
-    return default_seconds
-
-
 def configured_proxy_image(config: dict[str, str]) -> str:
     return (
         f'{config["registry.mongodbProxy"]}/{config["mongodbProxy.name"]}:'

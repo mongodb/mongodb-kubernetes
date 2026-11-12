@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+# Candidate Agent for the proxy-backed static-ga and migration e2e contexts.
+# Set both variables together when overriding. resolve-agent-version.sh
+# prefers MDB_CUSTOM_AGENT_VERSION.
+export MDB_CUSTOM_AGENT_URL="${MDB_CUSTOM_AGENT_URL:-https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6af47fb6bdb4ff00078d94c8/automation-agent/local/mongodb-mms-automation-agent-110.0.0.9428-1.rhel8_x86_64.tar.gz}"
+export MDB_CUSTOM_AGENT_VERSION="${MDB_CUSTOM_AGENT_VERSION:-110.0.0.9428-1}"

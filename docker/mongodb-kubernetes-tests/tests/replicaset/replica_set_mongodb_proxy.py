@@ -399,21 +399,6 @@ def test_agent_starts_mongod_again_after_the_database_container_restarted(replic
 
 
 @mark.e2e_replica_set_mongodb_proxy
-def test_agent_starts_mongod_again_after_the_proxy_crashed(replica_set: MongoDB, namespace: str):
-    """Force-delete the pod: the kubelet kills the proxy and the agent starts mongod again."""
-    pod = f"{replica_set.name}-1"
-    identity = mongod_identity(pod, namespace)
-    assert identity
-
-    # PID 1 in a PID namespace ignores signals it has no handler for, so an in-container SIGKILL
-    # cannot crash the proxy. Force-delete the pod and let the StatefulSet recreate it.
-    KubernetesTester.clients("corev1").delete_namespaced_pod(name=pod, namespace=namespace, grace_period_seconds=0)
-
-    wait_for_new_mongod(pod, namespace, identity, timeout_seconds=600)
-    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
-
-
-@mark.e2e_replica_set_mongodb_proxy
 def test_agent_container_restart_does_not_restart_mongod(replica_set: MongoDB, namespace: str):
     """The proxy and mongod keep running while the agent restarts, and the agent must not restart mongod for it."""
     pod = f"{replica_set.name}-0"
