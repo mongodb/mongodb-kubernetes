@@ -29,6 +29,15 @@ localOperator: "false"
 
 clusterDomain: "cluster.local"
 
+# MetalLB pools of the kind clusters, the KIND_METALLB_RANGE_* values of scripts/dev/contexts/root-context.
+# The tests that use LoadBalancer addresses read them as KIND_METALLB_RANGE_<KEY>.
+kindMetallbRanges:
+  single: ""
+  operator: ""
+  cluster_1: ""
+  cluster_2: ""
+  cluster_3: ""
+
 multiCluster:
   memberClusters: "" # Set this to a space separated list of member clusters to configure the test pod for running a multi cluster test.
   centralCluster: "" # Set this to the name of the central cluster to configure the test pod for running a multi cluster test.
