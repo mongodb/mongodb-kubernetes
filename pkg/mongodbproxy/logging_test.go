@@ -19,7 +19,7 @@ func observedFixture(t *testing.T) (*fixture, *observer.ObservedLogs) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, BinaryMongod), []byte(fakeMongod), 0o755)) //nolint:gosec
 	stdout := &syncBuffer{}
-	sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(stdout, stdout), WithLogger(zap.New(core).Sugar()))
+	sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(stdout, stdout), WithLogger(zap.New(core).Sugar()), WithPathPolicy(onlyIn(dir)))
 	t.Cleanup(func() { _ = sup.Stop(context.Background(), "", 0, true) })
 	return &fixture{t: t, sup: sup, dir: dir, stdout: stdout}, logs
 }

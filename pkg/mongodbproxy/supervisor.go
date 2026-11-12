@@ -32,6 +32,8 @@ type Supervisor struct {
 	// tailLogs copies the log file of the child to stdout (see logtail.go).
 	tailLogs bool
 	logPoll  time.Duration
+	// paths are the directories that the paths of a request have to be in (see paths.go).
+	paths PathPolicy
 
 	mu          sync.Mutex
 	current     *Execution
@@ -61,6 +63,11 @@ func WithLogTail(on bool) Option {
 	return func(s *Supervisor) { s.tailLogs = on }
 }
 
+// WithPathPolicy sets the directories that the paths of a request have to be in. Without it DefaultPathPolicy applies.
+func WithPathPolicy(p PathPolicy) Option {
+	return func(s *Supervisor) { s.paths = p }
+}
+
 // WithLogger sets the logger of the supervisor. Without it nothing is logged.
 func WithLogger(log *zap.SugaredLogger) Option {
 	return func(s *Supervisor) { s.log = log }
@@ -68,7 +75,7 @@ func WithLogger(log *zap.SugaredLogger) Option {
 
 // NewSupervisor creates a Supervisor that forwards the child's output to the proxy's stdout/stderr.
 func NewSupervisor(opts ...Option) *Supervisor {
-	s := &Supervisor{stdout: os.Stdout, stderr: os.Stderr, log: zap.NewNop().Sugar(), tailLogs: true, logPoll: defaultLogTailPoll}
+	s := &Supervisor{stdout: os.Stdout, stderr: os.Stderr, log: zap.NewNop().Sugar(), tailLogs: true, logPoll: defaultLogTailPoll, paths: DefaultPathPolicy()}
 	for _, o := range opts {
 		o(s)
 	}
@@ -144,6 +151,9 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.paths.checkRequest(req); err != nil {
+		return nil, err
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -158,7 +168,12 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		return cur, nil
 	}
 
-	if err := rejectFork(req.ConfigPath); err != nil {
+	// The config file is read once, and the check for fork and the path of the log come from that one read.
+	facts, err := s.paths.readConfig(req.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := facts.rejectFork(req.ConfigPath); err != nil {
 		return nil, err
 	}
 
@@ -181,9 +196,14 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	// The state of the log file before the process starts tells the tail where its own lines begin.
 	var logPath string
 	var logInfoBefore os.FileInfo
-	if s.tailLogs {
-		if logPath = logPathOf(req.ConfigPath); logPath != "" {
-			logInfoBefore, _ = os.Stat(logPath)
+	logFiles := belowDirs(s.paths.LogDirs)
+	if s.tailLogs && facts.logPath != "" {
+		if err := checkLexically("systemLog.path", s.paths.LogDirs, facts.logPath); err != nil {
+			// mongod writes the file anyway, because the config says so; the proxy just does not copy it.
+			s.log.Warnw("the log file is not copied to the output: it is outside of the directories for logs", "path", facts.logPath, "directories", s.paths.LogDirs)
+		} else {
+			logPath = facts.logPath
+			logInfoBefore, _ = logFiles.stat(logPath)
 		}
 	}
 
@@ -215,7 +235,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	s.log.Infow("process started", "role", e.role, "configPath", e.configPath, "pid", cmd.Process.Pid)
 	go s.wait(e)
 	if logPath != "" {
-		go tailLog(logPath, logInfoBefore, s.stdout, e.done, s.logPoll)
+		go tailLog(logFiles, logPath, logInfoBefore, s.stdout, e.done, s.logPoll)
 	}
 	return e, nil
 }
