@@ -98,6 +98,8 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
+
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
@@ -113,6 +115,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRole
@@ -126,6 +129,7 @@ rules:
       - '*'
     resources:
       - clustermongodbroles
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml
 kind: ClusterRoleBinding
@@ -140,6 +144,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
 kind: Role
@@ -159,6 +164,8 @@ rules:
       - watch
       - patch
       - update
+
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-pvc-resize.yaml
 kind: RoleBinding
@@ -174,6 +181,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # Additional ClusterRole for clusterVersionDetection
@@ -202,6 +210,7 @@ rules:
       - nodes
     verbs:
       - list
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # ClusterRoleBinding for clusterVersionDetection
@@ -217,6 +226,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
 kind: ClusterRole
@@ -244,6 +254,7 @@ rules:
       - create
       - update
       - delete
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-webhook.yaml
 kind: ClusterRoleBinding
@@ -258,6 +269,7 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -265,6 +277,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-appdb
   namespace: mongodb
+
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -272,6 +286,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-database-pods
   namespace: mongodb
+
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 apiVersion: v1
@@ -279,6 +295,8 @@ kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-ops-manager
   namespace: mongodb
+
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: Role
@@ -301,6 +319,8 @@ rules:
       - patch
       - delete
       - get
+
+
 ---
 # Source: mongodb-kubernetes/templates/database-roles.yaml
 kind: RoleBinding
@@ -316,13 +336,15 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-appdb
     namespace: mongodb
+
 ---
 # Source: mongodb-kubernetes/templates/operator-sa.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: mongodb-kubernetes-operator
-  namespace: mongodb
+  namespace: mongodb 
+
 ---
 # Source: mongodb-kubernetes/templates/operator.yaml
 apiVersion: apps/v1
@@ -514,6 +536,8 @@ spec:
               value: "quay.io/mongodb/mongodb-agent:108.0.26.9062-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_27_9091_1
               value: "quay.io/mongodb/mongodb-agent:108.0.27.9091-1"
+            - name: RELATED_IMAGE_AGENT_IMAGE_108_0_28_9122_1
+              value: "quay.io/mongodb/mongodb-agent:108.0.28.9122-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_3_8758_1
               value: "quay.io/mongodb/mongodb-agent:108.0.3.8758-1"
             - name: RELATED_IMAGE_AGENT_IMAGE_108_0_4_8770_1
@@ -610,6 +634,8 @@ spec:
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.26"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_27
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.27"
+            - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_8_0_28
+              value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:8.0.28"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_9_0_0
               value: "quay.io/mongodb/mongodb-enterprise-ops-manager-ubi:9.0.0"
             - name: RELATED_IMAGE_OPS_MANAGER_IMAGE_REPOSITORY_9_0_1
@@ -742,3 +768,4 @@ spec:
       volumes:
         - name: webhook-server-dir
           emptyDir: {}
+

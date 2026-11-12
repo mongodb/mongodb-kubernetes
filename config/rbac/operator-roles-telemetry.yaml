@@ -26,6 +26,7 @@ rules:
       - nodes
     verbs:
       - list
+
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-telemetry.yaml
 # ClusterRoleBinding for clusterVersionDetection
@@ -41,3 +42,4 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
+
