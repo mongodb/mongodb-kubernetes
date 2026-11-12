@@ -40,8 +40,9 @@ func newOpsManager(t *testing.T, mutate func(*omv1.MongoDBOpsManager)) *omv1.Mon
 	return om
 }
 
-// newOpsManagerUnstructured returns a valid baseline object. A typed OM cannot express
-// a missing required field: its struct tags always serialize the zero value.
+// newOpsManagerUnstructured returns a valid baseline object for the rows that remove required
+// fields. A typed OM cannot express that: fields without omitempty are always sent, as
+// `enabled: false` or `type: ""`, and the latter fails the enum check instead of the required one.
 func newOpsManagerUnstructured() *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "mongodb.com/v1",
