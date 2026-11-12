@@ -1820,6 +1820,133 @@ func TestShardSpecificPodSpec(t *testing.T) {
 	assertPodSpecSts(t, &statefulSetSc1, shardPodSpec.NodeName, shardPodSpec.Hostname, shardPodSpec.RestartPolicy, architectures.NonStatic)
 }
 
+// TestShardedClusterStatefulSetStatus checks that on first deployment the pending StatefulSets are reported component
+// by component, in the order config servers, shards, mongos.
+func TestShardedClusterStatefulSetStatus(t *testing.T) {
+	clusterNames := []string{"member-cluster-1", "member-cluster-2", "member-cluster-3"}
+	shardDistribution := map[string]int{"member-cluster-1": 1, "member-cluster-2": 1, "member-cluster-3": 1}
+	configServerDistribution := map[string]int{"member-cluster-2": 1, "member-cluster-3": 1}
+	mongosDistribution := map[string]int{"member-cluster-1": 1, "member-cluster-2": 1}
+	multiClusterSc := test.DefaultClusterBuilder().
+		SetTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetShardCountSpec(2).
+		SetMongodsPerShardCountSpec(0).
+		SetConfigServerCountSpec(0).
+		SetMongosCountSpec(0).
+		SetShardClusterSpec(test.CreateClusterSpecList(clusterNames, shardDistribution)).
+		SetConfigSrvClusterSpec(test.CreateClusterSpecList(clusterNames, configServerDistribution)).
+		SetMongosClusterSpec(test.CreateClusterSpecList(clusterNames, mongosDistribution)).
+		Build()
+
+	tests := []struct {
+		name         string
+		sc           *mdbv1.MongoDB
+		multiCluster bool
+	}{
+		{name: "single cluster", sc: test.DefaultClusterBuilder().Build()},
+		{name: "multi cluster", sc: multiClusterSc, multiCluster: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			sc := tc.sc
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+			ready := map[string]bool{}
+			allReady := false
+			markAllReady := mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)
+			newClient := func(objects ...client.Object) kubernetesClient.Client {
+				return kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if allReady {
+							return markAllReady(ctx, c, key, obj, opts...)
+						}
+						if err := c.Get(ctx, key, obj, opts...); err != nil {
+							return err
+						}
+						if sts, ok := obj.(*appsv1.StatefulSet); ok && ready[key.Name] {
+							sts.Status.Replicas = *sts.Spec.Replicas
+							sts.Status.UpdatedReplicas = *sts.Spec.Replicas
+							sts.Status.ReadyReplicas = *sts.Spec.Replicas
+						}
+						return nil
+					},
+				}).Build())
+			}
+			kubeClient := newClient(append(mock.GetDefaultResources(), sc)...)
+
+			notReady := func(name string, members int) status.ResourceNotReady {
+				return status.ResourceNotReady{
+					Kind:    status.StatefulsetKind,
+					Name:    name,
+					Message: fmt.Sprintf("Not all the Pods are ready (wanted: %d, updated: 0, ready: 0, current: 0)", members),
+				}
+			}
+
+			var reconciler *ReconcileMongoDbShardedCluster
+			var steps [][]status.ResourceNotReady
+			if tc.multiCluster {
+				memberClusterMap := map[string]client.Client{}
+				for _, clusterName := range clusterNames {
+					memberClusterMap[clusterName] = newClient()
+				}
+				var reconcilerHelper *ShardedClusterReconcileHelper
+				var err error
+				reconciler, reconcilerHelper, err = newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+				require.NoError(t, err)
+
+				clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+				omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+					allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configServerDistribution, []map[string]int{shardDistribution, shardDistribution}, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+					connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+				})
+
+				component := func(stsName func(clusterIdx int) string, distribution map[string]int) []status.ResourceNotReady {
+					var resources []status.ResourceNotReady
+					for _, clusterName := range clusterNames {
+						if members := distribution[clusterName]; members > 0 {
+							resources = append(resources, notReady(stsName(clusterMapping[clusterName]), members))
+						}
+					}
+					return resources
+				}
+				steps = append(steps, component(sc.MultiConfigRsName, configServerDistribution))
+				for shardIdx := range sc.Spec.ShardCount {
+					steps = append(steps, component(func(clusterIdx int) string { return sc.MultiShardRsName(clusterIdx, shardIdx) }, shardDistribution))
+				}
+				steps = append(steps, component(sc.MultiMongosRsName, mongosDistribution))
+			} else {
+				var err error
+				reconciler, _, err = newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+				require.NoError(t, err)
+
+				steps = append(steps, []status.ResourceNotReady{notReady(sc.ConfigRsName(), sc.Spec.ConfigServerCount)})
+				for shardIdx := range sc.Spec.ShardCount {
+					steps = append(steps, []status.ResourceNotReady{notReady(sc.ShardName(shardIdx), sc.Spec.MongodsPerShardCount)})
+				}
+				steps = append(steps, []status.ResourceNotReady{notReady(sc.MongosRsName(), sc.Spec.MongosCount)})
+			}
+
+			for _, expected := range steps {
+				result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
+				require.NoError(t, err)
+				assert.Positive(t, result.RequeueAfter)
+				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
+				assert.Equal(t, status.PhasePending, sc.Status.Phase)
+				assert.ElementsMatch(t, expected, sc.Status.ResourcesNotReady)
+				for _, resource := range expected {
+					ready[resource.Name] = true
+				}
+			}
+
+			allReady = true
+			checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+			assert.Empty(t, sc.Status.ResourcesNotReady)
+		})
+	}
+}
+
 func TestShardedClusterAgentVersionMapping(t *testing.T) {
 	ctx := context.Background()
 	defaultResource := test.DefaultClusterBuilder().Build()
