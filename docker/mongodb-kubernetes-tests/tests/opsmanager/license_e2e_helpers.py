@@ -600,7 +600,7 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
     assert "cannot release the license Ops Manager holds" in failure["message"], failure["message"]
 
     # The retry of the failed reconcile records the spec without secretRef and reports it reconciled.
-    def reconciled() -> bool:
+    def reconciled(_: MongoDBOpsManager) -> bool:
         condition = om_condition(ops_manager, LICENSE_RECONCILED_CONDITION)
         return condition is not None and condition["status"] == "True"
 
