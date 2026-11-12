@@ -241,6 +241,43 @@ func TestCentralCluster_GetsRegularRoleCreated_WhenNonClusterScoped_IsSpecified(
 	assertCentralRolesExist(t, ctx, clientMap, flags)
 }
 
+func TestClusterRole_GetsCertManagerRules_WhenGrantedLater(t *testing.T) {
+	ctx := context.Background()
+	flags := testFlags(t, false)
+	flags.ClusterScoped = true
+	flags.CreateManagedCertificateRoles = false
+
+	clientMap := getClientResources(ctx, flags)
+	require.NoError(t, EnsureMultiClusterResources(ctx, flags, clientMap))
+
+	centralRole := getClusterRole(t, ctx, clientMap, flags, buildCentralEntityClusterRole(false).Name)
+	assert.False(t, containsCertManagerRules(centralRole), "no cert-manager rules are granted in the first run")
+
+	// The same cluster, this time with the cert-manager roles asked for.
+	// make sure that the roles now has cert-manager related rules
+	flags.CreateManagedCertificateRoles = true
+	require.NoError(t, EnsureMultiClusterResources(ctx, flags, clientMap))
+
+	centralRole = getClusterRole(t, ctx, clientMap, flags, buildCentralEntityClusterRole(true).Name)
+	assert.True(t, containsCertManagerRules(centralRole), "the second run has to add the cert-manager rules to the existing cluster role")
+}
+
+func getClusterRole(t *testing.T, ctx context.Context, clientMap map[string]KubeClient, flags Flags, name string) rbacv1.ClusterRole {
+	t.Helper()
+	role, err := clientMap[flags.CentralCluster].RbacV1().ClusterRoles().Get(ctx, name, metav1.GetOptions{})
+	require.NoError(t, err)
+	return *role
+}
+
+func containsCertManagerRules(role rbacv1.ClusterRole) bool {
+	for _, rule := range role.Rules {
+		if slices.Contains(rule.APIGroups, "cert-manager.io") {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPerformCleanup(t *testing.T) {
 	ctx := context.Background()
 	flags := testFlags(t, true)
