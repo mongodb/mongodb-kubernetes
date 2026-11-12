@@ -16,13 +16,13 @@ func TestOpsManagerStatus_LicenseManagedCondition(t *testing.T) {
 	om := NewOpsManagerBuilderDefault().Build()
 	om.UpdateStatus(status.PhaseFailed, status.NewOMPartOption(status.OpsManager),
 		status.NewLicenseStatusOptionWithCondition(
-			status.LicenseManagedCondition(false, status.ReasonLicenseReconcileFailed, "rotation failed"),
+			status.LicenseManagedCondition(false, status.ReasonLicenseNotManaged, "rotation failed"),
 		))
 
 	cond := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseManaged)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
-	assert.Equal(t, status.ReasonLicenseReconcileFailed, cond.Reason)
+	assert.Equal(t, status.ReasonLicenseNotManaged, cond.Reason)
 	assert.Equal(t, "rotation failed", cond.Message)
 	assert.Equal(t, om.GetGeneration(), cond.ObservedGeneration)
 

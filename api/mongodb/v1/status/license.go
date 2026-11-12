@@ -12,7 +12,7 @@ const (
 )
 
 // Reasons of LicenseReady. Ready means the license Ops Manager holds is licensed.
-// NotReady covers every other license state (grace, unlicensed, expired); the message names
+// NotReady covers every other license state (grace, unlicensed, expired), and the message names
 // the state. StateUnknown covers no state reported yet, and carries status Unknown rather than
 // False, since the operator has not checked the license, not found it missing.
 const (
@@ -21,12 +21,12 @@ const (
 	ReasonLicenseStateUnknown = "LicenseStateUnknown"
 )
 
-// Reasons of LicenseManaged. The message carries the detail of a failure.
+// Reasons of LicenseManaged. NotManaged covers a license Ops Manager rejected as outdated and a
+// failed license reconcile, and the message names which.
 const (
-	ReasonLicenseManaged         = "LicenseManaged"
-	ReasonLicenseNotProvided     = "LicenseNotProvided"
-	ReasonLicenseNotManaged      = "LicenseNotManaged"
-	ReasonLicenseReconcileFailed = "LicenseReconcileFailed"
+	ReasonLicenseManaged     = "LicenseManaged"
+	ReasonLicenseNotProvided = "LicenseNotProvided"
+	ReasonLicenseNotManaged  = "LicenseNotManaged"
 )
 
 func LicenseReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
