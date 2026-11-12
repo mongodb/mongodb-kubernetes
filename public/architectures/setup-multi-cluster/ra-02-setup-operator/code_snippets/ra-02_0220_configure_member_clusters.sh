@@ -4,9 +4,9 @@
 for ctx in "${K8S_CLUSTER_0_CONTEXT_NAME}" "${K8S_CLUSTER_1_CONTEXT_NAME}" "${K8S_CLUSTER_2_CONTEXT_NAME}"; do
   echo "Applying member-cluster RBAC on ${ctx}"
   kubectl mongodb cluster generate-resources \
-    --member-cluster-namespace="${OM_NAMESPACE}" \
+    --operator-namespace="${OPERATOR_NAMESPACE}" \
     --workload-namespaces="${OM_NAMESPACE},${MDB_NAMESPACE}" \
-    --image-pull-secrets=image-registries-secret \
+    --workload-image-pull-secrets=image-registries-secret \
     | kubectl apply --context "${ctx}" -f -
 done
 
@@ -17,7 +17,6 @@ for ctx in "${K8S_CLUSTER_0_CONTEXT_NAME}" "${K8S_CLUSTER_1_CONTEXT_NAME}" "${K8
   kubectl mongodb cluster generate-registration \
     --member-cluster="${member_cluster_name}" \
     --member-cluster-context="${ctx}" \
-    --member-cluster-namespace="${OM_NAMESPACE}" \
     --operator-namespace="${OPERATOR_NAMESPACE}" \
     --member-cluster-logical-name="${ctx}" \
     | kubectl apply --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -f -

@@ -17,7 +17,7 @@ Each member cluster needs RBAC that lets the operator manage workloads on it. Th
 
 ``` shell
 kubectl mongodb cluster generate-resources \
-  --member-cluster-namespace mongodb | kubectl apply -f -
+  --operator-namespace mongodb | kubectl apply -f -
 ```
 
 For users who cannot run the plugin, the [rbac](./resources/rbac) directory contains the checked-in output of that command:
@@ -76,7 +76,7 @@ In practice, generate both documents from the live member cluster rather than ha
 ``` shell
 kubectl mongodb cluster generate-registration \
   --member-cluster member-cluster --member-cluster-context member-cluster-ctx \
-  --member-cluster-namespace mongodb --operator-namespace mongodb
+  --operator-namespace mongodb
 ```
 
 Commit the output (or apply it) per member cluster. Note the Secret contains credentials — use your GitOps secret-management solution of choice for it.
