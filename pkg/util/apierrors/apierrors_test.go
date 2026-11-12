@@ -22,6 +22,11 @@ func TestIsTransientError(t *testing.T) {
 			true,
 		},
 		{
+			"Test Transient Ops Manager automation config conflict",
+			fmt.Errorf("Failed to create/update (Ops Manager reconciliation phase): Status: 409 (Conflict), ErrorCode: AUTOMATION_CONFIG_CONCURRENT_MODIFICATION, Detail: Another session or user has already published changes."),
+			true,
+		},
+		{
 			"Test Not Transient Error",
 			fmt.Errorf(" error found deployments.extensions \"default\" not found"),
 			false,
