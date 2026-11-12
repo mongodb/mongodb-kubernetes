@@ -45,6 +45,7 @@ from tests.opsmanager.license_e2e_helpers import (
     paused_cron,
     prepare_for_license_install,
     read_om_license_view,
+    rejected_message,
     remove_install_intent_without_identity,
     renew_license,
     reset_license_e2e_state,
@@ -62,8 +63,8 @@ from tests.opsmanager.license_e2e_helpers import (
     wait_for_ea_artifact_status,
     wait_for_ea_holder_released,
     wait_for_installed_license,
+    wait_for_license_managed_reason,
     wait_for_license_receipt,
-    wait_for_license_reconciled_reason,
     wait_for_observed_api_state,
     wait_for_om_artifact_unusable,
     wait_for_receipt_secret,
@@ -124,7 +125,7 @@ class TestOpsManagerLicenseE2E:
         installed = install_license(ops_manager, namespace)
 
         ensure_license_artifact_secret(namespace, "not-a-license")
-        failure = wait_for_license_reconciled_reason(ops_manager, "LicenseReconcileFailed")
+        failure = wait_for_license_managed_reason(ops_manager, "LicenseReconcileFailed")
         assert "license artifact is not a valid JSON envelope" in failure["message"], failure["message"]
         remove_install_intent_without_identity(ops_manager, installed)
 
@@ -158,7 +159,7 @@ class TestOpsManagerLicenseE2E:
     def test_outdated_artifact_in_secret_is_reported_without_touching_om(
         self, ops_manager: MongoDBOpsManager, namespace: str
     ):
-        """Ops Manager rejects a license older than one it has seen, and LicenseReconciled reports it as outdated."""
+        """Ops Manager rejects a license older than one it has seen, and LicenseManaged reports it as not managed."""
         prepare_for_license_install(ops_manager)
         older_raw, older_id = current_artifact(), current_artifact_id()
         mint_run_license(ops_manager)
@@ -169,11 +170,10 @@ class TestOpsManagerLicenseE2E:
             before = read_om_license_view(ops_manager)
 
             ensure_license_artifact_secret(namespace, older_raw)
-            reconciled = wait_for_license_reconciled_reason(ops_manager, "LicenseOutdated")
+            managed = wait_for_license_managed_reason(ops_manager, "LicenseReconcileFailed")
 
-            assert reconciled["status"] == "False", reconciled["message"]
-            assert f"rejected license {older_id}" in reconciled["message"], reconciled["message"]
-            assert f"It holds license {current_artifact_id()}" in reconciled["message"], reconciled["message"]
+            assert managed["status"] == "False", managed["message"]
+            assert managed["message"] == rejected_message(older_id), managed["message"]
             assert_om_license_unchanged(before, read_om_license_view(ops_manager))
         finally:
             # Ops Manager never held the older license, so only a revoke retires it at EA.
@@ -207,11 +207,11 @@ class TestOpsManagerLicenseE2E:
 
         top_up = issue_top_up_and_auto_install(ops_manager)
         wait_for_ea_artifact_state(ops_manager, original, "RELEASED")
-        reconciled = wait_for_license_reconciled_reason(ops_manager, "LicenseOutdated")
+        managed = wait_for_license_managed_reason(ops_manager, "LicenseReconcileFailed")
         om_view = read_om_license_view(ops_manager)
 
-        assert reconciled["status"] == "False", reconciled["message"]
-        assert f"rejected license {original}" in reconciled["message"], reconciled["message"]
+        assert managed["status"] == "False", managed["message"]
+        assert managed["message"] == rejected_message(original), managed["message"]
         assert cr_matches_om_license(ops_manager, om_view)
         assert om_artifact_released(ops_manager, original)
         assert top_up in om_artifact_ids(ops_manager)

@@ -57,7 +57,7 @@ RELEASED_STATUS = "RELEASED"
 
 # The license conditions the operator writes on the Ops Manager resource.
 LICENSE_READY_CONDITION = "OpsManagerLicenseReady"
-LICENSE_RECONCILED_CONDITION = "LicenseReconciled"
+LICENSE_MANAGED_CONDITION = "LicenseManaged"
 LICENSE_STATE_REASONS = {"GRACE": "LicenseNotReady", "UNLICENSED": "LicenseNotReady", "EXPIRED": "LicenseNotReady"}
 
 # The finalizer the operator holds while it may have a license installed in Ops Manager.
@@ -176,39 +176,48 @@ def license_ready_condition(ops_manager: MongoDBOpsManager) -> dict:
 
 
 def installed_artifact_id(ops_manager: MongoDBOpsManager) -> str:
-    """The license from secretRef that LicenseReconciled reports Ops Manager holds, empty otherwise."""
+    """The license from secretRef that LicenseManaged reports the operator manages, empty otherwise."""
     ops_manager.load()
-    condition = om_condition(ops_manager, LICENSE_RECONCILED_CONDITION)
-    if condition is None or condition["reason"] != "LicenseInstalled":
+    condition = om_condition(ops_manager, LICENSE_MANAGED_CONDITION)
+    if condition is None or condition["reason"] != "LicenseManaged":
         return ""
-    match = re.search(r"holds license (\S+) from secretRef", condition["message"])
+    match = re.search(r"^License (\S+) from \.spec\.license\.secretRef is managed", condition["message"])
     return match.group(1) if match else ""
 
 
-def _reconciled_as(ops_manager: MongoDBOpsManager, generation: int, installed: Optional[str]) -> bool:
-    """Whether LicenseReconciled settled this generation as expected. An empty installed expects no
+def rejected_message(artifact_id: str) -> str:
+    """The LicenseManaged message for a license from secretRef Ops Manager rejected as outdated."""
+    return (
+        f"License {artifact_id} from .spec.license.secretRef was rejected because a license this new or newer "
+        "was already installed and not managed by operator."
+    )
+
+
+def _managed_as(ops_manager: MongoDBOpsManager, generation: int, installed: Optional[str]) -> bool:
+    """Whether LicenseManaged settled this generation as expected. An empty installed expects no
     license from secretRef, right after a release too, an artifact id expects Ops Manager to hold it,
     and None skips the check."""
-    condition = _reconciled_condition(ops_manager, generation)
+    condition = _managed_condition(ops_manager, generation)
     if condition is None:
         return False
     if installed is None:
         return True
     if installed == "":
-        return condition["reason"] == "LicenseNotRequested"
-    return condition["reason"] == "LicenseInstalled" and installed in condition["message"]
+        return condition["reason"] == "LicenseNotProvided"
+    return condition["reason"] == "LicenseManaged" and installed in condition["message"]
 
 
-def _reconciled_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optional[dict]:
-    """The LicenseReconciled condition, or None while it still describes an older generation.
+def _managed_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optional[dict]:
+    """The LicenseManaged condition, or None while it still describes an older generation.
 
-    Fails at once when the operator settled this generation with LicenseReconciled False.
+    Fails at once when the operator settled this generation as not managed, a failed reconcile or a
+    rejected license.
     """
-    condition = om_condition(ops_manager, LICENSE_RECONCILED_CONDITION)
+    condition = om_condition(ops_manager, LICENSE_MANAGED_CONDITION)
     if condition is None or condition["observedGeneration"] < generation:
         return None
-    if condition["status"] != "True":
-        pytest.fail(f"LicenseReconciled is {condition['status']}: {condition['message']}")
+    if condition["reason"] in ("LicenseNotManaged", "LicenseReconcileFailed"):
+        pytest.fail(f"LicenseManaged is {condition['reason']}: {condition['message']}")
     return condition
 
 
@@ -559,19 +568,19 @@ def issue_top_up_and_auto_install(ops_manager: MongoDBOpsManager) -> str:
 # Waits
 
 
-def wait_for_license_reconciled_reason(ops_manager: MongoDBOpsManager, reason: str) -> dict:
-    """Waits for LicenseReconciled to report the reason after a change that keeps the generation, like
+def wait_for_license_managed_reason(ops_manager: MongoDBOpsManager, reason: str) -> dict:
+    """Waits for LicenseManaged to report the reason after a change that keeps the generation, like
     a Secret update."""
 
     def reported(_: MongoDBOpsManager) -> bool:
-        condition = om_condition(ops_manager, LICENSE_RECONCILED_CONDITION)
+        condition = om_condition(ops_manager, LICENSE_MANAGED_CONDITION)
         if condition is None or condition["reason"] != reason:
             nudge_reconcile(ops_manager)
             return False
         return True
 
     ops_manager.wait_for(reported, timeout=DEFAULT_TIMEOUT)
-    condition = om_condition(ops_manager, LICENSE_RECONCILED_CONDITION)
+    condition = om_condition(ops_manager, LICENSE_MANAGED_CONDITION)
     assert condition is not None
     return condition
 
@@ -580,18 +589,20 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
     """Removes secretRef once the license Secret no longer identifies the installed license. The
     operator refuses to release a license it cannot identify and reports it once. The next reconcile
     records the spec without secretRef, so the license stays with Ops Manager and is released from
-    its UI. Returns the failed LicenseReconciled condition."""
+    its UI. Returns the failed LicenseManaged condition."""
     set_license_release_spec(ops_manager)
     generation = generation_of(ops_manager)
     failure: dict = {}
 
     def release_failed(_: MongoDBOpsManager) -> bool:
         # No nudge here: the failure only lasts until the retry of the failed reconcile.
-        condition = om_condition(ops_manager, LICENSE_RECONCILED_CONDITION)
+        condition = om_condition(ops_manager, LICENSE_MANAGED_CONDITION)
         if condition is None or condition["observedGeneration"] < generation:
             return False
-        if condition["status"] == "True":
-            pytest.fail(f"LicenseReconciled turned True before the release failure was seen: {condition['message']}")
+        if condition["reason"] != "LicenseReconcileFailed":
+            pytest.fail(
+                f"LicenseManaged settled as {condition['reason']} before the release failure was seen: {condition['message']}"
+            )
         failure.update(condition)
         return True
 
@@ -599,12 +610,12 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
     assert failure["reason"] == "LicenseReconcileFailed", failure["message"]
     assert "cannot release the license Ops Manager holds" in failure["message"], failure["message"]
 
-    # The retry of the failed reconcile records the spec without secretRef and reports it reconciled.
-    def reconciled(_: MongoDBOpsManager) -> bool:
-        condition = om_condition(ops_manager, LICENSE_RECONCILED_CONDITION)
-        return condition is not None and condition["status"] == "True"
+    # The retry of the failed reconcile records the spec without secretRef and reports it not provided.
+    def not_provided(_: MongoDBOpsManager) -> bool:
+        condition = om_condition(ops_manager, LICENSE_MANAGED_CONDITION)
+        return condition is not None and condition["reason"] == "LicenseNotProvided"
 
-    ops_manager.wait_for(reconciled, timeout=DEFAULT_TIMEOUT)
+    ops_manager.wait_for(not_provided, timeout=DEFAULT_TIMEOUT)
     wait_for_cr_license_sync(ops_manager, installed="")
     assert artifact_id in om_artifact_ids(ops_manager)
     return failure
@@ -613,14 +624,14 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
 def wait_for_cr_license_sync(ops_manager: MongoDBOpsManager, *, installed: Optional[str] = None) -> tuple[dict, dict]:
     """Waits until the current generation is reconciled and LicenseReady reports the Ops Manager view.
 
-    installed is the license from secretRef LicenseReconciled must report Ops Manager holds, empty for
+    installed is the license from secretRef LicenseManaged must report the operator manages, empty for
     none. None skips the check. Returns the LicenseReady condition and the Ops Manager view.
     """
     generation = generation_of(ops_manager)
 
     def synced(_: MongoDBOpsManager) -> bool:
         om_view = read_om_license_view(ops_manager)
-        in_sync = _reconciled_as(ops_manager, generation, installed) and cr_matches_om_license(ops_manager, om_view)
+        in_sync = _managed_as(ops_manager, generation, installed) and cr_matches_om_license(ops_manager, om_view)
         if not in_sync:
             logger.info(
                 f"License conditions not in sync yet, CR: {ops_manager['status']['opsManager'].get('conditions')}, "
@@ -668,7 +679,7 @@ def wait_for_license_receipt(ops_manager: MongoDBOpsManager, secret_name: str) -
     generation = generation_of(ops_manager)
 
     def written(_: MongoDBOpsManager) -> bool:
-        _reconciled_condition(ops_manager, generation)
+        _managed_condition(ops_manager, generation)
         try:
             return RECEIPT_SECRET_KEY in read_secret(ops_manager.namespace, secret_name)
         except ApiException as exc:
