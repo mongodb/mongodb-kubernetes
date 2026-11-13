@@ -34,6 +34,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
@@ -321,7 +322,10 @@ func TestMultiReplicaSetStaticGAProxyCommand(t *testing.T) {
 					util.MongodbProxyImageEnv:    "registry.example/proxy:test",
 				}
 				mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-				mrs.Annotations = map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}
+				mrs.Annotations = map[string]string{
+					architectures.ArchitectureAnnotation: string(architectures.Static),
+					construct.MongodbProxyAnnotation:     "true",
+				}
 				reconciler, kubeClient, memberClients, factory := defaultMultiReplicaSetReconciler(ctx, imageURLs, "test", "test", mrs, selection.defaultArch)
 				factory.SetPostCreateHook(func(connection om.Connection) {
 					connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")

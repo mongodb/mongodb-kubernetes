@@ -71,6 +71,10 @@ func TestAPIStartGetStop(t *testing.T) {
 func TestAPIStartAcceptsAgentNumaPolicy(t *testing.T) {
 	f, srv := newServer(t)
 	cfg := f.config("main", "run")
+	ldapCA := filepath.Join(f.dir, "ca.pem")
+	keytab := filepath.Join(f.dir, "krb5.keytab")
+	require.NoError(t, os.WriteFile(ldapCA, []byte("ca"), 0o600))
+	require.NoError(t, os.WriteFile(keytab, []byte("keytab"), 0o600))
 
 	var st Status
 	code := post(t, srv.URL+"/v1/process/start", map[string]any{
@@ -79,16 +83,16 @@ func TestAPIStartAcceptsAgentNumaPolicy(t *testing.T) {
 		"other": map[string]any{
 			"binary":         "mongod",
 			"numaPolicy":     "auto",
-			"ldapCaPath":     "/etc/ldap/ca.pem",
-			"kerberosKeytab": "/etc/krb5.keytab",
+			"ldapCaPath":     ldapCA,
+			"kerberosKeytab": keytab,
 		},
 	}, &st)
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, StateRunning, st.State)
 	require.NotNil(t, st.PID)
 	require.NotNil(t, st.LaunchEnvironment)
-	assert.Equal(t, "/etc/ldap/ca.pem", st.LaunchEnvironment.LdapCaPath)
-	assert.Equal(t, "/etc/krb5.keytab", st.LaunchEnvironment.KerberosKeytab)
+	assert.Equal(t, ldapCA, st.LaunchEnvironment.LdapCaPath)
+	assert.Equal(t, keytab, st.LaunchEnvironment.KerberosKeytab)
 }
 
 func TestAPIStartWaitForExitReturnsExitStatus(t *testing.T) {
