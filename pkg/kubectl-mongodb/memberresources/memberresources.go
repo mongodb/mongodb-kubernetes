@@ -49,6 +49,8 @@ var memberTemplates = []string{
 // Render renders the member-cluster templates from the embedded chart with the given
 // member-cluster values and returns the concatenated YAML.
 //
+//   - memberClusterName: logical name of the member cluster this render is for (any non-empty
+//     string).
 //   - workloadNamespaces: namespaces where workloads run on the member cluster; workload
 //     ServiceAccounts/Roles are seeded in each, and (unless operatorClusterScoped) each operator
 //     role is rendered as a namespaced Role once per binding namespace — the union of the
@@ -60,13 +62,14 @@ var memberTemplates = []string{
 //   - operatorTelemetry: also render the telemetry ClusterRole/ClusterRoleBinding (cluster-scoped
 //     regardless of the mode above).
 //   - imagePullSecrets: when non-empty, set as the workload ServiceAccounts' imagePullSecrets.
-func Render(namespace string, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry bool, imagePullSecrets string) (string, error) {
+func Render(memberClusterName, namespace string, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry bool, imagePullSecrets string) (string, error) {
 	chrt, err := loadEmbeddedChart()
 	if err != nil {
 		return "", xerrors.Errorf("loading embedded chart: %w", err)
 	}
 
 	values := map[string]any{
+		// TODO(m1kola): KUBE-647: Pass the memberClusterName to the memberCluster values.
 		"memberCluster": map[string]any{
 			"enabled":            true,
 			"clusterScoped":      operatorClusterScoped,
