@@ -746,6 +746,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		if status := certs.VerifyMigrationSubjects(ctx, r.client, mrs, lastSpec.GetSecurity(), mrs.Name, log); !status.IsOK() {
 			return status
 		}
+		// Refuse a migration that would leave the CA the deployment trusts today out of the trust
+		// bundle, which would make its members reject each other while they restart.
+		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.client, mrs, lastSpec.GetSecurity(), log); !status.IsOK() {
+			return status
+		}
 	}
 
 	var workflowStatus workflow.Status = workflow.OK()
