@@ -116,6 +116,18 @@ func appdbLogsPvc(logsVolumeName string) persistentvolumeclaim.Modification {
 	)
 }
 
+// appdbInitDatabaseContainer copies the init-database image content into the scripts volume. The proxy
+// mode uses this instead of the shared process namespace and the legacy agent-prepare script.
+func appdbInitDatabaseContainer(initDatabaseImage string, volumeMounts []corev1.VolumeMount) container.Modification {
+	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
+	return container.Apply(
+		container.WithName(InitDatabaseContainerName),
+		container.WithImage(initDatabaseImage),
+		container.WithVolumeMounts(volumeMounts),
+		containerSecurityContext,
+	)
+}
+
 // appdbReadinessProbeInit returns a modification function which will add the readiness probe container.
 // this container will copy the readiness probe binary into the /opt/scripts directory.
 func appdbReadinessProbeInit(volumeMount []corev1.VolumeMount, readinessProbeImage string) container.Modification {

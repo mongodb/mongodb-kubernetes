@@ -11,6 +11,7 @@ const (
 	appdbClusterFilePath                = "/var/lib/automation/config/cluster-config.json"
 	appdbAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 	appdbAutomationAgentOptions         = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
+	appdbAutomationAgentProxyOptions    = " -noDaemonize -operatorMode -mongodProxyAddress=" + MongodbProxyAddress
 
 	appdbReadinessProbeLoggerBackups  = "READINESS_PROBE_LOGGER_BACKUPS"
 	appdbReadinessProbeLoggerMaxSize  = "READINESS_PROBE_LOGGER_MAX_SIZE"
@@ -57,7 +58,7 @@ fi
 // AutomationAgentCommand returns the full command array for the automation agent container.
 // withAgentAPIKeyExport selects the preamble that exports AGENT_API_KEY from the mounted
 // agent-api-key secret, which the agent uses to register with Ops Manager for monitoring.
-func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
+func AutomationAgentCommand(withStatic bool, withProxy bool, withAgentAPIKeyExport bool, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
 	// This is somewhat undocumented at https://www.mongodb.com/docs/ops-manager/current/reference/mongodb-agent-settings/
 	// Not setting the -logFile option make the mongodb-agent log to stdout. Setting -logFile /dev/stdout will result in
 	// an error by the agent trying to open /dev/stdout-verbose and still trying to do log rotation.
@@ -77,7 +78,14 @@ func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLeve
 		downloadSnippet = downloadCustomAgentIfSet()
 	}
 
-	return []string{"/bin/bash", "-c", GetMongodbUserCommand(withStatic, withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
+	agentOptions := appdbAutomationAgentOptions
+	shellOptions := ""
+	if withProxy {
+		shellOptions = "set -e\n"
+		agentOptions = appdbAutomationAgentProxyOptions
+	}
+
+	return []string{"/bin/bash", "-c", shellOptions + GetMongodbUserCommand(withStatic && !withProxy, withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + agentOptions + agentLogOptions}
 }
 
 // GetMongodbUserCommand returns the bash preamble for the automation agent. When
