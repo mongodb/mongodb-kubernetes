@@ -36,6 +36,9 @@ __debug_bin*
 scripts/dev/contexts/private-context
 scripts/dev/contexts/private-context-*
 
+# GCP service-account key written to the working directory by scripts/evergreen/setup_gcloud_cli.sh
+gcp_keyfile.json
+
 # On Evergreen we install uv in the project directory, so make sure it's ignored
 /.uv
 
