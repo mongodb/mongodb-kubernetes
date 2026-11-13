@@ -157,6 +157,7 @@ central cluster:
 ```bash
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
   kubectl mongodb cluster generate-resources \
+    --member-cluster="${ctx}" \
     --operator-namespace="${MDB_NS}" \
     | kubectl apply --context "${ctx}" -f -
 done
