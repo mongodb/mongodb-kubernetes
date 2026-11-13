@@ -11,5 +11,4 @@ source "${script_dir}/variables/om70"
 # This is required to be able to rebuild the om image and use that image which has been rebuilt
 export MDB_MAX_CONCURRENT_RECONCILES=10
 export MDB_DEFAULT_ARCHITECTURE=static-ga
-source "${script_dir}/variables/static_ga_agent"
 export KUBE_ENVIRONMENT_NAME=performance

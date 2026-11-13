@@ -9,7 +9,6 @@ source "${script_dir}/root-context"
 
 export ops_manager_version="cloud_qa"
 export MDB_DEFAULT_ARCHITECTURE=static-ga
-source "${script_dir}/variables/static_ga_agent"
 
 # This is required to be able to rebuild the om image and use that image which has been rebuilt
 export OPS_MANAGER_REGISTRY="${REGISTRY}"

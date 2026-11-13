@@ -16,7 +16,6 @@ export TEST_POD_CLUSTER=kind-e2e-cluster-1
 export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="${CUSTOM_OM_VERSION}"
 export MDB_DEFAULT_ARCHITECTURE=static-ga
-source "${script_dir}/variables/static_ga_agent"
 
 # clear cloud-qa settings
 export OM_ORGID=""

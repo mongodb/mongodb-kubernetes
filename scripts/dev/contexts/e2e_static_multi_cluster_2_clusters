@@ -16,7 +16,6 @@ export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="cloud_qa"
 
 export MDB_DEFAULT_ARCHITECTURE=static-ga
-source "${script_dir}/variables/static_ga_agent"
 export CUSTOM_MDB_VERSION=6.0.5
 
 # MCK is capable of deploying a webhook (optional).
