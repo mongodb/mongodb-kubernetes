@@ -80,7 +80,7 @@ func updateSecretDataWithPreviousCert(ctx context.Context, secretClient secrets.
 
 	newData[util.LatestHashSecretKey] = newLatestHash
 
-	existingSecretData, err := secretClient.ReadSecret(ctx, operatorGeneratedSecret, basePath)
+	existingSecretData, err := readExistingPEMSecretData(ctx, secretClient, operatorGeneratedSecret, basePath)
 	if secret.SecretNotExist(err) {
 		// Case: creating the PEM secret the first time (example: enabling TLS)
 		return newData, nil
@@ -109,6 +109,20 @@ func updateSecretDataWithPreviousCert(ctx context.Context, secretClient secrets.
 	}
 
 	return newData, nil
+}
+
+// readExistingPEMSecretData reads the derived PEM Secret as raw bytes on Kubernetes backends so an
+// unchanged PEM can be compared byte-for-byte. String-based reads normalize a trailing newline; the
+// normalized value can differ from the exact PEM and rewrite an unchanged Secret.
+func readExistingPEMSecretData(ctx context.Context, secretClient secrets.SecretClient, name types.NamespacedName, basePath string) (map[string]string, error) {
+	if vault.IsVaultSecretBackend() {
+		return secretClient.ReadSecret(ctx, name, basePath)
+	}
+	data, err := secretClient.ReadBinarySecret(ctx, name, basePath)
+	if err != nil {
+		return nil, err
+	}
+	return secrets.DataToStringData(data), nil
 }
 
 // When a customer moves a resource from legacy TLS to operator-managed certificates, the pods get new
