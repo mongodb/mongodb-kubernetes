@@ -405,11 +405,9 @@ func assertAuthenticationMechanism(t *testing.T, auth *om.Auth, mechanism string
 
 func assertDeploymentMechanismsConfigured(t *testing.T, authMechanism Mechanism, conn om.Connection, opts Options) {
 	ctx := t.Context()
-	err := authMechanism.EnableDeploymentAuthentication(ctx, conn, opts, zap.S())
-	require.NoError(t, err)
-
 	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
+	authMechanism.ApplyDeploymentAuthentication(ac, opts)
 	assert.True(t, authMechanism.IsDeploymentAuthenticationConfigured(ac, opts))
 }
 

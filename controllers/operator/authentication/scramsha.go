@@ -55,13 +55,10 @@ func (s *automationConfigScramSha) DisableDeploymentAuthentication(ctx context.C
 	}, log)
 }
 
-func (s *automationConfigScramSha) EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, _ Options, log *zap.SugaredLogger) error {
-	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
-		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName)) {
-			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
-		}
-		return nil
-	}, log)
+func (s *automationConfigScramSha) ApplyDeploymentAuthentication(ac *om.AutomationConfig, _ Options) {
+	if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName)) {
+		ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(s.MechanismName))
+	}
 }
 
 func (s *automationConfigScramSha) IsAgentAuthenticationConfigured(ac *om.AutomationConfig, _ Options) bool {

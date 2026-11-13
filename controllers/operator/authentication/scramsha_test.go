@@ -54,11 +54,9 @@ func TestAgentsAuthentication(t *testing.T) {
 			err := s.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S())
 			require.NoError(t, err)
 
-			err = s.EnableDeploymentAuthentication(ctx, conn, opts, zap.S())
-			require.NoError(t, err)
-
 			ac, err := conn.ReadAutomationConfig(ctx)
 			require.NoError(t, err)
+			s.ApplyDeploymentAuthentication(ac, opts)
 
 			assertAuthenticationEnabled(t, ac.Auth)
 			assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)

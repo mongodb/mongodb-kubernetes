@@ -16,7 +16,7 @@ import (
 
 var mongoDBOIDCMechanism = getMechanismByName(MongoDBOIDC)
 
-func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
+func TestOIDC_ApplyDeploymentAuthentication(t *testing.T) {
 	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	ac, err := conn.ReadAutomationConfig(ctx)
@@ -55,11 +55,7 @@ func TestOIDC_EnableDeploymentAuthentication(t *testing.T) {
 	configured := mongoDBOIDCMechanism.IsDeploymentAuthenticationConfigured(ac, opts)
 	assert.False(t, configured)
 
-	err = mongoDBOIDCMechanism.EnableDeploymentAuthentication(ctx, conn, opts, zap.S())
-	require.NoError(t, err)
-
-	ac, err = conn.ReadAutomationConfig(ctx)
-	require.NoError(t, err)
+	mongoDBOIDCMechanism.ApplyDeploymentAuthentication(ac, opts)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, string(MongoDBOIDC))
 	assert.Equal(t, providerConfigs, ac.OIDCProviderConfigs)
 

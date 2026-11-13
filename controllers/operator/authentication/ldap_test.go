@@ -28,11 +28,9 @@ func TestLdapDeploymentMechanism(t *testing.T) {
 		},
 	}
 
-	err := ldapPlainMechanism.EnableDeploymentAuthentication(ctx, conn, opts, zap.S())
-	require.NoError(t, err)
-
 	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
+	ldapPlainMechanism.ApplyDeploymentAuthentication(ac, opts)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
 	assert.Equal(t, "BindQueryUser", ac.Ldap.BindQueryUser)
 	assert.Equal(t, "Servers", ac.Ldap.Servers)
