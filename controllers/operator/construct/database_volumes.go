@@ -43,7 +43,7 @@ func (c *caVolumeSource) GetVolumeMounts() []corev1.VolumeMount {
 }
 
 func (c *caVolumeSource) GetEnvs() []corev1.EnvVar {
-	// A custom CA has been provided, point the trusted CA to the location of custom CAs
+	// Bootstrap curl reads the CA path before the agent reads its settings file.
 	trustedCACertLocation := path.Join(caCertMountPath, util.CaCertMMS)
 	return []corev1.EnvVar{
 		{

@@ -2,13 +2,10 @@ package construct
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
-	"strconv"
-	"strings"
 
 	"go.uber.org/zap"
 
@@ -61,6 +58,11 @@ const (
 	// AGENT_API_KEY secret path
 	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key" //nolint
 	AgentAPIKeyVolumeName = "agent-api-key"                     //nolint
+
+	AgentSettingsFileName = "automation-agent.conf"
+	AgentSettingsVolume   = "agent-settings"
+	AgentSettingsPath     = "/etc/mongodb-agent"
+	AgentSettingsHash     = "mongodb.com/agent-startup-config-hash"
 
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
@@ -811,7 +813,6 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
-		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
@@ -884,7 +885,6 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithVolumeMounts(volumeMounts),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
-		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
@@ -950,36 +950,6 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 	)
 }
 
-// StartupParametersToAgentFlag takes a map representing key-value pairs
-// of startup parameters
-// and concatenates them into a single string that is then
-// returned as env variable AGENT_FLAGS
-func startupParametersToAgentFlag(parameters mdbv1.StartupParameters) corev1.EnvVar {
-	var agentParams strings.Builder
-	finalParameters := mdbv1.StartupParameters{}
-	// add default parameters if not already set
-	for key, value := range defaultAgentParameters() {
-		if _, ok := parameters[key]; !ok {
-			// add the default parameter
-			finalParameters[key] = value
-		}
-	}
-	maps.Copy(finalParameters, parameters)
-	// sort the parameters by key
-	keys := make([]string, 0, len(finalParameters))
-	for k := range finalParameters {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		// Using comma as delimiter to split the string later
-		// in the agentlauncher script
-		agentParams.WriteString("-" + key + "=" + finalParameters[key] + ",")
-	}
-
-	return corev1.EnvVar{Name: "AGENT_FLAGS", Value: agentParams.String()}
-}
-
 // readinessEnvironmentVariablesToEnvVars returns the environment variables to bet set in the readinessProbe container
 func readinessEnvironmentVariablesToEnvVars(parameters mdbv1.EnvironmentVariables) []corev1.EnvVar {
 	var finalParameters []corev1.EnvVar
@@ -996,8 +966,12 @@ func readinessEnvironmentVariablesToEnvVars(parameters mdbv1.EnvironmentVariable
 	return finalParameters
 }
 
-func defaultAgentParameters() mdbv1.StartupParameters {
-	return map[string]string{"logFile": path.Join(util.PvcMountPathLogs, "automation-agent.log")}
+// AgentContainer returns the container that hosts the automation agent, or nil.
+func AgentContainer(sts appsv1.StatefulSet) *corev1.Container {
+	if agent := container.GetByName(util.AgentContainerName, sts.Spec.Template.Spec.Containers); agent != nil {
+		return agent
+	}
+	return container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
 }
 
 func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMongodConfig *mdbv1.AdditionalMongodConfig) []corev1.EnvVar {
@@ -1038,7 +1012,7 @@ func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) cor
 
 func getAutomationLogEnvVars(parameters mdbv1.StartupParameters) []corev1.EnvVar {
 	automationLogFile := path.Join(util.PvcMountPathLogs, "automation-agent.log")
-	if logFileValue, ok := parameters["logFile"]; ok && len(logFileValue) > 0 {
+	if logFileValue, ok := AgentSettingsOverrides(parameters)["logFile"]; ok && len(logFileValue) > 0 {
 		automationLogFile = logFileValue
 	}
 
@@ -1084,34 +1058,13 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 	}
 	vars := []corev1.EnvVar{
 		{
-			Name:  util.EnvVarLogLevel,
-			Value: podVars.LogLevel,
-		},
-		{
 			Name:  util.EnvVarBaseUrl,
 			Value: podVars.BaseURL,
-		},
-		{
-			Name:  util.EnvVarProjectId,
-			Value: podVars.ProjectID,
 		},
 		{
 			Name:  util.EnvVarUser,
 			Value: podVars.User,
 		},
-		{
-			Name:  util.EnvVarMultiClusterMode,
-			Value: fmt.Sprintf("%t", opts.MultiClusterMode),
-		},
-	}
-
-	if opts.PodVars.SSLRequireValidMMSServerCertificates {
-		vars = append(vars,
-			corev1.EnvVar{
-				Name:  util.EnvVarSSLRequireValidMMSCertificates,
-				Value: strconv.FormatBool(opts.PodVars.SSLRequireValidMMSServerCertificates),
-			},
-		)
 	}
 
 	if opts.CustomAgentURL != "" {

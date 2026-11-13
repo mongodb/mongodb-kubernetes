@@ -35,9 +35,6 @@ tail -F -n0 "${MDB_LOG_FILE_BACKUP_AGENT}" 2> /dev/null | json_log 'backup-agent
 tail -F -n0 "${MDB_LOG_FILE_MONGODB}" 2> /dev/null | json_log 'mongodb' &
 tail -F -n0 "${MDB_LOG_FILE_MONGODB_AUDIT}" 2> /dev/null | json_log 'mongodb-audit' &
 
-# The path to the automation config file in case the agent is run in headless mode
-cluster_config_file="/var/lib/mongodb-automation/cluster-config.json"
-
 # file required by Automation Agents of authentication is enabled.
 touch "${MMS_DOWNLOAD_BASE}/keyfile"
 chmod 600 "${MMS_DOWNLOAD_BASE}/keyfile"
@@ -102,28 +99,15 @@ if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   fi
 fi
 
-# Start the Automation Agent
-agentOpts=(
-    "-mmsGroupId=${GROUP_ID-}"
-    "-pidfilepath=${MMS_HOME}/mongodb-mms-automation-agent.pid"
-    "-maxLogFileDurationHrs=24"
-    "-logLevel=${LOG_LEVEL:-INFO}"
-)
+agentOpts=(-f /etc/mongodb-agent/automation-agent.conf)
 
-# in multi-cluster mode we need to override the hostname with which, agents
-# registers itself, use service FQDN instead of POD FQDN, this mapping is mounted into
-# the pod using configmap
-hostpath="$(hostname)"
-
-# We apply the ephemeralPortOffset when using externalDomain in Single Cluster
-# or whenever Multi-Cluster is on.
-override_file="/opt/scripts/config/${hostpath}"
-if [[ -f "${override_file}" ]]; then
+# The hostname ConfigMap maps each pod name to its advertised service or external hostname.
+override_file="/opt/scripts/config/$(hostname)"
+if [[ ${MDB_AGENT_HOSTNAME_OVERRIDE+x} ]]; then
+  agentOpts+=("-overrideLocalHost=${MDB_AGENT_HOSTNAME_OVERRIDE}")
+elif [[ -f "${override_file}" ]]; then
   override="$(cat "${override_file}")"
   agentOpts+=("-overrideLocalHost=${override}")
-  agentOpts+=("-ephemeralPortOffset=1")
-elif [ "${MULTI_CLUSTER_MODE-}" = "true" ]; then
-  agentOpts+=("-ephemeralPortOffset=1")
 fi
 
 # Remove stale agent health status file if exists.
@@ -134,52 +118,11 @@ fi
 # and if it is stale we can quickly mark the container as ready, while in fact it is still booting up.
 rm -f "${MMS_LOG_DIR}/agent-health-status.json" 2>/dev/null || true
 
-agentOpts+=("-healthCheckFilePath=${MMS_LOG_DIR}/agent-health-status.json")
-if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
-  agentOpts+=("-useLocalMongoDbTools=true")
-else
-  agentOpts+=("-operatorMode=true")
-fi
-
-
-if [[ -n "${base_url}" ]]; then
-    agentOpts+=("-mmsBaseUrl=${base_url}")
-else
-    agentOpts+=("-cluster=${cluster_config_file}")
-    # we need to open the web server on localhost even though we don't use it - otherwise Agent doesn't
-    # produce status information at all (we need it in health file)
-    agentOpts+=("-serveStatusPort=5000")
-    script_log "Mongodb Agent is configured to run in \"headless\" mode using local config file"
-fi
-
 # We never set the -httpProxy flag.
 # Without the flag, the agent relies solely on standard environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
 # This avoids conflicts between environment settings and agent CLI parameters.
 # For reference, see the agent implementation:
 # https://github.com/10gen/mms-automation/blob/19f44a18cc089ec3734e2b496fdde82b124cd945/go_planner/src/com.tengen/cm/backup/commonbackup/connections.go#L158
-
-if [[ -n "${SSL_TRUSTED_MMS_SERVER_CERTIFICATE-}" ]]; then
-    agentOpts+=("-httpsCAFile=${SSL_TRUSTED_MMS_SERVER_CERTIFICATE}")
-fi
-
-if [[ "${SSL_REQUIRE_VALID_MMS_CERTIFICATES-}" != "false" ]]; then
-    # Only set this option when valid certs are required. The default is false
-    agentOpts+=("-tlsRequireValidMMSServerCertificates=true")
-else
-    agentOpts+=("-tlsRequireValidMMSServerCertificates=false")
-fi
-
-# we can't directly use readarray as this bash version doesn't support
-# the delimiter option
-splittedAgentFlags=();
-while read -rd,; do
-    splittedAgentFlags+=("${REPLY}")
-done <<<"${AGENT_FLAGS}";
-
-AGENT_API_KEY="$(cat "${MMS_HOME}"/agent-api-key/agentApiKey)"
-script_log "Launching automation agent with following arguments: ${agentOpts[*]} -mmsApiKey=${AGENT_API_KEY+<hidden>} ${splittedAgentFlags[*]}"
-
-agentOpts+=("-mmsApiKey=${AGENT_API_KEY-}")
 
 rm /tmp/mongodb-mms-automation-cluster-backup.json &> /dev/null || true
 
@@ -223,11 +166,12 @@ else
     exit 1
   fi
 
-  agentOpts+=("-binariesFixedPath=${MMS_DOWNLOAD_BASE}/mongod/bin")
 fi
 
+script_log "Launching automation agent"
+
 # Note, that we do logging in subshell - this allows us to save the correct PID to variable (not the logging one)
-"${AGENT_BINARY_PATH}" "${agentOpts[@]}" "${splittedAgentFlags[@]}" 2> >(json_log "automation-agent-stderr") >> >(json_log "automation-agent-stdout") &
+"${AGENT_BINARY_PATH}" "${agentOpts[@]}" 2> >(json_log "automation-agent-stderr") >> >(json_log "automation-agent-stdout") &
 
 export agentPid=$!
 script_log "Launched automation agent, pid=${agentPid}"
