@@ -51,6 +51,40 @@ def om_supports_oplog_object_lock(custom_version: Optional[str]) -> bool:
     return semver.VersionInfo.parse(custom_version) >= semver.VersionInfo.parse(OPLOG_OBJECT_LOCK_MIN_OM_VERSION)
 
 
+# Since OM 8.0.28 and 9.0.2 (CLOUDP-470804), OM reads the S3 object-lock settings from the
+# bucket itself. If we send values that disagree, it just logs a warning and ignores them
+# instead of returning a 400, so the backup never goes to Failed and the two negative-path
+# tests below can't pass anymore.
+#
+# MCK still sends the deprecated fields. KUBE-632 will fix that, and the tests should be
+# reworked then rather than just re-enabled.
+#
+# Not a plain `>= 8.0.28`: 9.0.0 and 9.0.1 don't have the change.
+OBJECT_LOCK_INPUT_IGNORED_8_0_MIN_OM_VERSION = "8.0.28"
+OBJECT_LOCK_INPUT_IGNORED_9_0_MIN_OM_VERSION = "9.0.2"
+
+
+def om_ignores_object_lock_input(custom_version: Optional[str]) -> bool:
+    """Whether this OM version warns and discards object-lock input instead of rejecting
+    it. See CLOUDP-470804 / KUBE-632."""
+    if custom_version is None:
+        return False
+    v = semver.VersionInfo.parse(custom_version)
+    is_8_0_with_change = (
+        semver.VersionInfo.parse(OBJECT_LOCK_INPUT_IGNORED_8_0_MIN_OM_VERSION)
+        <= v
+        < semver.VersionInfo.parse("9.0.0")
+    )
+    is_9_0_with_change = v >= semver.VersionInfo.parse(OBJECT_LOCK_INPUT_IGNORED_9_0_MIN_OM_VERSION)
+    return is_8_0_with_change or is_9_0_with_change
+
+
+OBJECT_LOCK_INPUT_IGNORED_SKIP_REASON = (
+    "Skipped on OM 8.0.28+/9.0.2+ (CLOUDP-470804): OM now ignores mismatching object-lock input "
+    "instead of failing the backup, so this test can't reach Failed. To be reworked in KUBE-632."
+)
+
+
 def feature_detect_retention(expected_store: Dict, actual_store: Dict) -> Dict:
     """OM returns the retention fields only on versions exposing the S3 object-lock
     retention API (8.0.27+ for snapshot stores, 8.0.28+ for oplog stores). Adds the
@@ -231,7 +265,9 @@ class TestOpsManagerCreation:
         ops_manager["spec"]["backup"]["s3OpLogStores"] = [s3_oplog_store]
         ops_manager.update()
 
-    def test_s3_bucket_validation_fails(self, ops_manager: MongoDBOpsManager):
+    def test_s3_bucket_validation_fails(self, ops_manager: MongoDBOpsManager, custom_version: Optional[str]):
+        if om_ignores_object_lock_input(custom_version):
+            skip(OBJECT_LOCK_INPUT_IGNORED_SKIP_REASON)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             timeout=500,
@@ -303,6 +339,8 @@ class TestOpsManagerCreation:
         # the retention fields: OM must reject this mismatch.
         if not om_supports_object_retention(custom_version):
             skip("bucket retention mismatch requires OM versions exposing the retention API (8.0.27+)")
+        if om_ignores_object_lock_input(custom_version):
+            skip(OBJECT_LOCK_INPUT_IGNORED_SKIP_REASON)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             # msg_regexp is matched with re.match (anchored at the message start); (?s)
