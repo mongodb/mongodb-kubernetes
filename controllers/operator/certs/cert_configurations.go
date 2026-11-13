@@ -252,6 +252,34 @@ func AppDBMultiClusterReplicaSetConfig(om *omv1.MongoDBOpsManager, scaler interf
 	return opts
 }
 
+// shardedComponentConfig returns the certificate options of one component of a sharded cluster: a
+// shard, the config server or the mongos. The three names that differ between the components come
+// from the caller: the StatefulSet the component runs under (which in a multi-cluster deployment is
+// per member cluster), the component's hostname base, and its service.
+func shardedComponentConfig(
+	mdb mdbv1.MongoDB,
+	resourceName, componentName, serviceName string,
+	externalDomain *string,
+	scaler interfaces.MultiClusterReplicaSetScaler,
+	mongodConfig *mdbv1.AdditionalMongodConfig,
+) Options {
+	return Options{
+		ResourceName:                 resourceName,
+		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(componentName),
+		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(componentName),
+		Namespace:                    mdb.Namespace,
+		Replicas:                     scale.ReplicasThisReconciliation(scaler),
+		MembersToCover:               max(scaler.CurrentReplicas(), scaler.DesiredReplicas()),
+		ServiceName:                  serviceName,
+		ClusterDomain:                mdb.Spec.GetClusterDomain(),
+		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
+		OwnerReference:               mdb.GetOwnerReferences(),
+		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
+		ExternalDomain:               externalDomain,
+		Topology:                     mdb.Spec.GetTopology(),
+	}
+}
+
 // ShardConfig returns a struct which provides all the configuration options required for the given shard.
 func ShardConfig(
 	mdb mdbv1.MongoDB,
@@ -356,21 +384,7 @@ func MongosConfig(
 		resourceName = mdb.MultiMongosRsName(scaler.MemberClusterNum())
 	}
 
-	return Options{
-		ResourceName:                 resourceName,
-		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.MongosRsName()),
-		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.MongosRsName()),
-		Namespace:                    mdb.Namespace,
-		Replicas:                     scale.ReplicasThisReconciliation(scaler),
-		MembersToCover:               max(scaler.CurrentReplicas(), scaler.DesiredReplicas()),
-		ServiceName:                  mdb.ServiceName(),
-		ClusterDomain:                mdb.Spec.GetClusterDomain(),
-		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
-		OwnerReference:               mdb.GetOwnerReferences(),
-		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
-		ExternalDomain:               externalDomain,
-		Topology:                     mdb.Spec.GetTopology(),
-	}
+	return shardedComponentConfig(mdb, resourceName, mdb.MongosRsName(), mdb.ServiceName(), externalDomain, scaler, mongodConfig)
 }
 
 // ConfigSrvConfig returns a struct which provides all of the configuration options required for the given ConfigServer.
@@ -380,19 +394,5 @@ func ConfigSrvConfig(mdb mdbv1.MongoDB, externalDomain *string, scaler interface
 		resourceName = mdb.MultiConfigRsName(scaler.MemberClusterNum())
 	}
 
-	return Options{
-		ResourceName:                 resourceName,
-		CertSecretName:               mdb.GetSecurity().MemberCertificateSecretName(mdb.ConfigRsName()),
-		InternalClusterSecretName:    mdb.GetSecurity().InternalClusterAuthSecretName(mdb.ConfigRsName()),
-		Namespace:                    mdb.Namespace,
-		Replicas:                     scale.ReplicasThisReconciliation(scaler),
-		MembersToCover:               max(scaler.CurrentReplicas(), scaler.DesiredReplicas()),
-		ServiceName:                  mdb.ConfigSrvServiceName(),
-		ClusterDomain:                mdb.Spec.GetClusterDomain(),
-		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
-		OwnerReference:               mdb.GetOwnerReferences(),
-		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
-		ExternalDomain:               externalDomain,
-		Topology:                     mdb.Spec.GetTopology(),
-	}
+	return shardedComponentConfig(mdb, resourceName, mdb.ConfigRsName(), mdb.ConfigSrvServiceName(), externalDomain, scaler, mongodConfig)
 }

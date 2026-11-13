@@ -2031,6 +2031,7 @@ func TestStatusWarningsAreStored(t *testing.T) {
 		assert.Empty(t, stored.Status.Warnings)
 	})
 }
+
 func TestLogAgentErrors(t *testing.T) {
 	tests := []struct {
 		name                string
