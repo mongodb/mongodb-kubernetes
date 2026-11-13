@@ -731,7 +731,13 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, secr
 		// over key.
 		delete(parameters, "mmsApiKey")
 	}
-	if err := reconcileAgentSettings(ctx, client, secretClient, &sts, cm, parameters, basePath, construct.ShouldEnableMonitoring(podVars)); err != nil {
+	err = reconcileAgentSettings(ctx, client, secretClient, &sts, agentSettingsInput{
+		configMap:       cm,
+		parameters:      parameters,
+		vaultBasePath:   basePath,
+		needsCredential: construct.ShouldEnableMonitoring(podVars),
+	})
+	if err != nil {
 		return nil, err
 	}
 	if err := preserveExistingVolumeClaimTemplateMetadata(ctx, client, &sts, log); err != nil {
