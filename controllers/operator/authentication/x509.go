@@ -93,13 +93,17 @@ func (x *connectionX509) DisableAgentAuthentication(ctx context.Context, conn om
 	}, log)
 }
 
+func (x *connectionX509) ApplyDeploymentAuthentication(ac *om.AutomationConfig, opts Options) {
+	if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
+		ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
+	}
+
+	ac.AgentSSL.CAFilePath = opts.CAFilePath
+}
+
 func (x *connectionX509) EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
-		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, util.AutomationConfigX509Option) {
-			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(MongoDBX509))
-		}
-
-		ac.AgentSSL.CAFilePath = opts.CAFilePath
+		x.ApplyDeploymentAuthentication(ac, opts)
 		return nil
 	}, log)
 }

@@ -18,6 +18,9 @@ type Mechanism interface {
 	EnableAgentAuthentication(ctx context.Context, client kubernetesClient.Client, conn om.Connection, opts Options, log *zap.SugaredLogger) error
 	DisableAgentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error
 	EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error
+	// ApplyDeploymentAuthentication enables this mechanism on an already read AutomationConfig.
+	// It lets a caller enable several mechanisms and write a single AutomationConfig version.
+	ApplyDeploymentAuthentication(ac *om.AutomationConfig, opts Options)
 	DisableDeploymentAuthentication(ctx context.Context, conn om.Connection, log *zap.SugaredLogger) error
 	// IsAgentAuthenticationConfigured should not rely on util.MergoDelete since the method is always
 	// called directly after deserializing the response from OM which should not contain the util.MergoDelete value in any field.
