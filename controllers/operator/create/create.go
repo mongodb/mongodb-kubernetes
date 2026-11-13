@@ -726,9 +726,9 @@ func AppDBInKubernetes(ctx context.Context, client kubernetesClient.Client, secr
 	}
 	parameters := construct.AgentSettingsOverrides(opsManager.Spec.AppDB.AutomationAgent.StartupParameters)
 	if construct.ShouldEnableMonitoring(podVars) {
-		// The legacy command appended the monitoring project and key after customer startup
-		// options, so the monitoring key wins over a raw key. A customer mmsApiKeyExec remains
-		// the credential source, matching the agent's exec-over-key preference.
+		// With monitoring on, the operator's monitoring key wins over a customer raw key. A
+		// customer mmsApiKeyExec remains the credential source, because the agent prefers exec
+		// over key.
 		delete(parameters, "mmsApiKey")
 	}
 	if err := reconcileAgentSettings(ctx, client, secretClient, &sts, cm, parameters, basePath, construct.ShouldEnableMonitoring(podVars)); err != nil {

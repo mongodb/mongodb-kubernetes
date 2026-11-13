@@ -386,15 +386,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 
 	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture))
 	agentArgs := []string{"-f", path.Join(AgentSettingsPath, AgentSettingsFileName)}
-	overrideLocalHost, hasOverrideLocalHost := AgentSettingsOverrides(appDb.AutomationAgent.StartupParameters)["overrideLocalHost"]
-	if externalDomain != nil {
-		overrideLocalHost = "$(POD_NAME)." + *externalDomain
-		hasOverrideLocalHost = true
-	} else if appDb.IsMultiCluster() {
-		overrideLocalHost = "$(POD_NAME)-svc.$(POD_NAMESPACE).svc." + appDb.GetClusterDomain()
-		hasOverrideLocalHost = true
-	}
-	if hasOverrideLocalHost {
+	if overrideLocalHost, ok := appDBOverrideLocalHost(appDb, externalDomain); ok {
 		agentArgs = append(agentArgs, "-overrideLocalHost="+overrideLocalHost)
 	}
 
@@ -539,6 +531,21 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 // IsEnterprise returns whether the set image in activated with the enterprise module.
 // By default, it should be true, but
 // for safety mechanisms we implement a backdoor to deactivate the enterprise AC feature.
+
+// appDBOverrideLocalHost returns the hostname the AppDB agent advertises. An external domain or a
+// multi-cluster deployment replaces a customer overrideLocalHost, because the operator registers
+// those hostnames in the automation config and the agent must match them.
+func appDBOverrideLocalHost(appDb *om.AppDBSpec, externalDomain *string) (string, bool) {
+	if externalDomain != nil {
+		return "$(POD_NAME)." + *externalDomain, true
+	}
+	if appDb.IsMultiCluster() {
+		return "$(POD_NAME)-svc.$(POD_NAMESPACE).svc." + appDb.GetClusterDomain(), true
+	}
+	customer, ok := AgentSettingsOverrides(appDb.AutomationAgent.StartupParameters)["overrideLocalHost"]
+	return customer, ok
+}
+
 func IsEnterprise() bool {
 	overrideAssumption, err := strconv.ParseBool(os.Getenv(mongoDBAssumeEnterpriseEnv)) // nolint:forbidigo
 	if err == nil {
