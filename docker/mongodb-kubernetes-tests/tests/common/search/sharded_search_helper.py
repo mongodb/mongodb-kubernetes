@@ -510,7 +510,8 @@ def shard_route_from_lds(namespace: str, mdbs_resource_name: str, shard_name: st
     """Return ``(target_cluster, request_headers)`` for the shard's Envoy filter
     chain from the LB config CM's lds.json. A pending shard routes to
     ``mongot_cluster_level_cluster`` with the routed_from_another_shard header; a
-    latched shard routes to its own ``mongot_<shard>_cluster`` with no header."""
+    latched shard routes to its own ``mongot_<shard>_cluster`` without it. Every route
+    also carries ``x-envoy-max-attempt-count``."""
     sni = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name)
     lds = json.loads(
         KubernetesTester.read_configmap(namespace, search_resource_names.lb_configmap_name(mdbs_resource_name))[
