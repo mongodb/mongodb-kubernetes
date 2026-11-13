@@ -22,11 +22,7 @@ const (
 	testInitImage    = "quay.io/mongodb/mongodb-kubernetes-init-database:1.0.0"
 )
 
-func proxyTestStatefulSet(
-	annotations map[string]string,
-	arch architectures.DefaultArchitecture,
-	proxyImage, mongodbImage, initDatabaseImage, customAgentURL string,
-) appsv1.StatefulSet {
+func proxyTestStatefulSet(annotations map[string]string, arch architectures.DefaultArchitecture, proxyImage string) appsv1.StatefulSet {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
 	mdb.Annotations = annotations
 	return DatabaseStatefulSet(*mdb, ReplicaSetOptions(
@@ -34,9 +30,8 @@ func proxyTestStatefulSet(
 		WithDefaultArchitecture(arch),
 		func(o *DatabaseStatefulSetOptions) {
 			o.MongodbProxyImage = proxyImage
-			o.MongodbImage = mongodbImage
-			o.InitDatabaseImage = initDatabaseImage
-			o.CustomAgentURL = customAgentURL
+			o.MongodbImage = testMongodbImage
+			o.InitDatabaseImage = testInitImage
 		},
 	), zap.S())
 }
@@ -57,14 +52,7 @@ func volumeByName(sts appsv1.StatefulSet, name string) (corev1.Volume, bool) {
 }
 
 func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
-	sts := proxyTestStatefulSet(
-		nil,
-		architectures.StaticGA,
-		testProxyImage,
-		testMongodbImage,
-		testInitImage,
-		"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-	)
+	sts := proxyTestStatefulSet(map[string]string{MongodbProxyAnnotation: "true"}, architectures.Static, testProxyImage)
 
 	t.Run("the pods do not share a process namespace", func(t *testing.T) {
 		assert.Nil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
@@ -81,40 +69,53 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		assert.Equal(t, testProxyImage, volume.Image.Reference)
 	})
 
-	t.Run("the agent container runs the launcher and probes from the init-database image", func(t *testing.T) {
+	t.Run("the agent container gets the MongoDB image and the proxy address", func(t *testing.T) {
 		agent := containerByName(t, sts, util.AgentContainerName)
-		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "static-ga"})
-		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "127.0.0.1:8099"})
-		assert.Contains(t, agent.Env, corev1.EnvVar{
-			Name: "AGENT_FLAGS",
-			Value: "-binariesFixedPath=/tools,-logFile=/var/log/mongodb-mms-automation/automation-agent.log," +
-				"-mongodProxyAddress=127.0.0.1:8099,",
-		})
-		assert.Equal(t, []string{"/mnt/init-database/scripts/agent-launcher.sh"}, agent.Command)
-		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{
-			Name:      "mongodb-init-database",
-			MountPath: "/mnt/init-database",
-			ReadOnly:  true,
-		})
-		require.NotNil(t, agent.LivenessProbe)
-		assert.Equal(t, []string{"/mnt/init-database/probes/probe.sh"}, agent.LivenessProbe.Exec.Command)
-		require.NotNil(t, agent.StartupProbe)
-		assert.Equal(t, []string{"/mnt/init-database/probes/probe.sh"}, agent.StartupProbe.Exec.Command)
-		require.NotNil(t, agent.ReadinessProbe)
-		assert.Equal(t, []string{"/mnt/init-database/probes/readinessprobe"}, agent.ReadinessProbe.Exec.Command)
+		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "unix:///var/run/mongodb-proxy/proxy.sock"})
+		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGOD_ROOT", Value: "/mnt/mongodb"})
+		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-binaries", MountPath: "/mnt/mongodb", ReadOnly: true})
+		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_INIT_ROOT", Value: "/mnt/init-database"})
+		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-init-database", MountPath: "/mnt/init-database", ReadOnly: true})
 
-		initVolume, hasInitVolume := volumeByName(sts, "mongodb-init-database")
-		require.True(t, hasInitVolume)
+		initVolume, found := volumeByName(sts, "mongodb-init-database")
+		require.True(t, found)
 		require.NotNil(t, initVolume.Image)
 		assert.Equal(t, testInitImage, initVolume.Image.Reference)
 
-		_, hasBinariesVolume := volumeByName(sts, "mongodb-binaries")
-		assert.False(t, hasBinariesVolume)
-		_, hasScriptsVolume := volumeByName(sts, "database-scripts")
-		assert.False(t, hasScriptsVolume)
+		volume, found := volumeByName(sts, "mongodb-binaries")
+		require.True(t, found)
+		require.NotNil(t, volume.Image)
+		assert.Equal(t, testMongodbImage, volume.Image.Reference)
+	})
 
+	t.Run("the proxy listens on a socket that only the agent and the database container mount", func(t *testing.T) {
+		socketMount := corev1.VolumeMount{Name: "mongodb-proxy-socket", MountPath: "/var/run/mongodb-proxy"}
+
+		mongod := containerByName(t, sts, util.DatabaseContainerName)
+		assert.Equal(t, []string{"-listen", "unix:///var/run/mongodb-proxy/proxy.sock"}, mongod.Args)
+		assert.Contains(t, mongod.VolumeMounts, socketMount)
+		assert.Contains(t, containerByName(t, sts, util.AgentContainerName).VolumeMounts, socketMount)
+
+		volume, found := volumeByName(sts, "mongodb-proxy-socket")
+		require.True(t, found)
+		require.NotNil(t, volume.EmptyDir, "the socket lives on an emptyDir")
+		require.NotNil(t, volume.EmptyDir.SizeLimit)
+		assert.Equal(t, "1Mi", volume.EmptyDir.SizeLimit.String())
+
+		// The operator mounts it in no other container. A container that the user adds is not the operator's.
+		mounting := 0
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			for _, m := range c.VolumeMounts {
+				if m.Name == "mongodb-proxy-socket" {
+					mounting++
+				}
+			}
+		}
+		assert.Equal(t, 2, mounting)
 		for _, c := range sts.Spec.Template.Spec.InitContainers {
-			assert.NotEqual(t, InitDatabaseContainerName, c.Name)
+			for _, m := range c.VolumeMounts {
+				assert.NotEqual(t, "mongodb-proxy-socket", m.Name, "init container %s", c.Name)
+			}
 		}
 	})
 
@@ -122,7 +123,6 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		for _, c := range sts.Spec.Template.Spec.Containers {
 			assert.NotEqual(t, util.AgentContainerUtilitiesName, c.Name)
 		}
-
 		assert.Len(t, sts.Spec.Template.Spec.Containers, 2)
 	})
 
@@ -133,61 +133,35 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 	})
 }
 
-func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
+func TestMongodbProxyIsOffUnlessAllConditionsHold(t *testing.T) {
 	for name, tc := range map[string]struct {
 		annotations map[string]string
 		arch        architectures.DefaultArchitecture
-		wantProxy   bool
+		proxyImage  string
 	}{
-		"static-ga default": {
-			annotations: nil,
-			arch:        architectures.StaticGA,
-			wantProxy:   true,
-		},
-		"legacy static remains unchanged": {
-			annotations: nil,
-			arch:        architectures.Static,
-			wantProxy:   false,
-		},
-		"non-static remains unchanged": {
-			annotations: nil,
-			arch:        architectures.NonStatic,
-			wantProxy:   false,
-		},
-		"resource annotation opts out": {
-			annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)},
-			arch:        architectures.StaticGA,
-			wantProxy:   false,
-		},
-		"legacy static annotation overrides static-ga default": {
-			annotations: map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)},
-			arch:        architectures.StaticGA,
-			wantProxy:   false,
-		},
+		"no annotation":                {nil, architectures.Static, testProxyImage},
+		"annotation is not true":       {map[string]string{MongodbProxyAnnotation: "false"}, architectures.Static, testProxyImage},
+		"no proxy image configured":    {map[string]string{MongodbProxyAnnotation: "true"}, architectures.Static, ""},
+		"non-static architecture":      {map[string]string{MongodbProxyAnnotation: "true"}, architectures.NonStatic, testProxyImage},
+		"resource opts out of static":  {map[string]string{MongodbProxyAnnotation: "true", architectures.ArchitectureAnnotation: string(architectures.NonStatic)}, architectures.Static, testProxyImage},
+		"annotation true, image empty": {map[string]string{MongodbProxyAnnotation: "true"}, architectures.Static, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			sts := proxyTestStatefulSet(
-				tc.annotations,
-				tc.arch,
-				testProxyImage,
-				testMongodbImage,
-				testInitImage,
-				"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-			)
+			sts := proxyTestStatefulSet(tc.annotations, tc.arch, tc.proxyImage)
 
 			_, hasProxyVolume := volumeByName(sts, "mongodb-proxy")
-			assert.Equal(t, tc.wantProxy, hasProxyVolume)
-			if tc.wantProxy {
-				mongodb := containerByName(t, sts, util.DatabaseContainerName)
-				agent := containerByName(t, sts, util.AgentContainerName)
-				assert.Equal(t, []string{"/mnt/proxy/proxy"}, mongodb.Command)
-				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "127.0.0.1:8099"})
-			} else {
-				for _, c := range sts.Spec.Template.Spec.Containers {
-					assert.NotEqual(t, []string{"/mnt/proxy/proxy"}, c.Command)
-					for _, e := range c.Env {
-						assert.NotEqual(t, "MDB_MONGODB_PROXY_ADDRESS", e.Name)
-					}
+			_, hasBinariesVolume := volumeByName(sts, "mongodb-binaries")
+			_, hasInitVolume := volumeByName(sts, "mongodb-init-database")
+			assert.False(t, hasProxyVolume)
+			assert.False(t, hasBinariesVolume)
+			assert.False(t, hasInitVolume)
+			_, hasSocketVolume := volumeByName(sts, "mongodb-proxy-socket")
+			assert.False(t, hasSocketVolume)
+			for _, c := range sts.Spec.Template.Spec.Containers {
+				assert.NotContains(t, c.Command, "/mnt/proxy/proxy")
+				for _, e := range c.Env {
+					assert.NotEqual(t, "MDB_MONGODB_PROXY_ADDRESS", e.Name)
+					assert.NotEqual(t, "MDB_INIT_ROOT", e.Name)
 				}
 			}
 		})
@@ -195,14 +169,7 @@ func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 }
 
 func TestStaticArchitectureWithoutTheProxyKeepsTheSharedProcessNamespace(t *testing.T) {
-	sts := proxyTestStatefulSet(
-		nil,
-		architectures.Static,
-		testProxyImage,
-		testMongodbImage,
-		testInitImage,
-		"https://example.com/mongodb-mms-automation-agent-1000.2.0.11583-1.rhel8_x86_64.tar.gz",
-	)
+	sts := proxyTestStatefulSet(nil, architectures.Static, testProxyImage)
 
 	require.NotNil(t, sts.Spec.Template.Spec.ShareProcessNamespace)
 	assert.True(t, *sts.Spec.Template.Spec.ShareProcessNamespace)

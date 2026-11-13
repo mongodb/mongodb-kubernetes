@@ -62,6 +62,17 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
+// onlyIn is the policy of a test: every kind of path has to be in dir (the temporary directory of the test).
+func onlyIn(dir string) PathPolicy {
+	return PathPolicy{ConfigDirs: []string{dir}, LogDirs: []string{dir}, FileDirs: []string{dir}}
+}
+
+// anyFiles opens log files without any restriction. The tests of the tail use it; the supervisor uses belowDirs.
+type anyFiles struct{}
+
+func (anyFiles) open(path string) (*os.File, error)    { return os.Open(path) } //nolint:gosec
+func (anyFiles) stat(path string) (os.FileInfo, error) { return os.Stat(path) }
+
 type fixture struct {
 	t      *testing.T
 	sup    *Supervisor
@@ -77,7 +88,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, binaryNumactl), []byte(fakeNumactl), 0o755)) //nolint:gosec
 	stdout := &syncBuffer{}
-	sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(stdout, stdout))
+	sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(stdout, stdout), WithPathPolicy(onlyIn(dir)))
 	t.Cleanup(func() {
 		// make sure no child outlives the test
 		_ = sup.Stop(context.Background(), "", 0, true)
@@ -192,7 +203,7 @@ func TestStartFailures(t *testing.T) {
 	}
 
 	t.Run("binary not found", func(t *testing.T) {
-		sup := NewSupervisor(WithEnv(testEnv), WithBinDir(t.TempDir()))
+		sup := NewSupervisor(WithEnv(testEnv), WithBinDir(t.TempDir()), WithPathPolicy(onlyIn(f.dir)))
 		_, err := sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain})
 		assert.ErrorIs(t, err, ErrSpawn)
 		assert.Equal(t, StateIdle, sup.Status().State)
@@ -205,15 +216,16 @@ func TestTypedSettingsAreTurnedIntoEnvironment(t *testing.T) {
 		ConfigPath: f.config("main", "env"),
 		Role:       RoleMain,
 		Other: Other{
-			KerberosKeytab: "/data/krb5.keytab",
-			LdapCaPath:     "/data/ldap-ca.pem",
+			KerberosKeytab: filepath.Join(f.dir, "krb5.keytab"),
+			LdapCaPath:     filepath.Join(f.dir, "ldap-ca.pem"),
 			RseqDisabled:   true,
 		},
 	})
 	require.NoError(t, err)
 	waitDone(t, e)
 	assert.Contains(t, f.sup.Status().Output,
-		"KRB5_KTNAME=/data/krb5.keytab LDAPTLS_CACERT=/data/ldap-ca.pem GLIBC_TUNABLES=glibc.pthread.rseq=0 SET_THP_DISABLED=")
+		"KRB5_KTNAME="+filepath.Join(f.dir, "krb5.keytab")+" LDAPTLS_CACERT="+filepath.Join(f.dir, "ldap-ca.pem")+
+			" GLIBC_TUNABLES=glibc.pthread.rseq=0 SET_THP_DISABLED=")
 }
 
 func TestTypedSettingsAreTurnedIntoFlags(t *testing.T) {
@@ -338,10 +350,14 @@ func TestConfigWithoutForkIsNotRejected(t *testing.T) {
 		"not yaml":   "{{{ not yaml",
 	} {
 		t.Run(name, func(t *testing.T) {
-			assert.NoError(t, rejectFork(writeConfig(t, f.dir, config)))
+			facts, err := onlyIn(f.dir).readConfig(writeConfig(t, f.dir, config))
+			require.NoError(t, err)
+			assert.NoError(t, facts.rejectFork("x.conf"))
 		})
 	}
-	assert.NoError(t, rejectFork(filepath.Join(f.dir, "missing.conf")), "a missing file is left to mongod")
+	facts, err := onlyIn(f.dir).readConfig(filepath.Join(f.dir, "missing.conf"))
+	require.NoError(t, err, "a missing file is left to mongod")
+	assert.NoError(t, facts.rejectFork("missing.conf"))
 }
 
 func writeConfig(t *testing.T, dir, content string) string {
