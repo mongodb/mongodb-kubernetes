@@ -28,8 +28,23 @@ const (
 
 // AppDBAgentSettingsConfigMap preserves AppDB defaults independently of database defaults.
 func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, podVars *env.PodEnvVars) (corev1.ConfigMap, error) {
-	parameters := appDB.AutomationAgent.StartupParameters
-	agent := AgentContainer(sts)
+	settings := appdbBaseSettings(appDB)
+	customer, rawKeyOverride := appdbCustomerSettings(appDB.AutomationAgent.StartupParameters, AgentContainer(sts))
+	maps.Copy(settings, customer)
+	// With monitoring on, the operator's project wins over a customer mmsGroupId. A customer
+	// mmsApiKeyExec still wins over the generated one, because the agent runs the exec command in
+	// preference to mmsApiKey.
+	monitoring := ShouldEnableMonitoring(podVars)
+	if monitoring {
+		settings["mmsGroupId"] = podVars.ProjectID
+	}
+	if (monitoring || rawKeyOverride) && settings[agentAPIKeyExecSetting] == "" {
+		settings[agentAPIKeyExecSetting] = agentAPIKeyExecCommand()
+	}
+	return agentSettingsConfigMap(sts, settings)
+}
+
+func appdbBaseSettings(appDB *omv1.AppDBSpec) mdbv1.StartupParameters {
 	settings := mdbv1.StartupParameters{
 		"cluster":              appdbClusterFilePath,
 		"healthCheckFilePath":  appdbAgentHealthStatusFilePathValue,
@@ -43,39 +58,40 @@ func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, 
 		settings["logFile"] = logFile
 		settings["maxLogFileDurationHrs"] = strconv.Itoa(appDB.GetAgentMaxLogFileDurationHours())
 	}
-	// Match the database merge: an empty mmsBaseUrl or mmsApiKeyExec cannot mean "set this to empty".
-	overrides := AgentSettingsOverrides(parameters)
-	maps.DeleteFunc(overrides, func(key, value string) bool {
-		return value == "" && (key == "mmsBaseUrl" || key == agentAPIKeyExecSetting)
-	})
-	_, rawKeyOverride := overrides[agentAPIKeySetting]
-	for key, value := range overrides {
-		if key == agentAPIKeySetting || key == "overrideLocalHost" {
-			continue
+	return settings
+}
+
+// appdbCustomerSettings returns the customer startupOptions as settings file values, and whether
+// the customer set a raw mmsApiKey, which is never written to the file.
+func appdbCustomerSettings(parameters mdbv1.StartupParameters, agent *corev1.Container) (mdbv1.StartupParameters, bool) {
+	customer := mdbv1.StartupParameters{}
+	rawKeyOverride := false
+	for key, value := range AgentSettingsOverrides(parameters) {
+		switch {
+		case key == agentAPIKeySetting:
+			rawKeyOverride = true
+		case key == "overrideLocalHost" || ignoredEmptyAgentOverride(key, value):
+		default:
+			customer[key] = appdbCustomerValue(key, value, agent)
 		}
-		// A customer mmsApiKeyExec is a shell command for the agent. Expanding variables here
-		// would substitute the operator view and corrupt the command.
-		if key != agentAPIKeyExecSetting {
-			if value == "" {
-				// An empty value means true. The settings file has no type information, so a
-				// boolean option written without a value keeps that meaning.
-				value = "true"
-			} else if agent != nil {
-				value = expandLiteralShellVariables(value, *agent)
-			}
-		}
-		settings[key] = value
 	}
-	// With monitoring on, the operator's project wins over a customer mmsGroupId. A customer
-	// mmsApiKeyExec still wins over the generated one, because the agent runs the exec command in
-	// preference to mmsApiKey.
-	if ShouldEnableMonitoring(podVars) {
-		settings["mmsGroupId"] = podVars.ProjectID
+	return customer, rawKeyOverride
+}
+
+func appdbCustomerValue(key, value string, agent *corev1.Container) string {
+	// A customer mmsApiKeyExec is a shell command for the agent. Expanding variables here
+	// would substitute the operator view and corrupt the command.
+	if key == agentAPIKeyExecSetting {
+		return value
 	}
-	if (ShouldEnableMonitoring(podVars) || rawKeyOverride) && settings[agentAPIKeyExecSetting] == "" {
-		settings[agentAPIKeyExecSetting] = agentAPIKeyExecCommand()
+	// The settings file has no type information, so a bare boolean flag keeps its "true" meaning.
+	if value == "" {
+		return "true"
 	}
-	return agentSettingsConfigMap(sts, settings)
+	if agent == nil {
+		return value
+	}
+	return expandLiteralShellVariables(value, *agent)
 }
 
 var shellVariableRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)

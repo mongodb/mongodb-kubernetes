@@ -101,7 +101,7 @@ func resolveAgentSettings(base mdbv1.StartupParameters, agentConfig *mdbv1.Agent
 		// An empty mmsBaseUrl must not leave the settings file with neither mmsBaseUrl nor the
 		// headless cluster/serveStatusPort keys, because the agent would have no usable mode.
 		for key, value := range AgentSettingsOverrides(agentConfig.StartupParameters) {
-			if value == "" && (key == "mmsBaseUrl" || key == agentAPIKeyExecSetting) {
+			if ignoredEmptyAgentOverride(key, value) {
 				continue
 			}
 			settings[key] = value
@@ -208,4 +208,10 @@ func agentSettingsConfigMap(sts appsv1.StatefulSet, settings mdbv1.StartupParame
 		},
 		Data: map[string]string{AgentSettingsFileName: content},
 	}, nil
+}
+
+// ignoredEmptyAgentOverride reports a customer option that cannot mean "set this to empty",
+// because the agent would lose its connection mode or credential.
+func ignoredEmptyAgentOverride(key, value string) bool {
+	return value == "" && (key == "mmsBaseUrl" || key == agentAPIKeyExecSetting)
 }
