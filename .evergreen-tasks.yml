@@ -564,7 +564,22 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_sharded_cluster_tls_managedcert_rotation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_replica_set_tls_managedcert_internal_auth_keyfile
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_managedcert_ca_rotation
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_managedcert_issuer_ca_rotation
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -978,6 +993,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_om_ops_manager_queryable_backup_managedcert_rotation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_om_feature_controls
     tags: [ "patch-run" ]
     commands:
@@ -1056,6 +1076,16 @@ tasks:
       - func: e2e_test
 
   - name: e2e_om_ops_manager_managedcert_rotation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_managedcert_renewal
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_managedcert_rotation_edge_cases
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1250,7 +1280,17 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_managed_certificate_multi_cluster_sharded_rotation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_managed_certificate_multi_cluster_rs_prerequisites
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_managed_certificate_multi_cluster_rs_rotation
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

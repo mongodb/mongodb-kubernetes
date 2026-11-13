@@ -1168,9 +1168,12 @@ task_groups:
       - e2e_replica_set_tls_managedcert_server
       - e2e_replica_set_tls_managedcert_both_configured
       - e2e_replica_set_tls_managedcert_internal_auth_keyfile
+      - e2e_replica_set_tls_managedcert_ca_rotation
+      - e2e_replica_set_tls_managedcert_issuer_ca_rotation
       - e2e_replica_set_tls_managedcert_external_domain
       - e2e_replica_set_tls_managedcert_withhold_client_cert
       - e2e_sharded_cluster_tls_managedcert
+      - e2e_sharded_cluster_tls_managedcert_rotation
       - e2e_managed_certificate_prerequisites
       - e2e_replica_set_tls_managedcert_legacy_migration
       - e2e_sharded_cluster_tls_managedcert_legacy_migration
@@ -1231,7 +1234,9 @@ task_groups:
       - e2e_managed_certificate_multi_cluster_rs
       - e2e_managed_certificate_multi_cluster_rs_legacy_migration
       - e2e_managed_certificate_multi_cluster_sharded
+      - e2e_managed_certificate_multi_cluster_sharded_rotation
       - e2e_managed_certificate_multi_cluster_rs_prerequisites
+      - e2e_managed_certificate_multi_cluster_rs_rotation
       - e2e_multi_cluster_tls_no_mesh
       - e2e_multi_cluster_enable_tls
       - e2e_multi_cluster_clusterwide
@@ -1507,6 +1512,8 @@ task_groups:
       - e2e_om_ops_manager_managedcert_appdb_issuer
       - e2e_om_ops_manager_managedcert_both_issuers
       - e2e_om_ops_manager_managedcert_rotation
+      - e2e_om_ops_manager_managedcert_renewal
+      - e2e_om_ops_manager_managedcert_rotation_edge_cases
       - e2e_om_ops_manager_scale
       - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
@@ -1550,6 +1557,8 @@ task_groups:
       - e2e_om_ops_manager_managedcert_appdb_issuer
       - e2e_om_ops_manager_managedcert_both_issuers
       - e2e_om_ops_manager_managedcert_rotation
+      - e2e_om_ops_manager_managedcert_renewal
+      - e2e_om_ops_manager_managedcert_rotation_edge_cases
       - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
@@ -1592,6 +1601,7 @@ task_groups:
       - e2e_om_ops_manager_queryable_backup
       - e2e_om_ops_manager_queryable_backup_managedcert
       - e2e_om_ops_manager_queryable_backup_managedcert_issuer
+      - e2e_om_ops_manager_queryable_backup_managedcert_rotation
       - e2e_om_ops_manager_backup
 
   # TODO (CLOUDP-346008): Remove this task group once the issue with queryable backup task is resolved in OM8
