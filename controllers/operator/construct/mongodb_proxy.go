@@ -42,16 +42,23 @@ const (
 	mongodbInitDatabaseVolumeName = "mongodb-init-database"
 	mongodbInitDatabaseMountPath  = "/mnt/init-database"
 
+	// The agent runs the launcher and the probes from the mounted init-database image.
+	staticGAAgentLauncherPath  = mongodbInitDatabaseMountPath + "/scripts/agent-launcher.sh"
+	staticGAProbePath          = mongodbInitDatabaseMountPath + "/probes/probe.sh"
+	staticGAReadinessProbePath = mongodbInitDatabaseMountPath + "/probes/readinessprobe"
+
 	// Environment variables of the agent container, read by agent-launcher.sh and by the scripts of the agent
 	// image (setup-agent-files.sh and the probes).
 	mongodbProxyAddressEnv = "MDB_MONGODB_PROXY_ADDRESS"
 	mongodRootEnv          = "MDB_MONGOD_ROOT"
 	initRootEnv            = "MDB_INIT_ROOT"
+
+	proxyAnnotationTrue = "true"
 )
 
 // usesMongodbProxy reports whether the StatefulSet runs mongod/mongos through the proxy.
 func (d DatabaseStatefulSetOptions) usesMongodbProxy(mdb databaseStatefulSetSource) bool {
-	return mdb.GetAnnotations()[MongodbProxyAnnotation] == "true" &&
+	return mdb.GetAnnotations()[MongodbProxyAnnotation] == proxyAnnotationTrue &&
 		architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), d.DefaultArchitecture) &&
 		d.MongodbProxyImage != ""
 }
@@ -59,7 +66,7 @@ func (d DatabaseStatefulSetOptions) usesMongodbProxy(mdb databaseStatefulSetSour
 // warnIfMongodbProxyIsIgnored logs the cases in which the annotation is set but the StatefulSet is built
 // without the proxy, because there is no error path to report them on.
 func (d DatabaseStatefulSetOptions) warnIfMongodbProxyIsIgnored(mdb databaseStatefulSetSource, log *zap.SugaredLogger) {
-	if mdb.GetAnnotations()[MongodbProxyAnnotation] != "true" || d.usesMongodbProxy(mdb) {
+	if mdb.GetAnnotations()[MongodbProxyAnnotation] != proxyAnnotationTrue || d.usesMongodbProxy(mdb) {
 		return
 	}
 	if !architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), d.DefaultArchitecture) {

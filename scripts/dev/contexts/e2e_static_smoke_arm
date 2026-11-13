@@ -15,4 +15,7 @@ export CUSTOM_OM_VERSION
 export CUSTOM_MDB_VERSION=7.0.22 # we only have ibm static images starting with 7.0.22
 export KUBE_ENVIRONMENT_NAME=kind
 export CLUSTER_TYPE=kind
-export MDB_DEFAULT_ARCHITECTURE=static
+# TODO(KUBE-530): static-ga smoke runs the released Agent, which the proxy
+# contract does not validate. Move back to static or pin a validated Agent per
+# platform before enabling static-ga smoke.
+export MDB_DEFAULT_ARCHITECTURE=static-ga

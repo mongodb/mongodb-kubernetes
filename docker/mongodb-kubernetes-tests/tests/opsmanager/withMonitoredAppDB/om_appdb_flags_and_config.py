@@ -130,7 +130,7 @@ def test_appdb_has_changed_agent_flags(ops_manager: MongoDBOpsManager, namespace
     MMS_AUTOMATION_AGENT_PGREP = [
         "/bin/sh",
         "-c",
-        "pgrep -f -a agent/mongodb-agent",
+        "pgrep -f -a '/mongodb-agent( |$)'",
     ]
     for api_client, pod in ops_manager.read_appdb_pods():
         result = KubernetesTester.run_command_in_pod_container(

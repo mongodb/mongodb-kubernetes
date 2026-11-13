@@ -78,18 +78,84 @@ def is_multi_cluster():
 
 
 def is_default_architecture_static() -> bool:
-    return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static") == "static"
+    return get_default_architecture() in {"static", "static-ga"}
 
 
 def assert_container_count_with_static(current_container_count: int, expected_counter_without_static: int):
+    # AppDB pods add the mongodb-agent-operator-utilities container in both static architectures.
     if is_default_architecture_static():
         assert current_container_count == expected_counter_without_static + 1
     else:
         assert current_container_count == expected_counter_without_static
 
 
+def assert_database_pod_container_count(current_container_count: int):
+    """Database pod containers per architecture: legacy static 4, static-ga 3, non-static 2.
+
+    Legacy static adds the mongodb-agent-operator-utilities container. Static-ga mounts that image into the agent
+    container and passes the proxy as an image volume, so only an injected sidecar separates it from non-static.
+    """
+    architecture = get_default_architecture()
+    expected = {"static": 4, "static-ga": 3}.get(architecture, 2)
+    assert current_container_count == expected, (current_container_count, expected, architecture)
+
+
 def get_default_architecture() -> str:
-    return "static" if is_default_architecture_static() else "non-static"
+    return os.getenv("MDB_DEFAULT_ARCHITECTURE", "non-static")
+
+
+def configured_proxy_image(config: dict[str, str]) -> str:
+    return (
+        f'{config["registry.mongodbProxy"]}/{config["mongodbProxy.name"]}:'
+        f'{config["mongodbProxy.version"]}{config.get("build", "")}'
+    )
+
+
+CUSTOM_ENV_VARS_SEPARATOR = r"\&"
+
+
+def with_custom_env_var(config: dict[str, str], name: str, value: str) -> dict[str, str]:
+    """Add one operator custom environment variable and keep the ones the config already carries.
+
+    The Helm value ``customEnvVars`` holds the whole list in one string, separated by "\\&". A caller that wants one
+    extra variable must merge instead of replacing the list, or it silently drops markers another fixture set.
+    """
+    entries: dict[str, str] = {}
+    order: list[str] = []
+    for entry in (config.get("customEnvVars") or "").split(CUSTOM_ENV_VARS_SEPARATOR):
+        entry = entry.strip()
+        if not entry:
+            continue
+        key = entry.split("=", 1)[0]
+        if key not in entries:
+            order.append(key)
+        entries[key] = entry
+    if name not in entries:
+        order.append(name)
+    entries[name] = f"{name}={value}"
+    config["customEnvVars"] = CUSTOM_ENV_VARS_SEPARATOR.join(entries[key] for key in order)
+    return config
+
+
+def released_agent_config(config: dict[str, str]) -> dict[str, str]:
+    """Start official-operator upgrade tests on the released agent and legacy static.
+
+    The last released chart predates static-ga and may predate the proxy-capable agent.
+    """
+    config = config.copy()
+    config["agent.customAgentUrl"] = ""
+    if config.get("operator.mdbDefaultArchitecture") == "static-ga":
+        config["operator.mdbDefaultArchitecture"] = "static"
+    return config
+
+
+def get_migration_target_architecture() -> str:
+    architecture = get_default_architecture()
+    if architecture == "non-static":
+        return "static-ga"
+    if architecture in {"static", "static-ga"}:
+        return "non-static"
+    raise ValueError(f"unsupported default architecture: {architecture}")
 
 
 def get_default_image_type() -> str:
@@ -102,29 +168,67 @@ def get_default_appdb_image_type() -> str:
     return os.getenv("MDB_DEFAULT_IMAGE_TYPE") or ("ubi9" if is_default_architecture_static() else "ubi8")
 
 
-def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):
+def assert_statefulset_architecture(statefulset: client.V1StatefulSet | client.V1Pod, architecture: str):
     """
     Asserts that the statefulset is configured with the expected architecture.
     """
-    agent_container = next((c for c in statefulset.spec.template.spec.containers if c.name == "mongodb-agent"), None)
+    pod_spec = statefulset.spec if isinstance(statefulset, client.V1Pod) else statefulset.spec.template.spec
+    containers = pod_spec.containers
+    agent_container = next((c for c in containers if c.name == "mongodb-agent"), None)
+    database_container = next((c for c in containers if c.name == "mongodb-enterprise-database"), None)
     if architecture == "non-static":
-        # In non-static architecture expect agent container to not be present
         assert agent_container is None
-    else:
-        # In static architecture we expect agent container to be present
-        # and contain static environment variable which
-        # instructs the agent launcher script to not download binaries
+        assert database_container is not None
+        assert database_container.command == ["/opt/scripts/agent-launcher.sh"]
+        assert not any(volume.name == "mongodb-proxy" for volume in pod_spec.volumes or [])
+        return
+
+    if architecture == "static":
+        # The released operator predates static-ga. It labels its resources "static",
+        # runs the agent from the agent image and shares the pod process namespace.
         assert agent_container is not None
         static_env_var = next(
             (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
         )
         assert static_env_var is not None and static_env_var.value == "true"
+        assert pod_spec.share_process_namespace is True
+        assert not any(volume.name == "mongodb-proxy" for volume in pod_spec.volumes or [])
+        return
+
+    assert architecture == "static-ga"
+    assert agent_container is not None
+    static_env_var = next(
+        (env for env in agent_container.env if env.name == "MDB_STATIC_CONTAINERS_ARCHITECTURE"), None
+    )
+    assert static_env_var is not None and static_env_var.value == "static-ga"
+    assert agent_container.command == ["/mnt/init-database/scripts/agent-launcher.sh"]
+    assert database_container is not None
+    assert database_container.command == ["/mnt/proxy/proxy"]
+    assert pod_spec.share_process_namespace is not True
+    init_containers = {container.name for container in pod_spec.init_containers or []}
+    assert "mongodb-kubernetes-init-database" not in init_containers
+    init_database_volume = next(
+        (volume for volume in pod_spec.volumes or [] if volume.name == "mongodb-init-database"), None
+    )
+    assert init_database_volume is not None and init_database_volume.image is not None
+    assert init_database_volume.image.reference
+    assert not any(volume.name == "database-scripts" for volume in pod_spec.volumes or [])
+    proxy_volume = next((volume for volume in pod_spec.volumes or [] if volume.name == "mongodb-proxy"), None)
+    assert proxy_volume is not None and proxy_volume.image is not None
+    assert proxy_volume.image.reference
+    proxy_address = next((env for env in agent_container.env if env.name == "MDB_MONGODB_PROXY_ADDRESS"), None)
+    assert proxy_address is not None and proxy_address.value == "127.0.0.1:8099"
 
 
-skip_if_static_containers = pytest.mark.skipif(
-    is_default_architecture_static(),
-    reason="Skip if this test is executed using the Static Containers architecture",
-)
+def _static_container_skip_marker():
+    return pytest.mark.skipif(
+        get_default_architecture() == "static",
+        reason="Skip if this test is executed using the legacy Static Containers architecture",
+    )
+
+
+skip_if_static_containers = _static_container_skip_marker()
+
 
 skip_if_local = pytest.mark.skipif(running_locally(), reason="Only run in Kubernetes cluster")
 skip_if_multi_cluster = pytest.mark.skipif(is_multi_cluster(), reason="Only run in Kubernetes single cluster")
@@ -135,6 +239,25 @@ SLEEP_TIME = 2
 INFINITY = -1
 
 
+def statefulset_pods(statefulset, namespace: str, api_client=None) -> list:
+    """The pods this StatefulSet owns: selector match, own name prefix and own ownerReference UID."""
+    selector = statefulset.spec.selector
+    labels = (selector.match_labels if selector is not None else None) or {}
+    assert labels, f"StatefulSet {statefulset.metadata.name} has no spec.selector.matchLabels"
+    label_selector = ",".join(f"{key}={value}" for key, value in sorted(labels.items()))
+    pods = client.CoreV1Api(api_client=api_client).list_namespaced_pod(namespace, label_selector=label_selector).items
+    prefix = f"{statefulset.metadata.name}-"
+    return [
+        pod
+        for pod in pods
+        if pod.metadata.name.startswith(prefix)
+        and any(
+            owner.kind == "StatefulSet" and owner.uid == statefulset.metadata.uid
+            for owner in pod.metadata.owner_references or []
+        )
+    ]
+
+
 class KubernetesTester(object):
     """
     KubernetesTester is the base class for all python tests. It deliberately doesn't have object state
@@ -143,6 +266,98 @@ class KubernetesTester(object):
     The class provides some common utility methods used by all children and also performs some common
     create/update/delete actions for Kubernetes objects based on the docstrings of subclasses
     """
+
+    @staticmethod
+    def read_processes(pod: str, namespace: str, container: str, api_client=None) -> list[str]:
+        output = KubernetesTester.run_command_in_pod_container(
+            pod,
+            namespace,
+            ["bash", "-c", 'for p in /proc/[0-9]*; do cat "$p/comm" 2>/dev/null; done'],
+            container=container,
+            api_client=api_client,
+        )
+        return [line.strip() for line in output.splitlines() if line.strip()]
+
+    @staticmethod
+    def query_proxy(pod: str, namespace: str, api_client=None) -> dict:
+        output = KubernetesTester.run_command_in_pod_container(
+            pod,
+            namespace,
+            [
+                "bash",
+                "-c",
+                "exec 3<>/dev/tcp/127.0.0.1/8099; "
+                "printf 'GET /v1/process HTTP/1.0\\r\\nHost: proxy\\r\\n\\r\\n' >&3; cat <&3",
+            ],
+            container="mongodb-agent",
+            api_client=api_client,
+        )
+        headers, body = output.replace("\r\n", "\n").split("\n\n", 1)
+        assert re.match(r"HTTP/1\.[01] 200(?: |$)", headers), headers
+        return json.loads(body)
+
+    @staticmethod
+    def assert_static_ga_pods(
+        statefulset,
+        namespace: str,
+        api_client=None,
+        timeout: Optional[int] = None,
+    ):
+        """Assert that the pods of a static-ga StatefulSet converged.
+
+        This is the generic convergence contract that functional tests share: the expected pods exist, are owned
+        by the StatefulSet and reach the expected readiness. Proxy acceptance is not part of it. The candidate
+        Agent image and executable, the proxy image volume, the proxy API and the process separation are asserted
+        by the dedicated test in tests/replicaset/replica_set_mongodb_proxy.py.
+        """
+        replicas = statefulset.spec.replicas
+        assert replicas > 0, f"StatefulSet {statefulset.metadata.name} has no replicas"
+        expected_names = {f"{statefulset.metadata.name}-{index}" for index in range(replicas)}
+        converged: dict = {}
+
+        def final_state() -> tuple:
+            """The complete condition, so a transient Ready flip cannot be observed by a later single read."""
+            problems = []
+            observed = {}
+            for pod in statefulset_pods(statefulset, namespace, api_client):
+                if pod.metadata.deletion_timestamp is not None:
+                    # A lower ordinal after a scale-down, or a pod that is going away.
+                    continue
+                if pod.metadata.name not in expected_names:
+                    problems.append(f"{pod.metadata.name}: unexpected owned pod")
+                    continue
+                if pod.status.phase != "Running":
+                    problems.append(f"{pod.metadata.name}: phase {pod.status.phase}")
+                    continue
+                if not any(item.type == "Ready" and item.status == "True" for item in pod.status.conditions or []):
+                    problems.append(f"{pod.metadata.name}: not ready")
+                    continue
+                observed[pod.metadata.name] = pod
+            for name in sorted(expected_names - observed.keys()):
+                problems.append(f"{name}: absent")
+            if not problems:
+                converged.clear()
+                converged.update(observed)
+            return not problems, "; ".join(problems)
+
+        if timeout is None:
+            timeout = 300
+        run_periodically(
+            final_state,
+            timeout=timeout,
+            sleep_time=3,
+            msg=f"StatefulSet {statefulset.metadata.name} pods ready",
+        )
+
+        for index in range(replicas):
+            name = f"{statefulset.metadata.name}-{index}"
+            # The pod objects are the ones the successful poll observed: a second read could catch the next
+            # readiness transition of the agent and fail an assertion the poll already proved.
+            pod = converged[name]
+            assert pod.metadata.deletion_timestamp is None, name
+            assert any(owner.uid == statefulset.metadata.uid for owner in pod.metadata.owner_references or []), name
+            assert pod.status.phase == "Running", name
+            assert any(item.type == "Ready" and item.status == "True" for item in pod.status.conditions or []), name
 
     init = None
     group_id = None
@@ -1733,6 +1948,11 @@ def ensure_ent_version(mdb_version: str) -> str:
 
 
 @TRACER.start_as_current_span("wait_processes_ready")
+def automation_process_name(namespace: str, pod: str) -> str:
+    """The process name Ops Manager and the agent use for a pod: ``k8s/<namespace>/<pod>``."""
+    return f"k8s/{namespace}/{pod}"
+
+
 def wait_processes_ready():
     # Get current automation status
     def processes_are_ready():

@@ -2637,6 +2637,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -2679,6 +2680,7 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),
@@ -2723,6 +2725,7 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 		WithMongodbImage(images.GetOfficialImage(r.imageUrls, sc.Spec.Version, sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType)),
 
 		WithMongodbProxyImage(images.MongodbProxyImage(r.imageUrls)),
+
 		WithAgentDebug(r.agentDebug),
 		WithAgentDebugImage(r.agentDebugImage),
 		WithDefaultArchitecture(r.defaultArchitecture),

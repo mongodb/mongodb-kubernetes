@@ -253,6 +253,28 @@ func TestNumaInterleaveRunsUnderNumactl(t *testing.T) {
 	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
 }
 
+func TestNumaPolicyAutoRunsUnderNumactl(t *testing.T) {
+	f := newFixture(t)
+	cfg := f.config("main", "args")
+	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaPolicy: "auto"}})
+	require.NoError(t, err)
+	waitDone(t, e)
+	out := f.sup.Status().Output
+	assert.Contains(t, out, "numactl --interleave=all")
+	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
+}
+
+func TestUnknownNumaPolicyStartsWithoutNumactl(t *testing.T) {
+	f := newFixture(t)
+	cfg := f.config("main", "args")
+	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaPolicy: "future-policy"}})
+	require.NoError(t, err)
+	waitDone(t, e)
+	out := f.sup.Status().Output
+	assert.NotContains(t, out, "numactl")
+	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
+}
+
 func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
 	f := newFixture(t)
 	cfg := f.config("main", "run")

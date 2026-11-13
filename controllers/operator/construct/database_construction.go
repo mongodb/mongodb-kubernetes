@@ -120,8 +120,7 @@ type DatabaseStatefulSetOptions struct {
 	InitDatabaseImage      string
 	DatabaseNonStaticImage string
 	MongodbImage           string
-	// MongodbProxyImage is the full reference of the mongodb-proxy image. The proxy runs mongod/mongos only
-	// for resources that carry MongodbProxyAnnotation.
+	// MongodbProxyImage is the full reference of the mongodb-proxy image.
 	MongodbProxyImage string
 	AgentImage        string
 	CustomAgentURL    string
@@ -400,6 +399,10 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 
 func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdb)
+	return databaseStatefulSet(mdb, stsOptions, log)
+}
+
+func databaseStatefulSet(mdb mdbv1.MongoDB, stsOptions DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
 	dbSts := DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
 
 	if len(stsOptions.Annotations) > 0 {
@@ -793,17 +796,20 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 // buildMongoDBPodTemplateSpec constructs the podTemplateSpec for the MongoDB resource
 func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
 	var modifications podtemplatespec.Modification
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
-		modifications = buildStaticArchitecturePodTemplateSpec(opts, mdb)
-	} else {
+	switch architectures.GetArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
+	case architectures.Static:
+		modifications = buildStaticArchitecturePodTemplateSpec(opts, mdb, architectures.Static)
+	case architectures.StaticGA:
+		modifications = buildStaticArchitecturePodTemplateSpec(opts, mdb, architectures.StaticGA)
+	default:
 		modifications = buildNonStaticArchitecturePodTemplateSpec(opts, mdb)
 	}
 	sharedModifications := sharedDatabaseConfiguration(opts, mdb)
 	return podtemplatespec.Apply(sharedModifications, modifications)
 }
 
-// buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for static architecture
-func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
+// buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for a static architecture.
+func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource, architecture architectures.DefaultArchitecture) podtemplatespec.Modification {
 	// scripts volume is needed for agent-launcher-shim.sh to copy scripts
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
 	databaseScriptsVolumeMount := databaseScriptsVolumeMount(false) // writable for shim script
@@ -857,6 +863,10 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 				readOnlyMount(mongodbInitDatabaseVolumeName, mongodbInitDatabaseMountPath),
 				mongodbProxySocketMount(),
 			}),
+			container.WithCommand([]string{staticGAAgentLauncherPath}),
+			container.WithLivenessProbe(staticGALivenessProbe()),
+			container.WithStartupProbe(staticGAStartupProbe()),
+			container.WithReadinessProbe(staticGAReadinessProbe()),
 		)
 		// The proxy replaces the marker command: it starts mongod/mongos only when the agent asks for it.
 		mongodContainerModifications = append(mongodContainerModifications,
@@ -1058,11 +1068,16 @@ func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMon
 }
 
 func staticContainersEnvVars(mdb databaseStatefulSetSource, defaultArchitecture architectures.DefaultArchitecture) []corev1.EnvVar {
-	var envVars []corev1.EnvVar
-	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
-		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
+	architecture := architectures.GetArchitecture(mdb.GetAnnotations(), defaultArchitecture)
+	if architecture == architectures.NonStatic {
+		return nil
 	}
-	return envVars
+	// Legacy static keeps the historical "true" value. Static-ga uses its own value.
+	value := proxyAnnotationTrue
+	if architecture == architectures.StaticGA {
+		value = string(architecture)
+	}
+	return []corev1.EnvVar{{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: value}}
 }
 
 func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) corev1.EnvVar {
@@ -1188,8 +1203,25 @@ func databaseEnvVars(opts DatabaseStatefulSetOptions) []corev1.EnvVar {
 }
 
 func DatabaseLivenessProbe() probes.Modification {
+	return databaseLivenessProbe(databaseLivenessProbeCommand)
+}
+
+func staticGALivenessProbe() probes.Modification {
+	return databaseLivenessProbe(staticGAProbePath)
+}
+
+// staticGAStartupProbe uses the liveness script, as DatabaseStartupProbe does for the shared agent container.
+func staticGAStartupProbe() probes.Modification {
+	return databaseStartupProbe(staticGAProbePath)
+}
+
+func staticGAReadinessProbe() probes.Modification {
+	return databaseReadinessProbe(staticGAReadinessProbePath)
+}
+
+func databaseLivenessProbe(command string) probes.Modification {
 	return probes.Apply(
-		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
+		probes.WithExecCommand([]string{command}),
 		probes.WithInitialDelaySeconds(10),
 		probes.WithTimeoutSeconds(30),
 		probes.WithPeriodSeconds(30),
@@ -1199,8 +1231,12 @@ func DatabaseLivenessProbe() probes.Modification {
 }
 
 func DatabaseReadinessProbe() probes.Modification {
+	return databaseReadinessProbe(databaseReadinessProbeCommand)
+}
+
+func databaseReadinessProbe(command string) probes.Modification {
 	return probes.Apply(
-		probes.WithExecCommand([]string{databaseReadinessProbeCommand}),
+		probes.WithExecCommand([]string{command}),
 		probes.WithFailureThreshold(4),
 		probes.WithInitialDelaySeconds(5),
 		probes.WithPeriodSeconds(5),
@@ -1208,8 +1244,12 @@ func DatabaseReadinessProbe() probes.Modification {
 }
 
 func DatabaseStartupProbe() probes.Modification {
+	return databaseStartupProbe(databaseLivenessProbeCommand)
+}
+
+func databaseStartupProbe(command string) probes.Modification {
 	return probes.Apply(
-		probes.WithExecCommand([]string{databaseLivenessProbeCommand}),
+		probes.WithExecCommand([]string{command}),
 		probes.WithInitialDelaySeconds(1),
 		probes.WithTimeoutSeconds(30),
 		probes.WithPeriodSeconds(20),

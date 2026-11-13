@@ -176,7 +176,14 @@ class TestOperatorUpgrade:
 
 @pytest.mark.e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
 class TestOperatorDowngrade:
-    def test_downscale_default_operator(self, namespace: str):
+    def test_downscale_default_operator(
+        self, namespace: str, sharded_cluster: MongoDB, operator_installation_config: dict[str, str]
+    ):
+        if operator_installation_config["operator.mdbDefaultArchitecture"] == "static-ga":
+            sharded_cluster.load()
+            sharded_cluster["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static"
+            sharded_cluster.update()
+            sharded_cluster.assert_reaches_phase(Phase.Running, timeout=850)
         downscale_operator_deployment(deployment_name=OPERATOR_NAME, namespace=namespace)
 
     def test_downgrade_to_legacy_deployment_state_meko(

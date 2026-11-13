@@ -175,6 +175,8 @@ func TestStaticArchitectureWithoutTheProxyKeepsTheSharedProcessNamespace(t *test
 	assert.True(t, *sts.Spec.Template.Spec.ShareProcessNamespace)
 	assert.Equal(t, []string{"bash", "-c", "tail -F -n0 ${MDB_LOG_FILE_MONGODB} mongodb_marker"},
 		containerByName(t, sts, util.DatabaseContainerName).Command)
+	assert.Contains(t, containerByName(t, sts, util.AgentContainerName).Env,
+		corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
 	// the container that the agent finds through /proc stays in this mode
 	assert.Equal(t, util.AgentContainerUtilitiesName, containerByName(t, sts, util.AgentContainerUtilitiesName).Name)
 }
