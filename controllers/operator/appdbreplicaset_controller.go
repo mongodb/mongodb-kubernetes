@@ -2139,7 +2139,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 		ProjectID:   conn.GroupID(),
 		AgentAPIKey: agentApiKey,
 		SSLProjectConfig: env.SSLProjectConfig{
-			SSLMMSCAConfigMap: opsManager.Spec.GetOpsManagerCA(),
+			SSLMMSCAConfigMap: opsManager.GetOpsManagerCA(),
 		},
 	}, nil
 }
@@ -2211,7 +2211,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 		User:      cred.PublicAPIKey,
 		ProjectID: projectId,
 		SSLProjectConfig: env.SSLProjectConfig{
-			SSLMMSCAConfigMap: om.Spec.GetOpsManagerCA(),
+			SSLMMSCAConfigMap: om.GetOpsManagerCA(),
 		},
 	}
 
