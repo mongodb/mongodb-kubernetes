@@ -65,6 +65,10 @@ type DeploymentUsageSnapshotProperties struct {
 	// than reported directly: see populateMigrationFields.
 	MigrationStartedAt   string `json:"migrationStartedAt,omitempty"`
 	MigrationCompletedAt string `json:"migrationCompletedAt,omitempty"`
+	// ManagedCertificateIssuers is only set when spec.security.managedCertificate is enabled, so its
+	// presence is the usage signal. It says which certificate categories reference a user-provided
+	// issuer; None means both are signed by the operator's self-signed CA.
+	ManagedCertificateIssuers string `json:"managedCertificateIssuers,omitempty"`
 }
 
 type FakeDeploymentUsageSnapshotProperties DeploymentUsageSnapshotProperties
