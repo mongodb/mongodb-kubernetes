@@ -13,7 +13,11 @@ from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.tls.managedcert_helper import leaf_secret_names, managed_certificate_operator
+from tests.tls.managedcert_helper import (
+    assert_member_certificate_client_usage,
+    leaf_secret_names,
+    managed_certificate_operator,
+)
 
 MDB_RESOURCE = "test-tls-rs-managedcert-scram"
 
@@ -57,3 +61,11 @@ def test_only_the_member_certificate_is_issued(namespace: str):
         with pytest.raises(ApiException) as e:
             read_secret(namespace, secret_name)
         assert e.value.status == 404, f"{secret_name} should not exist"
+
+
+@pytest.mark.e2e_replica_set_tls_managedcert_internal_auth_keyfile
+def test_member_certificate_carries_the_client_usage(namespace: str):
+    # Without a clusterfile the members present the member certificate to each other, so the operator
+    # asks the issuer for the client usage as well. tls_rs_managedcert_withhold_client_cert covers the
+    # deployment that sets setParameter.tlsWithholdClientCertificate, where it does not.
+    assert_member_certificate_client_usage(MDB_RESOURCE, namespace, client_auth=True)

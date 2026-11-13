@@ -1381,20 +1381,20 @@ func (r *ShardedClusterReconcileHelper) prepareX509CertConfigurator(memberCluste
 	for shardIdx := range r.desiredShardsConfiguration {
 		for _, shardMemberCluster := range r.shardsMemberClustersMap[shardIdx] {
 			if shardMemberCluster.Name == memberCluster.Name {
-				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, shardMemberCluster.Name), r.GetShardScaler(shardIdx, shardMemberCluster)))
+				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, shardMemberCluster.Name), r.GetShardScaler(shardIdx, shardMemberCluster), r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig()))
 			}
 		}
 	}
 
 	for _, configSrvMemberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		if memberCluster.Name == configSrvMemberCluster.Name {
-			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, configSrvMemberCluster.Name), r.GetConfigSrvScaler(configSrvMemberCluster)))
+			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, configSrvMemberCluster.Name), r.GetConfigSrvScaler(configSrvMemberCluster), r.desiredConfigServerConfiguration.GetAdditionalMongodConfig()))
 		}
 	}
 
 	for _, mongosMemberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		if memberCluster.Name == mongosMemberCluster.Name {
-			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, mongosMemberCluster.Name), r.GetMongosScaler(mongosMemberCluster)))
+			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, mongosMemberCluster.Name), r.GetMongosScaler(mongosMemberCluster), r.desiredMongosConfiguration.GetAdditionalMongodConfig()))
 		}
 	}
 
@@ -1551,20 +1551,20 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		mongosCert := certs.MongosConfig(*s, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name), r.GetMongosScaler(memberCluster))
+		mongosCert := certs.MongosConfig(*s, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name), r.GetMongosScaler(memberCluster), r.desiredMongosConfiguration.GetAdditionalMongodConfig())
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, mongosCert, log)
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name), r.GetConfigSrvScaler(memberCluster))
+		configSrvCert := certs.ConfigSrvConfig(*s, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name), r.GetConfigSrvScaler(memberCluster), r.desiredConfigServerConfiguration.GetAdditionalMongodConfig())
 		tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, configSrvCert, log)
 		workflowStatus = workflowStatus.Merge(tStatus)
 	}
 
 	for i := 0; i < s.Spec.ShardCount; i++ {
 		for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[i]) {
-			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name), r.GetShardScaler(i, memberCluster))
+			shardCert := certs.ShardConfig(*s, i, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name), r.GetShardScaler(i, memberCluster), r.desiredShardsConfiguration[i].GetAdditionalMongodConfig())
 			tStatus := certs.EnsureSSLCertsForStatefulSet(ctx, r.commonController.SecretClient, memberCluster.SecretClient, *s.Spec.Security, shardCert, log)
 			workflowStatus = workflowStatus.Merge(tStatus)
 		}
@@ -2090,14 +2090,14 @@ func (r *ShardedClusterReconcileHelper) managedCertOptions() []certs.Options {
 		// One member cluster, the operator's own. Each component gets its own certificate for it.
 		var opts []certs.Options
 		for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name), r.GetMongosScaler(memberCluster)))
+			opts = append(opts, certs.MongosConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.MongosSpec, mdbv1.TierMongos, memberCluster.Name), r.GetMongosScaler(memberCluster), r.desiredMongosConfiguration.GetAdditionalMongodConfig()))
 		}
 		for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name), r.GetConfigSrvScaler(memberCluster)))
+			opts = append(opts, certs.ConfigSrvConfig(*r.sc, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, memberCluster.Name), r.GetConfigSrvScaler(memberCluster), r.desiredConfigServerConfiguration.GetAdditionalMongodConfig()))
 		}
 		for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
 			for _, memberCluster := range getHealthyMemberClusters(r.shardsMemberClustersMap[shardIdx]) {
-				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name), r.GetShardScaler(shardIdx, memberCluster)))
+				opts = append(opts, certs.ShardConfig(*r.sc, shardIdx, r.sc.Spec.EffectiveExternalDomain(r.sc.Spec.ShardSpec, mdbv1.TierShard, memberCluster.Name), r.GetShardScaler(shardIdx, memberCluster), r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig()))
 			}
 		}
 		return opts
@@ -2108,11 +2108,13 @@ func (r *ShardedClusterReconcileHelper) managedCertOptions() []certs.Options {
 			*r.sc,
 			r.sc.MongosRsName(),
 			r.managedMemberClusters(r.sc.Spec.MongosSpec, mdbv1.TierMongos, r.mongosMemberClusters, r.GetMongosScaler),
+			r.desiredMongosConfiguration.GetAdditionalMongodConfig(),
 		),
 		certs.MultiShardedComponentManagedCertConfig(
 			*r.sc,
 			r.sc.ConfigRsName(),
 			r.managedMemberClusters(r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv, r.configSrvMemberClusters, r.GetConfigSrvScaler),
+			r.desiredConfigServerConfiguration.GetAdditionalMongodConfig(),
 		),
 	}
 	for shardIdx := 0; shardIdx < r.sc.Spec.ShardCount; shardIdx++ {
@@ -2121,7 +2123,8 @@ func (r *ShardedClusterReconcileHelper) managedCertOptions() []certs.Options {
 			r.sc.ShardName(shardIdx),
 			r.managedMemberClusters(r.sc.Spec.ShardSpec, mdbv1.TierShard, r.shardsMemberClustersMap[shardIdx], func(memberCluster multicluster.MemberCluster) interfaces.MultiClusterReplicaSetScaler {
 				return r.GetShardScaler(shardIdx, memberCluster)
-			})),
+			}),
+			r.desiredShardsConfiguration[shardIdx].GetAdditionalMongodConfig()),
 		)
 	}
 	return opts
