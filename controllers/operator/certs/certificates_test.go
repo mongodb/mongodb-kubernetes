@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -170,6 +171,45 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 
 	err := c.Get(ctx, types.NamespacedName{Name: "example-db-managed-client-ca-bundle", Namespace: managedTestNamespace}, &corev1.ConfigMap{})
 	assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not publish a client CA bundle")
+}
+
+func TestManagedAppDBCertificateRenewalsInStatus(t *testing.T) {
+	ctx := context.Background()
+	om := managedTestOM()
+	c := newManagedCertTestClient(t)
+
+	status, _, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	require.False(t, status.IsOK(), "the certificates have not been reported ready")
+	assert.Nil(t, om.Status.AppDbStatus.CertificateRenewals, "no renewal is reported before the leaves are issued")
+
+	renewalTime := v1.NewTime(time.Now().Add(48 * time.Hour).Truncate(time.Second))
+	notAfter := v1.NewTime(time.Now().Add(72 * time.Hour).Truncate(time.Second))
+	markManagedCertificatesReady(t, ctx, c, func(cert *certmanagerv1.Certificate) {
+		if cert.Name == "example-db-managed-cert" {
+			cert.Status.RenewalTime = &renewalTime
+			cert.Status.NotAfter = &notAfter
+		}
+	})
+	serverCA := newTestCA(t, "app-db-server-ca")
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: v1.ObjectMeta{Name: "example-db-server-ca", Namespace: managedTestNamespace},
+		Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte(serverCA.pem)},
+	}))
+	issued := issuedCertificateSecret(t, managedTestNamespace, "example-db-managed-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	require.NoError(t, c.Create(ctx, &issued))
+
+	status, _, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	require.True(t, status.IsOK(), status.Message())
+
+	renewals := om.Status.AppDbStatus.CertificateRenewals
+	require.NotNil(t, renewals, "the AppDB renewal is recorded on the Ops Manager status")
+	require.NotNil(t, renewals.Server)
+	assert.Equal(t, "example-db-managed-cert", renewals.Server.Name)
+	require.NotNil(t, renewals.Server.RenewalTime)
+	assert.True(t, renewalTime.Equal(renewals.Server.RenewalTime))
+	require.NotNil(t, renewals.Server.NotAfter)
+	assert.True(t, notAfter.Equal(renewals.Server.NotAfter))
+	assert.Nil(t, renewals.Client, "a SCRAM AppDB has no client certificates")
 }
 
 func TestAppDBManagedCertificateOptions(t *testing.T) {

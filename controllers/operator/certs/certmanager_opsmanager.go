@@ -11,6 +11,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
@@ -34,11 +35,20 @@ type serverCertificateOwner struct {
 	v1.ObjectOwner
 	name     string
 	security *mdbv1.Security
+	// setRenewals is optional: when set, it receives the component's next automatic certificate
+	// renewal; when nil, the renewal is not reported.
+	setRenewals func(*mdbstatus.CertificateRenewalStatus)
 }
 
 func (o serverCertificateOwner) GetName() string               { return o.name }
 func (o serverCertificateOwner) GetSecurity() *mdbv1.Security  { return o.security }
 func (o serverCertificateOwner) ownerResource() v1.ObjectOwner { return o.ObjectOwner }
+
+func (o serverCertificateOwner) SetCertificateRenewals(renewals *mdbstatus.CertificateRenewalStatus) {
+	if o.setRenewals != nil {
+		o.setRenewals(renewals)
+	}
+}
 
 // EnsureServerCertificateAndCA issues the serverAuth certificate for an Ops Manager
 // component that has no client category (the app server and the queryable backup daemon).
@@ -78,7 +88,7 @@ func EnsureServerCertificateAndCA(
 	spec := certSpec(res, categoryServer, opts.SecretName, opts.DNSNames, commonName, subject, memberServerCertUsages)
 	spec.IPAddresses = opts.IPAddresses
 
-	renewalFailures, status, condition := ensureCertificatesReady(ctx, c, res, []certToEnsure{{certName: opts.SecretName, spec: spec}}, false)
+	renewalFailures, status, condition := ensureCertificatesReady(ctx, c, res, []certToEnsure{{certName: opts.SecretName, category: categoryServer, spec: spec}}, false)
 	if !status.IsOK() {
 		return status, condition, false
 	}

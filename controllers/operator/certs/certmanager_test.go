@@ -6,6 +6,7 @@ import (
 	"maps"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -518,6 +519,78 @@ func TestInspectCertificateStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCertificateRenewals(t *testing.T) {
+	base := time.Now()
+	at := func(d time.Duration) *metav1.Time {
+		t := metav1.NewTime(base.Add(d))
+		return &t
+	}
+	leaf := func(name string, renewal, notAfter *metav1.Time) *certmanagerv1.Certificate {
+		return &certmanagerv1.Certificate{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Status: certmanagerv1.CertificateStatus{
+				RenewalTime: renewal,
+				NotAfter:    notAfter,
+			},
+		}
+	}
+	inspect := func(certs ...*certmanagerv1.Certificate) map[string]certInspection {
+		inspections := make(map[string]certInspection, len(certs))
+		for _, cert := range certs {
+			inspections[cert.Name] = inspectCertificateStatusAtGeneration(cert.Name, cert, 0)
+		}
+		return inspections
+	}
+
+	t.Run("server and client pick the earliest renewal", func(t *testing.T) {
+		serverLater := leaf("shard-0", at(48*time.Hour), at(96*time.Hour))
+		serverSoonest := leaf("config-0", at(24*time.Hour), at(72*time.Hour))
+		clusterfile := leaf("clusterfile", at(36*time.Hour), at(84*time.Hour))
+		agentSoonest := leaf("agent", at(12*time.Hour), at(60*time.Hour))
+		// The CA Certificate is fetched during the readiness inspection but is not a leaf,
+		// so even with the earliest time it must never be reported.
+		ca := leaf("mdb-server-ca", at(time.Hour), at(2*time.Hour))
+
+		required := []certToEnsure{
+			{certName: serverLater.Name, category: categoryServer},
+			{certName: serverSoonest.Name, category: categoryServer},
+			{certName: clusterfile.Name, category: categoryClient},
+			{certName: agentSoonest.Name, category: categoryClient},
+		}
+
+		got := certificateRenewals(required, inspect(serverLater, serverSoonest, clusterfile, agentSoonest, ca))
+		require.NotNil(t, got)
+		require.NotNil(t, got.Server)
+		require.NotNil(t, got.Client)
+		assert.Equal(t, serverSoonest.Name, got.Server.Name)
+		assert.Equal(t, at(24*time.Hour), got.Server.RenewalTime)
+		assert.Equal(t, at(72*time.Hour), got.Server.NotAfter)
+		assert.Equal(t, agentSoonest.Name, got.Client.Name)
+		assert.Equal(t, at(12*time.Hour), got.Client.RenewalTime)
+	})
+
+	t.Run("falls back to the earliest notAfter without a renewalTime", func(t *testing.T) {
+		serverLater := leaf("shard-0", nil, at(96*time.Hour))
+		serverSoonest := leaf("config-0", nil, at(72*time.Hour))
+		required := []certToEnsure{
+			{certName: serverLater.Name, category: categoryServer},
+			{certName: serverSoonest.Name, category: categoryServer},
+		}
+
+		got := certificateRenewals(required, inspect(serverLater, serverSoonest))
+		require.NotNil(t, got)
+		require.NotNil(t, got.Server)
+		assert.Equal(t, serverSoonest.Name, got.Server.Name)
+		assert.Nil(t, got.Server.RenewalTime)
+		assert.Equal(t, at(72*time.Hour), got.Server.NotAfter)
+		assert.Nil(t, got.Client, "no client certs means no client renewal")
+	})
+
+	t.Run("no leaves at all leaves the field nil", func(t *testing.T) {
+		assert.Nil(t, certificateRenewals(nil, nil))
+	})
 }
 
 func TestBuildDNSNamesExternalDomain(t *testing.T) {

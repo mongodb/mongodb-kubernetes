@@ -1066,6 +1066,11 @@ func (in *MongoDbStatus) DeepCopyInto(out *MongoDbStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.CertificateRenewals != nil {
+		in, out := &in.CertificateRenewals, &out.CertificateRenewals
+		*out = new(status.CertificateRenewalStatus)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.MigrationObservedExternalMembersCount != nil {
 		in, out := &in.MigrationObservedExternalMembersCount, &out.MigrationObservedExternalMembersCount
 		*out = new(int)
