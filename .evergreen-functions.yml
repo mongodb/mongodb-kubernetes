@@ -119,6 +119,16 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       binary: scripts/evergreen/download_jitter.sh
 
+  check_custom_agent_url: &check_custom_agent_url
+    command: subprocess.exec
+    type: setup
+    params:
+      working_dir: src/github.com/mongodb/mongodb-kubernetes
+      env:
+        PARENT_PATCH_ID: ${parent_patch_id}
+        MDB_CUSTOM_AGENT_URL: ${mdb_custom_agent_url}
+      binary: scripts/evergreen/check_custom_agent_url.sh
+
   "clone":
     - command: subprocess.exec
       type: setup
@@ -136,6 +146,7 @@ functions:
       type: setup
       params:
         command: "git config --global user.email 'kubernetes-hosted-team@mongodb.com'"
+    - *check_custom_agent_url
     - *download_jitter # the first download of the task is the jq below
     - *setup_jq # we need jq in the context
     - *setup_context
