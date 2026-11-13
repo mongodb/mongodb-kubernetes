@@ -37,7 +37,6 @@ DOCKERFILE_FILES=(
 
 # Dev scripts use minor version in path (e.g., "/opt/golang/go1.24")
 DEV_SCRIPT_FILES=(
-    "scripts/dev/prepare_local_e2e_run.sh"
     "scripts/dev/contexts/root-context"
     "scripts/dev/contexts/evg-private-context"
 )
