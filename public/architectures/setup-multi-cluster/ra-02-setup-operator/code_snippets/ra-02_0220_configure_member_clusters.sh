@@ -13,13 +13,11 @@ done
 
 # Register each member cluster with the operator.
 for ctx in "${K8S_CLUSTER_0_CONTEXT_NAME}" "${K8S_CLUSTER_1_CONTEXT_NAME}" "${K8S_CLUSTER_2_CONTEXT_NAME}"; do
-  member_cluster_name="${ctx//_/-}"
   echo "Registering ${ctx} with the operator on the central cluster"
   kubectl mongodb cluster generate-registration \
-    --member-cluster="${member_cluster_name}" \
+    --member-cluster="${ctx}" \
     --member-cluster-context="${ctx}" \
     --operator-namespace="${OPERATOR_NAMESPACE}" \
-    --member-cluster-logical-name="${ctx}" \
     | kubectl apply --context "${K8S_CLUSTER_0_CONTEXT_NAME}" -f -
 done
 
