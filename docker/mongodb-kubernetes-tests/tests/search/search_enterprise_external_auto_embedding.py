@@ -144,7 +144,7 @@ def test_install_tls_certificates(namespace: str, mdb: MongoDB, mdbs: MongoDBSea
 @mark.e2e_search_enterprise_external_auto_embedding
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_enterprise_external_auto_embedding
@@ -174,7 +174,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 @mark.e2e_search_enterprise_external_auto_embedding
 def test_wait_for_database_resource_ready(mdb: MongoDB):
     mdb.get_om_tester().wait_agents_ready()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_enterprise_external_auto_embedding

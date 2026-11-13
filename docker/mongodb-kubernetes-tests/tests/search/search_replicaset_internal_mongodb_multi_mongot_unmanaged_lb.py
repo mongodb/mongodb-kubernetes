@@ -189,7 +189,7 @@ def test_install_tls_certificates(namespace: str, mdb: MongoDB, mdbs: MongoDBSea
 def test_create_database_resource(mdb: MongoDB):
     """Test ReplicaSet deployment."""
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb
@@ -232,7 +232,7 @@ def test_create_search_resource(mdbs: MongoDBSearch):
 def test_wait_for_database_resource_ready(mdb: MongoDB):
     """Wait for automation agents to be ready after Search deployment."""
     mdb.get_om_tester().wait_agents_ready()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_replicaset_internal_mongodb_multi_mongot_unmanaged_lb

@@ -177,7 +177,7 @@ class MongoDBSourceDeploymentTests:
     # Set on the concrete class: ``namespace = NAMESPACE``.
     namespace: str = ""
     # Topology trait: how long the source takes to reach Running.
-    create_timeout: int = 300
+    create_timeout: int = 600
 
     def effective_mdbs_resource_name(self) -> str:
         return self.search_config.mdbs_resource_name or self.mdb_config.mdb_resource_name

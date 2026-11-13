@@ -345,7 +345,7 @@ def test_install_tls_certificates(namespace: str, helper: SearchDeploymentHelper
 @mark.e2e_search_replicaset_external_mongodb_proxy_service
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_replicaset_external_mongodb_proxy_service

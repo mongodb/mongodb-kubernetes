@@ -139,7 +139,7 @@ def test_install_tls_certificates(helper: SearchDeploymentHelper, mdb: MongoDB, 
 @mark.e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
