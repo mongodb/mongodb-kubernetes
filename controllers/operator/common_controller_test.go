@@ -414,6 +414,54 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 	assert.Empty(t, roles)
 }
 
+func TestEnsureRolesErrors(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name           string
+		referencedRole *role.ClusterMongoDBRole
+		expectedError  string
+	}{
+		{
+			name:           "referenced role with an empty name",
+			referencedRole: clusterMongoDBRoleWith(mdbv1.MongoDBRole{Db: "admin"}),
+			expectedError:  "Error validating role 'default-role' - Cannot create a role with an empty name",
+		},
+		{
+			name: "referenced role with an invalid action",
+			referencedRole: clusterMongoDBRoleWith(mdbv1.MongoDBRole{
+				Role:       "invalid-action",
+				Db:         "admin",
+				Privileges: []mdbv1.Privilege{{Actions: []string{"insertFoo"}, Resource: mdbv1.Resource{Db: new("admin"), Collection: new("foo")}}},
+			}),
+			expectedError: "Error validating role 'default-role' - Privilege is invalid - Actions are not valid - insertFoo is not a valid db action",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+			controller := NewReconcileCommonController(ctx, kubeClient)
+			mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+			require.NoError(t, kubeClient.Create(ctx, tt.referencedRole))
+			rs := mdbv1.NewDefaultReplicaSetBuilder().
+				SetRoleRefs([]mdbv1.MongoDBRoleRef{{Name: tt.referencedRole.Name, Kind: util.ClusterMongoDBRoleKind}}).
+				Build()
+
+			result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+			require.Equal(t, status.PhaseFailed, result.Phase())
+			require.Equal(t, tt.expectedError, statusMsg(result))
+		})
+	}
+}
+
+func clusterMongoDBRoleWith(spec mdbv1.MongoDBRole) *role.ClusterMongoDBRole {
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleResource.Spec.MongoDBRole = spec
+	return roleResource
+}
+
 func TestDontSendNilPrivileges(t *testing.T) {
 	ctx := context.Background()
 	customRole := mdbv1.MongoDBRole{

@@ -287,6 +287,13 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'4.4.0_0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.0_0 is invalid",
 			expectedPart:         status.OpsManager,
 		},
+		"Invalid 4.4.4.4 OpsManager version": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("4.4.4.4").
+				Build(),
+			expectedErrorMessage: "'4.4.4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.4.4 is invalid",
+			expectedPart:         status.OpsManager,
+		},
 		"Valid 4.0.0 OpsManager version": {
 			testedOm:     NewOpsManagerBuilderDefault().SetVersion("4.0.0").Build(),
 			expectedPart: status.None,
@@ -315,6 +322,37 @@ func TestOpsManagerValidation(t *testing.T) {
 				Build(),
 			expectedPart:         status.OpsManager,
 			expectedErrorMessage: "Single cluster AppDB deployment should have empty clusterSpecList",
+		},
+		"Multi cluster AppDB deployment should have non-empty clusterSpecList": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetAppDBTopology(ClusterTopologyMultiCluster).
+				Build(),
+			expectedPart:         status.AppDb,
+			expectedErrorMessage: "ClusterSpecList empty is not allowed, please define at least one cluster",
+		},
+		"Multi cluster OM should have non-empty clusterSpecList": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "At least one ClusterSpecList entry must be specified for MultiCluster mode OM",
+		},
+		"Multi cluster OM with backup enabled should have backup members configured": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test", Members: 1}}).
+				SetBackup(MongoDBOpsManagerBackup{Enabled: true}).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "At least one ClusterSpecList item must have backup members configured",
+		},
+		"Multi cluster OM with backup members configured is valid": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test", Members: 1, Backup: &MongoDBOpsManagerBackupClusterSpecItem{Members: 1}}}).
+				SetBackup(MongoDBOpsManagerBackup{Enabled: true}).
+				Build(),
+			expectedPart: status.None,
 		},
 		"Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList": {
 			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").

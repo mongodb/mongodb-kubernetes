@@ -307,6 +307,16 @@ func TestReplicaSetServiceName(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestReplicaSetMembersNotSpecified(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(0).Build()
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	msg := "'spec.members' must be specified if type of MongoDB is ReplicaSet"
+	checkReconcileFailed(ctx, t, reconciler, rs, false, msg, client)
+}
+
 func TestHorizonVerificationTLS(t *testing.T) {
 	ctx := context.Background()
 	replicaSetHorizons := []mdbv1.MongoDBHorizonConfig{

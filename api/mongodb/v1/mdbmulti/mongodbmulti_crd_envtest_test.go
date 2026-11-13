@@ -21,7 +21,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_mongodbmulticluster.yaml")))
+	os.Exit(env.RunShared(m,
+		env.WithCRDs("mongodb.com_mongodbmulticluster.yaml"),
+		env.WithWebhooks("webhooks.yaml"),
+	))
 }
 
 func newMongoDBMultiCluster(t *testing.T, role string) *mcdbmulti.MongoDBMultiCluster {
