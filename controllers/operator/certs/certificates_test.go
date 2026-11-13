@@ -31,9 +31,9 @@ func TestManagedIssuanceScopeOwnership(t *testing.T) {
 	om := managedTestOM()
 	c := newManagedCertTestClient(t)
 
-	_, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
-	_, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, backupServerCertificateOptions(), managedTestLogger())
-	_, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	_, _, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+	_, _, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, backupServerCertificateOptions(), managedTestLogger())
+	_, _, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
 
 	certs := listManagedCertificates(t, ctx, c)
 	require.NotEmpty(t, certs)
@@ -108,7 +108,7 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 	assert.Same(t, om.Spec.AppDB.GetSecurity(), owner.GetSecurity())
 
 	c := newManagedCertTestClient(t)
-	status, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	status, _, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
 	assert.False(t, status.IsOK(), "the certificates have not been reported ready")
 
 	leaf := getManagedCertificate(t, ctx, c, "example-db-managed-cert")
@@ -154,7 +154,7 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 	issued := issuedCertificateSecret(t, managedTestNamespace, "example-db-managed-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
 	require.NoError(t, c.Create(ctx, &issued))
 
-	status, condition := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	status, condition, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
 	require.True(t, status.IsOK(), status.Message())
 	assert.Equal(t, v1.ConditionTrue, condition.Status)
 	assert.Equal(t, reasonAllCertificatesReady, condition.Reason)
@@ -210,7 +210,7 @@ func TestAppDBManagedCertificateScaling(t *testing.T) {
 
 	issue := func() *certmanagerv1.Certificate {
 		t.Helper()
-		_, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
+		_, _, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
 		return getManagedCertificate(t, ctx, c, "example-db-managed-cert")
 	}
 	expectedNames := func(members int) []string {

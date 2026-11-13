@@ -149,16 +149,17 @@ func (o appDBManagedCertificateOwner) ownerResource() v1.ObjectOwner {
 
 // EnsureAppDBCertificatesAndCA issues the internal AppDB's certificates and CA bundles. The
 // Ops Manager resource owns every created object; names, secrets and subjects derive from the
-// AppDB name.
+// AppDB name. The returned bool reports that a requested prune of the previous CA has been
+// applied and the caller may remove the prune annotation.
 func EnsureAppDBCertificatesAndCA(
 	ctx context.Context,
 	c kubernetesClient.Client,
 	om *omv1.MongoDBOpsManager,
 	allOpts []Options,
 	log *zap.SugaredLogger,
-) (workflow.Status, metav1.Condition) {
+) (workflow.Status, metav1.Condition, bool) {
 	if om == nil || om.Spec.AppDB == nil {
-		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
+		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource"), false
 	}
 	for _, warning := range UnusedClientConfigured(appDBManagedCertificateOwner{om}) {
 		om.AddAppDBWarningIfNotExists(warning)
