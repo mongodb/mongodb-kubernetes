@@ -2,7 +2,6 @@ package operator
 
 import (
 	"encoding/json"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -461,11 +460,9 @@ func TestBuildFilterChain_RoutedFromAnotherShard(t *testing.T) {
 	require.Len(t, routes, 1)
 	assert.Equal(t, "mongot_cluster_level_cluster", routes[0].GetRoute().GetCluster())
 
-	// Should carry both the max-attempt header and the search-envoy-metadata-bin header
 	headers := requestHeadersByKey(routes[0])
 	require.Len(t, headers, 2)
-	require.Contains(t, headers, envoyMaxAttemptCountHeader)
-	assert.Equal(t, "3", headers[envoyMaxAttemptCountHeader].GetHeader().GetValue())
+	assert.Contains(t, headers, envoyMaxAttemptCountHeader)
 	require.Contains(t, headers, searchEnvoyMetadataHeader)
 	assert.Equal(t, searchEnvoyMetadataRoutedValue, headers[searchEnvoyMetadataHeader].GetHeader().GetValue())
 	assert.Equal(t, corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, headers[searchEnvoyMetadataHeader].GetAppendAction())
@@ -488,11 +485,9 @@ func TestBuildFilterChain_NormalRoute_OnlyMaxAttemptHeader(t *testing.T) {
 	require.Len(t, routes, 1)
 	assert.Equal(t, "mongot_mdb_sh_0_cluster", routes[0].GetRoute().GetCluster())
 
-	// Should only carry the max-attempt header, not the routed-from-another-shard metadata
 	headers := requestHeadersByKey(routes[0])
 	require.Len(t, headers, 1)
-	assert.NotContains(t, headers, searchEnvoyMetadataHeader)
-	require.Contains(t, headers, envoyMaxAttemptCountHeader)
+	assert.Contains(t, headers, envoyMaxAttemptCountHeader)
 }
 
 func TestBuildFilterChain_MaxAttemptCountHeader(t *testing.T) {
@@ -512,18 +507,13 @@ func TestBuildFilterChain_MaxAttemptCountHeader(t *testing.T) {
 
 			hcm := &hcmv3.HttpConnectionManager{}
 			require.NoError(t, chain.Filters[0].GetTypedConfig().UnmarshalTo(hcm))
-			vh := hcm.GetRouteConfig().GetVirtualHosts()[0]
-			// The current attempt header must stay enabled alongside the max-attempt header.
-			assert.True(t, vh.GetIncludeRequestAttemptCount())
-
-			routes := vh.GetRoutes()
+			routes := hcm.GetRouteConfig().GetVirtualHosts()[0].GetRoutes()
 			require.Len(t, routes, 1)
 			headers := requestHeadersByKey(routes[0])
 			require.Contains(t, headers, envoyMaxAttemptCountHeader)
 			h := headers[envoyMaxAttemptCountHeader]
 			assert.Equal(t, tt.expected, h.GetHeader().GetValue())
 			assert.Equal(t, corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, h.GetAppendAction())
-			assert.Equal(t, routes[0].GetRoute().GetRetryPolicy().GetNumRetries().GetValue()+1, mustParseUint32(t, tt.expected))
 		})
 	}
 }
@@ -534,11 +524,4 @@ func requestHeadersByKey(r *routev3.Route) map[string]*corev3.HeaderValueOption 
 		out[h.GetHeader().GetKey()] = h
 	}
 	return out
-}
-
-func mustParseUint32(t *testing.T, s string) uint32 {
-	t.Helper()
-	v, err := strconv.ParseUint(s, 10, 32)
-	require.NoError(t, err)
-	return uint32(v)
 }

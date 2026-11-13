@@ -43,10 +43,8 @@ const (
 	// Proto wire: field 1 (varint) = true → bytes [0x08, 0x01] → base64 "CAE="
 	searchEnvoyMetadataRoutedValue = "CAE="
 
-	// envoyMaxAttemptCountHeader tells mongot the total attempt budget (1 + numRetries)
-	// Envoy will spend on a request. mongot compares it with x-envoy-attempt-count
-	// (added by IncludeRequestAttemptCount) to decide whether to signal RESOURCE_EXHAUSTED
-	// (retry on another host) or return the terminal 489 overload error.
+	// envoyMaxAttemptCountHeader carries 1 + numRetries. mongot compares it with x-envoy-attempt-count
+	// to decide between RESOURCE_EXHAUSTED (Envoy retries) and the terminal 489 overload error.
 	envoyMaxAttemptCountHeader = "x-envoy-max-attempt-count"
 
 	defaultEnvoyNumRetries = uint32(2)
@@ -284,8 +282,6 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *s
 		},
 	}
 
-	// Tell mongot the total attempt budget so it knows when a load-shedding
-	// rejection is the final attempt and must return the terminal 489 error.
 	envoyRoute.RequestHeadersToAdd = []*corev3.HeaderValueOption{
 		{
 			Header: &corev3.HeaderValue{
