@@ -125,7 +125,7 @@ func getAgentRegisterError(errorMsg string) error {
 		"name ('cluster.local'): %s", errorMsg))
 }
 
-const StaleProcessDuration = time.Minute * 2
+const StaleProcessDuration = om.StaleProcessDuration
 
 // agentRegistrationTimeout bounds one wait for agents to register, including all retries. Overridden in tests.
 var agentRegistrationTimeout = 3 * time.Minute
@@ -139,6 +139,7 @@ type ProcessState struct {
 	GoalVersionAchieved int
 	Plan                []string
 	ProcessName         string
+	Execution           *om.ProcessExecution
 }
 
 // NewProcessState should be used to create new instances of ProcessState as it sets some reasonable default values.
@@ -247,6 +248,7 @@ func calculateProcessStateMap(processStatuses []om.ProcessStatus, agentStatuses 
 		processState.GoalVersionAchieved = processStatus.LastGoalVersionAchieved
 		processState.ProcessName = processStatus.Name
 		processState.Plan = processStatus.Plan
+		processState.Execution = processStatus.Execution
 		processStates[processStatus.Hostname] = processState
 	}
 

@@ -128,6 +128,130 @@ func TestCheckAutomationStatusIsGoal(t *testing.T) {
 	}
 }
 
+func TestCheckAutomationStatusIsGoal_ParkedAgents(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name              string
+		processes         []ProcessStatus
+		relevantProcesses []string
+		expectedReady     bool
+	}{
+		{
+			name: "agent parked waiting for the operator makes the agents ready",
+			processes: []ProcessStatus{
+				{Hostname: "host-0", Name: "rs-0", LastGoalVersionAchieved: 41, Execution: &ProcessExecution{AutomationConfigVersion: 42, Move: "ExternalNodeRestart", Step: ExecutionStepWaitNodeReplacement, ReportedAt: now}},
+				{Hostname: "host-1", Name: "rs-1", LastGoalVersionAchieved: 42},
+			},
+			relevantProcesses: []string{"rs-0", "rs-1"},
+			expectedReady:     true,
+		},
+		{
+			name: "stale parked report does not make the agents ready",
+			processes: []ProcessStatus{
+				{Hostname: "host-0", Name: "rs-0", LastGoalVersionAchieved: 41, Execution: &ProcessExecution{AutomationConfigVersion: 42, Move: "ExternalNodeRestart", Step: ExecutionStepWaitNodeReplacement, ReportedAt: now.Add(-StaleProcessDuration - time.Second)}},
+				{Hostname: "host-1", Name: "rs-1", LastGoalVersionAchieved: 42},
+			},
+			relevantProcesses: []string{"rs-0", "rs-1"},
+			expectedReady:     false,
+		},
+		{
+			name: "parked report for another goal version does not make the agents ready",
+			processes: []ProcessStatus{
+				{Hostname: "host-0", Name: "rs-0", LastGoalVersionAchieved: 41, Execution: &ProcessExecution{AutomationConfigVersion: 41, Move: "ExternalNodeRestart", Step: ExecutionStepWaitNodeReplacement, ReportedAt: now}},
+				{Hostname: "host-1", Name: "rs-1", LastGoalVersionAchieved: 42},
+			},
+			relevantProcesses: []string{"rs-0", "rs-1"},
+			expectedReady:     false,
+		},
+		{
+			name: "parked process outside the relevant processes does not make the agents ready",
+			processes: []ProcessStatus{
+				{Hostname: "host-0", Name: "rs-0", LastGoalVersionAchieved: 41, Execution: &ProcessExecution{AutomationConfigVersion: 42, Move: "ExternalNodeRestart", Step: ExecutionStepWaitNodeReplacement, ReportedAt: now}},
+				{Hostname: "host-1", Name: "rs-1", LastGoalVersionAchieved: 41},
+			},
+			relevantProcesses: []string{"rs-1"},
+			expectedReady:     false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			as := &AutomationStatus{GoalVersion: 42, Processes: tt.processes}
+
+			ready, _ := checkAutomationStatusIsGoal(as, tt.relevantProcesses, zap.NewNop().Sugar())
+
+			assert.Equal(t, tt.expectedReady, ready)
+		})
+	}
+}
+
+func TestProcessExecution_IsParked(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name                                string
+		execution                           *ProcessExecution
+		goalVersion                         int
+		expectedIsParked                    bool
+		expectedIsWaitingForNodeReplacement bool
+	}{
+		{
+			name: "nil execution",
+		},
+		{
+			name:        "wrong goal version",
+			execution:   &ProcessExecution{AutomationConfigVersion: 41, Step: ExecutionStepWaitCanUpdate, ReportedAt: now},
+			goalVersion: 42,
+		},
+		{
+			name:        "stale report",
+			execution:   &ProcessExecution{AutomationConfigVersion: 42, Step: ExecutionStepWaitCanUpdate, ReportedAt: now.Add(-StaleProcessDuration - time.Second)},
+			goalVersion: 42,
+		},
+		{
+			name:             "fresh WaitCanUpdate",
+			execution:        &ProcessExecution{AutomationConfigVersion: 42, Step: ExecutionStepWaitCanUpdate, ReportedAt: now},
+			goalVersion:      42,
+			expectedIsParked: true,
+		},
+		{
+			name:                                "fresh WaitNodeReplacement",
+			execution:                           &ProcessExecution{AutomationConfigVersion: 42, Step: ExecutionStepWaitNodeReplacement, ReportedAt: now},
+			goalVersion:                         42,
+			expectedIsParked:                    true,
+			expectedIsWaitingForNodeReplacement: true,
+		},
+		{
+			name:        "other step",
+			execution:   &ProcessExecution{AutomationConfigVersion: 42, Step: "StepDownIfPrimary", ReportedAt: now},
+			goalVersion: 42,
+		},
+		{
+			name:                                "report exactly at the staleness boundary is fresh",
+			execution:                           &ProcessExecution{AutomationConfigVersion: 42, Step: ExecutionStepWaitNodeReplacement, ReportedAt: now.Add(-StaleProcessDuration)},
+			goalVersion:                         42,
+			expectedIsParked:                    true,
+			expectedIsWaitingForNodeReplacement: true,
+		},
+		{
+			name:        "report just past the staleness boundary",
+			execution:   &ProcessExecution{AutomationConfigVersion: 42, Step: ExecutionStepWaitNodeReplacement, ReportedAt: now.Add(-StaleProcessDuration - time.Nanosecond)},
+			goalVersion: 42,
+		},
+		{
+			name:                                "report from the future is fresh",
+			execution:                           &ProcessExecution{AutomationConfigVersion: 42, Step: ExecutionStepWaitNodeReplacement, ReportedAt: now.Add(time.Minute)},
+			goalVersion:                         42,
+			expectedIsParked:                    true,
+			expectedIsWaitingForNodeReplacement: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedIsParked, tt.execution.IsParked(tt.goalVersion, now))
+			assert.Equal(t, tt.expectedIsWaitingForNodeReplacement, tt.execution.IsWaitingForNodeReplacement(tt.goalVersion, now))
+		})
+	}
+}
+
 func TestCheckAutomationStatusIsGoal_AuthenticationTransitions(t *testing.T) {
 	logger := zap.NewNop().Sugar()
 
@@ -521,6 +645,43 @@ func TestWaitForReadyState_LogsAgentErrors(t *testing.T) {
 					assert.NotContains(t, err.Error(), msg)
 				}
 			}
+		})
+	}
+}
+
+func TestBuildAutomationStatusFromBytes_Execution(t *testing.T) {
+	tests := []struct {
+		name              string
+		payload           string
+		expectedExecution *ProcessExecution
+	}{
+		{
+			name: "execution present",
+			payload: `{"goalVersion":42,"processes":[{"name":"my-rs-0","plan":["ExternalNodeRestart"],` +
+				`"execution":{"automationConfigVersion":42,"move":"ExternalNodeRestart","step":"WaitNodeReplacement","reportedAt":"2026-10-13T12:00:00Z"}}]}`,
+			expectedExecution: &ProcessExecution{
+				AutomationConfigVersion: 42,
+				Move:                    "ExternalNodeRestart",
+				Step:                    ExecutionStepWaitNodeReplacement,
+				ReportedAt:              time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC),
+			},
+		},
+		{
+			name:    "execution absent",
+			payload: `{"processes":[{"name":"my-rs-0"}]}`,
+		},
+		{
+			name:    "execution null",
+			payload: `{"processes":[{"name":"my-rs-0","execution":null}]}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			as, err := buildAutomationStatusFromBytes([]byte(tt.payload))
+
+			require.NoError(t, err)
+			require.Len(t, as.Processes, 1)
+			assert.Equal(t, tt.expectedExecution, as.Processes[0].Execution)
 		})
 	}
 }
