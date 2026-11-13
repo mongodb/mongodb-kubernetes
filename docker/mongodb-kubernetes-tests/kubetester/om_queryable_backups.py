@@ -39,17 +39,20 @@ class OMQueryableBackup:
     def _login(self):
         endpoint = f"{self._om_url}/user/v1/auth"
         headers = {"Content-Type": "application/json"}
-        data = {
-            "username": "jane.doe@example.com",
-            "password": b64encode("Passw0rd.".encode("utf-8")).decode("ascii"),
-            "reCaptchaResponse": None,
-        }
+        password = "Passw0rd."
+        # OM 7.0 rejects a base64 encoded password with INVALID_USER_AUTH; the encoded form is kept as a fallback.
+        for candidate in (password, b64encode(password.encode("utf-8")).decode("ascii")):
+            data = {
+                "username": "jane.doe@example.com",
+                "password": candidate,
+                "reCaptchaResponse": None,
+            }
+            response = requests.post(endpoint, json=data, headers=headers)
+            if response.status_code == 200:
+                self._auth_cookies = response.cookies
+                return
 
-        response = requests.post(endpoint, json=data, headers=headers)
-        if response.status_code != 200:
-            raise Exception(f"OM login failed with status code: {response.status_code}, content: {response.content}")
-
-        self._auth_cookies = response.cookies
+        raise Exception(f"OM login failed with status code: {response.status_code}, content: {response.content}")
 
     def _authenticated_http_get(self, url, headers=None):
         response = requests.get(url, headers=headers or {}, cookies=self._auth_cookies)
