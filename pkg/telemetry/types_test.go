@@ -63,6 +63,8 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 			ExternalMembersCount:     &externalMembersCount,
 			MigrationStartedAt:       "2026-01-01T00:00:00Z",
 			MigrationCompletedAt:     "2026-01-01T01:00:00Z",
+
+			ManagedCertificateIssuers: "Both",
 		},
 		IsAutoEmbeddingEnabled: true,
 	}

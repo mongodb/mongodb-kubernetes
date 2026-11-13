@@ -2081,3 +2081,121 @@ func TestCollectDeploymentsSnapshotMigration(t *testing.T) {
 		})
 	}
 }
+
+func TestCollectDeploymentsSnapshotManagedCertificate(t *testing.T) {
+	issuer := &mdbv1.IssuerRef{Name: "user-issuer"}
+
+	tests := map[string]struct {
+		objects  []client.Object
+		validate func(t *testing.T, props map[string]any)
+	}{
+		"managedCertificate not set reports nothing": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("no-managed-cert", nil),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.NotContains(t, props, "managedCertificateIssuers")
+			},
+		},
+		"empty managedCertificate block reports no user issuer": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("self-signed", &mdbv1.ManagedCertificate{}),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "None", props["managedCertificateIssuers"])
+				assert.NotContains(t, props, "managedCertificateServerDurationSeconds")
+				assert.NotContains(t, props, "managedCertificateServerRenewBeforeSeconds")
+				assert.NotContains(t, props, "managedCertificateClientDurationSeconds")
+				assert.NotContains(t, props, "managedCertificateClientRenewBeforeSeconds")
+			},
+		},
+		"server issuer only": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("server-issuer", &mdbv1.ManagedCertificate{
+					Server: &mdbv1.CertificateConfig{IssuerRef: issuer},
+				}),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "Server", props["managedCertificateIssuers"])
+			},
+		},
+		"client issuer only": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("client-issuer", &mdbv1.ManagedCertificate{
+					Client: &mdbv1.CertificateConfig{IssuerRef: issuer},
+				}),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "Client", props["managedCertificateIssuers"])
+			},
+		},
+		"both issuers": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("both-issuers", &mdbv1.ManagedCertificate{
+					Server: &mdbv1.CertificateConfig{IssuerRef: issuer},
+					Client: &mdbv1.CertificateConfig{IssuerRef: issuer},
+				}),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "Both", props["managedCertificateIssuers"])
+			},
+		},
+		"managedCertificate on MongoDBMultiCluster": {
+			objects: []client.Object{
+				&mdbmulti.MongoDBMultiCluster{
+					ObjectMeta: metav1.ObjectMeta{Name: "multi-managed-cert", UID: "multi-managed-cert-uid"},
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								ManagedCertificate: &mdbv1.ManagedCertificate{
+									Client: &mdbv1.CertificateConfig{IssuerRef: issuer},
+								},
+							},
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "Client", props["managedCertificateIssuers"])
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(tc.objects...).Build()
+			mgr := mockClient.NewManagerWithClient(k8sClient)
+
+			events := collectDeploymentsSnapshot(context.Background(), mgr, testOperatorUUID, testDatabaseStaticImage, testDatabaseNonStaticImage, architectures.NonStatic)
+
+			require.Len(t, events, 1)
+			tc.validate(t, events[0].Properties)
+		})
+	}
+}
+
+func mdbWithManagedCertificate(name string, managedCertificate *mdbv1.ManagedCertificate) client.Object {
+	var security *mdbv1.Security
+	if managedCertificate != nil {
+		security = &mdbv1.Security{ManagedCertificate: managedCertificate}
+	}
+
+	return &mdbv1.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{Name: name, UID: types.UID(name + "-uid")},
+		Spec: mdbv1.MongoDbSpec{
+			DbCommonSpec: mdbv1.DbCommonSpec{
+				ResourceType: mdbv1.ReplicaSet,
+				Security:     security,
+			},
+		},
+	}
+}
