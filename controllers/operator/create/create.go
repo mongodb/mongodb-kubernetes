@@ -121,7 +121,12 @@ func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient
 		mountMemberClusterKeySecret(sts, agent, opts.PodVars.ProjectID)
 	}
 	parameters := customerStartupOptions(opts)
-	err = reconcileAgentSettings(ctx, client, secretClient, sts, cm, parameters, vaultDatabaseSecretPath(secretClient), agentReadsCredential(*agent, parameters))
+	err = reconcileAgentSettings(ctx, client, secretClient, sts, agentSettingsInput{
+		configMap:       cm,
+		parameters:      parameters,
+		vaultBasePath:   vaultDatabaseSecretPath(secretClient),
+		needsCredential: agentReadsCredential(*agent, parameters),
+	})
 	if err != nil {
 		return err
 	}
@@ -178,31 +183,40 @@ func setAgentHostnameEnv(agent *corev1.Container, parameters mdbv1.StartupParame
 	}
 }
 
-func reconcileAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, cm corev1.ConfigMap, parameters mdbv1.StartupParameters, basePath string, needsCredential bool) error {
+// agentSettingsInput is what reconcileAgentSettings needs besides the StatefulSet and the clients.
+type agentSettingsInput struct {
+	configMap       corev1.ConfigMap
+	parameters      mdbv1.StartupParameters
+	vaultBasePath   string
+	needsCredential bool
+}
+
+func reconcileAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, in agentSettingsInput) error {
 	agent := construct.AgentContainer(*sts)
 	if agent == nil {
 		return fmt.Errorf("agent container not found in StatefulSet %s", sts.Name)
 	}
+	customerKeyCommand := in.parameters["mmsApiKeyExec"]
+	customerRawKey, hasCustomerRawKey := in.parameters["mmsApiKey"]
 	// The credential is only used for the rollout digest, so a rotated key rolls the pods.
 	var credential string
 	var err error
-	_, hasKeyOverride := parameters["mmsApiKey"]
 	switch {
-	case parameters["mmsApiKeyExec"] != "":
+	case customerKeyCommand != "":
 		// The customer's command reads the key, so there is nothing to deliver or hash.
-	case hasKeyOverride:
-		credential, err = reconcileAgentCredentialFromOverride(ctx, secretClient, sts, agent, parameters["mmsApiKey"], basePath)
-	case needsCredential:
+	case hasCustomerRawKey:
+		credential, err = reconcileAgentCredentialFromOverride(ctx, secretClient, sts, agent, customerRawKey, in.vaultBasePath)
+	case in.needsCredential:
 		if credential, err = databaseAgentCredential(ctx, secretClient, *sts); err != nil {
 			err = fmt.Errorf("cannot read agent startup credential: %w", err)
 		}
-	case settingsConsumeCredential(cm.Data[construct.AgentSettingsFileName]):
+	case settingsConsumeCredential(in.configMap.Data[construct.AgentSettingsFileName]):
 		credential, err = databaseAgentCredentialIfPresent(ctx, secretClient, *sts)
 	}
 	if err != nil {
 		return err
 	}
-	return writeAgentSettings(ctx, client, sts, agent, cm, credential)
+	return writeAgentSettings(ctx, client, sts, agent, in.configMap, credential)
 }
 
 // reconcileAgentCredentialFromOverride stores the customer's raw mmsApiKey in a generated Secret
