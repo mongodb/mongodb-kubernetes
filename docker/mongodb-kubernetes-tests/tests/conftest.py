@@ -47,7 +47,6 @@ import kubernetes
 import kubernetes.client.rest
 import requests
 from kubernetes import client
-from kubernetes.client import ApiextensionsV1Api
 from kubetester import (
     create_or_update_configmap,
     get_deployments,
@@ -267,11 +266,6 @@ def get_aws_s3_client(evergreen_task_id: str = ""):
         tags["evg_task"] = evergreen_task_id
 
     return AwsS3Client("us-east-1", **tags)
-
-
-@fixture(scope="session")
-def crd_api():
-    return ApiextensionsV1Api()
 
 
 @fixture(scope="module")

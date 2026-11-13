@@ -141,10 +141,10 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
-| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1370 tasks, every e2e variant; It **MUST** only be applied manually by a human engineer because it's extremely expensive (see "Choosing a label") |
-| `evergreen:e2e-default`    | `e2e_test_suite`     | ~550 tasks, e2e suite minus static, OM7 and race variants; close to the former default PR set                  |
-| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~330 tasks tagged `e2e_medium` across static/non-static, OM 7/8/9, multi-cluster                               |
-| `evergreen:e2e-light`      | `e2e_test_suite`     | ~175 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
+| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1320 tasks, every e2e variant; It **MUST** only be applied manually by a human engineer because it's extremely expensive (see "Choosing a label") |
+| `evergreen:e2e-default`    | `e2e_test_suite`     | ~540 tasks, e2e suite minus static, OM7 and race variants; close to the former default PR set                  |
+| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~320 tasks tagged `e2e_medium` across static/non-static, OM 7/8/9, multi-cluster                               |
+| `evergreen:e2e-light`      | `e2e_test_suite`     | ~170 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
 | `evergreen:e2e-static`     | `static`             | Static-container e2e variants + shared init/build (`init_test_run`, `init_tests_with_olm`, `build_om*_images`) |
 | `evergreen:e2e-non-static` | `non_static`         | Non-static e2e variants + shared init/build                                                                    |
 | `evergreen:multi-cluster`  | `multi_cluster`      | Non-static multi-cluster variants only (kind, 2 clusters, OM AppDB, OM70 upgrade, OM80 search, operator-not-in-mesh) |
@@ -153,6 +153,9 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
 | `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
+
+Task counts are rounded PR patch sizes: the tasks selected by the label, their dependencies and the always-on checks.
+They change as tasks are added or removed.
 
 OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
 the `staging` alias.

@@ -79,28 +79,8 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_replica_set_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_sharded_cluster_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_sharded_cluster_external_access
     tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_users_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_crd_validation
-    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -196,16 +176,6 @@ tasks:
 
   - name: e2e_replica_set
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_mongodb_validation_webhook
-    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_mongodb_roles_validation_webhook
-    tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
@@ -816,11 +786,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_om_appdb_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_om_external_appdb_forward
     tags: [ "patch-run" ]
     commands:
@@ -939,11 +904,6 @@ tasks:
       - ubuntu2404-large
     commands:
       - func: e2e_test
-
-  - name: e2e_om_validation_webhook
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
 
   - name: e2e_om_ops_manager_https_enabled
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
@@ -1100,16 +1060,6 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_appdb_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
-  - name: e2e_multi_cluster_om_validation
-    tags: [ "patch-run", "e2e_medium" ]
-    commands:
-      - func: e2e_test
-
   - name: e2e_multi_cluster_appdb
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
@@ -1201,11 +1151,6 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_replica_set_ignore_unknown_users
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
-  - name: e2e_multi_cluster_validation
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
