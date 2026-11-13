@@ -2271,7 +2271,7 @@ func TestOpsManagerManagedCertificateStatusPersistence(t *testing.T) {
 		assert.Equal(t, status.PhaseFailed, persisted.Status.AppDbStatus.Phase)
 		assert.Equal(t, status.PhaseRunning, persisted.Status.BackupStatus.Phase, "an OK component must not mark another component Running")
 
-		require.NoError(t, reconciler.patchCertificateCondition(ctx, persisted, nil))
+		require.NoError(t, reconciler.patchCertificateReadyCondition(ctx, persisted, nil))
 		persisted = getPersistedManagedCertificateOM(t, ctx, c, opsManager)
 		assert.Nil(t, meta.FindStatusCondition(persisted.Status.Conditions, certspkg.ConditionCertificatesReady))
 		require.NotNil(t, meta.FindStatusCondition(persisted.Status.Conditions, "Unrelated"))
@@ -2297,7 +2297,7 @@ func TestOpsManagerManagedCertificateStatusPersistence(t *testing.T) {
 		}, opsManager)
 		reconciler := newManagedCertificateTestReconciler(ctx, c)
 
-		require.NoError(t, reconciler.patchCertificateCondition(ctx, opsManager, nil))
+		require.NoError(t, reconciler.patchCertificateReadyCondition(ctx, opsManager, nil))
 		assert.Zero(t, statusPatchCount, "removing an absent condition must not write")
 
 		condition := &metav1.Condition{
@@ -2306,11 +2306,11 @@ func TestOpsManagerManagedCertificateStatusPersistence(t *testing.T) {
 			Reason:  "Issuing",
 			Message: "issuing",
 		}
-		require.NoError(t, reconciler.patchCertificateCondition(ctx, opsManager, condition))
+		require.NoError(t, reconciler.patchCertificateReadyCondition(ctx, opsManager, condition))
 		require.Equal(t, 1, statusPatchCount)
 
 		statusPatchCount = 0
-		require.NoError(t, reconciler.patchCertificateCondition(ctx, opsManager, nil))
+		require.NoError(t, reconciler.patchCertificateReadyCondition(ctx, opsManager, nil))
 		require.Equal(t, 1, statusPatchCount)
 		persisted := getPersistedManagedCertificateOM(t, ctx, c, opsManager)
 		assert.Nil(t, meta.FindStatusCondition(persisted.Status.Conditions, certspkg.ConditionCertificatesReady))
@@ -2326,7 +2326,7 @@ func TestOpsManagerManagedCertificateStatusPersistence(t *testing.T) {
 		}, opsManager)
 		reconciler := newManagedCertificateTestReconciler(ctx, c)
 
-		err := reconciler.patchCertificateCondition(ctx, opsManager, &metav1.Condition{
+		err := reconciler.patchCertificateReadyCondition(ctx, opsManager, &metav1.Condition{
 			Type:    certspkg.ConditionCertificatesReady,
 			Status:  metav1.ConditionTrue,
 			Reason:  "AllCertificatesReady",
@@ -2343,7 +2343,7 @@ func TestOpsManagerManagedCertificateStatusPersistence(t *testing.T) {
 
 		staleReconcile := opsManager.DeepCopy()
 		staleReconcile.Generation = 1
-		err := reconciler.patchCertificateCondition(ctx, staleReconcile, &metav1.Condition{
+		err := reconciler.patchCertificateReadyCondition(ctx, staleReconcile, &metav1.Condition{
 			Type:    certspkg.ConditionCertificatesReady,
 			Status:  metav1.ConditionTrue,
 			Reason:  "AllCertificatesReady",
@@ -2379,7 +2379,7 @@ func TestOpsManagerManagedCertificateStatusPersistence(t *testing.T) {
 		}, opsManager)
 		reconciler := newManagedCertificateTestReconciler(ctx, c)
 
-		err := reconciler.patchCertificateCondition(ctx, opsManager, &metav1.Condition{
+		err := reconciler.patchCertificateReadyCondition(ctx, opsManager, &metav1.Condition{
 			Type:    certspkg.ConditionCertificatesReady,
 			Status:  metav1.ConditionTrue,
 			Reason:  "AllCertificatesReady",
@@ -2420,7 +2420,7 @@ func TestOpsManagerManagedCertificateReadinessReason(t *testing.T) {
 			c := newManagedCertificateKubeClient(t, opsManager)
 			r := newManagedCertificateTestReconciler(ctx, c)
 			r.certManagerReadiness = tc.readiness
-			result := r.prepareOpsManagerCertificate(ctx, opsManager, zap.S())
+			result := r.ensureOpsManagerCertificateAndCA(ctx, opsManager, zap.S())
 			_, blocked, err := r.applyManagedCertificateResults(ctx, opsManager, []componentCertificateResult{result}, zap.S())
 			require.NoError(t, err)
 			condition := managedCertificateCondition(t, ctx, c, opsManager)
@@ -2489,7 +2489,7 @@ func TestOpsManagerManagedCertificateSANs(t *testing.T) {
 				c := newManagedCertificateKubeClient(t, opsManager)
 				r := newManagedCertificateTestReconciler(t.Context(), c)
 				r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
-				result := r.prepareOpsManagerCertificate(t.Context(), opsManager, zap.S())
+				result := r.ensureOpsManagerCertificateAndCA(t.Context(), opsManager, zap.S())
 				require.False(t, result.status.IsOK())
 				require.NotNil(t, result.condition)
 				assert.Equal(t, "IssuanceFailed", result.condition.Reason)
@@ -2543,7 +2543,7 @@ func TestOpsManagerManagedHTTPSRenewal(t *testing.T) {
 	c := newManagedCertificateKubeClient(t, opsManager)
 	r := newManagedCertificateTestReconciler(ctx, c)
 	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
-	assert.False(t, r.prepareOpsManagerCertificate(ctx, opsManager, zap.S()).status.IsOK())
+	assert.False(t, r.ensureOpsManagerCertificateAndCA(ctx, opsManager, zap.S()).status.IsOK())
 	markAllManagedCertificatesReady(t, ctx, c)
 	createSecretsForManagedCertificates(t, ctx, c, ca)
 	crt, key := issue()
@@ -2559,7 +2559,7 @@ func TestOpsManagerManagedHTTPSRenewal(t *testing.T) {
 	secretClient := secrets.SecretClient{KubeClient: c}
 	member := multicluster.GetLegacyCentralMemberCluster(1, 0, c, secretClient)
 	build := func() (appsv1.StatefulSet, corev1.Secret, string) {
-		prepared := r.prepareOpsManagerCertificate(ctx, opsManager, zap.S())
+		prepared := r.ensureOpsManagerCertificateAndCA(ctx, opsManager, zap.S())
 		require.True(t, prepared.status.IsOK(), "%+v", prepared.condition)
 		sts, err := operatorConstruct.OpsManagerStatefulSet(ctx, secretClient, opsManager, member, zap.S())
 		require.NoError(t, err)
@@ -2601,14 +2601,14 @@ func TestOpsManagerManagedCAConsumableByMongoDBProjectConfig(t *testing.T) {
 				c := newManagedCertificateKubeClient(t, opsManager)
 				r := newManagedCertificateTestReconciler(ctx, c)
 				r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
-				r.prepareOpsManagerCertificate(ctx, opsManager, zap.S())
+				r.ensureOpsManagerCertificateAndCA(ctx, opsManager, zap.S())
 				markAllManagedCertificatesReady(t, ctx, c)
 				createSecretsForManagedCertificates(t, ctx, c, omCA)
 				leafSecret := &corev1.Secret{}
 				require.NoError(t, c.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.TLSCertificateSecretName()), leafSecret))
 				leafSecret.Data["ca.crt"] = omCA
 				require.NoError(t, c.Update(ctx, leafSecret))
-				prepared := r.prepareOpsManagerCertificate(ctx, opsManager, zap.S())
+				prepared := r.ensureOpsManagerCertificateAndCA(ctx, opsManager, zap.S())
 				require.True(t, prepared.status.IsOK(), "%+v", prepared.condition)
 				rs := DefaultReplicaSetBuilder().SetName("workload").SetMembers(1).Build()
 				rs.Namespace = opsManager.Namespace
@@ -2773,7 +2773,7 @@ func TestOpsManagerManagedCrossTrust(t *testing.T) {
 	c := newManagedCertificateKubeClient(t, opsManager, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "appdb-ca", Namespace: opsManager.Namespace}, Data: map[string]string{"ca-pem": string(appDBCA)}})
 	r := newManagedCertificateTestReconciler(ctx, c)
 	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
-	r.prepareOpsManagerCertificate(ctx, opsManager, zap.S())
+	r.ensureOpsManagerCertificateAndCA(ctx, opsManager, zap.S())
 	markAllManagedCertificatesReady(t, ctx, c)
 	createSecretsForManagedCertificates(t, ctx, c, omCA)
 	leaf := &corev1.Secret{}
@@ -2781,7 +2781,7 @@ func TestOpsManagerManagedCrossTrust(t *testing.T) {
 	leaf.Type = corev1.SecretTypeTLS
 	leaf.Data["tls.crt"], leaf.Data["tls.key"] = issue()
 	require.NoError(t, c.Update(ctx, leaf))
-	require.True(t, r.prepareOpsManagerCertificate(ctx, opsManager, zap.S()).status.IsOK())
+	require.True(t, r.ensureOpsManagerCertificateAndCA(ctx, opsManager, zap.S()).status.IsOK())
 	projectConfig, err := opsManager.GetAppDBProjectConfig(ctx, c)
 	require.NoError(t, err)
 	assert.Equal(t, "managed-om-managed-om-ca-bundle", projectConfig.SSLMMSCAConfigMap)

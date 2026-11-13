@@ -548,13 +548,13 @@ type componentCertificateResult struct {
 
 func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
 	results := []componentCertificateResult{
-		r.prepareOpsManagerCertificate(ctx, opsManager, log),
+		r.ensureOpsManagerCertificateAndCA(ctx, opsManager, log),
 	}
 
 	return r.applyManagedCertificateResults(ctx, opsManager, results, log)
 }
 
-func (r *OpsManagerReconciler) prepareOpsManagerCertificate(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) componentCertificateResult {
+func (r *OpsManagerReconciler) ensureOpsManagerCertificateAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) componentCertificateResult {
 	if !r.certManagerReadiness.Ready {
 		return r.managedCertificateGateResult(mdbstatus.OpsManager, opsManager.IsManagedCertificateEnabled())
 	}
@@ -632,7 +632,7 @@ func (r *OpsManagerReconciler) managedCertificateGateResult(part mdbstatus.Part,
 }
 
 func (r *OpsManagerReconciler) applyManagedCertificateResults(ctx context.Context, opsManager *omv1.MongoDBOpsManager, results []componentCertificateResult, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
-	if err := r.patchCertificateCondition(ctx, opsManager, aggregateCertificateConditions(results)); err != nil {
+	if err := r.patchCertificateReadyCondition(ctx, opsManager, aggregateCertificateConditions(results)); err != nil {
 		return reconcile.Result{}, false, err
 	}
 
@@ -720,7 +720,7 @@ func componentCertificateName(part mdbstatus.Part) string {
 	}
 }
 
-func (r *OpsManagerReconciler) patchCertificateCondition(ctx context.Context, opsManager *omv1.MongoDBOpsManager, condition *metav1.Condition) error {
+func (r *OpsManagerReconciler) patchCertificateReadyCondition(ctx context.Context, opsManager *omv1.MongoDBOpsManager, condition *metav1.Condition) error {
 	existingOpsManager := &omv1.MongoDBOpsManager{}
 	if err := r.client.Get(ctx, client.ObjectKeyFromObject(opsManager), existingOpsManager); err != nil {
 		return err
