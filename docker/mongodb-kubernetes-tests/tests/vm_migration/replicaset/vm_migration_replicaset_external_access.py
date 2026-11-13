@@ -5,9 +5,9 @@ Simulates a production environment where operator-created pods are not reachable
 cluster under their internal *.svc.cluster.local hostnames: the migrated members are exposed with
 per-pod LoadBalancer services and published as <pod>.mongodb.interconnected.
 
-MetalLB assigns LoadBalancer IPs from 172.18.255.200 upwards on kind (see
-scripts/dev/recreate_kind_clusters.sh), so the IPs are predicted and seeded into CoreDNS before the
-resource is applied. Related externalDomain tests: replicaset/replica_set_process_hostnames.py,
+MetalLB assigns LoadBalancer IPs from the first address of the single-cluster pool upwards on kind (see
+KIND_METALLB_RANGE_SINGLE in scripts/dev/contexts/root-context), so the IPs are predicted and seeded into CoreDNS
+before the resource is applied. Related externalDomain tests: replicaset/replica_set_process_hostnames.py,
 tls/tls_replica_set_process_hostnames.py.
 """
 
@@ -20,6 +20,7 @@ from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import default_external_domain, update_coredns_hosts
+from tests.kind_network import kind_lb_ip
 from tests.vm_migration.vm_migration_common_helper import (
     assert_max_voting_members_validation,
     assert_migration_data_exists,
@@ -48,14 +49,12 @@ from tests.vm_migration.vm_migration_replicaset_helper import (
 RS_NAME = "vm-mongodb-rs"
 
 EXTERNAL_DOMAIN = default_external_domain()
-LB_IP_BASE = "172.18.255.200"
 
 
 def _predicted_lb_ips() -> list[str]:
-    """MetalLB assigns LoadBalancer IPs sequentially from 172.18.255.200 on single-cluster kind."""
-    first, last_octet = LB_IP_BASE.rsplit(".", 1)
+    """MetalLB assigns LoadBalancer IPs sequentially from the start of the single-cluster pool."""
     # Mirrors apply_generated_mongodb_resource's member count: max(external_count, MIN_K8S_MONGOD).
-    return [f"{first}.{int(last_octet) + i}" for i in range(max(MIN_VM_MONGOD, MIN_K8S_MONGOD))]
+    return [kind_lb_ip("SINGLE", i) for i in range(max(MIN_VM_MONGOD, MIN_K8S_MONGOD))]
 
 
 def _external_fqdns() -> list[str]:
@@ -344,7 +343,7 @@ def test_external_services_created(namespace: str, mdb_migration: MongoDB):
         assert ingress, f"{service_name} has no LoadBalancer ingress assigned"
         assert ingress[0].ip == expected_ip, (
             f"{service_name} got IP {ingress[0].ip}, but CoreDNS was seeded with {expected_ip}. "
-            f"MetalLB allocation order changed -- update LB_IP_BASE or the prediction."
+            f"MetalLB allocation order changed -- update the prediction."
         )
 
 
