@@ -108,6 +108,34 @@ def leaf_secret_names(name: str) -> tuple[str, str, str]:
     return f"{name}-managed-cert", f"{name}-managed-clusterfile", f"{name}-managed-agent-certs"
 
 
+def certificate_extended_key_usages(cert_pem: str) -> set:
+    """The extended key usages of a PEM certificate."""
+    certificate = x509.load_pem_x509_certificate(cert_pem.encode())
+    extension = certificate.extensions.get_extension_for_class(x509.ExtendedKeyUsage)
+    return set(extension.value)
+
+
+def assert_member_certificate_client_usage(name: str, namespace: str, *, client_auth: bool):
+    """Checks the client usage on the member certificate.
+
+    The members present the member certificate when they connect to each other only when there is no
+    clusterfile and the mongod configuration does not withhold it, so only then does the certificate
+    have to carry the client usage.
+    """
+    usages = certificate_extended_key_usages(read_secret(namespace, f"{name}-managed-cert")["tls.crt"])
+    assert (
+        x509.oid.ExtendedKeyUsageOID.SERVER_AUTH in usages
+    ), "the member certificate has to be usable as a server certificate"
+    if client_auth:
+        assert (
+            x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH in usages
+        ), "the members present the member certificate to each other, so it has to carry the client usage"
+    else:
+        assert (
+            x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH not in usages
+        ), "the members withhold the member certificate, so the operator must not request the client usage"
+
+
 def assert_leaf_secrets_created(name: str, namespace: str):
     """Every leaf certificate is issued into a kubernetes.io/tls secret, with no user created secret."""
     for secret_name in leaf_secret_names(name):

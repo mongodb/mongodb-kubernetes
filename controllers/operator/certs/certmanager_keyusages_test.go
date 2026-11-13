@@ -56,6 +56,44 @@ func putIssuedCertificate(ctx context.Context, t *testing.T, c kubernetesClient.
 	require.NoError(t, secrets.SecretClient{KubeClient: c}.PutSecret(ctx, s, Unused))
 }
 
+func TestWithholdsClientCertificate(t *testing.T) {
+	config := func(value string) *mdbv1.AdditionalMongodConfig {
+		cfg := &mdbv1.AdditionalMongodConfig{}
+		require.NoError(t, cfg.UnmarshalJSON([]byte(`{"setParameter": {"tlsWithholdClientCertificate": `+value+`}}`)))
+		return cfg
+	}
+
+	for _, tc := range []struct {
+		tcName         string
+		parameterValue string
+		want           bool
+	}{
+		{tcName: "true in bool", parameterValue: "true", want: true},
+		{tcName: "false", parameterValue: "false", want: false},
+		// Only a boolean true is the form verified end to end. Anything else keeps the client usage,
+		// which is the safe side: the members can still present the certificate.
+		{tcName: "1", parameterValue: "1", want: false},
+		{tcName: "quoted true", parameterValue: `"true"`, want: false},
+		{tcName: "quoted 1", parameterValue: `"1"`, want: false},
+		{tcName: "0", parameterValue: "0", want: false},
+	} {
+		t.Run(tc.tcName, func(t *testing.T) {
+			assert.Equal(t, tc.want, WithholdsClientCertificate(config(tc.parameterValue)))
+		})
+	}
+
+	t.Run("no configuration at all", func(t *testing.T) {
+		assert.False(t, WithholdsClientCertificate(nil))
+		assert.False(t, WithholdsClientCertificate(&mdbv1.AdditionalMongodConfig{}))
+	})
+
+	t.Run("other parameters are ignored", func(t *testing.T) {
+		cfg := &mdbv1.AdditionalMongodConfig{}
+		require.NoError(t, cfg.UnmarshalJSON([]byte(`{"net": {"port": 27017}}`)))
+		assert.False(t, WithholdsClientCertificate(cfg))
+	})
+}
+
 func usageTestCertificate(secretName string, requested []certmanagerv1.KeyUsage) certToEnsure {
 	return certToEnsure{certName: secretName, spec: certmanagerv1.CertificateSpec{SecretName: secretName, Usages: requested}}
 }

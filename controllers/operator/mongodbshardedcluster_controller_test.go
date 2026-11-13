@@ -2652,6 +2652,36 @@ func TestCreateDesiredProcesses_ExternalMembersForceNewNaming(t *testing.T) {
 	}
 }
 
+// A shard override replaces the shard's mongod configuration, so a shard whose override does not set
+// the withhold parameter must not be treated as if it did: the operator would request a member
+// certificate without the client usage and the members of that shard would reject each other.
+func TestShardWithholdFollowsTheShardOverride(t *testing.T) {
+	sc := test.DefaultClusterBuilder().Build()
+	withholding := &mdbv1.AdditionalMongodConfig{}
+	require.NoError(t, withholding.UnmarshalJSON([]byte(`{"setParameter": {"tlsWithholdClientCertificate": true}}`)))
+	sc.Spec.ShardSpec.AdditionalMongodConfig = withholding
+	// Shard 0 runs with its own configuration, which does not withhold the certificate.
+	sc.Spec.ShardOverrides = []mdbv1.ShardOverride{{
+		ShardNames: []string{sc.ShardName(0)},
+		ShardedClusterComponentOverrideSpec: mdbv1.ShardedClusterComponentOverrideSpec{
+			AdditionalMongodConfig: &mdbv1.AdditionalMongodConfig{},
+		},
+	}}
+
+	helper := &ShardedClusterReconcileHelper{
+		sc:              sc,
+		deploymentState: &ShardedClusterDeploymentState{Status: &mdbv1.MongoDbStatus{}},
+	}
+	shards := helper.prepareDesiredShardsConfiguration()
+	scaler := stubScaler{current: 3, target: 3}
+
+	withheld := certs.ShardConfig(*sc, 1, nil, scaler, shards[1].GetAdditionalMongodConfig())
+	assert.True(t, withheld.WithholdsClientCertificate, "shard 1 uses the configuration of the shard spec, which withholds")
+
+	overridden := certs.ShardConfig(*sc, 0, nil, scaler, shards[0].GetAdditionalMongodConfig())
+	assert.False(t, overridden.WithholdsClientCertificate, "shard 0 is overridden, and its own configuration does not withhold")
+}
+
 // TestShardedRSK8sConfigMatchesDesiredConfiguration pins shardedRSK8sConfig to the reconcile side
 // resolution in prepareDesiredShardsConfiguration so the two cannot drift apart.
 func TestShardedRSK8sConfigMatchesDesiredConfiguration(t *testing.T) {

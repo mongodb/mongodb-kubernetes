@@ -73,7 +73,7 @@ func TestClusterfileHostnameCheck(t *testing.T) {
 			name: "sharded cluster with an external domain",
 			configure: func(sec *mdbv1.Security, sc secrets.SecretClient) (certs.X509CertConfigurator, certs.Options) {
 				sharded := mdbv1.NewDefaultShardedClusterBuilder().SetSecurity(sec).ExposedExternally(nil, nil, &externalDomain).Build()
-				opts := certs.ShardConfig(*sharded, 0, &externalDomain, stubScaler{current: 3, target: 3})
+				opts := certs.ShardConfig(*sharded, 0, &externalDomain, stubScaler{current: 3, target: 3}, nil)
 				configurator := certs.ShardedSetX509CertConfigurator{
 					MongoDB:          sharded,
 					MemberCluster:    multicluster.MemberCluster{SecretClient: sc},
@@ -107,7 +107,7 @@ func TestClusterfileHostnameCheck(t *testing.T) {
 			name: "multi-cluster sharded cluster with an external domain",
 			configure: func(sec *mdbv1.Security, sc secrets.SecretClient) (certs.X509CertConfigurator, certs.Options) {
 				sharded := mdbv1.NewDefaultMultiShardedClusterBuilder().SetSecurity(sec).Build()
-				opts := certs.ShardConfig(*sharded, 0, &externalDomain, stubScaler{current: 3, target: 3})
+				opts := certs.ShardConfig(*sharded, 0, &externalDomain, stubScaler{current: 3, target: 3}, nil)
 				configurator := certs.ShardedSetX509CertConfigurator{
 					MongoDB:          sharded,
 					MemberCluster:    multicluster.MemberCluster{SecretClient: sc},

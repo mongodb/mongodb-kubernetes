@@ -776,6 +776,78 @@ func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
 	assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
 }
 
+func TestSetupCommonWatchers_ManagedCertificateCARefs(t *testing.T) {
+	ctx := context.Background()
+	ref := func(name, kind string) mdbv1.CARef {
+		return mdbv1.CARef{Name: name, Kind: kind, Key: "ca.crt"}
+	}
+	refPtr := func(r mdbv1.CARef) *mdbv1.CARef { return &r }
+
+	tests := []struct {
+		name        string
+		managedCert *mdbv1.ManagedCertificate
+		expectedCA  []watch.Object
+	}{
+		{
+			name:        "no managedCertificate",
+			managedCert: nil,
+		},
+		{
+			name:        "no CA sources",
+			managedCert: &mdbv1.ManagedCertificate{Server: &mdbv1.CertificateConfig{}, Client: &mdbv1.CertificateConfig{}},
+		},
+		{
+			name: "server ca and additionalTrustedCAs",
+			managedCert: &mdbv1.ManagedCertificate{Server: &mdbv1.CertificateConfig{
+				CA:                   refPtr(ref("server-ca", "ConfigMap")),
+				AdditionalTrustedCAs: []mdbv1.CARef{ref("server-extra-cm", "ConfigMap"), ref("server-extra-secret", "Secret")},
+			}},
+			expectedCA: []watch.Object{
+				{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "server-ca")},
+				{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "server-extra-cm")},
+				{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "server-extra-secret")},
+			},
+		},
+		{
+			name: "client ca and additionalTrustedCAs",
+			managedCert: &mdbv1.ManagedCertificate{Client: &mdbv1.CertificateConfig{
+				CA:                   refPtr(ref("client-ca", "Secret")),
+				AdditionalTrustedCAs: []mdbv1.CARef{ref("client-extra-cm", "ConfigMap")},
+			}},
+			expectedCA: []watch.Object{
+				{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, "client-ca")},
+				{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "client-extra-cm")},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := DefaultReplicaSetBuilder().Build()
+			rs.Spec.Security = &mdbv1.Security{ManagedCertificate: tc.managedCert}
+			kubeClient, _ := mock.NewDefaultFakeClient(rs)
+			controller := NewReconcileCommonController(ctx, kubeClient)
+
+			controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
+
+			dependent := kube.ObjectKey(mock.TestNamespace, rs.Name)
+			expected := map[watch.Object][]types.NamespacedName{
+				{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {dependent},
+				{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {dependent},
+			}
+			if tc.managedCert != nil {
+				memberCert := rs.GetSecurity().MemberCertificateSecretName(rs.Name)
+				expected[watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, memberCert)}] = []types.NamespacedName{dependent}
+			}
+			for _, watched := range tc.expectedCA {
+				expected[watched] = []types.NamespacedName{dependent}
+			}
+
+			assert.Equal(t, expected, controller.resourceWatcher.GetWatchedResources())
+		})
+	}
+}
+
 func TestAgentCertHashAndPath(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, _ := mock.NewDefaultFakeClient(
@@ -2031,6 +2103,7 @@ func TestStatusWarningsAreStored(t *testing.T) {
 		assert.Empty(t, stored.Status.Warnings)
 	})
 }
+
 func TestLogAgentErrors(t *testing.T) {
 	tests := []struct {
 		name                string

@@ -36,9 +36,9 @@ variables:
 
   - &ops_manager_70_latest 7.0.23 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.27 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.28 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_90_latest 9.0.1 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_90_latest 9.0.2 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -277,6 +277,14 @@ parameters:
     value: ""
     description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path."
 
+  - key: om_download_url
+    value: ""
+    description: "Full URL of a custom Ops Manager tarball. Must be used together with om_version (the image tag). Only the ops-manager image build uses it."
+
+  - key: om_version
+    value: ""
+    description: "Image tag override for the Ops Manager image. Required with om_download_url, otherwise the image is tagged with the build's OM version. Without a URL it must be a released OM version, whose release tarball is downloaded."
+
 # Triggered manually or by PCT.
 patch_aliases:
   - alias: "periodic_teardowns"
@@ -315,6 +323,10 @@ patch_aliases:
     description: "Run all non-static container variants"
     variant_tags: [ "non_static" ]
     task: ".*"
+  - alias: "multi_cluster"
+    description: "Run all non-static multi-cluster variants"
+    variant_tags: [ "multi_cluster" ]
+    task: ".*"
   - alias: "om7"
     description: "Run OM7 variants (static and non-static)"
     variant_tags: [ "om7" ]
@@ -350,6 +362,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-non-static"
+  - variant_tags: [ "multi_cluster" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:multi-cluster"
   - variant_tags: [ "cloudqa" ]
     task: ".*"
     required_labels:
@@ -358,6 +374,7 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-community"
+  # MUST only be applied manually by a human engineer: extremely expensive (~1370 tasks). Agents must not apply it.
   - variant_tags: [ "e2e_test_suite" ]
     task: ".*"
     required_labels:
@@ -382,6 +399,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:om9"
+  - variant_tags: [ "race" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:race"
   # Variants that always run on PRs, regardless of labels
   - variant_tags: [ "auto_bump", "unit_tests", "ocp_version_drift" ]
     task: ".*"
@@ -761,7 +782,7 @@ tasks:
             release_commit="$target_commit"
             if [ -z "$release_commit" ]; then release_commit="$revision"; fi
             echo "TRACE: using commit=$release_commit"
-            scripts/mckci release promote images --commit "$release_commit" --latest-marker latest
+            scripts/mckci release promote images --commit "$release_commit" --latest-marker "latest-${branch_name}"
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
@@ -1147,6 +1168,7 @@ task_groups:
       - e2e_replica_set_tls_managedcert_both_configured
       - e2e_replica_set_tls_managedcert_internal_auth_keyfile
       - e2e_replica_set_tls_managedcert_external_domain
+      - e2e_replica_set_tls_managedcert_withhold_client_cert
       - e2e_sharded_cluster_tls_managedcert
       - e2e_managed_certificate_prerequisites
       - e2e_replica_set_tls_managedcert_legacy_migration
@@ -2173,7 +2195,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_kind
     display_name: e2e_multi_cluster_kind
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om8_dependency]
     run_on:
       - ubuntu2404-large
@@ -2202,7 +2224,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_2_clusters
     display_name: e2e_multi_cluster_2_clusters
-    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [ *production_code_paths, *base_om7_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2230,7 +2252,7 @@ buildvariants:
   # The multi-cluster OM variants below run against the 9.0 release candidate.
   - name: e2e_multi_cluster_om_appdb
     display_name: e2e_multi_cluster_om_appdb
-    tags: [ "staging", "e2e_test_suite", "om9", "non_static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large
@@ -2253,7 +2275,7 @@ buildvariants:
   # variants, as it did on master.
   - name: e2e_multi_cluster_om70_appdb_upgrade
     display_name: e2e_multi_cluster_om70_appdb_upgrade
-    tags: [ "staging", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om7_dependency]
     run_on:
       - ubuntu2404-large
@@ -2280,7 +2302,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om80_search
     display_name: e2e_multi_cluster_om80_search
-    tags: [ "staging", "e2e_test_suite", "non_static" ]
+    tags: [ "staging", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [ *production_code_paths, *base_om8_dependency ]
     run_on:
       - ubuntu2404-large
@@ -2289,7 +2311,7 @@ buildvariants:
 
   - name: e2e_multi_cluster_om_operator_not_in_mesh
     display_name: e2e_multi_cluster_om_operator_not_in_mesh
-    tags: [ "staging", "e2e_test_suite", "om9", "non_static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om9_dependency]
     run_on:
       - ubuntu2404-large

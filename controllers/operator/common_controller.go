@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/blang/semver"
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
@@ -380,6 +380,28 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 			ca = security.TLSConfig.CA
 		}
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, ca, secretNames)
+	}
+
+	if security.IsManagedCertificateEnabled() {
+		mc := security.ManagedCertificate
+		registerCA := func(ref mdbv1.CARef) {
+			resourceType := watch.ConfigMap
+			if ref.Kind == string(watch.Secret) {
+				resourceType = watch.Secret
+			}
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, objectToReconcile.Namespace, resourceType, objectToReconcile)
+		}
+		for _, cfg := range []*mdbv1.CertificateConfig{mc.Server, mc.Client} {
+			if cfg == nil {
+				continue
+			}
+			if cfg.CA != nil {
+				registerCA(*cfg.CA)
+			}
+			for _, ref := range cfg.AdditionalTrustedCAs {
+				registerCA(ref)
+			}
+		}
 	}
 
 	if security.GetInternalClusterAuthenticationMode() == util.X509 {
@@ -1210,25 +1232,25 @@ func deleteOwnedClusterResources(ctx context.Context, client kubernetesClient.Cl
 
 	var errs error
 	if err := client.DeleteAllOf(ctx, &corev1.Service{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	} else {
 		log.Infof("Removed Services associated with %s in cluster %s", objectKey, clusterName)
 	}
 
 	if err := client.DeleteAllOf(ctx, &appsv1.StatefulSet{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	} else {
 		log.Infof("Removed StatefulSets associated with %s in cluster %s", objectKey, clusterName)
 	}
 
 	if err := client.DeleteAllOf(ctx, &corev1.ConfigMap{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	} else {
 		log.Infof("Removed ConfigMaps associated with %s in cluster %s", objectKey, clusterName)
 	}
 
 	if err := client.DeleteAllOf(ctx, &corev1.Secret{}, &cleanupOptions); err != nil {
-		errs = multierror.Append(errs, err)
+		errs = errors.Join(errs, err)
 	} else {
 		log.Infof("Removed Secrets associated with %s in cluster %s", objectKey, clusterName)
 	}
