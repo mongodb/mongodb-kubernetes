@@ -185,22 +185,20 @@ type MongoDBOpsManagerSpec struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, r.secretRef.name == self.secretRef.name)",message="secretRef must not also be listed in releaseReceipts"
 // +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
 type MongoDBOpsManagerLicense struct {
-	// SecretRef names a Secret that holds the signed license under the "license" key.
-	// Changing or removing it releases the installed license.
+	// SecretRef names the Secret that holds the signed license under the "license" key.
+	// The operator installs it, and releases it when secretRef is removed.
 	// +optional
 	SecretRef *SecretRef `json:"secretRef,omitempty"`
 
-	// ReleaseReceiptsPolicy controls which released licenses get a receipt.
-	// OnlyListed writes a receipt only for the licenses listed in releaseReceipts.
-	// Automatic writes a receipt for every license the operator releases.
-	// Defaults to OnlyListed.
+	// ReleaseReceiptsPolicy picks which released licenses get a receipt.
+	// OnlyListed covers the licenses in releaseReceipts.
+	// Automatic also covers every license the operator releases.
 	// +optional
 	// +kubebuilder:default=OnlyListed
 	ReleaseReceiptsPolicy ReleaseReceiptsPolicy `json:"releaseReceiptsPolicy,omitempty"`
 
-	// ReleaseReceipts requests a release receipt for each entry.
-	// Each entry names the Secret that holds a released license. The operator writes
-	// the receipt to a Secret named <artifactId>-release-receipt.
+	// ReleaseReceipts lists the Secrets of released licenses to write a receipt for,
+	// into a Secret named <artifactId>-release-receipt. Listing a license never releases it.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
@@ -208,15 +206,15 @@ type MongoDBOpsManagerLicense struct {
 	ReleaseReceipts []LicenseReleaseReceipt `json:"releaseReceipts,omitempty"`
 }
 
-// ReleaseReceiptsPolicy controls when the operator writes release receipts.
+// ReleaseReceiptsPolicy picks which released licenses get a receipt.
 // +kubebuilder:validation:Enum=OnlyListed;Automatic
 type ReleaseReceiptsPolicy string
 
-// ReleaseReceiptsAutomatic writes a receipt for every license the operator releases.
-const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
-
-// ReleaseReceiptsOnlyListed writes a receipt only for the licenses listed in releaseReceipts.
+// ReleaseReceiptsOnlyListed covers only the licenses listed in releaseReceipts.
 const ReleaseReceiptsOnlyListed ReleaseReceiptsPolicy = "OnlyListed"
+
+// ReleaseReceiptsAutomatic also covers every license the operator releases.
+const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
 
 // +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
 type LicenseReleaseReceipt struct {

@@ -8800,9 +8800,8 @@ spec:
                 properties:
                   releaseReceipts:
                     description: |-
-                      ReleaseReceipts requests a release receipt for each entry.
-                      Each entry names the Secret that holds a released license. The operator writes
-                      the receipt to a Secret named <artifactId>-release-receipt.
+                      ReleaseReceipts lists the Secrets of released licenses to write a receipt for,
+                      into a Secret named <artifactId>-release-receipt. Listing a license never releases it.
                     items:
                       properties:
                         secretRef:
@@ -8831,18 +8830,17 @@ spec:
                   releaseReceiptsPolicy:
                     default: OnlyListed
                     description: |-
-                      ReleaseReceiptsPolicy controls which released licenses get a receipt.
-                      OnlyListed writes a receipt only for the licenses listed in releaseReceipts.
-                      Automatic writes a receipt for every license the operator releases.
-                      Defaults to OnlyListed.
+                      ReleaseReceiptsPolicy picks which released licenses get a receipt.
+                      OnlyListed covers the licenses in releaseReceipts.
+                      Automatic also covers every license the operator releases.
                     enum:
                     - OnlyListed
                     - Automatic
                     type: string
                   secretRef:
                     description: |-
-                      SecretRef names a Secret that holds the signed license under the "license" key.
-                      Changing or removing it releases the installed license.
+                      SecretRef names the Secret that holds the signed license under the "license" key.
+                      The operator installs it, and releases it when secretRef is removed.
                     properties:
                       name:
                         maxLength: 253
