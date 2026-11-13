@@ -13,11 +13,11 @@ The files in the [argocd](./argocd) directory contain an [AppProject](./argocd/p
 The central-cluster RBAC the operator needs for multi-cluster operation always ships with the operator installation, so nothing extra is required here.
 
 ### 2. Apply member-cluster RBAC per member cluster
-Each member cluster needs RBAC that lets the operator manage workloads on it. The canonical way to produce it is the CLI:
+Each member cluster needs RBAC that lets the operator manage workloads on it. The canonical way to produce it is the CLI, run per member cluster with that cluster's name:
 
 ``` shell
 kubectl mongodb cluster generate-resources \
-  --operator-namespace mongodb | kubectl apply -f -
+  --member-cluster member-cluster --operator-namespace mongodb | kubectl apply -f -
 ```
 
 For users who cannot run the plugin, the [rbac](./resources/rbac) directory contains the checked-in output of that command:
