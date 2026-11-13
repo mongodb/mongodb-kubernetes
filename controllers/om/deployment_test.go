@@ -143,14 +143,36 @@ func TestMergeReplicaSet_MergeFirstProcess(t *testing.T) {
 
 func TestConfigureSSL_Deployment(t *testing.T) {
 	d := Deployment{}
-	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}, util.CAFilePathInContainer)
+	d.ConfigureTLS(&mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}, util.CAFilePathInContainer, "")
 	expectedSSLConfig := map[string]any{
 		"CAFilePath": "/mongodb-automation/ca.pem",
 	}
 	assert.Equal(t, expectedSSLConfig, d["tls"].(map[string]any))
 
-	d.ConfigureTLS(&mdbv1.Security{}, util.CAFilePathInContainer)
+	d.ConfigureTLS(&mdbv1.Security{}, util.CAFilePathInContainer, "")
 	assert.Equal(t, d["tls"], map[string]any{"clientCertificateMode": string(automationconfig.ClientCertificateModeOptional)})
+}
+
+func TestConfigureTLS_ManagedCertificate(t *testing.T) {
+	managed := &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+	serverCAPath := util.TLSCaMountPath + "/SERVERHASH"
+	clientCAPath := util.TLSClusterCaMountPath + "/CLIENTHASH"
+
+	t.Run("hashed server and client CA paths are set", func(t *testing.T) {
+		d := Deployment{}
+		d.ConfigureTLS(managed, serverCAPath, clientCAPath)
+		tlsConfig := d["tls"].(map[string]any)
+		assert.Equal(t, "/mongodb-automation/tls/ca/SERVERHASH", tlsConfig["CAFilePath"])
+		assert.Equal(t, "/mongodb-automation/tls/clusterca/CLIENTHASH", tlsConfig["clusterCAFilePath"])
+	})
+
+	t.Run("no clusterCAFilePath without client certs", func(t *testing.T) {
+		d := Deployment{}
+		d.ConfigureTLS(managed, serverCAPath, "")
+		tlsConfig := d["tls"].(map[string]any)
+		assert.Equal(t, serverCAPath, tlsConfig["CAFilePath"])
+		assert.NotContains(t, tlsConfig, "clusterCAFilePath")
+	})
 }
 
 // TestMergeDeployment_BigReplicaset ensures that adding a big replica set (> 7 members) works correctly and no more than

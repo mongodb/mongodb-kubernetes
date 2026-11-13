@@ -2975,7 +2975,7 @@ func TestOpsManagerManagedCAConsumableByMongoDBProjectConfig(t *testing.T) {
 				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "SSL_TRUSTED_MMS_SERVER_CERTIFICATE", Value: "/mongodb-automation/certs/mms-ca.crt"})
 				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "SSL_REQUIRE_VALID_MMS_CERTIFICATES", Value: "true"})
 				deployment := om.NewDeployment()
-				deployment.ConfigureTLS(rs.GetSecurity(), rs.GetSecurity().GetTLSCAFilePath(util.TLSCaMountPath+"/ca-pem"))
+				deployment.ConfigureTLS(rs.GetSecurity(), rs.GetSecurity().GetTLSCAFilePath(util.TLSCaMountPath+"/ca-pem"), "")
 				assert.Equal(t, util.TLSCaMountPath+"/ca-pem", deployment["tls"].(map[string]any)["CAFilePath"])
 				processes := replicaset.BuildFromMongoDBWithReplicas("mongodb", false, rs, 1, rs.CalculateFeatureCompatibilityVersion(), util.TLSCertMountPath+"/leaf", architectures.NonStatic, nil)
 				assert.Equal(t, "requireTLS", processes.Processes[0].TLSConfig()["mode"])

@@ -391,7 +391,7 @@ func (r *ReconcileMongoDbStandalone) updateOmDeployment(ctx context.Context, con
 			d.MergeStandalone(standaloneOmObject, s.Spec.AdditionalMongodConfig.ToMap(), lastStandaloneConfig.ToMap(), nil)
 			caFilePath := s.Spec.GetSecurity().GetTLSCAFilePath(util.CAFilePathInContainer)
 			d.ConfigureMonitoringAndBackup(log, s.Spec.GetSecurity().IsTLSEnabled(), caFilePath)
-			d.ConfigureTLS(s.Spec.GetSecurity(), caFilePath)
+			d.ConfigureTLS(s.Spec.GetSecurity(), caFilePath, "")
 			return nil
 		},
 		log)
