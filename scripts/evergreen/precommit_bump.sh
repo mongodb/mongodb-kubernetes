@@ -5,12 +5,10 @@ source scripts/dev/set_env_context.sh
 
 export GOLANGCI_LINT_CACHE="${HOME}/.cache/golangci-lint"
 
-ORIGINAL_BRANCH=""
-# Detect the original branch (same commit, but not the evg-pr-test-* branch which evg creates)
-ORIGINAL_BRANCH=$(git for-each-ref --format='%(refname:short) %(objectname)' refs/remotes/origin | grep "$(git rev-parse HEAD)" | grep -v "evg-pr-test-" | awk '{print $1}' | sed 's|^origin/||' | head -n 1 || true)
+ORIGINAL_BRANCH=$(scripts/evergreen/detect_original_branch.sh)
 
 if [[ -z "${ORIGINAL_BRANCH}" ]]; then
-  echo "Fork: Could not determine the original branch. Running in a fork"
+  echo "Could not determine the original branch (fork or unknown commit). Exiting."
   exit 0
 fi
 echo "Detected original branch: ${ORIGINAL_BRANCH}"
@@ -40,7 +38,8 @@ fi
 
 echo "Detected a branch that should be bumped."
 
-git checkout "${ORIGINAL_BRANCH}"
+git fetch origin "${ORIGINAL_BRANCH}"
+git checkout -B "${ORIGINAL_BRANCH}" FETCH_HEAD
 
 # Run pre-commit - allow failure (exit 1 means files were modified)
 .githooks/pre-commit || true

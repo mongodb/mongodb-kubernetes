@@ -7,12 +7,10 @@
 set -Eeou pipefail
 source scripts/dev/set_env_context.sh
 
-ORIGINAL_BRANCH=""
-# Detect the original branch (same commit, but not the evg-pr-test-* branch which evg creates)
-ORIGINAL_BRANCH=$(git for-each-ref --format='%(refname:short) %(objectname)' refs/remotes/origin | grep "$(git rev-parse HEAD)" | grep -v "evg-pr-test-" | awk '{print $1}' | sed 's|^origin/||' | head -n 1 || true)
+ORIGINAL_BRANCH=$(scripts/evergreen/detect_original_branch.sh)
 
 if [[ -z "${ORIGINAL_BRANCH}" ]]; then
-  echo "Fork: Could not determine the original branch. Skipping precommit_and_push task."
+  echo "Could not determine the original branch (fork or unknown commit). Skipping precommit_and_push task."
   exit 1
 fi
 echo "Detected original branch: ${ORIGINAL_BRANCH}"
