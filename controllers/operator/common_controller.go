@@ -382,6 +382,28 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, ca, secretNames)
 	}
 
+	if security.IsManagedCertificateEnabled() {
+		mc := security.ManagedCertificate
+		registerCA := func(ref mdbv1.CARef) {
+			resourceType := watch.ConfigMap
+			if ref.Kind == string(watch.Secret) {
+				resourceType = watch.Secret
+			}
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, objectToReconcile.Namespace, resourceType, objectToReconcile)
+		}
+		for _, cfg := range []*mdbv1.CertificateConfig{mc.Server, mc.Client} {
+			if cfg == nil {
+				continue
+			}
+			if cfg.CA != nil {
+				registerCA(*cfg.CA)
+			}
+			for _, ref := range cfg.AdditionalTrustedCAs {
+				registerCA(ref)
+			}
+		}
+	}
+
 	if security.GetInternalClusterAuthenticationMode() == util.X509 {
 		var secretNames []string
 		if getInternalAuthSecretNames != nil {
@@ -796,6 +818,14 @@ func formatTooManyVotingMembersError(rsName string, total int, acVoting []voting
 // TODO: this is almost the same as certs.EnsureSSLCertsForStatefulSet, we should centralize the functionality
 func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(ctx context.Context, configurator certs.X509CertConfigurator, opts certs.Options, log *zap.SugaredLogger) error {
 	secretName := opts.InternalClusterSecretName
+
+	// The clusterfile is a client certificate: a member presents it when it connects to the other
+	// members, and they recognise it by its subject, not by a hostname. The one the operator issues
+	// therefore has no hostnames, so it must not be checked for them. A clusterfile the customer brings
+	// is still checked the way it always was.
+	if configurator.GetDbCommonSpec().GetSecurity().IsManagedCertificateEnabled() {
+		opts = opts.WithoutHostnames()
+	}
 
 	err := certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), secretName, opts, log)
 	if err != nil {

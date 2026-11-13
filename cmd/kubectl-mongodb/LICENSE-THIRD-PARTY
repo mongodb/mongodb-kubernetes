@@ -42,7 +42,7 @@ github.com/hashicorp/go-secure-stdlib/strutil,v0.1.2,MPL-2.0
 github.com/hashicorp/go-sockaddr,v1.0.7,MPL-2.0
 github.com/hashicorp/hcl,v1.0.1-vault-7,MPL-2.0
 github.com/hashicorp/vault/api,v1.23.0,MPL-2.0
-github.com/imdario/mergo,v0.3.15,BSD-3-Clause
+github.com/imdario/mergo,v0.3.16,BSD-3-Clause
 github.com/json-iterator/go,v1.1.12,MIT
 github.com/mitchellh/copystructure,v1.2.0,MIT
 github.com/mitchellh/mapstructure,v1.5.0,MIT

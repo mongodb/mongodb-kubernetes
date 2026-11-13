@@ -5,6 +5,7 @@ github.com/beorn7/perks/quantile,v1.0.1,MIT
 github.com/blang/semver,v3.5.1,MIT
 github.com/cenkalti/backoff/v4,v4.3.0,MIT
 github.com/cenkalti/backoff/v5,v5.0.3,MIT
+github.com/cert-manager/cert-manager/pkg/apis,v1.18.5,Apache-2.0
 github.com/cespare/xxhash/v2,v2.3.0,MIT
 github.com/cncf/xds/go,v0.0.0-20260202195803-dba9d589def2,Apache-2.0
 github.com/davecgh/go-spew/spew,v1.1.2-0.20180830191138-d8f796af33cc,ISC
@@ -53,7 +54,7 @@ github.com/hashicorp/go-secure-stdlib/strutil,v0.1.2,MPL-2.0
 github.com/hashicorp/go-sockaddr,v1.0.7,MPL-2.0
 github.com/hashicorp/hcl,v1.0.1-vault-7,MPL-2.0
 github.com/hashicorp/vault/api,v1.23.0,MPL-2.0
-github.com/imdario/mergo,v0.3.15,BSD-3-Clause
+github.com/imdario/mergo,v0.3.16,BSD-3-Clause
 github.com/joho/godotenv,v1.5.1,MIT
 github.com/json-iterator/go,v1.1.12,MIT
 github.com/mitchellh/copystructure,v1.2.0,MIT
@@ -121,6 +122,7 @@ k8s.io/kube-openapi/pkg/validation/spec,v0.0.0-20250710124328-f3f2b991d03b,Apach
 k8s.io/utils,v0.0.0-20250604170112-4c0f3b243397,Apache-2.0
 k8s.io/utils/internal/third_party/forked/golang,v0.0.0-20250604170112-4c0f3b243397,BSD-3-Clause
 sigs.k8s.io/controller-runtime,v0.21.0,Apache-2.0
+sigs.k8s.io/gateway-api/apis/v1,v1.1.0,Apache-2.0
 sigs.k8s.io/json,v0.0.0-20241014173422-cfa47c3a1cc8,Apache-2.0
 sigs.k8s.io/json,v0.0.0-20241014173422-cfa47c3a1cc8,BSD-3-Clause
 sigs.k8s.io/randfill,v1.0.0,Apache-2.0

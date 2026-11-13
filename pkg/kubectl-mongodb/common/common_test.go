@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -238,6 +239,43 @@ func TestCentralCluster_GetsRegularRoleCreated_WhenNonClusterScoped_IsSpecified(
 
 	require.NoError(t, err)
 	assertCentralRolesExist(t, ctx, clientMap, flags)
+}
+
+func TestClusterRole_GetsCertManagerRules_WhenGrantedLater(t *testing.T) {
+	ctx := context.Background()
+	flags := testFlags(t, false)
+	flags.ClusterScoped = true
+	flags.CreateManagedCertificateRoles = false
+
+	clientMap := getClientResources(ctx, flags)
+	require.NoError(t, EnsureMultiClusterResources(ctx, flags, clientMap))
+
+	centralRole := getClusterRole(t, ctx, clientMap, flags, buildCentralEntityClusterRole(false).Name)
+	assert.False(t, containsCertManagerRules(centralRole), "no cert-manager rules are granted in the first run")
+
+	// The same cluster, this time with the cert-manager roles asked for.
+	// make sure that the roles now has cert-manager related rules
+	flags.CreateManagedCertificateRoles = true
+	require.NoError(t, EnsureMultiClusterResources(ctx, flags, clientMap))
+
+	centralRole = getClusterRole(t, ctx, clientMap, flags, buildCentralEntityClusterRole(true).Name)
+	assert.True(t, containsCertManagerRules(centralRole), "the second run has to add the cert-manager rules to the existing cluster role")
+}
+
+func getClusterRole(t *testing.T, ctx context.Context, clientMap map[string]KubeClient, flags Flags, name string) rbacv1.ClusterRole {
+	t.Helper()
+	role, err := clientMap[flags.CentralCluster].RbacV1().ClusterRoles().Get(ctx, name, metav1.GetOptions{})
+	require.NoError(t, err)
+	return *role
+}
+
+func containsCertManagerRules(role rbacv1.ClusterRole) bool {
+	for _, rule := range role.Rules {
+		if slices.Contains(rule.APIGroups, "cert-manager.io") {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPerformCleanup(t *testing.T) {
@@ -1026,7 +1064,7 @@ func assertMemberClusterRolesDoNotExist(t *testing.T, ctx context.Context, clien
 func assertClusterRoles(t *testing.T, ctx context.Context, clientMap map[string]KubeClient, flags Flags, clusterScopeShouldExist bool, telemetryShouldExist bool, clusterType clusterType) {
 	var expectedClusterRole rbacv1.ClusterRole
 	if clusterType == clusterTypeCentral {
-		expectedClusterRole = buildCentralEntityClusterRole()
+		expectedClusterRole = buildCentralEntityClusterRole(flags.CreateManagedCertificateRoles)
 	} else {
 		expectedClusterRole = buildMemberEntityClusterRole()
 	}
@@ -1108,13 +1146,13 @@ func assertCentralRolesAreCorrect(t *testing.T, ctx context.Context, clientMap m
 	client := clientMap[flags.CentralCluster]
 
 	// should never have a cluster role
-	clusterRole := buildCentralEntityClusterRole()
+	clusterRole := buildCentralEntityClusterRole(flags.CreateManagedCertificateRoles)
 	cr, err := client.RbacV1().ClusterRoles().Get(ctx, clusterRole.Name, metav1.GetOptions{})
 
 	assert.True(t, errors.IsNotFound(err))
 	assert.Equal(t, &rbacv1.ClusterRole{}, cr)
 
-	expectedRole := buildCentralEntityRole(flags.CentralClusterNamespace)
+	expectedRole := buildCentralEntityRole(flags.CentralClusterNamespace, flags.CreateManagedCertificateRoles)
 	role, err := client.RbacV1().Roles(flags.CentralClusterNamespace).Get(ctx, expectedRole.Name, metav1.GetOptions{})
 
 	if shouldExist {
@@ -1270,4 +1308,28 @@ func writeTestFile(t *testing.T, dir, name string, contents []byte) string {
 	path := filepath.Join(dir, name)
 	require.NoError(t, os.WriteFile(path, contents, 0o600))
 	return path
+}
+
+func TestManagedCertificateRulesAreCentralOnly(t *testing.T) {
+	hasCertManagerRule := func(rules []rbacv1.PolicyRule) bool {
+		for _, rule := range rules {
+			if slices.Contains(rule.APIGroups, "cert-manager.io") {
+				return true
+			}
+		}
+		return false
+	}
+
+	assert.False(t, hasCertManagerRule(getManagedCertificateRules(false)), "rule must be absent when not requested")
+	assert.True(t, hasCertManagerRule(getManagedCertificateRules(true)), "rule must be present when requested")
+
+	// The member roles must never carry it, whatever the flag says.
+	assert.False(t, hasCertManagerRule(buildMemberEntityRole("mongodb").Rules), "member role must not have the rule")
+	assert.False(t, hasCertManagerRule(buildMemberEntityClusterRole().Rules), "member cluster role must not have the rule")
+
+	// The central roles carry it only when the flag is set.
+	assert.False(t, hasCertManagerRule(buildCentralEntityRole("mongodb", false).Rules), "central role: absent when off")
+	assert.True(t, hasCertManagerRule(buildCentralEntityRole("mongodb", true).Rules), "central role: present when on")
+	assert.False(t, hasCertManagerRule(buildCentralEntityClusterRole(false).Rules), "central cluster role: absent when off")
+	assert.True(t, hasCertManagerRule(buildCentralEntityClusterRole(true).Rules), "central cluster role: present when on")
 }

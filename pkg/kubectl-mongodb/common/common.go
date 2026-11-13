@@ -56,6 +56,7 @@ type Flags struct {
 	InstallDatabaseRoles          bool
 	CreateTelemetryClusterRoles   bool
 	CreateMongoDBRolesClusterRole bool
+	CreateManagedCertificateRoles bool
 	OperatorName                  string
 	SourceCluster                 string
 	CreateServiceAccountSecrets   bool
@@ -461,8 +462,55 @@ func getCentralRules() []rbacv1.PolicyRule {
 	}
 }
 
-func buildCentralEntityRole(namespace string) rbacv1.Role {
+// applyRole creates the role, or updates the rules of the one that is already there. The setup tool
+// runs more than once on the same cluster, for example when the cert-manager roles are granted later,
+// and an existing role has to pick up the rules of the run that asks for them.
+func applyRole(ctx context.Context, c kubernetes.Interface, namespace string, desired rbacv1.Role) error {
+	_, err := c.RbacV1().Roles(namespace).Create(ctx, &desired, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+	if !errors.IsAlreadyExists(err) {
+		return xerrors.Errorf("error creating role: %w", err)
+	}
+
+	existing, err := c.RbacV1().Roles(namespace).Get(ctx, desired.Name, metav1.GetOptions{})
+	if err != nil {
+		return xerrors.Errorf("error reading the existing role: %w", err)
+	}
+	existing.Rules = desired.Rules
+	existing.Labels = desired.Labels
+	if _, err := c.RbacV1().Roles(namespace).Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		return xerrors.Errorf("error updating role: %w", err)
+	}
+	return nil
+}
+
+// applyClusterRole is applyRole for cluster-scoped roles.
+func applyClusterRole(ctx context.Context, c kubernetes.Interface, desired rbacv1.ClusterRole) error {
+	_, err := c.RbacV1().ClusterRoles().Create(ctx, &desired, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+	if !errors.IsAlreadyExists(err) {
+		return xerrors.Errorf("error creating cluster role: %w", err)
+	}
+
+	existing, err := c.RbacV1().ClusterRoles().Get(ctx, desired.Name, metav1.GetOptions{})
+	if err != nil {
+		return xerrors.Errorf("error reading the existing cluster role: %w", err)
+	}
+	existing.Rules = desired.Rules
+	existing.Labels = desired.Labels
+	if _, err := c.RbacV1().ClusterRoles().Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+		return xerrors.Errorf("error updating cluster role: %w", err)
+	}
+	return nil
+}
+
+func buildCentralEntityRole(namespace string, managedCertificates bool) rbacv1.Role {
 	rules := append(getCentralRules(), getMemberRules()...)
+	rules = append(rules, getManagedCertificateRules(managedCertificates)...)
 	return rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      DefaultOperatorName + "-multi-role",
@@ -473,8 +521,9 @@ func buildCentralEntityRole(namespace string) rbacv1.Role {
 	}
 }
 
-func buildCentralEntityClusterRole() rbacv1.ClusterRole {
+func buildCentralEntityClusterRole(managedCertificates bool) rbacv1.ClusterRole {
 	rules := append(getCentralRules(), getMemberRules()...)
+	rules = append(rules, getManagedCertificateRules(managedCertificates)...)
 	rules = append(rules, rbacv1.PolicyRule{
 		Verbs:     []string{"list", "watch"},
 		Resources: []string{"namespaces"},
@@ -511,6 +560,23 @@ func getMemberRules() []rbacv1.PolicyRule {
 			Verbs:     []string{"get", "list", "watch", "delete", "deletecollection"},
 			Resources: []string{"pods"},
 			APIGroups: []string{""},
+		},
+	}
+}
+
+// getManagedCertificateRules returns the cert-manager permissions the operator needs when
+// security.managedCertificate is used. These go on the central roles only, the operator creates the
+// Certificates and Issuers in the cluster it runs in, and what reaches the member clusters are the
+// secrets and CA bundle ConfigMaps derived from them, which getMemberRules already covers.
+func getManagedCertificateRules(managedCertificates bool) []rbacv1.PolicyRule {
+	if !managedCertificates {
+		return nil
+	}
+	return []rbacv1.PolicyRule{
+		{
+			Verbs:     []string{"get", "list", "watch", "create", "update"},
+			Resources: []string{"certificates", "issuers"},
+			APIGroups: []string{"cert-manager.io"},
 		},
 	}
 }
@@ -647,20 +713,24 @@ func buildClusterRoleBinding(clusterRole rbacv1.ClusterRole, serviceAccountName,
 }
 
 // createRoles creates the ServiceAccount and Roles, RoleBindings, ClusterRoles and ClusterRoleBindings required.
-func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceAccountNamespace, namespace string, clusterScoped, telemetryClusterRoles bool, mongodbRolesClusterRole bool, clusterType clusterType) error {
+func createRoles(
+	ctx context.Context,
+	c KubeClient,
+	serviceAccountName,
+	serviceAccountNamespace,
+	namespace string,
+	clusterScoped,
+	telemetryClusterRoles bool,
+	mongodbRolesClusterRole bool,
+	managedCertificates bool,
+	clusterType clusterType,
+) error {
 	var err error
 
 	if telemetryClusterRoles {
 		clusterRoleTelemetry := buildClusterRoleTelemetry()
-		_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRoleTelemetry, metav1.CreateOptions{})
-		if err != nil {
-			if errors.IsAlreadyExists(err) {
-				if _, err := c.RbacV1().ClusterRoles().Update(ctx, &clusterRoleTelemetry, metav1.UpdateOptions{}); err != nil {
-					return xerrors.Errorf("error updating role: %w", err)
-				}
-			} else {
-				return xerrors.Errorf("error creating cluster role: %w", err)
-			}
+		if err = applyClusterRole(ctx, c, clusterRoleTelemetry); err != nil {
+			return err
 		}
 		fmt.Printf("created clusterrole: %s\n", clusterRoleTelemetry.Name)
 		if err = createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace, DefaultOperatorName+"-multi-telemetry-cluster-role-binding", clusterRoleTelemetry); err != nil {
@@ -672,15 +742,8 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 	if clusterType == clusterTypeCentral && mongodbRolesClusterRole {
 		// Create ClusterRole to access the cluster-scoped resource ClusterMongoDBRole
 		clusterRoleForMongoDBRole := buildClusterRoleMongoDBRole(serviceAccountNamespace)
-		_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRoleForMongoDBRole, metav1.CreateOptions{})
-		if err != nil {
-			if errors.IsAlreadyExists(err) {
-				if _, err := c.RbacV1().ClusterRoles().Update(ctx, &clusterRoleForMongoDBRole, metav1.UpdateOptions{}); err != nil {
-					return xerrors.Errorf("error updating role: %w", err)
-				}
-			} else {
-				return xerrors.Errorf("error creating cluster role: %w", err)
-			}
+		if err = applyClusterRole(ctx, c, clusterRoleForMongoDBRole); err != nil {
+			return err
 		}
 
 		if err := createClusterRoleBinding(ctx, c, serviceAccountName, serviceAccountNamespace,
@@ -693,20 +756,13 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 	if !clusterScoped {
 		var role rbacv1.Role
 		if clusterType == clusterTypeCentral {
-			role = buildCentralEntityRole(namespace)
+			role = buildCentralEntityRole(namespace, managedCertificates)
 		} else {
 			role = buildMemberEntityRole(namespace)
 		}
 
-		_, err = c.RbacV1().Roles(namespace).Create(ctx, &role, metav1.CreateOptions{})
-		if err != nil {
-			if errors.IsAlreadyExists(err) {
-				if _, err := c.RbacV1().Roles(namespace).Update(ctx, &role, metav1.UpdateOptions{}); err != nil {
-					return xerrors.Errorf("error updating role: %w", err)
-				}
-			} else {
-				return xerrors.Errorf("error creating role: %w", err)
-			}
+		if err = applyRole(ctx, c, namespace, role); err != nil {
+			return err
 		}
 
 		roleBinding := buildRoleBinding(role, serviceAccountName, serviceAccountNamespace)
@@ -726,14 +782,15 @@ func createRoles(ctx context.Context, c KubeClient, serviceAccountName, serviceA
 
 	var clusterRole rbacv1.ClusterRole
 	if clusterType == clusterTypeCentral {
-		clusterRole = buildCentralEntityClusterRole()
+		clusterRole = buildCentralEntityClusterRole(managedCertificates)
 	} else {
 		clusterRole = buildMemberEntityClusterRole()
 	}
 
-	_, err = c.RbacV1().ClusterRoles().Create(ctx, &clusterRole, metav1.CreateOptions{})
-	if !errors.IsAlreadyExists(err) && err != nil {
-		return xerrors.Errorf("error creating cluster role: %w", err)
+	// The central cluster role carries the cert-manager rules when they are asked for, so an existing
+	// one has to be updated: a cluster set up before the rules were granted would keep the old rules.
+	if err = applyClusterRole(ctx, c, clusterRole); err != nil {
+		return err
 	}
 	fmt.Printf("created clusterrole: %s\n", clusterRole.Name)
 
@@ -773,14 +830,14 @@ func createOperatorServiceAccountsAndRoles(ctx context.Context, clientMap map[st
 		}
 	}
 
-	if err := createRoles(ctx, centralClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeCentral); err != nil {
+	if err := createRoles(ctx, centralClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, f.CreateManagedCertificateRoles, clusterTypeCentral); err != nil {
 		return err
 	}
 
 	// in case the operator namespace (CentralClusterNamespace) is different from member cluster namespace we need
 	// to provide roles and role binding to the operator's SA in member namespace
 	if f.CentralClusterNamespace != f.MemberClusterNamespace {
-		if err := createRoles(ctx, centralClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeCentral); err != nil {
+		if err := createRoles(ctx, centralClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, f.CreateManagedCertificateRoles, clusterTypeCentral); err != nil {
 			return err
 		}
 	}
@@ -803,10 +860,10 @@ func createOperatorServiceAccountsAndRoles(ctx context.Context, clientMap map[st
 			}
 		}
 
-		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeMember); err != nil {
+		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.MemberClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, f.CreateManagedCertificateRoles, clusterTypeMember); err != nil {
 			return err
 		}
-		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, clusterTypeMember); err != nil {
+		if err := createRoles(ctx, memberClusterClient, f.ServiceAccount, f.CentralClusterNamespace, f.CentralClusterNamespace, f.ClusterScoped, f.CreateTelemetryClusterRoles, f.CreateMongoDBRolesClusterRole, f.CreateManagedCertificateRoles, clusterTypeMember); err != nil {
 			return err
 		}
 	}
