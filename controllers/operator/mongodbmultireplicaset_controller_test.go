@@ -489,6 +489,41 @@ func TestMultiClusterConfigMapAndSecretWatched(t *testing.T) {
 	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
 }
 
+// TestMultiClusterManagedCertificateCARefsWatched checks that the CA inputs of the operator-managed
+// certificates are registered with the multi-cluster resource as their dependent, for both ConfigMap
+// and Secret sources, so that editing one re-triggers reconciliation.
+func TestMultiClusterManagedCertificateCARefsWatched(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetSecurity(&mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
+			Server: &mdb.CertificateConfig{
+				AdditionalTrustedCAs: []mdb.CARef{
+					{Name: "extra-ca", Kind: "ConfigMap", Key: "ca.crt"},
+					{Name: "extra-ca-secret", Kind: "Secret", Key: "ca.crt"},
+				},
+			},
+		}}).
+		Build()
+
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	// the first reconcile creates the Certificates, then cert-manager issues them
+	_, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	issueManagedCertificates(ctx, t, kubeClient, mrs.Namespace)
+	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+
+	dependent := kube.ObjectKey(mrs.Namespace, mrs.Name)
+	watched := reconciler.resourceWatcher.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca")}], dependent)
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca-secret")}], dependent)
+	// a Secret source is not watched as a ConfigMap, and the other way around
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca")})
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca-secret")})
+}
+
 func TestServiceCreation_WithExternalName(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().

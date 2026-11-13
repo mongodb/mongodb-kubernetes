@@ -13,7 +13,6 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 )
 
 // ServerCertificateOptions describes a server-only certificate: the naming base for the
@@ -82,21 +81,15 @@ func EnsureServerCertificateAndCA(
 		return status, condition
 	}
 
-	serverCA, status := resolveCategoryCA(ctx, c, res, categoryServer, opts.SecretName)
-	if status.IsOK() {
-		serverCA, status = categoryBundle(ctx, c, res, categoryServer, serverCA)
-	}
-	if !status.IsOK() {
+	if status = ensureCategoryBundle(
+		ctx,
+		c,
+		res,
+		categoryServer,
+		opts.SecretName,
+		[]string{opts.SecretName},
+		caBundleTarget{name: opts.CABundleName, aliasKey: opts.CABundleKey}); !status.IsOK() {
 		return status, issuanceFailedCondition(status.Message())
-	}
-	cm := configmap.Builder().
-		SetName(opts.CABundleName).
-		SetNamespace(owner.GetNamespace()).
-		SetOwnerReferences(certificateOwnerReferences(res)).
-		SetDataField(opts.CABundleKey, serverCA).
-		Build()
-	if err := configmap.CreateOrUpdate(ctx, c, cm); err != nil {
-		return workflow.Failed(err), issuanceFailedCondition(err.Error())
 	}
 	log.Debugf("Populated operator-managed CA ConfigMap %s for %s", opts.CABundleName, opts.NamingBase)
 

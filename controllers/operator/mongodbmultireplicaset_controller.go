@@ -1509,6 +1509,14 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		return err
 	}
 
+	// Watch the ConfigMaps the managed certificates take their CA inputs from, so that editing one
+	// re-triggers the reconciliation that rebuilds the CA trust bundle.
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
 	// Watch operator-owned cert-manager Certificates so a Ready-status transition of certificate resources re-triggers
 	// reconcile of the owning MongoDBMultiCluster. This is mainly useful if the renewal of certificate fails because
 	// in that case just the status of certificate changes.

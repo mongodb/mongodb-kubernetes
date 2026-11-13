@@ -3362,7 +3362,8 @@ func TestAppDBManagedCertificateCustomerConfiguration(t *testing.T) {
 		},
 		Subjects: &mdbv1.CertSubjects{Server: &mdbv1.X509Subject{Organizations: []string{"AppDB Org"}, CommonName: "appdb.example.com"}},
 	}
-	extraCA := "-----BEGIN CERTIFICATE-----\nEXTRA-APP-DB-CA\n-----END CERTIFICATE-----\n"
+	extraCAPEM, _ := createMockCertAndKeyBytes()
+	extraCA := string(extraCAPEM)
 	c := newManagedCertificateKubeClient(t, om, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "extra-ca", Namespace: om.Namespace}, Data: map[string]string{"ca-pem": extraCA}})
 	r := newManagedCertificateTestReconciler(ctx, c)
 	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
@@ -3397,6 +3398,10 @@ func TestAppDBManagedCertificateCustomerConfiguration(t *testing.T) {
 	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, "managed-om-db-managed-server-ca-bundle"), bundle))
 	assert.Contains(t, bundle.Data["ca-pem"], string(appDBLeaf.Data["ca.crt"]))
 	assert.Contains(t, bundle.Data["ca-pem"], extraCA, "additional trusted CAs must reach the shared issuance engine")
+	assert.Equal(t, 2, strings.Count(bundle.Data["ca-pem"], "-----BEGIN CERTIFICATE-----"), "the bundle holds exactly the AppDB CA and the additional trusted CA")
+	latestHash := bundle.Data[util.LatestHashSecretKey]
+	require.NotEmpty(t, latestHash)
+	assert.Equal(t, bundle.Data["ca-pem"], bundle.Data[latestHash])
 }
 
 func TestAppDBManagedCertificateUnusedClientWarning(t *testing.T) {

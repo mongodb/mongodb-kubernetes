@@ -5,6 +5,9 @@ category, if any, uses a user configured issuer), so the resource setup and the 
 live here and the test files only keep what is specific to their scenario.
 """
 
+import hashlib
+import re
+import ssl
 import tempfile
 from typing import Any, List, Optional
 
@@ -169,6 +172,45 @@ def read_ca_bundles(name: str, namespace: str) -> tuple[str, str]:
     assert server_ca != "", "latest server CA bundle missing/empty"
     assert client_ca != "", "latest client CA bundle missing/empty"
     return server_ca, client_ca
+
+
+# The annotation that asks the operator to drop the previous CA it retains in the CA bundles after a CA
+# rotation. "true" prunes both categories, "server" or "client" only that one. The operator does not
+# remove the annotation from the resource.
+PRUNE_PREVIOUS_CA_ANNOTATION = "mongodb.com/prune-previous-ca"
+
+
+def bundle_fingerprints(bundle: str) -> List[str]:
+    """The SHA-256 fingerprints (hex of the DER) of the certificates currently in a PEM bundle."""
+    pems = re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", bundle, re.DOTALL)
+    return [hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest() for pem in pems]
+
+
+def _bundle_contains(bundle: str, ca_pem: str) -> bool:
+    expected = set(bundle_fingerprints(ca_pem))
+    assert expected, "the CA to look for is not a PEM certificate"
+    return expected.issubset(set(bundle_fingerprints(bundle)))
+
+
+def assert_previous_ca_retained(resource: MongoDB, category: str, previous_ca: str):
+    """The category's published CA bundle still trusts previous_ca (PEM) after a rotation."""
+    bundle = latest_ca_bundle(read_configmap(resource.namespace, f"{resource.name}-managed-{category}-ca-bundle"))
+    assert _bundle_contains(bundle, previous_ca), f"the {category} CA bundle must still contain the previous CA"
+
+
+def assert_previous_ca_pruned(resource: MongoDB, category: str, previous_ca: str):
+    """The category's published CA bundle no longer trusts previous_ca (PEM)."""
+    bundle = latest_ca_bundle(read_configmap(resource.namespace, f"{resource.name}-managed-{category}-ca-bundle"))
+    assert not _bundle_contains(
+        bundle, previous_ca
+    ), f"the {category} CA bundle must not contain the previous CA anymore"
+
+
+def request_prune_previous_ca(resource: MongoDB, value: str = "true"):
+    """Annotates the resource so that the operator prunes the retained previous CA(s)."""
+    resource.load()
+    resource["metadata"].setdefault("annotations", {})[PRUNE_PREVIOUS_CA_ANNOTATION] = value
+    resource.update()
 
 
 def assert_self_signed_ca_created(name: str, namespace: str, category: str):
