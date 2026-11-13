@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -2300,6 +2301,178 @@ func TestOpsManagerManagedQueryableWatches(t *testing.T) {
 	}
 }
 
+func TestOpsManagerManagedCertificateComponentWatches(t *testing.T) {
+	ctx := t.Context()
+	om := newManagedCertificateTestOM()
+	om.Spec.AppDB.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{Server: &mdbv1.CertificateConfig{
+		CA:                   &mdbv1.CARef{Name: "appdb-ca", Kind: "Secret", Key: "ca.crt"},
+		AdditionalTrustedCAs: []mdbv1.CARef{{Name: "appdb-extra", Kind: "ConfigMap", Key: "ca.crt"}},
+	}}}
+	om.Spec.Backup.ManagedCertificate = &omv1.ManagedCertificate{CertificateConfig: mdbv1.CertificateConfig{
+		CA:                   &mdbv1.CARef{Name: "backup-ca", Kind: "ConfigMap", Key: "ca.crt"},
+		AdditionalTrustedCAs: []mdbv1.CARef{{Name: "backup-extra", Kind: "Secret", Key: "ca.crt"}},
+	}}
+	c := newManagedCertificateKubeClient(t, om)
+	r := newManagedCertificateTestReconciler(ctx, c)
+
+	r.configureWatchersForDynamicResources(ctx, om, zap.S())
+
+	for _, expected := range []watch.Object{
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(om.Namespace, "appdb-ca")},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(om.Namespace, "appdb-extra")},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(om.Namespace, "backup-ca")},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(om.Namespace, "backup-extra")},
+	} {
+		assert.Contains(t, r.resourceWatcher.GetWatchedResources()[expected], om.ObjectKey(), expected)
+	}
+}
+
+func TestOpsManagerManagedCertificatePruneAnnotation(t *testing.T) {
+	applied := func(component string, pruneApplied, managed bool) componentCertificateResult {
+		return componentCertificateResult{part: status.OpsManager, component: component, status: workflow.OK(), managed: managed, pruneApplied: pruneApplied}
+	}
+
+	for _, tc := range []struct {
+		name        string
+		annotation  string
+		results     []componentCertificateResult
+		wantRemoved bool
+	}{
+		{
+			name:       "every requested managed component applied",
+			annotation: "om, backup",
+			results: []componentCertificateResult{
+				applied(certspkg.ComponentOpsManager, true, true),
+				applied(certspkg.ComponentAppDB, false, false),
+				applied(certspkg.ComponentBackup, true, true),
+			},
+			wantRemoved: true,
+		},
+		{
+			name:       "one requested component refused the prune",
+			annotation: "om, backup",
+			results: []componentCertificateResult{
+				applied(certspkg.ComponentOpsManager, true, true),
+				applied(certspkg.ComponentBackup, false, true),
+			},
+			wantRemoved: false,
+		},
+		{
+			name:       "requested components are not enabled",
+			annotation: "backup",
+			results: []componentCertificateResult{
+				applied(certspkg.ComponentOpsManager, true, true),
+				applied(certspkg.ComponentBackup, false, false),
+			},
+			wantRemoved: true,
+		},
+		{
+			name:       "true covers the enabled components",
+			annotation: "true",
+			results: []componentCertificateResult{
+				applied(certspkg.ComponentOpsManager, true, true),
+				applied(certspkg.ComponentAppDB, false, false),
+				applied(certspkg.ComponentBackup, true, true),
+			},
+			wantRemoved: true,
+		},
+		{
+			name:        "unknown tokens are left in place",
+			annotation:  "yes",
+			results:     []componentCertificateResult{applied(certspkg.ComponentOpsManager, true, true)},
+			wantRemoved: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			opsManager := newManagedCertificateTestOM()
+			opsManager.Annotations = map[string]string{util.PrunePreviousCAAnnotation: tc.annotation}
+			c := newManagedCertificateKubeClient(t, opsManager)
+			reconciler := newManagedCertificateTestReconciler(ctx, c)
+
+			_, blocked, err := reconciler.applyManagedCertificateResults(ctx, opsManager, tc.results, zap.S())
+			require.NoError(t, err)
+			assert.False(t, blocked)
+
+			persisted := getPersistedManagedCertificateOM(t, ctx, c, opsManager)
+			if tc.wantRemoved {
+				assert.NotContains(t, persisted.Annotations, util.PrunePreviousCAAnnotation)
+				return
+			}
+			assert.Equal(t, tc.annotation, persisted.Annotations[util.PrunePreviousCAAnnotation])
+		})
+	}
+}
+
+func readyManagementCertificateForOpsManager(t *testing.T, ctx context.Context, c kubernetesClient.Client, reconciler *OpsManagerReconciler, opsManager *omv1.MongoDBOpsManager, renewalTime *metav1.Time) {
+	t.Helper()
+	_, blocked, err := reconciler.prepareManagedCertificates(ctx, opsManager, newManagedCertificateTestHelper(t, reconciler, opsManager), zap.S())
+	require.NoError(t, err)
+	require.True(t, blocked)
+
+	markAllManagedCertificatesReady(t, ctx, c)
+	if renewalTime != nil {
+		for _, certificate := range listManagedCertificateObjects(t, ctx, c) {
+			if certificate.Name != opsManager.TLSCertificateSecretName() {
+				continue
+			}
+			certificate.Status.RenewalTime = renewalTime
+			require.NoError(t, c.Update(ctx, &certificate))
+		}
+	}
+	ca, issue := managedOMTestCA(t)
+	createSecretsForManagedCertificates(t, ctx, c, ca)
+	issued := &corev1.Secret{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.TLSCertificateSecretName()), issued))
+	issued.Type = corev1.SecretTypeTLS
+	issued.Data[corev1.TLSCertKey], issued.Data[corev1.TLSPrivateKeyKey] = issue()
+	require.NoError(t, c.Update(ctx, issued))
+}
+
+func TestOpsManagerManagedCertificatePruneAnnotationFulfilled(t *testing.T) {
+	ctx := t.Context()
+	opsManager := newManagedCertificateTestOM()
+	opsManager.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "om"}
+	c := newManagedCertificateKubeClient(t, opsManager)
+	reconciler := newManagedCertificateTestReconciler(ctx, c)
+	reconciler.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+	readyManagementCertificateForOpsManager(t, ctx, c, reconciler, opsManager, nil)
+
+	_, blocked, err := reconciler.prepareManagedCertificates(ctx, opsManager, newManagedCertificateTestHelper(t, reconciler, opsManager), zap.S())
+	require.NoError(t, err)
+	require.False(t, blocked)
+
+	persisted := getPersistedManagedCertificateOM(t, ctx, c, opsManager)
+	assert.NotContains(t, persisted.Annotations, util.PrunePreviousCAAnnotation)
+	require.NotNil(t, managedCertificateCondition(t, ctx, c, opsManager))
+}
+
+func TestOpsManagerManagedCertificateRenewalStatus(t *testing.T) {
+	ctx := t.Context()
+	opsManager := newManagedCertificateTestOM()
+	c := newManagedCertificateKubeClient(t, opsManager)
+	reconciler := newManagedCertificateTestReconciler(ctx, c)
+	reconciler.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+
+	renewalTime := metav1.NewTime(time.Now().Add(30 * 24 * time.Hour).Truncate(time.Second))
+	readyManagementCertificateForOpsManager(t, ctx, c, reconciler, opsManager, &renewalTime)
+
+	result := reconciler.ensureOpsManagerCertificateAndCA(ctx, opsManager, zap.S())
+	require.True(t, result.status.IsOK(), result.status.Message())
+	require.NotNil(t, opsManager.Status.OpsManagerStatus.CertificateRenewals)
+	require.NotNil(t, opsManager.Status.OpsManagerStatus.CertificateRenewals.Server)
+	assert.Equal(t, opsManager.TLSCertificateSecretName(), opsManager.Status.OpsManagerStatus.CertificateRenewals.Server.Name)
+	assert.Nil(t, opsManager.Status.OpsManagerStatus.CertificateRenewals.Client)
+
+	_, err := reconciler.updateStatus(ctx, opsManager, workflow.OK(), zap.S(), status.NewOMPartOption(status.OpsManager))
+	require.NoError(t, err)
+	persisted := getPersistedManagedCertificateOM(t, ctx, c, opsManager)
+	require.NotNil(t, persisted.Status.OpsManagerStatus.CertificateRenewals)
+	require.NotNil(t, persisted.Status.OpsManagerStatus.CertificateRenewals.Server)
+	assert.Equal(t, opsManager.TLSCertificateSecretName(), persisted.Status.OpsManagerStatus.CertificateRenewals.Server.Name)
+}
+
 func TestOpsManagerManagedQueryableMultiClusterSANs(t *testing.T) {
 	ctx := t.Context()
 	om := newManagedCertificateTestOM()
@@ -3550,7 +3723,11 @@ func TestAppDBManagedCertificatesDelivery(t *testing.T) {
 	assert.Equal(t, "requireTLS", ac.Processes[0].Args26.Get("net.tls.mode").String())
 	assert.Equal(t, fmt.Sprintf("%s/certs/%s", util.SecretVolumeMountPath, hash), ac.Processes[0].Args26.Get("net.tls.certificateKeyFile").String())
 	require.NotNil(t, ac.TLSConfig)
-	assert.Equal(t, "/var/lib/mongodb-automation/secrets/ca/ca-pem", ac.TLSConfig.CAFilePath)
+	// With operator-managed certs the CA file path points at the hash-keyed bundle file so that a
+	// widened or rotated bundle changes the automation config and triggers a mongod restart.
+	bundleCM := &corev1.ConfigMap{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, certspkg.ManagedServerCABundleConfigMapName(om.Spec.AppDB.Name())), bundleCM))
+	assert.Equal(t, path.Join(util.ConfigMapVolumeCAMountPath, bundleCM.Data[util.LatestHashSecretKey]), ac.TLSConfig.CAFilePath)
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
 
 	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)

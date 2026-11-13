@@ -6,18 +6,23 @@ Issuer, so the resource factory and the acceptance checks live here and the modu
 scenario-specific setup.
 """
 
+import re
+import tempfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import kubernetes
+import requests
 from cryptography import x509
 from cryptography.x509.oid import ExtendedKeyUsageOID
 from kubernetes.client.rest import ApiException
-from kubetester import read_configmap, read_secret
+from kubetester import list_matching_pods, read_configmap, read_secret
 from kubetester.certs import Certificate, Issuer
 from kubetester.crypto import cert_signed_by_bundle
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongotester import MongoTester
 from kubetester.operator import Operator
 from kubetester.opsmanager import MongoDBOpsManager
@@ -29,7 +34,14 @@ from tests.conftest import (
     install_cert_manager,
     wait_for_cert_manager_ready,
 )
-from tests.tls.managedcert_helper import managed_certificate_operator, member_cert_issuance
+from tests.tls.managedcert_helper import (
+    bundle_fingerprints,
+    managed_certificate_operator,
+    member_cert_issuance,
+    pem_secret_hashes,
+    read_certificate_status,
+    trigger_certificate_renewal,
+)
 
 CERT_MANAGER_VERSION = "v1.18.2"
 
@@ -37,7 +49,6 @@ CA_BUNDLE_KEY = "mms-ca.crt"
 APP_DB_CA_BUNDLE_KEY = "ca-pem"
 APP_DB_CERT_DIR = "/var/lib/mongodb-automation/secrets/certs"
 APP_DB_CA_DIR = "/var/lib/mongodb-automation/secrets/ca"
-APP_DB_CA_FILE_PATH = f"{APP_DB_CA_DIR}/{APP_DB_CA_BUNDLE_KEY}"
 OM_APP_DB_CA_DIR = "/opt/mongodb/mms/ca/"
 OM_APP_DB_CA_FILE_PATH = f"{OM_APP_DB_CA_DIR}{APP_DB_CA_BUNDLE_KEY}"
 OM_APP_DB_CA_PROPERTY = "mongodb.ssl.CAFile"
@@ -367,10 +378,14 @@ def _wait_for_appdb_automation_config(
 ):
     expected_key_file = f"{APP_DB_CERT_DIR}/{expected_leaf_hash}"
     app_db_name = ops_manager.app_db_name()
+    bundle_cm_name = f"{app_db_name}-managed-server-ca-bundle"
+    namespace = ops_manager.namespace
 
     def config_is_current() -> bool:
         automation_config = ops_manager.get_automation_config_tester().automation_config
-        if (automation_config.get("tls") or {}).get("CAFilePath") != APP_DB_CA_FILE_PATH:
+        bundle = read_configmap(namespace, bundle_cm_name)
+        expected_ca_path = f"{APP_DB_CA_DIR}/{bundle.get('latestHash', '')}"
+        if (automation_config.get("tls") or {}).get("CAFilePath") != expected_ca_path:
             return False
 
         replica_sets = automation_config.get("replicaSets") or []
@@ -934,3 +949,355 @@ class ManagedOpsManagerCertificateTests:
         assert _wait_for_appdb_pem_secret(namespace, names.app_db_name) == pem_hash
         _wait_for_appdb_automation_config(ops_manager, 3, pem_hash)
         _assert_appdb_tls_scram(ops_manager, _write_appdb_ca(namespace, tmp_path / "appdb-ca.pem", names.app_db_name))
+
+
+# --- Safe self-signed CA rotation -------------------------------------------------
+
+# The operator annotates a published CA bundle ConfigMap with the time the current
+# latestHash was published.
+CA_BUNDLE_PUBLISHED_AT_ANNOTATION = "mongodb.com/ca-bundle-published-at"
+# The prune annotation requests dropping a retained previous CA from the bundles.
+PRUNE_PREVIOUS_CA_ANNOTATION = "mongodb.com/prune-previous-ca"
+# Prefixes of the aggregated CertificatesReady condition message.
+CERTIFICATES_READY_COMPONENTS = ("OpsManager", "AppDB", "Backup")
+# The sentence the operator reports about a retained previous self-signed CA.
+PREVIOUS_SERVER_CA_RETAINED = "Previous server CA retained in the trust bundle"
+# The sentence when a prune was requested but could not be applied.
+PREVIOUS_SERVER_CA_NOT_PRUNED = "The previous server CA was not pruned: issued certificates are still signed by it."
+
+
+def _parse_rfc3339(value: str) -> datetime:
+    """Parses an RFC3339 timestamp as Kubernetes writes it."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def pod_uids(namespace: str, name_prefix: str) -> dict[str, str]:
+    """Pod names keyed by UID for the given prefix, used to detect pod recreation."""
+    return {pod.metadata.name: pod.metadata.uid for pod in list_matching_pods(namespace, name_prefix=name_prefix)}
+
+
+def ca_bundle_snapshot(namespace: str, name: str, key: str) -> dict:
+    """The current state of a published CA bundle ConfigMap.
+
+    Returns the latestHash, previousHash, certificate fingerprints and the published-at
+    annotation.
+    """
+    config_map = _read_config_map_object(namespace, name)
+    data = config_map.data or {}
+    annotations = config_map.metadata.annotations or {}
+    latest_hash = data.get("latestHash", "")
+    bundle = data.get(key) or data.get(latest_hash, "")
+    return {
+        "latest_hash": latest_hash,
+        "previous_hash": data.get("previousHash", ""),
+        "certificates": bundle_fingerprints(bundle),
+        "published_at": annotations.get(CA_BUNDLE_PUBLISHED_AT_ANNOTATION, ""),
+    }
+
+
+def wait_for_bundle_rotation(
+    namespace: str,
+    name: str,
+    key: str,
+    previous_latest_hash: str,
+    previous_published_at: str = "",
+    timeout: int = 900,
+) -> dict:
+    """Waits until a CA rotation widened a bundle ConfigMap.
+
+    After the self-signed CA rotates the operator republishes the bundle with a new
+    latestHash that holds both the new CA and the retained previous CA, sets previousHash
+    and updates the published-at annotation.
+    """
+    result: dict = {}
+
+    def rotated() -> bool:
+        snapshot = ca_bundle_snapshot(namespace, name, key)
+        if not snapshot["latest_hash"] or snapshot["latest_hash"] == previous_latest_hash:
+            return False
+        if snapshot["previous_hash"] != previous_latest_hash:
+            return False
+        if len(snapshot["certificates"]) < 2:
+            return False
+        if not snapshot["published_at"]:
+            return False
+        if previous_published_at and _parse_rfc3339(snapshot["published_at"]) <= _parse_rfc3339(previous_published_at):
+            return False
+        result.clear()
+        result.update(snapshot)
+        return True
+
+    run_periodically(rotated, timeout=timeout, sleep_time=5, msg=f"CA bundle {name} widened after the CA rotation")
+    return result
+
+
+def wait_for_bundle_pruned(namespace: str, name: str, key: str, kept_ca_pem: str, timeout: int = 900) -> dict:
+    """Waits until a bundle contains only the kept CA.
+
+    kept_ca_pem is the PEM of the CA the bundle must keep (the current self-signed CA). The pruned
+    bundle is a new bundle, so previousHash then names the widened bundle it replaced.
+    """
+    kept = set(bundle_fingerprints(kept_ca_pem))
+    assert kept, "kept CA is not a valid PEM certificate"
+    result: dict = {}
+
+    def pruned() -> bool:
+        snapshot = ca_bundle_snapshot(namespace, name, key)
+        if set(snapshot["certificates"]) != kept:
+            return False
+        result.clear()
+        result.update(snapshot)
+        return True
+
+    run_periodically(pruned, timeout=timeout, sleep_time=5, msg=f"CA bundle {name} pruned to the new CA only")
+    return result
+
+
+def wait_for_appdb_ca_file_path(ops_manager: MongoDBOpsManager, expected_hash: str, timeout: int = 900) -> dict:
+    """Waits until the AppDB automation config CAFilePath ends with the bundle hash.
+
+    A managed AppDB mounts its trust bundle at APP_DB_CA_DIR. The operator names the
+    CA file after the bundle hash, so a bundle change moves the path and the agents
+    restart mongod onto the new file.
+    """
+    expected = f"{APP_DB_CA_DIR}/{expected_hash}"
+    result: dict = {}
+
+    def updated() -> bool:
+        automation_config = ops_manager.get_automation_config_tester().automation_config
+        if (automation_config.get("tls") or {}).get("CAFilePath") != expected:
+            return False
+        for process in automation_config.get("processes") or []:
+            if process.get("processType") != "mongod":
+                continue
+            tls_args = ((process.get("args2_6") or {}).get("net") or {}).get("tls") or {}
+            ca_file = tls_args.get("CAFile")
+            if ca_file is not None and ca_file != expected:
+                return False
+        result["automation_config"] = automation_config
+        return True
+
+    run_periodically(
+        updated, timeout=timeout, sleep_time=5, msg="AppDB automation config CAFilePath to name the new CA hash"
+    )
+    return result["automation_config"]
+
+
+def begin_ca_rotation(namespace: str, ca_certificate_name: str) -> str:
+    """Triggers a reissue of a self-signed CA Certificate and returns the CA it replaced.
+
+    The CA Certificate is issued with a new private key on every issuance (RotationPolicy Always).
+    """
+    previous_ca = read_secret(namespace, ca_certificate_name).get("tls.crt", "")
+    assert previous_ca.strip(), f"{ca_certificate_name} has no tls.crt"
+    trigger_certificate_renewal(namespace, ca_certificate_name)
+    return previous_ca
+
+
+def wait_for_ca_rotated(namespace: str, ca_certificate_name: str, previous_ca: str, timeout: int = 900) -> str:
+    """Waits until the CA secret holds a different CA certificate and returns it."""
+    result: dict = {}
+
+    def rotated() -> bool:
+        current = read_secret(namespace, ca_certificate_name).get("tls.crt", "")
+        if not current.strip() or current == previous_ca:
+            return False
+        result["ca"] = current
+        return True
+
+    run_periodically(rotated, timeout=timeout, sleep_time=5, msg=f"CA Certificate/{ca_certificate_name} to rotate")
+    return result["ca"]
+
+
+def wait_for_leaf_reissued_on_new_ca(
+    namespace: str,
+    certificate_name: str,
+    pem_secret_name: str,
+    previous_leaf: str,
+    previous_pem_hash: str,
+    new_ca_pem: str,
+    timeout: int = 1800,
+) -> tuple[str, str]:
+    """Waits until a leaf Certificate is reissued on the rotated CA and its files renewed.
+
+    Returns the leaf PEM and the new PEM secret hash.
+    """
+    result: dict = {}
+
+    def reissued() -> bool:
+        leaf = read_secret(namespace, certificate_name).get("tls.crt", "")
+        latest_hash, _ = pem_secret_hashes(namespace, pem_secret_name)
+        if not leaf.strip() or leaf == previous_leaf:
+            return False
+        if not latest_hash or latest_hash == previous_pem_hash:
+            return False
+        if not cert_signed_by_bundle(leaf, new_ca_pem):
+            return False
+        result["leaf"] = leaf
+        result["pem_hash"] = latest_hash
+        return True
+
+    run_periodically(
+        reissued,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"Certificate/{certificate_name} reissued on the rotated CA",
+    )
+    return result["leaf"], result["pem_hash"]
+
+
+def _component_message(message: str, component: str) -> str:
+    """The segment of an aggregated CertificatesReady message for one component."""
+    match = re.search(
+        rf"(?:^|; ){re.escape(component)}: (.*?)(?=; (?:{'|'.join(CERTIFICATES_READY_COMPONENTS)}): |$)",
+        message,
+        re.DOTALL,
+    )
+    return match.group(1) if match else ""
+
+
+def _certificates_ready_condition(ops_manager: MongoDBOpsManager) -> dict | None:
+    """The current CertificatesReady condition (the resource is reloaded), or None when not set."""
+    ops_manager.load()
+    for condition in (ops_manager.get_status() or {}).get("conditions") or []:
+        if condition.get("type") == "CertificatesReady":
+            return condition
+    return None
+
+
+def certificates_ready_message(ops_manager: MongoDBOpsManager) -> str:
+    """The aggregated CertificatesReady message, or empty when not set."""
+    condition = _certificates_ready_condition(ops_manager)
+    return condition.get("message", "") if condition else ""
+
+
+def component_certificates_ready_message(ops_manager: MongoDBOpsManager, component: str) -> str:
+    """The CertificatesReady sentence of one component in the aggregated message."""
+    return _component_message(certificates_ready_message(ops_manager), component)
+
+
+def wait_for_component_certificates_ready_message(
+    ops_manager: MongoDBOpsManager,
+    component: str,
+    expected: str,
+    *,
+    present: bool = True,
+    timeout: int = 900,
+) -> str:
+    """Waits until a component's CertificatesReady sentence contains (or drops) expected text."""
+    result: dict = {}
+
+    def matches() -> bool:
+        condition = _certificates_ready_condition(ops_manager)
+        if condition is None or condition.get("status") != "True":
+            return False
+        component_message = _component_message(condition.get("message", ""), component)
+        if not component_message:
+            return False
+        return (expected in component_message) == present
+
+    msg = f"{component} CertificatesReady message {'to contain' if present else 'to drop'} {expected!r}"
+    run_periodically(matches, timeout=timeout, sleep_time=5, msg=msg)
+
+    condition = _certificates_ready_condition(ops_manager)
+    return _component_message(condition.get("message", ""), component) if condition else ""
+
+
+def wait_for_certificates_ready(ops_manager: MongoDBOpsManager, timeout: int = 900):
+    """Waits until CertificatesReady is True for the current generation."""
+
+    def ready() -> bool:
+        ops_manager.load()
+        condition = _certificates_ready_condition(ops_manager)
+        return (
+            condition is not None
+            and condition.get("status") == "True"
+            and condition.get("observedGeneration") == ops_manager["metadata"]["generation"]
+        )
+
+    run_periodically(ready, timeout=timeout, sleep_time=5, msg=f"{ops_manager.name} CertificatesReady=True")
+
+
+def request_prune_previous_ca(ops_manager: MongoDBOpsManager, value: str):
+    """Annotates the resource so the operator drops the retained previous CA(s).
+
+    value is "om", "appdb", "backup", or a comma-separated combination, or "true" for all.
+    """
+    ops_manager.load()
+    ops_manager["metadata"].setdefault("annotations", {})[PRUNE_PREVIOUS_CA_ANNOTATION] = value
+    ops_manager.update()
+
+
+def wait_for_prune_annotation_removed(ops_manager: MongoDBOpsManager, timeout: int = 900):
+    """Waits until the operator has fulfilled the prune annotation and removed it."""
+
+    def removed() -> bool:
+        ops_manager.load()
+        annotations = ops_manager["metadata"].get("annotations") or {}
+        return PRUNE_PREVIOUS_CA_ANNOTATION not in annotations
+
+    run_periodically(
+        removed,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"mongodb.com/prune-previous-ca annotation removed from {ops_manager.name}",
+    )
+
+
+def read_component_certificate_renewal(ops_manager: MongoDBOpsManager, status_field: str) -> dict | None:
+    """Returns status.<field>.certificateRenewals.server, or None when not reported."""
+    ops_manager.load()
+    status = ops_manager.get_status() or {}
+    component = status.get(status_field) or {}
+    return (component.get("certificateRenewals") or {}).get("server")
+
+
+def wait_for_component_certificate_renewal(
+    ops_manager: MongoDBOpsManager,
+    status_field: str,
+    certificate_name: str,
+    timeout: int = 600,
+) -> dict:
+    """Waits until the component's renewal status names the expected certificate."""
+    result: dict = {}
+
+    def reported() -> bool:
+        renewal = read_component_certificate_renewal(ops_manager, status_field)
+        if not renewal or renewal.get("name") != certificate_name:
+            return False
+        if not renewal.get("notAfter") or not renewal.get("renewalTime"):
+            return False
+        result["renewal"] = renewal
+        return True
+
+    run_periodically(
+        reported, timeout=timeout, sleep_time=5, msg=f"{status_field}.certificateRenewals={certificate_name}"
+    )
+    return result["renewal"]
+
+
+def latest_ca_bundle_pem(namespace: str, config_map_name: str, key: str) -> str:
+    """The current CA bundle from the data of a bundle ConfigMap under the fixed alias key."""
+    data = _read_config_map_object(namespace, config_map_name).data or {}
+    return (data.get(key) or "").strip()
+
+
+def wait_for_om_https_trusted_by_bundle(ops_manager: MongoDBOpsManager, bundle_pem: str, timeout: int = 900):
+    """Waits until the Ops Manager health endpoint serves a certificate the bundle trusts.
+
+    The TLS handshake validates the Ops Manager server certificate against the bundle.
+    """
+    url = ops_manager.om_status().get_url()
+    assert url, "Ops Manager URL is not reported"
+
+    def reachable() -> bool:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".pem") as ca_file:
+            ca_file.write(bundle_pem)
+            ca_file.flush()
+            try:
+                response = requests.get(f"{url.rstrip('/')}/monitor/health", verify=ca_file.name, timeout=30)
+            except requests.exceptions.RequestException:
+                return False
+        return response.status_code == 200
+
+    run_periodically(reachable, timeout=timeout, sleep_time=5, msg="Ops Manager HTTPS trusted by its CA bundle")

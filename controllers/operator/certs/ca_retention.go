@@ -12,6 +12,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -123,6 +124,10 @@ func mergeCABundle(groups ...[]caCert) string {
 	return bundle.String()
 }
 
+// now is the clock used to timestamp bundle publications. Tests replace it to control the age of a
+// published bundle.
+var now = time.Now
+
 // ensureHashedCABundleConfigMap creates or updates the CA bundle ConfigMap with the given name.
 // The ConfigMap stores the bundle under the hash of its content. The latestHash key holds this hash.
 // The automation config sets net.tls.CAFile or clusterCAFile to <mount>/<hash>.
@@ -134,7 +139,7 @@ func mergeCABundle(groups ...[]caCert) string {
 //
 // When aliasKey is not empty, the ConfigMap also stores the current bundle under aliasKey.
 // Client applications use this fixed key (for example, ca-pem).
-// The function writes the ConfigMap only when its data changes.
+// The function writes the ConfigMap only when its data changes or when the publication timestamp is missing.
 func ensureHashedCABundleConfigMap(
 	ctx context.Context,
 	c kubernetesClient.Client,
@@ -153,18 +158,39 @@ func ensureHashedCABundleConfigMap(
 	if aliasKey != "" {
 		data[aliasKey] = bundle
 	}
-	if existing != nil && maps.Equal(existingData, data) {
+
+	publishedAt, publishedAtChanged := caBundlePublishedAt(existing, hash)
+	if existing != nil && maps.Equal(existingData, data) && !publishedAtChanged {
 		return nil
 	}
+
+	annotations := map[string]string{}
+	if existing != nil {
+		maps.Copy(annotations, existing.Annotations)
+	}
+	annotations[util.CABundlePublishedAtAnnotation] = publishedAt
 
 	cm := configmap.Builder().
 		SetName(name).
 		SetNamespace(res.GetNamespace()).
 		SetOwnerReferences(certificateOwnerReferences(res)).
 		SetData(data).
+		SetAnnotations(annotations).
 		Build()
 
 	return configmap.CreateOrUpdate(ctx, c, cm)
+}
+
+// caBundlePublishedAt returns the value of the published-at annotation and whether it changed. The
+// timestamp is kept while the bundle's latestHash is unchanged, and refreshed when a new bundle is
+// published. An existing ConfigMap without the annotation is treated as just published.
+func caBundlePublishedAt(existing *corev1.ConfigMap, hash string) (string, bool) {
+	if existing != nil && existing.Data[util.LatestHashSecretKey] == hash {
+		if publishedAt := existing.Annotations[util.CABundlePublishedAtAnnotation]; publishedAt != "" {
+			return publishedAt, false
+		}
+	}
+	return now().UTC().Format(time.RFC3339), true
 }
 
 // currentCA returns the current CA of a category. For a user issuer, it reads the CA from the first leaf secret.
@@ -301,9 +327,14 @@ func prunePreviousCA(ctx context.Context, c kubernetesClient.Client, res Certifi
 }
 
 // pruneRequested reports whether the resource asks to prune the previous CA of the category, with
-// the prune annotation set to "true" (both categories) or to the category name.
+// the prune annotation set to "true" (both categories) or to the category name. Owners that expose
+// a component target one component instead: the annotation is "true" (every component) or a
+// comma-separated list of components.
 func pruneRequested(res CertificateOwner, cat certCategory) bool {
 	value := res.GetAnnotations()[util.PrunePreviousCAAnnotation]
+	if component := ownerPruneComponent(res); component != "" {
+		return slices.Contains(PruneRequestedComponents(value), component)
+	}
 
 	return value == "true" || value == string(cat)
 }

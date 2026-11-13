@@ -56,6 +56,9 @@ const (
 // +kubebuilder:printcolumn:name="State (OpsManager)",type="string",JSONPath=".status.opsManager.phase",description="The current state of the MongoDBOpsManager."
 // +kubebuilder:printcolumn:name="State (AppDB)",type="string",JSONPath=".status.applicationDatabase.phase",description="The current state of the MongoDBOpsManager Application Database."
 // +kubebuilder:printcolumn:name="State (Backup)",type="string",JSONPath=".status.backup.phase",description="The current state of the MongoDBOpsManager Backup Daemon."
+// +kubebuilder:printcolumn:name="OMCertRenewal",type="string",JSONPath=".status.opsManager.certificateRenewals.server.renewalTime",priority=1,description="Next automatic renewal of the operator-managed Ops Manager certificates."
+// +kubebuilder:printcolumn:name="AppDBCertRenewal",type="string",JSONPath=".status.applicationDatabase.certificateRenewals.server.renewalTime",priority=1,description="Next automatic renewal of the operator-managed AppDB certificates."
+// +kubebuilder:printcolumn:name="BackupCertRenewal",type="string",JSONPath=".status.backup.certificateRenewals.server.renewalTime",priority=1,description="Next automatic renewal of the operator-managed queryable backup certificates."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDBOpsManager resource was created."
 // +kubebuilder:printcolumn:name="Warnings",type="string",JSONPath=".status.warnings",description="Warnings."
 type MongoDBOpsManager struct {
@@ -531,6 +534,10 @@ type OpsManagerStatus struct {
 	Url               string                       `json:"url,omitempty"`
 	Warnings          []status.Warning             `json:"warnings,omitempty"`
 	ClusterStatusList []status.OMClusterStatusItem `json:"clusterStatusList,omitempty"`
+	// CertificateRenewals reports the next automatic renewal of the operator-managed leaf certificates,
+	// per category. Set only with spec.security.managedCertificate.
+	// +optional
+	CertificateRenewals *status.CertificateRenewalStatus `json:"certificateRenewals,omitempty"`
 }
 
 type AgentVersion struct {
@@ -554,6 +561,10 @@ type BackupStatus struct {
 	Version           string                       `json:"version,omitempty"`
 	Warnings          []status.Warning             `json:"warnings,omitempty"`
 	ClusterStatusList []status.OMClusterStatusItem `json:"clusterStatusList,omitempty"`
+	// CertificateRenewals reports the next automatic renewal of the operator-managed leaf certificates,
+	// per category. Set only with spec.backup.managedCertificate.
+	// +optional
+	CertificateRenewals *status.CertificateRenewalStatus `json:"certificateRenewals,omitempty"`
 }
 
 type FileSystemStoreConfig struct {

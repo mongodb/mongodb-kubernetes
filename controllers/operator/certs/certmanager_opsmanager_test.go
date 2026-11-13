@@ -451,6 +451,65 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 	})
 }
 
+func TestManagedServerCertificateRenewalStatus(t *testing.T) {
+	ctx := context.Background()
+	ca := newTestCA(t, "fallback-ca")
+	fallback := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "fallback-ca", Namespace: managedTestNamespace},
+		Data:       map[string]string{"ca.crt": ca.pem},
+	}
+	cfg := &omv1.ManagedCertificate{CertificateConfig: mdbv1.CertificateConfig{
+		IssuerRef: &mdbv1.IssuerRef{Name: "custom-issuer"},
+		CA:        &mdbv1.CARef{Name: "fallback-ca", Kind: "ConfigMap", Key: "ca.crt"},
+	}}
+
+	c := newManagedCertTestClient(t, fallback)
+	_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+
+	renewalTime := metav1.NewTime(time.Now().Add(30 * 24 * time.Hour))
+	notAfter := metav1.NewTime(time.Now().Add(60 * 24 * time.Hour))
+	markManagedCertificatesReady(t, ctx, c, func(cert *certmanagerv1.Certificate) {
+		cert.Status.RenewalTime = &renewalTime
+		cert.Status.NotAfter = &notAfter
+	})
+	issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
+	require.NoError(t, c.Create(ctx, &issued))
+
+	var renewals *apistatus.CertificateRenewalStatus
+	opts := serverCertificateOptions()
+	opts.Component = ComponentBackup
+	opts.OnRenewals = func(status *apistatus.CertificateRenewalStatus) {
+		renewals = status
+	}
+	status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, opts, managedTestLogger())
+	require.True(t, status.IsOK(), status.Message())
+	assert.Equal(t, metav1.ConditionTrue, condition.Status)
+
+	require.NotNil(t, renewals)
+	assert.Nil(t, renewals.Client, "a server-only component has no client certificates")
+	require.NotNil(t, renewals.Server)
+	assert.Equal(t, "example-managed-om-cert", renewals.Server.Name)
+	require.NotNil(t, renewals.Server.RenewalTime)
+	assert.Equal(t, renewalTime.Truncate(time.Second), renewals.Server.RenewalTime.Time)
+}
+
+func TestServerCertificateOwnerThreading(t *testing.T) {
+	var renewals *apistatus.CertificateRenewalStatus
+	owner := newServerCertificateOwner(managedTestOM(), &omv1.ManagedCertificate{}, ServerCertificateOptions{
+		NamingBase: "example-managed-backup",
+		Component:  ComponentBackup,
+		OnRenewals: func(status *apistatus.CertificateRenewalStatus) {
+			renewals = status
+		},
+	})
+
+	assert.Equal(t, ComponentBackup, owner.pruneComponent())
+
+	status := &apistatus.CertificateRenewalStatus{}
+	owner.SetCertificateRenewals(status)
+	assert.Same(t, status, renewals)
+}
+
 func TestManagedServerCertificateWriteGenerationReadiness(t *testing.T) {
 	ctx := context.Background()
 	fallback := &corev1.ConfigMap{

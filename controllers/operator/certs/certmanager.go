@@ -90,6 +90,50 @@ func certificateOwnerReferences(res CertificateOwner) []metav1.OwnerReference {
 	return kube.BaseOwnerReference(res)
 }
 
+// Ops Manager components that share one MongoDBOpsManager resource and can be targeted
+// individually by the prune annotation.
+const (
+	ComponentOpsManager = "om"
+	ComponentAppDB      = "appdb"
+	ComponentBackup     = "backup"
+)
+
+var opsManagerPruneComponents = []string{ComponentOpsManager, ComponentAppDB, ComponentBackup}
+
+// pruneComponentOwner is implemented by owners whose prune annotation targets one component of a
+// shared resource instead of a whole certificate category.
+type pruneComponentOwner interface {
+	pruneComponent() string
+}
+
+// ownerPruneComponent returns the prune component of an owner, or "" when it prunes by category.
+func ownerPruneComponent(res CertificateOwner) string {
+	if o, ok := res.(pruneComponentOwner); ok {
+		return o.pruneComponent()
+	}
+	return ""
+}
+
+// PruneRequestedComponents returns the Ops Manager components a prune annotation targets: every
+// component for "true", otherwise the recognised entries of the comma-separated list. Unknown
+// entries are ignored.
+func PruneRequestedComponents(value string) []string {
+	for token := range strings.SplitSeq(value, ",") {
+		if strings.TrimSpace(token) == "true" {
+			return slices.Clone(opsManagerPruneComponents)
+		}
+	}
+
+	var requested []string
+	for token := range strings.SplitSeq(value, ",") {
+		token = strings.TrimSpace(token)
+		if slices.Contains(opsManagerPruneComponents, token) && !slices.Contains(requested, token) {
+			requested = append(requested, token)
+		}
+	}
+	return requested
+}
+
 var memberServerCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageDigitalSignature,
 	certmanagerv1.UsageKeyEncipherment,
@@ -376,14 +420,19 @@ func certificatesReadyMessage(message string) string {
 }
 
 // previousCASentence tells the user that a category still retains its previous CA, how to prune it
-// and, when a prune was requested, why it did not happen. Empty when nothing is retained.
-func previousCASentence(cat certCategory, retained, refused bool) string {
+// and, when a prune was requested, why it did not happen. Empty when nothing is retained. Component
+// owners are pruned by component, so the suggested annotation value is the component.
+func previousCASentence(res CertificateOwner, cat certCategory, retained, refused bool) string {
 	if !retained {
 		return ""
 	}
+	target := string(cat)
+	if component := ownerPruneComponent(res); component != "" {
+		target = component
+	}
 	sentence := fmt.Sprintf(
 		"Previous %s CA retained in the trust bundle; annotate the resource with %s=%s (or true) once all members and clients use the new CA.",
-		cat, util.PrunePreviousCAAnnotation, cat)
+		cat, util.PrunePreviousCAAnnotation, target)
 	if refused {
 		sentence += fmt.Sprintf(" The previous %s CA was not pruned: issued certificates are still signed by it.", cat)
 	}
@@ -1041,7 +1090,7 @@ func ensureCAConfigMapsFromIssuedSecret(
 			return "", false, workflow.Failed(err)
 		}
 		refused := pruneRequested(res, cat) && previousRetained
-		if sentence := previousCASentence(cat, previousRetained, refused); sentence != "" {
+		if sentence := previousCASentence(res, cat, previousRetained, refused); sentence != "" {
 			details = append(details, sentence)
 		}
 		// a refused category still retains its previous CA, so the annotation stays for a retry
