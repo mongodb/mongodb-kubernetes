@@ -194,7 +194,7 @@ func EnsureCertificatesAndCA(
 	log *zap.SugaredLogger,
 ) (workflow.Status, metav1.Condition) {
 	if len(allOpts) == 0 {
-		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "No operator-managed certificates required")
+		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
 	}
 
 	// Validate the computed subjects before issuing anything, the agent subject must not match
@@ -249,24 +249,24 @@ func ensureCertificatesReady(
 	serverSelfSigned := !hasUserIssuer(res, categoryServer)
 	clientSelfSigned := hasClientCerts && !hasUserIssuer(res, categoryClient)
 
-	type ensuredCertificate struct {
+	type Certificate struct {
 		name       string
 		generation int64
 	}
-	ensured := make([]ensuredCertificate, 0, len(required)+2)
+	writtenCertificates := make([]Certificate, 0, len(required)+2)
 	if serverSelfSigned {
 		generation, status := ensureSelfSignedCA(ctx, c, res, categoryServer)
 		if !status.IsOK() {
 			return nil, status, issuanceFailedCondition(status.Message())
 		}
-		ensured = append(ensured, ensuredCertificate{name: managedCACertName(res, categoryServer), generation: generation})
+		writtenCertificates = append(writtenCertificates, Certificate{name: managedCACertName(res, categoryServer), generation: generation})
 	}
 	if clientSelfSigned {
 		generation, status := ensureSelfSignedCA(ctx, c, res, categoryClient)
 		if !status.IsOK() {
 			return nil, status, issuanceFailedCondition(status.Message())
 		}
-		ensured = append(ensured, ensuredCertificate{name: managedCACertName(res, categoryClient), generation: generation})
+		writtenCertificates = append(writtenCertificates, Certificate{name: managedCACertName(res, categoryClient), generation: generation})
 	}
 
 	// Ensure (create/patch) all required certs first, don't wait for certs to
@@ -276,14 +276,14 @@ func ensureCertificatesReady(
 		if !status.IsOK() {
 			return nil, status, issuanceFailedCondition(status.Message())
 		}
-		ensured = append(ensured, ensuredCertificate{name: cert.certName, generation: generation})
+		writtenCertificates = append(writtenCertificates, Certificate{name: cert.certName, generation: generation})
 	}
 
 	// check the status of resources and categorise them. Ones that are not ready yet, ones
 	// that are not ready and whose issuance is actively failing (so we can surface the error),
 	// and ready ones whose renewal is failing (a soft warning).
 	var notReady, issuanceFailures, renewalFailures []string
-	for _, cert := range ensured {
+	for _, cert := range writtenCertificates {
 		insp, status := inspectCertificateAtGeneration(ctx, c, res.GetNamespace(), cert.name, cert.generation)
 		if !status.IsOK() {
 			return nil, status, issuanceFailedCondition(status.Message())

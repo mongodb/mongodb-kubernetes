@@ -158,7 +158,7 @@ func EnsureAppDBCertificatesAndCA(
 	log *zap.SugaredLogger,
 ) (workflow.Status, metav1.Condition) {
 	if om == nil || om.Spec.AppDB == nil {
-		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "No operator-managed certificates required")
+		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
 	}
 	return EnsureCertificatesAndCA(ctx, c, appDBManagedCertificateOwner{om}, allOpts, log)
 }

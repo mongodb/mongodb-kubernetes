@@ -54,7 +54,7 @@ func EnsureServerCertificateAndCA(
 	log *zap.SugaredLogger,
 ) (workflow.Status, metav1.Condition) {
 	if cfg == nil {
-		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "No operator-managed certificates required")
+		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
 	}
 	if opts.NamingBase == "" || opts.SecretName == "" {
 		msg := "operator-managed server certificate requires a naming base and a secret name"
