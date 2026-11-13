@@ -12,6 +12,7 @@ import (
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	routev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
@@ -422,6 +423,11 @@ func TestBuildFilterChain_HasRetryPolicy(t *testing.T) {
 	require.Len(t, rp.RetryHostPredicate, 1)
 	assert.Equal(t, "envoy.retry_host_predicates.previous_hosts", rp.RetryHostPredicate[0].Name)
 	assert.Equal(t, int64(3), rp.HostSelectionRetryMaxAttempts)
+
+	maxAttempts := requestHeadersByKey(vh.Routes[0])[envoyMaxAttemptCountHeader]
+	require.NotNil(t, maxAttempts)
+	assert.Equal(t, "3", maxAttempts.GetHeader().GetValue())
+	assert.Equal(t, corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, maxAttempts.GetAppendAction())
 }
 
 func TestBuildFilterChain_DisablesRouteClusterValidation(t *testing.T) {
@@ -459,19 +465,19 @@ func TestBuildFilterChain_RoutedFromAnotherShard(t *testing.T) {
 	require.Len(t, routes, 1)
 	assert.Equal(t, "mongot_cluster_level_cluster", routes[0].GetRoute().GetCluster())
 
-	// Should have the search-envoy-metadata-bin header injected
-	headersToAdd := routes[0].GetRequestHeadersToAdd()
-	require.Len(t, headersToAdd, 1)
-	assert.Equal(t, searchEnvoyMetadataHeader, headersToAdd[0].GetHeader().GetKey())
-	assert.Equal(t, searchEnvoyMetadataRoutedValue, headersToAdd[0].GetHeader().GetValue())
-	assert.Equal(t, corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, headersToAdd[0].GetAppendAction())
+	headers := requestHeadersByKey(routes[0])
+	require.Len(t, headers, 2)
+	assert.Contains(t, headers, envoyMaxAttemptCountHeader)
+	require.Contains(t, headers, searchEnvoyMetadataHeader)
+	assert.Equal(t, searchEnvoyMetadataRoutedValue, headers[searchEnvoyMetadataHeader].GetHeader().GetValue())
+	assert.Equal(t, corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, headers[searchEnvoyMetadataHeader].GetAppendAction())
 }
 
-func TestBuildFilterChain_NormalRoute_NoHeader(t *testing.T) {
+func TestBuildFilterChain_NormalRoute_OnlyMaxAttemptHeader(t *testing.T) {
 	route := testRoute("mdb-sh-0")
 	route.RoutedFromAnotherShard = false
 
-	chain, err := buildFilterChain(route, false, testCAKeyName(), nil)
+	chain, err := buildFilterChain(route, false, testCAKeyName(), &searchv1.EnvoyRetryPolicy{NumRetries: new(uint32(4))})
 	require.NoError(t, err)
 
 	// Extract HCM from the filter chain
@@ -484,6 +490,16 @@ func TestBuildFilterChain_NormalRoute_NoHeader(t *testing.T) {
 	require.Len(t, routes, 1)
 	assert.Equal(t, "mongot_mdb_sh_0_cluster", routes[0].GetRoute().GetCluster())
 
-	// Should NOT have any headers injected
-	assert.Empty(t, routes[0].GetRequestHeadersToAdd())
+	headers := requestHeadersByKey(routes[0])
+	require.Len(t, headers, 1)
+	require.Contains(t, headers, envoyMaxAttemptCountHeader)
+	assert.Equal(t, "5", headers[envoyMaxAttemptCountHeader].GetHeader().GetValue())
+}
+
+func requestHeadersByKey(r *routev3.Route) map[string]*corev3.HeaderValueOption {
+	out := map[string]*corev3.HeaderValueOption{}
+	for _, h := range r.GetRequestHeadersToAdd() {
+		out[h.GetHeader().GetKey()] = h
+	}
+	return out
 }
