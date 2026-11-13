@@ -71,9 +71,7 @@ def om_ignores_object_lock_input(custom_version: Optional[str]) -> bool:
         return False
     v = semver.VersionInfo.parse(custom_version)
     is_8_0_with_change = (
-        semver.VersionInfo.parse(OBJECT_LOCK_INPUT_IGNORED_8_0_MIN_OM_VERSION)
-        <= v
-        < semver.VersionInfo.parse("9.0.0")
+        semver.VersionInfo.parse(OBJECT_LOCK_INPUT_IGNORED_8_0_MIN_OM_VERSION) <= v < semver.VersionInfo.parse("9.0.0")
     )
     is_9_0_with_change = v >= semver.VersionInfo.parse(OBJECT_LOCK_INPUT_IGNORED_9_0_MIN_OM_VERSION)
     return is_8_0_with_change or is_9_0_with_change
