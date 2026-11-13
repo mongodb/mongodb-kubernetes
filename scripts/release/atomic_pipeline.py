@@ -257,6 +257,16 @@ def build_init_database_image(build_configuration: ImageBuildConfiguration):
     )
 
 
+def build_mongodb_proxy_image(build_configuration: ImageBuildConfiguration):
+    """
+    Builds the image of the mongodb-proxy, which is mounted into the database container as an OCI image volume.
+    """
+
+    build_image(
+        build_configuration=build_configuration,
+    )
+
+
 def build_readiness_probe_image(build_configuration: ImageBuildConfiguration):
     """
     Builds image used for readiness probe.

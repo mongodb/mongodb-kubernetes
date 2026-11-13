@@ -699,6 +699,17 @@ tasks:
         vars:
           image_name: upgrade-hook
 
+  # The process proxy of the database container, mounted as an OCI image volume. It is built next to the other
+  # images, so that a patch has an image in the dev registry for e2e_replica_set_mongodb_proxy.
+  - name: build_mongodb_proxy_image
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_staging_login
+      - func: pipeline
+        vars:
+          image_name: mongodb-proxy
+
   - name: publish_helm_chart
     commands:
       - func: clone
@@ -2417,6 +2428,7 @@ buildvariants:
       - name: build_agent_images_ubi
       - name: build_readiness_probe_image
       - name: build_version_upgrade_hook_image
+      - name: build_mongodb_proxy_image
       - name: build_kubectl_mongodb_plugin
       - name: prepare_aws
       - name: publish_helm_chart
