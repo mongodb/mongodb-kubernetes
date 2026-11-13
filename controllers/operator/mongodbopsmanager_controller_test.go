@@ -2075,7 +2075,7 @@ func TestOpsManagerManagedQueryableSigningSubject(t *testing.T) {
 			r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
 			helper, err := NewOpsManagerReconcilerHelper(ctx, r, om, nil, zap.S())
 			require.NoError(t, err)
-			r.prepareBackupCertificate(ctx, om, helper, zap.S())
+			r.ensureBackupCertAndCA(ctx, om, helper, zap.S())
 			cert := getManagedCertificateObject(t, ctx, c, om.QueryableBackupCertificateSecretName())
 			assert.Equal(t, tc.wantCN, cert.Spec.CommonName)
 			if tc.wantOrg != nil {
@@ -2117,7 +2117,7 @@ func TestOpsManagerManagedQueryablePEM(t *testing.T) {
 			r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
 			helper, err := NewOpsManagerReconcilerHelper(ctx, r, om, nil, zap.S())
 			require.NoError(t, err)
-			require.False(t, r.prepareBackupCertificate(ctx, om, helper, zap.S()).status.IsOK())
+			require.False(t, r.ensureBackupCertAndCA(ctx, om, helper, zap.S()).status.IsOK())
 			markAllManagedCertificatesReady(t, ctx, c)
 			createSecretsForManagedCertificates(t, ctx, c, ca)
 			source := &corev1.Secret{}
@@ -2126,7 +2126,7 @@ func TestOpsManagerManagedQueryablePEM(t *testing.T) {
 			source.Data = map[string][]byte{"tls.crt": tc.crt, "tls.key": tc.key, "ca.crt": ca}
 			require.NoError(t, c.Update(ctx, source))
 			sourceBefore := source.DeepCopy()
-			result := r.prepareBackupCertificate(ctx, om, helper, zap.S())
+			result := r.ensureBackupCertAndCA(ctx, om, helper, zap.S())
 			derived := &corev1.Secret{}
 			err = c.Get(ctx, kube.ObjectKey(om.Namespace, "managed-om-managed-backup-pem"), derived)
 			if !tc.ok {
@@ -2146,14 +2146,14 @@ func TestOpsManagerManagedQueryablePEM(t *testing.T) {
 			assert.Equal(t, sourceBefore, source, "cert-manager source must not be modified")
 
 			before := derived.DeepCopy()
-			require.True(t, r.prepareBackupCertificate(ctx, om, helper, zap.S()).status.IsOK())
+			require.True(t, r.ensureBackupCertAndCA(ctx, om, helper, zap.S()).status.IsOK())
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(derived), derived))
 			assert.Equal(t, before, derived, "unchanged material must not rewrite the Secret")
 
 			renewedCRT, renewedKey := issue()
 			source.Data["tls.crt"], source.Data["tls.key"] = renewedCRT, renewedKey
 			require.NoError(t, c.Update(ctx, source))
-			require.True(t, r.prepareBackupCertificate(ctx, om, helper, zap.S()).status.IsOK())
+			require.True(t, r.ensureBackupCertAndCA(ctx, om, helper, zap.S()).status.IsOK())
 			require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(derived), derived))
 			assert.NotEqual(t, before.Data, derived.Data)
 			assert.Equal(t, string(renewedCRT)+string(renewedKey)+string(ca), string(derived.Data["queryable.pem"]))
@@ -2313,7 +2313,7 @@ func TestOpsManagerManagedQueryableMultiClusterSANs(t *testing.T) {
 	r := newManagedCertificateTestReconciler(ctx, c)
 	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
 	helper := &OpsManagerReconcilerHelper{opsManager: om, memberClusters: []multicluster.MemberCluster{{Name: "second", Index: 3}, {Name: "first", Index: 1}}}
-	result := r.prepareBackupCertificate(ctx, om, helper, zap.S())
+	result := r.ensureBackupCertAndCA(ctx, om, helper, zap.S())
 	assert.False(t, result.status.IsOK())
 	cert := getManagedCertificateObject(t, ctx, c, "managed-om-managed-backup-cert")
 	assert.Contains(t, cert.Spec.DNSNames, "managed-om-3-backup-daemon-1.managed-om-3-backup-daemon-svc.my-namespace.svc.cluster.local")

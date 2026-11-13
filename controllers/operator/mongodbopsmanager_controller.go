@@ -554,13 +554,13 @@ func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, o
 	results := []componentCertificateResult{
 		r.ensureOpsManagerCertificateAndCA(ctx, opsManager, log),
 		r.ensureAppDBCertAndCA(ctx, opsManager, log),
-		r.prepareBackupCertificate(ctx, opsManager, helper, log),
+		r.ensureBackupCertAndCA(ctx, opsManager, helper, log),
 	}
 
 	return r.applyManagedCertificateResults(ctx, opsManager, results, log)
 }
 
-func (r *OpsManagerReconciler) prepareBackupCertificate(ctx context.Context, opsManager *omv1.MongoDBOpsManager, helper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) componentCertificateResult {
+func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, helper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) componentCertificateResult {
 	if opsManager.Spec.Backup == nil || !opsManager.Spec.Backup.Enabled || !opsManager.IsBackupManagedCertificateEnabled() {
 		return componentCertificateResult{part: mdbstatus.Backup, status: workflow.OK()}
 	}
