@@ -549,7 +549,7 @@ type componentCertificateResult struct {
 func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
 	results := []componentCertificateResult{
 		r.ensureOpsManagerCertificateAndCA(ctx, opsManager, log),
-		r.prepareAppDBCertificate(ctx, opsManager, log),
+		r.ensureAppDBCertAndCA(ctx, opsManager, log),
 	}
 
 	return r.applyManagedCertificateResults(ctx, opsManager, results, log)
@@ -617,7 +617,7 @@ func opsManagerCertificateSANs(opsManager *omv1.MongoDBOpsManager) ([]string, []
 	return slices.Compact(dnsNames), slices.Compact(ipAddresses), nil
 }
 
-func (r *OpsManagerReconciler) prepareAppDBCertificate(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) componentCertificateResult {
+func (r *OpsManagerReconciler) ensureAppDBCertAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) componentCertificateResult {
 	// Multi-cluster and referenced AppDBs are not part of the single-cluster managed-certificate
 	// scope; they stay on their existing lifecycle instead of receiving single-cluster SANs.
 	enabled := opsManager.IsInternalAppDB() &&
