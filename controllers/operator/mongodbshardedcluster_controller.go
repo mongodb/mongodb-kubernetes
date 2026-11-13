@@ -28,7 +28,6 @@ import (
 	stdErrors "errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -937,9 +936,6 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	}
 
 	if err := r.replicateAgentKeySecret(ctx, conn, agentAPIKey, log); err != nil {
-		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
-	}
-	if err := r.reconcileHostnameOverrideConfigMap(ctx, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
 	if err := r.replicateSSLMMSCAConfigMap(ctx, projectConfig, log); err != nil {
@@ -2919,95 +2915,6 @@ func (r *ShardedClusterReconcileHelper) replicateAgentKeySecret(ctx context.Cont
 			return xerrors.Errorf("failed to ensure agent key secret in member cluster %s: %w", memberCluster.Name, err)
 		}
 	}
-	return nil
-}
-
-func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMap() corev1.ConfigMap {
-	data := r.createHostnameOverrideConfigMapData()
-
-	cm := corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-hostname-override", r.sc.Name),
-			Namespace: r.sc.Namespace,
-			Labels:    r.sc.GetOwnerLabels(),
-		},
-		Data: data,
-	}
-	return cm
-}
-
-func (r *ShardedClusterReconcileHelper) createHostnameOverrideConfigMapData() map[string]string {
-	data := make(map[string]string)
-
-	for _, memberCluster := range r.mongosMemberClusters {
-		mongosScaler := r.GetMongosScaler(memberCluster)
-		mongosHostnames, mongosPodNames := r.getMongosHostnames(memberCluster, max(mongosScaler.CurrentReplicas(), mongosScaler.DesiredReplicas()))
-		for i := range mongosPodNames {
-			data[mongosPodNames[i]] = mongosHostnames[i]
-		}
-	}
-
-	for _, memberCluster := range r.configSrvMemberClusters {
-		configSrvScaler := r.GetConfigSrvScaler(memberCluster)
-		configSrvHostnames, configSrvPodNames := r.getConfigSrvHostnames(memberCluster, max(configSrvScaler.CurrentReplicas(), configSrvScaler.DesiredReplicas()))
-		for i := range configSrvPodNames {
-			data[configSrvPodNames[i]] = configSrvHostnames[i]
-		}
-	}
-
-	for shardIdx := 0; shardIdx < r.maxShardCount(); shardIdx++ {
-		for _, memberCluster := range r.shardsMemberClustersMap[shardIdx] {
-			shardScaler := r.GetShardScaler(shardIdx, memberCluster)
-			shardHostnames, shardPodNames := r.getShardHostnames(shardIdx, memberCluster, max(shardScaler.CurrentReplicas(), shardScaler.DesiredReplicas()))
-			for i := range shardPodNames {
-				data[shardPodNames[i]] = shardHostnames[i]
-			}
-		}
-	}
-	return data
-}
-
-// anyTierHasExternalDomain reports whether any tier of a single-cluster deployment resolves to an
-// external domain. The StatefulSets mount the hostname-override ConfigMap per tier (see
-// construct.baseOptions), so gating its creation on the top-level spec.externalAccess alone would
-// leave pods stuck on a missing ConfigMap when only spec.<tier>.externalAccess is set.
-func (r *ShardedClusterReconcileHelper) anyTierHasExternalDomain() bool {
-	for _, memberCluster := range r.allMemberClusters {
-		tiers := []struct {
-			component *mdbv1.ShardedClusterComponentSpec
-			tier      mdbv1.ShardedClusterTier
-		}{
-			{r.sc.Spec.MongosSpec, mdbv1.TierMongos},
-			{r.sc.Spec.ConfigSrvSpec, mdbv1.TierConfigSrv},
-			{r.sc.Spec.ShardSpec, mdbv1.TierShard},
-		}
-		for _, t := range tiers {
-			if r.sc.Spec.EffectiveExternalDomain(t.component, t.tier, memberCluster.Name) != nil {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-func (r *ShardedClusterReconcileHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger) error {
-	if !r.sc.Spec.IsMultiCluster() {
-		if !r.anyTierHasExternalDomain() {
-			log.Debugf("Skipping creating hostname override config map in SingleCluster topology (with external domain unspecified)")
-			return nil
-		}
-	}
-
-	cm := r.createHostnameOverrideConfigMap()
-	for _, memberCluster := range getHealthyMemberClusters(r.allMemberClusters) {
-		err := configmap.CreateOrUpdate(ctx, memberCluster.Client, cm)
-		if err != nil && !errors.IsAlreadyExists(err) {
-			return xerrors.Errorf("failed to create configmap: %s/%s in cluster: %s, err: %w", r.sc.Namespace, cm.Name, memberCluster.Name, err)
-		}
-		log.Debugf("Successfully ensured configmap: %s/%s in cluster: %s", r.sc.Namespace, cm.Name, memberCluster.Name)
-	}
-
 	return nil
 }
 

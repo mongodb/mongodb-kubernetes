@@ -22,6 +22,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -34,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
@@ -59,23 +61,6 @@ func init() {
 }
 
 var clusters = []string{"api1.kube.com", "api2.kube.com", "api3.kube.com"}
-
-func TestMultiReplicaSetHostnameConfigMapUsesStableClusterIndexes(t *testing.T) {
-	ctx := context.Background()
-	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
-	mrs.Spec.Mapping = map[string]int{clusters[0]: 5, clusters[1]: 3, clusters[2]: 8}
-	mrs.Spec.ClusterSpecList[0], mrs.Spec.ClusterSpecList[2] = mrs.Spec.ClusterSpecList[2], mrs.Spec.ClusterSpecList[0]
-	reconciler, _, members, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
-	require.NoError(t, reconciler.reconcileHostnameOverrideConfigMap(ctx, zap.S(), *mrs))
-	for _, item := range mrs.Spec.ClusterSpecList {
-		cm := corev1.ConfigMap{}
-		require.NoError(t, members[item.ClusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name+"-hostname-override"), &cm))
-		for pod := range item.Members {
-			name := fmt.Sprintf("%s-%d-%d", mrs.Name, mrs.Spec.Mapping[item.ClusterName], pod)
-			assert.Equal(t, name+"-svc."+mrs.Namespace+".svc.cluster.local", cm.Data[name])
-		}
-	}
-}
 
 func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler reconcile.Reconciler, m *mdbmulti.MongoDBMultiCluster, client client.Client, shouldRequeue bool) {
 	err := client.Update(ctx, m)
@@ -133,7 +118,7 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 }
 
-func TestMultiReplicaSetHostnameConfigMaps(t *testing.T) {
+func TestMultiReplicaSetAgentHostname(t *testing.T) {
 	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
 		for _, external := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/external=%t", architecture, external), func(t *testing.T) {
@@ -151,31 +136,25 @@ func TestMultiReplicaSetHostnameConfigMaps(t *testing.T) {
 				checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, centralClient, false)
 				for _, item := range mrs.Spec.ClusterSpecList {
 					member := memberClients[item.ClusterName]
-					cm := corev1.ConfigMap{}
-					require.NoError(t, member.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name+"-hostname-override"), &cm))
-					assert.Equal(t, mrs.GetOwnerLabels(), cm.Labels)
-					assert.Empty(t, cm.OwnerReferences)
-					require.Len(t, cm.Data, item.Members)
-					for pod := range item.Members {
-						name := fmt.Sprintf("%s-%d-%d", mrs.Name, mrs.ClusterNum(item.ClusterName), pod)
-						hostname := name + "-svc." + mrs.Namespace + ".svc." + mrs.Spec.GetClusterDomain()
-						if domain := mrs.Spec.GetExternalDomainForMemberCluster(item.ClusterName); domain != nil {
-							hostname = name + "." + *domain
-						}
-						assert.Equal(t, hostname, cm.Data[name])
-					}
+					err := member.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name+"-hostname-override"), &corev1.ConfigMap{})
+					assert.True(t, apiErrors.IsNotFound(err), "the hostname ConfigMap is no longer created")
+
 					sts := appsv1.StatefulSet{}
 					require.NoError(t, member.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))), &sts))
-					for _, c := range sts.Spec.Template.Spec.Containers {
-						assert.Contains(t, c.VolumeMounts, corev1.VolumeMount{Name: cm.Name, MountPath: "/opt/scripts/config"})
+					hostname := "$(POD_NAME)-svc." + mrs.Namespace + ".svc." + mrs.Spec.GetClusterDomain()
+					if domain := mrs.Spec.GetExternalDomainForMemberCluster(item.ClusterName); domain != nil {
+						hostname = "$(POD_NAME)." + *domain
 					}
-					if architecture == architectures.NonStatic {
-						require.NotEmpty(t, sts.Spec.Template.Spec.InitContainers)
-						for _, c := range sts.Spec.Template.Spec.InitContainers {
-							assert.Contains(t, c.VolumeMounts, corev1.VolumeMount{Name: cm.Name, MountPath: "/opt/scripts/config"})
+					agent := construct.AgentContainer(sts)
+					require.NotNil(t, agent)
+					assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: hostname}, agent.Env[len(agent.Env)-1])
+					assert.Contains(t, agent.Env, construct.PodNameEnvVar())
+					assert.Empty(t, sts.Spec.Template.Spec.Containers[0].Args)
+					for _, c := range append(sts.Spec.Template.Spec.Containers, sts.Spec.Template.Spec.InitContainers...) {
+						for _, mount := range c.VolumeMounts {
+							assert.NotEqual(t, "/opt/scripts/config", mount.MountPath)
 						}
 					}
-					assert.Empty(t, sts.Spec.Template.Spec.Containers[0].Args)
 				}
 			})
 		}
@@ -828,7 +807,7 @@ func TestResourceDeletion(t *testing.T) {
 						configMapList := corev1.ConfigMapList{}
 						err := c.List(ctx, &configMapList)
 						assert.NoError(t, err)
-						assert.Len(t, configMapList.Items, 2)
+						assert.Len(t, configMapList.Items, 1, "only the agent settings ConfigMap")
 					})
 					t.Run("Secrets in each member cluster have been created", func(t *testing.T) {
 						ctx := context.Background()
@@ -969,7 +948,7 @@ func TestOnDelete_AppDBRole_SkipsOMCleanup(t *testing.T) {
 					assert.Empty(t, secretList.Items)
 				} else {
 					assert.Len(t, serviceList.Items, item.Members+2)
-					assert.Len(t, configMapList.Items, 2)
+					assert.Len(t, configMapList.Items, 1, "only the agent settings ConfigMap")
 					assert.Len(t, secretList.Items, 1)
 				}
 			}

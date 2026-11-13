@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -503,9 +504,7 @@ func TestDatabaseAgentSettingsHostname(t *testing.T) {
 			mdb.Spec.ClusterDomain = "custom.local"
 			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) {
 				opts.MultiClusterMode = tc.multi
-				if tc.multi || tc.domain != nil {
-					opts.HostNameOverrideConfigmapName = "hostname-override"
-				}
+				opts.AgentHostnameOverride = construct.AgentHostnameOverride(tc.domain, tc.multi, mock.TestNamespace, mdb.Spec.ClusterDomain)
 				if tc.domain != nil {
 					opts.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: tc.domain}
 				}
@@ -516,15 +515,22 @@ func TestDatabaseAgentSettingsHostname(t *testing.T) {
 			agent := &created.Spec.Template.Spec.Containers[0]
 			assert.Empty(t, agent.Args)
 			variables := env.ToMap(agent.Env...)
-			assert.NotContains(t, variables, "POD_NAME")
-			if tc.override != nil {
+			generated := options(*mdb).AgentHostnameOverride
+			switch {
+			case tc.override != nil:
 				assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: *tc.override}, agent.Env[len(agent.Env)-1])
-			} else {
+				assert.NotContains(t, variables, "POD_NAME")
+			case generated != "":
+				assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: generated}, agent.Env[len(agent.Env)-1])
+				assert.Equal(t, construct.PodNameEnvVar(), agent.Env[len(agent.Env)-2], "POD_NAME must precede the reference to it")
+			default:
 				assert.NotContains(t, variables, "MDB_AGENT_HOSTNAME_OVERRIDE")
+				assert.NotContains(t, variables, "POD_NAME")
 			}
-			if tc.multi || tc.domain != nil {
-				assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "hostname-override", MountPath: "/opt/scripts/config"})
-				assert.Contains(t, created.Spec.Template.Spec.Volumes, enterprisests.CreateVolumeFromConfigMap("hostname-override", "hostname-override"))
+			for _, c := range created.Spec.Template.Spec.Containers {
+				for _, mount := range c.VolumeMounts {
+					assert.NotEqual(t, "/opt/scripts/config", mount.MountPath, "the hostname ConfigMap is no longer mounted")
+				}
 			}
 		})
 	}
@@ -564,7 +570,7 @@ func TestDatabaseAgentHostnameEnvFollowsMergedEnvironment(t *testing.T) {
 			}
 			mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate = &corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: name, Env: customEnv}}}}
 			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture), func(opts *construct.DatabaseStatefulSetOptions) {
-				opts.HostNameOverrideConfigmapName = "hostname-override"
+				opts.AgentHostnameOverride = "$(POD_NAME).generated.example.com"
 			})
 			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
 			reconcile := func() {
@@ -583,15 +589,15 @@ func TestDatabaseAgentHostnameEnvFollowsMergedEnvironment(t *testing.T) {
 			assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: "$(POD_NAME).$(Z_DOMAIN)"}, agent.Env[len(agent.Env)-1])
 			assert.Contains(t, agent.Env[:len(agent.Env)-1], customEnv[1])
 			assert.Contains(t, agent.Env[:len(agent.Env)-1], customEnv[2])
-			assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "hostname-override", MountPath: "/opt/scripts/config"})
 			expected := append([]corev1.EnvVar(nil), agent.Env...)
 			reconcile()
 			assert.Equal(t, expected, construct.AgentContainer(sts).Env, "repeated reconciliation must not reorder or duplicate environment entries")
 			delete(mdb.Spec.Agent.StartupParameters, "overrideLocalHost")
 			reconcile()
 			agent = construct.AgentContainer(sts)
-			assert.NotContains(t, env.ToMap(agent.Env...), "MDB_AGENT_HOSTNAME_OVERRIDE")
+			assert.Equal(t, corev1.EnvVar{Name: "MDB_AGENT_HOSTNAME_OVERRIDE", Value: "$(POD_NAME).generated.example.com"}, agent.Env[len(agent.Env)-1])
 			assert.Contains(t, agent.Env, customEnv[1], "customer POD_NAME must remain intact")
+			assert.Equal(t, 1, len(slices.DeleteFunc(slices.Clone(agent.Env), func(v corev1.EnvVar) bool { return v.Name != "POD_NAME" })), "POD_NAME must not be duplicated")
 		})
 	}
 }

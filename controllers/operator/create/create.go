@@ -110,7 +110,7 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, s
 }
 
 // ReconcileDatabaseAgentSettings renders the native agent settings, reconciles the settings
-// ConfigMap and credential, and supplies the optional custom hostname to the launcher.
+// ConfigMap and credential, and supplies the advertised hostname to the launcher.
 func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, opts construct.DatabaseStatefulSetOptions) error {
 	cm, err := construct.DatabaseAgentSettingsConfigMap(*sts, opts)
 	if err != nil {
@@ -132,7 +132,7 @@ func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient
 	}
 	// The launcher takes everything from the settings file, so no arguments are passed.
 	container.WithArgs(nil)(agent)
-	setAgentHostnameEnv(agent, parameters)
+	setAgentHostnameEnv(agent, parameters, opts.AgentHostnameOverride)
 	return nil
 }
 
@@ -174,13 +174,30 @@ func vaultDatabaseSecretPath(secretClient secrets.SecretClient) string {
 	return secretClient.VaultClient.DatabaseSecretPath()
 }
 
-// setAgentHostnameEnv passes a customer overrideLocalHost to the launcher. It is appended last
-// because Kubernetes expands references using the entries that precede them.
-func setAgentHostnameEnv(agent *corev1.Container, parameters mdbv1.StartupParameters) {
+// setAgentHostnameEnv passes the advertised hostname to the launcher. A customer overrideLocalHost
+// wins over the hostname the operator generated from the pod name.
+func setAgentHostnameEnv(agent *corev1.Container, parameters mdbv1.StartupParameters, generated string) {
 	agent.Env = slices.DeleteFunc(agent.Env, func(variable corev1.EnvVar) bool { return variable.Name == agentHostnameOverrideEnv })
-	if hostname, ok := parameters["overrideLocalHost"]; ok {
-		agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
+	if customer, ok := parameters["overrideLocalHost"]; ok {
+		appendHostnameEnv(agent, customer)
+	} else if generated != "" {
+		ensurePodNameEnv(agent)
+		appendHostnameEnv(agent, generated)
 	}
+}
+
+// ensurePodNameEnv adds POD_NAME unless the pod template already defines it, so the generated
+// hostname can reference it.
+func ensurePodNameEnv(agent *corev1.Container) {
+	if _, defined := env.ToMap(agent.Env...)[construct.PodNameEnv]; !defined {
+		agent.Env = append(agent.Env, construct.PodNameEnvVar())
+	}
+}
+
+// appendHostnameEnv appends last because Kubernetes expands references using the entries that
+// precede them.
+func appendHostnameEnv(agent *corev1.Container, hostname string) {
+	agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
 }
 
 // agentSettingsInput is what reconcileAgentSettings needs besides the StatefulSet and the clients.

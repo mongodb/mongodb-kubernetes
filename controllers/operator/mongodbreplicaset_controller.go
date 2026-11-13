@@ -57,7 +57,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
@@ -501,41 +500,6 @@ func (r *ReconcileMongoDbReplicaSet) Reconcile(ctx context.Context, request reco
 	return helper.Reconcile(ctx)
 }
 
-func getHostnameOverrideConfigMapForReplicaset(mdb *mdbv1.MongoDB) corev1.ConfigMap {
-	data := make(map[string]string)
-
-	if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
-		hostnames, names := dns.GetDNSNames(mdb.Name, "", mdb.GetObjectMeta().GetNamespace(), mdb.Spec.GetClusterDomain(), mdb.Spec.Members, mdb.Spec.DbCommonSpec.GetExternalDomain())
-		for i := range hostnames {
-			data[names[i]] = hostnames[i]
-		}
-	}
-
-	cm := corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-hostname-override", mdb.Name),
-			Namespace: mdb.Namespace,
-		},
-		Data: data,
-	}
-	return cm
-}
-
-func (r *ReplicaSetReconcilerHelper) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger, getUpdateCreator configmap.GetUpdateCreator) error {
-	if r.resource.Spec.DbCommonSpec.GetExternalDomain() == nil {
-		return nil
-	}
-
-	cm := getHostnameOverrideConfigMapForReplicaset(r.resource)
-	err := configmap.CreateOrUpdate(ctx, getUpdateCreator, cm)
-	if err != nil && !errors.IsAlreadyExists(err) {
-		return xerrors.Errorf("failed to create configmap: %s, err: %w", cm.Name, err)
-	}
-	log.Infof("Successfully ensured configmap: %s", cm.Name)
-
-	return nil
-}
-
 // reconcileMemberResources handles the synchronization of kubernetes resources, which can be statefulsets, services etc.
 // All the resources required in the k8s cluster (as opposed to the automation config) for creating the replicaset
 // should be reconciled in this method.
@@ -543,11 +507,6 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
-
-	// Reconcile hostname override ConfigMap
-	if err := r.reconcileHostnameOverrideConfigMap(ctx, log, r.reconciler.client); err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to reconcile hostname override ConfigMap: %w", err))
-	}
 
 	// Ensure roles are properly configured
 	if status := reconciler.ensureRoles(ctx, rs.Spec.DbCommonSpec, reconciler.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(rs), lastConfiguredRoles, log); !status.IsOK() {

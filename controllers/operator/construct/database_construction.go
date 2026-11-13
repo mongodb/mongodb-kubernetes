@@ -144,8 +144,9 @@ type DatabaseStatefulSetOptions struct {
 	// This needs to be provided for the multi-cluster statefulsets as they contain a member index in the name.
 	// The name override is used for naming the statefulset and the pod affinity label.
 	// The certificate secrets and other dependencies named using the resource name will use the `Name` field.
-	StatefulSetNameOverride       string // this needs to be overriden of the
-	HostNameOverrideConfigmapName string
+	StatefulSetNameOverride string // this needs to be overriden of the
+	// AgentHostnameOverride is the advertised hostname, built on $(POD_NAME) so Kubernetes expands it per pod.
+	AgentHostnameOverride string
 
 	AgentDebug          bool
 	AgentDebugImage     string
@@ -261,9 +262,7 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			ExternalAccessConfiguration: mdb.Spec.ExternalAccessConfiguration,
 		}
 
-		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
-			opts.HostNameOverrideConfigmapName = mdb.GetHostNameOverrideConfigmapName()
-		}
+		opts.AgentHostnameOverride = AgentHostnameOverride(mdb.Spec.DbCommonSpec.GetExternalDomain(), false, mdb.Namespace, mdb.Spec.GetClusterDomain())
 
 		for _, opt := range additionalOpts {
 			opt(&opts)
@@ -310,14 +309,8 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 
 	opts.ExternalAccessConfiguration = cfg.mdb.Spec.EffectiveExternalAccessConfiguration(cfg.componentSpec, shardedClusterTierForStsType(cfg.stsType), cfg.memberClusterName)
 
-	// Multi-cluster always needs the override because processes are addressed by per-pod service
-	// FQDN rather than by pod name. Single-cluster needs it for any tier published under an external
-	// domain, so the process self-identifies as its external hostname rather than its internal one.
-	// This subsumes the mongos-only case that MongosOptions used to handle.
 	externalDomain := cfg.mdb.Spec.EffectiveExternalDomain(cfg.componentSpec, shardedClusterTierForStsType(cfg.stsType), cfg.memberClusterName)
-	if cfg.mdb.Spec.IsMultiCluster() || externalDomain != nil {
-		opts.HostNameOverrideConfigmapName = cfg.mdb.GetHostNameOverrideConfigmapName()
-	}
+	opts.AgentHostnameOverride = AgentHostnameOverride(externalDomain, cfg.mdb.Spec.IsMultiCluster(), cfg.mdb.Namespace, cfg.mdb.Spec.GetClusterDomain())
 	for _, opt := range additionalOpts {
 		opt(&opts)
 	}
@@ -840,19 +833,6 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		configureContainerSecurityContext,
 	)}
 
-	if opts.HostNameOverrideConfigmapName != "" {
-		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
-		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
-			{
-				Name:      opts.HostNameOverrideConfigmapName,
-				MountPath: "/opt/scripts/config",
-			},
-		})
-		agentContainerModifications = append(agentContainerModifications, hostnameOverrideModification)
-		mongodContainerModifications = append(mongodContainerModifications, hostnameOverrideModification)
-		agentUtilitiesHolderModifications = append(agentUtilitiesHolderModifications, hostnameOverrideModification)
-	}
-
 	mods := []podtemplatespec.Modification{
 		podtemplatespec.WithServiceAccount(util.MongoDBServiceAccount),
 		podtemplatespec.WithServiceAccount(getServiceAccountName(opts)),
@@ -889,18 +869,6 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
 	)}
-
-	if opts.HostNameOverrideConfigmapName != "" {
-		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
-		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
-			{
-				Name:      opts.HostNameOverrideConfigmapName,
-				MountPath: "/opt/scripts/config",
-			},
-		})
-		initContainerModifications = append(initContainerModifications, hostnameOverrideModification)
-		databaseContainerModifications = append(databaseContainerModifications, hostnameOverrideModification)
-	}
 
 	mods := []podtemplatespec.Modification{
 		sharedDatabaseConfiguration(opts, mdb),

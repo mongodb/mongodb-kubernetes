@@ -115,14 +115,7 @@ func volumesAndMountsFromStatefulSet(sts *appsv1.StatefulSet, excluded map[strin
 // agentCertHash is the hash key of the agent cert PEM file (path becomes AgentCertMountPath/hash).
 // subjectDN is the automation agent X.509 subject (RFC 4514) for MONGODB-X509; empty for SCRAM.
 func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operatorImage, connectionString string, externalMembers []string, currentAgentAuthMode, agentCertHash, subjectDN string) *batchv1.Job {
-	// The hostname-override ConfigMap is excluded on purpose. The validator takes its hostnames
-	// from the CONNECTION_STRING and EXTERNAL_MEMBERS env vars and never reads /opt/scripts/config,
-	// and inheriting the mount breaks the non-static architecture: there database-scripts is mounted
-	// read-only, and only the StatefulSet's init container creates the nested /opt/scripts/config
-	// mountpoint. A Job has no init container, so the container fails to start with exit code 128.
-	volumes, volumeMounts := volumesAndMountsFromStatefulSet(sts, map[string]struct{}{
-		rs.GetHostNameOverrideConfigmapName(): {},
-	})
+	volumes, volumeMounts := volumesAndMountsFromStatefulSet(sts, nil)
 
 	security := rs.GetSecurity()
 	automationAuthEnabled := security != nil && security.Authentication != nil && security.Authentication.Enabled

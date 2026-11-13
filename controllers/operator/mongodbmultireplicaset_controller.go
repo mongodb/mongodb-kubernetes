@@ -411,12 +411,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 		return workflow.Failed(err)
 	}
 
-	// create configmap with the hostname-override
-	err = r.reconcileHostnameOverrideConfigMap(ctx, log, *mrs)
-	if err != nil {
-		return workflow.Failed(err)
-	}
-
 	// Copy over OM CustomCA if specified in project config
 	if projectConfig.SSLMMSCAConfigMap != "" {
 		err = r.reconcileOMCAConfigMap(ctx, log, *mrs, projectConfig.SSLMMSCAConfigMap)
@@ -801,6 +795,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 
 		opts := mconstruct.MultiClusterReplicaSetOptions(
 			mconstruct.WithClusterNum(clusterNum),
+			mconstruct.WithAgentHostnameOverride(construct.AgentHostnameOverride(mrs.Spec.GetExternalDomainForMemberCluster(item.ClusterName), true, mrs.Namespace, mrs.Spec.GetClusterDomain())),
 			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
@@ -1344,59 +1339,6 @@ func ensureHeadlessService(ctx context.Context, client service.GetUpdateCreator,
 	err := service.CreateOrUpdateService(ctx, client, svc)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create headless service: %s in cluster: %s, err: %w", svc.Name, clusterName, err)
-	}
-	return nil
-}
-
-func getHostnameOverrideConfigMap(mrs mdbmultiv1.MongoDBMultiCluster, clusterNum int, clusterName string, members int) corev1.ConfigMap {
-	data := make(map[string]string)
-
-	externalDomain := mrs.Spec.GetExternalDomainForMemberCluster(clusterName)
-	for podNum := range members {
-		key := dns.GetMultiPodName(mrs.Name, clusterNum, podNum)
-		data[key] = dns.GetMultiClusterPodServiceFQDN(mrs.Name, mrs.Namespace, clusterNum, externalDomain, podNum, mrs.Spec.GetClusterDomain())
-	}
-
-	cm := corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-hostname-override", mrs.Name),
-			Namespace: mrs.Namespace,
-			Labels:    mrs.GetOwnerLabels(),
-		},
-		Data: data,
-	}
-	return cm
-}
-
-func (r *ReconcileMongoDbMultiReplicaSet) reconcileHostnameOverrideConfigMap(ctx context.Context, log *zap.SugaredLogger, mrs mdbmultiv1.MongoDBMultiCluster) error {
-	clusterSpecList, err := mrs.GetClusterSpecItems()
-	if err != nil {
-		return err
-	}
-	failedClusterNames, err := mrs.GetFailedClusterNames()
-	if err != nil {
-		log.Warnf("failed retrieving list of failed clusters: %s", err.Error())
-	}
-
-	for _, e := range clusterSpecList {
-		if stringutil.Contains(failedClusterNames, e.ClusterName) {
-			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is marked as failed", e.ClusterName))
-			continue
-		}
-
-		client, ok := r.memberClusterClientsMap[e.ClusterName]
-		if !ok {
-			log.Warnf(fmt.Sprintf("failed to create configmap: cluster %s is missing from client map", e.ClusterName))
-			continue
-		}
-		cm := getHostnameOverrideConfigMap(mrs, mrs.ClusterNum(e.ClusterName), e.ClusterName, e.Members)
-
-		err = configmap.CreateOrUpdate(ctx, client, cm)
-		if err != nil && !apiErrors.IsAlreadyExists(err) {
-			return xerrors.Errorf("failed to create configmap: %s in cluster: %s, err: %w", cm.Name, e.ClusterName, err)
-		}
-		log.Infof("Successfully ensured configmap: %s in cluster: %s", cm.Name, e.ClusterName)
-
 	}
 	return nil
 }
