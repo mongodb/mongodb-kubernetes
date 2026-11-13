@@ -819,6 +819,14 @@ func formatTooManyVotingMembersError(rsName string, total int, acVoting []voting
 func (r *ReconcileCommonController) validateInternalClusterCertsAndCheckTLSType(ctx context.Context, configurator certs.X509CertConfigurator, opts certs.Options, log *zap.SugaredLogger) error {
 	secretName := opts.InternalClusterSecretName
 
+	// The clusterfile is a client certificate: a member presents it when it connects to the other
+	// members, and they recognise it by its subject, not by a hostname. The one the operator issues
+	// therefore has no hostnames, so it must not be checked for them. A clusterfile the customer brings
+	// is still checked the way it always was.
+	if configurator.GetDbCommonSpec().GetSecurity().IsManagedCertificateEnabled() {
+		opts = opts.WithoutHostnames()
+	}
+
 	err := certs.VerifyAndEnsureCertificatesForStatefulSet(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), secretName, opts, log)
 	if err != nil {
 		return xerrors.Errorf("the secret object '%s' does not contain all the certificates needed: %w", secretName, err)
