@@ -256,13 +256,17 @@ func TestNumaInterleaveRunsUnderNumactl(t *testing.T) {
 func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
 	f := newFixture(t)
 	cfg := f.config("main", "run")
+	ldapCA := filepath.Join(f.dir, "ca.pem")
+	keytab := filepath.Join(f.dir, "krb5.keytab")
+	require.NoError(t, os.WriteFile(ldapCA, []byte("ca"), 0o600))
+	require.NoError(t, os.WriteFile(keytab, []byte("keytab"), 0o600))
 	e, err := f.sup.Start(StartRequest{
 		ConfigPath:  cfg,
 		Role:        RoleMain,
 		OperationID: "operation-1",
 		Other: Other{
-			LdapCaPath:     "/etc/ldap/ca.pem",
-			KerberosKeytab: "/etc/krb5.keytab",
+			LdapCaPath:     ldapCA,
+			KerberosKeytab: keytab,
 		},
 	})
 	require.NoError(t, err)
@@ -272,8 +276,8 @@ func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
 	require.NotNil(t, st.PID)
 	assert.Equal(t, e.pid, *st.PID)
 	require.NotNil(t, st.LaunchEnvironment)
-	assert.Equal(t, "/etc/ldap/ca.pem", st.LaunchEnvironment.LdapCaPath)
-	assert.Equal(t, "/etc/krb5.keytab", st.LaunchEnvironment.KerberosKeytab)
+	assert.Equal(t, ldapCA, st.LaunchEnvironment.LdapCaPath)
+	assert.Equal(t, keytab, st.LaunchEnvironment.KerberosKeytab)
 	assert.Equal(t, "operation-1", st.OperationID)
 
 	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 5*time.Second, false))
