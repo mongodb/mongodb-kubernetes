@@ -1,6 +1,9 @@
 name: Mark stale pull requests
 
 on:
+  push:
+    branches:
+      - maciejk/stale-prs-workflow
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
