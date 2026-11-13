@@ -12,6 +12,10 @@ spec:
       name: my-project
   credentials: my-credentials
   persistent: true
+  shardPodSpec:
+    persistence:
+      single:
+        storage: 2G
   shard:
     clusterSpecList:
       - clusterName: kind-e2e-cluster-1
@@ -32,6 +36,12 @@ spec:
   # Shard #2 has no override
   shardOverrides:
     - shardNames: [ "mdb-sh-shard-overrides-0", "mdb-sh-shard-overrides-1" ] # this override will apply to shards #0 and #1
+      # podSpec without persistence, shards #0 and #1 keep the shardPodSpec persistence
+      podSpec:
+        podTemplate:
+          metadata:
+            labels:
+              shard-override: "true"
       clusterSpecList:
         - clusterName: kind-e2e-cluster-1
           members: 1
@@ -45,6 +55,11 @@ spec:
               priority: "0"
 
     - shardNames: ["mdb-sh-shard-overrides-3"] # this override will apply to only shard #3
+      # applies to all clusters of shard #3, including kind-e2e-cluster-3 which only this override adds
+      podSpec:
+        persistence:
+          single:
+            storage: 3G
       clusterSpecList:
         - clusterName: kind-e2e-cluster-1
           members: 1

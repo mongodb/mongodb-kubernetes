@@ -26,6 +26,7 @@ func ShardedClusterSingleValidators() []func(m MongoDB) v1.ValidationResult {
 		emptyClusterSpecLists,
 		duplicateServiceObjectsIsIgnoredInSingleCluster,
 		mandatorySingleClusterFieldsAreSpecified,
+		shardOverridesPodTemplateIsIgnoredInSingleCluster,
 	}
 }
 
@@ -377,6 +378,15 @@ func appendValidationError(errors *[]v1.ValidationResult, ignoredField string, p
 func duplicateServiceObjectsIsIgnoredInSingleCluster(m MongoDB) v1.ValidationResult {
 	if m.Spec.DuplicateServiceObjects != nil {
 		return v1.ValidationWarning("In Single Cluster topology, spec.duplicateServiceObjects field is ignored")
+	}
+	return v1.ValidationSuccess()
+}
+
+func shardOverridesPodTemplateIsIgnoredInSingleCluster(m MongoDB) v1.ValidationResult {
+	for _, shardOverride := range m.Spec.ShardOverrides {
+		if shardOverride.PodSpec != nil && shardOverride.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+			return v1.ValidationWarning("In Single Cluster topology, spec.shardOverrides.podSpec.podTemplate field is ignored. Use instead: spec.shardOverrides.statefulSet.spec.template")
+		}
 	}
 	return v1.ValidationSuccess()
 }

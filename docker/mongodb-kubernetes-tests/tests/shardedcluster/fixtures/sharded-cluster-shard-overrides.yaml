@@ -15,10 +15,20 @@ spec:
       name: my-project
   credentials: my-credentials
   persistent: true
+  shardPodSpec:
+    persistence:
+      single:
+        storage: 2G
 
   # Shard #2 has no override
   shardOverrides:
     - shardNames: [ "mdb-sh-shard-overrides-0", "mdb-sh-shard-overrides-1" ] # this override will apply to shards #0 and #1
+      # podSpec without persistence, shards #0 and #1 keep the shardPodSpec persistence
+      podSpec:
+        podTemplate:
+          metadata:
+            labels:
+              shard-override: "true"
       members: 3
       memberConfig:
         - votes: 0
@@ -29,6 +39,10 @@ spec:
           priority: "10"
 
     - shardNames: ["mdb-sh-shard-overrides-3"] # this override will apply to only shard #3
+      podSpec:
+        persistence:
+          single:
+            storage: 3G
       memberConfig:
         - votes: 1
           priority: "5"
