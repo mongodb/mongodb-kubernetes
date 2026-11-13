@@ -8,6 +8,7 @@ import time
 import urllib.parse
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import pymongo
@@ -841,28 +842,32 @@ class OMTester(object):
             },
         }
 
-    def query_backup(self, db_name: str, collection_name: str, timeout: int):
+    def query_backup(
+        self,
+        db_name: str,
+        collection_name: str,
+        timeout: int,
+        *,
+        ca_pem: str | None = None,
+        replica_set_name: str = "mdb-four-two",
+        server_selection_timeout_ms: int = 300000,
+    ):
         """Query the first backup snapshot and return all records from specified collection."""
-        qb = OMQueryableBackup(self.context.base_url, self.context.project_id)
+        qb = OMQueryableBackup(self.context.base_url, self.context.project_id, replica_set_name)
         connParams = qb.connection_params(timeout)
-
-        caPem = tempfile.NamedTemporaryFile(delete=False, mode="w")
-        caPem.write(connParams.ca_pem)
-        caPem.flush()
-
-        clientPem = tempfile.NamedTemporaryFile(delete=False, mode="w")
-        clientPem.write(connParams.client_pem)
-        clientPem.flush()
-
-        dbClient: pymongo.database.Database = pymongo.MongoClient(
-            host=connParams.host,
-            tls=True,
-            tlsCAFile=caPem.name,
-            tlsCertificateKeyFile=clientPem.name,
-            serverSelectionTimeoutMs=300000,
-        )[db_name]
-        collection = dbClient[collection_name]
-        return list(collection.find())
+        with tempfile.TemporaryDirectory() as directory:
+            ca_file = Path(directory) / "ca.pem"
+            ca_file.write_text(connParams.ca_pem if ca_pem is None else ca_pem)
+            client_file = Path(directory) / "client.pem"
+            client_file.write_text(connParams.client_pem)
+            with pymongo.MongoClient(
+                host=connParams.host,
+                tls=True,
+                tlsCAFile=str(ca_file),
+                tlsCertificateKeyFile=str(client_file),
+                serverSelectionTimeoutMS=server_selection_timeout_ms,
+            ) as client:
+                return list(client[db_name][collection_name].find())
 
     def api_get_preferred_hostnames(self):
         return self.om_request("get", f"/group/v2/info/{self.context.project_id}", agent_endpoint=True).json()[

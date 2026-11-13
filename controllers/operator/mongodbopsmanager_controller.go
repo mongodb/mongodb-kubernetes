@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base32"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"maps"
@@ -26,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -457,7 +461,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	}
 
 	// AppDB agents need the Ops Manager CA before their project configuration is read.
-	if result, blocked, err := r.prepareManagedCertificates(ctx, opsManager, log); err != nil {
+	if result, blocked, err := r.prepareManagedCertificates(ctx, opsManager, opsManagerReconcilerHelper, log); err != nil {
 		return result, err
 	} else if blocked {
 		return result, nil
@@ -546,13 +550,129 @@ type componentCertificateResult struct {
 	condition *metav1.Condition
 }
 
-func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
+func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager, helper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
 	results := []componentCertificateResult{
 		r.ensureOpsManagerCertificateAndCA(ctx, opsManager, log),
 		r.ensureAppDBCertAndCA(ctx, opsManager, log),
+		r.ensureBackupCertAndCA(ctx, opsManager, helper, log),
 	}
 
 	return r.applyManagedCertificateResults(ctx, opsManager, results, log)
+}
+
+func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, helper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) componentCertificateResult {
+	if opsManager.Spec.Backup == nil || !opsManager.Spec.Backup.Enabled || !opsManager.IsBackupManagedCertificateEnabled() {
+		return componentCertificateResult{part: mdbstatus.Backup, status: workflow.OK()}
+	}
+	if !r.certManagerReadiness.Ready {
+		return r.managedCertificateGateResult(mdbstatus.Backup, true)
+	}
+	dnsNames, ipAddresses, err := opsManagerCertificateSANs(opsManager)
+	if err != nil {
+		return componentCertificateResult{part: mdbstatus.Backup, status: workflow.Failed(err), condition: &metav1.Condition{
+			Type: certs.ConditionCertificatesReady, Status: metav1.ConditionFalse, Reason: certificateReasonIssuanceFailed, Message: err.Error(),
+		}}
+	}
+	for _, fqdn := range helper.BackupDaemonHeadlessFQDNs() {
+		dnsNames = append(dnsNames, fqdn.hostname)
+	}
+	slices.Sort(dnsNames)
+	config := opsManager.Spec.Backup.ManagedCertificate.DeepCopy()
+	subject := config.Subject
+	if subject == nil || (subject.CommonName == "" && len(subject.Organizations)+len(subject.OrganizationalUnits)+len(subject.Countries)+len(subject.Localities)+len(subject.Provinces) == 0) {
+		// OM uses this subject as the issuer DN when signing query-client certificates.
+		config.Subject = &mdbv1.X509Subject{CommonName: "MongoDB Queryable Backup"}
+	}
+	status, condition := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, config, certs.ServerCertificateOptions{
+		NamingBase: opsManager.Name + "-managed-backup", SecretName: opsManager.QueryableBackupCertificateSecretName(),
+		DNSNames: slices.Compact(dnsNames), IPAddresses: ipAddresses,
+		CABundleName: opsManager.ManagedBackupCABundleConfigMapName(), CABundleKey: util.CaCertMMS,
+	}, log)
+	if status.IsOK() {
+		if pemStatus := r.ensureManagedQueryablePEM(ctx, opsManager, log); !pemStatus.IsOK() {
+			status = pemStatus
+			condition.Status = metav1.ConditionFalse
+			condition.Reason = certificateReasonIssuanceFailed
+			if pemStatus.Phase() == mdbstatus.PhasePending {
+				condition.Reason = certificateReasonIssuing
+			}
+			condition.Message = pemStatus.Message()
+		}
+	}
+	return componentCertificateResult{part: mdbstatus.Backup, status: status, condition: &condition}
+}
+
+func (r *OpsManagerReconciler) ensureManagedQueryablePEM(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {
+	issued := &corev1.Secret{}
+	if err := r.client.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.QueryableBackupCertificateSecretName()), issued); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return workflow.Pending("Waiting for the issued queryable-backup TLS Secret")
+		}
+		return workflow.Failed(err)
+	}
+	pair, err := tls.X509KeyPair(issued.Data[corev1.TLSCertKey], issued.Data[corev1.TLSPrivateKeyKey])
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("invalid queryable-backup certificate/key: %w", err))
+	}
+	data, err := certs.VerifyTLSSecretForStatefulSet(issued.Data, certs.Options{})
+	if err != nil {
+		return workflow.Failed(err)
+	}
+	bundle := &corev1.ConfigMap{}
+	if err := r.client.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.ManagedBackupCABundleConfigMapName()), bundle); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return workflow.Pending("Waiting for the queryable-backup CA bundle")
+		}
+		return workflow.Failed(err)
+	}
+	ca := bundle.Data[util.CaCertMMS]
+	if strings.TrimSpace(ca) == "" {
+		return workflow.Failed(xerrors.New("queryable-backup CA bundle has no mms-ca.crt"))
+	}
+	roots := x509.NewCertPool()
+	for remaining := []byte(ca); len(strings.TrimSpace(string(remaining))) > 0; {
+		block, rest := pem.Decode(remaining)
+		if block == nil || block.Type != "CERTIFICATE" {
+			return workflow.Failed(xerrors.New("queryable-backup CA bundle contains invalid PEM"))
+		}
+		certificate, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("invalid queryable-backup CA certificate: %w", err))
+		}
+		roots.AddCert(certificate)
+		remaining = rest
+	}
+	intermediates := x509.NewCertPool()
+	for _, der := range pair.Certificate[1:] {
+		certificate, err := x509.ParseCertificate(der)
+		if err != nil {
+			return workflow.Failed(err)
+		}
+		intermediates.AddCert(certificate)
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		return workflow.Failed(err)
+	}
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+		return workflow.Failed(xerrors.Errorf("queryable-backup certificate is not trusted by its CA bundle: %w", err))
+	}
+	if !strings.Contains(data, ca) {
+		if !strings.HasSuffix(data, "\n") {
+			data += "\n"
+		}
+		data += ca
+	}
+	derived := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: opsManager.QueryableBackupTLSSecretName(), Namespace: opsManager.Namespace}}
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.client, derived, func() error {
+		derived.Type = corev1.SecretTypeOpaque
+		derived.Data = map[string][]byte{"queryable.pem": []byte(data)}
+		return controllerutil.SetControllerReference(opsManager, derived, r.client.Scheme())
+	}); err != nil {
+		return workflow.Failed(xerrors.Errorf("writing queryable-backup PEM Secret: %w", err))
+	}
+	log.Debugf("Prepared queryable-backup PEM Secret %s/%s", derived.Namespace, derived.Name)
+	return workflow.OK()
 }
 
 func (r *OpsManagerReconciler) ensureOpsManagerCertificateAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) componentCertificateResult {
@@ -1271,7 +1391,7 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 	// feature controls will always be enabled
 	setConfigProperty(reconcilerHelper.opsManager, util.MmsFeatureControls, "true", log)
 
-	if reconcilerHelper.opsManager.Spec.Backup.QueryableBackupSecretRef.Name != "" {
+	if reconcilerHelper.opsManager.Spec.Backup != nil && (!reconcilerHelper.opsManager.IsBackupManagedCertificateEnabled() || reconcilerHelper.opsManager.Spec.Backup.Enabled) && reconcilerHelper.opsManager.QueryableBackupTLSSecretName() != "" {
 		setConfigProperty(reconcilerHelper.opsManager, util.BrsQueryablePem, "/certs/queryable.pem", log)
 	}
 }
@@ -1334,6 +1454,9 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 
 	if opsManager.IsTLSEnabled() {
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
+	}
+	if opsManager.Spec.Backup != nil && opsManager.Spec.Backup.Enabled && opsManager.IsBackupManagedCertificateEnabled() {
+		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.ManagedBackupCABundleConfigMapName(), []string{opsManager.QueryableBackupCertificateSecretName(), opsManager.QueryableBackupTLSSecretName()})
 	}
 
 	if opsManager.IsManagedCertificateEnabled() {
@@ -1526,10 +1649,10 @@ func (r *OpsManagerReconciler) replicateQueryableBackupTLSSecretInMemberClusters
 		return nil
 	}
 
-	if reconcileHelper.opsManager.Spec.Backup == nil || reconcileHelper.opsManager.Spec.Backup.QueryableBackupSecretRef.Name == "" {
+	if reconcileHelper.opsManager.Spec.Backup == nil || (reconcileHelper.opsManager.IsBackupManagedCertificateEnabled() && !reconcileHelper.opsManager.Spec.Backup.Enabled) || reconcileHelper.opsManager.QueryableBackupTLSSecretName() == "" {
 		return nil
 	}
-	return r.replicateSecretInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.QueryableBackupSecretRef.Name)
+	return r.replicateSecretInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.QueryableBackupTLSSecretName())
 }
 
 func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, namespace string, secretName string) error {

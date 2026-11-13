@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -32,6 +33,58 @@ func TestBuildBackupDaemonStatefulSet(t *testing.T) {
 	assert.Equal(t, "test-om-backup-daemon", sts.Name)
 	assert.Equal(t, util.BackupDaemonContainerName, sts.Spec.Template.Spec.Containers[0].Name)
 	assert.NotNil(t, sts.Spec.Template.Spec.Containers[0].ReadinessProbe)
+}
+
+func TestManagedQueryableBackupConstruction(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+		managed bool
+		want    string
+	}{
+		{name: "managed", enabled: true, managed: true, want: "test-om-managed-backup-pem"},
+		{name: "BYO", enabled: true, want: "byo-queryable"},
+		{name: "disabled managed", managed: true},
+		{name: "disabled BYO", want: "byo-queryable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			om := omv1.NewOpsManagerBuilderDefault().SetName("test-om").SetNamespace(mock.TestNamespace).Build()
+			om.Spec.Backup.Enabled = tc.enabled
+			if tc.managed {
+				om.Spec.Backup.ManagedCertificate = &omv1.ManagedCertificate{}
+			} else {
+				om.Spec.Backup.QueryableBackupSecretRef.Name = "byo-queryable"
+			}
+			c, _ := mock.NewDefaultFakeClient(
+				&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "test-om-managed-backup-pem", Namespace: mock.TestNamespace}, Data: map[string][]byte{"queryable.pem": []byte("managed PEM")}},
+				&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "byo-queryable", Namespace: mock.TestNamespace}, Data: map[string][]byte{"queryable.pem": []byte("BYO PEM")}},
+			)
+			sc := secrets.SecretClient{KubeClient: c}
+			mc := multicluster.GetLegacyCentralMemberCluster(1, 0, c, sc)
+			for name, builder := range map[string]func() (appsv1.StatefulSet, error){
+				"OM":     func() (appsv1.StatefulSet, error) { return OpsManagerStatefulSet(ctx, sc, om, mc, zap.S()) },
+				"backup": func() (appsv1.StatefulSet, error) { return BackupDaemonStatefulSet(ctx, sc, om, mc, zap.S()) },
+			} {
+				t.Run(name, func(t *testing.T) {
+					sts, err := builder()
+					require.NoError(t, err)
+					var secretName string
+					for _, v := range sts.Spec.Template.Spec.Volumes {
+						if v.Name == "queryable-pem" {
+							require.NotNil(t, v.Secret)
+							secretName = v.Secret.SecretName
+						}
+					}
+					assert.Equal(t, tc.want, secretName)
+					if tc.want != "" {
+						assert.Contains(t, sts.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "queryable-pem", MountPath: "/certs/", ReadOnly: true})
+					}
+					assert.False(t, om.IsTLSEnabled())
+				})
+			}
+		})
+	}
 }
 
 // TestBackupDaemonProbesRemainExec guards the backup daemon against the shared Ops Manager

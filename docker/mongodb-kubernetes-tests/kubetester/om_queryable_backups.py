@@ -2,6 +2,7 @@ import logging
 import subprocess
 import tempfile
 import time
+from base64 import b64encode
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
@@ -30,16 +31,17 @@ class CsrfHtmlParser(HTMLParser):
 
 
 class OMQueryableBackup:
-    def __init__(self, om_url, project_id):
+    def __init__(self, om_url, project_id, replica_set_name="mdb-four-two"):
         self._om_url = om_url
         self._project_id = project_id
+        self._replica_set_name = replica_set_name
 
     def _login(self):
         endpoint = f"{self._om_url}/user/v1/auth"
         headers = {"Content-Type": "application/json"}
         data = {
             "username": "jane.doe@example.com",
-            "password": "Passw0rd.",
+            "password": b64encode("Passw0rd.".encode("utf-8")).decode("ascii"),
             "reCaptchaResponse": None,
         }
 
@@ -68,7 +70,7 @@ class OMQueryableBackup:
     def _get_first_snapshot_id(self):
         return (
             self._authenticated_http_get(
-                f"{self._om_url}/backup/web/snapshot/{self._project_id}/mdb-four-two",
+                f"{self._om_url}/backup/web/snapshot/{self._project_id}/{self._replica_set_name}",
                 headers={"Accept": "application/json"},
             )
             .json()
@@ -111,7 +113,7 @@ class OMQueryableBackup:
                 time_needed = initial_timeout - timeout
                 print(f"needed {time_needed} seconds to be able to query backups")
                 return
-            last_reached_state = restore_entries[0].get("progressPhase")
+            last_reached_state = restore_entries[0].get("progressPhase") if restore_entries else ""
             time.sleep(3)
             timeout -= 3
 
@@ -159,7 +161,7 @@ basicConstraints=CA:true
 subjectAltName=@qb_subject_alt_names
 
 [qb_subject_alt_names]
-DNS.1 = om-backup-svc.{namespace}.svc.cluster.local    
+DNS.1 = om-backup-svc.{namespace}.svc.cluster.local
 """
 
     openssl_conf_file = tempfile.NamedTemporaryFile(delete=False, mode="w")
