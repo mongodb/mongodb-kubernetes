@@ -101,7 +101,7 @@ func (f *dirsFlag) String() string {
 
 func (f *dirsFlag) Set(v string) error {
 	var dirs []string
-	for _, d := range strings.Split(v, ",") {
+	for d := range strings.SplitSeq(v, ",") {
 		d = strings.TrimSpace(d)
 		if d == "" {
 			continue
