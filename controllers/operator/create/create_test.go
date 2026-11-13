@@ -388,15 +388,13 @@ func TestReconcileAgentCredentialFailsOnTransientVaultRead(t *testing.T) {
 	sts.Spec.Template.Annotations = map[string]string{
 		"vault.hashicorp.com/agent-inject-secret-agentApiKey": "agent-config-tests/test-ns/test-sts-agent-api-key",
 	}
-	agent := corev1.Container{}
 	secretClient := secrets.SecretClient{VaultClient: vaultClient}
-	settings := "mmsApiKeyExec=cat '/mongodb-automation/agent-api-key/agentApiKey'\n"
-	_, err = reconcileAgentCredential(ctx, secretClient, &sts, &agent, mdbv1.StartupParameters{}, "", false, settings)
+	_, err = databaseAgentCredentialIfPresent(ctx, secretClient, sts)
 	require.Error(t, err)
 	failMu.Lock()
 	fail = false
 	failMu.Unlock()
-	credential, err := reconcileAgentCredential(ctx, secretClient, &sts, &agent, mdbv1.StartupParameters{}, "", false, settings)
+	credential, err := databaseAgentCredentialIfPresent(ctx, secretClient, sts)
 	require.NoError(t, err)
 	assert.Equal(t, "vault-key", credential)
 }
