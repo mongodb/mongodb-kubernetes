@@ -70,16 +70,7 @@ func prepareConnection(ctx context.Context, namespace, configMapName, secretName
 // from Ops Manager, so a missing project is an error rather than something to provision. The returned
 // connection is already bound to the project (ConfigureProject) and is ready for Read* calls.
 func resolveProjectReadOnly(ctx context.Context, config mdbv1.ProjectConfig, credentials mdbv1.Credentials, log *zap.SugaredLogger) (om.Connection, error) {
-	omContext := om.OMContext{
-		GroupName:                  config.ProjectName,
-		OrgID:                      config.OrgID,
-		BaseURL:                    config.BaseURL,
-		PublicKey:                  credentials.PublicAPIKey,
-		PrivateKey:                 credentials.PrivateAPIKey,
-		AllowInvalidSSLCertificate: !config.SSLRequireValidMMSServerCertificates,
-		CACertificate:              config.SSLMMSCAConfigMapContents,
-	}
-	conn := omConnectionFactory(&omContext)
+	conn := omConnectionFactory(project.NewOMContext(config, credentials))
 
 	org, err := project.FindOrganization(ctx, config.OrgID, config.ProjectName, conn, log)
 	if err != nil {
