@@ -379,7 +379,10 @@ class TestOpsManagerUpdate:
             "mongodb-agent-monitoring" not in containers_by_name
         ), "mongodb-agent-monitoring container should not be present"
 
-        assert appdb_sts.spec.template.metadata.annotations == {"annotation1": "val"}
+        # annotation1 is the user's annotation. The operator also sets the agent startup digest so a
+        # settings or credential change rolls the AppDB pods.
+        assert appdb_sts.spec.template.metadata.annotations["annotation1"] == "val"
+        assert "mongodb.com/agent-startup-config-hash" in appdb_sts.spec.template.metadata.annotations
 
     def test_om_pod_spec(self, ops_manager: MongoDBOpsManager):
         sts = ops_manager.read_statefulset()

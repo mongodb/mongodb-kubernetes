@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -825,29 +824,6 @@ type ReadinessProbe struct {
 // StartupParameters can be used to configure the startup parameters with which the agent starts. That also contains
 // log rotation settings as defined here:
 type StartupParameters map[string]string
-
-func (s StartupParameters) ToCommandLineArgs() string {
-	var keys []string
-	for k := range s {
-		keys = append(keys, k)
-	}
-
-	// order must be preserved to ensure the same set of command line arguments
-	// results in the same StatefulSet template spec.
-	sort.SliceStable(keys, func(i, j int) bool {
-		return keys[i] < keys[j]
-	})
-
-	sb := strings.Builder{}
-	for _, key := range keys {
-		if value := s[key]; value != "" {
-			sb.Write(fmt.Appendf(nil, " -%s=%s", key, value))
-		} else {
-			sb.Write(fmt.Appendf(nil, " -%s", key))
-		}
-	}
-	return sb.String()
-}
 
 // ToSettingsFile renders native agent settings without interpreting option types.
 func (s StartupParameters) ToSettingsFile() (string, error) {

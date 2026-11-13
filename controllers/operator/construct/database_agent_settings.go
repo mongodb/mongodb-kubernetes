@@ -101,21 +101,21 @@ func resolveAgentSettings(base mdbv1.StartupParameters, agentConfig *mdbv1.Agent
 		// An empty mmsBaseUrl must not leave the settings file with neither mmsBaseUrl nor the
 		// headless cluster/serveStatusPort keys, because the agent would have no usable mode.
 		for key, value := range AgentSettingsOverrides(agentConfig.StartupParameters) {
-			if value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec") {
+			if ignoredEmptyAgentOverride(key, value) {
 				continue
 			}
 			settings[key] = value
-			hasAPIKeyOverride = hasAPIKeyOverride || key == "mmsApiKey"
+			hasAPIKeyOverride = hasAPIKeyOverride || key == agentAPIKeySetting
 		}
 	}
-	delete(settings, "mmsApiKey")
+	delete(settings, agentAPIKeySetting)
 	delete(settings, "overrideLocalHost")
 	// A customer command wins over the generated one. Empty values never reach this map, so
 	// an unset mmsApiKeyExec is simply absent.
-	if settings["mmsApiKeyExec"] == "" && (settings["mmsBaseUrl"] != "" || hasAPIKeyOverride) {
+	if settings[agentAPIKeyExecSetting] == "" && (settings["mmsBaseUrl"] != "" || hasAPIKeyOverride) {
 		// Both the generated key Secret and the override Secret mount at AgentAPIKeySecretPath.
 		// MMS_HOME controls the agent's pidfile, not the credential mount.
-		settings["mmsApiKeyExec"] = agentAPIKeyExecCommand()
+		settings[agentAPIKeyExecSetting] = agentAPIKeyExecCommand()
 	}
 	return settings
 }
@@ -208,4 +208,10 @@ func agentSettingsConfigMap(sts appsv1.StatefulSet, settings mdbv1.StartupParame
 		},
 		Data: map[string]string{AgentSettingsFileName: content},
 	}, nil
+}
+
+// ignoredEmptyAgentOverride reports a customer option that cannot mean "set this to empty",
+// because the agent would lose its connection mode or credential.
+func ignoredEmptyAgentOverride(key, value string) bool {
+	return value == "" && (key == "mmsBaseUrl" || key == agentAPIKeyExecSetting)
 }

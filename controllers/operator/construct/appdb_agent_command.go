@@ -2,15 +2,21 @@ package construct
 
 import (
 	"fmt"
+	"maps"
+	"regexp"
 	"strconv"
 
-	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 const (
 	appdbClusterFilePath                = "/var/lib/automation/config/cluster-config.json"
 	appdbAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
-	appdbAutomationAgentOptions         = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
 
 	appdbReadinessProbeLoggerBackups  = "READINESS_PROBE_LOGGER_BACKUPS"
 	appdbReadinessProbeLoggerMaxSize  = "READINESS_PROBE_LOGGER_MAX_SIZE"
@@ -20,17 +26,100 @@ const (
 	appdbAgentHealthStatusFilePathEnv = "AGENT_STATUS_FILEPATH"
 )
 
-// BaseAgentCommand returns the core agent binary invocation flags.
-// Uses ${agent_binary:-agent/mongodb-agent} so a custom agent downloaded by
-// downloadCustomAgentIfSet() (non-static mode) takes precedence over the
-// pre-baked binary.
-func BaseAgentCommand() string {
-	return "${agent_binary:-agent/mongodb-agent} -healthCheckFilePath=" + appdbAgentHealthStatusFilePathValue + " -serveStatusPort=5000"
+// AppDBAgentSettingsConfigMap preserves AppDB defaults independently of database defaults.
+func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, podVars *env.PodEnvVars) (corev1.ConfigMap, error) {
+	settings := appdbBaseSettings(appDB)
+	customer, rawKeyOverride := appdbCustomerSettings(appDB.AutomationAgent.StartupParameters, AgentContainer(sts))
+	maps.Copy(settings, customer)
+	// With monitoring on, the operator's project wins over a customer mmsGroupId. A customer
+	// mmsApiKeyExec still wins over the generated one, because the agent runs the exec command in
+	// preference to mmsApiKey.
+	monitoring := ShouldEnableMonitoring(podVars)
+	if monitoring {
+		settings["mmsGroupId"] = podVars.ProjectID
+	}
+	if (monitoring || rawKeyOverride) && settings[agentAPIKeyExecSetting] == "" {
+		settings[agentAPIKeyExecSetting] = agentAPIKeyExecCommand()
+	}
+	return agentSettingsConfigMap(sts, settings)
+}
+
+func appdbBaseSettings(appDB *omv1.AppDBSpec) mdbv1.StartupParameters {
+	settings := mdbv1.StartupParameters{
+		"cluster":              appdbClusterFilePath,
+		"healthCheckFilePath":  appdbAgentHealthStatusFilePathValue,
+		"serveStatusPort":      "5000",
+		"skipMongoStart":       strconv.FormatBool(true),
+		"noDaemonize":          strconv.FormatBool(true),
+		"useLocalMongoDbTools": strconv.FormatBool(true),
+		"logLevel":             string(appDB.GetAgentLogLevel()),
+	}
+	if logFile := appDB.GetAgentLogFile(); logFile != "/dev/stdout" {
+		settings["logFile"] = logFile
+		settings["maxLogFileDurationHrs"] = strconv.Itoa(appDB.GetAgentMaxLogFileDurationHours())
+	}
+	return settings
+}
+
+// appdbCustomerSettings returns the customer startupOptions as settings file values, and whether
+// the customer set a raw mmsApiKey, which is never written to the file.
+func appdbCustomerSettings(parameters mdbv1.StartupParameters, agent *corev1.Container) (mdbv1.StartupParameters, bool) {
+	customer := mdbv1.StartupParameters{}
+	rawKeyOverride := false
+	for key, value := range AgentSettingsOverrides(parameters) {
+		switch {
+		case key == agentAPIKeySetting:
+			rawKeyOverride = true
+		case key == "overrideLocalHost" || ignoredEmptyAgentOverride(key, value):
+		default:
+			customer[key] = appdbCustomerValue(key, value, agent)
+		}
+	}
+	return customer, rawKeyOverride
+}
+
+func appdbCustomerValue(key, value string, agent *corev1.Container) string {
+	// A customer mmsApiKeyExec is a shell command for the agent. Expanding variables here
+	// would substitute the operator view and corrupt the command.
+	if key == agentAPIKeyExecSetting {
+		return value
+	}
+	// The settings file has no type information, so a bare boolean flag keeps its "true" meaning.
+	if value == "" {
+		return "true"
+	}
+	if agent == nil {
+		return value
+	}
+	return expandLiteralShellVariables(value, *agent)
+}
+
+var shellVariableRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
+
+// expandLiteralShellVariables fills in $VAR and ${VAR} from literal values in the agent container
+// env. A reference the operator cannot resolve at reconcile time (a runtime reference) stays as
+// written, and an unknown name becomes empty, as the shell did.
+func expandLiteralShellVariables(value string, agent corev1.Container) string {
+	variables := env.ToMap(agent.Env...)
+	return shellVariableRef.ReplaceAllStringFunc(value, func(ref string) string {
+		match := shellVariableRef.FindStringSubmatch(ref)
+		name := match[1]
+		if name == "" {
+			name = match[2]
+		}
+		if AgentEnvironmentIsRuntime(agent, name) {
+			return ref
+		}
+		if literal, ok := variables[name]; ok {
+			return literal
+		}
+		return ""
+	})
 }
 
 // downloadCustomAgentIfSet returns a bash snippet that downloads and installs
 // a custom agent from MDB_CUSTOM_AGENT_URL when set, setting the local
-// agent_binary variable so BaseAgentCommand() picks it up. Only used in
+// agent_binary variable for the final invocation. Only used in
 // non-static mode — in static mode the agent image is already built with
 // the correct binary.
 func downloadCustomAgentIfSet() string {
@@ -54,49 +143,25 @@ fi
 `
 }
 
-// AutomationAgentCommand returns the full command array for the automation agent container.
-// withAgentAPIKeyExport selects the preamble that exports AGENT_API_KEY from the mounted
-// agent-api-key secret, which the agent uses to register with Ops Manager for monitoring.
-func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int) []string {
-	// This is somewhat undocumented at https://www.mongodb.com/docs/ops-manager/current/reference/mongodb-agent-settings/
-	// Not setting the -logFile option make the mongodb-agent log to stdout. Setting -logFile /dev/stdout will result in
-	// an error by the agent trying to open /dev/stdout-verbose and still trying to do log rotation.
-	// To keep consistent with old behavior not setting the logFile in the config does not log to stdout but keeps
-	// the default logFile as defined by DefaultAgentLogFile. Setting the logFile explictly to "/dev/stdout" will log to stdout.
-	agentLogOptions := ""
-	if logFile == "/dev/stdout" {
-		agentLogOptions += " -logLevel " + string(logLevel)
-	} else {
-		agentLogOptions += " -logFile " + logFile + " -logLevel " + string(logLevel) + " -maxLogFileDurationHrs " + strconv.Itoa(maxLogFileDurationHours)
-	}
-
-	// In non-static mode, download the custom agent if MDB_CUSTOM_AGENT_URL is set.
-	// In static mode, the agent image is already built with the correct binary.
+// AutomationAgentCommand preserves bootstrap and forwards native settings arguments verbatim.
+func AutomationAgentCommand(withStatic bool) []string {
 	downloadSnippet := ""
 	if !withStatic {
 		downloadSnippet = downloadCustomAgentIfSet()
 	}
 
-	return []string{"/bin/bash", "-c", GetMongodbUserCommand(withStatic, withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
+	return []string{"/bin/bash", "-c", GetMongodbUserCommand(withStatic) + downloadSnippet + `${agent_binary:-agent/mongodb-agent} "$@"`, "mongodb-agent"}
 }
 
-// GetMongodbUserCommand returns the bash preamble for the automation agent. When
-// withAgentAPIKeyExport is true it also exports AGENT_API_KEY from the mounted
-// agent-api-key secret, which the agent uses to register with Ops Manager for monitoring.
-func GetMongodbUserCommand(withStatic bool, withAgentAPIKeyExport bool) string {
+// GetMongodbUserCommand returns the bash preamble for the automation agent.
+func GetMongodbUserCommand(withStatic bool) string {
 	agentPrepareScript := ""
 	if withStatic {
 		agentPrepareScript = "/usr/local/bin/setup-agent-files.sh\n"
 	}
 
-	apiKeyExport := ""
-	if withAgentAPIKeyExport {
-		//nolint:gosec //The credentials path is hardcoded in the container.
-		apiKeyExport = "AGENT_API_KEY=\"$(cat /mongodb-automation/agent-api-key/agentApiKey)\"\n"
-	}
-
 	return fmt.Sprintf(`%scurrent_uid=$(id -u)
-%sdeclare -r current_uid
+declare -r current_uid
 if ! grep -q "${current_uid}" /etc/passwd ; then
 sed -e "s/^mongodb:/builder:/" /etc/passwd > /tmp/passwd
 echo "mongodb:x:$(id -u):$(id -g):,,,:/:/bin/bash" >> /tmp/passwd
@@ -104,5 +169,5 @@ export NSS_WRAPPER_PASSWD=/tmp/passwd
 export LD_PRELOAD=libnss_wrapper.so
 export NSS_WRAPPER_GROUP=/etc/group
 fi
-`, agentPrepareScript, apiKeyExport)
+`, agentPrepareScript)
 }

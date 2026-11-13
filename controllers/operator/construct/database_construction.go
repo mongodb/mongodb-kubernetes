@@ -64,6 +64,9 @@ const (
 	AgentSettingsPath     = "/etc/mongodb-agent"
 	AgentSettingsHash     = "mongodb.com/agent-startup-config-hash"
 
+	agentAPIKeySetting     = "mmsApiKey"
+	agentAPIKeyExecSetting = "mmsApiKeyExec" //nolint:gosec // setting name, not a credential
+
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
 	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
