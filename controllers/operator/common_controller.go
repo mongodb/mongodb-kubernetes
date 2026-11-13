@@ -382,6 +382,28 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 		r.resourceWatcher.RegisterWatchedTLSResources(objectToReconcile, ca, secretNames)
 	}
 
+	if security.IsManagedCertificateEnabled() {
+		mc := security.ManagedCertificate
+		registerCA := func(ref mdbv1.CARef) {
+			resourceType := watch.ConfigMap
+			if ref.Kind == string(watch.Secret) {
+				resourceType = watch.Secret
+			}
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, objectToReconcile.Namespace, resourceType, objectToReconcile)
+		}
+		for _, cfg := range []*mdbv1.CertificateConfig{mc.Server, mc.Client} {
+			if cfg == nil {
+				continue
+			}
+			if cfg.CA != nil {
+				registerCA(*cfg.CA)
+			}
+			for _, ref := range cfg.AdditionalTrustedCAs {
+				registerCA(ref)
+			}
+		}
+	}
+
 	if security.GetInternalClusterAuthenticationMode() == util.X509 {
 		var secretNames []string
 		if getInternalAuthSecretNames != nil {
