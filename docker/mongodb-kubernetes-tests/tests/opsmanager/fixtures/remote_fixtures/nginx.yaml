@@ -265,7 +265,7 @@ spec:
         - name: setting-up-mongosh-2-14-0
           image: curlimages/curl:latest
           securityContext:
-            runAsUser: 1337 # workaround for init-container istio issue -> https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+            runAsUser: 1337 # workaround for init-container istio issue ->  https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
             allowPrivilegeEscalation: false
             capabilities:
               drop:
