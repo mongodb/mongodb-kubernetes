@@ -38,6 +38,8 @@ const (
 	DefaultEnvImageType                              = "MDB_DEFAULT_IMAGE_TYPE"
 	Static                       DefaultArchitecture = "static"
 	NonStatic                    DefaultArchitecture = "non-static"
+	// StaticGA is the internal, unreleased value hiding the Static GA development; it is routed to Static before release.
+	StaticGA DefaultArchitecture = "static-ga"
 	// MdbAssumeEnterpriseImage allows the customer to override the version image detection used by the operator to
 	// set up the automation config.
 	// true: always append the -ent suffix and assume enterprise
@@ -48,26 +50,24 @@ const (
 
 // IsRunningStaticArchitecture checks whether the operator is running in static or non-static mode.
 // This is either decided via an annotation per resource or per operator level.
-// The resource annotation takes precedence.
+// The resource annotation takes precedence. static-ga counts as static.
 // A nil map is equivalent to an empty map except that no elements may be added.
 func IsRunningStaticArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) bool {
-	if architecture, ok := annotations[ArchitectureAnnotation]; ok {
-		if architecture == string(Static) {
-			return true
-		}
-		if architecture == string(NonStatic) {
-			return false
-		}
-	}
-
-	return defaultArchitecture == Static
+	return GetArchitecture(annotations, defaultArchitecture) != NonStatic
 }
 
 func GetArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) DefaultArchitecture {
-	if IsRunningStaticArchitecture(annotations, defaultArchitecture) {
-		return Static
+	if architecture := DefaultArchitecture(annotations[ArchitectureAnnotation]); isKnownArchitecture(architecture) {
+		return architecture
+	}
+	if defaultArchitecture == Static || defaultArchitecture == StaticGA {
+		return defaultArchitecture
 	}
 	return NonStatic
+}
+
+func isKnownArchitecture(architecture DefaultArchitecture) bool {
+	return architecture == Static || architecture == NonStatic || architecture == StaticGA
 }
 
 // GetImageType returns the official MongoDB container image type: the ContainerImageTypeAnnotation, then the operator
@@ -128,7 +128,7 @@ func supportedImageTypesString() string {
 // If we are in static containers architecture, we need the -ent suffix in case we are running the ea image.
 // If not, the agent will try to change the version to reflect the non-enterprise image.
 func GetMongoVersionForAutomationConfig(mongoDBImage, version string, forceEnterprise bool, architecture DefaultArchitecture) string {
-	if architecture != Static {
+	if architecture != Static && architecture != StaticGA {
 		return version
 	}
 	// the image repo should be	either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
