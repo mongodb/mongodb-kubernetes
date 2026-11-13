@@ -35,6 +35,12 @@ var (
 // key usages, the way cert-manager would have written it. A nil usages list leaves the extension out.
 func putIssuedCertificate(ctx context.Context, t *testing.T, c kubernetesClient.Client, name string, usages []x509.ExtKeyUsage) {
 	t.Helper()
+	s := issuedCertificateSecret(t, resNamespace, name, usages)
+	require.NoError(t, secrets.SecretClient{KubeClient: c}.PutSecret(ctx, s, Unused))
+}
+
+func issuedCertificateSecret(t *testing.T, namespace, name string, usages []x509.ExtKeyUsage) corev1.Secret {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	template := &x509.Certificate{
@@ -46,14 +52,18 @@ func putIssuedCertificate(ctx context.Context, t *testing.T, c kubernetesClient.
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	require.NoError(t, err)
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
 
-	s := secret.Builder().
+	return secret.Builder().
 		SetName(name).
-		SetNamespace(resNamespace).
+		SetNamespace(namespace).
 		SetDataType(corev1.SecretTypeTLS).
-		SetByteData(map[string][]byte{corev1.TLSCertKey: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})}).
+		SetByteData(map[string][]byte{
+			corev1.TLSCertKey:       pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+			corev1.TLSPrivateKeyKey: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}),
+		}).
 		Build()
-	require.NoError(t, secrets.SecretClient{KubeClient: c}.PutSecret(ctx, s, Unused))
 }
 
 func TestWithholdsClientCertificate(t *testing.T) {

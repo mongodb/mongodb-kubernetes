@@ -2,22 +2,171 @@ package certs
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
+
+func TestManagedIssuanceScopeOwnership(t *testing.T) {
+	ctx := context.Background()
+	om := managedTestOM()
+	c := newManagedCertTestClient(t)
+
+	_, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+	_, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, backupServerCertificateOptions(), managedTestLogger())
+	_, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+
+	certs := listManagedCertificates(t, ctx, c)
+	require.NotEmpty(t, certs)
+	for _, cert := range certs {
+		assertOwnedByManagedTestOM(t, cert.OwnerReferences)
+		assert.Equal(t, managedTestNamespace, cert.Namespace)
+	}
+
+	caChains := []string{
+		"example-managed-om-server-ca",
+		"example-managed-backup-server-ca",
+		"example-db-server-ca",
+	}
+	seen := map[string]bool{}
+	for _, name := range caChains {
+		caCert := getManagedCertificate(t, ctx, c, name)
+		assert.True(t, caCert.Spec.IsCA, "%s must be a CA", name)
+		assert.False(t, seen[name], "CA chain %s is shared between scopes", name)
+		seen[name] = true
+	}
+	assert.NotEqual(t, caChains[0], caChains[1])
+	assert.NotEqual(t, caChains[0], caChains[2])
+	assert.NotEqual(t, caChains[1], caChains[2])
+
+	for _, name := range []string{"example-managed-om-cert", "example-managed-backup-cert"} {
+		cert := getManagedCertificate(t, ctx, c, name)
+		assert.Equal(t, memberServerCertUsages, cert.Spec.Usages)
+		assert.NotContains(t, cert.Spec.Usages, certmanagerv1.UsageClientAuth)
+	}
+
+	appDBLeaf := getManagedCertificate(t, ctx, c, "example-db-managed-cert")
+	assert.Equal(t, "example-db-managed-cert", appDBLeaf.Spec.SecretName)
+	assert.Equal(t, "example-db-server-ca-issuer", appDBLeaf.Spec.IssuerRef.Name)
+	assert.Equal(t, serverAndClientUsage, appDBLeaf.Spec.Usages)
+	assert.Contains(t, appDBLeaf.Spec.Usages, certmanagerv1.UsageClientAuth)
+	assert.Nil(t, appDBLeaf.Spec.Subject, "SCRAM AppDB server certificates carry no membership subject")
+	assert.Empty(t, appDBLeaf.Spec.CommonName)
+
+	for _, name := range []string{
+		"example-db-managed-clusterfile",
+		"example-db-managed-agent-certs",
+		"example-db-client-ca",
+	} {
+		err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: managedTestNamespace}, &certmanagerv1.Certificate{})
+		assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not create Certificate %s", name)
+	}
+	for _, name := range []string{"example-db-managed-clusterfile", "example-db-managed-agent-certs"} {
+		_, err := c.GetSecret(ctx, types.NamespacedName{Name: name, Namespace: managedTestNamespace})
+		assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not create client Secret %s", name)
+	}
+	for _, name := range []string{"example-db-client-selfsigned", "example-db-client-ca-issuer"} {
+		err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: managedTestNamespace}, &certmanagerv1.Issuer{})
+		assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not create Issuer %s", name)
+	}
+	err := c.Get(ctx, types.NamespacedName{Name: "example-db-managed-client-ca-bundle", Namespace: managedTestNamespace}, &corev1.ConfigMap{})
+	assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not create a client CA bundle")
+
+	issuers := listManagedIssuers(t, ctx, c)
+	require.NotEmpty(t, issuers)
+	for _, issuer := range issuers {
+		assertOwnedByManagedTestOM(t, issuer.OwnerReferences)
+	}
+}
+
+func TestManagedAppDBCertificateIdentity(t *testing.T) {
+	ctx := context.Background()
+	om := managedTestOM()
+
+	owner := appDBManagedCertificateOwner{om}
+	assert.Equal(t, "example-db", owner.GetName(), "issued objects are named after the AppDB")
+	assert.Same(t, om, owner.ownerResource(), "the Ops Manager owns the issued objects")
+	assert.Same(t, om.Spec.AppDB.GetSecurity(), owner.GetSecurity())
+
+	c := newManagedCertTestClient(t)
+	status, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	assert.False(t, status.IsOK(), "the certificates have not been reported ready")
+
+	leaf := getManagedCertificate(t, ctx, c, "example-db-managed-cert")
+	assert.Equal(t, "example-db-managed-cert", leaf.Spec.SecretName)
+	assert.Equal(t, "example-db-server-ca-issuer", leaf.Spec.IssuerRef.Name)
+	assert.Equal(t, serverAndClientUsage, leaf.Spec.Usages)
+	assert.Contains(t, leaf.Spec.Usages, certmanagerv1.UsageClientAuth)
+	assert.False(t, leaf.Spec.IsCA)
+	assertOwnedByManagedTestOM(t, leaf.OwnerReferences)
+
+	serverCA := getManagedCertificate(t, ctx, c, "example-db-server-ca")
+	assert.True(t, serverCA.Spec.IsCA)
+	assert.Equal(t, "example-db-server-ca", serverCA.Spec.SecretName)
+	assert.Equal(t, "example-db-server-selfsigned", serverCA.Spec.IssuerRef.Name)
+	assertOwnedByManagedTestOM(t, serverCA.OwnerReferences)
+
+	certNames := make([]string, 0)
+	for _, cert := range listManagedCertificates(t, ctx, c) {
+		certNames = append(certNames, cert.Name)
+		assert.False(t, strings.HasPrefix(cert.Name, "example-managed-"),
+			"AppDB objects must derive their names from the AppDB, got %s", cert.Name)
+	}
+	assert.ElementsMatch(t, []string{"example-db-managed-cert", "example-db-server-ca"}, certNames,
+		"a SCRAM AppDB has exactly one server leaf and its server CA chain")
+
+	issuerNames := make([]string, 0)
+	for _, issuer := range listManagedIssuers(t, ctx, c) {
+		issuerNames = append(issuerNames, issuer.Name)
+		assertOwnedByManagedTestOM(t, issuer.OwnerReferences)
+	}
+	assert.ElementsMatch(t, []string{"example-db-server-selfsigned", "example-db-server-ca-issuer"}, issuerNames)
+
+	for _, name := range []string{"example-db-managed-clusterfile", "example-db-managed-agent-certs"} {
+		_, err := c.GetSecret(ctx, types.NamespacedName{Name: name, Namespace: managedTestNamespace})
+		assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not issue client Secret %s", name)
+	}
+	markManagedCertificatesReady(t, ctx, c, nil)
+	const serverCAPEM = "-----BEGIN CERTIFICATE-----\nAPP-DB-SERVER-CA\n-----END CERTIFICATE-----\n"
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: v1.ObjectMeta{Name: "example-db-server-ca", Namespace: managedTestNamespace},
+		Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte(serverCAPEM)},
+	}))
+	issued := issuedCertificateSecret(t, managedTestNamespace, "example-db-managed-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	require.NoError(t, c.Create(ctx, &issued))
+
+	status, condition := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	require.True(t, status.IsOK(), status.Message())
+	assert.Equal(t, v1.ConditionTrue, condition.Status)
+	assert.Equal(t, reasonAllCertificatesReady, condition.Reason)
+
+	bundle := managedCAConfigMap(t, ctx, c, "example-db-managed-server-ca-bundle")
+	assert.Equal(t, managedTestNamespace, bundle.Namespace)
+	assert.Equal(t, map[string]string{"ca-pem": serverCAPEM}, bundle.Data)
+	assertOwnedByManagedTestOM(t, bundle.OwnerReferences)
+
+	err := c.Get(ctx, types.NamespacedName{Name: "example-db-managed-client-ca-bundle", Namespace: managedTestNamespace}, &corev1.ConfigMap{})
+	assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not publish a client CA bundle")
+}
 
 func TestVerifyTLSSecretForStatefulSet(t *testing.T) {
 	//nolint
