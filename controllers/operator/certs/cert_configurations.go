@@ -143,6 +143,7 @@ func (o appDBManagedCertificateOwner) GetName() string { return o.AppDBName() }
 func (o appDBManagedCertificateOwner) GetSecurity() *mdbv1.Security {
 	return o.Spec.AppDB.GetSecurity()
 }
+func (o appDBManagedCertificateOwner) pruneComponent() string { return ComponentAppDB }
 
 func (o appDBManagedCertificateOwner) ownerResource() v1.ObjectOwner {
 	return o.MongoDBOpsManager

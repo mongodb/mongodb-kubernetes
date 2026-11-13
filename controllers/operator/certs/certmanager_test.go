@@ -1106,12 +1106,12 @@ func TestPruneAnnotationAggregation(t *testing.T) {
 
 func TestCertificatesReadyMessage(t *testing.T) {
 	t.Run("no retained CA keeps the plain message", func(t *testing.T) {
-		assert.Equal(t, "", previousCASentence(categoryServer, false, false))
+		assert.Equal(t, "", previousCASentence(newMongoDB(resName, nil), categoryServer, false, false))
 		assert.Equal(t, "All operator-managed certificates are issued and up to date", certificatesReadyMessage(""))
 	})
 
 	t.Run("a retained CA names the category and how to prune it", func(t *testing.T) {
-		message := certificatesReadyMessage(previousCASentence(categoryServer, true, false))
+		message := certificatesReadyMessage(previousCASentence(newMongoDB(resName, nil), categoryServer, true, false))
 
 		assert.Equal(t,
 			"All operator-managed certificates are issued and up to date. Previous server CA retained in the trust bundle; annotate the resource with mongodb.com/prune-previous-ca=server (or true) once all members and clients use the new CA.",
@@ -1119,7 +1119,7 @@ func TestCertificatesReadyMessage(t *testing.T) {
 	})
 
 	t.Run("a refused prune says issued certificates are still signed by the previous CA", func(t *testing.T) {
-		message := certificatesReadyMessage(previousCASentence(categoryClient, true, true))
+		message := certificatesReadyMessage(previousCASentence(newMongoDB(resName, nil), categoryClient, true, true))
 
 		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
 		assert.Contains(t, message, util.PrunePreviousCAAnnotation+"=client (or true)")

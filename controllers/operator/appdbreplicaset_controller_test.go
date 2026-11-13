@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 	"testing/synctest"
@@ -34,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
@@ -385,6 +387,89 @@ func TestBuildAppDbAutomationConfig_MonitoringLogRotateCustom(t *testing.T) {
 	assert.Equal(t, 500, ac.MonitoringVersions[0].LogRotate.SizeThresholdMB)
 	assert.Equal(t, 12, ac.MonitoringVersions[0].LogRotate.TimeThresholdHrs)
 	assert.Equal(t, monitoringAgentLogFile, ac.MonitoringVersions[0].LogPath)
+}
+
+func TestBuildAppDbAutomationConfig_ManagedCACertificatePath(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	ctx := context.Background()
+
+	newReconciler := func(t *testing.T, opsManager *omv1.MongoDBOpsManager) (kubernetesClient.Client, *ReconcileAppDbReplicaSet) {
+		t.Helper()
+		kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+		reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+		require.NoError(t, err)
+		_ = createOpsManagerUserPasswordSecret(ctx, kubeClient, opsManager, "my-password")
+		return kubeClient, reconciler
+	}
+	publishBundle := func(t *testing.T, kubeClient kubernetesClient.Client, opsManager *omv1.MongoDBOpsManager, hash string) {
+		t.Helper()
+		cm := corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      certs.ManagedServerCABundleConfigMapName(opsManager.Spec.AppDB.Name()),
+				Namespace: opsManager.Namespace,
+			},
+			Data: map[string]string{util.LatestHashSecretKey: hash},
+		}
+		require.NoError(t, kubeClient.Create(ctx, &cm))
+	}
+	podVars := &env.PodEnvVars{ProjectID: "abc123", AgentAPIKey: "my-api-key"}
+
+	t.Run("managed certificates use the hash-keyed bundle path for mongod and the monitoring agent", func(t *testing.T) {
+		opsManager := DefaultOpsManagerBuilder().Build()
+		opsManager.Spec.AppDB.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+		kubeClient, reconciler := newReconciler(t, opsManager)
+		publishBundle(t, kubeClient, opsManager, "hash-one")
+
+		ac, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, podVars, "", multicluster.LegacyCentralClusterName, zap.S())
+		require.NoError(t, err)
+
+		expected := path.Join(util.ConfigMapVolumeCAMountPath, "hash-one")
+		require.NotNil(t, ac.TLSConfig)
+		assert.Equal(t, expected, ac.TLSConfig.CAFilePath)
+		require.NotEmpty(t, ac.MonitoringVersions)
+		assert.Equal(t, expected, ac.MonitoringVersions[0].AdditionalParams["sslTrustedServerCertificates"])
+	})
+
+	t.Run("a republished bundle changes the automation config path", func(t *testing.T) {
+		opsManager := DefaultOpsManagerBuilder().Build()
+		opsManager.Spec.AppDB.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+		kubeClient, reconciler := newReconciler(t, opsManager)
+		publishBundle(t, kubeClient, opsManager, "hash-one")
+
+		require.NoError(t, kubeClient.UpdateConfigMap(ctx, corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      certs.ManagedServerCABundleConfigMapName(opsManager.Spec.AppDB.Name()),
+				Namespace: opsManager.Namespace,
+			},
+			Data: map[string]string{util.LatestHashSecretKey: "hash-two"},
+		}))
+
+		ac, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, podVars, "", multicluster.LegacyCentralClusterName, zap.S())
+		require.NoError(t, err)
+		assert.Equal(t, path.Join(util.ConfigMapVolumeCAMountPath, "hash-two"), ac.TLSConfig.CAFilePath)
+	})
+
+	t.Run("a missing bundle fails the build so the reconcile retries", func(t *testing.T) {
+		opsManager := DefaultOpsManagerBuilder().Build()
+		opsManager.Spec.AppDB.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+		_, reconciler := newReconciler(t, opsManager)
+
+		_, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, podVars, "", multicluster.LegacyCentralClusterName, zap.S())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "AppDB CA bundle hash")
+	})
+
+	t.Run("non-managed certificates keep the fixed ca-pem path", func(t *testing.T) {
+		opsManager := DefaultOpsManagerBuilder().Build()
+		_, reconciler := newReconciler(t, opsManager)
+
+		ac, err := reconciler.buildAppDbAutomationConfig(ctx, opsManager, podVars, "", multicluster.LegacyCentralClusterName, zap.S())
+		require.NoError(t, err)
+		assert.Equal(t, appdbCAFilePath, ac.TLSConfig.CAFilePath)
+		// TLS is not enabled for this AppDB, so the monitoring agent gets no TLS CA parameter.
+		require.NotEmpty(t, ac.MonitoringVersions)
+		assert.NotContains(t, ac.MonitoringVersions[0].AdditionalParams, "sslTrustedServerCertificates")
+	})
 }
 
 func TestMonitoringToggledOff_ClearsMonitoringVersions(t *testing.T) {
@@ -1902,7 +1987,7 @@ func TestConfigureMonitoring_NonTLS(t *testing.T) {
 	ac := automationconfig.AutomationConfig{
 		Processes: []automationconfig.Process{{HostName: "host-0"}},
 	}
-	configureMonitoring(&ac, zap.S(), false, "myGroupId", "myApiKey", nil)
+	configureMonitoring(&ac, zap.S(), false, "myGroupId", "myApiKey", nil, appdbCAFilePath)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	params := ac.MonitoringVersions[0].AdditionalParams
@@ -1934,7 +2019,7 @@ func TestConfigureMonitoring_TLS(t *testing.T) {
 				MonitoringVersions: tt.monitoringVersions,
 			}
 			ac.Processes[0].SetArgs26Field("net.tls.certificateKeyFile", "/certs/server.pem")
-			configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", nil)
+			configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", nil, appdbCAFilePath)
 
 			require.Len(t, ac.MonitoringVersions, 1)
 			params := ac.MonitoringVersions[0].AdditionalParams
@@ -1959,7 +2044,7 @@ func TestConfigureMonitoring_TLS_DropsStaleRequireValidCertFalse(t *testing.T) {
 			{Hostname: "host-0", AdditionalParams: map[string]string{"sslRequireValidMMSServerCertificates": "false"}},
 		},
 	}
-	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", nil)
+	configureMonitoring(&ac, zap.S(), true, "myGroupId", "myApiKey", nil, appdbCAFilePath)
 
 	require.Len(t, ac.MonitoringVersions, 1)
 	assert.NotContains(t, ac.MonitoringVersions[0].AdditionalParams, "sslRequireValidMMSServerCertificates")
@@ -1973,7 +2058,7 @@ func TestConfigureMonitoring_ClearsWhenDisabled(t *testing.T) {
 		},
 	}
 	// called with empty credentials simulates monitoring disabled
-	configureMonitoring(&ac, zap.S(), false, "", "", nil)
+	configureMonitoring(&ac, zap.S(), false, "", "", nil, appdbCAFilePath)
 
 	assert.Empty(t, ac.MonitoringVersions)
 }

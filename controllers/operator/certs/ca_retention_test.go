@@ -203,6 +203,77 @@ func userIssuerFixture(t *testing.T, emitsCA bool, additionalCAs ...*testCA) (*m
 	return owner, opts, c, setCurrentCA
 }
 
+func TestPruneRequested(t *testing.T) {
+	componentOwner := func(value, component string) CertificateOwner {
+		owner := newMongoDB(resName, nil)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: value}
+		return serverCertificateOwner{ObjectOwner: owner, component: component}
+	}
+	mongodbOwner := func(value string) CertificateOwner {
+		owner := newMongoDB(resName, nil)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: value}
+		return owner
+	}
+
+	t.Run("true requests every Ops Manager component", func(t *testing.T) {
+		for _, component := range []string{ComponentOpsManager, ComponentAppDB, ComponentBackup} {
+			assert.True(t, pruneRequested(componentOwner("true", component), categoryServer), component)
+		}
+	})
+
+	t.Run("a component name requests only that component", func(t *testing.T) {
+		owner := componentOwner("appdb", ComponentAppDB)
+		assert.True(t, pruneRequested(owner, categoryServer))
+		assert.True(t, pruneRequested(owner, categoryClient), "the component targets both categories")
+		assert.False(t, pruneRequested(componentOwner("appdb", ComponentOpsManager), categoryServer))
+		assert.False(t, pruneRequested(componentOwner("appdb", ComponentBackup), categoryServer))
+	})
+
+	t.Run("a comma-separated list is trimmed and matched", func(t *testing.T) {
+		value := " om , backup "
+		assert.True(t, pruneRequested(componentOwner(value, ComponentOpsManager), categoryServer))
+		assert.True(t, pruneRequested(componentOwner(value, ComponentBackup), categoryServer))
+		assert.False(t, pruneRequested(componentOwner(value, ComponentAppDB), categoryServer))
+	})
+
+	t.Run("unknown tokens are ignored", func(t *testing.T) {
+		owner := componentOwner("appdb, unknown, backup", ComponentAppDB)
+		assert.True(t, pruneRequested(owner, categoryServer))
+		assert.False(t, pruneRequested(componentOwner("unknown", ComponentOpsManager), categoryServer))
+		assert.False(t, pruneRequested(componentOwner("server", ComponentBackup), categoryServer),
+			"mongod-family category names are not Ops Manager components")
+	})
+
+	t.Run("mongod-family owners keep the category behaviour", func(t *testing.T) {
+		assert.True(t, pruneRequested(mongodbOwner("true"), categoryServer))
+		assert.True(t, pruneRequested(mongodbOwner("true"), categoryClient))
+		assert.True(t, pruneRequested(mongodbOwner("server"), categoryServer))
+		assert.False(t, pruneRequested(mongodbOwner("server"), categoryClient))
+		assert.False(t, pruneRequested(mongodbOwner("appdb"), categoryServer))
+	})
+}
+
+func TestPruneRequestedComponents(t *testing.T) {
+	assert.ElementsMatch(t, []string{ComponentOpsManager, ComponentAppDB, ComponentBackup}, PruneRequestedComponents("true"))
+	assert.ElementsMatch(t, []string{ComponentOpsManager, ComponentBackup}, PruneRequestedComponents("om, backup, om"))
+	assert.Empty(t, PruneRequestedComponents(""))
+	assert.Empty(t, PruneRequestedComponents("yes"))
+}
+
+func TestPreviousCASentence(t *testing.T) {
+	t.Run("mongod-family owners suggest the category", func(t *testing.T) {
+		sentence := previousCASentence(newMongoDB(resName, nil), categoryServer, true, false)
+		assert.Contains(t, sentence, util.PrunePreviousCAAnnotation+"=server (or true)")
+	})
+
+	t.Run("component owners suggest the component", func(t *testing.T) {
+		owner := serverCertificateOwner{ObjectOwner: newMongoDB(resName, nil), component: ComponentBackup}
+		sentence := previousCASentence(owner, categoryServer, true, false)
+		assert.Contains(t, sentence, util.PrunePreviousCAAnnotation+"=backup (or true)")
+		assert.NotContains(t, sentence, "=server (or true)")
+	})
+}
+
 func TestCABundleRetentionOnRotation(t *testing.T) {
 	ctx := context.Background()
 	serverCA1, serverCA2 := newTestCA(t, "server-ca-1"), newTestCA(t, "server-ca-2")
@@ -226,7 +297,8 @@ func TestCABundleRetentionOnRotation(t *testing.T) {
 			hashOfBundle(serverCA1.pem): serverCA1.pem,
 			tls.CAConfigMapKey:          serverBundle,
 		}, serverCM.Data)
-		assert.Empty(t, serverCM.Annotations, "the operator keeps no control state on the ConfigMap")
+		require.Len(t, serverCM.Annotations, 1, "the bundle carries only its publication timestamp")
+		assert.NotEmpty(t, serverCM.Annotations[util.CABundlePublishedAtAnnotation])
 
 		clientCM, err := c.GetConfigMap(ctx, clientCMKey)
 		require.NoError(t, err)
@@ -236,7 +308,8 @@ func TestCABundleRetentionOnRotation(t *testing.T) {
 			util.PreviousHashSecretKey:  hashOfBundle(clientCA1.pem),
 			hashOfBundle(clientCA1.pem): clientCA1.pem,
 		}, clientCM.Data)
-		assert.Empty(t, clientCM.Annotations)
+		require.Len(t, clientCM.Annotations, 1)
+		assert.NotEmpty(t, clientCM.Annotations[util.CABundlePublishedAtAnnotation])
 	})
 
 	t.Run("the same two CAs give the same hash via additionalTrustedCAs or retention", func(t *testing.T) {
@@ -386,7 +459,8 @@ func TestSelfSignedCARotationRetention(t *testing.T) {
 			hashOfBundle(serverCA1.pem): serverCA1.pem,
 			tls.CAConfigMapKey:          serverBundle,
 		}, serverCM.Data)
-		assert.Empty(t, serverCM.Annotations, "the operator keeps no control state on the ConfigMap")
+		require.Len(t, serverCM.Annotations, 1, "the bundle carries only its publication timestamp")
+		assert.NotEmpty(t, serverCM.Annotations[util.CABundlePublishedAtAnnotation])
 
 		clientCM, err := c.GetConfigMap(ctx, clientCMKey)
 		require.NoError(t, err)
@@ -396,7 +470,8 @@ func TestSelfSignedCARotationRetention(t *testing.T) {
 			util.PreviousHashSecretKey:  hashOfBundle(clientCA1.pem),
 			hashOfBundle(clientCA1.pem): clientCA1.pem,
 		}, clientCM.Data)
-		assert.Empty(t, clientCM.Annotations)
+		require.Len(t, clientCM.Annotations, 1)
+		assert.NotEmpty(t, clientCM.Annotations[util.CABundlePublishedAtAnnotation])
 	})
 
 	t.Run("true is refused while a leaf is still signed by the old self-signed root", func(t *testing.T) {

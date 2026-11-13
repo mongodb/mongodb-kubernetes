@@ -526,7 +526,11 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 	// All statuses are updated by now - we don't need to update any others - just return
 	log.Info("Finished reconciliation for MongoDbOpsManager!")
 	// success
-	return workflow.OK().ReconcileResult()
+	successResult, err := workflow.OK().ReconcileResult()
+	if err != nil {
+		return successResult, err
+	}
+	return requeueForCertificateReissue(successResult, r.reissueManagedCertificatesOnRotatedCA(ctx, opsManager, log)), nil
 }
 
 func (r *OpsManagerReconciler) createAppDBReconcile(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (AppDBReconciler, error) {
@@ -548,6 +552,14 @@ type componentCertificateResult struct {
 	part      mdbstatus.Part
 	status    workflow.Status
 	condition *metav1.Condition
+	// component is the prune annotation value targeting this certificate scope ("om", "appdb"
+	// or "backup").
+	component string
+	// managed reports whether this reconcile enabled and prepared the component's managed
+	// certificates. Only a managed component can have applied a requested prune.
+	managed bool
+	// pruneApplied reports that the component applied a requested prune of the previous CA.
+	pruneApplied bool
 }
 
 func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager, helper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
@@ -562,14 +574,15 @@ func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, o
 
 func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, helper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) componentCertificateResult {
 	if opsManager.Spec.Backup == nil || !opsManager.Spec.Backup.Enabled || !opsManager.IsBackupManagedCertificateEnabled() {
-		return componentCertificateResult{part: mdbstatus.Backup, status: workflow.OK()}
+		opsManager.Status.BackupStatus.CertificateRenewals = nil
+		return componentCertificateResult{part: mdbstatus.Backup, component: certs.ComponentBackup, status: workflow.OK()}
 	}
 	if !r.certManagerReadiness.Ready {
-		return r.managedCertificateGateResult(mdbstatus.Backup, true)
+		return r.managedCertificateGateResult(mdbstatus.Backup, certs.ComponentBackup, true)
 	}
 	dnsNames, ipAddresses, err := opsManagerCertificateSANs(opsManager)
 	if err != nil {
-		return componentCertificateResult{part: mdbstatus.Backup, status: workflow.Failed(err), condition: &metav1.Condition{
+		return componentCertificateResult{part: mdbstatus.Backup, component: certs.ComponentBackup, status: workflow.Failed(err), condition: &metav1.Condition{
 			Type: certs.ConditionCertificatesReady, Status: metav1.ConditionFalse, Reason: certificateReasonIssuanceFailed, Message: err.Error(),
 		}}
 	}
@@ -583,10 +596,14 @@ func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsMan
 		// OM uses this subject as the issuer DN when signing query-client certificates.
 		config.Subject = &mdbv1.X509Subject{CommonName: "MongoDB Queryable Backup"}
 	}
-	status, condition, _ := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, config, certs.ServerCertificateOptions{
+	status, condition, pruneApplied := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, config, certs.ServerCertificateOptions{
 		NamingBase: opsManager.Name + "-managed-backup", SecretName: opsManager.QueryableBackupCertificateSecretName(),
 		DNSNames: slices.Compact(dnsNames), IPAddresses: ipAddresses,
 		CABundleName: opsManager.ManagedBackupCABundleConfigMapName(), CABundleKey: util.CaCertMMS,
+		Component: certs.ComponentBackup,
+		OnRenewals: func(renewals *mdbstatus.CertificateRenewalStatus) {
+			opsManager.Status.BackupStatus.CertificateRenewals = renewals
+		},
 	}, log)
 	if status.IsOK() {
 		if pemStatus := r.ensureManagedQueryablePEM(ctx, opsManager, log); !pemStatus.IsOK() {
@@ -599,7 +616,7 @@ func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsMan
 			condition.Message = pemStatus.Message()
 		}
 	}
-	return componentCertificateResult{part: mdbstatus.Backup, status: status, condition: &condition}
+	return componentCertificateResult{part: mdbstatus.Backup, component: certs.ComponentBackup, status: status, condition: &condition, managed: true, pruneApplied: pruneApplied}
 }
 
 func (r *OpsManagerReconciler) ensureManagedQueryablePEM(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) workflow.Status {
@@ -677,17 +694,19 @@ func (r *OpsManagerReconciler) ensureManagedQueryablePEM(ctx context.Context, op
 
 func (r *OpsManagerReconciler) ensureOpsManagerCertificateAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) componentCertificateResult {
 	if !r.certManagerReadiness.Ready {
-		return r.managedCertificateGateResult(mdbstatus.OpsManager, opsManager.IsManagedCertificateEnabled())
+		return r.managedCertificateGateResult(mdbstatus.OpsManager, certs.ComponentOpsManager, opsManager.IsManagedCertificateEnabled())
 	}
 	if !opsManager.IsManagedCertificateEnabled() {
-		return componentCertificateResult{part: mdbstatus.OpsManager, status: workflow.OK()}
+		opsManager.Status.OpsManagerStatus.CertificateRenewals = nil
+		return componentCertificateResult{part: mdbstatus.OpsManager, component: certs.ComponentOpsManager, status: workflow.OK()}
 	}
 
 	dnsNames, ipAddresses, err := opsManagerCertificateSANs(opsManager)
 	if err != nil {
 		return componentCertificateResult{
-			part:   mdbstatus.OpsManager,
-			status: workflow.Failed(err),
+			part:      mdbstatus.OpsManager,
+			component: certs.ComponentOpsManager,
+			status:    workflow.Failed(err),
 			condition: &metav1.Condition{
 				Type:    certs.ConditionCertificatesReady,
 				Status:  metav1.ConditionFalse,
@@ -696,15 +715,19 @@ func (r *OpsManagerReconciler) ensureOpsManagerCertificateAndCA(ctx context.Cont
 			},
 		}
 	}
-	status, condition, _ := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, opsManager.Spec.Security.ManagedCertificate, certs.ServerCertificateOptions{
+	status, condition, pruneApplied := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, opsManager.Spec.Security.ManagedCertificate, certs.ServerCertificateOptions{
 		NamingBase:   opsManager.Name + "-managed-om",
 		SecretName:   opsManager.TLSCertificateSecretName(),
 		DNSNames:     dnsNames,
 		IPAddresses:  ipAddresses,
 		CABundleName: opsManager.GetOpsManagerCA(),
 		CABundleKey:  util.CaCertMMS,
+		Component:    certs.ComponentOpsManager,
+		OnRenewals: func(renewals *mdbstatus.CertificateRenewalStatus) {
+			opsManager.Status.OpsManagerStatus.CertificateRenewals = renewals
+		},
 	}, log)
-	return componentCertificateResult{part: mdbstatus.OpsManager, status: status, condition: &condition}
+	return componentCertificateResult{part: mdbstatus.OpsManager, component: certs.ComponentOpsManager, status: status, condition: &condition, managed: true, pruneApplied: pruneApplied}
 }
 
 func opsManagerCertificateSANs(opsManager *omv1.MongoDBOpsManager) ([]string, []string, error) {
@@ -745,18 +768,20 @@ func (r *OpsManagerReconciler) ensureAppDBCertAndCA(ctx context.Context, opsMana
 		!opsManager.Spec.AppDB.IsMultiCluster() &&
 		opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled()
 	if !r.certManagerReadiness.Ready {
-		return r.managedCertificateGateResult(mdbstatus.AppDb, enabled)
+		return r.managedCertificateGateResult(mdbstatus.AppDb, certs.ComponentAppDB, enabled)
 	}
 	if !enabled {
-		return componentCertificateResult{part: mdbstatus.AppDb, status: workflow.OK()}
+		opsManager.Status.AppDbStatus.CertificateRenewals = nil
+		return componentCertificateResult{part: mdbstatus.AppDb, component: certs.ComponentAppDB, status: workflow.OK()}
 	}
 
 	owned, err := r.appDBStatefulSetReadyForManagedCertificates(ctx, opsManager)
 	if err != nil {
 		message := fmt.Sprintf("Failed to read AppDB StatefulSet %s before preparing its operator-managed certificates: %s", opsManager.Spec.AppDB.Name(), err)
 		return componentCertificateResult{
-			part:   mdbstatus.AppDb,
-			status: workflow.Failed(xerrors.New(message)),
+			part:      mdbstatus.AppDb,
+			component: certs.ComponentAppDB,
+			status:    workflow.Failed(xerrors.New(message)),
 			condition: &metav1.Condition{
 				Type:    certs.ConditionCertificatesReady,
 				Status:  metav1.ConditionFalse,
@@ -769,12 +794,12 @@ func (r *OpsManagerReconciler) ensureAppDBCertAndCA(ctx context.Context, opsMana
 		// Another controller still owns the AppDB StatefulSet and is reconciling its own
 		// certificates under the same names. Preparation must not claim or release it; the
 		// existing AppDB lifecycle decides when issuance is safe.
-		return componentCertificateResult{part: mdbstatus.AppDb, status: workflow.OK()}
+		return componentCertificateResult{part: mdbstatus.AppDb, component: certs.ComponentAppDB, status: workflow.OK()}
 	}
 
 	opts := certs.AppDBManagedCertConfig(opsManager)
-	status, condition, _ := certs.EnsureAppDBCertificatesAndCA(ctx, r.client, opsManager, []certs.Options{opts}, log)
-	return componentCertificateResult{part: mdbstatus.AppDb, status: status, condition: &condition}
+	status, condition, pruneApplied := certs.EnsureAppDBCertificatesAndCA(ctx, r.client, opsManager, []certs.Options{opts}, log)
+	return componentCertificateResult{part: mdbstatus.AppDb, component: certs.ComponentAppDB, status: status, condition: &condition, managed: true, pruneApplied: pruneApplied}
 }
 
 // appDBStatefulSetReadyForManagedCertificates reports whether the AppDB StatefulSet is absent or
@@ -797,9 +822,9 @@ func (r *OpsManagerReconciler) appDBStatefulSetReadyForManagedCertificates(ctx c
 	return ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] == opsManager.GetName(), nil
 }
 
-func (r *OpsManagerReconciler) managedCertificateGateResult(part mdbstatus.Part, enabled bool) componentCertificateResult {
+func (r *OpsManagerReconciler) managedCertificateGateResult(part mdbstatus.Part, component string, enabled bool) componentCertificateResult {
 	if !enabled {
-		return componentCertificateResult{part: part, status: workflow.OK()}
+		return componentCertificateResult{part: part, component: component, status: workflow.OK()}
 	}
 
 	message := r.certManagerReadiness.UnavailableMessage()
@@ -809,7 +834,7 @@ func (r *OpsManagerReconciler) managedCertificateGateResult(part mdbstatus.Part,
 		Reason:  certificateReasonIssuanceFailed,
 		Message: message,
 	}
-	return componentCertificateResult{part: part, status: workflow.Failed(xerrors.New(message)), condition: &condition}
+	return componentCertificateResult{part: part, component: component, status: workflow.Failed(xerrors.New(message)), condition: &condition, managed: true}
 }
 
 func (r *OpsManagerReconciler) applyManagedCertificateResults(ctx context.Context, opsManager *omv1.MongoDBOpsManager, results []componentCertificateResult, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
@@ -832,11 +857,46 @@ func (r *OpsManagerReconciler) applyManagedCertificateResults(ctx context.Contex
 	}
 
 	if !blocked {
+		// The CA bundles are already published at this point, so removing the annotation cannot
+		// race the prune it acknowledges. Annotations do not change the generation, so this
+		// cannot invalidate the condition patch above.
+		pruneApplied := pruneAnnotationFulfilled(opsManager, results)
+		if status := r.removeFulfilledPruneAnnotation(ctx, opsManager, pruneApplied); !status.IsOK() {
+			return reconcile.Result{}, false, xerrors.New(status.Message())
+		}
 		return reconcile.Result{}, false, nil
 	}
 
 	result, _ := aggregateStatus.ReconcileResult()
 	return result, true, nil
+}
+
+// pruneAnnotationFulfilled reports whether the prune annotation can be removed: every requested
+// component that this reconcile manages has applied the prune. Components that are not enabled
+// have nothing to prune and do not hold the annotation. An annotation without any recognised
+// component is left in place so a typo is not silently dropped.
+func pruneAnnotationFulfilled(opsManager *omv1.MongoDBOpsManager, results []componentCertificateResult) bool {
+	requested := certs.PruneRequestedComponents(opsManager.GetAnnotations()[util.PrunePreviousCAAnnotation])
+	if len(requested) == 0 {
+		return false
+	}
+
+	managed := map[string]bool{}
+	applied := map[string]bool{}
+	for _, result := range results {
+		if result.component == "" {
+			continue
+		}
+		managed[result.component] = managed[result.component] || result.managed
+		applied[result.component] = applied[result.component] || result.pruneApplied
+	}
+
+	for _, component := range requested {
+		if managed[component] && !applied[component] {
+			return false
+		}
+	}
+	return true
 }
 
 func aggregateCertificateConditions(results []componentCertificateResult) *metav1.Condition {
@@ -1459,15 +1519,29 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.ManagedBackupCABundleConfigMapName(), []string{opsManager.QueryableBackupCertificateSecretName(), opsManager.QueryableBackupTLSSecretName()})
 	}
 
+	registerCA := func(ref mdbv1.CARef) {
+		resourceType := watch.ConfigMap
+		if ref.Kind == "Secret" {
+			resourceType = watch.Secret
+		}
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, opsManager.Namespace, resourceType, opsManager.ObjectKey())
+	}
 	if opsManager.IsManagedCertificateEnabled() {
 		cfg := opsManager.Spec.Security.ManagedCertificate
-		registerCA := func(ref mdbv1.CARef) {
-			resourceType := watch.ConfigMap
-			if ref.Kind == "Secret" {
-				resourceType = watch.Secret
-			}
-			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, opsManager.Namespace, resourceType, opsManager.ObjectKey())
+		if cfg.CA != nil {
+			registerCA(*cfg.CA)
 		}
+		for _, ref := range cfg.AdditionalTrustedCAs {
+			registerCA(ref)
+		}
+	}
+	if opsManager.Spec.AppDB != nil {
+		for _, ref := range opsManager.Spec.AppDB.GetSecurity().ManagedCertificateCARefs() {
+			registerCA(ref)
+		}
+	}
+	if opsManager.Spec.Backup != nil && opsManager.Spec.Backup.Enabled && opsManager.IsBackupManagedCertificateEnabled() {
+		cfg := opsManager.Spec.Backup.ManagedCertificate
 		if cfg.CA != nil {
 			registerCA(*cfg.CA)
 		}

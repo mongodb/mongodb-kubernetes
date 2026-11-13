@@ -118,6 +118,46 @@ func categoryIssuedLeaves(ctx context.Context, c kubernetesClient.Client, res Ce
 	return append(leaves, userLeaves...), nil
 }
 
+// categoryLeafNeedsReissue reports whether any leaf of a self-signed category is not signed by the
+// root currently in the category's CA secret. It returns false when the root cannot be read yet
+// because cert-manager is still writing it.
+func categoryLeafNeedsReissue(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	res CertificateOwner,
+	cat certCategory,
+	allOpts []Options,
+	log *zap.SugaredLogger,
+) (bool, error) {
+	currentPEM, status := readSelfSignedCACert(ctx, c, res, cat)
+	if !status.IsOK() {
+		log.Debugf("Skipping the re-issue check for the %s category of %s: %s", cat, res.GetName(), status.Message())
+		return false, nil
+	}
+
+	currentCAs, err := parseCACerts(currentPEM)
+	if err != nil {
+		return false, fmt.Errorf("could not parse the current self-signed %s CA of %s: %w", cat, res.GetName(), err)
+	}
+	issuers := parseIssuers(currentCAs)
+
+	leafSecrets := categoryLeafSecrets(res, cat, allOpts)
+	for _, secretName := range leafSecrets {
+		leaf, err := readLeafCertificate(ctx, c, res.GetNamespace(), secretName)
+		if err != nil {
+			// The secret may not exist yet while the certificate is being issued.
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return false, err
+		}
+		if !signedByAny(leaf, issuers) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // reissueLeafIfSignedByPreviousCA sets Issuing=True on one leaf Certificate unless its secret is
 // already signed by the current root or a reissue is already in progress.
 func reissueLeafIfSignedByPreviousCA(

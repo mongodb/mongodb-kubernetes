@@ -26,6 +26,12 @@ type ServerCertificateOptions struct {
 	IPAddresses  []string
 	CABundleName string
 	CABundleKey  string
+	// Component is the Ops Manager component the prune annotation targets ("om", "appdb" or
+	// "backup"). Empty keeps the category-based annotation of the mongod-family resources.
+	Component string
+	// OnRenewals is optional: when set, it receives the component's next automatic certificate
+	// renewal.
+	OnRenewals func(*mdbstatus.CertificateRenewalStatus)
 }
 
 // serverCertificateOwner presents a server-only Ops Manager component to the shared issuance
@@ -33,16 +39,31 @@ type ServerCertificateOptions struct {
 // Its security only carries the server category, so no client certificates are ever issued.
 type serverCertificateOwner struct {
 	v1.ObjectOwner
-	name     string
-	security *mdbv1.Security
+	name      string
+	component string
+	security  *mdbv1.Security
 	// setRenewals is optional: when set, it receives the component's next automatic certificate
 	// renewal; when nil, the renewal is not reported.
 	setRenewals func(*mdbstatus.CertificateRenewalStatus)
 }
 
+func newServerCertificateOwner(owner v1.ObjectOwner, cfg *omv1.ManagedCertificate, opts ServerCertificateOptions) serverCertificateOwner {
+	return serverCertificateOwner{
+		ObjectOwner: owner,
+		name:        opts.NamingBase,
+		component:   opts.Component,
+		security: &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{
+			Server:   &cfg.CertificateConfig,
+			Subjects: &mdbv1.CertSubjects{Server: cfg.Subject},
+		}},
+		setRenewals: opts.OnRenewals,
+	}
+}
+
 func (o serverCertificateOwner) GetName() string               { return o.name }
 func (o serverCertificateOwner) GetSecurity() *mdbv1.Security  { return o.security }
 func (o serverCertificateOwner) ownerResource() v1.ObjectOwner { return o.ObjectOwner }
+func (o serverCertificateOwner) pruneComponent() string        { return o.component }
 
 func (o serverCertificateOwner) SetCertificateRenewals(renewals *mdbstatus.CertificateRenewalStatus) {
 	if o.setRenewals != nil {
@@ -76,14 +97,7 @@ func EnsureServerCertificateAndCA(
 		return workflow.Failed(xerrors.New(msg)), issuanceFailedCondition(msg), false
 	}
 
-	res := serverCertificateOwner{
-		ObjectOwner: owner,
-		name:        opts.NamingBase,
-		security: &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{
-			Server:   &cfg.CertificateConfig,
-			Subjects: &mdbv1.CertSubjects{Server: cfg.Subject},
-		}},
-	}
+	res := newServerCertificateOwner(owner, cfg, opts)
 	subject, commonName := serverSubject(res)
 	spec := certSpec(res, categoryServer, opts.SecretName, opts.DNSNames, commonName, subject, memberServerCertUsages)
 	spec.IPAddresses = opts.IPAddresses
@@ -101,6 +115,6 @@ func EnsureServerCertificateAndCA(
 	log.Debugf("Populated operator-managed CA ConfigMap %s for %s", opts.CABundleName, opts.NamingBase)
 
 	refused := pruneRequested(res, categoryServer) && previousRetained
-	status, condition = certificatesResult(renewalFailures, previousCASentence(categoryServer, previousRetained, refused))
+	status, condition = certificatesResult(renewalFailures, previousCASentence(res, categoryServer, previousRetained, refused))
 	return status, condition, pruneRequested(res, categoryServer) && !refused
 }

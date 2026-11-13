@@ -9,10 +9,12 @@ import hashlib
 import re
 import ssl
 import tempfile
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 from cryptography import x509
 from cryptography.x509.oid import NameOID
+from kubernetes import client
 from kubetester import read_configmap, read_secret, try_load
 from kubetester.certs import Certificate
 from kubetester.crypto import cert_signed_by_bundle
@@ -369,3 +371,56 @@ def _longest_matching_prefix(process_name: str, by_prefix: dict) -> str:
     matches = [prefix for prefix in by_prefix if pod_name.startswith(prefix + "-")]
     assert matches, f"no certificate secret matches process {process_name}: {sorted(by_prefix)}"
     return max(matches, key=len)
+
+
+# cert-manager Certificate resources, as the status subresource patch needs to name them.
+_CERTIFICATE_GROUP = "cert-manager.io"
+_CERTIFICATE_VERSION = "v1"
+_CERTIFICATE_PLURAL = "certificates"
+
+
+def read_certificate_status(namespace: str, certificate_name: str) -> dict:
+    """The cert-manager Certificate's status, or an empty dict before its first reconciliation."""
+    certificate = Certificate(name=certificate_name, namespace=namespace).load()
+    return certificate["status"] if "status" in certificate else {}
+
+
+def pem_secret_hashes(namespace: str, secret_name: str) -> tuple[str, str]:
+    """The current and previous certificate hashes in an operator-managed -pem secret.
+
+    The hash names the file the pods mount and the automation config points at, so a change means
+    the operator has started using a new certificate. previousHash is empty until the first rotation.
+    """
+    secret = read_secret(namespace, secret_name)
+    return secret.get("latestHash", ""), secret.get("previousHash", "")
+
+
+def trigger_certificate_renewal(namespace: str, certificate_name: str, api_client=None):
+    """Asks cert-manager to reissue now, the way `cmctl renew` does.
+
+    Setting the Issuing condition on the status is the documented manual renewal trigger. The other
+    conditions are kept, so the Certificate keeps reporting its current health while it reissues.
+    """
+    certificate = Certificate(name=certificate_name, namespace=namespace).load()
+    status = certificate["status"] if "status" in certificate else {}
+    conditions = [condition for condition in status.get("conditions", []) if condition.get("type") != "Issuing"]
+    issuing = {
+        "type": "Issuing",
+        "status": "True",
+        "reason": "ManuallyTriggered",
+        "message": "Certificate re-issuance manually triggered by the e2e test",
+        "lastTransitionTime": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    generation = certificate["metadata"].get("generation")
+    if generation is not None:
+        issuing["observedGeneration"] = generation
+    conditions.append(issuing)
+
+    client.CustomObjectsApi(api_client=api_client).patch_namespaced_custom_object_status(
+        _CERTIFICATE_GROUP,
+        _CERTIFICATE_VERSION,
+        namespace,
+        _CERTIFICATE_PLURAL,
+        certificate_name,
+        body={"status": {"conditions": conditions}},
+    )
