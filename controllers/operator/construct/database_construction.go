@@ -844,6 +844,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 			imageVolume(mongodbProxyVolumeName, opts.MongodbProxyImage),
 			imageVolume(mongodbBinariesVolumeName, opts.MongodbImage),
 			imageVolume(mongodbInitDatabaseVolumeName, opts.InitDatabaseImage),
+			mongodbProxySocketVolume(),
 		)
 		agentContainerModifications = append(agentContainerModifications,
 			container.WithEnvs(
@@ -854,12 +855,17 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 			container.WithVolumeMounts([]corev1.VolumeMount{
 				readOnlyMount(mongodbBinariesVolumeName, mongodbBinariesMountPath),
 				readOnlyMount(mongodbInitDatabaseVolumeName, mongodbInitDatabaseMountPath),
+				mongodbProxySocketMount(),
 			}),
 		)
 		// The proxy replaces the marker command: it starts mongod/mongos only when the agent asks for it.
 		mongodContainerModifications = append(mongodContainerModifications,
 			container.WithCommand([]string{mongodbProxyBinaryPath}),
-			container.WithVolumeMounts([]corev1.VolumeMount{readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath)}),
+			container.WithArgs([]string{"-listen", MongodbProxyAddress}),
+			container.WithVolumeMounts([]corev1.VolumeMount{
+				readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath),
+				mongodbProxySocketMount(),
+			}),
 		)
 	}
 

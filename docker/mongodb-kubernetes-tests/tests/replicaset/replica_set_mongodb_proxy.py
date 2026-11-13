@@ -31,6 +31,7 @@ from kubetester.mongodb_proxy import (
     DATABASE_CONTAINER,
     PROXY_ADDRESS,
     PROXY_ANNOTATION,
+    PROXY_SOCKET,
     mongod_identity,
     post_to_proxy,
     proxy_events,
@@ -112,10 +113,16 @@ def test_pod_runs_the_proxy_in_the_database_container(replica_set: MongoDB, name
 
     containers = {c.name: c for c in pod_spec.containers}
     assert containers[DATABASE_CONTAINER].command == ["/mnt/proxy/proxy"]
+    assert containers[DATABASE_CONTAINER].args == ["-listen", PROXY_ADDRESS]
 
     volumes = {v.name: v for v in pod_spec.volumes}
     assert volumes["mongodb-proxy"].image.reference == proxy_image()
     assert volumes["mongodb-binaries"].image is not None
+
+    # The socket is on a volume that only the agent and the database container mount.
+    assert volumes["mongodb-proxy-socket"].empty_dir is not None
+    mounting = [c.name for c in pod_spec.containers if "mongodb-proxy-socket" in [m.name for m in c.volume_mounts]]
+    assert sorted(mounting) == sorted([AGENT_CONTAINER, DATABASE_CONTAINER])
 
     env = {e.name: e.value for e in containers[AGENT_CONTAINER].env}
     assert env["MDB_MONGODB_PROXY_ADDRESS"] == PROXY_ADDRESS
@@ -131,12 +138,33 @@ def test_agent_was_started_with_the_proxy_flag(replica_set: MongoDB, namespace: 
         [
             "bash",
             "-c",
-            "grep -la -e '-mongodProxyAddress=127.0.0.1:80[9]9' /proc/[0-9]*/cmdline 2>/dev/null | head -n 1",
+            "grep -la -e '-mongodProxyAddress=unix:///var/run/mongodb-proxy/proxy.soc[k]' /proc/[0-9]*/cmdline 2>/dev/null | head -n 1",
         ],
         container=AGENT_CONTAINER,
     )
 
     assert out.strip(), "no process of the agent container runs with -mongodProxyAddress=" + PROXY_ADDRESS
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_proxy_socket_is_private_and_there_is_no_tcp_port(replica_set: MongoDB, namespace: str):
+    for i in range(replica_set["spec"]["members"]):
+        pod = f"{replica_set.name}-{i}"
+
+        # Only the owner can connect to the socket. The kernel enforces it before a request reaches the proxy.
+        mode = KubernetesTester.run_command_in_pod_container(
+            pod, namespace, ["stat", "-c", "%a %F", PROXY_SOCKET], container=DATABASE_CONTAINER
+        ).strip()
+        assert mode == "600 socket", f"{pod}: {mode}"
+
+        # The old loopback port is gone.
+        out = KubernetesTester.run_command_in_pod_container(
+            pod,
+            namespace,
+            ["bash", "-c", "(exec 3<>/dev/tcp/127.0.0.1/8099) 2>/dev/null && echo open || echo closed"],
+            container=AGENT_CONTAINER,
+        ).strip()
+        assert out == "closed", f"{pod}: something listens on 127.0.0.1:8099"
 
 
 @mark.e2e_replica_set_mongodb_proxy
