@@ -1849,8 +1849,19 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 	sc := obj.(*mdbv1.MongoDB)
 
 	var errs error
+
+	// Before the Ops Manager cleanup, which can take minutes: while the Certificates are there,
+	// cert-manager writes their secrets again as soon as the deletion removes one.
+	if err := r.commonController.stopManagedCertificateIssuance(ctx, sc, log); err != nil {
+		errs = multierror.Append(errs, err)
+	}
+
 	if err := r.cleanOpsManagerState(ctx, sc, log); err != nil {
 		errs = stdErrors.Join(errs, err)
+	}
+
+	if err := r.commonController.deleteManagedCertificateObjects(ctx, sc, log); err != nil {
+		errs = multierror.Append(errs, err)
 	}
 
 	// Delete resources explicitly only in multi-cluster mode where we can't set owner references cross cluster.

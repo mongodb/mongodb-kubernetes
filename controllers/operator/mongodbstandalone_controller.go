@@ -416,6 +416,12 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 
 	log.Infow("Removing standalone from Ops Manager", "config", s.Spec)
 
+	// Before the Ops Manager cleanup, which can take minutes: while the Certificates are there,
+	// cert-manager writes their secrets again as soon as the deletion removes one.
+	if err := r.stopManagedCertificateIssuance(ctx, s, log); err != nil {
+		log.Errorf("Failed to delete the managed certificates: %s", err)
+	}
+
 	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.client, r.SecretClient, s, log)
 	if err != nil {
 		return err
@@ -458,6 +464,10 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 
 	if err := r.clearProjectAuthenticationSettings(ctx, conn, s, processNames, log); err != nil {
 		errs = stdErrors.Join(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
+	}
+
+	if err := r.deleteManagedCertificateObjects(ctx, s, log); err != nil {
+		errs = multierror.Append(errs, err)
 	}
 
 	r.resourceWatcher.RemoveDependentWatchedResources(s.ObjectKey())

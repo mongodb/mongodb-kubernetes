@@ -574,7 +574,7 @@ func getManagedCertificateRules(managedCertificates bool) []rbacv1.PolicyRule {
 	}
 	return []rbacv1.PolicyRule{
 		{
-			Verbs:     []string{"get", "list", "watch", "create", "update"},
+			Verbs:     []string{"get", "list", "watch", "create", "update", "delete"},
 			Resources: []string{"certificates", "issuers"},
 			APIGroups: []string{"cert-manager.io"},
 		},

@@ -40,7 +40,16 @@ const (
 
 // CreateOrUpdatePEMSecretWithPreviousCert creates a PEM secret from the original secretName.
 // Additionally, this method verifies if there already exists a PEM secret, and it will merge them to be able to keep the newest and the previous certificate.
-func CreateOrUpdatePEMSecretWithPreviousCert(ctx context.Context, secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, certificateKey string, certificateValue string, ownerReferences []metav1.OwnerReference, podType certDestination) error {
+func CreateOrUpdatePEMSecretWithPreviousCert(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	secretNamespacedName types.NamespacedName,
+	certificateKey string,
+	certificateValue string,
+	ownerReferences []metav1.OwnerReference,
+	ownerLabels map[string]string,
+	podType certDestination,
+) error {
 	path, err := getVaultBasePath(secretClient, podType)
 	if err != nil {
 		return err
@@ -51,11 +60,19 @@ func CreateOrUpdatePEMSecretWithPreviousCert(ctx context.Context, secretClient s
 		return err
 	}
 
-	return CreateOrUpdatePEMSecret(ctx, secretClient, secretNamespacedName, secretData, ownerReferences, podType)
+	return CreateOrUpdatePEMSecret(ctx, secretClient, secretNamespacedName, secretData, ownerReferences, ownerLabels, podType)
 }
 
 // CreateOrUpdatePEMSecret creates a PEM secret from the original secretName.
-func CreateOrUpdatePEMSecret(ctx context.Context, secretClient secrets.SecretClient, secretNamespacedName types.NamespacedName, secretData map[string]string, ownerReferences []metav1.OwnerReference, podType certDestination) error {
+func CreateOrUpdatePEMSecret(
+	ctx context.Context,
+	secretClient secrets.SecretClient,
+	secretNamespacedName types.NamespacedName,
+	secretData map[string]string,
+	ownerReferences []metav1.OwnerReference,
+	ownerLabels map[string]string,
+	podType certDestination,
+) error {
 	operatorGeneratedSecret := getOperatorGeneratedSecret(secretNamespacedName)
 
 	path, err := getVaultBasePath(secretClient, podType)
@@ -67,7 +84,8 @@ func CreateOrUpdatePEMSecret(ctx context.Context, secretClient secrets.SecretCli
 		SetName(operatorGeneratedSecret.Name).
 		SetNamespace(operatorGeneratedSecret.Namespace).
 		SetStringMapToData(secretData).
-		SetOwnerReferences(ownerReferences)
+		SetOwnerReferences(ownerReferences).
+		SetLabels(ownerLabels)
 
 	return secretClient.PutSecretIfChanged(ctx, secretBuilder.Build(), path)
 }
@@ -168,7 +186,7 @@ func seedPEMSecret(ctx context.Context, secretClient secrets.SecretClient, names
 	return CreateOrUpdatePEMSecret(ctx, secretClient, kube.ObjectKey(namespace, managedSecretName), map[string]string{
 		legacyHash:               legacyData[legacyHash],
 		util.LatestHashSecretKey: legacyHash,
-	}, nil, Database)
+	}, nil, nil, Database)
 }
 
 func currentHashOfPEMSecret(data map[string]string) string {
@@ -279,7 +297,7 @@ func VerifyAndEnsureCertificatesForStatefulSet(ctx context.Context, secretReadCl
 	}
 
 	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretReadClient, opts.Namespace, secretName, databaseSecretPath, log)
-	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), secretHash, data, opts.OwnerReference, Database)
+	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), secretHash, data, opts.OwnerReference, opts.OwnerLabels, Database)
 }
 
 // getPodNames returns the pod names based on the Cert Options provided.
@@ -384,7 +402,15 @@ func ValidateCertificates(ctx context.Context, secretGetter secret.Getter, name,
 
 // VerifyAndEnsureClientCertificatesForAgentsAndTLSType ensures that agent certs are present and correct, and returns whether they are of the kubernetes.io/tls type.
 // If the secret is of type kubernetes.io/tls, it creates a new secret containing the concatenation fo the tls.crt and tls.key fields
-func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, secretReadClient, secretWriteClient secrets.SecretClient, secret types.NamespacedName, log *zap.SugaredLogger) error {
+func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
+	ctx context.Context,
+	secretReadClient,
+	secretWriteClient secrets.SecretClient,
+	secret types.NamespacedName,
+	ownerReferences []metav1.OwnerReference,
+	ownerLabels map[string]string,
+	log *zap.SugaredLogger,
+) error {
 	var secretData map[string][]byte
 	var s corev1.Secret
 	var err error
@@ -414,7 +440,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx context.Context, s
 	}
 
 	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretReadClient, secret.Namespace, secret.Name, databaseSecretPath, log)
-	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, secret, secretHash, data, []metav1.OwnerReference{}, Database)
+	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, secret, secretHash, data, ownerReferences, ownerLabels, Database)
 }
 
 // EnsureSSLCertsForStatefulSet contains logic to ensure that all of the
@@ -489,7 +515,7 @@ func EnsureTLSCertsForPrometheus(ctx context.Context, secretClient secrets.Secre
 	// we can improve this function by providing the Secret Data contents,
 	// instead of `secretClient`.
 	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretClient, namespace, prom.TLSSecretRef.Name, secretPath, log)
-	err = CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), secretHash, data, []metav1.OwnerReference{}, podType)
+	err = CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretClient, kube.ObjectKey(namespace, prom.TLSSecretRef.Name), secretHash, data, []metav1.OwnerReference{}, nil, podType)
 	if err != nil {
 		return "", xerrors.Errorf("error creating hashed Secret: %w", err)
 	}

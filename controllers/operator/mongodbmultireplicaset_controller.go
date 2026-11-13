@@ -1750,12 +1750,22 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 	// AppDB-role CR deletion is a reverse-migration handover, not a deprovision:
 	// the project and member-cluster resources are handed back to Ops Manager.
 	if !mrs.IsRoleAppDB() {
+		// Before the Ops Manager cleanup, which can take minutes: while the Certificates are there,
+		// cert-manager writes their secrets again as soon as the deletion removes one.
+		if err := r.stopManagedCertificateIssuance(ctx, &mrs, log); err != nil {
+			errs = multierror.Append(errs, err)
+		}
+
 		if err := r.cleanOpsManagerState(ctx, mrs, log); err != nil {
 			errs = errors.Join(errs, err)
 		}
 
 		if err := r.deleteManagedCABundlesInMemberClusters(ctx, mrs, log); err != nil {
 			errs = errors.Join(errs, err)
+		}
+
+		if err := r.deleteManagedCertificateObjects(ctx, &mrs, log); err != nil {
+			errs = multierror.Append(errs, err)
 		}
 
 		clusterSpecList, err := mrs.GetClusterSpecItems()
