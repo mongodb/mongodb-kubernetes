@@ -11,10 +11,7 @@ const (
 	ConditionLicenseManaged = "LicenseManaged"
 )
 
-// Reasons of LicenseReady. Ready means the license Ops Manager holds is licensed.
-// NotReady covers every other license state (grace, unlicensed, expired), and the message names
-// the state. StateUnknown covers no state reported yet, and carries status Unknown rather than
-// False, since the operator has not checked the license, not found it missing.
+// Reasons of LicenseReady. StateUnknown has status Unknown.
 const (
 	ReasonLicenseReady        = "LicenseReady"
 	ReasonLicenseNotReady     = "LicenseNotReady"
