@@ -183,56 +183,59 @@ func reconcileAgentSettings(ctx context.Context, client kubernetesClient.Client,
 	if agent == nil {
 		return fmt.Errorf("agent container not found in StatefulSet %s", sts.Name)
 	}
-	credential, err := reconcileAgentCredential(ctx, secretClient, sts, agent, parameters, basePath, needsCredential, cm.Data[construct.AgentSettingsFileName])
+	// The credential is only used for the rollout digest, so a rotated key rolls the pods.
+	var credential string
+	var err error
+	_, hasKeyOverride := parameters["mmsApiKey"]
+	switch {
+	case parameters["mmsApiKeyExec"] != "":
+		// The customer's command reads the key, so there is nothing to deliver or hash.
+	case hasKeyOverride:
+		credential, err = reconcileAgentCredentialFromOverride(ctx, secretClient, sts, agent, parameters["mmsApiKey"], basePath)
+	case needsCredential:
+		if credential, err = databaseAgentCredential(ctx, secretClient, *sts); err != nil {
+			err = fmt.Errorf("cannot read agent startup credential: %w", err)
+		}
+	case settingsConsumeCredential(cm.Data[construct.AgentSettingsFileName]):
+		credential, err = databaseAgentCredentialIfPresent(ctx, secretClient, *sts)
+	}
 	if err != nil {
 		return err
 	}
 	return writeAgentSettings(ctx, client, sts, agent, cm, credential)
 }
 
-// reconcileAgentCredential delivers the startup credential and returns the value covered by the
-// rollout digest. The credential comes from an explicit override, the existing Secret, or a
-// best-effort read when the rendered settings will read the key at startup.
-func reconcileAgentCredential(ctx context.Context, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, agent *corev1.Container, parameters mdbv1.StartupParameters, basePath string, needsCredential bool, settings string) (string, error) {
-	if override, ok := parameters["mmsApiKey"]; ok && parameters["mmsApiKeyExec"] == "" {
-		keySecret := secret.Builder().SetName(sts.Name+"-agent-api-key").SetNamespace(sts.Namespace).
-			SetOwnerReferences(sts.OwnerReferences).SetLabels(sts.Labels).SetField(util.OmAgentApiKey, override).Build()
-		if err := secretClient.PutSecretIfChanged(ctx, keySecret, basePath); err != nil {
-			return "", fmt.Errorf("cannot reconcile agent credential override: %w", err)
-		}
-		if vault.IsVaultSecretBackend() {
-			secretPath := fmt.Sprintf("%s/%s/%s", basePath, sts.Namespace, keySecret.Name)
-			sts.Spec.Template.Annotations = merge.StringToStringMap(sts.Spec.Template.Annotations, map[string]string{
-				"vault.hashicorp.com/agent-inject-secret-agentApiKey":   secretPath,
-				"vault.hashicorp.com/agent-inject-template-agentApiKey": fmt.Sprintf(vault.DEFAULT_AGENT_INJECT_TEMPLATE, secretPath, util.OmAgentApiKey),
-				"vault.hashicorp.com/secret-volume-path-agentApiKey":    construct.AgentAPIKeySecretPath,
-			})
-		} else {
-			upsertAgentAPIKeyVolume(sts, agent, keySecret)
-		}
-		return override, nil
+// reconcileAgentCredentialFromOverride stores the customer's raw mmsApiKey in a generated Secret
+// and points the pod at it, so the key never goes into the settings file.
+func reconcileAgentCredentialFromOverride(ctx context.Context, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, agent *corev1.Container, override, basePath string) (string, error) {
+	keySecret := secret.Builder().SetName(sts.Name+"-agent-api-key").SetNamespace(sts.Namespace).
+		SetOwnerReferences(sts.OwnerReferences).SetLabels(sts.Labels).SetField(util.OmAgentApiKey, override).Build()
+	if err := secretClient.PutSecretIfChanged(ctx, keySecret, basePath); err != nil {
+		return "", fmt.Errorf("cannot reconcile agent credential override: %w", err)
 	}
-	if parameters["mmsApiKeyExec"] == "" && needsCredential {
-		credential, err := databaseAgentCredential(ctx, secretClient, *sts)
-		if err != nil {
-			return "", fmt.Errorf("cannot read agent startup credential: %w", err)
-		}
-		return credential, nil
+	if vault.IsVaultSecretBackend() {
+		secretPath := fmt.Sprintf("%s/%s/%s", basePath, sts.Namespace, keySecret.Name)
+		sts.Spec.Template.Annotations = merge.StringToStringMap(sts.Spec.Template.Annotations, map[string]string{
+			"vault.hashicorp.com/agent-inject-secret-agentApiKey":   secretPath,
+			"vault.hashicorp.com/agent-inject-template-agentApiKey": fmt.Sprintf(vault.DEFAULT_AGENT_INJECT_TEMPLATE, secretPath, util.OmAgentApiKey),
+			"vault.hashicorp.com/secret-volume-path-agentApiKey":    construct.AgentAPIKeySecretPath,
+		})
+	} else {
+		upsertAgentAPIKeyVolume(sts, agent, keySecret)
 	}
-	if parameters["mmsApiKeyExec"] == "" && settingsConsumeCredential(settings) {
-		// Digest coverage only. A missing Secret must not fail reconciliation: the agent reports
-		// that itself. A transient read error must fail reconciliation, because a credential-free
-		// digest would change the template and roll the pods a second time on recovery.
-		value, err := databaseAgentCredential(ctx, secretClient, *sts)
-		if err != nil {
-			if apiErrors.IsNotFound(err) {
-				return "", nil
-			}
-			return "", err
-		}
-		return value, nil
+	return override, nil
+}
+
+// databaseAgentCredentialIfPresent reads the credential only to cover it in the rollout digest. A
+// missing Secret must not fail reconciliation, because the agent reports that itself. A transient
+// read error must fail it, because a credential-free digest would change the template and roll
+// the pods a second time on recovery.
+func databaseAgentCredentialIfPresent(ctx context.Context, secretClient secrets.SecretClient, sts appsv1.StatefulSet) (string, error) {
+	credential, err := databaseAgentCredential(ctx, secretClient, sts)
+	if apiErrors.IsNotFound(err) {
+		return "", nil
 	}
-	return "", nil
+	return credential, err
 }
 
 // upsertAgentAPIKeyVolume replaces the projected API-key volume in place and keeps the existing
