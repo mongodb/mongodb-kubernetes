@@ -423,6 +423,11 @@ func TestBuildFilterChain_HasRetryPolicy(t *testing.T) {
 	require.Len(t, rp.RetryHostPredicate, 1)
 	assert.Equal(t, "envoy.retry_host_predicates.previous_hosts", rp.RetryHostPredicate[0].Name)
 	assert.Equal(t, int64(3), rp.HostSelectionRetryMaxAttempts)
+
+	maxAttempts := requestHeadersByKey(vh.Routes[0])[envoyMaxAttemptCountHeader]
+	require.NotNil(t, maxAttempts)
+	assert.Equal(t, "3", maxAttempts.GetHeader().GetValue())
+	assert.Equal(t, corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, maxAttempts.GetAppendAction())
 }
 
 func TestBuildFilterChain_DisablesRouteClusterValidation(t *testing.T) {
@@ -472,7 +477,7 @@ func TestBuildFilterChain_NormalRoute_OnlyMaxAttemptHeader(t *testing.T) {
 	route := testRoute("mdb-sh-0")
 	route.RoutedFromAnotherShard = false
 
-	chain, err := buildFilterChain(route, false, testCAKeyName(), nil)
+	chain, err := buildFilterChain(route, false, testCAKeyName(), &searchv1.EnvoyRetryPolicy{NumRetries: new(uint32(4))})
 	require.NoError(t, err)
 
 	// Extract HCM from the filter chain
@@ -487,35 +492,8 @@ func TestBuildFilterChain_NormalRoute_OnlyMaxAttemptHeader(t *testing.T) {
 
 	headers := requestHeadersByKey(routes[0])
 	require.Len(t, headers, 1)
-	assert.Contains(t, headers, envoyMaxAttemptCountHeader)
-}
-
-func TestBuildFilterChain_MaxAttemptCountHeader(t *testing.T) {
-	tests := []struct {
-		name     string
-		rp       *searchv1.EnvoyRetryPolicy
-		expected string
-	}{
-		{name: "nil retry policy uses default 2 retries", rp: nil, expected: "3"},
-		{name: "retry policy without numRetries uses default", rp: &searchv1.EnvoyRetryPolicy{PerTryTimeout: new("30s")}, expected: "3"},
-		{name: "custom numRetries", rp: &searchv1.EnvoyRetryPolicy{NumRetries: new(uint32(4))}, expected: "5"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			chain, err := buildFilterChain(testRoute("mdb-sh-0"), false, testCAKeyName(), tt.rp)
-			require.NoError(t, err)
-
-			hcm := &hcmv3.HttpConnectionManager{}
-			require.NoError(t, chain.Filters[0].GetTypedConfig().UnmarshalTo(hcm))
-			routes := hcm.GetRouteConfig().GetVirtualHosts()[0].GetRoutes()
-			require.Len(t, routes, 1)
-			headers := requestHeadersByKey(routes[0])
-			require.Contains(t, headers, envoyMaxAttemptCountHeader)
-			h := headers[envoyMaxAttemptCountHeader]
-			assert.Equal(t, tt.expected, h.GetHeader().GetValue())
-			assert.Equal(t, corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, h.GetAppendAction())
-		})
-	}
+	require.Contains(t, headers, envoyMaxAttemptCountHeader)
+	assert.Equal(t, "5", headers[envoyMaxAttemptCountHeader].GetHeader().GetValue())
 }
 
 func requestHeadersByKey(r *routev3.Route) map[string]*corev3.HeaderValueOption {
