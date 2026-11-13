@@ -12,6 +12,7 @@ import (
 )
 
 var flags struct {
+	memberCluster            string
 	operatorNamespace        string
 	workloadNamespaces       string
 	operatorClusterScoped    bool
@@ -20,6 +21,7 @@ var flags struct {
 }
 
 func init() {
+	GenerateResourcesCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "Logical name of the member cluster this render is for; workloads use it to reference the cluster. [required]")
 	GenerateResourcesCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace where the operator is installed. The operator's credentials (ServiceAccount, Roles, RoleBindings) will be created in this namespace on this cluster. [required]")
 	GenerateResourcesCmd.Flags().StringVar(&flags.workloadNamespaces, "workload-namespaces", "", "Comma-separated namespaces on the member cluster where MongoDB/Ops Manager workloads will run. [optional, default: --operator-namespace]")
 	// --operator-cluster-scoped is a distinct flag rather than "*" in --workload-namespaces for
@@ -51,19 +53,19 @@ single ClusterRoleBinding for a cluster-wide operator.
 
 Example (operator watching a single namespace):
 
-kubectl-mongodb cluster generate-resources --operator-namespace=mongodb | kubectl apply --context=east-ctx -f -
+kubectl-mongodb cluster generate-resources --member-cluster=cluster-east --operator-namespace=mongodb | kubectl apply --context=east-ctx -f -
 
 Example (cluster-wide operator with workloads in two namespaces):
 
-kubectl-mongodb cluster generate-resources --operator-namespace=mongodb --operator-cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
+kubectl-mongodb cluster generate-resources --member-cluster=cluster-east --operator-namespace=mongodb --operator-cluster-scoped --workload-namespaces=om,mdb | kubectl apply --context=east-ctx -f -
 `,
 	RunE: func(_ *cobra.Command, _ []string) error {
-		workloadNamespaces, err := parseFlags()
+		memberClusterName, workloadNamespaces, err := parseFlags()
 		if err != nil {
 			return err
 		}
 
-		out, err := memberresources.Render(flags.operatorNamespace, workloadNamespaces, flags.operatorClusterScoped, flags.operatorTelemetry, flags.workloadImagePullSecrets)
+		out, err := memberresources.Render(memberClusterName, flags.operatorNamespace, workloadNamespaces, flags.operatorClusterScoped, flags.operatorTelemetry, flags.workloadImagePullSecrets)
 		if err != nil {
 			return err
 		}
@@ -72,11 +74,17 @@ kubectl-mongodb cluster generate-resources --operator-namespace=mongodb --operat
 	},
 }
 
-func parseFlags() ([]string, error) {
-	if strings.TrimSpace(flags.operatorNamespace) == "" {
-		return nil, xerrors.Errorf("non-empty value is required for [operator-namespace]")
+func parseFlags() (string, []string, error) {
+	if strings.TrimSpace(flags.memberCluster) == "" ||
+		strings.TrimSpace(flags.operatorNamespace) == "" {
+		return "", nil, xerrors.Errorf("non-empty values are required for [member-cluster, operator-namespace]")
 	}
-	return normalizeWorkloadNamespaces(flags.workloadNamespaces, flags.operatorNamespace)
+
+	workloadNamespaces, err := normalizeWorkloadNamespaces(flags.workloadNamespaces, flags.operatorNamespace)
+	if err != nil {
+		return "", nil, err
+	}
+	return flags.memberCluster, workloadNamespaces, nil
 }
 
 // normalizeWorkloadNamespaces turns the raw --workload-namespaces flag value into the list
