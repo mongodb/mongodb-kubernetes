@@ -975,26 +975,40 @@ func defaultAgentParameters() mdbv1.StartupParameters {
 	return map[string]string{"logFile": path.Join(util.PvcMountPathLogs, "automation-agent.log")}
 }
 
-func databaseAgentSettings(opts DatabaseStatefulSetOptions, variables map[string]string) mdbv1.StartupParameters {
-	home := cmp.Or(variables["MMS_HOME"], "/mongodb-automation")
-	settings := databaseAgentBaseSettings(opts, variables, home)
-	hasAPIKeyOverride := mergeAgentSettingsOverrides(settings, opts.AgentConfig)
-	applyAgentCredentialSettings(settings, hasAPIKeyOverride)
-	return settings
+// agentRuntime holds the agent container environment values that shape the settings file. The
+// operator never sets MMS_HOME or MMS_LOG_DIR, so they are only known from the pod template env
+// after merging, which is why they are read from the container and not from the options.
+type agentRuntime struct {
+	home         string
+	logDirectory string
+	downloadBase string
+	static       bool
 }
 
-func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, variables map[string]string, home string) mdbv1.StartupParameters {
-	logDirectory := cmp.Or(variables["MMS_LOG_DIR"], util.PvcMountPathLogs)
+func newAgentRuntime(variables map[string]string) agentRuntime {
+	return agentRuntime{
+		home:         cmp.Or(variables["MMS_HOME"], "/mongodb-automation"),
+		logDirectory: cmp.Or(variables["MMS_LOG_DIR"], util.PvcMountPathLogs),
+		downloadBase: variables[DownloadBaseEnv],
+		static:       variables["MDB_STATIC_CONTAINERS_ARCHITECTURE"] != "",
+	}
+}
+
+func databaseAgentSettings(opts DatabaseStatefulSetOptions, runtime agentRuntime) mdbv1.StartupParameters {
+	return resolveAgentSettings(databaseAgentBaseSettings(opts, runtime), opts.AgentConfig)
+}
+
+func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, runtime agentRuntime) mdbv1.StartupParameters {
 	settings := defaultAgentParameters()
 	podVars := env.PodEnvVars{}
 	if opts.PodVars != nil {
 		podVars = *opts.PodVars
 	}
 	settings["mmsGroupId"] = podVars.ProjectID
-	settings["pidfilepath"] = path.Join(home, "mongodb-mms-automation-agent.pid")
+	settings["pidfilepath"] = path.Join(runtime.home, "mongodb-mms-automation-agent.pid")
 	settings["maxLogFileDurationHrs"] = "24"
 	settings["logLevel"] = cmp.Or(podVars.LogLevel, "INFO")
-	settings["healthCheckFilePath"] = path.Join(logDirectory, "agent-health-status.json")
+	settings["healthCheckFilePath"] = path.Join(runtime.logDirectory, "agent-health-status.json")
 	settings["tlsRequireValidMMSServerCertificates"] = strconv.FormatBool(podVars.SSLRequireValidMMSServerCertificates)
 	baseURL := strings.TrimSuffix(podVars.BaseURL, "/")
 	if baseURL != "" {
@@ -1003,9 +1017,9 @@ func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, variables map[st
 		settings["cluster"] = "/var/lib/mongodb-automation/cluster-config.json"
 		settings["serveStatusPort"] = "5000"
 	}
-	if variables["MDB_STATIC_CONTAINERS_ARCHITECTURE"] != "" {
+	if runtime.static {
 		settings["operatorMode"] = strconv.FormatBool(true)
-		settings["binariesFixedPath"] = path.Join(cmp.Or(variables[DownloadBaseEnv], opts.GetDownloadBase()), "mongod/bin")
+		settings["binariesFixedPath"] = path.Join(cmp.Or(runtime.downloadBase, opts.GetDownloadBase()), "mongod/bin")
 	} else {
 		settings["useLocalMongoDbTools"] = strconv.FormatBool(true)
 	}
@@ -1029,44 +1043,39 @@ func AgentSettingsOverrides(parameters mdbv1.StartupParameters) mdbv1.StartupPar
 	return overrides
 }
 
-func mergeAgentSettingsOverrides(settings mdbv1.StartupParameters, agentConfig *mdbv1.AgentConfig) bool {
-	if agentConfig == nil {
-		return false
-	}
-	// Mode selection in databaseAgentBaseSettings runs on the environment, before this merge.
-	// An empty mmsBaseUrl must not leave the settings file with neither mmsBaseUrl nor the
-	// headless cluster/serveStatusPort keys, because the agent would have no usable mode.
+// resolveAgentSettings returns base with the customer startupOptions applied and the credential
+// delivery settled. The credential step has to run after the merge because it depends on which
+// options the customer set.
+func resolveAgentSettings(base mdbv1.StartupParameters, agentConfig *mdbv1.AgentConfig) mdbv1.StartupParameters {
+	settings := maps.Clone(base)
 	hasAPIKeyOverride := false
-	for key, value := range AgentSettingsOverrides(agentConfig.StartupParameters) {
-		if value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec") {
-			continue
-		}
-		settings[key] = value
-		if key == "mmsApiKey" {
-			hasAPIKeyOverride = true
+	if agentConfig != nil {
+		// Mode selection in databaseAgentBaseSettings runs on the environment, before this merge.
+		// An empty mmsBaseUrl must not leave the settings file with neither mmsBaseUrl nor the
+		// headless cluster/serveStatusPort keys, because the agent would have no usable mode.
+		for key, value := range AgentSettingsOverrides(agentConfig.StartupParameters) {
+			if value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec") {
+				continue
+			}
+			settings[key] = value
+			hasAPIKeyOverride = hasAPIKeyOverride || key == "mmsApiKey"
 		}
 	}
-	return hasAPIKeyOverride
+	delete(settings, "mmsApiKey")
+	delete(settings, "overrideLocalHost")
+	// A customer command wins over the generated one. Empty values never reach this map, so
+	// an unset mmsApiKeyExec is simply absent.
+	if settings["mmsApiKeyExec"] == "" && (settings["mmsBaseUrl"] != "" || hasAPIKeyOverride) {
+		// Both the generated key Secret and the override Secret mount at AgentAPIKeySecretPath.
+		// MMS_HOME controls the agent's pidfile, not the credential mount.
+		settings["mmsApiKeyExec"] = agentAPIKeyExecCommand()
+	}
+	return settings
 }
 
 func agentAPIKeyExecCommand() string {
 	keyPath := path.Join(AgentAPIKeySecretPath, util.OmAgentApiKey)
 	return "cat '" + strings.ReplaceAll(keyPath, "'", "'\\''") + "'"
-}
-
-func applyAgentCredentialSettings(settings mdbv1.StartupParameters, hasAPIKeyOverride bool) {
-	delete(settings, "mmsApiKey")
-	delete(settings, "overrideLocalHost")
-	if settings["mmsApiKeyExec"] != "" {
-		return
-	}
-	if settings["mmsBaseUrl"] != "" || hasAPIKeyOverride {
-		// Both the generated key Secret and the override Secret mount at AgentAPIKeySecretPath.
-		// MMS_HOME controls the agent's pidfile, not the credential mount.
-		settings["mmsApiKeyExec"] = agentAPIKeyExecCommand()
-		return
-	}
-	delete(settings, "mmsApiKeyExec")
 }
 
 // AgentContainer returns the container that hosts the automation agent, or nil.
@@ -1102,7 +1111,7 @@ func DatabaseAgentSettingsConfigMap(sts appsv1.StatefulSet, opts DatabaseStatefu
 	if err := ValidateNoRuntimeAgentSettingsEnv(*agent); err != nil {
 		return corev1.ConfigMap{}, err
 	}
-	return agentSettingsConfigMap(sts, databaseAgentSettings(opts, env.ToMap(agent.Env...)))
+	return agentSettingsConfigMap(sts, databaseAgentSettings(opts, newAgentRuntime(env.ToMap(agent.Env...))))
 }
 
 // AgentEnvironmentIsRuntime includes kubelet expansion and EnvFrom values not shadowed by an explicit Env entry.

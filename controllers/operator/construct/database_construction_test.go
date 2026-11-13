@@ -349,7 +349,7 @@ func TestDatabaseAgentSettings(t *testing.T) {
 				opts.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: tt.externalDomain}
 			}
 			original := maps.Clone(tt.parameters)
-			settings := databaseAgentSettings(opts, variables)
+			settings := databaseAgentSettings(opts, newAgentRuntime(variables))
 			assert.Equal(t, original, tt.parameters)
 			expected := mdbv1.StartupParameters{
 				"mmsBaseUrl":                           "https://ops-manager.example.com",
@@ -378,6 +378,17 @@ func TestDatabaseAgentSettings(t *testing.T) {
 func TestAutomationLogEnvironmentAcceptsLeadingDash(t *testing.T) {
 	envVars := getAutomationLogEnvVars(mdbv1.StartupParameters{"-logFile": "/custom/agent.log"})
 	assert.Contains(t, envVars, corev1.EnvVar{Name: LogFileAutomationAgentEnv, Value: "/custom/agent.log"})
+}
+
+func TestResolveAgentSettingsReturnsNewSettings(t *testing.T) {
+	base := mdbv1.StartupParameters{"logLevel": "INFO", "mmsBaseUrl": "https://ops-manager.example.com"}
+	original := maps.Clone(base)
+
+	resolved := resolveAgentSettings(base, &mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"logLevel": "DEBUG"}})
+
+	assert.Equal(t, original, base, "the base settings must not be modified")
+	assert.Equal(t, "DEBUG", resolved["logLevel"])
+	assert.Equal(t, "cat '/mongodb-automation/agent-api-key/agentApiKey'", resolved["mmsApiKeyExec"])
 }
 
 func TestDatabaseAgentSettingsConfigMap(t *testing.T) {
