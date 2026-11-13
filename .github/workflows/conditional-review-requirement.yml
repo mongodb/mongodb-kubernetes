@@ -1,0 +1,147 @@
+name: Conditional review requirement
+
+# Enforces the "needs-extra-review" gate: when the label is set, the head
+# commit needs two distinct approvals from reviewers with write access.
+#
+# The result is a commit status on the pull request's synthetic merge commit,
+# keeping evaluations for different pull requests separate even when they share
+# a head commit.
+#
+# Both triggers run from a trusted ref with a write token:
+#   - pull_request_target: label and content changes, including fork heads.
+#   - workflow_run: review events, including fork heads, through the no-op
+#     "Conditional review trigger" workflow.
+on:
+  pull_request_target:
+    branches: [master]
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+  workflow_run:
+    workflows: [Conditional review trigger]
+    types: [completed]
+
+permissions:
+  pull-requests: read
+  statuses: write
+
+jobs:
+  evaluate:
+    name: Evaluate review requirement
+    runs-on: ubuntu-latest
+    concurrency:
+      group: conditional-review-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}
+      cancel-in-progress: true
+    steps:
+      - name: Resolve pull request number
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -Eeuo pipefail
+
+          number="${PR_NUMBER}"
+          if [ -z "${number}" ]; then
+            # workflow_run payloads often omit pull requests for fork heads;
+            # resolve the open pull request from the triggering run's head.
+            number="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/pulls" \
+              -f head="${HEAD_OWNER}:${HEAD_BRANCH}" -f state=open \
+              --jq ".[] | select(.head.sha == \"${HEAD_SHA}\") | .number" | head -n 1)"
+          fi
+          echo "number=${number}" >> "${GITHUB_OUTPUT}"
+
+      - name: Resolve pull request merge commit
+        id: merge
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -Eeuo pipefail
+
+          merge_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.merge_commit_sha // empty')"
+          if [ -z "${merge_sha}" ]; then
+            echo "Could not resolve the pull request's synthetic merge commit" >&2
+            exit 1
+          fi
+          echo "sha=${merge_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set pending status
+        if: steps.merge.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATUS_SHA: ${{ steps.merge.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+
+          # Fail closed: clear any earlier result before evaluating, so a
+          # crash cannot leave a stale success in effect.
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${STATUS_SHA}" \
+            -f state=pending \
+            -f context='Conditional review requirement' \
+            -f description='Evaluating review requirement' \
+            -f target_url="${RUN_URL}"
+
+      - name: Evaluate review requirement
+        if: steps.pr.outputs.number != '' && steps.merge.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          STATUS_SHA: ${{ steps.merge.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+
+          # shellcheck disable=SC2016 # GraphQL variables, not shell expansions
+          gh api graphql \
+            -f owner="${GITHUB_REPOSITORY%/*}" \
+            -f name="${GITHUB_REPOSITORY#*/}" \
+            -F number="${PR_NUMBER}" \
+            -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) {
+                    baseRefName
+                    labels(first: 100) { nodes { name } }
+                    latestReviews(first: 100) { nodes { state author { __typename login } } }
+                  }
+                }
+              }' > "${RUNNER_TEMP}/pull-request.json"
+
+          PR_JSON="${RUNNER_TEMP}/pull-request.json"
+          BASE_REF="$(jq -r '.data.repository.pullRequest.baseRefName' "${PR_JSON}")"
+          if [ "${BASE_REF}" != "master" ]; then
+            state=success
+            description="Not required for base branch ${BASE_REF}"
+          elif ! jq -e 'any(.data.repository.pullRequest.labels.nodes[]; .name == "needs-extra-review")' "${PR_JSON}" > /dev/null; then
+            state=success
+            description='needs-extra-review is not set'
+          else
+            approvals=0
+            while IFS= read -r login; do
+              permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${login}/permission" --jq '.permission' 2>/dev/null || true)"
+              case "${permission}" in
+                admin|write) approvals=$((approvals + 1)) ;;
+              esac
+            done < <(jq -r '.data.repository.pullRequest.latestReviews.nodes[]
+              | select(.state == "APPROVED")
+              | select(.author.__typename == "User")
+              | .author.login' "${PR_JSON}")
+
+            if [ "${approvals}" -ge 2 ]; then
+              state=success
+              description="2 of 2 required reviewer approvals"
+            else
+              state=failure
+              description="${approvals} of 2 required reviewer approvals (write access required)"
+            fi
+          fi
+
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${STATUS_SHA}" \
+            -f state="${state}" \
+            -f context='Conditional review requirement' \
+            -f description="${description}" \
+            -f target_url="${RUN_URL}"
