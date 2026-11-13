@@ -259,6 +259,7 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 				properties.DatabaseClusters = &numberOfClustersUsed
 			}
 
+			populateManagedCertificateFields(&properties, item.Spec.Security)
 			populateMigrationFields(&properties, item.Status.Conditions, len(item.Spec.GetExternalMembers()))
 
 			if event := createEvent(properties, now, Deployments); event != nil {
@@ -298,6 +299,8 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 			AuthenticationModes:      getAuthenticationModes(item.Spec.Security),
 			AuthenticationAgentMode:  getAuthenticationAgentMode(item.Spec.Security),
 		}
+
+		populateManagedCertificateFields(&properties, item.Spec.Security)
 
 		if event := createEvent(properties, now, Deployments); event != nil {
 			events = append(events, *event)
@@ -650,6 +653,41 @@ func getAuthenticationModes(security *mdbv1.Security) []string {
 	}
 
 	return security.Authentication.GetModes()
+}
+
+const (
+	ManagedCertificateIssuersNone   = "None"
+	ManagedCertificateIssuersServer = "Server"
+	ManagedCertificateIssuersClient = "Client"
+	ManagedCertificateIssuersBoth   = "Both"
+)
+
+// populateManagedCertificateFields records whether spec.security.managedCertificate is used and which
+// certificate categories reference a user-provided issuer. Nothing is set when the feature is off, so
+// the presence of the field is the usage signal.
+func populateManagedCertificateFields(props *DeploymentUsageSnapshotProperties, security *mdbv1.Security) {
+	if security == nil || !security.IsManagedCertificateEnabled() {
+		return
+	}
+
+	managedCertificate := security.ManagedCertificate
+	serverIssuer := hasUserConfiguredIssuer(managedCertificate.Server)
+	clientIssuer := hasUserConfiguredIssuer(managedCertificate.Client)
+
+	switch {
+	case serverIssuer && clientIssuer:
+		props.ManagedCertificateIssuers = ManagedCertificateIssuersBoth
+	case serverIssuer:
+		props.ManagedCertificateIssuers = ManagedCertificateIssuersServer
+	case clientIssuer:
+		props.ManagedCertificateIssuers = ManagedCertificateIssuersClient
+	default:
+		props.ManagedCertificateIssuers = ManagedCertificateIssuersNone
+	}
+}
+
+func hasUserConfiguredIssuer(cfg *mdbv1.CertificateConfig) bool {
+	return cfg != nil && cfg.IssuerRef != nil
 }
 
 func getAuthenticationAgentMode(security *mdbv1.Security) string {
