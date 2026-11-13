@@ -30,6 +30,13 @@ rules:
       - watch
       - create
       - update
+  - apiGroups:
+      - cert-manager.io
+    resources:
+      - certificates/status
+    verbs:
+      - update
+      - patch
 {{- end }}
   - apiGroups:
       - ''

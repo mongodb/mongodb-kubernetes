@@ -82,7 +82,7 @@ func issueManagedCertificates(ctx context.Context, t *testing.T, c kubernetesCli
 			Status:             cmmeta.ConditionTrue,
 			ObservedGeneration: cert.Generation,
 		}}
-		require.NoError(t, c.Update(ctx, cert))
+		require.NoError(t, c.Status().Update(ctx, cert))
 
 		crt, key := createMockCertAndKeyBytes(func(cert *x509.Certificate) {
 			cert.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}
@@ -395,6 +395,143 @@ func TestMultiReplicaSetManagedCertificate_CAFilePathIsBundleHash(t *testing.T) 
 		require.NoError(t, err, clusterName)
 		assert.Equal(t, central.Data, member.Data, clusterName)
 	}
+}
+
+// TestReplicaSetManagedCertificate_ReissuesLeavesOnCARotation covers the second half of an in-place
+// self-signed CA rotation: once the widened bundle has reached the members, the operator asks
+// cert-manager to reissue the leaves that are still signed by the previous root, and stops asking
+// once cert-manager has written a new-root certificate into the secret.
+func TestReplicaSetManagedCertificate_ReissuesLeavesOnCARotation(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(1).SetSecurity(mdbv1.Security{
+		ManagedCertificate: &mdbv1.ManagedCertificate{},
+		Authentication:     &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{mdbv1.AuthMode(util.X509)}, InternalCluster: util.X509},
+	}).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{Ready: true})
+	addKubernetesTlsResources(ctx, kubeClient, rs)
+
+	memberSecretName := rs.Name + "-managed-cert"
+	memberCertKey := kube.ObjectKey(rs.Namespace, memberSecretName)
+
+	// The first reconcile creates the Certificates, then cert-manager issues them.
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	issueManagedCertificates(ctx, t, kubeClient, rs.Namespace)
+
+	oldCA, oldCAKey := createMockCertAndKeyBytes()
+	newCA, newCAKey := createMockCertAndKeyBytes()
+
+	setServerRoot := func(ca []byte) {
+		caSecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-server-ca"))
+		require.NoError(t, err)
+		caSecret.Data[corev1.ServiceAccountRootCAKey] = ca
+		caSecret.Data[corev1.TLSCertKey] = ca
+		require.NoError(t, kubeClient.UpdateSecret(ctx, caSecret))
+	}
+	setMemberLeaf := func(leaf []byte) {
+		memberSecret, err := kubeClient.GetSecret(ctx, memberCertKey)
+		require.NoError(t, err)
+		memberSecret.Data[corev1.TLSCertKey] = leaf
+		require.NoError(t, kubeClient.UpdateSecret(ctx, memberSecret))
+	}
+
+	// Start from a controlled root with the member leaf signed by it, so the first rotation is
+	// the only reason a reissue is requested.
+	setServerRoot(oldCA)
+	setMemberLeaf(issueLeafSignedByCA(t, oldCA, oldCAKey, "member"))
+
+	reconcileAndReadTLS := func() map[string]any {
+		_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+		return omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
+	}
+	serverBundle := func() string {
+		cm, err := kubeClient.GetConfigMap(ctx, kube.ObjectKey(rs.Namespace, certs.ManagedServerCABundleConfigMapName(rs.Name)))
+		require.NoError(t, err)
+		return cm.Data[cm.Data[util.LatestHashSecretKey]]
+	}
+	processTLS := func() map[string]any {
+		processes := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetProcesses()
+		require.NotEmpty(t, processes)
+		return processes[0].TLSConfig()
+	}
+	processCertificateKeyFile := func() any {
+		return processTLS()["certificateKeyFile"]
+	}
+	memberCertificate := func() *certmanagerv1.Certificate {
+		cert := &certmanagerv1.Certificate{}
+		require.NoError(t, kubeClient.Get(ctx, memberCertKey, cert))
+		return cert
+	}
+	issuingCondition := func(cert *certmanagerv1.Certificate) *certmanagerv1.CertificateCondition {
+		for i := range cert.Status.Conditions {
+			if cert.Status.Conditions[i].Type == certmanagerv1.CertificateConditionIssuing {
+				return &cert.Status.Conditions[i]
+			}
+		}
+		return nil
+	}
+	clearIssuing := func() {
+		cert := memberCertificate()
+		var conditions []certmanagerv1.CertificateCondition
+		for _, condition := range cert.Status.Conditions {
+			if condition.Type != certmanagerv1.CertificateConditionIssuing {
+				conditions = append(conditions, condition)
+			}
+		}
+		cert.Status.Conditions = conditions
+		require.NoError(t, kubeClient.Status().Update(ctx, cert))
+	}
+
+	beforeRotation := reconcileAndReadTLS()
+	assert.Nil(t, issuingCondition(memberCertificate()), "no rotation yet, no reissue")
+
+	// cert-manager renews the root with a new key: the bundle widens, and the operator asks for the
+	// member leaf to be reissued because it is still signed by the old root.
+	setServerRoot(newCA)
+	afterRotation := reconcileAndReadTLS()
+	rotatedCertificateKeyFile := processCertificateKeyFile()
+
+	rotatedBundle := serverBundle()
+	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(oldCA)))
+	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(newCA)))
+	assert.NotEqual(t, beforeRotation["CAFilePath"], afterRotation["CAFilePath"])
+
+	rotatedCert := memberCertificate()
+	issuing := issuingCondition(rotatedCert)
+	require.NotNil(t, issuing, "the member certificate must ask cert-manager for a reissue")
+	assert.Equal(t, cmmeta.ConditionTrue, issuing.Status)
+	assert.Equal(t, "ManagedCARotated", issuing.Reason)
+	assert.Equal(t, rotatedCert.Generation, issuing.ObservedGeneration)
+
+	// cert-manager reissues into the same secret and clears Issuing. The operator must not set it
+	// again, and the automation config now points at the reissued member certificate.
+	setMemberLeaf(issueLeafSignedByCA(t, newCA, newCAKey, "member"))
+	clearIssuing()
+
+	reconcileAndReadTLS()
+	assert.Nil(t, issuingCondition(memberCertificate()), "the leaf already uses the new root, no further reissue")
+	reissuedCertificateKeyFile := processCertificateKeyFile()
+	require.NotNil(t, reissuedCertificateKeyFile)
+	assert.NotEqual(t, rotatedCertificateKeyFile, reissuedCertificateKeyFile, "the reissued member certificate rolls the members")
+
+	// The previous root can now be pruned.
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	if rs.Annotations == nil {
+		rs.Annotations = map[string]string{}
+	}
+	rs.Annotations[util.PrunePreviousCAAnnotation] = "true"
+	require.NoError(t, kubeClient.Update(ctx, rs))
+
+	reconcileAndReadTLS()
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	prunedBundle := serverBundle()
+	assert.NotContains(t, prunedBundle, strings.TrimSpace(string(oldCA)), "the previous root is pruned")
+	assert.Contains(t, prunedBundle, strings.TrimSpace(string(newCA)))
+	assert.NotContains(t, rs.GetAnnotations(), util.PrunePreviousCAAnnotation)
 }
 
 // certificatesReadyCondition returns the CertificatesReady condition recorded on the resource.

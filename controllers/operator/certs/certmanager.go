@@ -72,6 +72,10 @@ type CertificateOwner interface {
 	GetSecurity() *mdbv1.Security
 }
 
+// selfSignedCADuration is the requested lifetime of the operator's self-signed root CA
+// certificate.
+const selfSignedCADuration = 5 * 365 * 24 * time.Hour
+
 // certificateOwnerReferences returns the owner references of the objects issued for res. An adapter
 // can name certificates after one resource (e.g. the AppDB) while another (the Ops Manager
 // resource) owns them by implementing ownerResource.
@@ -860,6 +864,10 @@ func ensureSelfSignedCA(ctx context.Context, c kubernetesClient.Client, res Cert
 			SecretName: managedCACertName(res, cat),
 			CommonName: fmt.Sprintf("%s-%s-ca", res.GetName(), cat),
 			IssuerRef:  cmmeta.ObjectReference{Name: selfSignedIssuerName(res, cat), Kind: certmanagerv1.IssuerKind},
+			Duration:   &metav1.Duration{Duration: selfSignedCADuration},
+			PrivateKey: &certmanagerv1.CertificatePrivateKey{
+				RotationPolicy: certmanagerv1.RotationPolicyAlways,
+			},
 		},
 	}
 	generation, status := ensureCertificate(ctx, c, res, caCert)
