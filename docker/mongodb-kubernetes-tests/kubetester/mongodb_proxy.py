@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 from typing import Optional
 
@@ -65,6 +66,24 @@ def query_proxy(pod: str, namespace: str) -> dict:
     payload, _, status = out.rpartition("\n")
     assert status == "200", f"{pod}: the proxy answered {status}: {payload}"
     return json.loads(payload)
+
+
+def query_proxy_path(pod: str, namespace: str, path: str) -> dict:
+    """Calls one proxy endpoint from the agent container and returns the JSON body."""
+    out = KubernetesTester.run_command_in_pod_container(
+        pod,
+        namespace,
+        [
+            "bash",
+            "-c",
+            "exec 3<>/dev/tcp/127.0.0.1/8099; "
+            f"printf 'GET {path} HTTP/1.0\\r\\nHost: proxy\\r\\n\\r\\n' >&3; cat <&3",
+        ],
+        container=AGENT_CONTAINER,
+    )
+    head, body = out.split("\r\n\r\n", 1)
+    assert re.match(r"HTTP/1\.[01] 200(?: |$)", head), head
+    return json.loads(body)
 
 
 def mongod_identity(pod: str, namespace: str) -> str:

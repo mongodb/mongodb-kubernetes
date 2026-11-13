@@ -38,6 +38,8 @@ type Supervisor struct {
 	mu          sync.Mutex
 	current     *Execution
 	terminating bool
+	lastExit    *ExitStatus
+	events      *eventLog
 }
 
 type Option func(*Supervisor)
@@ -75,7 +77,7 @@ func WithLogger(log *zap.SugaredLogger) Option {
 
 // NewSupervisor creates a Supervisor that forwards the child's output to the proxy's stdout/stderr.
 func NewSupervisor(opts ...Option) *Supervisor {
-	s := &Supervisor{stdout: os.Stdout, stderr: os.Stderr, log: zap.NewNop().Sugar(), tailLogs: true, logPoll: defaultLogTailPoll, paths: DefaultPathPolicy()}
+	s := &Supervisor{stdout: os.Stdout, stderr: os.Stderr, log: zap.NewNop().Sugar(), tailLogs: true, logPoll: defaultLogTailPoll, paths: DefaultPathPolicy(), events: newEventLog()}
 	for _, o := range opts {
 		o(s)
 	}
@@ -84,15 +86,21 @@ func NewSupervisor(opts ...Option) *Supervisor {
 
 // Execution is one launched child.
 type Execution struct {
-	role       Role
-	configPath string
-	cmd        *exec.Cmd
-	output     *tailBuffer
-	done       chan struct{}
+	role        Role
+	configPath  string
+	operationID string
+	requestID   string
+	pid         int
+	launchEnv   LaunchEnvironment
+	cmd         *exec.Cmd
+	output      *tailBuffer
+	done        chan struct{}
 
+	startedAt time.Time
 	// set under Supervisor.mu before done is closed
 	exitCode int
 	signal   string
+	exitedAt time.Time
 }
 
 // Done is closed once the child has exited.
@@ -133,15 +141,52 @@ func (s *Supervisor) statusLocked(e *Execution) Status {
 	if e == nil {
 		return Status{State: StateIdle}
 	}
-	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath}
+	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath, OperationID: e.operationID}
+	if !e.startedAt.IsZero() {
+		st.StartedAt = e.startedAt.UTC().Format(time.RFC3339Nano)
+	}
 	if e.finished() {
 		code := e.exitCode
 		st.State = StateExited
 		st.ExitCode = &code
 		st.Signal = e.signal
 		st.Output = e.output.String()
+		if !e.exitedAt.IsZero() {
+			uptime := 0.0
+			if !e.startedAt.IsZero() {
+				uptime = e.exitedAt.Sub(e.startedAt).Seconds()
+			}
+			st.LastExit = &ExitStatus{
+				ExitCode:      code,
+				Signal:        e.signal,
+				ExitedAt:      e.exitedAt.UTC().Format(time.RFC3339Nano),
+				UptimeSeconds: uptime,
+			}
+		}
+	} else {
+		pid := e.pid
+		launchEnv := e.launchEnv
+		st.PID = &pid
+		st.LaunchEnvironment = &launchEnv
+		if !e.startedAt.IsZero() {
+			st.UptimeSeconds = time.Since(e.startedAt).Seconds()
+		}
+		st.LastExit = s.lastExit
 	}
 	return st
+}
+
+func (s *Supervisor) recordEvent(e Event) {
+	if s.events != nil {
+		s.events.record(e)
+	}
+}
+
+func (s *Supervisor) eventSnapshot() ([]Event, uint64) {
+	if s.events == nil {
+		return []Event{}, 0
+	}
+	return s.events.snapshot()
 }
 
 // Start launches the child and returns right after the process was spawned.
@@ -225,14 +270,32 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 
 	e := &Execution{
-		role:       req.Role,
-		configPath: req.ConfigPath,
-		cmd:        cmd,
-		output:     output,
-		done:       make(chan struct{}),
+		role:        req.Role,
+		configPath:  req.ConfigPath,
+		operationID: req.OperationID,
+		requestID:   req.RequestID,
+		pid:         cmd.Process.Pid,
+		startedAt:   time.Now().UTC(),
+		launchEnv: LaunchEnvironment{
+			LdapCaPath:     req.Other.LdapCaPath,
+			KerberosKeytab: req.Other.KerberosKeytab,
+		},
+		cmd:    cmd,
+		output: output,
+		done:   make(chan struct{}),
 	}
 	s.current = e
-	s.log.Infow("process started", "role", e.role, "configPath", e.configPath, "pid", cmd.Process.Pid)
+	s.log.Infow("process started", "operation_id", logOperationID(e.operationID), "role", e.role, "configPath", e.configPath, "pid", e.pid)
+	s.recordEvent(Event{
+		Action:      "child_started",
+		RequestID:   e.requestID,
+		Request:     requestStart,
+		OperationID: e.operationID,
+		Role:        e.role,
+		PID:         e.pid,
+		Outcome:     "started",
+		Returned:    "started",
+	})
 	go s.wait(e)
 	if logPath != "" {
 		go tailLog(logFiles, logPath, logInfoBefore, s.stdout, e.done, s.logPoll)
@@ -249,8 +312,40 @@ func (s *Supervisor) wait(e *Execution) {
 	if ws, ok := e.cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		e.signal = ws.Signal().String()
 	}
-	s.log.Infow("process exited", "role", e.role, "configPath", e.configPath, "exitCode", e.exitCode, "signal", e.signal)
+	e.exitedAt = time.Now().UTC()
+	uptime := 0.0
+	if !e.startedAt.IsZero() {
+		uptime = e.exitedAt.Sub(e.startedAt).Seconds()
+	}
+	s.lastExit = &ExitStatus{
+		ExitCode:      e.exitCode,
+		Signal:        e.signal,
+		ExitedAt:      e.exitedAt.UTC().Format(time.RFC3339Nano),
+		UptimeSeconds: uptime,
+	}
+	outcome := "exited"
+	if e.exitCode != 0 {
+		outcome = "failed"
+	}
+	s.log.Infow("process exited", "operation_id", logOperationID(e.operationID), "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitCode, "signal", e.signal, "uptime_s", uptime)
+	s.recordEvent(Event{
+		Action:      "child_exited",
+		OperationID: e.operationID,
+		Role:        e.role,
+		PID:         e.pid,
+		Outcome:     outcome,
+		Returned:    exitReturned(e.exitCode, e.signal),
+		DurationMs:  uptime * 1000,
+		Signal:      e.signal,
+	})
 	close(e.done)
+}
+
+func exitReturned(code int, signal string) string {
+	if signal != "" {
+		return "signal " + signal
+	}
+	return fmt.Sprintf("exit %d", code)
 }
 
 // resolveOptional is resolve for a program that may be missing. Without a bin dir the answer comes from PATH; with
@@ -300,7 +395,7 @@ func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration,
 		return s.kill(ctx, e)
 	}
 
-	s.log.Infow("sending SIGTERM", "role", e.role, "timeout", timeout.String(), "force", force)
+	s.log.Infow("sending SIGTERM", "operation_id", logOperationID(e.operationID), "role", e.role, "pid", e.pid, "timeout", timeout.String(), "force", force)
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("signalling the process: %w", err)
 	}
@@ -320,7 +415,7 @@ func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration,
 }
 
 func (s *Supervisor) kill(ctx context.Context, e *Execution) error {
-	s.log.Warnw("sending SIGKILL", "role", e.role)
+	s.log.Warnw("sending SIGKILL", "operation_id", logOperationID(e.operationID), "role", e.role, "pid", e.pid)
 	if err := e.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("killing the process: %w", err)
 	}
@@ -341,10 +436,12 @@ func (s *Supervisor) Terminate(ctx context.Context) error {
 	e := s.current
 	s.mu.Unlock()
 
+	s.recordEvent(Event{Action: "proxy_shutdown", Outcome: "terminating"})
+
 	if e == nil || e.finished() {
 		return nil
 	}
-	s.log.Infow("forwarding SIGTERM to the child", "role", e.role)
+	s.log.Infow("forwarding SIGTERM to the child", "operation_id", logOperationID(e.operationID), "role", e.role, "pid", e.pid)
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("forwarding SIGTERM: %w", err)
 	}

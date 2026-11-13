@@ -2,7 +2,7 @@
 //
 // The proxy owns at most one direct mongod/mongos child and exposes a localhost HTTP API
 // (see NewHandler) that the automation agent uses instead of fork/kill/proc calls.
-// The proxy is stateless: it only keeps the last execution in memory.
+// The proxy keeps no state outside of memory: the last execution and a bounded event history.
 package mongodbproxy
 
 import "errors"
@@ -86,8 +86,11 @@ type Other struct {
 type StartRequest struct {
 	ConfigPath  string `json:"configPath"`
 	Role        Role   `json:"role"`
+	OperationID string `json:"operationId,omitempty"`
 	Other       Other  `json:"other"`
 	WaitForExit bool   `json:"waitForExit,omitempty"`
+	// RequestID is the internal request identity of the event log. It is not part of the wire format.
+	RequestID string `json:"-"`
 }
 
 // StopRequest is the body of POST /v1/process/stop.
@@ -97,7 +100,24 @@ type StopRequest struct {
 	// Force sends SIGKILL after the timeout (immediately when the timeout is 0).
 	Force bool `json:"force,omitempty"`
 	// Role restricts the stop to an execution with this role. Empty matches any.
-	Role Role `json:"role,omitempty"`
+	Role        Role   `json:"role,omitempty"`
+	OperationID string `json:"operationId,omitempty"`
+}
+
+// LaunchEnvironment contains only the LDAP CA and Kerberos keytab paths supplied
+// to the tracked child at launch. It does not contain file contents or other
+// environment values.
+type LaunchEnvironment struct {
+	LdapCaPath     string `json:"ldapCaPath,omitempty"`
+	KerberosKeytab string `json:"kerberosKeytab,omitempty"`
+}
+
+// ExitStatus describes the last child that exited.
+type ExitStatus struct {
+	ExitCode      int     `json:"exitCode"`
+	Signal        string  `json:"signal,omitempty"`
+	ExitedAt      string  `json:"exitedAt,omitempty"`
+	UptimeSeconds float64 `json:"uptimeSeconds,omitempty"`
 }
 
 // Status is the response of GET /v1/process and of start/stop.
@@ -111,4 +131,16 @@ type Status struct {
 	Signal string `json:"signal,omitempty"`
 	// Output is the tail of the child's stdout/stderr, available after exit.
 	Output string `json:"output,omitempty"`
+	// OperationID is the identity supplied at start, if any.
+	OperationID string `json:"operationId,omitempty"`
+	// StartedAt is when the current or last child was launched, in RFC3339Nano.
+	StartedAt string `json:"startedAt,omitempty"`
+	// UptimeSeconds is the running time of the current child.
+	UptimeSeconds float64 `json:"uptimeSeconds,omitempty"`
+	// LastExit describes the most recent child that exited, if any.
+	LastExit *ExitStatus `json:"lastExit,omitempty"`
+	// PID and LaunchEnvironment are present together only for a running child.
+	// Their absence in a running response identifies a legacy proxy.
+	PID               *int               `json:"pid,omitempty"`
+	LaunchEnvironment *LaunchEnvironment `json:"launchEnvironment,omitempty"`
 }

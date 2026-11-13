@@ -164,3 +164,88 @@ func TestAPIStartRejectsAConfigWithFork(t *testing.T) {
 	assert.Contains(t, body.Error, "processManagement.fork")
 	assert.Equal(t, StateIdle, getStatus(t, srv).State)
 }
+
+func getEvents(t *testing.T, srv *httptest.Server, query string) eventsResponse {
+	t.Helper()
+	resp, err := http.Get(srv.URL + "/v1/events" + query) //nolint:gosec,noctx
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out eventsResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	return out
+}
+
+func findEvent(events []Event, action string) *Event {
+	for i := range events {
+		if events[i].Action == action {
+			return &events[i]
+		}
+	}
+	return nil
+}
+
+func TestAPIEventsAndStatusTimestamps(t *testing.T) {
+	f, srv := newServer(t)
+	cfg := f.config("main", "run")
+	require.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/start", StartRequest{
+		ConfigPath:  cfg,
+		Role:        RoleMain,
+		OperationID: "op-1",
+	}, nil))
+	f.waitReady(cfg)
+
+	st := getStatus(t, srv)
+	assert.NotEmpty(t, st.StartedAt)
+	assert.GreaterOrEqual(t, st.UptimeSeconds, 0.0)
+	assert.Nil(t, st.LastExit)
+
+	events := getEvents(t, srv, "?limit=10")
+	assert.Equal(t, maxEvents, events.Capacity)
+	require.NotEmpty(t, events.Events)
+	started := events.Events[0]
+	assert.Equal(t, "start", started.Action)
+	assert.Equal(t, requestStart, started.Request)
+	assert.Equal(t, "success", started.Outcome)
+	assert.Equal(t, "200", started.Returned)
+	assert.NotEmpty(t, started.RequestID)
+	assert.Equal(t, "op-1", started.OperationID)
+	assert.Greater(t, started.PID, 0)
+
+	childStarted := findEvent(events.Events, "child_started")
+	require.NotNil(t, childStarted)
+	assert.Equal(t, started.RequestID, childStarted.RequestID)
+	assert.Equal(t, requestStart, childStarted.Request)
+	assert.Equal(t, "op-1", childStarted.OperationID)
+	assert.Equal(t, RoleMain, childStarted.Role)
+	assert.Greater(t, childStarted.PID, 0)
+
+	require.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/stop", StopRequest{
+		TimeoutSeconds: 5,
+		Role:           RoleMain,
+		OperationID:    "stop-1",
+	}, nil))
+
+	events = getEvents(t, srv, "")
+	require.NotEmpty(t, events.Events)
+	stopped := events.Events[0]
+	assert.Equal(t, "stop", stopped.Action)
+	assert.Equal(t, requestStop, stopped.Request)
+	assert.Equal(t, "success", stopped.Outcome)
+	assert.Equal(t, "200", stopped.Returned)
+	assert.NotEmpty(t, stopped.RequestID)
+	assert.Equal(t, "stop-1", stopped.OperationID)
+	assert.Greater(t, stopped.PID, 0)
+
+	childExited := findEvent(events.Events, "child_exited")
+	require.NotNil(t, childExited)
+	assert.Equal(t, stopped.PID, childExited.PID)
+	assert.Equal(t, "exited", childExited.Outcome)
+	assert.Equal(t, "exit 0", childExited.Returned)
+
+	st = getStatus(t, srv)
+	require.NotNil(t, st.LastExit)
+	assert.Equal(t, 0, st.LastExit.ExitCode)
+	assert.NotEmpty(t, st.LastExit.ExitedAt)
+}
