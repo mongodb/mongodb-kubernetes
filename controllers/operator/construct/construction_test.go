@@ -290,6 +290,7 @@ func TestDefaultPodSpec_SecurityContext(t *testing.T) {
 	assert.NotNil(t, spec.InitContainers[0].SecurityContext)
 	assert.Equal(t, new(int64(util.FsGroup)), spec.SecurityContext.FSGroup)
 	assert.Equal(t, new(int64(util.RunAsUser)), spec.SecurityContext.RunAsUser)
+	assert.Equal(t, new(int64(util.RunAsGroup)), spec.SecurityContext.RunAsGroup)
 	assert.Equal(t, new(true), spec.SecurityContext.RunAsNonRoot)
 	assert.Equal(t, new(true), spec.InitContainers[0].SecurityContext.ReadOnlyRootFilesystem)
 	assert.Equal(t, new(false), spec.InitContainers[0].SecurityContext.AllowPrivilegeEscalation)
