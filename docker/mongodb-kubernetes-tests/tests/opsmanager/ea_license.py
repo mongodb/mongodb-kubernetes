@@ -26,10 +26,6 @@ DEFAULT_VALIDITY_DAYS = 2
 TRANSIENT_STATUSES = [429, 502, 503, 504]
 
 
-# EA has not handled the request on these, so even the mint POST is safe to retry.
-TRANSIENT_STATUSES = [429, 502, 503, 504]
-
-
 def _iso(moment: datetime) -> str:
     """UTC timestamp with a Z suffix."""
     assert moment.tzinfo is not None, f"{moment} has no timezone"
