@@ -642,8 +642,18 @@ func multiClusterMemberSANs(ctx context.Context, c kubernetesClient.Client, res 
 	resolved, perClusterCount := resolveMultiClusterMembersToCover(opts.MultiClusterMembers, covered)
 
 	var dnsNames []string
+	// The members are created cluster by cluster, and pod by pod inside a cluster. Their horizon
+	// hostnames are assigned in that same order, so the list is walked the same way. A member that is
+	// being removed can still be covered by the certificate but has no horizon left to read.
+	memberIndex := 0
 	for _, m := range resolved {
 		dnsNames = append(dnsNames, memberClusterDNSNames(opts, m.ClusterNum, m.Members, m.ExternalDomain)...)
+		for pod := 0; pod < m.Members; pod++ {
+			if memberIndex < len(opts.horizons) {
+				dnsNames = append(dnsNames, horizonHostnames(opts.horizons[memberIndex])...)
+			}
+			memberIndex++
+		}
 	}
 
 	encoded, err := json.Marshal(perClusterCount)
