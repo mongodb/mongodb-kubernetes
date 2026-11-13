@@ -2,12 +2,15 @@ package statefulset
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -351,6 +354,93 @@ func TestGetStatefulSetStatus(t *testing.T) {
 		status = GetStatefulSetStatus(ctx, namespace, stsName, 2, fakeClient)
 		assert.True(t, status.IsOK(), "Status should be OK when StatefulSet is updated to generation 2 and expectedGeneration is 2")
 	})
+}
+
+func TestGetUpdateRevision(t *testing.T) {
+	ctx := context.Background()
+	namespace := "test-namespace"
+	stsName := "test-statefulset"
+
+	tests := []struct {
+		name               string
+		sts                *v1.StatefulSet
+		expectedGeneration *int64
+		clientErr          error
+		wantRevision       string
+		wantErr            bool
+	}{
+		{
+			name:               "returns update revision when the generation is observed",
+			sts:                statefulSetWithUpdateRevision(stsName, namespace, 2, 2, "rev-2"),
+			expectedGeneration: ptr.To[int64](2),
+			wantRevision:       "rev-2",
+		},
+		{
+			name:         "returns update revision when no generation is expected",
+			sts:          statefulSetWithUpdateRevision(stsName, namespace, 2, 1, "rev-2"),
+			wantRevision: "rev-2",
+		},
+		{
+			name:               "returns empty string when StatefulSet does not exist",
+			expectedGeneration: ptr.To[int64](1),
+			wantRevision:       "",
+		},
+		{
+			name:               "returns empty string when observed generation is behind",
+			sts:                statefulSetWithUpdateRevision(stsName, namespace, 2, 1, "rev-2"),
+			expectedGeneration: ptr.To[int64](2),
+			wantRevision:       "",
+		},
+		{
+			name:               "returns empty string when observed generation is ahead",
+			sts:                statefulSetWithUpdateRevision(stsName, namespace, 2, 3, "rev-2"),
+			expectedGeneration: ptr.To[int64](2),
+			wantRevision:       "",
+		},
+		{
+			name:               "returns empty string when no revision is set",
+			sts:                statefulSetWithUpdateRevision(stsName, namespace, 1, 1, ""),
+			expectedGeneration: ptr.To[int64](1),
+			wantRevision:       "",
+		},
+		{
+			name:               "returns the get error",
+			expectedGeneration: ptr.To[int64](1),
+			clientErr:          errors.New("boom"),
+			wantErr:            true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			builder := mock.NewEmptyFakeClientBuilder()
+			if tt.sts != nil {
+				builder.WithObjects(tt.sts)
+			}
+			if tt.clientErr != nil {
+				builder.WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+						return tt.clientErr
+					},
+				})
+			}
+			fakeClient := kubernetesClient.NewClient(builder.Build())
+
+			revision, err := GetUpdateRevision(ctx, namespace, stsName, tt.expectedGeneration, fakeClient)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantRevision, revision)
+		})
+	}
+}
+
+func statefulSetWithUpdateRevision(name, namespace string, generation, observedGeneration int64, updateRevision string) *v1.StatefulSet {
+	sts := createStatefulSet(name, namespace, generation, observedGeneration, 3, 3, 3)
+	sts.Status.UpdateRevision = updateRevision
+	return sts
 }
 
 // createStatefulSet creates a StatefulSet with specific generation and status for testing purposes

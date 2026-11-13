@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"path"
+	"slices"
 	"strings"
 
 	"go.uber.org/zap"
@@ -587,13 +588,45 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 		return workflow.Failed(xerrors.Errorf("failed to create/update (Kubernetes reconciliation phase): %w", err))
 	}
 
-	// Check StatefulSet status
 	expectedGeneration := mutatedSts.GetGeneration()
+
+	// With a future OnDelete strategy the agents only make the StatefulSet ready once they see the desired revision.
+	if architectures.IsRunningStaticGAArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
+		if status := r.publishDesiredInfraRevision(ctx, conn, expectedGeneration); !status.IsOK() {
+			return status
+		}
+	}
+
+	// Check StatefulSet status
 	if status := statefulset.GetStatefulSetStatus(ctx, rs.Namespace, rs.Name, expectedGeneration, reconciler.client); !status.IsOK() {
 		return status
 	}
 
 	log.Info("Updated StatefulSet for replica set")
+	return workflow.OK()
+}
+
+// publishDesiredInfraRevision publishes the StatefulSet revision that the agents should converge to.
+func (r *ReplicaSetReconcilerHelper) publishDesiredInfraRevision(ctx context.Context, conn om.Connection, expectedGeneration int64) workflow.Status {
+	rs := r.resource
+
+	revision, err := statefulset.GetUpdateRevision(ctx, rs.Namespace, rs.Name, &expectedGeneration, r.reconciler.client)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+	if revision == "" {
+		return workflow.Pending("StatefulSet %s revision is not available yet", rs.Name).WithRetry(3)
+	}
+
+	err = conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
+		processNames := slices.Collect(maps.Keys(getReplicaSetProcessIdsFromReplicaSets(rs.GetReplicaSetName(), d)))
+		d.SetDesiredInfraRevisions(infraRevisionsFor(processNames, revision))
+		return nil
+	}, r.log)
+	if err != nil {
+		return workflow.Failed(err)
+	}
+
 	return workflow.OK()
 }
 
@@ -798,6 +831,17 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		prometheusCertHash: deploymentOptions.prometheusCertHash,
 	}
 
+	// A stale revision is harmless here: in the "automation config first" order it is the one already published.
+	var desiredInfraRevisions map[string]string
+	if architectures.IsRunningStaticGAArchitecture(rs.Annotations, reconciler.defaultArchitecture) {
+		revision, err := statefulset.GetUpdateRevision(ctx, rs.Namespace, rs.Name, nil, reconciler.client)
+		if err != nil {
+			// Best effort: a failed read only omits the field and must not block the AC push in any mode.
+			log.Warnf("Failed to read StatefulSet %s/%s update revision: %s", rs.Namespace, rs.Name, err)
+		}
+		desiredInfraRevisions = infraRevisionsFor(processNames, revision)
+	}
+
 	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
 			if len(rs.Spec.GetExternalMembers()) > 0 {
@@ -811,7 +855,11 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+
+			if err := ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, desiredInfraRevisions, log); err != nil {
+				return err
+			}
+			return nil
 		},
 		log)
 

@@ -1033,3 +1033,71 @@ func TestSetDownloadBase(t *testing.T) {
 		assert.NotContains(t, d, "options")
 	})
 }
+
+func TestSetDesiredInfraRevisions(t *testing.T) {
+	rsName := "fooRs"
+	allProcessNames := []string{rsName + "-0", rsName + "-1", rsName + "-2"}
+
+	tests := []struct {
+		name              string
+		revisions         map[string]string
+		existingRevisions map[string]string
+		expectedRevisions map[string]string
+	}{
+		{
+			name: "sets a different revision per process",
+			revisions: map[string]string{
+				allProcessNames[0]: "rev-0",
+				allProcessNames[1]: "rev-1",
+			},
+			expectedRevisions: map[string]string{
+				allProcessNames[0]: "rev-0",
+				allProcessNames[1]: "rev-1",
+			},
+		},
+		{
+			name:              "skips unknown process names",
+			revisions:         map[string]string{"unknown-0": "rev-1"},
+			expectedRevisions: map[string]string{},
+		},
+		{
+			name:              "skips an empty revision and leaves the existing value",
+			revisions:         map[string]string{allProcessNames[0]: ""},
+			existingRevisions: map[string]string{allProcessNames[0]: "rev-old"},
+			expectedRevisions: map[string]string{allProcessNames[0]: "rev-old"},
+		},
+		{
+			name:              "overwrites an existing revision",
+			revisions:         map[string]string{allProcessNames[0]: "rev-new"},
+			existingRevisions: map[string]string{allProcessNames[0]: "rev-old"},
+			expectedRevisions: map[string]string{allProcessNames[0]: "rev-new"},
+		},
+		{
+			name:              "empty map is a no-op",
+			expectedRevisions: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := NewDeployment()
+			mergeReplicaSet(d, rsName, createReplicaSetProcesses(rsName))
+			for name, revision := range tt.existingRevisions {
+				d.ProcessMap()[name][DesiredInfraRevisionField] = revision
+			}
+
+			d.SetDesiredInfraRevisions(tt.revisions)
+
+			processes := d.GetProcesses()
+			require.Len(t, processes, len(allProcessNames))
+			for _, p := range processes {
+				expectedRevision, ok := tt.expectedRevisions[p.Name()]
+				if !ok {
+					assert.NotContains(t, p, DesiredInfraRevisionField, p.Name())
+					continue
+				}
+				assert.Equal(t, expectedRevision, p[DesiredInfraRevisionField], p.Name())
+			}
+		})
+	}
+}

@@ -1524,7 +1524,19 @@ func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om
 	return processIds
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]any, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+// infraRevisionsFor maps every process name to revision; nil when the revision is unknown.
+func infraRevisionsFor(processNames []string, revision string) map[string]string {
+	if revision == "" {
+		return nil
+	}
+	revisions := make(map[string]string, len(processNames))
+	for _, name := range processNames {
+		revisions[name] = revision
+	}
+	return revisions
+}
+
+func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]any, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, desiredInfraRevisions map[string]string, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
@@ -1536,6 +1548,7 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 	}
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, externalProcessNames, log)
+	d.SetDesiredInfraRevisions(desiredInfraRevisions)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
 	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)

@@ -236,3 +236,22 @@ func GetStatefulSetStatus(ctx context.Context, namespace, name string, expectedG
 
 	return workflow.OK()
 }
+
+// GetUpdateRevision returns status.updateRevision of the StatefulSet, or "" when the StatefulSet does not exist,
+// no revision is set, or Kubernetes has observed a generation other than expectedGeneration. A nil
+// expectedGeneration skips the generation check.
+func GetUpdateRevision(ctx context.Context, namespace, name string, expectedGeneration *int64, client kubernetesClient.Client) (string, error) {
+	set, err := client.GetStatefulSet(ctx, kube.ObjectKey(namespace, name))
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	if expectedGeneration != nil && set.Status.ObservedGeneration != *expectedGeneration {
+		return "", nil
+	}
+
+	return set.Status.UpdateRevision, nil
+}

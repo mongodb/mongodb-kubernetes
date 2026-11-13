@@ -22,6 +22,9 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
 )
 
+// DesiredInfraRevisionField is the per-process automation config field carrying the desired StatefulSet revision.
+const DesiredInfraRevisionField = "desiredInfraRevision"
+
 type DeploymentType int
 
 const (
@@ -339,6 +342,17 @@ func (d Deployment) RemoveMonitoringAndBackup(names []string, log *zap.SugaredLo
 func (d Deployment) DisableProcesses(processNames []string) {
 	for _, p := range processNames {
 		d.getProcessByName(p).SetDisabled(true)
+	}
+}
+
+// SetDesiredInfraRevisions sets the desired infra revision on the processes named in revisions.
+// Names missing from the deployment and empty revisions are skipped; existing revisions are never deleted.
+func (d Deployment) SetDesiredInfraRevisions(revisions map[string]string) {
+	processes := d.ProcessMap()
+	for name, revision := range revisions {
+		if p, ok := processes[name]; ok && revision != "" {
+			p[DesiredInfraRevisionField] = revision
+		}
 	}
 }
 

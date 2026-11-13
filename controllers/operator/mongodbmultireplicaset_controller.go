@@ -1057,7 +1057,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
-			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.GetName(), rs, nil, caFilePath, internalClusterCertPath, nil, log)
+			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.GetName(), rs, nil, caFilePath, internalClusterCertPath, nil, nil, log)
 		},
 		log)
 
