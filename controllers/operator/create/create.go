@@ -117,35 +117,65 @@ func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient
 		return fmt.Errorf("cannot render agent settings: %w", err)
 	}
 	agent := construct.AgentContainer(*sts)
-	if secretClient.VaultClient == nil && opts.PodVars != nil && opts.PodVars.ProjectID != "" && construct.AgentAPIKeySecretName(*sts) == "" {
-		// Member clusters have no Vault client. The global Vault backend omits the Kubernetes key
-		// volume in the shared construct, so mount the member cluster Secret explicitly.
-		podtemplatespec.WithVolume(enterprisests.CreateVolumeFromSecret(construct.AgentAPIKeyVolumeName, agents.ApiKeySecretName(opts.PodVars.ProjectID)))(&sts.Spec.Template)
-		container.WithVolumeMounts([]corev1.VolumeMount{enterprisests.CreateVolumeMount(construct.AgentAPIKeyVolumeName, construct.AgentAPIKeySecretPath)})(agent)
+	if needsMemberClusterKeyMount(secretClient, *sts, opts) {
+		mountMemberClusterKeySecret(sts, agent, opts.PodVars.ProjectID)
 	}
-	var parameters mdbv1.StartupParameters
-	if opts.AgentConfig != nil {
-		parameters = construct.AgentSettingsOverrides(opts.AgentConfig.StartupParameters)
-	}
-	baseURL := env.ToMap(agent.Env...)[util.EnvVarBaseUrl]
-	needsCredential := baseURL != "" && !construct.AgentEnvironmentIsRuntime(*agent, util.EnvVarBaseUrl)
-	if override, ok := parameters["mmsBaseUrl"]; ok {
-		needsCredential = override != ""
-	}
-	var basePath string
-	if secretClient.VaultClient != nil {
-		basePath = secretClient.VaultClient.DatabaseSecretPath()
-	}
-	if err := reconcileAgentSettings(ctx, client, secretClient, sts, cm, parameters, basePath, needsCredential); err != nil {
+	parameters := customerStartupOptions(opts)
+	err = reconcileAgentSettings(ctx, client, secretClient, sts, cm, parameters, vaultDatabaseSecretPath(secretClient), agentReadsCredential(*agent, parameters))
+	if err != nil {
 		return err
 	}
+	// The launcher takes everything from the settings file, so no arguments are passed.
 	container.WithArgs(nil)(agent)
+	setAgentHostnameEnv(agent, parameters)
+	return nil
+}
+
+// needsMemberClusterKeyMount reports whether the agent key Secret has to be mounted here. Member
+// clusters have no Vault client, and the global Vault backend omits the Kubernetes key volume in
+// the shared construct, so the member cluster Secret is mounted explicitly.
+func needsMemberClusterKeyMount(secretClient secrets.SecretClient, sts appsv1.StatefulSet, opts construct.DatabaseStatefulSetOptions) bool {
+	hasProject := opts.PodVars != nil && opts.PodVars.ProjectID != ""
+	return secretClient.VaultClient == nil && hasProject && construct.AgentAPIKeySecretName(sts) == ""
+}
+
+func mountMemberClusterKeySecret(sts *appsv1.StatefulSet, agent *corev1.Container, projectID string) {
+	podtemplatespec.WithVolume(enterprisests.CreateVolumeFromSecret(construct.AgentAPIKeyVolumeName, agents.ApiKeySecretName(projectID)))(&sts.Spec.Template)
+	container.WithVolumeMounts([]corev1.VolumeMount{enterprisests.CreateVolumeMount(construct.AgentAPIKeyVolumeName, construct.AgentAPIKeySecretPath)})(agent)
+}
+
+func customerStartupOptions(opts construct.DatabaseStatefulSetOptions) mdbv1.StartupParameters {
+	if opts.AgentConfig == nil {
+		return nil
+	}
+	return construct.AgentSettingsOverrides(opts.AgentConfig.StartupParameters)
+}
+
+// agentReadsCredential reports whether the agent will read the API key at startup, judged from the
+// customer's mmsBaseUrl override or else the container BASE_URL. A BASE_URL set through a runtime
+// reference cannot be resolved here, so it does not count.
+func agentReadsCredential(agent corev1.Container, parameters mdbv1.StartupParameters) bool {
+	if override, ok := parameters["mmsBaseUrl"]; ok {
+		return override != ""
+	}
+	baseURL := env.ToMap(agent.Env...)[util.EnvVarBaseUrl]
+	return baseURL != "" && !construct.AgentEnvironmentIsRuntime(agent, util.EnvVarBaseUrl)
+}
+
+func vaultDatabaseSecretPath(secretClient secrets.SecretClient) string {
+	if secretClient.VaultClient == nil {
+		return ""
+	}
+	return secretClient.VaultClient.DatabaseSecretPath()
+}
+
+// setAgentHostnameEnv passes a customer overrideLocalHost to the launcher. It is appended last
+// because Kubernetes expands references using the entries that precede them.
+func setAgentHostnameEnv(agent *corev1.Container, parameters mdbv1.StartupParameters) {
 	agent.Env = slices.DeleteFunc(agent.Env, func(variable corev1.EnvVar) bool { return variable.Name == agentHostnameOverrideEnv })
 	if hostname, ok := parameters["overrideLocalHost"]; ok {
-		// Kubernetes expands references using preceding environment entries. Append after all pod-template merges.
 		agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
 	}
-	return nil
 }
 
 func reconcileAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, cm corev1.ConfigMap, parameters mdbv1.StartupParameters, basePath string, needsCredential bool) error {
