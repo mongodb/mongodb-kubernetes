@@ -14,22 +14,21 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/kubectl-mongodb/memberregistration"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 )
 
 var flags struct {
 	memberCluster            string
 	memberClusterContext     string
 	operatorNamespace        string
-	memberClusterLogicalName string
 	memberClusterApiServer   string
 	memberClusterApiServerCA string
 }
 
 func init() {
-	GenerateRegistrationCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "RFC 1123 name of the member cluster; names the central-cluster resources (the MemberCluster CR's metadata.name and the credential Secret name suffix). Must be unique per member cluster on the central cluster. [required]")
+	GenerateRegistrationCmd.Flags().StringVar(&flags.memberCluster, "member-cluster", "", "Logical name of the member cluster, carried verbatim into the MemberCluster CR's spec.clusterName; workloads use it to reference the cluster. The CR's metadata.name and the credential Secret name are derived from it: RFC 1123 compliant names pass through unchanged, others are normalized with a short hash suffix. [required]")
 	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterContext, "member-cluster-context", "", "Kubeconfig context for the member cluster; the command reads the ServiceAccount token and API server URL from it. [required]")
 	GenerateRegistrationCmd.Flags().StringVar(&flags.operatorNamespace, "operator-namespace", "", "Namespace where the operator is installed. Used to locate the operator's credentials (ServiceAccount token Secret) on the member cluster, and as the namespace for the MemberCluster CR and credential Secret on the operator's cluster. [required]")
-	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterLogicalName, "member-cluster-logical-name", "", "Name that workloads use to reference this member cluster. Only needed when that name is not RFC 1123 compliant (e.g. it contains underscores). [optional, default: --member-cluster]")
 	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServer, "member-cluster-api-server", "", "API server address of the member cluster; must be reachable from the operator Pod. [optional, default: the server address from --member-cluster-context]")
 	GenerateRegistrationCmd.Flags().StringVar(&flags.memberClusterApiServerCA, "member-cluster-api-server-ca", "", "Path to a PEM file with the CA certificate the operator should use to verify the member cluster's API server. [optional, default: the CA from the member cluster's ServiceAccount token Secret]")
 }
@@ -44,6 +43,8 @@ token that 'generate-resources' created on it, and writes a credential Secret (a
 single-context kubeconfig) and a MemberCluster CR as multi-document YAML to stdout.
 
 If the token Secret is not populated yet, the command waits up to a minute for Kubernetes to provision it.
+The --member-cluster value lands in the MemberCluster CR's spec.clusterName verbatim; the CR's metadata.name
+and the credential Secret name are derived from it.
 By default the credential kubeconfig uses the API server address from --member-cluster-context; pass --member-cluster-api-server to override it.
 By default the credential kubeconfig uses the CA from the member cluster's ServiceAccount token Secret; pass --member-cluster-api-server-ca to override it.
 
@@ -57,6 +58,9 @@ kubectl-mongodb cluster generate-registration --member-cluster=cluster-east --me
 		opts, err := parseFlags()
 		if err != nil {
 			return err
+		}
+		if opts.MemberClusterName != flags.memberCluster {
+			fmt.Fprintf(cmd.ErrOrStderr(), "member cluster '%s' will be registered as '%s'\n", flags.memberCluster, opts.MemberClusterName)
 		}
 
 		restConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
@@ -87,9 +91,9 @@ func parseFlags() (memberregistration.Options, error) {
 		return memberregistration.Options{}, xerrors.Errorf("non-empty values are required for [member-cluster, member-cluster-context, operator-namespace]")
 	}
 
-	memberClusterLogicalName := flags.memberClusterLogicalName
-	if strings.TrimSpace(memberClusterLogicalName) == "" {
-		memberClusterLogicalName = flags.memberCluster
+	memberClusterName, err := resourcenames.NormalizeMemberClusterName(flags.memberCluster)
+	if err != nil {
+		return memberregistration.Options{}, err
 	}
 
 	memberClusterApiServer := strings.TrimSpace(flags.memberClusterApiServer)
@@ -109,10 +113,10 @@ func parseFlags() (memberregistration.Options, error) {
 	}
 
 	return memberregistration.Options{
-		MemberClusterName:        flags.memberCluster,
+		MemberClusterName:        memberClusterName,
 		MemberClusterNamespace:   flags.operatorNamespace,
 		OperatorNamespace:        flags.operatorNamespace,
-		MemberClusterLogicalName: memberClusterLogicalName,
+		MemberClusterLogicalName: flags.memberCluster,
 		MemberClusterApiServer:   memberClusterApiServer,
 		MemberClusterApiServerCA: memberClusterApiServerCA,
 		TokenWaitTimeout:         memberregistration.DefaultTokenWaitTimeout,

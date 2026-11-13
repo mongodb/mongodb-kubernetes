@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -16,7 +17,52 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cryptorand "crypto/rand"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 )
+
+func TestParseFlags(t *testing.T) {
+	tests := []struct {
+		name            string
+		cluster         string
+		context         string
+		operatorNs      string
+		wantClusterName string
+		wantLogicalName string
+		wantError       string
+	}{
+		{name: "missing member cluster rejected", context: "east-ctx", operatorNs: "mongodb", wantError: "[member-cluster, member-cluster-context, operator-namespace]"},
+		{name: "missing member cluster context rejected", cluster: "cluster-east", operatorNs: "mongodb", wantError: "[member-cluster, member-cluster-context, operator-namespace]"},
+		{name: "missing operator namespace rejected", cluster: "cluster-east", context: "east-ctx", wantError: "[member-cluster, member-cluster-context, operator-namespace]"},
+		{name: "whitespace-only member cluster rejected", cluster: "  ", context: "east-ctx", operatorNs: "mongodb", wantError: "[member-cluster, member-cluster-context, operator-namespace]"},
+		{name: "RFC 1123 member cluster passes through unchanged", cluster: "cluster-east", context: "east-ctx", operatorNs: "mongodb", wantClusterName: "cluster-east", wantLogicalName: "cluster-east"},
+		{name: "non RFC 1123 member cluster carried verbatim as logical name", cluster: "gke_east_us", context: "east-ctx", operatorNs: "mongodb", wantLogicalName: "gke_east_us"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			saved := flags
+			defer func() { flags = saved }()
+			flags.memberCluster = tc.cluster
+			flags.memberClusterContext = tc.context
+			flags.operatorNamespace = tc.operatorNs
+
+			opts, err := parseFlags()
+			if tc.wantError != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantLogicalName, opts.MemberClusterLogicalName)
+			if tc.wantClusterName != "" {
+				assert.Equal(t, tc.wantClusterName, opts.MemberClusterName)
+			} else {
+				assert.Regexp(t, regexp.MustCompile("^gke-east-us-[0-9a-f]{8}$"), opts.MemberClusterName)
+				assert.LessOrEqual(t, len(resourcenames.MemberClusterCredentialSecretName(opts.MemberClusterName)), 253)
+			}
+		})
+	}
+}
 
 func TestLoadMemberClusterApiServerCA(t *testing.T) {
 	caPEM := generateTestCAPEM(t, "member-cluster-ca")
