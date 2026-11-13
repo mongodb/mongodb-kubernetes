@@ -20,7 +20,7 @@ import (
 func TestMain(m *testing.M) {
 	os.Exit(env.RunShared(m,
 		env.WithCRDs("mongodb.com_mongodb.yaml", "mongodb.com_clustermongodbroles.yaml"),
-		env.WithWebhooks("webhooks.yaml"),
+		env.WithOperatorWebhooks(),
 	))
 }
 

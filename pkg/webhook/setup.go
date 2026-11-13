@@ -3,6 +3,7 @@ package webhook
 import (
 	"context"
 	"os"
+	"path/filepath"
 
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
@@ -73,13 +74,8 @@ func createWebhookService(ctx context.Context, client client.Client, location ty
 
 // GetWebhookConfig constructs a Kubernetes configuration resource for the
 // validating admission webhook based on the name and namespace of the webhook
-// service.
-func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.ValidatingWebhookConfiguration {
-	caBytes, err := os.ReadFile("/tmp/k8s-webhook-server/serving-certs/tls.crt")
-	if err != nil {
-		panic("could not read CA")
-	}
-
+// service and the CA bundle of its serving certificate.
+func GetWebhookConfig(serviceLocation types.NamespacedName, caBundle []byte) admissionv1.ValidatingWebhookConfiguration {
 	// need to make variables as one can't take the address of a constant
 	scope := admissionv1.NamespacedScope
 	sideEffects := admissionv1.SideEffectClassNone
@@ -105,7 +101,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 						// 1.15 but I am unsure about the intervening versions.
 						Port: &port,
 					},
-					CABundle: caBytes,
+					CABundle: caBundle,
 				},
 				Rules: []admissionv1.RuleWithOperations{
 					{
@@ -134,7 +130,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 						Path:      &dbmultiPath,
 						Port:      &port,
 					},
-					CABundle: caBytes,
+					CABundle: caBundle,
 				},
 				Rules: []admissionv1.RuleWithOperations{
 					{
@@ -165,7 +161,7 @@ func GetWebhookConfig(serviceLocation types.NamespacedName) admissionv1.Validati
 						// 1.15 but I am unsure about the intervening versions.
 						Port: &port,
 					},
-					CABundle: caBytes,
+					CABundle: caBundle,
 				},
 				Rules: []admissionv1.RuleWithOperations{
 					{
@@ -224,23 +220,28 @@ func Setup(ctx context.Context, client client.Client, serviceLocation types.Name
 		return err
 	}
 
+	caBundle, err := os.ReadFile(filepath.Join(certDirectory, "tls.crt"))
+	if err != nil {
+		return err
+	}
+
 	if err := createWebhookService(ctx, client, serviceLocation, webhookPort, svcSelector); err != nil {
 		return err
 	}
 
-	webhookConfig := GetWebhookConfig(serviceLocation)
-	err := client.Create(ctx, &webhookConfig)
-	if apiErrors.IsAlreadyExists(err) {
+	webhookConfig := GetWebhookConfig(serviceLocation, caBundle)
+	webhookCreateError := client.Create(ctx, &webhookConfig)
+	if apiErrors.IsAlreadyExists(webhookCreateError) {
 		// client.Update results in internal K8s error "Invalid value: 0x0: must be specified for an update"
 		// (see https://github.com/kubernetes/kubernetes/issues/80515)
 		// this fixed in K8s 1.16.0+
-		if err = client.Delete(ctx, &webhookConfig); err == nil {
-			err = client.Create(ctx, &webhookConfig)
+		if err := client.Delete(ctx, &webhookConfig); err == nil {
+			webhookCreateError = client.Create(ctx, &webhookConfig)
 		}
 	}
-	if err != nil {
+	if webhookCreateError != nil {
 		log.Warnf("Failed to configure admission webhooks. The operator might not have necessary permissions anymore. "+
-			"Admission webhooks might not work correctly. Ignore this error if the cluster role for the operator was removed deliberately. Error: %s", err)
+			"Admission webhooks might not work correctly. Ignore this error if the cluster role for the operator was removed deliberately. Error: %s", webhookCreateError)
 		return nil
 	}
 	log.Debugf("Configured ValidatingWebhookConfiguration %s", webhookConfig.Name)
