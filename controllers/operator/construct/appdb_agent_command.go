@@ -30,10 +30,6 @@ const (
 func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, podVars *env.PodEnvVars) (corev1.ConfigMap, error) {
 	parameters := appDB.AutomationAgent.StartupParameters
 	agent := AgentContainer(sts)
-	var variables map[string]string
-	if agent != nil {
-		variables = env.ToMap(agent.Env...)
-	}
 	settings := mdbv1.StartupParameters{
 		"cluster":              appdbClusterFilePath,
 		"healthCheckFilePath":  appdbAgentHealthStatusFilePathValue,
@@ -61,18 +57,18 @@ func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, 
 		// would substitute the operator view and corrupt the command.
 		if key != agentAPIKeyExecSetting {
 			if value == "" {
-				// The legacy AppDB command rendered an empty value as a bare flag, which meant true
-				// for boolean options. The settings file has no type information, so keep that meaning.
+				// An empty value means true. The settings file has no type information, so a
+				// boolean option written without a value keeps that meaning.
 				value = "true"
 			} else if agent != nil {
-				value = expandLiteralShellVariables(value, *agent, variables)
+				value = expandLiteralShellVariables(value, *agent)
 			}
 		}
 		settings[key] = value
 	}
-	// The legacy command appended the monitoring project after customer startup options, so the
-	// operator project wins a duplicate mmsGroupId. A customer mmsApiKeyExec still wins, because
-	// the agent runs the exec command in preference to mmsApiKey.
+	// With monitoring on, the operator's project wins over a customer mmsGroupId. A customer
+	// mmsApiKeyExec still wins over the generated one, because the agent runs the exec command in
+	// preference to mmsApiKey.
 	if ShouldEnableMonitoring(podVars) {
 		settings["mmsGroupId"] = podVars.ProjectID
 	}
@@ -84,7 +80,11 @@ func AppDBAgentSettingsConfigMap(sts appsv1.StatefulSet, appDB *omv1.AppDBSpec, 
 
 var shellVariableRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 
-func expandLiteralShellVariables(value string, agent corev1.Container, variables map[string]string) string {
+// expandLiteralShellVariables fills in $VAR and ${VAR} from literal values in the agent container
+// env. A reference the operator cannot resolve at reconcile time (a runtime reference) stays as
+// written, and an unknown name becomes empty, as the shell did.
+func expandLiteralShellVariables(value string, agent corev1.Container) string {
+	variables := env.ToMap(agent.Env...)
 	return shellVariableRef.ReplaceAllStringFunc(value, func(ref string) string {
 		match := shellVariableRef.FindStringSubmatch(ref)
 		name := match[1]
