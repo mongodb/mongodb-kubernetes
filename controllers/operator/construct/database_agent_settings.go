@@ -251,25 +251,34 @@ func AgentReadsMountedAPIKey(opts DatabaseStatefulSetOptions) bool {
 	return databaseAgentSettings(opts, agentRuntime{})["mmsApiKeyExec"] == agentAPIKeyExecCommand()
 }
 
-// setAgentHostnameEnv passes the advertised hostname to the launcher, which is the customer's
-// overrideLocalHost or else the one the operator generated from the pod name. It is appended last
-// because Kubernetes expands references using the entries that precede them.
+// setAgentHostnameEnv passes the advertised hostname to the launcher. A customer overrideLocalHost
+// wins over the hostname the operator generated from the pod name.
 func setAgentHostnameEnv(agent *corev1.Container, opts DatabaseStatefulSetOptions) {
 	agent.Env = slices.DeleteFunc(agent.Env, func(variable corev1.EnvVar) bool { return variable.Name == agentHostnameOverrideEnv })
-	var hostname string
-	var ok bool
+	var parameters mdbv1.StartupParameters
 	if opts.AgentConfig != nil {
-		hostname, ok = AgentSettingsOverrides(opts.AgentConfig.StartupParameters)["overrideLocalHost"]
+		parameters = AgentSettingsOverrides(opts.AgentConfig.StartupParameters)
 	}
-	if !ok && opts.AgentHostnameOverride != "" {
-		hostname, ok = opts.AgentHostnameOverride, true
-		if _, defined := env.ToMap(agent.Env...)[PodNameEnv]; !defined {
-			agent.Env = append(agent.Env, PodNameEnvVar())
-		}
+	if customer, ok := parameters["overrideLocalHost"]; ok {
+		appendHostnameEnv(agent, customer)
+	} else if opts.AgentHostnameOverride != "" {
+		ensurePodNameEnv(agent)
+		appendHostnameEnv(agent, opts.AgentHostnameOverride)
 	}
-	if ok {
-		agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
+}
+
+// ensurePodNameEnv adds POD_NAME unless the pod template already defines it, so the generated
+// hostname can reference it.
+func ensurePodNameEnv(agent *corev1.Container) {
+	if _, defined := env.ToMap(agent.Env...)[PodNameEnv]; !defined {
+		agent.Env = append(agent.Env, PodNameEnvVar())
 	}
+}
+
+// appendHostnameEnv appends last because Kubernetes expands references using the entries that
+// precede them.
+func appendHostnameEnv(agent *corev1.Container, hostname string) {
+	agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
 }
 
 // upsertAgentAPIKeyVolume replaces the projected API-key volume in place and keeps the existing

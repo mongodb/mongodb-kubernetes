@@ -19,6 +19,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -910,6 +911,35 @@ func TestReplicaSetOptionsCarryTopLevelExternalAccess(t *testing.T) {
 	assert.Equal(t, "rs.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
 	// An external domain means processes advertise their external hostname.
 	assert.Equal(t, "$(POD_NAME).rs.example.com", opts.AgentHostnameOverride)
+}
+
+// The generated hostnames must stay equal to what the operator registers in the automation config,
+// so they are pinned to the pkg/dns functions that build those.
+func TestAgentHostnameOverrideMatchesDNS(t *testing.T) {
+	const (
+		namespace = "ns"
+		podNum    = 1
+	)
+	expand := func(hostname, podName string) string { return strings.ReplaceAll(hostname, "$(POD_NAME)", podName) }
+	domain := "example.com"
+
+	for _, clusterDomain := range []string{"", "custom.local", ".custom.local"} {
+		t.Run("multi-cluster service "+clusterDomain, func(t *testing.T) {
+			podName := dns.GetMultiPodName("my-rs", 0, podNum)
+			assert.Equal(t, dns.GetMultiServiceFQDN("my-rs", namespace, 0, podNum, clusterDomain),
+				expand(AgentHostnameOverride(nil, true, namespace, clusterDomain), podName))
+		})
+	}
+	t.Run("multi-cluster external domain", func(t *testing.T) {
+		podName := dns.GetMultiPodName("my-rs", 0, podNum)
+		assert.Equal(t, dns.GetMultiClusterPodServiceFQDN("my-rs", namespace, 0, &domain, podNum, ""),
+			expand(AgentHostnameOverride(&domain, true, namespace, ""), podName))
+	})
+	t.Run("single cluster external domain", func(t *testing.T) {
+		podName := dns.GetPodName("my-rs", podNum)
+		assert.Equal(t, dns.GetPodFQDN(podName, "", namespace, "", &domain),
+			expand(AgentHostnameOverride(&domain, false, namespace, ""), podName))
+	})
 }
 
 func TestAgentHostnameOverride(t *testing.T) {
