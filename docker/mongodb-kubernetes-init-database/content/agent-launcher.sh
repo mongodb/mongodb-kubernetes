@@ -146,6 +146,10 @@ else
   agentOpts+=("-operatorMode=true")
 fi
 
+if [ -n "${MDB_MONGODB_PROXY_ADDRESS:-}" ]; then
+  agentOpts+=("-mongodProxyAddress=${MDB_MONGODB_PROXY_ADDRESS}")
+fi
+
 
 if [[ -n "${base_url}" ]]; then
     agentOpts+=("-mmsBaseUrl=${base_url}")
