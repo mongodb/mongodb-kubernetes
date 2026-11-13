@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Iterator, Optional
 
 import semver
@@ -53,8 +54,9 @@ def om_supports_oplog_object_lock(custom_version: Optional[str]) -> bool:
 
 # Since OM 8.0.28 and 9.0.2 (CLOUDP-470804), OM reads the S3 object-lock settings from the
 # bucket itself. If we send values that disagree, it just logs a warning and ignores them
-# instead of returning a 400, so the backup never goes to Failed and the two negative-path
-# tests below can't pass anymore.
+# instead of returning a 400, so the backup never goes to Failed and the negative-path
+# tests below can't pass anymore. The rest of the flow depends on the old behavior too
+# (the retention fix no longer recovers the backup), so it is skipped as well.
 #
 # MCK still sends the deprecated fields. KUBE-632 will fix that, and the tests should be
 # reworked then rather than just re-enabled.
@@ -78,8 +80,22 @@ def om_ignores_object_lock_input(custom_version: Optional[str]) -> bool:
 
 
 OBJECT_LOCK_INPUT_IGNORED_SKIP_REASON = (
-    "Skipped on OM 8.0.28+/9.0.2+ (CLOUDP-470804): OM now ignores mismatching object-lock input "
-    "instead of failing the backup, so this test can't reach Failed. To be reworked in KUBE-632."
+    "Skipped on OM 8.0.28+/9.0.2+ (CLOUDP-470804): OM reads the object-lock settings from the S3 "
+    "bucket, treats the store's objectLockEnabled/retention input as deprecated and discards it "
+    "with a warning instead of returning an error. Both halves of this scenario are unusable: a "
+    "mismatching store no longer fails the backup, and a retention period added on the CR no "
+    "longer reaches the store, so the S3 validation battery fails with validateDeleteAfterPut / "
+    "validateBulkDelete against the object-locked buckets and the backup never returns to Running. "
+    "To be reworked in KUBE-632 (MCK 1.16.0), which stops sending the deprecated fields and adds "
+    "portableBackupEnabled to the CRD."
+)
+
+# The scenario is order-dependent: it walks a single Ops Manager instance from a mismatching
+# store to a valid one, so the unsupported tests cannot be skipped individually without
+# changing what the remaining ones observe on these OM versions. Skip the whole module.
+pytestmark = mark.skipif(
+    om_ignores_object_lock_input(os.getenv("CUSTOM_OM_VERSION")),
+    reason=OBJECT_LOCK_INPUT_IGNORED_SKIP_REASON,
 )
 
 
@@ -263,9 +279,7 @@ class TestOpsManagerCreation:
         ops_manager["spec"]["backup"]["s3OpLogStores"] = [s3_oplog_store]
         ops_manager.update()
 
-    def test_s3_bucket_validation_fails(self, ops_manager: MongoDBOpsManager, custom_version: Optional[str]):
-        if om_ignores_object_lock_input(custom_version):
-            skip(OBJECT_LOCK_INPUT_IGNORED_SKIP_REASON)
+    def test_s3_bucket_validation_fails(self, ops_manager: MongoDBOpsManager):
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             timeout=500,
@@ -337,8 +351,6 @@ class TestOpsManagerCreation:
         # the retention fields: OM must reject this mismatch.
         if not om_supports_object_retention(custom_version):
             skip("bucket retention mismatch requires OM versions exposing the retention API (8.0.27+)")
-        if om_ignores_object_lock_input(custom_version):
-            skip(OBJECT_LOCK_INPUT_IGNORED_SKIP_REASON)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Failed,
             # msg_regexp is matched with re.match (anchored at the message start); (?s)
@@ -356,7 +368,9 @@ class TestOpsManagerCreation:
         ops_manager["spec"]["backup"]["s3Stores"][1]["objectRetentionMode"] = OBJECT_RETENTION_MODE
         ops_manager.update()
 
-    def test_om_passes_validations(self, ops_manager: MongoDBOpsManager):
+    def test_om_passes_validations(self, ops_manager: MongoDBOpsManager, custom_version: Optional[str]):
+        if om_ignores_object_lock_input(custom_version):
+            skip(OBJECT_LOCK_INPUT_IGNORED_SKIP_REASON)
         ops_manager.backup_status().assert_reaches_phase(
             Phase.Running,
             timeout=600,
@@ -365,6 +379,8 @@ class TestOpsManagerCreation:
     def test_om_object_lock_enabled(
         self, ops_manager: MongoDBOpsManager, s3_buckets: Dict[str, str], custom_version: Optional[str]
     ):
+        if om_ignores_object_lock_input(custom_version):
+            skip(OBJECT_LOCK_INPUT_IGNORED_SKIP_REASON)
         om_tester = ops_manager.get_om_tester()
         appdb_replica_set = ops_manager.get_appdb_resource()
         appdb_password = KubernetesTester.read_secret(ops_manager.namespace, ops_manager.app_db_password_secret_name())[
