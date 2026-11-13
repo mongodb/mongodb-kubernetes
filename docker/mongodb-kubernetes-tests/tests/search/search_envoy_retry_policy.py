@@ -204,14 +204,7 @@ class TestEnvoyMaxAttemptCountHeader:
 
 def _get_envoy_pod_ip(namespace: str, search_name: str) -> str:
     """Return the pod IP of the first envoy pod."""
-    from kubetester.kubetester import KubernetesTester
-
-    deployment_name = search_resource_names.lb_deployment_name(search_name)
-    pods = KubernetesTester.read_pod_labels(namespace, label_selector=f"app={deployment_name}")
-    assert pods.items, f"no envoy pods found with label app={deployment_name}"
-    pod = pods.items[0]
-    logger.info(f"Envoy pod: {pod.metadata.name} (IP: {pod.status.pod_ip})")
-    return pod.status.pod_ip
+    return _get_envoy_pod_ips(namespace, search_name)[0]
 
 
 def _get_envoy_pod_ips(namespace: str, search_name: str) -> list[str]:
@@ -234,8 +227,18 @@ def _max_attempt_header_values(namespace: str, search_name: str) -> list[str]:
     from kubetester.kubetester import KubernetesTester
 
     cm = KubernetesTester.read_configmap(namespace, search_resource_names.lb_configmap_name(search_name))
+    lds = json.loads(cm["lds.json"])
+    routes = [
+        route
+        for listener in lds.get("resources", [])
+        for chain in listener.get("filter_chains", [])
+        for f in chain["filters"]
+        if f["name"] == "envoy.filters.network.http_connection_manager"
+        for vh in f["typed_config"]["route_config"]["virtual_hosts"]
+        for route in vh["routes"]
+    ]
     values = []
-    for route in _find_routes(json.loads(cm["lds.json"])):
+    for route in routes:
         headers = {h["header"]["key"]: h["header"].get("value") for h in route.get("request_headers_to_add", [])}
         values.append(headers.get(MAX_ATTEMPT_COUNT_HEADER, "<missing>"))
     return values
@@ -248,20 +251,6 @@ def _get_lds_update_success(tools_pod: mongodb_tools_pod.ToolsPod, envoy_pod_ip:
         if line.startswith("listener_manager.lds.update_success:"):
             return int(line.split(":")[1].strip())
     return 0
-
-
-def _find_routes(node) -> list[dict]:
-    """Recursively collect every route entry under any virtual_hosts."""
-    routes = []
-    if isinstance(node, dict):
-        for vh in node.get("virtual_hosts", []):
-            routes.extend(vh.get("routes", []))
-        for v in node.values():
-            routes.extend(_find_routes(v))
-    elif isinstance(node, list):
-        for v in node:
-            routes.extend(_find_routes(v))
-    return routes
 
 
 def _list_mongot_pods(namespace: str):
