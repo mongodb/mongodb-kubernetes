@@ -437,6 +437,8 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 	extraEnvs = append(extraEnvs, ReadDatabaseProxyVarsFromEnv()...)
 	stsOpts.ExtraEnvs = extraEnvs
 
+	stsOpts.warnIfMongodbProxyIsIgnored(mdb, log)
+
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts, mdb)
 	sts := statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts, log))
 	return sts
@@ -563,28 +565,23 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 
 	var databaseImage string
 	var staticMods []podtemplatespec.Modification
-	// Add volume mounts to all containers in static architectures.
-	// This runs after all containers have been added to the spec.
-	addStaticVolumeMounts := func(spec *corev1.PodTemplateSpec) {
-		for i := range spec.Spec.Containers {
-			container.WithVolumeMounts(volumeMounts)(&spec.Spec.Containers[i])
-		}
-	}
-	switch architecture := architectures.GetArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture); architecture {
-	case architectures.Static:
-		// Legacy static reaches the MongoDB binaries and the init-database content through the shared process
-		// namespace, and runs the utilities holder as a sidecar container.
-		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
-		}
-		staticMods = append(staticMods, addStaticVolumeMounts)
-		databaseImage = opts.AgentImage
-	case architectures.StaticGA:
+	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) {
 		// The proxy is PID 1 of its container and parent of mongod, and the agent reaches it over HTTP, so the
 		// containers must not share a process namespace in that mode.
-		staticMods = append(staticMods, addStaticVolumeMounts)
+		if !opts.usesMongodbProxy(mdb) {
+			shareProcessNs = func(sts *appsv1.StatefulSet) {
+				sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
+			}
+		}
+		// Add volume mounts to all containers in static architecture
+		// This runs after all containers have been added to the spec
+		staticMods = append(staticMods, func(spec *corev1.PodTemplateSpec) {
+			for i := range spec.Spec.Containers {
+				container.WithVolumeMounts(volumeMounts)(&spec.Spec.Containers[i])
+			}
+		})
 		databaseImage = opts.AgentImage
-	default:
+	} else {
 		databaseImage = opts.DatabaseNonStaticImage
 	}
 
@@ -822,11 +819,6 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
-	agentFlags := startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)
-	if architecture == architectures.StaticGA {
-		agentFlags = staticGAAgentFlags(opts.AgentConfig.StartupParameters)
-	}
-
 	agentContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerName),
 		container.WithImage(opts.AgentImage),
@@ -834,7 +826,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
 		container.WithLivenessProbe(DatabaseLivenessProbe()),
-		container.WithEnvs(agentFlags),
+		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
@@ -853,10 +845,24 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		configureContainerSecurityContext,
 	)}
 
-	if architecture == architectures.StaticGA {
-		volumes = append(volumes, imageVolume(mongodbProxyVolumeName, opts.MongodbProxyImage))
+	if opts.usesMongodbProxy(mdb) {
+		volumes = append(volumes,
+			imageVolume(mongodbProxyVolumeName, opts.MongodbProxyImage),
+			imageVolume(mongodbBinariesVolumeName, opts.MongodbImage),
+			imageVolume(mongodbInitDatabaseVolumeName, opts.InitDatabaseImage),
+			mongodbProxySocketVolume(),
+		)
 		agentContainerModifications = append(agentContainerModifications,
-			container.WithEnvs(corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress}),
+			container.WithEnvs(
+				corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress},
+				corev1.EnvVar{Name: mongodRootEnv, Value: mongodbBinariesMountPath},
+				corev1.EnvVar{Name: initRootEnv, Value: mongodbInitDatabaseMountPath},
+			),
+			container.WithVolumeMounts([]corev1.VolumeMount{
+				readOnlyMount(mongodbBinariesVolumeName, mongodbBinariesMountPath),
+				readOnlyMount(mongodbInitDatabaseVolumeName, mongodbInitDatabaseMountPath),
+				mongodbProxySocketMount(),
+			}),
 			container.WithCommand([]string{staticGAAgentLauncherPath}),
 			container.WithLivenessProbe(staticGALivenessProbe()),
 			container.WithStartupProbe(staticGAStartupProbe()),
@@ -865,7 +871,11 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		// The proxy replaces the marker command: it starts mongod/mongos only when the agent asks for it.
 		mongodContainerModifications = append(mongodContainerModifications,
 			container.WithCommand([]string{mongodbProxyBinaryPath}),
-			container.WithVolumeMounts([]corev1.VolumeMount{readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath)}),
+			container.WithArgs([]string{"-listen", MongodbProxyAddress}),
+			container.WithVolumeMounts([]corev1.VolumeMount{
+				readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath),
+				mongodbProxySocketMount(),
+			}),
 		)
 	}
 
@@ -898,15 +908,11 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
 		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
 	}
-	switch architecture {
-	case architectures.Static:
-		// The utilities container holds the init-database image. The agent reaches its scripts and probes through
-		// /proc/<pid>/root, which needs the shared process namespace.
+	// The utilities container only holds the init-database image, which the agent reached through /proc/<pid>/root.
+	// With the proxy that image is mounted into the agent container, and a container that is PID 1 of its own
+	// namespace and runs `tail -F` ignores SIGTERM, so the pod would wait out its whole termination grace period.
+	if !opts.usesMongodbProxy(mdb) {
 		mods = append(mods, podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...))
-	case architectures.StaticGA:
-		// Static-ga has no shared process namespace. An init container copies the init-database image into the
-		// database-scripts volume before the agent starts, so the agent runs the launcher and probes from /opt/scripts.
-		mods = append(mods, podtemplatespec.WithInitContainer(InitDatabaseContainerName, buildDatabaseInitContainer(opts.InitDatabaseImage)))
 	}
 
 	return podtemplatespec.Apply(mods...)
@@ -998,19 +1004,6 @@ func sharedDatabaseConfiguration(opts DatabaseStatefulSetOptions, mdb databaseSt
 	)
 }
 
-// staticGAAgentFlags returns AGENT_FLAGS for a proxy-backed static pod. The agent learns the proxy address and the
-// tools directory here, so the launcher needs no proxy flag and no binaries path. The operator owns these two
-// flags and overrides the same keys in the user-provided startup parameters.
-func staticGAAgentFlags(parameters mdbv1.StartupParameters) corev1.EnvVar {
-	flags := maps.Clone(parameters)
-	if flags == nil {
-		flags = mdbv1.StartupParameters{}
-	}
-	flags[mongodProxyAddressFlag] = MongodbProxyAddress
-	flags[binariesFixedPathFlag] = staticGAAgentToolsPath
-	return startupParametersToAgentFlag(flags)
-}
-
 // StartupParametersToAgentFlag takes a map representing key-value pairs
 // of startup parameters
 // and concatenates them into a single string that is then
@@ -1079,7 +1072,12 @@ func staticContainersEnvVars(mdb databaseStatefulSetSource, defaultArchitecture 
 	if architecture == architectures.NonStatic {
 		return nil
 	}
-	return []corev1.EnvVar{{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: string(architecture)}}
+	// Legacy static keeps the historical "true" value. Static-ga uses its own value.
+	value := proxyAnnotationTrue
+	if architecture == architectures.StaticGA {
+		value = string(architecture)
+	}
+	return []corev1.EnvVar{{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: value}}
 }
 
 func getAuditLogEnvVar(additionalMongodConfig *mdbv1.AdditionalMongodConfig) corev1.EnvVar {

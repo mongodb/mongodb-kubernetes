@@ -3,6 +3,8 @@ apiVersion: mongodb.com/v1
 kind: MongoDB
 metadata:
   name: replica-set
+  annotations:
+    mongodb.com/v1.architecture: non-static
 spec:
   members: 1
   type: ReplicaSet

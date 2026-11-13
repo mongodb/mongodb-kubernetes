@@ -25,7 +25,12 @@ export MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT="${MMS_LOG_DIR}/agent-launcher-script.
 # -n0 parameter is instructing tail to show only new lines (by default tail is showing last 10 lines)
 tail -F -n0 "${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}" 2> /dev/null &
 
-source /opt/scripts/agent-launcher-lib.sh
+if [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" = "static-ga" ]; then
+  # shellcheck disable=SC1090
+  source "$(dirname "$0")/agent-launcher-lib.sh"
+else
+  source /opt/scripts/agent-launcher-lib.sh
+fi
 
 # all the following MDB_LOG_FILE_* env var should be defined in container's env vars
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE}" 2> /dev/null | json_log 'automation-agent-verbose' &
@@ -139,6 +144,10 @@ if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   agentOpts+=("-useLocalMongoDbTools=true")
 else
   agentOpts+=("-operatorMode=true")
+fi
+
+if [ -n "${MDB_MONGODB_PROXY_ADDRESS:-}" ]; then
+  agentOpts+=("-mongodProxyAddress=${MDB_MONGODB_PROXY_ADDRESS}")
 fi
 
 

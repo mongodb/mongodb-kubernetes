@@ -457,6 +457,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		if usesProxy {
 			proxyVolumes = append(proxyVolumes,
 				imageVolume(mongodbProxyVolumeName, opts.MongodbProxyImage),
+				mongodbProxySocketVolume(),
 			)
 			proxyInitContainer = podtemplatespec.WithInitContainer(
 				InitDatabaseContainerName,
@@ -464,14 +465,20 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 			)
 			withProxyAgentModification = podtemplatespec.WithContainer(
 				util.AgentContainerName,
-				container.WithEnvs(corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress}),
+				container.Apply(
+					container.WithEnvs(corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress}),
+					container.WithVolumeMounts([]corev1.VolumeMount{mongodbProxySocketMount()}),
+				),
 			)
 			withProxyMongodbModification = podtemplatespec.WithContainer(
 				util.MongodbContainerName,
 				container.Apply(
 					container.WithCommand([]string{mongodbProxyBinaryPath}),
-					container.WithArgs(nil),
-					container.WithVolumeMounts([]corev1.VolumeMount{readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath)}),
+					container.WithArgs([]string{"-listen", MongodbProxyAddress}),
+					container.WithVolumeMounts([]corev1.VolumeMount{
+						readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath),
+						mongodbProxySocketMount(),
+					}),
 				),
 			)
 		} else {

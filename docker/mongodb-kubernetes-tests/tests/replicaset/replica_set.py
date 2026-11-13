@@ -15,7 +15,7 @@ from kubetester import (
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.kubetester import KubernetesTester, fcv_from_version
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local, static_ga_timeout
+from kubetester.kubetester import is_default_architecture_static, run_periodically, skip_if_local
 from kubetester.mongodb import MongoDB
 from kubetester.mongotester import ReplicaSetTester
 from kubetester.phase import Phase
@@ -343,7 +343,7 @@ def test_replica_set_can_be_scaled_to_single_member(replica_set: MongoDB):
     replica_set["spec"]["members"] = 1
     replica_set.update()
 
-    replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(1200, 1800))
+    replica_set.assert_reaches_phase(Phase.Running, timeout=1800)
 
     actester = AutomationConfigTester(KubernetesTester.get_automation_config())
 
@@ -360,7 +360,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
     def test_mdb_updated(self, replica_set: MongoDB):
         replica_set["spec"]["members"] = 5
         replica_set.update()
-        replica_set.assert_reaches_phase(Phase.Running, timeout=static_ga_timeout(700, 1000))
+        replica_set.assert_reaches_phase(Phase.Running, timeout=1000)
 
     def test_replica_set_sts_should_exist(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)

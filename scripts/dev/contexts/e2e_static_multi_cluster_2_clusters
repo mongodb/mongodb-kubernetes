@@ -16,8 +16,6 @@ export test_pod_cluster=kind-e2e-cluster-1
 export ops_manager_version="cloud_qa"
 
 export MDB_DEFAULT_ARCHITECTURE=static-ga
-export MDB_CUSTOM_AGENT_URL="https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/builds/patches/6af47fb6bdb4ff00078d94c8/automation-agent/local/mongodb-mms-automation-agent-110.0.0.9428-1.rhel8_x86_64.tar.gz"
-export MDB_CUSTOM_AGENT_VERSION=110.0.0.9428-1
 export CUSTOM_MDB_VERSION=6.0.5
 
 # MCK is capable of deploying a webhook (optional).

@@ -30,7 +30,7 @@ func startTail(t *testing.T, path string) (out *syncBuffer, stop func()) {
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	go func() {
-		tailLog(path, info, out, done, testTailPoll)
+		tailLog(anyFiles{}, path, info, out, done, testTailPoll)
 		close(finished)
 	}()
 	return out, func() {
@@ -100,7 +100,7 @@ func TestTailCopiesAFileThatHadBeenReplacedBeforeItStarted(t *testing.T) {
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	go func() {
-		tailLog(path, info, out, done, testTailPoll)
+		tailLog(anyFiles{}, path, info, out, done, testTailPoll)
 		close(finished)
 	}()
 
@@ -152,10 +152,14 @@ func TestLogPathOf(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(dir, "case.conf")
 			require.NoError(t, os.WriteFile(path, []byte(tc.config), 0o600))
-			assert.Equal(t, tc.want, logPathOf(path))
+			facts, err := onlyIn(dir).readConfig(path)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, facts.logPath)
 		})
 	}
-	assert.Equal(t, "", logPathOf(filepath.Join(dir, "missing.conf")))
+	facts, err := onlyIn(dir).readConfig(filepath.Join(dir, "missing.conf"))
+	require.NoError(t, err)
+	assert.Equal(t, "", facts.logPath)
 }
 
 // A mongod that writes its log to the file of its config.

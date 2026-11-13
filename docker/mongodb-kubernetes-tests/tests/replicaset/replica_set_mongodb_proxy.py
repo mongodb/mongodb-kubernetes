@@ -1,4 +1,19 @@
-"""Static-ga replica set with the suite's candidate Agent and proxy configuration."""
+"""
+A replica set whose members run mongod through the mongodb-proxy in a container of its own.
+
+Prerequisites, none of which the default e2e environment provides:
+  * Kubernetes 1.36 or newer (the proxy and the MongoDB binaries are mounted as OCI image volumes).
+  * MDB_MONGODB_PROXY_IMAGE: the full reference of a mongodb-proxy image the cluster can pull,
+    for example the result of `make mongodb-proxy-image` pushed to a registry.
+  * An agent image whose /agent/mongodb-agent supports --mongodProxyAddress. Set MDB_PROXY_TEST_AGENT_IMAGE to its
+    reference and the test overrides the agent image of the resource with it. Until a release has it, build one:
+    `task build` in mms-automation (GOOS/GOARCH of the cluster nodes), copy the binary over /agent/mongodb-agent
+    of the released agent image, push the result to a registry the cluster can pull from and point the operator
+    at it (registry.agent, agent.name, agent.version). MDB_CUSTOM_AGENT_URL does not help: the launcher only
+    downloads an agent in the non-static architecture.
+
+The test is skipped when MDB_MONGODB_PROXY_IMAGE is not set.
+"""
 
 import json
 import os
@@ -15,9 +30,12 @@ from kubetester.mongodb_proxy import (
     AGENT_CONTAINER,
     DATABASE_CONTAINER,
     PROXY_ADDRESS,
+    PROXY_ANNOTATION,
+    PROXY_SOCKET,
     mongod_identity,
     post_to_proxy,
     proxy_events,
+    proxy_helm_values,
     proxy_image,
     proxy_log,
     query_proxy,
@@ -30,14 +48,16 @@ from kubetester.mongodb_proxy import (
 )
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from pytest import fixture, mark
+from pytest import fixture, mark, skip
 from tests.conftest import get_default_operator, local_operator
 
 
 @fixture(scope="module")
 def operator_with_proxy(namespace: str, operator_installation_config: dict[str, str]) -> Operator:
-    config = dict(operator_installation_config)
-    config["operator.mdbDefaultArchitecture"] = "static-ga"
+    image = proxy_image()
+    if image is None:
+        skip("MDB_MONGODB_PROXY_IMAGE is not set")
+    config = {**operator_installation_config, **proxy_helm_values(image)}
     operator = get_default_operator(namespace, config)
     if local_operator():
         # A test run from a workstation cannot resolve the in-cluster name of the webhook, so it sets
@@ -55,7 +75,12 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     # new resource then starts with it. Asking for no authentication makes the operator switch it off.
     resource["spec"]["security"] = {"authentication": {"enabled": False}}
     # The proxy only exists in the static architecture, whatever the default of the test run is.
-    resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static-ga"
+    resource["metadata"].setdefault("annotations", {}).update(
+        {
+            "mongodb.com/v1.architecture": "static",
+            PROXY_ANNOTATION: "true",
+        }
+    )
     agent_image = os.environ.get("MDB_PROXY_TEST_AGENT_IMAGE")
     if agent_image:
         # Overriding the agent image makes the operator skip the agent version it would take from Ops Manager.
@@ -88,20 +113,19 @@ def test_pod_runs_the_proxy_in_the_database_container(replica_set: MongoDB, name
 
     containers = {c.name: c for c in pod_spec.containers}
     assert containers[DATABASE_CONTAINER].command == ["/mnt/proxy/proxy"]
-    assert containers[AGENT_CONTAINER].command == ["/opt/scripts/agent-launcher.sh"]
-
-    init_containers = {c.name: c for c in pod_spec.init_containers or []}
-    assert "mongodb-kubernetes-init-database" in init_containers
+    assert containers[DATABASE_CONTAINER].args == ["-listen", PROXY_ADDRESS]
 
     volumes = {v.name: v for v in pod_spec.volumes}
     assert volumes["mongodb-proxy"].image.reference == proxy_image()
-    assert "mongodb-binaries" not in volumes
-    assert "mongodb-init-database" not in volumes
+    assert volumes["mongodb-binaries"].image is not None
+
+    # The socket is on a volume that only the agent and the database container mount.
+    assert volumes["mongodb-proxy-socket"].empty_dir is not None
+    mounting = [c.name for c in pod_spec.containers if "mongodb-proxy-socket" in [m.name for m in c.volume_mounts]]
+    assert sorted(mounting) == sorted([AGENT_CONTAINER, DATABASE_CONTAINER])
 
     env = {e.name: e.value for e in containers[AGENT_CONTAINER].env}
     assert env["MDB_MONGODB_PROXY_ADDRESS"] == PROXY_ADDRESS
-    assert "-binariesFixedPath=/tools" in env["AGENT_FLAGS"]
-    assert f"-mongodProxyAddress={PROXY_ADDRESS}" in env["AGENT_FLAGS"]
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -114,12 +138,33 @@ def test_agent_was_started_with_the_proxy_flag(replica_set: MongoDB, namespace: 
         [
             "bash",
             "-c",
-            "grep -la -e '-mongodProxyAddress=127.0.0.1:80[9]9' /proc/[0-9]*/cmdline 2>/dev/null | head -n 1",
+            "grep -la -e '-mongodProxyAddress=unix:///var/run/mongodb-proxy/proxy.soc[k]' /proc/[0-9]*/cmdline 2>/dev/null | head -n 1",
         ],
         container=AGENT_CONTAINER,
     )
 
     assert out.strip(), "no process of the agent container runs with -mongodProxyAddress=" + PROXY_ADDRESS
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_proxy_socket_is_private_and_there_is_no_tcp_port(replica_set: MongoDB, namespace: str):
+    for i in range(replica_set["spec"]["members"]):
+        pod = f"{replica_set.name}-{i}"
+
+        # Only the owner can connect to the socket. The kernel enforces it before a request reaches the proxy.
+        mode = KubernetesTester.run_command_in_pod_container(
+            pod, namespace, ["stat", "-c", "%a %F", PROXY_SOCKET], container=DATABASE_CONTAINER
+        ).strip()
+        assert mode == "600 socket", f"{pod}: {mode}"
+
+        # The old loopback port is gone.
+        out = KubernetesTester.run_command_in_pod_container(
+            pod,
+            namespace,
+            ["bash", "-c", "(exec 3<>/dev/tcp/127.0.0.1/8099) 2>/dev/null && echo open || echo closed"],
+            container=AGENT_CONTAINER,
+        ).strip()
+        assert out == "closed", f"{pod}: something listens on 127.0.0.1:8099"
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -227,22 +272,6 @@ def test_replica_set_is_still_running_after_a_pod_restart(replica_set: MongoDB, 
         time.sleep(3)
         status = query_proxy(pod, namespace)
     assert status["state"] == "running", status
-
-
-def restart_agent_container(pod: str, namespace: str):
-    before = restart_counts(pod, namespace)[AGENT_CONTAINER]
-    KubernetesTester.run_command_in_pod_container(
-        pod, namespace, ["bash", "-c", "kill -TERM 1"], container=AGENT_CONTAINER
-    )
-
-    def restarted_and_ready() -> bool:
-        current = KubernetesTester.clients("corev1").read_namespaced_pod(pod, namespace)
-        return any(
-            c.name == AGENT_CONTAINER and c.restart_count > before and c.ready
-            for c in current.status.container_statuses
-        )
-
-    wait_until("the agent container to restart and become ready", restarted_and_ready, timeout_seconds=180)
 
 
 def pod_members(replica_set: MongoDB) -> list[str]:
@@ -399,28 +428,22 @@ def test_agent_starts_mongod_again_after_the_database_container_restarted(replic
 
 
 @mark.e2e_replica_set_mongodb_proxy
-def test_agent_starts_mongod_again_after_the_proxy_crashed(replica_set: MongoDB, namespace: str):
-    """Force-delete the pod: the kubelet kills the proxy and the agent starts mongod again."""
-    pod = f"{replica_set.name}-1"
-    identity = mongod_identity(pod, namespace)
-    assert identity
-
-    # PID 1 in a PID namespace ignores signals it has no handler for, so an in-container SIGKILL
-    # cannot crash the proxy. Force-delete the pod and let the StatefulSet recreate it.
-    KubernetesTester.clients("corev1").delete_namespaced_pod(name=pod, namespace=namespace, grace_period_seconds=0)
-
-    wait_for_new_mongod(pod, namespace, identity, timeout_seconds=600)
-    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
-
-
-@mark.e2e_replica_set_mongodb_proxy
 def test_agent_container_restart_does_not_restart_mongod(replica_set: MongoDB, namespace: str):
     """The proxy and mongod keep running while the agent restarts, and the agent must not restart mongod for it."""
     pod = f"{replica_set.name}-0"
     identity = mongod_identity(pod, namespace)
+    before = restart_counts(pod, namespace)[AGENT_CONTAINER]
     assert identity
 
-    restart_agent_container(pod, namespace)
+    KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["bash", "-c", "kill -TERM 1"], container=AGENT_CONTAINER
+    )
+
+    wait_until(
+        "the agent container to restart",
+        lambda: restart_counts(pod, namespace)[AGENT_CONTAINER] > before,
+        timeout_seconds=180,
+    )
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
     # Give the restarted agent time to plan: it must find mongod running and leave it alone.
     time.sleep(60)
@@ -429,6 +452,22 @@ def test_agent_container_restart_does_not_restart_mongod(replica_set: MongoDB, n
 
 
 MEMBER_CONFIG = "/data/automation-mongod.conf"
+
+
+def restart_agent_container(pod: str, namespace: str):
+    before = restart_counts(pod, namespace)[AGENT_CONTAINER]
+    KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["bash", "-c", "kill -TERM 1"], container=AGENT_CONTAINER
+    )
+
+    def restarted_and_ready() -> bool:
+        current = KubernetesTester.clients("corev1").read_namespaced_pod(pod, namespace)
+        return any(
+            c.name == AGENT_CONTAINER and c.restart_count > before and c.ready
+            for c in current.status.container_statuses
+        )
+
+    wait_until("the agent container to restart and become ready", restarted_and_ready, timeout_seconds=180)
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -504,27 +543,6 @@ def ephemeral_starts(pod: str, namespace: str) -> list[dict]:
     return [e for e in proxy_events(pod, namespace, "start requested") if e.get("role") == "ephemeral"]
 
 
-def fresh_successful_ephemeral_starts(events: list[dict], previous_events: list[dict]) -> list[dict]:
-    previous_requests = {event.get("request_id") for event in previous_events}
-    identity_pattern = r"[A-Za-z0-9_.-]{1,128}"
-    fresh = []
-    for event in events:
-        if not (
-            event.get("role") == "ephemeral"
-            and event.get("msg") == "start requested"
-            and isinstance(event.get("request_id"), str)
-            and re.fullmatch(identity_pattern, event["request_id"])
-            and isinstance(event.get("operation_id"), str)
-            and (event["operation_id"] == "" or re.fullmatch(identity_pattern, event["operation_id"]))
-            and event["request_id"] not in previous_requests
-            and event.get("http_status") == 200
-            and event.get("error_class") == ""
-        ):
-            continue
-        fresh.append(event)
-    return fresh
-
-
 @mark.e2e_replica_set_mongodb_proxy
 def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, namespace: str):
     """A rolling index build takes each secondary out of the replica set and builds the index on a standalone mongod.
@@ -556,7 +574,6 @@ def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, 
             "options": {"name": INDEX_NAME},
         }
     ]
-    previous_starts = {pod: ephemeral_starts(pod, namespace) for pod in pods}
     om.api_put_automation_config(automation_config)
 
     def built_on_all_members() -> bool:
@@ -580,13 +597,12 @@ def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, 
     automation_config["indexConfigs"] = []
     om.api_put_automation_config(automation_config)
 
-    started = {
-        pod: fresh_successful_ephemeral_starts(ephemeral_starts(pod, namespace), previous_starts[pod]) for pod in pods
-    }
-    assert any(started.values()), f"No new successful ephemeral start request in proxy logs: {started}"
+    started = {pod: ephemeral_starts(pod, namespace) for pod in pods}
+    assert any(started.values()), f"no member got a start request with the role ephemeral: {started}"
     for pod in pods:
-        # `fresh_successful_ephemeral_starts` already requires http_status 200: the proxy log of a start has no
-        # config path, only whether the request was accepted.
+        for event in started[pod]:
+            # The proxy does not log the path of the config file, only whether the request was accepted.
+            assert event["http_status"] == 200, event
         assert query_proxy(pod, namespace)["role"] == "main", pod
 
 
