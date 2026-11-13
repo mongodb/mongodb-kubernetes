@@ -173,7 +173,16 @@ func CreateOrUpdateIfNeeded(ctx context.Context, getUpdateCreator GetUpdateCreat
 	oldSecret, err := getUpdateCreator.GetSecret(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			return getUpdateCreator.CreateSecret(ctx, secret)
+			if createErr := getUpdateCreator.CreateSecret(ctx, secret); createErr != nil {
+				if !apiErrors.IsAlreadyExists(createErr) {
+					return createErr
+				}
+				// Another writer created the secret between the read and the write. The read comes from
+				// the operator's cache, which can miss a secret written a moment ago, so this is not a
+				// failure: read it again and update it, which needs the version of the stored secret.
+				return updateExistingSecret(ctx, getUpdateCreator, secret)
+			}
+			return nil
 		}
 		return err
 	}
@@ -184,6 +193,17 @@ func CreateOrUpdateIfNeeded(ctx context.Context, getUpdateCreator GetUpdateCreat
 	}
 
 	// They are different so we need to update it
+	return getUpdateCreator.UpdateSecret(ctx, secret)
+}
+
+// updateExistingSecret updates the secret with the data of the one given, keeping the version of the
+// secret that is stored, which an update requires.
+func updateExistingSecret(ctx context.Context, getUpdateCreator GetUpdateCreator, secret corev1.Secret) error {
+	existing, err := getUpdateCreator.GetSecret(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace})
+	if err != nil {
+		return err
+	}
+	secret.ResourceVersion = existing.ResourceVersion
 	return getUpdateCreator.UpdateSecret(ctx, secret)
 }
 

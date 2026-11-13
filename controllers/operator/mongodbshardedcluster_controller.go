@@ -1546,6 +1546,11 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		if status := certs.VerifyMigrationSubjects(ctx, r.commonController.client, s, lastSpec.GetSecurity(), s.ConfigRsName(), log); !status.IsOK() {
 			return status
 		}
+		// Refuse a migration that would leave the CA the deployment trusts today out of the trust
+		// bundle, which would make its members reject each other while they restart.
+		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.commonController.client, s, lastSpec.GetSecurity(), log); !status.IsOK() {
+			return status
+		}
 		if err := r.seedManagedPEMSecretsFromLegacy(ctx, s, lastSpec.GetSecurity(), log); err != nil {
 			return workflow.Failed(err)
 		}

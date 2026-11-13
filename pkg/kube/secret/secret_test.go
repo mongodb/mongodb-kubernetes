@@ -95,6 +95,10 @@ func notFoundError() error {
 	return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonNotFound}}
 }
 
+func alreadyExistsError(name string) error {
+	return &errors.StatusError{ErrStatus: metav1.Status{Reason: metav1.StatusReasonAlreadyExists, Details: &metav1.StatusDetails{Name: name}}}
+}
+
 type secretGetUpdater struct {
 	secret corev1.Secret
 }
@@ -138,6 +142,9 @@ func TestUpdateField(t *testing.T) {
 type mockSecretGetUpdateCreateDeleter struct {
 	secrets  map[client.ObjectKey]corev1.Secret
 	apiCalls int
+	// staleReads makes that many reads answer as if the secret were not there, the way the operator's
+	// cache can miss a secret another writer created a moment ago. The create then answers AlreadyExists.
+	staleReads int
 }
 
 func (c *mockSecretGetUpdateCreateDeleter) DeleteSecret(ctx context.Context, key client.ObjectKey) error {
@@ -153,16 +160,24 @@ func (c *mockSecretGetUpdateCreateDeleter) UpdateSecret(ctx context.Context, sec
 }
 
 func (c *mockSecretGetUpdateCreateDeleter) CreateSecret(ctx context.Context, secret corev1.Secret) error {
+	if _, ok := c.secrets[client.ObjectKey{Name: secret.Name, Namespace: secret.Namespace}]; ok {
+		c.apiCalls += 1
+		return alreadyExistsError(secret.Name)
+	}
 	return c.UpdateSecret(ctx, secret)
 }
 
 func (c *mockSecretGetUpdateCreateDeleter) GetSecret(ctx context.Context, objectKey client.ObjectKey) (corev1.Secret, error) {
 	c.apiCalls += 1
-	if s, ok := c.secrets[objectKey]; !ok {
+	s, ok := c.secrets[objectKey]
+	if c.staleReads > 0 {
+		c.staleReads -= 1
 		return corev1.Secret{}, notFoundError()
-	} else {
-		return s, nil
 	}
+	if !ok {
+		return corev1.Secret{}, notFoundError()
+	}
+	return s, nil
 }
 
 func TestCreateOrUpdateIfNeededCreate(t *testing.T) {
@@ -223,6 +238,32 @@ func TestCreateOrUpdateIfNeededEqual(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, 1, mock.apiCalls) // 1 call -> get
 	}
+}
+
+// A create can lose the race against another writer: the read that decided the secret was missing comes
+// from the operator's cache, which can miss a secret written a moment ago. The create then answers
+// AlreadyExists, which is not a failure, and the secret has to be updated instead.
+func TestCreateOrUpdateIfNeededUpdatesWhenTheCreateLosesTheRace(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockSecretGetUpdateCreateDeleter{
+		secrets:  map[client.ObjectKey]corev1.Secret{},
+		apiCalls: 0,
+	}
+	// the secret is there, but the read that follows does not see it
+	assert.NoError(t, mock.CreateSecret(ctx, getDefaultSecret()))
+	mock.staleReads = 1
+
+	desired := Builder().
+		SetName("secret").
+		SetNamespace("mdb.Namespace").
+		SetStringMapToData(map[string]string{"password": "my-password"}).
+		SetLabels(map[string]string{"owner": "my-rs"}).
+		Build()
+	assert.NoError(t, CreateOrUpdateIfNeeded(ctx, mock, desired), "a create that loses the race is not a failure")
+
+	stored, err := mock.GetSecret(ctx, client.ObjectKey{Name: "secret", Namespace: "mdb.Namespace"})
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"owner": "my-rs"}, stored.Labels, "the secret is updated, not left as it was")
 }
 
 func getDefaultSecret() corev1.Secret {
