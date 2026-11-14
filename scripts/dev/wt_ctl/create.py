@@ -219,10 +219,9 @@ class Create:
         return problem is not None
 
     def prepare_host(self) -> None:
-        distro, region = self.args.distro, self.args.region
-        EvgDomain(self.runner).prepare_host(
-            self.wt, self.evg_name, distro, region, shared_state_dir(self.refs.main_repo_root) / "evg-spawn.lock"
-        )
+        lock = shared_state_dir(self.refs.main_repo_root) / "evg-spawn.lock"
+        args = self.args
+        EvgDomain(self.runner).prepare_host(self.wt, self.evg_name, args.distro, args.region, args.host_hours, lock)
 
     def recreate_on_host(self, multi: bool) -> None:
         """Sync the checkout, put the worktree's registry credentials on the host, recreate the clusters there and

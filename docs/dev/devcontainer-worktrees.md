@@ -59,7 +59,7 @@ worktree of the current directory, except `delete`, which names the branch.
   its host and clusters: it makes no Evergreen call and uses the kubeconfig in `.generated/` (see "Evergreen hosts").
   A rerun keeps the kind of the worktree: a worktree without a host stays local.
 - `wt-ctl status` lists the worktrees of the repository with their kind clusters, their health (local worktrees only,
-  see "Cluster health") and devcontainer state.
+  see "Cluster health"), Evergreen host state (see "Evergreen hosts") and devcontainer state.
 - `wt-ctl attach` opens the tmux session of the container (k9s, the operator log, the test log and a shell) and needs a
   terminal. Everything after `attach --` runs in the container instead, without one and without a login shell: wrap a
   command that needs `KUBECONFIG` or the venv, as in `attach -- bash -lc 'kubectl get nodes'`.
@@ -122,12 +122,18 @@ namespace and restarts the operator, and `--skip-prepare-e2e` leaves the namespa
 ## Evergreen hosts
 
 Without `--local-kind`, `create` spawns an Evergreen host named after the branch directory, or reuses a live one of
-that name (`--evg-host-name <name>` picks another; `--distro` and `--region` apply to a spawn). It then syncs the
-checkout to `/home/ubuntu/devc<N>/mongodb-kubernetes` on the host, recreates the worktree's clusters there with
+that name (`--evg-host-name <name>` picks another; `--distro`, `--region` and `--host-hours` apply to a spawn). It then
+syncs the checkout to `/home/ubuntu/devc<N>/mongodb-kubernetes` on the host, recreates the worktree's clusters there with
 `evg_host.sh` and copies the kubeconfig back to `.generated/current.kubeconfig`. A second worktree joins the same host
 with the same `--evg-host-name`: each worktree has its own directory, and its clusters carry its `devc<N>-` prefix. The
 sync also copies `.generated/worktree-context` (the rest of `.generated/` stays out), so that the scripts on the host see
 the same prefix.
+
+A spawned host lives 24 hours, which is Evergreen's default. `--host-hours N` extends a host that `create` spawns to
+about N hours and says so on spawn (`host <name> expires in about N hours`); a host that already exists keeps its
+expiry. Hosts bill while they run, so ask for no more than you need. `wt-ctl status` shows the state of each worktree's
+host: `running`, `GONE` for a host that is terminated or no longer in `evergreen host list --mine`, or `unknown` when
+the list cannot be read (no login, no VPN).
 
 The clusters are reached through ssh. The `evg-host-proxy` sidecar of the worktree's compose project opens a tunnel to
 the host with your ssh agent, because the container has no `~/.ssh`, and `gost-proxy` turns it into an HTTP proxy.
@@ -334,6 +340,10 @@ checkout you ran it from).
 - `Pool overlaps with other one on this address space`: another docker network holds the worktree's range, usually the
   compose network of an old worktree. Delete the old worktree with `delete --devcontainer`, or remove the network with
   `docker network rm`.
+- The host expired: `wt-ctl status` shows `GONE`, and kubectl in the container fails with `Service Unavailable`. The
+  clusters on the host are lost. Run `wt-ctl create <branch>`: it spawns a new host, restarts the `evg-host-proxy`
+  sidecar, which still tunnels to the old address, recreates the clusters and sets the namespace and the operator up
+  again. Add `--host-hours` to keep the new host longer than 24 hours.
 - `no context in .generated/`: run `make switch context=<context>` in the checkout you run `create` from.
 - Pulls fail with `403 Forbidden` or `authorization token has expired`: run `wt-ctl auth status`, then
   `wt-ctl auth refresh --force` on the host.

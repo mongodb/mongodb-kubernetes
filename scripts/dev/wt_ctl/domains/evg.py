@@ -27,6 +27,7 @@ from .network import flock
 
 DEFAULT_DISTRO = "ubuntu2204-latest-large"
 DEFAULT_REGION = "eu-west-1"
+DEFAULT_HOST_HOURS = 24  # how long Evergreen keeps a spawn host
 DEAD = ("terminated", "decommissioned", "quarantined", "failed")
 MARKER = "~/.wt-ctl-host"
 EVERGREEN_TIMEOUT_S = 30
@@ -162,10 +163,11 @@ class EvgDomain:
             raise WtCtlError("no public key for the host: add one in Spruce, or set MCK_DEVC_EVG_KEY_NAME")
         return "evg-host" if "evg-host" in names else names[0]
 
-    def spawn(self, name: str, distro: str, region: str, lock: Path) -> None:
-        """Create a host and give it the display name ``name``. A new host has a placeholder id until AWS
-        gives it a real one, so under a lock (two creates would see each other's hosts as new) it is found by what
-        was not in the list before. A host that cannot be named is terminated: nobody could find it again."""
+    def spawn(self, name: str, distro: str, region: str, hours: int, lock: Path) -> None:
+        """Create a host, name it ``name`` and extend it to live ``hours`` hours. A new host has a placeholder id
+        until AWS gives it a real one, so under a lock (two creates would see each other's hosts as new) it is found
+        by what was not in the list before. A host that cannot be named or extended is terminated: nobody could
+        find it again."""
         key = self.key_name()
         new = None
         with flock(lock):
@@ -181,6 +183,9 @@ class EvgDomain:
                     240,
                 )
                 self.evergreen("host", "modify", "--host", new["id"], "--name", name, "--tag", f"wt-ctl={name}")
+                if hours > DEFAULT_HOST_HOURS:
+                    self.evergreen("host", "modify", "--host", new["id"], "--extend", str(hours - DEFAULT_HOST_HOURS))
+                sys.stderr.write(f"[wt-ctl] host {name} expires in about {max(hours, DEFAULT_HOST_HOURS)} hours\n")
             except (KeyboardInterrupt, WtCtlError):
                 if new is not None:
                     try:
@@ -189,12 +194,12 @@ class EvgDomain:
                         sys.stderr.write(f"[wt-ctl] could not terminate {new['id']}: evergreen host terminate --host\n")
                 raise
 
-    def prepare_host(self, wt: Path, name: str, distro: str, region: str, lock: Path) -> None:
+    def prepare_host(self, wt: Path, name: str, distro: str, region: str, hours: int, lock: Path) -> None:
         """Find or spawn the host, record its address for the worktree and check that its ssh path to it works."""
         created = self.find(name) is None
         if created:
             sys.stderr.write(f"[wt-ctl] no host named {name}: spawning one\n")
-            self.spawn(name, distro, region, lock)
+            self.spawn(name, distro, region, hours, lock)
         host = self.wait_for(f"host {name} to run", lambda hosts: running_host(hosts, name), 600)
         address = host["host_name"]
         generated = wt / ".generated"
