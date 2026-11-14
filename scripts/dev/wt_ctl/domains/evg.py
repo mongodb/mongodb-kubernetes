@@ -228,6 +228,14 @@ class EvgDomain:
             "then run `wt-ctl create` again."
         )
 
+    def restart_stale_tunnel(self, wt: Path, devc: DevcontainerDomain) -> None:
+        """The sidecar reads the host address once, when it starts. A new host has another address, and an old
+        sidecar keeps tunnelling to the previous one (or idles, when the worktree started on local kind)."""
+        cid = devc.container_id("evg-host-proxy")
+        if cid and host_address(wt) not in self.runner.run(["docker", "top", cid]).stdout:
+            sys.stderr.write("[wt-ctl] evg-host-proxy tunnels to another host: restarting it\n")
+            self.runner.run(["docker", "restart", cid])
+
     def check_tunnel(self, devc: DevcontainerDomain) -> None:
         """The ``evg-host-proxy`` sidecar can ssh to the host. Without a key in the agent it loops on
         ``Permission denied`` and the first sign of it is a kubectl timeout minutes later."""

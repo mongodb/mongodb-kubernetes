@@ -248,7 +248,9 @@ class Create:
         devc.prepare_and_up(self.log("devcontainer"))
         copy_to_container(self.runner, devc, self.wt)
         if self.evg_name:
-            EvgDomain(self.runner).check_tunnel(devc)
+            evg = EvgDomain(self.runner)
+            evg.restart_stale_tunnel(self.wt, devc)
+            evg.check_tunnel(devc)
         elif sys.platform.startswith("linux"):
             KindDomain(self.runner).join_network(self.wt, devc.project)
 
