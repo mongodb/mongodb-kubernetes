@@ -27,7 +27,7 @@ from .network import flock
 
 DEFAULT_DISTRO = "ubuntu2204-latest-large"
 DEFAULT_REGION = "eu-west-1"
-DEFAULT_HOST_HOURS = 24  # how long Evergreen keeps a spawn host
+DEFAULT_HOST_HOURS = 24
 DEAD = ("terminated", "decommissioned", "quarantined", "failed")
 MARKER = "~/.wt-ctl-host"
 EVERGREEN_TIMEOUT_S = 30
@@ -185,7 +185,7 @@ class EvgDomain:
                 self.evergreen("host", "modify", "--host", new["id"], "--name", name, "--tag", f"wt-ctl={name}")
                 if hours > DEFAULT_HOST_HOURS:
                     self.evergreen("host", "modify", "--host", new["id"], "--extend", str(hours - DEFAULT_HOST_HOURS))
-                sys.stderr.write(f"[wt-ctl] host {name} expires in about {max(hours, DEFAULT_HOST_HOURS)} hours\n")
+                sys.stderr.write(f"[wt-ctl] host {name} expires in about {hours} hours\n")
             except (KeyboardInterrupt, WtCtlError):
                 if new is not None:
                     try:

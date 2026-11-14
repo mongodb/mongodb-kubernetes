@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--host-hours",
         type=int,
         default=DEFAULT_HOST_HOURS,
-        help="hours a spawned host lives, extended after the spawn (default: %(default)s, what Evergreen gives).",
+        help="hours a newly spawned host lives (minimum and default: %(default)s); existing hosts are unchanged.",
     )
     topology = sc.add_mutually_exclusive_group()
     topology.add_argument("--single-cluster", dest="multi_cluster", action="store_false", default=None)
@@ -127,6 +127,8 @@ def cmd_kfp(refs: WorktreeRefs, args: argparse.Namespace) -> int:
 def main(argv: list[str]) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.cmd == "create" and args.host_hours < DEFAULT_HOST_HOURS:
+        parser.error(f"--host-hours must be at least {DEFAULT_HOST_HOURS}")
     runner = Runner()
     try:
         refs = resolve_worktree(runner)
