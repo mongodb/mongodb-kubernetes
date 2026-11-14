@@ -1347,8 +1347,12 @@ func (r *ReplicaSetReconcilerHelper) lookupCorrespondingSearchResource(ctx conte
 	if len(searchList.Items) == 1 {
 		searchSource := searchcontroller.NewEnterpriseResourceSearchSource(rs)
 		searchCandidate := &searchList.Items[0]
-		if searchSource.Validate() == nil && searchcontroller.ValidateSearchSourceAuth(searchCandidate, searchSource) == nil {
-			search = searchCandidate
+		if searchSource.Validate() == nil {
+			if err := searchcontroller.ValidateSearchSourceAuth(searchCandidate, searchSource); err != nil {
+				zap.S().Warnf("MongoDBSearch %s source auth check failed: %v", searchCandidate.NamespacedName(), err)
+			} else {
+				search = searchCandidate
+			}
 		}
 	}
 	return search, nil
