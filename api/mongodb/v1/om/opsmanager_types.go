@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -174,6 +175,69 @@ type MongoDBOpsManagerSpec struct {
 	// When not set, the operator is using FQDN of Ops Manager's headless service `{name}-svc.{namespace}.svc.cluster.local` to connect to the instance. If that URL cannot be used, then URL in this field should be provided for the operator to connect to Ops Manager instances.
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
+
+	// License manages the Ops Manager license and its release receipts.
+	// +optional
+	License *MongoDBOpsManagerLicense `json:"license,omitempty"`
+}
+
+// MongoDBOpsManagerLicense configures the Enterprise Advanced license and its release receipts.
+// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, r.secretRef.name == self.secretRef.name)",message="secretRef must not also be listed in releaseReceipts"
+// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
+type MongoDBOpsManagerLicense struct {
+	// SecretRef names the Secret that holds the signed license under the "license" key.
+	// The operator installs it, and releases it when secretRef is removed.
+	// +optional
+	SecretRef *SecretRef `json:"secretRef,omitempty"`
+
+	// ReleaseReceiptsPolicy picks which released licenses get a receipt.
+	// OnlyListed covers the licenses in releaseReceipts.
+	// Automatic also covers every license the operator releases.
+	// +optional
+	// +kubebuilder:default=OnlyListed
+	ReleaseReceiptsPolicy ReleaseReceiptsPolicy `json:"releaseReceiptsPolicy,omitempty"`
+
+	// ReleaseReceipts lists the Secrets of released licenses to write a receipt for,
+	// into a Secret named <artifactId>-release-receipt. Listing a license never releases it.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size() == 1)",message="releaseReceipts must not list the same secretRef twice"
+	ReleaseReceipts []LicenseReleaseReceipt `json:"releaseReceipts,omitempty"`
+}
+
+// ReleaseReceiptsPolicy picks which released licenses get a receipt.
+// +kubebuilder:validation:Enum=OnlyListed;Automatic
+type ReleaseReceiptsPolicy string
+
+// ReleaseReceiptsOnlyListed covers only the licenses listed in releaseReceipts.
+const ReleaseReceiptsOnlyListed ReleaseReceiptsPolicy = "OnlyListed"
+
+// ReleaseReceiptsAutomatic also covers every license the operator releases.
+const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
+
+// +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
+type LicenseReleaseReceipt struct {
+	// SecretRef names a Secret that holds the released license.
+	// +kubebuilder:validation:Required
+	SecretRef SecretRef `json:"secretRef"`
+}
+
+func (l *MongoDBOpsManagerLicense) InstallRequested() bool {
+	return l != nil && l.SecretRef != nil && l.SecretRef.Name != ""
+}
+
+// GetReleaseReceipts returns the artifacts whose release receipts the operator collects.
+func (l *MongoDBOpsManagerLicense) GetReleaseReceipts() []LicenseReleaseReceipt {
+	if l == nil {
+		return nil
+	}
+	return l.ReleaseReceipts
+}
+
+// AutoReleaseReceiptsRequested reports whether ReleaseReceiptsPolicy is Automatic.
+func (l *MongoDBOpsManagerLicense) AutoReleaseReceiptsRequested() bool {
+	return l != nil && l.ReleaseReceiptsPolicy == ReleaseReceiptsAutomatic
 }
 
 // ExternalAppDBRef references an MongoDB resource
@@ -558,6 +622,7 @@ func (f DataStoreConfig) Identifier() any {
 }
 
 type SecretRef struct {
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 }
 
@@ -834,6 +899,12 @@ func (om *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOp
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		om.Status.OpsManagerStatus.Warnings = append(om.Status.OpsManagerStatus.Warnings, option.(status.WarningsOption).Warnings...)
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.LicenseStatusOption{}); exists {
+		c := option.(status.LicenseStatusOption).Condition
+		c.ObservedGeneration = om.GetGeneration()
+		_ = meta.SetStatusCondition(&om.Status.OpsManagerStatus.Conditions, c)
 	}
 
 	if phase == status.PhaseRunning {
@@ -1208,6 +1279,46 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 	return []metav1.OwnerReference{ownerReference}
 }
 
+// annotationTrue is the annotation value that turns the behaviour the annotation asks for on.
+const annotationTrue = "true"
+
 func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
-	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
+	return om.Annotations[util.DisableReconciliationAnnotation] == annotationTrue
+}
+
+// GetLastSpec returns the last spec that has successfully been applied.
+func (om *MongoDBOpsManager) GetLastSpec() (*MongoDBOpsManagerSpec, error) {
+	lastSpecStr := annotations.GetAnnotation(om, util.LastAchievedSpec)
+	if lastSpecStr == "" {
+		return nil, nil
+	}
+
+	lastSpec := MongoDBOpsManagerSpec{}
+	if err := json.Unmarshal([]byte(lastSpecStr), &lastSpec); err != nil {
+		return nil, err
+	}
+
+	return &lastSpec, nil
+}
+
+// GetLastInstallSecretRef returns the secretRef the last spec that has successfully been
+// applied installed from. The current spec alone cannot answer whether the install intent was
+// removed or was never there.
+func (om *MongoDBOpsManager) GetLastInstallSecretRef() (string, error) {
+	lastSpec, err := om.GetLastSpec()
+	if err != nil || lastSpec == nil {
+		return "", err
+	}
+	if !lastSpec.License.InstallRequested() {
+		return "", nil
+	}
+	return lastSpec.License.SecretRef.Name, nil
+}
+
+func (om *MongoDBOpsManager) LicenseRotateIdentityDue() bool {
+	return om.Annotations[util.LicenseRotateIdentityAnnotation] == annotationTrue
+}
+
+func (om *MongoDBOpsManager) LicenseRecomputeDue() bool {
+	return om.Annotations[util.LicenseRecomputeAnnotation] == annotationTrue
 }

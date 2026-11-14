@@ -151,3 +151,15 @@ func NewMigrationStatusOptionWithCondition(condition metav1.Condition) Migration
 func (o MigrationStatusOption) Value() any {
 	return o.Condition
 }
+
+type LicenseStatusOption struct {
+	Condition metav1.Condition
+}
+
+func NewLicenseStatusOptionWithCondition(condition metav1.Condition) LicenseStatusOption {
+	return LicenseStatusOption{Condition: condition}
+}
+
+func (o LicenseStatusOption) Value() any {
+	return o.Condition
+}
