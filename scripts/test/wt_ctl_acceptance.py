@@ -17,10 +17,13 @@ from wt_ctl_integration import REPO, run, wt_ctl
 
 sys.path.insert(0, str(REPO / "scripts" / "dev"))
 from wt_ctl.domains.devcontainer import DevcontainerDomain  # noqa: E402
-from wt_ctl.domains.evg import host_address, parse_hosts, pick_host, ssh_argv  # noqa: E402
+from wt_ctl.domains.evg import DEAD, EvgDomain, host_address, ssh_argv  # noqa: E402
 
-HOST_HOURS = 48  # H1 spawns its host for this long
+HOST_HOURS = 48  # H1 spawns its first host for this long, and the replacement for the default
+DEFAULT_HOURS = 24
 GRAPHQL = "https://evergreen.corp.mongodb.com/graphql/query"
+
+evg = EvgDomain(it.Runner())
 
 # id: (where, context, marker). where is "local" or the name of an Evergreen host, which scenarios may share.
 # H1 has no marker: it ends its host and creates again.
@@ -104,17 +107,16 @@ def delete(s, live):
         assert containers(others[0]) == {n: i for n, i in seen.items() if n not in gone}
 
 
-def create(s):
+def create(s, *extra):
     where = ["--evg-host-name", s.where] if s.remote else ["--local-kind"]
-    hours = ["--host-hours", str(HOST_HOURS)] if s.id == "H1" else []
-    wt_ctl(REPO, "create", *where, *hours, "--context", s.context, s.branch)
+    wt_ctl(REPO, "create", *where, *extra, "--context", s.context, s.branch)
 
 
 def hours_left(host_id):
     """Hours until Evergreen expires the host. The CLI does not print it, so this asks the GraphQL API."""
     query = json.dumps({"query": f'{{ host(hostId: "{host_id}") {{ expiration }} }}'}).encode()
     headers = {
-        "Authorization": f"Bearer {run('evergreen', 'client', 'get-oauth-token')}",
+        "Authorization": f"Bearer {evg.evergreen('client', 'get-oauth-token').strip()}",
         "Content-Type": "application/json",
     }
     with urllib.request.urlopen(urllib.request.Request(GRAPHQL, query, headers), timeout=30) as response:
@@ -122,33 +124,64 @@ def hours_left(host_id):
     return (expiry - datetime.now(timezone.utc)).total_seconds() / 3600
 
 
-def check_host_lifecycle(s):
-    """Check 11: --host-hours extends the host; once the host is terminated, status says GONE and exits 0, and
-    create ends on a new host with a tunnel that points at it, without a manual step."""
-    host = pick_host(parse_hosts(run("evergreen", "host", "list", "--mine", "--json")), s.where)
+def check_expiry(s, hours):
+    """The live host of `s` expires in about `hours` hours; returns the host and the hours left."""
+    host = evg.find(s.where)
     left = hours_left(host["id"])
-    assert HOST_HOURS - 2 < left <= HOST_HOURS, f"{s.id}: the host expires in {left:.1f} h, not {HOST_HOURS}"
-    old_address = host_address(s.path)
-    run("evergreen", "host", "terminate", "--host", host["id"])
+    assert hours - 2 < left <= hours, f"{s.id}: the host expires in {left:.1f} h, not about {hours}"
+    return host, left
+
+
+def sidecar(s):
+    """The evg-host-proxy container of the worktree and when it last started."""
+    cid = DevcontainerDomain(it.Runner(), s.path).container_id("evg-host-proxy")
+    return cid, run("docker", "inspect", "-f", "{{.State.StartedAt}}", cid)
+
+
+def check_host_lifecycle(s):
+    """Check 11: --host-hours extends the host; a create with the same address leaves the sidecar running; once the
+    host is terminated, status says GONE and exits 0, and create ends on a new host of the default lifetime with a
+    tunnel that points at it, without a manual step."""
+    host, left = check_expiry(s, HOST_HOURS)
+    old_address, (cid, started) = host_address(s.path), sidecar(s)
+    create(s, "--skip-recreate")
+    assert sidecar(s) == (cid, started), f"{s.id}: create restarted the sidecar of a live host"
+    evg.terminate(host["id"])
     check_host_ended(s.where)
     line = next(l for l in wt_ctl(REPO, "status").splitlines() if str(s.path) in l)
     assert "(GONE)" in line, f"{s.id}: status does not report the host as gone: {line}"
     create(s)
-    sidecar = DevcontainerDomain(it.Runner(), s.path).container_id("evg-host-proxy")
-    assert host_address(s.path) != old_address, f"{s.id}: create reused the terminated host"
-    assert host_address(s.path) in run("docker", "top", sidecar), f"{s.id}: the tunnel does not point at the new host"
+    new_address, (new_cid, _) = host_address(s.path), sidecar(s)
+    assert new_address != old_address, f"{s.id}: create reused the terminated host"
+    assert new_address in run("docker", "top", new_cid), f"{s.id}: the tunnel does not point at the new host"
+    _, new_left = check_expiry(s, DEFAULT_HOURS)
     check_worktree(s)
     shown = re.search(r"evergreen host: .*?\)", line).group()
-    report(s.id, f"expiry in {left:.1f} h; status after terminate: {shown}; tunnel to {host_address(s.path)}")
+    report(
+        s.id,
+        f"expiry {left:.1f} h; same-address rerun kept the sidecar ({started}); after terminate: {shown}; "
+        f"replacement expiry {new_left:.1f} h, tunnel to {new_address}",
+    )
 
 
 def check_host_ended(host):
     """Check 10: the host of the last worktree is terminated within two minutes."""
     for _ in range(12):
-        if not pick_host(parse_hosts(run("evergreen", "host", "list", "--mine", "--json")), host):
+        if not evg.find(host):
             return
         time.sleep(10)
     raise AssertionError(f"host {host} still runs after its last worktree was deleted")
+
+
+def end_hosts(name):
+    """Terminate by id every live host called `name`, whatever `delete` did. main refused a host that existed
+    before the run, so these are the run's own. A failure is reported and does not hide the run's own failure."""
+    try:
+        for host in [h for h in evg.hosts() if h.get("name") == name and (h.get("status") or "").lower() not in DEAD]:
+            report(name, f"terminating leftover host {host['id']}")
+            evg.terminate(host["id"])
+    except Exception as e:
+        report(name, f"cleanup failed, run `evergreen host list --mine` and terminate the host {name}: {e}")
 
 
 def run_group(group):
@@ -159,7 +192,7 @@ def run_group(group):
             if s.id == "V1":  # nothing copied: no private-context, venv, .generated or hooks, as after a clone
                 run("git", "-C", REPO, "worktree", "add", "-b", s.branch, s.path)
             live.append(s)
-            create(s)
+            create(s, *(["--host-hours", str(HOST_HOURS)] if s.id == "H1" else []))
         for s in group:
             check_worktree(s)
         with ThreadPoolExecutor() as pool:  # the markers of a shared host run together
@@ -185,6 +218,9 @@ def run_group(group):
     finally:
         for s in live:
             wt_ctl(REPO, "delete", "--all", "--force", s.branch, check=False)
+        for s in group:
+            if s.id == "H1":
+                end_hosts(s.where)
         for s in group:  # delete never removes a branch, and a leftover acc-* branch stops the next run
             run("git", "-C", REPO, "branch", "-D", s.branch, check=False)
     return {s.id: (failed.get(s.id) or problem, time.monotonic() - start) for s in group}
@@ -198,6 +234,9 @@ def main():
         parser.error(f"unknown scenario, valid ones are {','.join(SCENARIOS)}")
     if run("git", "-C", REPO, "branch", "--list", "acc-*"):
         sys.exit("a branch acc-* exists from an earlier run: delete its worktree and the branch first")
+    h1_host = SCENARIOS["H1"][0]
+    if "H1" in ids and evg.find(h1_host):
+        sys.exit(f"a live Evergreen host named {h1_host} exists: terminate it first, H1 ends every host of that name")
     private = REPO / "scripts/dev/contexts/private-context"
     if not private.is_file() or not re.search(r"^[^#\n]*LOCAL_OPERATOR=true", private.read_text(), re.M):
         sys.exit("private-context must set LOCAL_OPERATOR=true in the container (see the guide)")
