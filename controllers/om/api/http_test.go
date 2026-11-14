@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestCreateHttpRequest(t *testing.T) {
@@ -106,4 +109,27 @@ func TestRequestWithContext_DeadlineAbortsHangingServer(t *testing.T) {
 			assert.Equal(t, int32(1), requests.Load(), tt.requestsMsg)
 		})
 	}
+}
+
+func TestSendRequest_DoesNotLogLicenseBodies(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"receipt":"signed-receipt"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	core, logs := observer.New(zap.DebugLevel)
+	t.Cleanup(zap.ReplaceGlobals(zap.New(core)))
+
+	client, err := NewHTTPClient(OptionDebug)
+	require.NoError(t, err)
+
+	_, _, err = client.Request(context.Background(), "PUT", srv.URL, "/api/public/v1.0/admin/licenses", json.RawMessage(`{"signature":"signed-license"}`))
+	require.NoError(t, err)
+	_, _, err = client.Request(context.Background(), "GET", srv.URL, "/api/public/v1.0/admin/artifacts/abc/receipt", nil)
+	require.NoError(t, err)
+	assert.Zero(t, logs.FilterMessageSnippet("signed-").Len())
+
+	_, _, err = client.Request(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups", nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, logs.FilterMessageSnippet("signed-receipt").Len())
 }
