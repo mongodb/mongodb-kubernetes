@@ -276,9 +276,15 @@ and their branches, also if it fails or you interrupt it.
 | L2 | local kind, 5 clusters | `e2e_multi_cluster_kind` | `e2e_multi_cluster_replica_set` | 12 GB in the VM, nothing else heavy | 20 min |
 | R1 | host of its own | as L1 | as L1 | host 2 GB, laptop 1 GB | 10 min |
 | R2 | host of its own | `e2e_multi_cluster_om_appdb` | `e2e_multi_cluster_appdb_cleanup` | AWS keys with S3 rights | 25 min |
+| H1 | host of its own | as L1 | none, see below | host 2 GB, laptop 1 GB | 25 min |
 | S1 | shared host | as L1 | `e2e_replica_set` | the shared host | 60 to 90 min together |
 | S2 | shared host | `e2e_multi_cluster_om_appdb` | `e2e_multi_cluster_appdb_s3_based_backup_restore` | AWS keys with S3 rights | 60 to 90 min together |
 | S3 | shared host | `e2e_multi_cluster_kind` | `e2e_multi_cluster_replica_set` | the shared host | 60 to 90 min together |
+
+H1 tests the host lifecycle instead of a marker. It creates the worktree with `--host-hours 48` and checks the expiry
+in Evergreen, terminates the host, checks that `status` reports it as `GONE` and exits 0, then runs `create` again and
+checks that it ends on a new host, with the `evg-host-proxy` sidecar tunnelling to the new address and the container
+reaching the clusters.
 
 The scenarios of a run start together and S1 to S3 share one host, `wt-acc-shared`, so the run takes as long as its
 slowest group and needs their resources at once: L1, L2 and V1 about 19 GB in the Docker VM, and three Evergreen hosts for
@@ -293,7 +299,7 @@ R2 does not use `e2e_multi_cluster_appdb` (48 minutes on CI): its `test_create_o
 
 ```bash
 scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios L1,L2,V1   # together, they share the VM
-scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios R1,R2   # together, one host each
+scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios R1,R2,H1   # together, one host each
 scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios S1,S2,S3   # together on one host
 ```
 

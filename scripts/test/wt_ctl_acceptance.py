@@ -3,25 +3,34 @@ isolated, delete them. Run with `--scenarios L1,S2`; the groups of scenarios run
 scenarios", has the prerequisites and run times."""
 
 import argparse
+import json
 import re
 import shlex
 import sys
 import time
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 import wt_ctl_integration as it
 from wt_ctl_integration import REPO, run, wt_ctl
 
 sys.path.insert(0, str(REPO / "scripts" / "dev"))
+from wt_ctl.domains.devcontainer import DevcontainerDomain  # noqa: E402
 from wt_ctl.domains.evg import host_address, parse_hosts, pick_host, ssh_argv  # noqa: E402
 
+HOST_HOURS = 48  # H1 spawns its host for this long
+GRAPHQL = "https://evergreen.corp.mongodb.com/graphql/query"
+
 # id: (where, context, marker). where is "local" or the name of an Evergreen host, which scenarios may share.
+# H1 has no marker: it ends its host and creates again.
 SCENARIOS = {
     "L1": ("local", "e2e_mdb_kind_ubi_cloudqa", "e2e_replica_set_config_map"),
     "V1": ("local", "e2e_mdb_kind_ubi_cloudqa", "e2e_replica_set_config_map"),  # starts from a bare `git worktree add`
     "L2": ("local", "e2e_multi_cluster_kind", "e2e_multi_cluster_replica_set"),
     "R1": ("acc-r1", "e2e_mdb_kind_ubi_cloudqa", "e2e_replica_set_config_map"),
     "R2": ("acc-r2", "e2e_multi_cluster_om_appdb", "e2e_multi_cluster_appdb_cleanup"),
+    "H1": ("acc-h1", "e2e_mdb_kind_ubi_cloudqa", ""),
     "S1": ("wt-acc-shared", "e2e_mdb_kind_ubi_cloudqa", "e2e_replica_set"),
     "S2": ("wt-acc-shared", "e2e_multi_cluster_om_appdb", "e2e_multi_cluster_appdb_s3_based_backup_restore"),
     "S3": ("wt-acc-shared", "e2e_multi_cluster_kind", "e2e_multi_cluster_replica_set"),
@@ -95,6 +104,44 @@ def delete(s, live):
         assert containers(others[0]) == {n: i for n, i in seen.items() if n not in gone}
 
 
+def create(s):
+    where = ["--evg-host-name", s.where] if s.remote else ["--local-kind"]
+    hours = ["--host-hours", str(HOST_HOURS)] if s.id == "H1" else []
+    wt_ctl(REPO, "create", *where, *hours, "--context", s.context, s.branch)
+
+
+def hours_left(host_id):
+    """Hours until Evergreen expires the host. The CLI does not print it, so this asks the GraphQL API."""
+    query = json.dumps({"query": f'{{ host(hostId: "{host_id}") {{ expiration }} }}'}).encode()
+    headers = {
+        "Authorization": f"Bearer {run('evergreen', 'client', 'get-oauth-token')}",
+        "Content-Type": "application/json",
+    }
+    with urllib.request.urlopen(urllib.request.Request(GRAPHQL, query, headers), timeout=30) as response:
+        expiry = datetime.fromisoformat(json.load(response)["data"]["host"]["expiration"].replace("Z", "+00:00"))
+    return (expiry - datetime.now(timezone.utc)).total_seconds() / 3600
+
+
+def check_host_lifecycle(s):
+    """Check 11: --host-hours extends the host; once the host is terminated, status says GONE and exits 0, and
+    create ends on a new host with a tunnel that points at it, without a manual step."""
+    host = pick_host(parse_hosts(run("evergreen", "host", "list", "--mine", "--json")), s.where)
+    left = hours_left(host["id"])
+    assert HOST_HOURS - 2 < left <= HOST_HOURS, f"{s.id}: the host expires in {left:.1f} h, not {HOST_HOURS}"
+    old_address = host_address(s.path)
+    run("evergreen", "host", "terminate", "--host", host["id"])
+    check_host_ended(s.where)
+    line = next(l for l in wt_ctl(REPO, "status").splitlines() if str(s.path) in l)
+    assert "(GONE)" in line, f"{s.id}: status does not report the host as gone: {line}"
+    create(s)
+    sidecar = DevcontainerDomain(it.Runner(), s.path).container_id("evg-host-proxy")
+    assert host_address(s.path) != old_address, f"{s.id}: create reused the terminated host"
+    assert host_address(s.path) in run("docker", "top", sidecar), f"{s.id}: the tunnel does not point at the new host"
+    check_worktree(s)
+    shown = re.search(r"evergreen host: .*?\)", line).group()
+    report(s.id, f"expiry in {left:.1f} h; status after terminate: {shown}; tunnel to {host_address(s.path)}")
+
+
 def check_host_ended(host):
     """Check 10: the host of the last worktree is terminated within two minutes."""
     for _ in range(12):
@@ -112,16 +159,20 @@ def run_group(group):
             if s.id == "V1":  # nothing copied: no private-context, venv, .generated or hooks, as after a clone
                 run("git", "-C", REPO, "worktree", "add", "-b", s.branch, s.path)
             live.append(s)
-            where = ["--evg-host-name", s.where] if s.remote else ["--local-kind"]
-            wt_ctl(REPO, "create", *where, "--context", s.context, s.branch)
+            create(s)
         for s in group:
             check_worktree(s)
         with ThreadPoolExecutor() as pool:  # the markers of a shared host run together
-            runs = {s: pool.submit(it.in_container, s.path, f"scripts/dev/e2e_run.sh {s.marker}") for s in group}
+            runs = {
+                s: pool.submit(it.in_container, s.path, f"scripts/dev/e2e_run.sh {s.marker}") for s in group if s.marker
+            }
         for s, r in runs.items():
             if r.exception():
                 report(s.id, r.exception())
                 failed[s.id] = f"marker {s.marker} failed, output above"
+        for s in group:
+            if s.id == "H1":
+                check_host_lifecycle(s)
         if group[0].remote:
             check_host(live)
         for s in group:
