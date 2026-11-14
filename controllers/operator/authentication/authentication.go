@@ -410,14 +410,16 @@ func ensureDeploymentMechanisms(ctx context.Context, conn om.Connection, ac *om.
 		return nil
 	}
 
-	for _, mechanism := range mechanismsToEnable {
-		log.Debugf("Enabling deployment mechanism %s", mechanism.GetName())
-		if err := mechanism.EnableDeploymentAuthentication(ctx, conn, opts, log); err != nil {
-			return xerrors.Errorf("error enabling deployment authentication: %w", err)
+	// The mechanisms are additive and no agent state is waited on between them, so write them in a
+	// single AutomationConfig version. One version per mechanism lets the agents observe and act on
+	// intermediate configurations that the next write supersedes.
+	return conn.ReadUpdateAutomationConfig(ctx, func(updated *om.AutomationConfig) error {
+		for _, mechanism := range mechanismsToEnable {
+			log.Debugf("Enabling deployment mechanism %s", mechanism.GetName())
+			mechanism.ApplyDeploymentAuthentication(updated, opts)
 		}
-	}
-
-	return nil
+		return nil
+	}, log)
 }
 
 // ensureDeploymentMechanismsAreDisabled configures the given AutomationConfig to allow deployments to

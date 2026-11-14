@@ -83,13 +83,16 @@ func (l *ldapAuthMechanism) DisableAgentAuthentication(ctx context.Context, conn
 	}, log)
 }
 
+func (l *ldapAuthMechanism) ApplyDeploymentAuthentication(ac *om.AutomationConfig, opts Options) {
+	ac.Ldap = opts.Ldap
+	if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain)) {
+		ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
+	}
+}
+
 func (l *ldapAuthMechanism) EnableDeploymentAuthentication(ctx context.Context, conn om.Connection, opts Options, log *zap.SugaredLogger) error {
 	return conn.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
-		ac.Ldap = opts.Ldap
-		if !stringutil.Contains(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain)) {
-			ac.Auth.DeploymentAuthMechanisms = append(ac.Auth.DeploymentAuthMechanisms, string(LDAPPlain))
-		}
-
+		l.ApplyDeploymentAuthentication(ac, opts)
 		return nil
 	}, log)
 }
