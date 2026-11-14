@@ -1,12 +1,14 @@
 """Mints EA license artifacts per run."""
 
 import base64
+import functools
 import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
+import requests
 from kubetester.http import get_retriable_https_session
 from tests import test_logger
 
@@ -38,7 +40,9 @@ class GsaCredentials:
     client_secret: str = field(repr=False)
 
 
+@functools.cache
 def fetch_token(credentials: GsaCredentials) -> str:
+    """Fetched once per run and reused, as the Ops Manager EA licensing suite does."""
     session = get_retriable_https_session(tls_verify=True, status_forcelist=TRANSIENT_STATUSES, allowed_methods=None)
     response = session.post(
         f"{EA_CONTROL_PLANE_URL}/api/oauth/token",
@@ -94,6 +98,40 @@ def mint_license(
     return json.dumps(artifact), artifact_id
 
 
+def revoke_license(credentials: GsaCredentials, artifact_id: str, reason: str) -> Dict:
+    """Revokes the artifact at EA and returns EA's answer."""
+    response = requests.post(
+        f"{EA_CONTROL_PLANE_URL}/api/private/enterpriseAdvanced/tessera/revoke",
+        headers={"Authorization": f"Bearer {fetch_token(credentials)}"},
+        json={"artifact_id": artifact_id, "reason": reason},
+        timeout=30,
+    )
+    response.raise_for_status()
+    logger.info(f"Revoked license {artifact_id} at {EA_CONTROL_PLANE_URL}")
+    return response.json()
+
+
+@dataclass(frozen=True)
+class ReleaseReceipt:
+    """A release receipt Ops Manager wrote. The repr hides it, since pytest prints locals on failure and
+    the receipt is enough to retire the license at EA."""
+
+    raw: str = field(repr=False)
+
+    def document(self) -> Dict:
+        return json.loads(self.raw)
+
+
+def submit_release_receipt(credentials: GsaCredentials, receipt: ReleaseReceipt) -> requests.Response:
+    """Hands Ops Manager's release receipt to EA, the release path for an Ops Manager that cannot reach EA."""
+    return requests.post(
+        f"{EA_CONTROL_PLANE_URL}/api/private/enterpriseAdvanced/tessera/release-receipt",
+        headers={"Authorization": f"Bearer {fetch_token(credentials)}"},
+        json=receipt.document(),
+        timeout=30,
+    )
+
+
 def read_artifact_inventory(credentials: GsaCredentials, principal_id: str) -> Dict[str, Dict]:
     """This principal's artifacts in the EA inventory, keyed by artifact id."""
     session = get_retriable_https_session(tls_verify=True, status_forcelist=TRANSIENT_STATUSES, allowed_methods=None)
@@ -105,6 +143,16 @@ def read_artifact_inventory(credentials: GsaCredentials, principal_id: str) -> D
     )
     response.raise_for_status()
     return {row["artifact_id"]: row for row in response.json()["artifacts"]}
+
+
+def holder_state(row: Dict, holder_id: str) -> str:
+    """The state EA reports for this holder on the artifact: ACTIVE, RELEASED or REVOKED, or "" when
+    the holder has not claimed it.
+    """
+    for holder in row.get("holders", []):
+        if holder["holder_id"] == holder_id:
+            return holder["status"]
+    return ""
 
 
 def artifact_id_of(raw: Union[str, Dict]) -> str:
