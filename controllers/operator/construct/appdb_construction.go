@@ -19,6 +19,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -381,6 +382,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		if len(podSpec.Spec.Containers) < originalLen {
 			log.Warnf("Removed deprecated container %q from user-supplied podTemplateSpec; monitoring is now handled by the single automation agent", monitoringAgentContainerName)
 		}
+		podSpec.Spec = WithoutHolderContainer(appsv1.StatefulSetSpec{Template: *podSpec}, log).Template.Spec
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
@@ -445,8 +447,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		upgradeInitContainer = podtemplatespec.WithInitContainer(appdbVersionUpgradeHookName, appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, ""))
 		readinessInitContainer = podtemplatespec.WithInitContainer(AppDBReadinessProbeContainerName, appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, ""))
 	} else {
-		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount}
-		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, appdbMongodbAgentUtilitiesContainer(staticMounts, opts.InitAppDBImage))
+		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount, initDatabaseImageVolumeMount()}
+		withStaticContainerModification = podtemplatespec.Apply(
+			podtemplatespec.WithVolume(initDatabaseImageVolume(opts.InitAppDBImage)),
+			podtemplatespec.WithContainer(util.AgentContainerName, container.WithReadinessProbe(probes.WithExecCommand([]string{staticDatabaseReadinessProbeCmd}))),
+		)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
 			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
@@ -525,7 +530,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	if appDb.IsMultiCluster() {
 		clusterSpecItem := appDb.GetMemberClusterSpecByName(scaler.MemberClusterName())
 		if clusterSpecItem.StatefulSetConfiguration != nil {
-			sts.Spec = merge.StatefulSetSpecs(sts.Spec, clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
+			sts.Spec = merge.StatefulSetSpecs(sts.Spec, WithoutHolderContainer(clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec, log))
 		}
 		sts.Annotations = merge.StringToStringMap(sts.Annotations, handler.MultiClusterStatefulSetAnnotations(opsManager.Name))
 	}

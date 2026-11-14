@@ -324,7 +324,7 @@ func TestShardedClusterReconcileContainerImagesWithStaticArchitecture(t *testing
 			assert.NoError(t, err)
 
 			assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-			require.Len(t, sts.Spec.Template.Spec.Containers, 3)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 2)
 
 			// Version from OM
 			VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
@@ -1156,22 +1156,22 @@ func TestShardedCustomPodStaticSpecTemplate(t *testing.T) {
 	assertPodSpecSts(t, &statefulSetScConfig, configSrvPodSpec.NodeName, configSrvPodSpec.Hostname, configSrvPodSpec.RestartPolicy, architectures.Static)
 
 	podSpecTemplateSc0 := statefulSetSc0.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc0.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Len(t, podSpecTemplateSc0.Containers, 3, "Should have 3 containers (2 base + 1 custom)")
 	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc0.Containers[0].Name, "Agent container should be first alphabetically")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc0.Containers[len(podSpecTemplateSc0.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateSc1 := statefulSetSc1.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateSc1.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Len(t, podSpecTemplateSc1.Containers, 3, "Should have 3 containers (2 base + 1 custom)")
 	assert.Equal(t, util.AgentContainerName, podSpecTemplateSc1.Containers[0].Name, "Agent container should be first alphabetically")
 	assert.Equal(t, "my-custom-container-sc", podSpecTemplateSc1.Containers[len(podSpecTemplateSc1.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateMongoS := statefulSetMongoS.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateMongoS.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Len(t, podSpecTemplateMongoS.Containers, 3, "Should have 3 containers (2 base + 1 custom)")
 	assert.Equal(t, util.AgentContainerName, podSpecTemplateMongoS.Containers[0].Name, "Agent container should be first alphabetically")
 	assert.Equal(t, "my-custom-container-mongos", podSpecTemplateMongoS.Containers[len(podSpecTemplateMongoS.Containers)-1].Name, "Custom container should be last")
 
 	podSpecTemplateScConfig := statefulSetScConfig.Spec.Template.Spec
-	assert.Len(t, podSpecTemplateScConfig.Containers, 4, "Should have 4 containers (3 base + 1 custom)")
+	assert.Len(t, podSpecTemplateScConfig.Containers, 3, "Should have 3 containers (2 base + 1 custom)")
 	assert.Equal(t, util.AgentContainerName, podSpecTemplateScConfig.Containers[0].Name, "Agent container should be first alphabetically")
 	assert.Equal(t, "my-custom-container-config", podSpecTemplateScConfig.Containers[len(podSpecTemplateScConfig.Containers)-1].Name, "Custom container should be last")
 }

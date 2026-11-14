@@ -65,20 +65,6 @@ func appdbMongodbAgentContainer(automationConfigSecretName string, volumeMounts 
 	)
 }
 
-func appdbMongodbAgentUtilitiesContainer(volumeMounts []corev1.VolumeMount, initDatabaseImage string) container.Modification {
-	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
-	return container.Apply(
-		container.WithName(util.AgentContainerUtilitiesName),
-		container.WithImage(initDatabaseImage),
-		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
-		container.WithResourceRequirements(resourcerequirements.Defaults()),
-		container.WithVolumeMounts(volumeMounts),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
-		container.WithArgs([]string{""}),
-		containerSecurityContext,
-	)
-}
-
 func appdbVersionUpgradeHookInit(volumeMount []corev1.VolumeMount, versionUpgradeHookImage string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(

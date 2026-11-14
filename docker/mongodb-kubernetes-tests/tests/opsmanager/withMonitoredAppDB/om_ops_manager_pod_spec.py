@@ -9,7 +9,6 @@ from typing import Optional
 from kubernetes import client
 from kubetester import try_load
 from kubetester.custom_podspec import assert_volume_mounts_are_equal
-from kubetester.kubetester import assert_container_count_with_static
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import is_default_architecture_static
 from kubetester.opsmanager import MongoDBOpsManager
@@ -79,7 +78,7 @@ class TestOpsManagerCreation:
 
     def test_appdb_pod_template_containers(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
-        assert_container_count_with_static(len(appdb_sts.spec.template.spec.containers), 3)
+        assert len(appdb_sts.spec.template.spec.containers) == 3
 
         assert appdb_sts.spec.template.spec.service_account_name == APPDB_SA_NAME
 
@@ -367,7 +366,7 @@ class TestOpsManagerUpdate:
 
     def test_appdb_pod_template(self, ops_manager: MongoDBOpsManager):
         appdb_sts = ops_manager.read_appdb_statefulset()
-        assert_container_count_with_static(len(appdb_sts.spec.template.spec.containers), 3)
+        assert len(appdb_sts.spec.template.spec.containers) == 3
 
         # Find each container by name instead of position
         containers_by_name = {c.name: c for c in appdb_sts.spec.template.spec.containers}

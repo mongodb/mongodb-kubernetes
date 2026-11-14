@@ -196,7 +196,7 @@ func TestMultiReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t 
 			require.NoError(t, err)
 
 			assert.Len(t, sts.Spec.Template.Spec.InitContainers, 0)
-			require.Len(t, sts.Spec.Template.Spec.Containers, 3)
+			require.Len(t, sts.Spec.Template.Spec.Containers, 2)
 
 			// Version from OM
 			VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)

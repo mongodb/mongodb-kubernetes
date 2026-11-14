@@ -412,7 +412,7 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 	}
 
 	if stsOptions.StatefulSetSpecOverride != nil {
-		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
+		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, WithoutHolderContainer(*stsOptions.StatefulSetSpecOverride, log))
 	}
 
 	return dbSts
@@ -795,12 +795,12 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 
 // buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for static architecture
 func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource) podtemplatespec.Modification {
-	// scripts volume is needed for agent-launcher-shim.sh to copy scripts
+	// /opt/scripts stays as the parent of the hostname override mount in /opt/scripts/config
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
-	databaseScriptsVolumeMount := databaseScriptsVolumeMount(false) // writable for shim script
+	databaseScriptsVolumeMount := databaseScriptsVolumeMount(false)
 
-	volumes := []corev1.Volume{scriptsVolume}
-	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
+	volumes := []corev1.Volume{scriptsVolume, initDatabaseImageVolume(opts.InitDatabaseImage)}
+	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount, initDatabaseImageVolumeMount()}
 
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
@@ -810,12 +810,15 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
-		container.WithLivenessProbe(DatabaseLivenessProbe()),
+		container.WithLivenessProbe(probes.Apply(DatabaseLivenessProbe(), probes.WithExecCommand([]string{staticDatabaseLivenessProbeCmd}))),
+		container.WithReadinessProbe(probes.Apply(DatabaseReadinessProbe(), probes.WithExecCommand([]string{staticDatabaseReadinessProbeCmd}))),
+		container.WithStartupProbe(probes.Apply(DatabaseStartupProbe(), probes.WithExecCommand([]string{staticDatabaseLivenessProbeCmd}))),
 		container.WithEnvs(startupParametersToAgentFlag(opts.AgentConfig.StartupParameters)),
 		container.WithEnvs(logConfigurationToEnvVars(opts.AgentConfig.StartupParameters, opts.AdditionalMongodConfig)...),
 		container.WithEnvs(staticContainersEnvVars(mdb, opts.DefaultArchitecture)...),
 		container.WithEnvs(readinessEnvironmentVariablesToEnvVars(opts.AgentConfig.ReadinessProbe.EnvironmentVariables)...),
-		container.WithCommand([]string{"/usr/local/bin/agent-launcher-shim.sh"}),
+		// Skip the agent image's shim, which waits for the holder container that no longer exists.
+		container.WithCommand(staticAgentLauncherCommand),
 		container.WithVolumeMounts(volumeMounts),
 		configureContainerSecurityContext,
 	)}
@@ -830,15 +833,6 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		configureContainerSecurityContext,
 	)}
 
-	agentUtilitiesHolderModifications := []func(*corev1.Container){container.Apply(
-		container.WithName(util.AgentContainerUtilitiesName),
-		container.WithArgs([]string{""}),
-		container.WithImage(opts.InitDatabaseImage),
-		container.WithEnvs(databaseEnvVars(opts)...),
-		container.WithCommand([]string{"bash", "-c", "touch /tmp/agent-utilities-holder_marker && tail -F -n0 /tmp/agent-utilities-holder_marker"}),
-		configureContainerSecurityContext,
-	)}
-
 	if opts.HostNameOverrideConfigmapName != "" {
 		volumes = append(volumes, statefulset.CreateVolumeFromConfigMap(opts.HostNameOverrideConfigmapName, opts.HostNameOverrideConfigmapName))
 		hostnameOverrideModification := container.WithVolumeMounts([]corev1.VolumeMount{
@@ -849,7 +843,6 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		})
 		agentContainerModifications = append(agentContainerModifications, hostnameOverrideModification)
 		mongodContainerModifications = append(mongodContainerModifications, hostnameOverrideModification)
-		agentUtilitiesHolderModifications = append(agentUtilitiesHolderModifications, hostnameOverrideModification)
 	}
 
 	mods := []podtemplatespec.Modification{
@@ -858,7 +851,6 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		podtemplatespec.WithVolumes(volumes),
 		podtemplatespec.WithContainerByIndex(0, agentContainerModifications...),
 		podtemplatespec.WithContainerByIndex(1, mongodContainerModifications...),
-		podtemplatespec.WithContainerByIndex(2, agentUtilitiesHolderModifications...),
 	}
 
 	return podtemplatespec.Apply(mods...)
