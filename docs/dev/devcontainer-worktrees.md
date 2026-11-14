@@ -129,8 +129,8 @@ with the same `--evg-host-name`: each worktree has its own directory, and its cl
 sync also copies `.generated/worktree-context` (the rest of `.generated/` stays out), so that the scripts on the host see
 the same prefix.
 
-A spawned host lives 24 hours, which is Evergreen's default. `--host-hours N` extends a host that `create` spawns to
-about N hours and says so on spawn (`host <name> expires in about N hours`); a host that already exists keeps its
+A spawned host lives 24 hours, which is Evergreen's default. `--host-hours N` (minimum 24) extends a host that `create`
+spawns to about N hours and says so on spawn (`host <name> expires in about N hours`); a host that already exists keeps its
 expiry. Hosts bill while they run, so ask for no more than you need. `wt-ctl status` shows the state of each worktree's
 host: `running`, `GONE` for a host that is terminated or no longer in `evergreen host list --mine`, or `unknown` when
 the list cannot be read (no login, no VPN).
@@ -287,8 +287,8 @@ checks that it ends on a new host, with the `evg-host-proxy` sidecar tunnelling 
 reaching the clusters.
 
 The scenarios of a run start together and S1 to S3 share one host, `wt-acc-shared`, so the run takes as long as its
-slowest group and needs their resources at once: L1, L2 and V1 about 19 GB in the Docker VM, and three Evergreen hosts for
-R1, R2 and the shared one. Two single-cluster worktrees and one multi-cluster worktree used 14 GB of the shared
+slowest group and needs their resources at once: L1, L2 and V1 about 19 GB in the Docker VM, and four Evergreen hosts for
+R1, R2, H1 and the shared one. Two single-cluster worktrees and one multi-cluster worktree used 14 GB of the shared
 host's 64; S2 adds Ops Manager 9 and has not been measured. R2 and S2 need the Ops Manager 9 image of the context
 (`mongodb-enterprise-ops-manager-ubi:<CUSTOM_OM_VERSION>` in your `REGISTRY`). If S2 is too heavy or the AWS keys cannot
 write to S3, `e2e_multi_cluster_backup_restore` is the fallback marker (single-cluster Ops Manager 8).
@@ -309,8 +309,8 @@ stderr; the worktree's `logs/` are deleted with the worktree.
 
 Commit what you want tested first (the worktrees are worktrees of `HEAD`). The prerequisites are the ones of the
 integration tests, plus Cloud QA values (`OM_HOST`, `OM_USER`, `OM_API_KEY`) in `private-context` and the
-`LOCAL_OPERATOR` line above. R and S also need the `evergreen` CLI login, VPN and the ssh agent key. L1 and L2 are
-Evergreen tasks. R and S are not: `create` spawns hosts as the logged-in user and reaches them through your ssh agent,
+`LOCAL_OPERATOR` line above. R, H and S also need the `evergreen` CLI login, VPN and the ssh agent key. L1 and L2 are
+Evergreen tasks. R, H and S are not: `create` spawns hosts as the logged-in user and reaches them through your ssh agent,
 which a task host does not have. A run that was killed leaves worktrees and branches behind: `wt-ctl status`,
 `wt-ctl delete --all <branch>` and `git branch -D <branch>` for each `acc-*`, and `evergreen host list --mine` for a host.
 
