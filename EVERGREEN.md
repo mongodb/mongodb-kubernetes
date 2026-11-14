@@ -116,6 +116,24 @@ The image is pushed to `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb
   tarball.
 - `om_version` without a URL rebuilds the image of that released OM version, for example after a Dockerfile-only change.
 
+### Unreleased Ops Manager build
+
+The `build_om_dev_images` and `e2e_om_dev_kind_ubi` variants build the Ops Manager image from an unreleased
+Ops Manager build and run the licensing tests against it on every merge to master. PR patches run them with the
+`evergreen:e2e-license` label. To run them on a branch without a PR, use the patch below. The build task builds one image per Ops Manager
+line in `OM_DEV_RELEASE_LINES` (`scripts/dev/contexts/variables/om_dev`), from the latest build of its release branch with the dev EA environment compiled in, which the
+`PACKAGE_OPS_MANAGER_EA` task publishes to the private `evg-mms-testing2` bucket. Each image is tagged
+`<major>.0.0-dev-<OPERATOR_VERSION>`, the evergreen id of the run, for example `9.0.0-dev-<version_id>` in a patch. The
+tests run against the last line, whose tag the `om_dev` context exports as `CUSTOM_OM_VERSION` for `single_e2e.sh`.
+
+```shell
+evergreen patch -p mongodb-kubernetes -d "Test unreleased Ops Manager" -f -y -u --path .evergreen.yml \
+  -v build_om_dev_images -v e2e_om_dev_kind_ubi
+```
+
+To test a different build, point `OPS_MANAGER_DEV_TARBALL_KEY` at the commit keyed object
+`ea/<branch>/<revision>/mongodb-mms-<version>-ea-dev.tar.gz` of that build.
+
 ## E2E Test Path Filtering on PRs
 
 Evergreen uses two levels of file-based filtering on PRs:
@@ -153,6 +171,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
 | `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
+| `evergreen:e2e-license`    | `ops_manager_license` | The licensing tests against an unreleased Ops Manager build (`build_om_dev_images`, `e2e_om_dev_kind_ubi`)     |
 
 OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
 the `staging` alias.
