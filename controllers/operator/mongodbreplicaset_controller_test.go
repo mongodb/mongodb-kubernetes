@@ -307,6 +307,75 @@ func TestReplicaSetServiceName(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestReplicaSetCustomServiceAccount(t *testing.T) {
+	for _, arch := range []architectures.DefaultArchitecture{architectures.NonStatic, architectures.Static} {
+		t.Run(string(arch), func(t *testing.T) {
+			ctx := context.Background()
+			podSpec := corev1.PodSpec{ServiceAccountName: "test-sa"}
+			rs := DefaultReplicaSetBuilder().SetPodSpecTemplate(corev1.PodTemplateSpec{Spec: podSpec}).Build()
+			reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, arch)
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+			sts, err := client.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, rs.Name))
+			require.NoError(t, err)
+			assert.Equal(t, podSpec.ServiceAccountName, sts.Spec.Template.Spec.ServiceAccountName)
+		})
+	}
+}
+
+func TestReplicaSetStatefulSetStatus(t *testing.T) {
+	for _, arch := range []architectures.DefaultArchitecture{architectures.NonStatic, architectures.Static} {
+		t.Run(string(arch), func(t *testing.T) {
+			ctx := context.Background()
+			rs := DefaultReplicaSetBuilder().SetMembers(2).Build()
+
+			markStsAsReady := false
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+			kubeClient := interceptor.NewClient(
+				mock.NewEmptyFakeClientBuilder().WithObjects(rs).WithObjects(mock.GetDefaultResources()...).Build(),
+				interceptor.Funcs{
+					Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, markStsAsReady, markStsAsReady)(ctx, client, key, obj, opts...)
+					},
+				})
+			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
+
+			checkReconcilePending(ctx, t, reconciler, rs, "StatefulSet not ready", kubeClient, 3)
+			assert.Equal(t, "StatefulSet not ready", rs.Status.Message)
+			assert.Equal(t, []status.ResourceNotReady{{
+				Kind:    status.StatefulsetKind,
+				Name:    rs.Name,
+				Message: "Not all the Pods are ready (wanted: 2, updated: 0, ready: 0, current: 0)",
+			}}, rs.Status.ResourcesNotReady)
+
+			markStsAsReady = true
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+			assert.Empty(t, rs.Status.ResourcesNotReady)
+			assert.Empty(t, rs.Status.Message)
+		})
+	}
+}
+
+func TestReplicaSetRecoversFromMissingCredentials(t *testing.T) {
+	ctx := context.Background()
+	const missingCredentials = "missing-credentials"
+	rs := DefaultReplicaSetBuilder().Build()
+	rs.Spec.Credentials = missingCredentials
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	checkReconcileFailed(ctx, t, reconciler, rs, true, fmt.Sprintf(`Error reading Credentials secret: secrets %q not found`, missingCredentials), client)
+
+	rs.Spec.Credentials = mock.TestCredentialsSecretName
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+}
+
 func TestHorizonVerificationTLS(t *testing.T) {
 	ctx := context.Background()
 	replicaSetHorizons := []mdbv1.MongoDBHorizonConfig{

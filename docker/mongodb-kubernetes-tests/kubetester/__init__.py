@@ -65,19 +65,6 @@ def delete_secret(namespace: str, name: str, api_client: Optional[kubernetes.cli
     client.CoreV1Api(api_client=api_client).delete_namespaced_secret(name, namespace)
 
 
-def create_service_account(namespace: str, name: str) -> str:
-    """Creates a service account with `name` in `namespace`"""
-    sa = client.V1ServiceAccount(metadata=client.V1ObjectMeta(name=name))
-    client.CoreV1Api().create_namespaced_service_account(namespace=namespace, body=sa)
-    return name
-
-
-def delete_service_account(namespace: str, name: str) -> str:
-    """Deletes a service account with `name` in `namespace`"""
-    client.CoreV1Api().delete_namespaced_service_account(namespace=namespace, name=name)
-    return name
-
-
 def get_service(
     namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None
 ) -> Optional[client.V1Service]:
