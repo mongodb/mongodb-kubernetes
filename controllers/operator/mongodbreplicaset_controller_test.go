@@ -2547,3 +2547,22 @@ func TestLookupCorrespondingSearchResource_AuthGate(t *testing.T) {
 		assert.NotNil(t, lookup(t, newSource(mdbv1.AuthMode("SCRAM-SHA-256")), newSearch(false)))
 	})
 }
+
+func TestNextReplicaCount(t *testing.T) {
+	tests := []struct {
+		name     string
+		desired  int
+		existing int
+		want     int
+	}{
+		{name: "already at desired", desired: 5, existing: 5, want: 5},
+		{name: "one step up", desired: 5, existing: 3, want: 4},
+		{name: "one step down", desired: 3, existing: 5, want: 4},
+		{name: "one step down when the status lags the deployed count", desired: 3, existing: 4, want: 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, nextReplicaCount(tc.desired, tc.existing))
+		})
+	}
+}

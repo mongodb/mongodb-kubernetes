@@ -391,8 +391,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// === 6. Final steps
-	if scale.IsStillScaling(rs) {
-		return r.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), scale.ReplicasThisReconciliation(rs)), mdbstatus.MembersOption(rs))
+	membersOption := mdbstatus.ReplicaSetMembersOption{Members: r.deploymentState.LastReconcileMemberCount}
+	if r.deploymentState.LastReconcileMemberCount != rs.DesiredReplicas() {
+		return r.updateStatus(ctx, workflow.Pending("Continuing scaling operation for ReplicaSet %s, desiredMembers=%d, currentMembers=%d", rs.ObjectKey(), rs.DesiredReplicas(), r.deploymentState.LastReconcileMemberCount), membersOption)
 	}
 
 	// Get lastspec, vault annotations when needed and write them to the resource.
@@ -424,7 +425,22 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
-	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
+	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewProjectIdOption(conn.GroupID()), membersOption, mdbstatus.NewPVCsStatusOptionEmptyStatus())
+}
+
+// nextReplicaCount returns the member count for this reconciliation when the deployment already has
+// members. It moves the count one step toward desired, or returns desired when the deployment is
+// already there. Counting from the deployment instead of the status prevents a stale status count
+// from removing more than one voting member at a time.
+func nextReplicaCount(desired, existing int) int {
+	switch {
+	case existing == desired:
+		return desired
+	case existing < desired:
+		return existing + 1
+	default:
+		return existing - 1
+	}
 }
 
 func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
@@ -776,6 +792,14 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	}
 
 	processIds := getReplicaSetProcessIdsFromReplicaSets(rs.GetReplicaSetName(), existingDeployment)
+	// On a scale-down, step from the automation config member count. The config holds the deployed members,
+	// while the status count can lag one write behind, and stepping from that stale count removes two voting
+	// members at once, which Ops Manager rejects. A scale-up keeps the count derived from the status: the
+	// StatefulSet is scaled from the same count, and the new pod must exist before its agent can register.
+	// External members keep their own scaling sequence.
+	if len(rs.Spec.GetExternalMembers()) == 0 && len(processIds) > rs.DesiredReplicas() {
+		replicasTarget = nextReplicaCount(rs.DesiredReplicas(), len(processIds))
+	}
 
 	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[util.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath, reconciler.defaultArchitecture, processIds)
 	processNames := replicaSet.GetProcessNames()
@@ -818,6 +842,11 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	if err != nil && !isRecovering {
 		return workflow.Failed(err)
 	}
+	// The automation config now holds exactly replicasTarget members. Record that count so the status
+	// reports what was actually published instead of a value that another reconcile may have advanced.
+	if err == nil {
+		r.deploymentState.LastReconcileMemberCount = replicasTarget
+	}
 
 	if rs.IsRoleAppDB() {
 		if err := r.ensureAppDBRoleUser(ctx, rs, conn); err != nil {
@@ -842,7 +871,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	}
 
 	hostsBefore := getAllHostsForReplicas(rs, membersNumberBefore)
-	hostsAfter := getAllHostsForReplicas(rs, scale.ReplicasThisReconciliation(rs))
+	hostsAfter := getAllHostsForReplicas(rs, replicasTarget)
 
 	if err := host.CalculateDiffAndStopMonitoring(ctx, conn, hostsBefore, hostsAfter, log); err != nil && !isRecovering {
 		return workflow.Failed(err)
