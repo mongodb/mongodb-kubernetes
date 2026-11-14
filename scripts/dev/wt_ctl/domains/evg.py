@@ -65,6 +65,14 @@ def pick_host(hosts: list[dict], name: str) -> Optional[dict]:
     return None
 
 
+def host_state(hosts: Optional[list[dict]], name: str) -> str:
+    """The host's status, ``GONE`` when no live host has the name, ``unknown`` when the list could not be read."""
+    if hosts is None:
+        return "unknown"
+    host = pick_host(hosts, name)
+    return "GONE" if host is None else host.get("status") or "unknown"
+
+
 def running_host(hosts: list[dict], name: str) -> Optional[dict]:
     """The host ``name`` once it runs and has an address, else None."""
     host = pick_host(hosts, name)
@@ -125,8 +133,8 @@ class EvgDomain:
                 time.sleep(READ_RETRY_S)
         return self.evergreen(*args)
 
-    def hosts(self) -> list[dict]:
-        return parse_hosts(self.read("host", "list", "--mine", "--json"))
+    def hosts(self, retry: bool = True) -> list[dict]:
+        return parse_hosts((self.read if retry else self.evergreen)("host", "list", "--mine", "--json"))
 
     def find(self, name: str) -> Optional[dict]:
         return pick_host(self.hosts(), name)
