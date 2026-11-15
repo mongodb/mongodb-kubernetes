@@ -1127,7 +1127,20 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 		return err
 	}
 
-	if err = reconciler.watchCertificateResources(c, mgr); err != nil {
+	// watch the Secrets and ConfigMaps referenced by Ops Manager resources (API keys, TLS/CA bundles, backup credentials)
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
+		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
+	if err = reconciler.watchManagedCertificates(c, mgr); err != nil {
 		return err
 	}
 
@@ -1172,23 +1185,15 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 	return nil
 }
 
-func (r *OpsManagerReconciler) watchCertificateResources(c controller.Controller, mgr manager.Manager) error {
-	sources := []source.Source{
-		source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.resourceWatcher}),
-		source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{}, &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.resourceWatcher}),
-	}
-	if r.certManagerReadiness.Ready {
-		sources = append(sources, source.Kind[client.Object](mgr.GetCache(), &certmanagerv1.Certificate{},
-			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &omv1.MongoDBOpsManager{}, handler.OnlyControllerOwner())))
-	} else {
+// watchManagedCertificates re-triggers the owning Ops Manager when cert-manager issues, renews or
+// fails a Certificate created for it.
+func (r *OpsManagerReconciler) watchManagedCertificates(c controller.Controller, mgr manager.Manager) error {
+	if !r.certManagerReadiness.Ready {
 		zap.S().Info("Operator is not configured to use cert-manager integration for MongoDBOpsManager (either cert-manager CRDs are not installed or operator doesn't have appropriate authz). Operator managed certificate feature will not work.")
+		return nil
 	}
-	for _, src := range sources {
-		if err := c.Watch(src); err != nil {
-			return err
-		}
-	}
-	return nil
+	return c.Watch(source.Kind[client.Object](mgr.GetCache(), &certmanagerv1.Certificate{},
+		handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &omv1.MongoDBOpsManager{}, handler.OnlyControllerOwner())))
 }
 
 // ensureConfiguration makes sure the mandatory configuration is specified.

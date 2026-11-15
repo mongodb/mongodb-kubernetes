@@ -2693,7 +2693,7 @@ func TestOpsManagerManagedCertificateEvents(t *testing.T) {
 			mapper.Add(v1.SchemeGroupVersion.WithKind("MongoDBOpsManager"), meta.RESTScopeNamespace)
 			mgr := omCertificateWatchManager{cache: cache, client: c, mapper: mapper}
 			watched := &omCertificateWatchController{}
-			require.NoError(t, r.watchCertificateResources(watched, mgr))
+			require.NoError(t, r.watchManagedCertificates(watched, mgr))
 			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 			defer q.ShutDown()
 			for _, src := range watched.sources {
@@ -2714,8 +2714,6 @@ func TestOpsManagerManagedCertificateEvents(t *testing.T) {
 				assert.Equal(t, opsManager.ObjectKey(), request.NamespacedName)
 				q.Done(request)
 			}
-			checkEvent(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: opsManager.TLSCertificateSecretName(), Namespace: opsManager.Namespace}}, true)
-			checkEvent(&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: opsManager.GetOpsManagerCA(), Namespace: opsManager.Namespace}}, true)
 			checkEvent(&certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{Name: opsManager.TLSCertificateSecretName(), Namespace: opsManager.Namespace, OwnerReferences: kube.BaseOwnerReference(opsManager)}}, ready)
 		})
 	}
