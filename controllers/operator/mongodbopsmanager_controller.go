@@ -533,13 +533,6 @@ func (r *OpsManagerReconciler) createAppDBReconcile(ctx context.Context, opsMana
 	return r.createNewExternalAppDBReconciler(log), nil
 }
 
-const (
-	certificateReasonAllCertificatesReady = "AllCertificatesReady"
-	certificateReasonIssuing              = "Issuing"
-	certificateReasonIssuanceFailed       = "IssuanceFailed"
-	certificateReasonRenewalFailed        = "RenewalFailed"
-)
-
 type componentCertificateResult struct {
 	part      mdbstatus.Part
 	status    workflow.Status
@@ -564,15 +557,11 @@ func (r *OpsManagerReconciler) ensureOpsManagerCertificateAndCA(ctx context.Cont
 
 	dnsNames, ipAddresses, err := opsManagerCertificateSANs(opsManager)
 	if err != nil {
+		condition := certs.IssuanceFailedCondition(err.Error())
 		return componentCertificateResult{
-			part:   mdbstatus.OpsManager,
-			status: workflow.Failed(err),
-			condition: &metav1.Condition{
-				Type:    certs.ConditionCertificatesReady,
-				Status:  metav1.ConditionFalse,
-				Reason:  certificateReasonIssuanceFailed,
-				Message: err.Error(),
-			},
+			part:      mdbstatus.OpsManager,
+			status:    workflow.Failed(err),
+			condition: &condition,
 		}
 	}
 	status, condition := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, opsManager.Spec.Security.ManagedCertificate, certs.ServerCertificateOptions{
@@ -622,12 +611,7 @@ func (r *OpsManagerReconciler) managedCertificateGateResult(part mdbstatus.Part,
 	}
 
 	message := r.certManagerReadiness.UnavailableMessage()
-	condition := metav1.Condition{
-		Type:    certs.ConditionCertificatesReady,
-		Status:  metav1.ConditionFalse,
-		Reason:  certificateReasonIssuanceFailed,
-		Message: message,
-	}
+	condition := certs.IssuanceFailedCondition(message)
 	return componentCertificateResult{part: part, status: workflow.Failed(xerrors.New(message)), condition: &condition}
 }
 
@@ -682,25 +666,21 @@ func aggregateCertificateConditions(results []componentCertificateResult) *metav
 	}
 
 	conditionStatus := metav1.ConditionFalse
-	if highestReason == certificateReasonAllCertificatesReady {
+	if highestReason == certs.ReasonAllCertificatesReady {
 		conditionStatus = metav1.ConditionTrue
 	}
 
-	return &metav1.Condition{
-		Type:    certs.ConditionCertificatesReady,
-		Status:  conditionStatus,
-		Reason:  highestReason,
-		Message: strings.Join(messages, "; "),
-	}
+	condition := certs.CertificatesReadyCondition(conditionStatus, highestReason, strings.Join(messages, "; "))
+	return &condition
 }
 
 func certificateConditionSeverity(reason string) int {
 	switch reason {
-	case certificateReasonIssuanceFailed:
+	case certs.ReasonIssuanceFailed:
 		return 3
-	case certificateReasonIssuing:
+	case certs.ReasonCertificatesIssuing:
 		return 2
-	case certificateReasonRenewalFailed:
+	case certs.ReasonRenewalFailed:
 		return 1
 	default:
 		return 0
@@ -741,9 +721,8 @@ func (r *OpsManagerReconciler) patchCertificateReadyCondition(ctx context.Contex
 			return nil
 		}
 	} else {
-		aggregateCondition := *condition
-		aggregateCondition.ObservedGeneration = opsManager.Generation
-		meta.SetStatusCondition(&existingOpsManager.Status.Conditions, aggregateCondition)
+		// The guard above pins the observed generation to the one this result was computed for.
+		existingOpsManager.SetStatusCondition(*condition)
 	}
 
 	if reflect.DeepEqual(base.Status.Conditions, existingOpsManager.Status.Conditions) {

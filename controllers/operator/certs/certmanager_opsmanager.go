@@ -54,15 +54,15 @@ func EnsureServerCertificateAndCA(
 	log *zap.SugaredLogger,
 ) (workflow.Status, metav1.Condition) {
 	if cfg == nil {
-		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
+		return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
 	}
 	if opts.NamingBase == "" || opts.SecretName == "" {
 		msg := "operator-managed server certificate requires a naming base and a secret name"
-		return workflow.Failed(xerrors.New(msg)), issuanceFailedCondition(msg)
+		return workflow.Failed(xerrors.New(msg)), IssuanceFailedCondition(msg)
 	}
 	if opts.CABundleName == "" || opts.CABundleKey == "" {
 		msg := "operator-managed server certificate requires a CA bundle ConfigMap name and key"
-		return workflow.Failed(xerrors.New(msg)), issuanceFailedCondition(msg)
+		return workflow.Failed(xerrors.New(msg)), IssuanceFailedCondition(msg)
 	}
 
 	res := serverCertificateOwner{
@@ -87,7 +87,7 @@ func EnsureServerCertificateAndCA(
 		serverCA, status = categoryBundle(ctx, c, res, categoryServer, serverCA)
 	}
 	if !status.IsOK() {
-		return status, issuanceFailedCondition(status.Message())
+		return status, IssuanceFailedCondition(status.Message())
 	}
 	cm := configmap.Builder().
 		SetName(opts.CABundleName).
@@ -96,7 +96,7 @@ func EnsureServerCertificateAndCA(
 		SetDataField(opts.CABundleKey, serverCA).
 		Build()
 	if err := configmap.CreateOrUpdate(ctx, c, cm); err != nil {
-		return workflow.Failed(err), issuanceFailedCondition(err.Error())
+		return workflow.Failed(err), IssuanceFailedCondition(err.Error())
 	}
 	log.Debugf("Populated operator-managed CA ConfigMap %s for %s", opts.CABundleName, opts.NamingBase)
 

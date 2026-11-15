@@ -301,7 +301,7 @@ func TestManagedServerCertificate(t *testing.T) {
 		assert.Contains(t, status.Message(), "did not populate ca.crt")
 		assert.Contains(t, status.Message(), "security.managedCertificate")
 		assert.Equal(t, metav1.ConditionFalse, condition.Status)
-		assert.Equal(t, reasonCertificateIssuanceError, condition.Reason)
+		assert.Equal(t, ReasonIssuanceFailed, condition.Reason)
 	})
 }
 
@@ -328,7 +328,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
 		assert.Equal(t, metav1.ConditionTrue, condition.Status)
-		assert.Equal(t, reasonAllCertificatesReady, condition.Reason)
+		assert.Equal(t, ReasonAllCertificatesReady, condition.Reason)
 	})
 
 	t.Run("stale ready condition does not pass the generation check", func(t *testing.T) {
@@ -343,7 +343,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		assert.Equal(t, apistatus.PhasePending, status.Phase())
 		assert.Contains(t, status.Message(), "example-managed-om-cert")
 		assert.Equal(t, metav1.ConditionFalse, condition.Status)
-		assert.Equal(t, reasonCertificatesIssuing, condition.Reason)
+		assert.Equal(t, ReasonCertificatesIssuing, condition.Reason)
 	})
 
 	t.Run("missing output Secret remains pending", func(t *testing.T) {
@@ -376,7 +376,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		assert.Equal(t, apistatus.PhasePending, status.Phase())
 		assert.Contains(t, status.Message(), "Waiting for cert-manager to write the certificate secret example-managed-om-cert")
 		assert.Equal(t, metav1.ConditionFalse, condition.Status)
-		assert.Equal(t, reasonCertificatesIssuing, condition.Reason)
+		assert.Equal(t, ReasonCertificatesIssuing, condition.Reason)
 	})
 
 	t.Run("output Secret read errors propagate", func(t *testing.T) {
@@ -403,7 +403,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		assert.Equal(t, apistatus.PhaseFailed, status.Phase())
 		assert.Contains(t, status.Message(), "leaf secret read denied")
 		assert.Equal(t, metav1.ConditionFalse, condition.Status)
-		assert.Equal(t, reasonCertificateIssuanceError, condition.Reason)
+		assert.Equal(t, ReasonIssuanceFailed, condition.Reason)
 	})
 
 	t.Run("renewal failure keeps the workflow OK and reports a false condition", func(t *testing.T) {
@@ -420,7 +420,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
 		assert.Equal(t, metav1.ConditionFalse, condition.Status)
-		assert.Equal(t, reasonCertificateRenewalFailed, condition.Reason)
+		assert.Equal(t, ReasonRenewalFailed, condition.Reason)
 		assert.Contains(t, condition.Message, "renewal is failing")
 	})
 
@@ -506,7 +506,7 @@ func TestManagedServerCertificateWriteGenerationReadiness(t *testing.T) {
 	assert.Equal(t, apistatus.PhasePending, status.Phase(), "cached Ready for the previous generation must not satisfy an updated desired Certificate")
 	assert.Contains(t, status.Message(), "example-managed-om-cert")
 	assert.Equal(t, metav1.ConditionFalse, condition.Status)
-	assert.Equal(t, reasonCertificatesIssuing, condition.Reason)
+	assert.Equal(t, ReasonCertificatesIssuing, condition.Reason)
 
 	bundle := &corev1.ConfigMap{}
 	err := c.Get(ctx, types.NamespacedName{Name: "example-managed-om-ca-bundle", Namespace: managedTestNamespace}, bundle)

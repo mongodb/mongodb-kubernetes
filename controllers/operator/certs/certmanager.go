@@ -41,14 +41,15 @@ const (
 	// Running).
 	ConditionCertificatesReady = "CertificatesReady"
 
-	// every managed cert is issued and up to date.
-	reasonAllCertificatesReady = "AllCertificatesReady"
-	// a usable cert is not yet available this also holds overall Phase in Pending.
-	reasonCertificatesIssuing = "Issuing"
-	// cert-manager returned an API/CRD error.
-	reasonCertificateIssuanceError = "IssuanceFailed"
-	// a renewal is failing but the current cert is still valid, so the deployment keeps running.
-	reasonCertificateRenewalFailed = "RenewalFailed"
+	// ReasonAllCertificatesReady means every managed cert is issued and up to date.
+	ReasonAllCertificatesReady = "AllCertificatesReady"
+	// ReasonCertificatesIssuing means a usable cert is not yet available; the resource Phase is Pending.
+	ReasonCertificatesIssuing = "Issuing"
+	// ReasonIssuanceFailed means cert-manager returned an API/CRD error.
+	ReasonIssuanceFailed = "IssuanceFailed"
+	// ReasonRenewalFailed means a renewal is failing but the current cert is still valid, so the
+	// deployment keeps running.
+	ReasonRenewalFailed = "RenewalFailed"
 )
 
 // The certificates that are required by a deployment can be grouped in two categories, server certs
@@ -194,13 +195,13 @@ func EnsureCertificatesAndCA(
 	log *zap.SugaredLogger,
 ) (workflow.Status, metav1.Condition) {
 	if len(allOpts) == 0 {
-		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
+		return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
 	}
 
 	// Validate the computed subjects before issuing anything, the agent subject must not match
 	// the membership subject on O and OU attributes.
 	if status := verifyAgentSubjectDistinct(res); !status.IsOK() {
-		return status, issuanceFailedCondition(status.Message())
+		return status, IssuanceFailedCondition(status.Message())
 	}
 
 	hasClientCerts := res.GetSecurity().RequiresX509ClientCerts()
@@ -223,12 +224,12 @@ func EnsureCertificatesAndCA(
 	// the member cert (server-signed) and the clusterFile cert (client-signed) must carry
 	// the same membership subject
 	if status := verifyMembershipSubjects(ctx, c, res, allOpts); !status.IsOK() {
-		return status, issuanceFailedCondition(status.Message())
+		return status, IssuanceFailedCondition(status.Message())
 	}
 
 	// All certs Ready, populate the per-category CA trust bundle.
 	if status := EnsureCAConfigMapFromIssuedSecret(ctx, c, res, allOpts[0], hasClientCerts, log); !status.IsOK() {
-		return status, issuanceFailedCondition(status.Message())
+		return status, IssuanceFailedCondition(status.Message())
 	}
 
 	return certificatesResult(renewalFailures)
@@ -257,14 +258,14 @@ func ensureCertificatesReady(
 	if serverSelfSigned {
 		generation, status := ensureSelfSignedCA(ctx, c, res, categoryServer)
 		if !status.IsOK() {
-			return nil, status, issuanceFailedCondition(status.Message())
+			return nil, status, IssuanceFailedCondition(status.Message())
 		}
 		writtenCertificates = append(writtenCertificates, Certificate{name: managedCACertName(res, categoryServer), generation: generation})
 	}
 	if clientSelfSigned {
 		generation, status := ensureSelfSignedCA(ctx, c, res, categoryClient)
 		if !status.IsOK() {
-			return nil, status, issuanceFailedCondition(status.Message())
+			return nil, status, IssuanceFailedCondition(status.Message())
 		}
 		writtenCertificates = append(writtenCertificates, Certificate{name: managedCACertName(res, categoryClient), generation: generation})
 	}
@@ -274,7 +275,7 @@ func ensureCertificatesReady(
 	for _, cert := range required {
 		generation, status := ensureCertificate(ctx, c, res, cert)
 		if !status.IsOK() {
-			return nil, status, issuanceFailedCondition(status.Message())
+			return nil, status, IssuanceFailedCondition(status.Message())
 		}
 		writtenCertificates = append(writtenCertificates, Certificate{name: cert.certName, generation: generation})
 	}
@@ -286,7 +287,7 @@ func ensureCertificatesReady(
 	for _, cert := range writtenCertificates {
 		insp, status := inspectCertificateAtGeneration(ctx, c, res.GetNamespace(), cert.name, cert.generation)
 		if !status.IsOK() {
-			return nil, status, issuanceFailedCondition(status.Message())
+			return nil, status, IssuanceFailedCondition(status.Message())
 		}
 		switch {
 		case !insp.ready:
@@ -309,7 +310,7 @@ func ensureCertificatesReady(
 		} else {
 			msg += " See 'kubectl describe certificate <name>' and its CertificateRequest for issuer detail."
 		}
-		return nil, workflow.Pending("%s", msg), certificatesReadyCondition(metav1.ConditionFalse, reasonCertificatesIssuing, msg)
+		return nil, workflow.Pending("%s", msg), CertificatesReadyCondition(metav1.ConditionFalse, ReasonCertificatesIssuing, msg)
 	}
 
 	// A Ready condition and the issued Secret are written independently. Require every
@@ -321,7 +322,7 @@ func ensureCertificatesReady(
 
 	// every issued certificate must have the key usages it was requested with
 	if status := verifyKeyUsagesInIssuedCert(ctx, c, res, required); !status.IsOK() {
-		return nil, status, issuanceFailedCondition(status.Message())
+		return nil, status, IssuanceFailedCondition(status.Message())
 	}
 
 	return renewalFailures, workflow.OK(), metav1.Condition{}
@@ -334,10 +335,10 @@ func certificatesResult(renewalFailures []string) (workflow.Status, metav1.Condi
 	// would still be valid
 	if len(renewalFailures) > 0 {
 		msg := fmt.Sprintf("Certificate renewal is failing; the deployment is still running on the current certificate(s): %s", strings.Join(renewalFailures, "; "))
-		return workflow.OK(), certificatesReadyCondition(metav1.ConditionFalse, reasonCertificateRenewalFailed, msg)
+		return workflow.OK(), CertificatesReadyCondition(metav1.ConditionFalse, ReasonRenewalFailed, msg)
 	}
 
-	return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "All operator-managed certificates are issued and up to date")
+	return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, "All operator-managed certificates are issued and up to date")
 }
 
 // requireIssuedSecrets checks that cert-manager wrote the output Secret of every issued leaf
@@ -356,14 +357,14 @@ func requireIssuedSecrets(ctx context.Context, c kubernetesClient.Client, res Ce
 				missing = append(missing, secretName)
 				continue
 			}
-			return workflow.Failed(err), issuanceFailedCondition(err.Error())
+			return workflow.Failed(err), IssuanceFailedCondition(err.Error())
 		}
 	}
 	if len(missing) == 0 {
 		return workflow.OK(), metav1.Condition{}
 	}
 	msg := waitingForIssuedSecretsMessage(missing)
-	return workflow.Pending("%s", msg), certificatesReadyCondition(metav1.ConditionFalse, reasonCertificatesIssuing, msg)
+	return workflow.Pending("%s", msg), CertificatesReadyCondition(metav1.ConditionFalse, ReasonCertificatesIssuing, msg)
 }
 
 func waitingForIssuedSecretsMessage(secretNames []string) string {
@@ -373,9 +374,9 @@ func waitingForIssuedSecretsMessage(secretNames []string) string {
 	return fmt.Sprintf("Waiting for cert-manager to write the certificate secrets %s", strings.Join(secretNames, ", "))
 }
 
-// certificatesReadyCondition builds a CertificatesReady condition. LastTransitionTime
+// CertificatesReadyCondition builds a CertificatesReady condition. LastTransitionTime
 // and ObservedGeneration are filled in by the resource's SetStatusCondition upsert.
-func certificatesReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
+func CertificatesReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
 	return metav1.Condition{
 		Type:    ConditionCertificatesReady,
 		Status:  status,
@@ -384,10 +385,10 @@ func certificatesReadyCondition(status metav1.ConditionStatus, reason, message s
 	}
 }
 
-// issuanceFailedCondition is the CertificatesReady=False condition paired with a
+// IssuanceFailedCondition is the CertificatesReady=False condition paired with a
 // workflow.Failed while ensuring or inspecting certificates.
-func issuanceFailedCondition(message string) metav1.Condition {
-	return certificatesReadyCondition(metav1.ConditionFalse, reasonCertificateIssuanceError, message)
+func IssuanceFailedCondition(message string) metav1.Condition {
+	return CertificatesReadyCondition(metav1.ConditionFalse, ReasonIssuanceFailed, message)
 }
 
 // certInspection captures the readiness and failure state of a single Certificate.

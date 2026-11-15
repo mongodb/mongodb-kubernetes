@@ -157,7 +157,7 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 	status, condition := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
 	require.True(t, status.IsOK(), status.Message())
 	assert.Equal(t, v1.ConditionTrue, condition.Status)
-	assert.Equal(t, reasonAllCertificatesReady, condition.Reason)
+	assert.Equal(t, ReasonAllCertificatesReady, condition.Reason)
 
 	bundle := managedCAConfigMap(t, ctx, c, "example-db-managed-server-ca-bundle")
 	assert.Equal(t, managedTestNamespace, bundle.Namespace)
