@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -38,6 +39,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
@@ -6485,4 +6487,60 @@ func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
 	// cluster-b's unit was still applied despite cluster-a failing first.
 	require.NoError(t, clusterB.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
+}
+
+func TestMongodCRLFilePath(t *testing.T) {
+	defaultCAPath := path.Join(util.TLSCaMountPath, tls.CAConfigMapKey)
+
+	tests := []struct {
+		name       string
+		crlFile    string
+		caFilePath string
+		tlsEnabled bool
+		want       string
+		wantErr    bool
+	}{
+		{
+			name:       "no CRL configured",
+			caFilePath: defaultCAPath,
+			tlsEnabled: true,
+			want:       "",
+		},
+		{
+			name:       "default CA mount path with a CRL",
+			crlFile:    "crl.pem",
+			caFilePath: defaultCAPath,
+			tlsEnabled: true,
+			want:       path.Join(util.TLSCaMountPath, "crl.pem"),
+		},
+		{
+			name:       "custom CA path with a CRL is rejected",
+			crlFile:    "crl.pem",
+			caFilePath: "/custom/ca/ca-pem",
+			tlsEnabled: true,
+			wantErr:    true,
+		},
+		{
+			name:       "CRL without source TLS is skipped",
+			crlFile:    "crl.pem",
+			caFilePath: defaultCAPath,
+			tlsEnabled: false,
+			want:       "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source.CRLFile = tc.crlFile
+			})
+			got, err := MongodCRLFilePath(search, tc.caFilePath, tc.tlsEnabled)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
