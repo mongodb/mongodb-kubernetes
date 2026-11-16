@@ -112,16 +112,20 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, s
 // ReconcileDatabaseAgentSettings renders the native agent settings, reconciles the settings
 // ConfigMap and credential, and supplies the optional custom hostname to the launcher.
 func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, opts construct.DatabaseStatefulSetOptions) error {
-	cm, err := construct.DatabaseAgentSettingsConfigMap(*sts, opts)
+	agent := construct.AgentContainer(*sts)
+	if agent == nil {
+		return fmt.Errorf("agent container not found in StatefulSet %s", sts.Name)
+	}
+	cm, err := construct.DatabaseAgentSettingsConfigMap(*sts, *agent, opts)
 	if err != nil {
 		return fmt.Errorf("cannot render agent settings: %w", err)
 	}
-	agent := construct.AgentContainer(*sts)
 	if needsMemberClusterKeyMount(secretClient, *sts, opts) {
 		mountMemberClusterKeySecret(sts, agent, opts.PodVars.ProjectID)
 	}
 	parameters := customerStartupOptions(opts)
 	err = reconcileAgentSettings(ctx, client, secretClient, sts, agentSettingsInput{
+		agent:           agent,
 		configMap:       cm,
 		parameters:      parameters,
 		vaultBasePath:   vaultDatabaseSecretPath(secretClient),
@@ -183,6 +187,7 @@ func setAgentHostnameEnv(agent *corev1.Container, parameters mdbv1.StartupParame
 
 // agentSettingsInput is what reconcileAgentSettings needs besides the StatefulSet and the clients.
 type agentSettingsInput struct {
+	agent           *corev1.Container
 	configMap       corev1.ConfigMap
 	parameters      mdbv1.StartupParameters
 	vaultBasePath   string
@@ -190,10 +195,7 @@ type agentSettingsInput struct {
 }
 
 func reconcileAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, in agentSettingsInput) error {
-	agent := construct.AgentContainer(*sts)
-	if agent == nil {
-		return fmt.Errorf("agent container not found in StatefulSet %s", sts.Name)
-	}
+	agent := in.agent
 	customerKeyCommand := in.parameters["mmsApiKeyExec"]
 	customerRawKey, hasCustomerRawKey := in.parameters["mmsApiKey"]
 	// The credential is only used for the rollout digest, so a rotated key rolls the pods.

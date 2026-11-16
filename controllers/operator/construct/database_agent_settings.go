@@ -142,12 +142,8 @@ func AgentAPIKeySecretName(sts appsv1.StatefulSet) string {
 }
 
 // DatabaseAgentSettingsConfigMap renders shared settings from the effective agent environment and customer startup options.
-func DatabaseAgentSettingsConfigMap(sts appsv1.StatefulSet, opts DatabaseStatefulSetOptions) (corev1.ConfigMap, error) {
-	agent := AgentContainer(sts)
-	if agent == nil {
-		return corev1.ConfigMap{}, fmt.Errorf("agent container not found in StatefulSet %s", sts.Name)
-	}
-	if err := ValidateNoRuntimeAgentSettingsEnv(*agent); err != nil {
+func DatabaseAgentSettingsConfigMap(sts appsv1.StatefulSet, agent corev1.Container, opts DatabaseStatefulSetOptions) (corev1.ConfigMap, error) {
+	if err := ValidateNoRuntimeAgentSettingsEnv(agent); err != nil {
 		return corev1.ConfigMap{}, err
 	}
 	return agentSettingsConfigMap(sts, databaseAgentSettings(opts, newAgentRuntime(env.ToMap(agent.Env...))))

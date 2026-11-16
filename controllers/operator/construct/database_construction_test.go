@@ -399,7 +399,7 @@ func TestDatabaseAgentSettingsConfigMap(t *testing.T) {
 			}).Build()
 			options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architecture))
 			sts := DatabaseStatefulSet(*mdb, options, zap.S())
-			cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+			cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 			require.NoError(t, err)
 			assert.Equal(t, "my-rs-agent-settings", cm.Name)
 			assert.Equal(t, sts.Namespace, cm.Namespace)
@@ -424,7 +424,7 @@ func TestDatabaseAgentSettingsConfigMap(t *testing.T) {
 		}).Build()
 		options := ReplicaSetOptions(GetPodEnvOptions())
 		sts := DatabaseStatefulSet(*mdb, options, zap.S())
-		cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+		cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 		require.Error(t, err)
 		assert.Empty(t, cm.Data)
 		assert.NotContains(t, err.Error(), "secret-api-key-value")
@@ -433,7 +433,7 @@ func TestDatabaseAgentSettingsConfigMap(t *testing.T) {
 		mdb := mdbv1.NewReplicaSetBuilder().Build()
 		options := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic))
 		sts := DatabaseStatefulSet(*mdb, options, zap.S())
-		cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+		cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 		require.NoError(t, err)
 		assert.NotEmpty(t, cm.Data)
 		variables := env.ToMap(sts.Spec.Template.Spec.Containers[0].Env...)
@@ -457,7 +457,7 @@ func TestDatabaseAgentBootstrapCA(t *testing.T) {
 			assert.True(t, slices.ContainsFunc(sts.Spec.Template.Spec.Volumes, func(volume corev1.Volume) bool {
 				return volume.Name == CaCertName && volume.ConfigMap != nil && volume.ConfigMap.Name == "custom-ca"
 			}))
-			cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+			cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 			require.NoError(t, err)
 			assert.Contains(t, cm.Data[AgentSettingsFileName], "httpsCAFile="+caPath+"\n")
 		})
@@ -485,7 +485,7 @@ func TestDatabaseAgentSettingsPreservesLiteralVariables(t *testing.T) {
 				agent := AgentContainer(sts)
 				require.NotNil(t, agent)
 				container.WithEnvs(tc.env...)(agent)
-				cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+				cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 				require.NoError(t, err)
 				assert.Contains(t, cm.Data[AgentSettingsFileName], "logFile="+tc.value+"\n")
 			})
@@ -524,7 +524,7 @@ func TestDatabaseAgentRejectsRuntimeSettingsEnvironment(t *testing.T) {
 						variable.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "runtime"}, Key: "value"}}
 					}
 					container.WithEnvs(variable)(agent)
-					_, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+					_, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 					require.Error(t, err)
 					assert.Contains(t, err.Error(), variableName)
 					assert.Contains(t, err.Error(), "agent.startupOptions")
@@ -548,7 +548,7 @@ func TestDatabaseAgentSettingsUseOperatorPodVars(t *testing.T) {
 	}
 	container.WithEnvs(corev1.EnvVar{Name: util.EnvVarBaseUrl, Value: "https://pod-template.example.com"})(agent)
 
-	cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+	cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 	require.NoError(t, err)
 	settings := cm.Data[AgentSettingsFileName]
 	assert.Contains(t, settings, "mmsBaseUrl=https://operator.example.com\n")
@@ -563,7 +563,7 @@ func TestDatabaseAgentCredentialCommandUsesFixedKeyPath(t *testing.T) {
 	sts := DatabaseStatefulSet(*mdb, options, zap.S())
 	agent := container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
 	container.WithEnvs(corev1.EnvVar{Name: "MMS_HOME", Value: "/custom/home"})(agent)
-	cm, err := DatabaseAgentSettingsConfigMap(sts, options(*mdb))
+	cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 	require.NoError(t, err)
 	var command string
 	for line := range strings.SplitSeq(cm.Data[AgentSettingsFileName], "\n") {
