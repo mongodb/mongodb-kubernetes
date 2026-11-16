@@ -2,6 +2,7 @@ package operator
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -439,7 +440,9 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 					MaxConnections:     wrapperspb.UInt32(1024),
 					MaxPendingRequests: wrapperspb.UInt32(1024),
 					MaxRequests:        wrapperspb.UInt32(1024),
-					MaxRetries:         wrapperspb.UInt32(3),
+					// Unbounded (unset defaults to 3): retries stay capped per request by numRetries, so mongot
+					// always sees the final attempt and returns the terminal overload error.
+					MaxRetries: wrapperspb.UInt32(math.MaxUint32),
 				},
 			},
 		},

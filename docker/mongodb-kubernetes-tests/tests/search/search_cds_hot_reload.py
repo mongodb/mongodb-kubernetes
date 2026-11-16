@@ -217,7 +217,7 @@ def _modify_cds_circuit_breaker(cds_json: str) -> str:
             "max_connections": 1024,
             "max_pending_requests": 1024,
             "max_requests": 1024,
-            "max_retries": 3
+            "max_retries": 4294967295
           }]
         }
       }]

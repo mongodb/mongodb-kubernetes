@@ -2,6 +2,7 @@ package operator
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -124,6 +125,7 @@ func TestBuildCDSJSON_SingleShard_NoTLS(t *testing.T) {
 	require.Len(t, cluster.CircuitBreakers.Thresholds, 1)
 	assert.Equal(t, corev3.RoutingPriority_DEFAULT, cluster.CircuitBreakers.Thresholds[0].Priority)
 	assert.Equal(t, uint32(1024), cluster.CircuitBreakers.Thresholds[0].MaxConnections.GetValue())
+	assert.Equal(t, uint32(math.MaxUint32), cluster.CircuitBreakers.Thresholds[0].MaxRetries.GetValue())
 
 	// TCP keepalive
 	require.NotNil(t, cluster.UpstreamConnectionOptions)
