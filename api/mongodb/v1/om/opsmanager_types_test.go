@@ -188,6 +188,8 @@ func TestOpsManagerManagedCertificateNames(t *testing.T) {
 		wantTLS              bool
 		wantManaged          bool
 		wantBackupManaged    bool
+		wantBackupCertInUse  bool
+		wantQueryableTLS     bool
 		wantCertSecret       string
 		wantCA               string
 		wantBackupPEMSecret  string
@@ -235,12 +237,29 @@ func TestOpsManagerManagedCertificateNames(t *testing.T) {
 			name:                 "managed backup certificate activates independently",
 			backup:               &MongoDBOpsManagerBackup{Enabled: true, ManagedCertificate: managed},
 			wantBackupManaged:    true,
+			wantBackupCertInUse:  true,
+			wantQueryableTLS:     true,
 			wantBackupPEMSecret:  "example-managed-backup-pem",
 			wantBackupCertSecret: "example-managed-backup-cert",
 		},
 		{
 			name:                 "legacy queryable backup secret is kept when managed mode is absent",
 			backup:               &MongoDBOpsManagerBackup{Enabled: true, QueryableBackupSecretRef: SecretRef{Name: "custom-queryable"}},
+			wantQueryableTLS:     true,
+			wantBackupPEMSecret:  "custom-queryable",
+			wantBackupCertSecret: "",
+		},
+		{
+			name:                 "managed backup certificate is inert while backup is disabled",
+			backup:               &MongoDBOpsManagerBackup{ManagedCertificate: managed},
+			wantBackupManaged:    true,
+			wantBackupPEMSecret:  "example-managed-backup-pem",
+			wantBackupCertSecret: "example-managed-backup-cert",
+		},
+		{
+			name:                 "legacy queryable backup secret is wired while backup is disabled",
+			backup:               &MongoDBOpsManagerBackup{QueryableBackupSecretRef: SecretRef{Name: "custom-queryable"}},
+			wantQueryableTLS:     true,
 			wantBackupPEMSecret:  "custom-queryable",
 			wantBackupCertSecret: "",
 		},
@@ -251,6 +270,8 @@ func TestOpsManagerManagedCertificateNames(t *testing.T) {
 			wantTLS:              true,
 			wantManaged:          true,
 			wantBackupManaged:    true,
+			wantBackupCertInUse:  true,
+			wantQueryableTLS:     true,
 			wantCertSecret:       "example-managed-om-cert",
 			wantCA:               "example-managed-om-ca-bundle",
 			wantBackupPEMSecret:  "example-managed-backup-pem",
@@ -271,6 +292,8 @@ func TestOpsManagerManagedCertificateNames(t *testing.T) {
 			assert.Equal(t, tc.wantTLS, om.IsTLSEnabled())
 			assert.Equal(t, tc.wantManaged, om.IsManagedCertificateEnabled())
 			assert.Equal(t, tc.wantBackupManaged, om.IsBackupManagedCertificateEnabled())
+			assert.Equal(t, tc.wantBackupCertInUse, om.IsBackupManagedCertificateInUse())
+			assert.Equal(t, tc.wantQueryableTLS, om.IsQueryableBackupTLSConfigured())
 			assert.Equal(t, tc.wantCertSecret, om.TLSCertificateSecretName())
 			assert.Equal(t, tc.wantCA, om.GetOpsManagerCA())
 			assert.Equal(t, tc.wantBackupPEMSecret, om.QueryableBackupTLSSecretName())

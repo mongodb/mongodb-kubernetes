@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"go.uber.org/zap"
-	"golang.org/x/xerrors"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -13,12 +12,10 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/lifecycle"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -42,17 +39,8 @@ func BackupDaemonStatefulSet(ctx context.Context, centralClusterSecretClient sec
 		return appsv1.StatefulSet{}, err
 	}
 
-	var secretName string
-	if opsManager.Spec.Backup != nil && (!opsManager.IsBackupManagedCertificateEnabled() || opsManager.Spec.Backup.Enabled) {
-		secretName = opsManager.QueryableBackupTLSSecretName()
-	}
-	opts.QueryableBackupPemSecretName = secretName
-	if secretName != "" {
-		// if the secret is specified, we must have a queryable.pem entry.
-		_, err := secret.ReadKey(ctx, memberCluster.SecretClient, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
-		if err != nil {
-			return appsv1.StatefulSet{}, xerrors.Errorf("error reading queryable.pem key from secret %s/%s: %w", opsManager.Namespace, secretName, err)
-		}
+	if err := setQueryableBackupPEM(ctx, memberCluster.SecretClient, opsManager, &opts); err != nil {
+		return appsv1.StatefulSet{}, err
 	}
 
 	backupSts := statefulset.New(backupDaemonStatefulSetFunc(opts))

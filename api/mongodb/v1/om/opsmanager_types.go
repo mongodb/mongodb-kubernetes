@@ -1040,6 +1040,26 @@ func (om *MongoDBOpsManager) IsBackupManagedCertificateEnabled() bool {
 	return om.Spec.Backup != nil && om.Spec.Backup.ManagedCertificate != nil
 }
 
+// IsBackupManagedCertificateInUse reports whether the operator issues and consumes the
+// queryable backup certificate, which additionally requires the backup component to be
+// enabled (a disabled backup has no daemon to serve it).
+func (om *MongoDBOpsManager) IsBackupManagedCertificateInUse() bool {
+	return om.Spec.Backup != nil && om.Spec.Backup.Enabled && om.IsBackupManagedCertificateEnabled()
+}
+
+// IsQueryableBackupTLSConfigured reports whether the backup daemon is wired with
+// queryable.pem. A user-supplied QueryableBackupSecretRef applies whenever the backup block
+// is present, an operator-managed certificate only once backup is enabled.
+func (om *MongoDBOpsManager) IsQueryableBackupTLSConfigured() bool {
+	if om.Spec.Backup == nil {
+		return false
+	}
+	if om.IsBackupManagedCertificateEnabled() && !om.Spec.Backup.Enabled {
+		return false
+	}
+	return om.QueryableBackupTLSSecretName() != ""
+}
+
 // GetOpsManagerCA returns the ConfigMap holding the CA bundle that trusts the Ops Manager
 // app server certificate: the operator-managed bundle in managed mode, the user's otherwise.
 func (om *MongoDBOpsManager) GetOpsManagerCA() string {

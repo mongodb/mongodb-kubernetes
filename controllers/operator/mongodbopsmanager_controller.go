@@ -554,11 +554,12 @@ func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, o
 }
 
 func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, helper *OpsManagerReconcilerHelper, log *zap.SugaredLogger) componentCertificateResult {
-	if opsManager.Spec.Backup == nil || !opsManager.Spec.Backup.Enabled || !opsManager.IsBackupManagedCertificateEnabled() {
-		return componentCertificateResult{part: mdbstatus.Backup, status: workflow.OK()}
-	}
+	enabled := opsManager.IsBackupManagedCertificateInUse()
 	if !r.certManagerReadiness.Ready {
-		return r.managedCertificateGateResult(mdbstatus.Backup, true)
+		return r.managedCertificateGateResult(mdbstatus.Backup, enabled)
+	}
+	if !enabled {
+		return componentCertificateResult{part: mdbstatus.Backup, status: workflow.OK()}
 	}
 	dnsNames, ipAddresses, err := opsManagerCertificateSANs(opsManager)
 	if err != nil {
@@ -1370,7 +1371,7 @@ func (r *OpsManagerReconciler) ensureConfiguration(reconcilerHelper *OpsManagerR
 	// feature controls will always be enabled
 	setConfigProperty(reconcilerHelper.opsManager, util.MmsFeatureControls, "true", log)
 
-	if reconcilerHelper.opsManager.Spec.Backup != nil && (!reconcilerHelper.opsManager.IsBackupManagedCertificateEnabled() || reconcilerHelper.opsManager.Spec.Backup.Enabled) && reconcilerHelper.opsManager.QueryableBackupTLSSecretName() != "" {
+	if reconcilerHelper.opsManager.IsQueryableBackupTLSConfigured() {
 		setConfigProperty(reconcilerHelper.opsManager, util.BrsQueryablePem, "/certs/queryable.pem", log)
 	}
 }
@@ -1434,7 +1435,7 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 	if opsManager.IsTLSEnabled() {
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
 	}
-	if opsManager.Spec.Backup != nil && opsManager.Spec.Backup.Enabled && opsManager.IsBackupManagedCertificateEnabled() {
+	if opsManager.IsBackupManagedCertificateInUse() {
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.ManagedBackupCABundleConfigMapName(), []string{opsManager.QueryableBackupCertificateSecretName(), opsManager.QueryableBackupTLSSecretName()})
 	}
 
@@ -1628,7 +1629,7 @@ func (r *OpsManagerReconciler) replicateQueryableBackupTLSSecretInMemberClusters
 		return nil
 	}
 
-	if reconcileHelper.opsManager.Spec.Backup == nil || (reconcileHelper.opsManager.IsBackupManagedCertificateEnabled() && !reconcileHelper.opsManager.Spec.Backup.Enabled) || reconcileHelper.opsManager.QueryableBackupTLSSecretName() == "" {
+	if !reconcileHelper.opsManager.IsQueryableBackupTLSConfigured() {
 		return nil
 	}
 	return r.replicateSecretInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.QueryableBackupTLSSecretName())
