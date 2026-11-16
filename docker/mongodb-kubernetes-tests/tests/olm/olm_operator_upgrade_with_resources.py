@@ -16,13 +16,17 @@ from kubetester.phase import Phase
 from pytest import fixture
 from tests.constants import OPERATOR_NAME
 from tests.olm.olm_test_commons import (
+    activate_candidate_subscription,
+    assert_olm_resource_architecture,
     get_catalog_image,
     get_catalog_source_resource,
     get_current_operator_version,
+    get_initial_olm_architecture,
     get_latest_released_operator_version,
     get_operator_group_resource,
     get_registry_env_vars_for_subscription,
     get_subscription_custom_object,
+    set_olm_resource_architecture,
     wait_for_operator_ready,
 )
 from tests.opsmanager.om_ops_manager_backup import create_aws_secret, create_s3_bucket
@@ -56,7 +60,7 @@ def catalog_source(namespace: str, version_id: str):
 
 @fixture
 def subscription(namespace: str, catalog_source: CustomObject, operator_installation_config: dict[str, str]):
-    static_value = get_default_architecture()
+    static_value = get_initial_olm_architecture()
     base_env_vars = [
         {"name": "MANAGED_SECURITY_CONTEXT", "value": "false"},
         {"name": "OPERATOR_ENV", "value": "dev"},
@@ -136,6 +140,7 @@ def test_create_om(
     ops_manager.set_version(custom_version)
     ops_manager.set_appdb_version(custom_appdb_version)
     ops_manager.allow_mdb_rc_versions()
+    set_olm_resource_architecture(ops_manager, get_initial_olm_architecture())
 
     ops_manager.update()
 
@@ -290,6 +295,8 @@ def test_resources_created(
     oplog_user: MongoDBUser,
 ):
     """Creates mongodb databases all at once"""
+    for resource in (oplog_replica_set, s3_replica_set, blockstore_replica_set, mdb_sharded):
+        set_olm_resource_architecture(resource, get_initial_olm_architecture())
     oplog_replica_set.update()
     s3_replica_set.update()
     blockstore_replica_set.update()
@@ -346,6 +353,8 @@ def test_resources_in_running_state_before_upgrade(
     blockstore_replica_set.assert_reaches_phase(Phase.Running)
     s3_replica_set.assert_reaches_phase(Phase.Running)
     mdb_sharded.assert_reaches_phase(Phase.Running)
+    for resource in (ops_manager, oplog_replica_set, blockstore_replica_set, s3_replica_set, mdb_sharded):
+        assert_olm_resource_architecture(resource, get_initial_olm_architecture())
 
 
 # upgrade the operator
@@ -356,6 +365,7 @@ def test_operator_upgrade_to_fast(
     namespace: str,
     catalog_source: CustomObject,
     subscription: CustomObject,
+    operator_installation_config: dict[str, str],
 ):
     current_operator_version = get_current_operator_version()
 
@@ -365,6 +375,7 @@ def test_operator_upgrade_to_fast(
         try:
             subscription.load()
             subscription["spec"]["channel"] = "fast"  # fast channel contains operator build from the current branch
+            activate_candidate_subscription(subscription, operator_installation_config)
             subscription.update()
             return True
         except kubernetes.client.ApiException as e:
@@ -376,6 +387,21 @@ def test_operator_upgrade_to_fast(
     run_periodically(update_subscription, timeout=100, msg="Subscription to be updated")
 
     wait_for_operator_ready(namespace, OPERATOR_NAME, f"mongodb-kubernetes.v{current_operator_version}")
+
+
+@pytest.mark.e2e_olm_operator_upgrade_with_resources
+def test_transition_resources_to_target_architecture(
+    ops_manager: MongoDBOpsManager,
+    oplog_replica_set: MongoDB,
+    blockstore_replica_set: MongoDB,
+    s3_replica_set: MongoDB,
+    mdb_sharded: MongoDB,
+):
+    if get_default_architecture() == "static-ga":
+        for resource in (ops_manager, oplog_replica_set, blockstore_replica_set, s3_replica_set, mdb_sharded):
+            resource.load()
+            set_olm_resource_architecture(resource, "static-ga")
+            resource.update()
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
@@ -401,6 +427,8 @@ def test_resources_in_running_state_after_upgrade(
     blockstore_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     s3_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
     mdb_sharded.assert_reaches_phase(Phase.Running, timeout=600)
+    for resource in (ops_manager, oplog_replica_set, blockstore_replica_set, s3_replica_set, mdb_sharded):
+        assert_olm_resource_architecture(resource, get_default_architecture())
 
 
 @pytest.mark.e2e_olm_operator_upgrade_with_resources
