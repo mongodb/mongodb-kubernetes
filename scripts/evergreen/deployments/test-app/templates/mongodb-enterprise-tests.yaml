@@ -215,6 +215,16 @@ spec:
       value: {{ .Values.cognito_workload_user_id }}
     - name: cognito_workload_token_endpoint
       value: "{{ .Values.cognito_workload_token_endpoint }}"
+    - name: oidc_provider
+      value: "{{ .Values.oidc_provider }}"
+    - name: auth0_issuer
+      value: "{{ .Values.auth0_issuer }}"
+    - name: auth0_client_id
+      value: "{{ .Values.auth0_client_id }}"
+    - name: auth0_client_secret
+      value: "{{ .Values.auth0_client_secret }}"
+    - name: auth0_audience
+      value: "{{ .Values.auth0_audience }}"
     - name: HOME
       value: /home/tests-home
     - name: AI_MONGODB_EMBEDDING_INDEXING_KEY

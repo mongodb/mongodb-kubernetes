@@ -1,7 +1,6 @@
 import base64
 import functools
 import json
-import os
 
 import kubetester.oidc as oidc
 import requests
@@ -41,12 +40,13 @@ USER_PASSWORD = f"{USER_NAME}-password"
 # user's OIDC username is "<configurationName>/<token sub>" (see oidc_mongot_user).
 CONFIGURATION_NAME = "OIDC-test-user"
 
-# Secret holding the Cognito app-client secret (spec.source.oidc.clientSecretSecretRef)
-COGNITO_CLIENT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-cognito-client-secret"
+# Secret holding the OIDC app-client secret (spec.source.oidc.clientSecretSecretRef)
+OIDC_CLIENT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-oidc-client-secret"
 
-# ConfigMap holding the IdP CA that validates the Cognito token endpoint's TLS
-# certificate (spec.source.oidc.idpCAConfigMapRef) -- Amazon Root CA 1.
-COGNITO_IDP_CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-cognito-idp-ca"
+# ConfigMap holding the IdP CA that validates the OIDC token endpoint's TLS
+# certificate (spec.source.oidc.idpCAConfigMapRef) -- Amazon Root CA 1 for Cognito,
+# ISRG Root X1 for Auth0.
+OIDC_IDP_CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-oidc-idp-ca"
 
 # The OIDC sync-source block needs the enterprise mongot build at or above the operator's
 # 1.78.0 OIDC floor; the chart default is community content that cannot parse it. This is the
@@ -55,21 +55,18 @@ MONGOT_ENTERPRISE_IMAGE_REPO = "901841024863.dkr.ecr.us-east-1.amazonaws.com"
 MONGOT_ENTERPRISE_IMAGE_NAME = "mongot-community/rapid-releases"
 MONGOT_ENTERPRISE_IMAGE_TAG = "1.79.0-88-gbfa7e50bd4-ent"
 
-# Requires the Cognito test environment (the cognito_* expansions). Tests fail when it is
-# not configured rather than silently skipping: the expansions come from project variables,
-# so a miss is a misconfiguration that should read red, not green.
-_COGNITO_CONFIGURED = bool(
-    oidc.get_cognito_workload_client_id()
-    and oidc.get_cognito_workload_url()
-    and os.getenv("cognito_workload_federation_client_secret")
-)
+# Requires the OIDC test environment (the cognito_* or auth0_* expansions). Tests fail when
+# it is not configured rather than silently skipping: the expansions come from project
+# variables, so a miss is a misconfiguration that should read red, not green.
+_OIDC_PROVIDER_CONFIGURED = oidc.oidc_test_provider_configured()
 
 
 @fixture(autouse=True)
-def _require_cognito_env():
-    if not _COGNITO_CONFIGURED:
+def _require_oidc_provider_env():
+    if not _OIDC_PROVIDER_CONFIGURED:
         fail(
-            "Cognito OIDC test environment is not configured (cognito_* expansions missing)",
+            "OIDC test provider is not configured (oidc_provider=%s client credentials missing)"
+            % oidc.get_oidc_provider(),
             pytrace=False,
         )
 
@@ -84,32 +81,38 @@ def _decode_jwt_payload(token: str) -> dict:
 
 @functools.lru_cache(maxsize=None)
 def _client_credentials_claims() -> dict:
-    """Fetches a client-credentials token from the Cognito token endpoint and
-    returns its decoded payload.
+    """Fetches a client-credentials token from the configured OIDC provider's token
+    endpoint and returns its decoded payload.
 
     mongot authenticates with a client-credentials token, whose aud and sub
     claims can differ from the user-login contract used by the m2m fixtures (those
-    authenticate with the Cognito ID token, which carries aud): a Cognito
-    client-credentials token has no aud unless the pool's pre-token-generation Lambda
-    adds one, and its sub identifies the app client rather than the workload user.
-    The OIDC provider audience and the $external username below are derived from
-    this token, so the source of truth is the IdP, not the user-flow fixtures.
+    authenticate with an ID token, which carries aud). Whether a client-credentials
+    token carries aud depends on the provider: Auth0 mints one only when the request
+    sends audience, and Cognito needs a pool-side pre-token Lambda to add it. The OIDC
+    provider audience and the $external username below are derived from this token, so
+    the source of truth is the IdP, not the user-flow fixtures.
     """
-    token_endpoint = oidc.get_cognito_workload_token_endpoint()
+    token_endpoint = oidc.get_oidc_token_endpoint()
     # A non-HTTPS endpoint is a misconfiguration, not a reason to skip: fail before the
     # token request sends the client secret over plain HTTP.
     if not token_endpoint.startswith("https://"):
         fail(
-            f"Derived token endpoint is not HTTPS: {token_endpoint}. " "Check the cognito_workload_url expansion.",
+            f"Derived token endpoint is not HTTPS: {token_endpoint}. "
+            f"Check the {oidc.get_oidc_provider()} issuer/discovery configuration.",
             pytrace=False,
         )
+    token_request = {
+        "grant_type": "client_credentials",
+        "client_id": oidc.get_oidc_client_id(),
+        "client_secret": oidc.get_oidc_client_secret(),
+    }
+    # Auth0 requires an explicit audience; Cognito and Entra/Okta derive it server-side.
+    audience = oidc.get_oidc_audience()
+    if audience:
+        token_request["audience"] = audience
     response = requests.post(
         token_endpoint,
-        data={
-            "grant_type": "client_credentials",
-            "client_id": oidc.get_cognito_workload_client_id(),
-            "client_secret": os.getenv("cognito_workload_federation_client_secret"),
-        },
+        data=token_request,
         timeout=30,
     )
     if not 200 <= response.status_code < 300:
@@ -203,8 +206,8 @@ def mdb(namespace: str, issuer_ca_configmap: str, cc_claims: dict) -> MongoDB:
             {
                 # audience must match the token the app client mints (see _cc_token_audience).
                 "audience": _cc_token_audience(),
-                "clientId": oidc.get_cognito_workload_client_id(),
-                "issuerURI": oidc.get_cognito_workload_url(),
+                "clientId": oidc.get_oidc_client_id(),
+                "issuerURI": oidc.get_oidc_issuer(),
                 "requestedScopes": [],
                 "userClaim": "sub",
                 "authorizationMethod": "WorkloadIdentityFederation",
@@ -226,14 +229,17 @@ def mdbs(namespace: str) -> MongoDBSearch:
         resource["spec"] = {}
 
     # OIDC client-credentials auth for the sync source (replaces username/passwordSecretRef)
-    resource["spec"]["source"] = {
-        "oidc": {
-            "tokenEndpoint": oidc.get_cognito_workload_token_endpoint(),
-            "clientId": oidc.get_cognito_workload_client_id(),
-            "clientSecretSecretRef": {"name": COGNITO_CLIENT_SECRET_NAME, "key": "clientSecret"},
-            "idpCAConfigMapRef": {"name": COGNITO_IDP_CA_CONFIGMAP_NAME},
-        },
+    oidc_source = {
+        "tokenEndpoint": oidc.get_oidc_token_endpoint(),
+        "clientId": oidc.get_oidc_client_id(),
+        "clientSecretSecretRef": {"name": OIDC_CLIENT_SECRET_NAME, "key": "clientSecret"},
+        "idpCAConfigMapRef": {"name": OIDC_IDP_CA_CONFIGMAP_NAME},
     }
+    # Auth0 requires an explicit audience on spec.source.oidc; omit the key when empty.
+    audience = oidc.get_oidc_audience()
+    if audience:
+        oidc_source["audience"] = audience
+    resource["spec"]["source"] = {"oidc": oidc_source}
 
     # The OIDC sync-source block needs the enterprise mongot build (the chart default is
     # community content that cannot parse it) at or above the 1.78.0 OIDC floor.
@@ -296,24 +302,33 @@ def test_create_ops_manager(namespace: str):
     ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=600)
 
 
+@fixture(scope="module")
+def idp_ca_filepath() -> str:
+    """CA bundle that validates the configured provider's token endpoint TLS certificate:
+    Amazon Root CA 1 for Cognito, ISRG Root X1 (Let's Encrypt) for Auth0."""
+    name = "letsencrypt-isrg-root-x1.pem" if oidc.get_oidc_provider() == "auth0" else "amazon-ca-1.pem"
+    return yaml_fixture(name)
+
+
 @mark.e2e_search_enterprise_oidc
-def test_install_tls_secrets_and_oidc_configmaps(namespace: str, mdb: MongoDB, issuer: str, amazon_ca_1_filepath: str):
+def test_install_tls_secrets_and_oidc_configmaps(namespace: str, mdb: MongoDB, issuer: str, idp_ca_filepath: str):
     # MongoDB server certs (TLS enabled on the sync source is required for OIDC auth)
     create_mongodb_tls_certs(issuer, namespace, mdb.name, f"certs-{mdb.name}-cert", mdb.get_members())
 
-    # OIDC client secret for mongot's client-credentials grant at the Cognito token endpoint
-    # (non-empty is guaranteed by the module-level Cognito guard)
-    client_secret = os.getenv("cognito_workload_federation_client_secret")
+    # OIDC client secret for mongot's client-credentials grant at the token endpoint
+    # (non-empty is guaranteed by the module-level OIDC provider guard)
+    client_secret = oidc.get_oidc_client_secret()
     assert client_secret
     create_or_update_secret(
         namespace,
-        name=COGNITO_CLIENT_SECRET_NAME,
+        name=OIDC_CLIENT_SECRET_NAME,
         data={"clientSecret": client_secret},
     )
 
-    # IdP CA (Amazon Root CA 1) validating the Cognito token endpoint's TLS certificate
-    with open(amazon_ca_1_filepath) as f:
-        create_or_update_configmap(namespace, name=COGNITO_IDP_CA_CONFIGMAP_NAME, data={"ca.crt": f.read()})
+    # IdP CA validating the token endpoint's TLS certificate (Amazon Root CA 1 for
+    # Cognito, ISRG Root X1 for Auth0)
+    with open(idp_ca_filepath) as f:
+        create_or_update_configmap(namespace, name=OIDC_IDP_CA_CONFIGMAP_NAME, data={"ca.crt": f.read()})
 
 
 @mark.e2e_search_enterprise_oidc
