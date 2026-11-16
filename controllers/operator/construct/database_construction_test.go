@@ -978,3 +978,39 @@ func TestNonStaticAgentContainerRunsLauncherDirectly(t *testing.T) {
 	require.NotNil(t, agent)
 	assert.Equal(t, []string{"/opt/scripts/agent-launcher.sh"}, agent.Command)
 }
+
+func TestApplyAgentSettingsHashTracksCredential(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	build := func(credentialHash string) string {
+		sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), func(opts *DatabaseStatefulSetOptions) {
+			opts.AgentCredentialHash = credentialHash
+		}), zap.S())
+		agent := AgentContainer(sts)
+		require.NotNil(t, agent)
+		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: AgentSettingsVolume, MountPath: AgentSettingsPath, ReadOnly: true})
+		return sts.Spec.Template.Annotations[AgentSettingsHash]
+	}
+	assert.Len(t, build("one"), 64)
+	assert.Equal(t, build("one"), build("one"))
+	assert.NotEqual(t, build("one"), build("two"), "rotating the key must roll the pods")
+}
+
+func TestMountAgentAPIKeySecretWithVaultBackend(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", "VAULT_BACKEND")
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	build := func(mount bool) string {
+		return AgentAPIKeySecretName(DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), func(opts *DatabaseStatefulSetOptions) {
+			opts.MountAgentAPIKeySecret = mount
+		}), zap.S()))
+	}
+	assert.Empty(t, build(false), "Vault injects the key, so no Kubernetes Secret volume")
+	assert.NotEmpty(t, build(true), "member clusters without a Vault client mount the Kubernetes Secret")
+}
+
+func TestAgentAPIKeyOverrideUsesGeneratedVaultSecret(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", "VAULT_BACKEND")
+	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: mdbv1.StartupParameters{"mmsApiKey": "customer-api-key"}}).Build()
+	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions()), zap.S())
+	assert.True(t, strings.HasSuffix(sts.Spec.Template.Annotations["vault.hashicorp.com/agent-inject-secret-agentApiKey"], "/"+AgentAPIKeyOverrideSecretName(sts.Name)))
+	assert.NotContains(t, fmt.Sprint(sts.Spec.Template), "customer-api-key")
+}

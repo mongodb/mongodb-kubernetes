@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -34,15 +33,12 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/service"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/placeholders"
 	enterprisests "github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
@@ -54,14 +50,11 @@ var (
 	appLabelKey                  = "app"
 )
 
-const agentHostnameOverrideEnv = "MDB_AGENT_HOSTNAME_OVERRIDE"
-
 // DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Services.
 // It returns any errors coming from Kubernetes API.
 func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	opts := config(mdb)
-	sts = *sts.DeepCopy()
-	if err := ReconcileDatabaseAgentSettings(ctx, client, secretClient, &sts, opts); err != nil {
+	if err := ReconcileDatabaseAgentSettings(ctx, client, secretClient, sts, opts); err != nil {
 		return nil, err
 	}
 	set, err := enterprisests.CreateOrUpdateStatefulset(ctx, client, mdb.Namespace, log, &sts)
@@ -109,46 +102,56 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, s
 	return set, nil
 }
 
-// ReconcileDatabaseAgentSettings renders the native agent settings, reconciles the settings
-// ConfigMap and credential, and supplies the optional custom hostname to the launcher.
-func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, opts construct.DatabaseStatefulSetOptions) error {
-	agent := construct.AgentContainer(*sts)
+// WithAgentCredential reads the API key the agent will use at startup and returns config with its
+// hash set, so the StatefulSet builder can put it in the rollout annotation.
+func WithAgentCredential[T any](ctx context.Context, secretClient secrets.SecretClient, namespace string, resource T, config func(T) construct.DatabaseStatefulSetOptions) (func(T) construct.DatabaseStatefulSetOptions, error) {
+	opts := config(resource)
+	credentialHash, err := agentCredentialHash(ctx, secretClient, namespace, opts)
+	if err != nil {
+		return config, err
+	}
+	// Member clusters have no Vault client, and the global Vault backend leaves out the Kubernetes
+	// key volume, so the member cluster Secret is mounted explicitly.
+	mountKeySecret := vault.IsVaultSecretBackend() && secretClient.VaultClient == nil && opts.PodVars != nil && opts.PodVars.ProjectID != ""
+	return func(resource T) construct.DatabaseStatefulSetOptions {
+		opts := config(resource)
+		opts.AgentCredentialHash = credentialHash
+		opts.MountAgentAPIKeySecret = mountKeySecret
+		return opts
+	}, nil
+}
+
+// ReconcileDatabaseAgentSettings writes the agent settings ConfigMap, and the key Secret when the
+// customer sets a raw mmsApiKey. The StatefulSet is already final and is not changed here.
+func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts appsv1.StatefulSet, opts construct.DatabaseStatefulSetOptions) error {
+	agent := construct.AgentContainer(sts)
 	if agent == nil {
 		return fmt.Errorf("agent container not found in StatefulSet %s", sts.Name)
 	}
-	cm, err := construct.DatabaseAgentSettingsConfigMap(*sts, *agent, opts)
+	cm, err := construct.DatabaseAgentSettingsConfigMap(sts, *agent, opts)
 	if err != nil {
 		return fmt.Errorf("cannot render agent settings: %w", err)
 	}
-	if needsMemberClusterKeyMount(secretClient, *sts, opts) {
-		mountMemberClusterKeySecret(sts, agent, opts.PodVars.ProjectID)
+	if override, ok := construct.AgentAPIKeyOverride(opts); ok {
+		if err := writeAgentAPIKeyOverride(ctx, secretClient, sts, override); err != nil {
+			return err
+		}
 	}
-	parameters := customerStartupOptions(opts)
-	err = reconcileAgentSettings(ctx, client, secretClient, sts, agentSettingsInput{
-		agent:           agent,
-		configMap:       cm,
-		parameters:      parameters,
-		vaultBasePath:   vaultDatabaseSecretPath(secretClient),
-		needsCredential: agentReadsCredential(*agent, parameters),
-	})
-	if err != nil {
-		return err
+	if err := configmap.CreateOrUpdate(ctx, client, cm); err != nil {
+		return fmt.Errorf("cannot reconcile agent settings ConfigMap: %w", err)
 	}
-	setAgentHostnameEnv(agent, parameters)
 	return nil
 }
 
-// needsMemberClusterKeyMount reports whether the agent key Secret has to be mounted here. Member
-// clusters have no Vault client, and the global Vault backend omits the Kubernetes key volume in
-// the shared construct, so the member cluster Secret is mounted explicitly.
-func needsMemberClusterKeyMount(secretClient secrets.SecretClient, sts appsv1.StatefulSet, opts construct.DatabaseStatefulSetOptions) bool {
-	hasProject := opts.PodVars != nil && opts.PodVars.ProjectID != ""
-	return secretClient.VaultClient == nil && hasProject && construct.AgentAPIKeySecretName(sts) == ""
-}
-
-func mountMemberClusterKeySecret(sts *appsv1.StatefulSet, agent *corev1.Container, projectID string) {
-	podtemplatespec.WithVolume(enterprisests.CreateVolumeFromSecret(construct.AgentAPIKeyVolumeName, agents.ApiKeySecretName(projectID)))(&sts.Spec.Template)
-	container.WithVolumeMounts([]corev1.VolumeMount{enterprisests.CreateVolumeMount(construct.AgentAPIKeyVolumeName, construct.AgentAPIKeySecretPath)})(agent)
+// writeAgentAPIKeyOverride stores the customer's raw mmsApiKey in a generated Secret, so the key
+// never goes into the settings file.
+func writeAgentAPIKeyOverride(ctx context.Context, secretClient secrets.SecretClient, sts appsv1.StatefulSet, override string) error {
+	keySecret := secret.Builder().SetName(construct.AgentAPIKeyOverrideSecretName(sts.Name)).SetNamespace(sts.Namespace).
+		SetOwnerReferences(sts.OwnerReferences).SetLabels(sts.Labels).SetField(util.OmAgentApiKey, override).Build()
+	if err := secretClient.PutSecretIfChanged(ctx, keySecret, vaultDatabaseSecretPath(secretClient)); err != nil {
+		return fmt.Errorf("cannot reconcile agent credential override: %w", err)
+	}
+	return nil
 }
 
 func customerStartupOptions(opts construct.DatabaseStatefulSetOptions) mdbv1.StartupParameters {
@@ -158,17 +161,6 @@ func customerStartupOptions(opts construct.DatabaseStatefulSetOptions) mdbv1.Sta
 	return construct.AgentSettingsOverrides(opts.AgentConfig.StartupParameters)
 }
 
-// agentReadsCredential reports whether the agent will read the API key at startup, judged from the
-// customer's mmsBaseUrl override or else the container BASE_URL. A BASE_URL set through a runtime
-// reference cannot be resolved here, so it does not count.
-func agentReadsCredential(agent corev1.Container, parameters mdbv1.StartupParameters) bool {
-	if override, ok := parameters["mmsBaseUrl"]; ok {
-		return override != ""
-	}
-	baseURL := env.ToMap(agent.Env...)[util.EnvVarBaseUrl]
-	return baseURL != "" && !construct.AgentEnvironmentIsRuntime(agent, util.EnvVarBaseUrl)
-}
-
 func vaultDatabaseSecretPath(secretClient secrets.SecretClient) string {
 	if secretClient.VaultClient == nil {
 		return ""
@@ -176,148 +168,61 @@ func vaultDatabaseSecretPath(secretClient secrets.SecretClient) string {
 	return secretClient.VaultClient.DatabaseSecretPath()
 }
 
-// setAgentHostnameEnv passes a customer overrideLocalHost to the launcher. It is appended last
-// because Kubernetes expands references using the entries that precede them.
-func setAgentHostnameEnv(agent *corev1.Container, parameters mdbv1.StartupParameters) {
-	agent.Env = slices.DeleteFunc(agent.Env, func(variable corev1.EnvVar) bool { return variable.Name == agentHostnameOverrideEnv })
-	if hostname, ok := parameters["overrideLocalHost"]; ok {
-		agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
-	}
-}
-
-// agentSettingsInput is what reconcileAgentSettings needs besides the StatefulSet and the clients.
-type agentSettingsInput struct {
-	agent           *corev1.Container
-	configMap       corev1.ConfigMap
-	parameters      mdbv1.StartupParameters
-	vaultBasePath   string
-	needsCredential bool
-}
-
-func reconcileAgentSettings(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, in agentSettingsInput) error {
-	agent := in.agent
-	customerKeyCommand := in.parameters["mmsApiKeyExec"]
-	customerRawKey, hasCustomerRawKey := in.parameters["mmsApiKey"]
-	// The credential is only used for the rollout digest, so a rotated key rolls the pods.
+// agentCredentialHash returns the hash of the key the agent reads at startup, or "" when the agent
+// reads no key the operator can see.
+func agentCredentialHash(ctx context.Context, secretClient secrets.SecretClient, namespace string, opts construct.DatabaseStatefulSetOptions) (string, error) {
+	parameters := customerStartupOptions(opts)
 	var credential string
 	var err error
-	switch {
-	case customerKeyCommand != "":
-		// The customer's command reads the key, so there is nothing to deliver or hash.
-	case hasCustomerRawKey:
-		credential, err = reconcileAgentCredentialFromOverride(ctx, secretClient, sts, agent, customerRawKey, in.vaultBasePath)
-	case in.needsCredential:
-		if credential, err = databaseAgentCredential(ctx, secretClient, *sts); err != nil {
-			err = fmt.Errorf("cannot read agent startup credential: %w", err)
+	switch override, hasOverride := construct.AgentAPIKeyOverride(opts); {
+	case parameters["mmsApiKeyExec"] != "":
+		// The customer's command reads the key, so there is nothing to hash.
+	case hasOverride:
+		credential = override
+	case agentReadsCredential(opts, parameters):
+		if credential, err = databaseAgentCredential(ctx, secretClient, namespace, opts); err != nil {
+			return "", fmt.Errorf("cannot read agent startup credential: %w", err)
 		}
-	case settingsConsumeCredential(in.configMap.Data[construct.AgentSettingsFileName]):
-		credential, err = databaseAgentCredentialIfPresent(ctx, secretClient, *sts)
+	case construct.AgentReadsMountedAPIKey(opts):
+		if credential, err = databaseAgentCredentialIfPresent(ctx, secretClient, namespace, opts); err != nil {
+			return "", err
+		}
 	}
-	if err != nil {
-		return err
+	if credential == "" {
+		return "", nil
 	}
-	return writeAgentSettings(ctx, client, sts, agent, in.configMap, credential)
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(credential))), nil
 }
 
-// reconcileAgentCredentialFromOverride stores the customer's raw mmsApiKey in a generated Secret
-// and points the pod at it, so the key never goes into the settings file.
-func reconcileAgentCredentialFromOverride(ctx context.Context, secretClient secrets.SecretClient, sts *appsv1.StatefulSet, agent *corev1.Container, override, basePath string) (string, error) {
-	keySecret := secret.Builder().SetName(sts.Name+"-agent-api-key").SetNamespace(sts.Namespace).
-		SetOwnerReferences(sts.OwnerReferences).SetLabels(sts.Labels).SetField(util.OmAgentApiKey, override).Build()
-	if err := secretClient.PutSecretIfChanged(ctx, keySecret, basePath); err != nil {
-		return "", fmt.Errorf("cannot reconcile agent credential override: %w", err)
+// agentReadsCredential reports whether the agent must have the API key to start, judged from the
+// customer's mmsBaseUrl override or else the configured base URL.
+func agentReadsCredential(opts construct.DatabaseStatefulSetOptions, parameters mdbv1.StartupParameters) bool {
+	if override, ok := parameters["mmsBaseUrl"]; ok {
+		return override != ""
 	}
-	if vault.IsVaultSecretBackend() {
-		secretPath := fmt.Sprintf("%s/%s/%s", basePath, sts.Namespace, keySecret.Name)
-		sts.Spec.Template.Annotations = merge.StringToStringMap(sts.Spec.Template.Annotations, map[string]string{
-			"vault.hashicorp.com/agent-inject-secret-agentApiKey":   secretPath,
-			"vault.hashicorp.com/agent-inject-template-agentApiKey": fmt.Sprintf(vault.DEFAULT_AGENT_INJECT_TEMPLATE, secretPath, util.OmAgentApiKey),
-			"vault.hashicorp.com/secret-volume-path-agentApiKey":    construct.AgentAPIKeySecretPath,
-		})
-	} else {
-		upsertAgentAPIKeyVolume(sts, agent, keySecret)
-	}
-	return override, nil
+	return opts.PodVars != nil && opts.PodVars.BaseURL != ""
 }
 
 // databaseAgentCredentialIfPresent reads the credential only to cover it in the rollout digest. A
 // missing Secret must not fail reconciliation, because the agent reports that itself. A transient
 // read error must fail it, because a credential-free digest would change the template and roll
 // the pods a second time on recovery.
-func databaseAgentCredentialIfPresent(ctx context.Context, secretClient secrets.SecretClient, sts appsv1.StatefulSet) (string, error) {
-	credential, err := databaseAgentCredential(ctx, secretClient, sts)
+func databaseAgentCredentialIfPresent(ctx context.Context, secretClient secrets.SecretClient, namespace string, opts construct.DatabaseStatefulSetOptions) (string, error) {
+	credential, err := databaseAgentCredential(ctx, secretClient, namespace, opts)
 	if apiErrors.IsNotFound(err) {
 		return "", nil
 	}
 	return credential, err
 }
 
-// upsertAgentAPIKeyVolume replaces the projected API-key volume in place and keeps the existing
-// item mode. WithVolume merges item lists, so it would keep stale keys that the generated Secret
-// does not contain. replaceVolume replaces the whole volume instead.
-func upsertAgentAPIKeyVolume(sts *appsv1.StatefulSet, agent *corev1.Container, keySecret corev1.Secret) {
-	keyVolume := enterprisests.CreateVolumeFromSecret(construct.AgentAPIKeyVolumeName, keySecret.Name)
-	for _, volume := range sts.Spec.Template.Spec.Volumes {
-		if volume.Name != construct.AgentAPIKeyVolumeName || volume.Secret == nil {
-			continue
-		}
-		keyVolume = *volume.DeepCopy()
-		keyVolume.Secret.SecretName = keySecret.Name
-		if len(volume.Secret.Items) > 0 {
-			// The generated Secret contains only the override credential.
-			item := corev1.KeyToPath{Key: util.OmAgentApiKey, Path: util.OmAgentApiKey}
-			for _, existing := range volume.Secret.Items {
-				if existing.Path == item.Path {
-					item.Mode = existing.Mode
-					break
-				}
-			}
-			keyVolume.Secret.Items = []corev1.KeyToPath{item}
-		}
-		break
+func databaseAgentCredential(ctx context.Context, secretClient secrets.SecretClient, namespace string, opts construct.DatabaseStatefulSetOptions) (string, error) {
+	if opts.PodVars == nil || opts.PodVars.ProjectID == "" {
+		return "", fmt.Errorf("agent credential needs a project ID")
 	}
-	replaceVolume(&sts.Spec.Template, keyVolume)
-	if !slices.ContainsFunc(agent.VolumeMounts, func(mount corev1.VolumeMount) bool { return mount.Name == construct.AgentAPIKeyVolumeName }) {
-		container.WithVolumeMounts([]corev1.VolumeMount{enterprisests.CreateVolumeMount(construct.AgentAPIKeyVolumeName, construct.AgentAPIKeySecretPath, enterprisests.WithReadOnly(true))})(agent)
-	}
-}
-
-// replaceVolume replaces a volume by name without changing its position, or appends it.
-func replaceVolume(template *corev1.PodTemplateSpec, volume corev1.Volume) {
-	for i := range template.Spec.Volumes {
-		if template.Spec.Volumes[i].Name == volume.Name {
-			template.Spec.Volumes[i] = volume
-			return
-		}
-	}
-	template.Spec.Volumes = append(template.Spec.Volumes, volume)
-}
-
-func writeAgentSettings(ctx context.Context, client kubernetesClient.Client, sts *appsv1.StatefulSet, agent *corev1.Container, cm corev1.ConfigMap, credential string) error {
-	if err := configmap.CreateOrUpdate(ctx, client, cm); err != nil {
-		return fmt.Errorf("cannot reconcile agent settings ConfigMap: %w", err)
-	}
-	podtemplatespec.WithVolume(enterprisests.CreateVolumeFromConfigMap(construct.AgentSettingsVolume, cm.Name))(&sts.Spec.Template)
-	container.WithVolumeMounts([]corev1.VolumeMount{enterprisests.CreateVolumeMount(construct.AgentSettingsVolume, construct.AgentSettingsPath, enterprisests.WithReadOnly(true))})(agent)
-	digest := sha256.Sum256([]byte(cm.Data[construct.AgentSettingsFileName] + "\x00" + credential))
-	sts.Spec.Template.Annotations = merge.StringToStringMap(sts.Spec.Template.Annotations, map[string]string{construct.AgentSettingsHash: fmt.Sprintf("%x", digest)})
-	return nil
-}
-
-// settingsConsumeCredential reports whether the rendered settings will make the agent read the API
-// key at startup. When they do, the startup digest must cover the credential. The operator cannot
-// resolve a runtime BASE_URL at reconcile time, so needsCredential alone is false for those
-// deployments. Hashing the credential only when needsCredential is true would then miss key
-// rotation and leave pods running with a revoked key until something else restarted them.
-func settingsConsumeCredential(settings string) bool {
-	return strings.Contains("\n"+settings, "\nmmsApiKeyExec=")
-}
-
-func databaseAgentCredential(ctx context.Context, secretClient secrets.SecretClient, sts appsv1.StatefulSet) (string, error) {
 	// Member cluster secret clients carry no Vault client because Vault is not supported for
 	// multi-cluster databases. Fall through to the Kubernetes Secret mounted in the member cluster.
 	if vault.IsVaultSecretBackend() && secretClient.VaultClient != nil {
-		data, err := secretClient.VaultClient.ReadSecretString(sts.Spec.Template.Annotations["vault.hashicorp.com/agent-inject-secret-agentApiKey"])
+		data, err := secretClient.VaultClient.ReadSecretString(fmt.Sprintf("%s/%s/%s", secretClient.VaultClient.DatabaseSecretPath(), namespace, agents.ApiKeySecretName(opts.PodVars.ProjectID)))
 		if err != nil {
 			return "", err
 		}
@@ -327,11 +232,45 @@ func databaseAgentCredential(ctx context.Context, secretClient secrets.SecretCli
 		}
 		return credential, nil
 	}
-	for _, volume := range sts.Spec.Template.Spec.Volumes {
+	name, key, err := agentAPIKeySecret(opts)
+	if err != nil {
+		return "", err
+	}
+	// The member cluster Secret is created immediately before this read. The member client is
+	// cached, so the cache can lag the create. Allow up to 2s for a loaded cache to converge, and
+	// still fail promptly on a Secret that is truly missing.
+	var data map[string]string
+	for range 10 {
+		data, err = secret.ReadStringData(ctx, secretClient.KubeClient, kube.ObjectKey(namespace, name))
+		if err == nil || !apiErrors.IsNotFound(err) {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if err != nil {
+		return "", err
+	}
+	value, ok := data[key]
+	if !ok {
+		return "", fmt.Errorf("agent credential secret %s does not contain key %s", name, key)
+	}
+	return strings.TrimSuffix(value, "\n"), nil
+}
+
+// agentAPIKeySecret returns the Secret and key the agent reads the API key from. A customer pod
+// template can point the key volume at its own Secret, and that is the one the agent reads.
+func agentAPIKeySecret(opts construct.DatabaseStatefulSetOptions) (string, string, error) {
+	name, key := agents.ApiKeySecretName(opts.PodVars.ProjectID), util.OmAgentApiKey
+	if opts.StatefulSetSpecOverride == nil {
+		return name, key, nil
+	}
+	for _, volume := range opts.StatefulSetSpecOverride.Template.Spec.Volumes {
 		if volume.Name != construct.AgentAPIKeyVolumeName || volume.Secret == nil {
 			continue
 		}
-		key := util.OmAgentApiKey
+		if volume.Secret.SecretName != "" {
+			name = volume.Secret.SecretName
+		}
 		if len(volume.Secret.Items) > 0 {
 			key = ""
 			for _, item := range volume.Secret.Items {
@@ -340,31 +279,11 @@ func databaseAgentCredential(ctx context.Context, secretClient secrets.SecretCli
 				}
 			}
 			if key == "" {
-				return "", fmt.Errorf("agent credential volume does not project %s", util.OmAgentApiKey)
+				return "", "", fmt.Errorf("agent credential volume does not project %s", util.OmAgentApiKey)
 			}
 		}
-		// The member cluster Secret is created immediately before this read. The member client
-		// is cached, so the cache can lag the create. Allow up to 2s for a loaded cache to
-		// converge, and still fail promptly on a Secret that is truly missing.
-		var data map[string]string
-		var err error
-		for range 10 {
-			data, err = secret.ReadStringData(ctx, secretClient.KubeClient, kube.ObjectKey(sts.Namespace, volume.Secret.SecretName))
-			if err == nil || !apiErrors.IsNotFound(err) {
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-		if err != nil {
-			return "", err
-		}
-		value, ok := data[key]
-		if !ok {
-			return "", fmt.Errorf("agent credential secret %s does not contain key %s", volume.Secret.SecretName, key)
-		}
-		return strings.TrimSuffix(value, "\n"), nil
 	}
-	return "", fmt.Errorf("agent credential volume not found in StatefulSet %s", sts.Name)
+	return name, key, nil
 }
 
 // needsExternalServices reports whether this tier wants per-pod external services in a single-cluster

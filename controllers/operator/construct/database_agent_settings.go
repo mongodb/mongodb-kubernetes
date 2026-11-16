@@ -2,6 +2,7 @@ package construct
 
 import (
 	"cmp"
+	"crypto/sha256"
 	"fmt"
 	"maps"
 	"path"
@@ -14,8 +15,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 func defaultAgentParameters() mdbv1.StartupParameters {
@@ -149,16 +155,6 @@ func DatabaseAgentSettingsConfigMap(sts appsv1.StatefulSet, agent corev1.Contain
 	return agentSettingsConfigMap(sts, databaseAgentSettings(opts, newAgentRuntime(env.ToMap(agent.Env...))))
 }
 
-// AgentEnvironmentIsRuntime includes kubelet expansion and EnvFrom values not shadowed by an explicit Env entry.
-func AgentEnvironmentIsRuntime(agent corev1.Container, name string) bool {
-	for _, variable := range agent.Env {
-		if variable.Name == name {
-			return variable.ValueFrom != nil || strings.Contains(variable.Value, "$(")
-		}
-	}
-	return len(agent.EnvFrom) > 0
-}
-
 // agentSettingsEnvironmentVariables lists the environment variables that drive the generated
 // settings file. The operator sets each one as a literal, so a customer valueFrom or $(...)
 // reference would make the value unknown at reconcile time.
@@ -204,4 +200,106 @@ func agentSettingsConfigMap(sts appsv1.StatefulSet, settings mdbv1.StartupParame
 		},
 		Data: map[string]string{AgentSettingsFileName: content},
 	}, nil
+}
+
+const agentHostnameOverrideEnv = "MDB_AGENT_HOSTNAME_OVERRIDE"
+
+// ApplyAgentSettings finishes the agent part of the pod template: the settings mount, the override
+// key volume, the hostname env and the rollout hash. It runs after the customer pod template merge
+// because the settings are rendered from the merged agent environment.
+func ApplyAgentSettings(sts *appsv1.StatefulSet, opts DatabaseStatefulSetOptions) {
+	agent := AgentContainer(*sts)
+	if agent == nil {
+		return
+	}
+	if _, ok := AgentAPIKeyOverride(opts); ok && !vault.IsVaultSecretBackend() {
+		upsertAgentAPIKeyVolume(sts, agent, AgentAPIKeyOverrideSecretName(sts.Name))
+	}
+	podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(AgentSettingsVolume, AgentSettingsConfigMapName(*sts)))(&sts.Spec.Template)
+	container.WithVolumeMounts([]corev1.VolumeMount{statefulset.CreateVolumeMount(AgentSettingsVolume, AgentSettingsPath, statefulset.WithReadOnly(true))})(agent)
+	setAgentHostnameEnv(agent, opts)
+	cm, err := DatabaseAgentSettingsConfigMap(*sts, *agent, opts)
+	if err != nil {
+		// DatabaseInKubernetes renders the settings again and reports the error before writing anything.
+		return
+	}
+	digest := sha256.Sum256([]byte(cm.Data[AgentSettingsFileName] + "\x00" + opts.AgentCredentialHash))
+	sts.Spec.Template.Annotations = merge.StringToStringMap(sts.Spec.Template.Annotations, map[string]string{AgentSettingsHash: fmt.Sprintf("%x", digest)})
+}
+
+// AgentAPIKeyOverride returns the customer's raw mmsApiKey, unless their own mmsApiKeyExec reads the key.
+func AgentAPIKeyOverride(opts DatabaseStatefulSetOptions) (string, bool) {
+	if opts.AgentConfig == nil {
+		return "", false
+	}
+	parameters := AgentSettingsOverrides(opts.AgentConfig.StartupParameters)
+	if parameters["mmsApiKeyExec"] != "" {
+		return "", false
+	}
+	key, ok := parameters["mmsApiKey"]
+	return key, ok
+}
+
+// AgentAPIKeyOverrideSecretName returns the generated Secret that holds the customer's raw mmsApiKey.
+func AgentAPIKeyOverrideSecretName(stsName string) string {
+	return stsName + "-agent-api-key"
+}
+
+// AgentReadsMountedAPIKey reports whether the settings file makes the agent read the key from the
+// mounted Secret. The answer does not depend on the container environment.
+func AgentReadsMountedAPIKey(opts DatabaseStatefulSetOptions) bool {
+	return databaseAgentSettings(opts, agentRuntime{})["mmsApiKeyExec"] == agentAPIKeyExecCommand()
+}
+
+// setAgentHostnameEnv passes a customer overrideLocalHost to the launcher. It is appended last
+// because Kubernetes expands references using the entries that precede them.
+func setAgentHostnameEnv(agent *corev1.Container, opts DatabaseStatefulSetOptions) {
+	agent.Env = slices.DeleteFunc(agent.Env, func(variable corev1.EnvVar) bool { return variable.Name == agentHostnameOverrideEnv })
+	if opts.AgentConfig == nil {
+		return
+	}
+	if hostname, ok := AgentSettingsOverrides(opts.AgentConfig.StartupParameters)["overrideLocalHost"]; ok {
+		agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
+	}
+}
+
+// upsertAgentAPIKeyVolume replaces the projected API-key volume in place and keeps the existing
+// item mode. WithVolume merges item lists, so it would keep stale keys that the generated Secret
+// does not contain. replaceVolume replaces the whole volume instead.
+func upsertAgentAPIKeyVolume(sts *appsv1.StatefulSet, agent *corev1.Container, secretName string) {
+	keyVolume := statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, secretName)
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name != AgentAPIKeyVolumeName || volume.Secret == nil {
+			continue
+		}
+		keyVolume = *volume.DeepCopy()
+		keyVolume.Secret.SecretName = secretName
+		if len(volume.Secret.Items) > 0 {
+			// The generated Secret contains only the override credential.
+			item := corev1.KeyToPath{Key: util.OmAgentApiKey, Path: util.OmAgentApiKey}
+			for _, existing := range volume.Secret.Items {
+				if existing.Path == item.Path {
+					item.Mode = existing.Mode
+					break
+				}
+			}
+			keyVolume.Secret.Items = []corev1.KeyToPath{item}
+		}
+		break
+	}
+	replaceVolume(&sts.Spec.Template, keyVolume)
+	if !slices.ContainsFunc(agent.VolumeMounts, func(mount corev1.VolumeMount) bool { return mount.Name == AgentAPIKeyVolumeName }) {
+		container.WithVolumeMounts([]corev1.VolumeMount{statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath, statefulset.WithReadOnly(true))})(agent)
+	}
+}
+
+// replaceVolume replaces a volume by name without changing its position, or appends it.
+func replaceVolume(template *corev1.PodTemplateSpec, volume corev1.Volume) {
+	for i := range template.Spec.Volumes {
+		if template.Spec.Volumes[i].Name == volume.Name {
+			template.Spec.Volumes[i] = volume
+			return
+		}
+	}
+	template.Spec.Volumes = append(template.Spec.Volumes, volume)
 }

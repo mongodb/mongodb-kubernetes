@@ -155,6 +155,13 @@ type DatabaseStatefulSetOptions struct {
 	DefaultArchitecture architectures.DefaultArchitecture
 
 	DownloadBase string
+
+	// AgentCredentialHash covers the API key the agent reads at startup, so rotating the key rolls
+	// the pods. The controller reads the key and sets it before the StatefulSet is built.
+	AgentCredentialHash string
+	// MountAgentAPIKeySecret mounts the Kubernetes key Secret with the Vault backend, for member
+	// clusters that have no Vault client.
+	MountAgentAPIKeySecret bool
 }
 
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
@@ -420,6 +427,7 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}
 
+	ApplyAgentSettings(&dbSts, stsOptions)
 	return dbSts
 }
 
@@ -470,6 +478,9 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 
 	// add vault specific annotations
 	secretsToInject.AgentApiKey = agents.ApiKeySecretName(opts.PodVars.ProjectID)
+	if _, ok := AgentAPIKeyOverride(opts); ok {
+		secretsToInject.AgentApiKey = AgentAPIKeyOverrideSecretName(opts.GetStatefulSetName())
+	}
 	if mdb.GetSecurity().IsTLSEnabled() {
 		secretName := mdb.GetSecurity().MemberCertificateSecretName(opts.Name)
 		secretsToInject.MemberClusterAuth = fmt.Sprintf("%s%s", secretName, certs.OperatorGeneratedCertSuffix)
@@ -776,7 +787,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumesToAdd = append(volumesToAdd, internalClusterAuthVolume)
 	}
 
-	if !vault.IsVaultSecretBackend() {
+	if !vault.IsVaultSecretBackend() || databaseOpts.MountAgentAPIKeySecret {
 		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(databaseOpts.PodVars.ProjectID)))
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}

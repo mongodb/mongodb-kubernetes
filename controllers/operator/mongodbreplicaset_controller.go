@@ -576,7 +576,10 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	}
 
 	// Build the replica set config
-	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
+	rsConfig, err := create.WithAgentCredential(ctx, reconciler.SecretClient, rs.Namespace, *rs, r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions))
+	if err != nil {
+		return workflow.Failed(xerrors.Errorf("failed to prepare StatefulSet: %w", err))
+	}
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
 
 	// Handle PVC resize if needed

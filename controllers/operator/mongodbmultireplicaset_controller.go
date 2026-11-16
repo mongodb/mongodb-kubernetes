@@ -824,21 +824,26 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithDefaultArchitecture(r.defaultArchitecture),
 		)
 
-		stsOptions := opts(*mrs)
-		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
 		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
 		}
 
 		if deleteSts {
+			sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
 			if err := memberClient.Delete(ctx, &sts); err != nil && !apiErrors.IsNotFound(err) {
 				return workflow.Failed(xerrors.Errorf("failed to delete StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
 			}
 			continue
 		}
 
-		if err := create.ReconcileDatabaseAgentSettings(ctx, memberClient, secretMemberClient, &sts, stsOptions); err != nil {
+		opts, err = create.WithAgentCredential(ctx, secretMemberClient, mrs.Namespace, *mrs, opts)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to prepare StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
+		}
+		stsOptions := opts(*mrs)
+		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
+		if err := create.ReconcileDatabaseAgentSettings(ctx, memberClient, secretMemberClient, sts, stsOptions); err != nil {
 			return workflow.Failed(xerrors.Errorf("cannot render agent settings for cluster %s: %w", item.ClusterName, err))
 		}
 		mcNN := types.NamespacedName{Name: mrs.Name, Namespace: mrs.Namespace}

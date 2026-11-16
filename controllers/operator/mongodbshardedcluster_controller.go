@@ -1552,10 +1552,13 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
+		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
+		mongosOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, r.getMongosOptions(ctx, *s, opts, log, memberCluster))
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("Failed to prepare Mongos Stateful Set: %w", err))
+		}
 		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
 
-		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
 		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, mongosSts, mongosOpts, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Mongos Stateful Set: %w", err))
@@ -1595,14 +1598,17 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			// in single cluster sts name == shard name
 			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
 			shardsNames[shardIdx] = s.ShardName(shardIdx)
-			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)
+			secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
+			shardOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster))
+			if err != nil {
+				return workflow.Failed(xerrors.Errorf("Failed to prepare StatefulSet for shard %d: %w", shardIdx, err))
+			}
 			shardSts := construct.DatabaseStatefulSet(*s, shardOpts, log)
 
 			if pvcStatus := r.handlePVCResize(ctx, memberCluster, &shardSts, log); !pvcStatus.IsOK() {
 				return pvcStatus
 			}
 
-			secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
 			mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, shardSts, shardOpts, log)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create StatefulSet for shard %s: %w", shardSts.Name, err))
@@ -1644,14 +1650,17 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)
+		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
+		configSrvOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, r.getConfigServerOptions(ctx, *s, opts, log, memberCluster))
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("Failed to prepare Config Server Stateful Set: %w", err))
+		}
 		configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, log)
 
 		if pvcStatus := r.handlePVCResize(ctx, memberCluster, &configSrvSts, log); !pvcStatus.IsOK() {
 			return pvcStatus
 		}
 
-		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
 		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, configSrvSts, configSrvOpts, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))

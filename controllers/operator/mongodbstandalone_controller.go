@@ -299,6 +299,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithExternalAgentVersion(externalAgentVersion),
 	)
 
+	standaloneOpts, err = create.WithAgentCredential(ctx, r.SecretClient, s.Namespace, *s, standaloneOpts)
+	if err != nil {
+		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare StatefulSet: %w", err)), log)
+	}
 	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)
 
 	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)

@@ -98,5 +98,6 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc fun
 		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}
 
+	construct.ApplyAgentSettings(&dbSts, stsOptions)
 	return dbSts
 }

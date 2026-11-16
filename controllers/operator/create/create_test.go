@@ -46,6 +46,16 @@ func init() {
 	mock.InitDefaultEnvVariables()
 }
 
+// reconcileDatabase follows the controller order: read the credential, build the StatefulSet, then apply it.
+func reconcileDatabase(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, mdb mdbv1.MongoDB, options func(mdbv1.MongoDB) construct.DatabaseStatefulSetOptions) (*appsv1.StatefulSet, error) {
+	options, err := WithAgentCredential(ctx, secretClient, mdb.Namespace, mdb, options)
+	if err != nil {
+		return nil, err
+	}
+	sts := construct.DatabaseStatefulSet(mdb, options, zap.S())
+	return DatabaseInKubernetes(ctx, client, secretClient, mdb, sts, options, zap.S())
+}
+
 func TestDatabaseAgentSettingsDelivery(t *testing.T) {
 	for _, architecture := range []architectures.DefaultArchitecture{architectures.Static, architectures.NonStatic} {
 		t.Run(string(architecture), func(t *testing.T) {
@@ -101,19 +111,17 @@ func TestDatabaseAgentCredentialOverrideWithSecretProjection(t *testing.T) {
 			mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
 				StartupParameters: mdbv1.StartupParameters{"mmsApiKey": "customer-api-key"},
 			}).Build()
+			defaultMode, fileMode := int32(0o440), int32(0o400)
+			mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate = &corev1.PodTemplateSpec{Spec: corev1.PodSpec{Volumes: []corev1.Volume{{
+				Name: construct.AgentAPIKeyVolumeName,
+				VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+					SecretName:  "customer-credential",
+					DefaultMode: &defaultMode,
+					Items:       []corev1.KeyToPath{{Key: "custom-key", Path: util.OmAgentApiKey, Mode: &fileMode}},
+				}},
+			}}}}
 			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture))
 			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-			defaultMode, fileMode := int32(0o440), int32(0o400)
-			optional := true
-			for i := range sts.Spec.Template.Spec.Volumes {
-				volume := &sts.Spec.Template.Spec.Volumes[i]
-				if volume.Name == construct.AgentAPIKeyVolumeName {
-					volume.Secret.SecretName = "customer-credential"
-					volume.Secret.DefaultMode = &defaultMode
-					volume.Secret.Optional = &optional
-					volume.Secret.Items = []corev1.KeyToPath{{Key: "custom-key", Path: util.OmAgentApiKey, Mode: &fileMode}}
-				}
-			}
 			created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
 			require.NoError(t, err)
 			keySecret, err := fakeClient.GetSecret(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-api-key"))
@@ -124,16 +132,13 @@ func TestDatabaseAgentCredentialOverrideWithSecretProjection(t *testing.T) {
 				}
 				assert.Equal(t, keySecret.Name, volume.Secret.SecretName)
 				assert.Equal(t, &defaultMode, volume.Secret.DefaultMode)
-				assert.Equal(t, &optional, volume.Secret.Optional)
 				require.Len(t, volume.Secret.Items, 1)
 				item := volume.Secret.Items[0]
 				assert.Equal(t, util.OmAgentApiKey, item.Path)
 				assert.Equal(t, &fileMode, item.Mode)
 				assert.Equal(t, "customer-api-key", string(keySecret.Data[item.Key]), "projected key must exist in generated credential Secret")
 			}
-			credential, err := databaseAgentCredential(ctx, secretClient, *created)
-			require.NoError(t, err)
-			assert.Equal(t, "customer-api-key", credential)
+			assert.Equal(t, keySecret.Name, construct.AgentAPIKeySecretName(*created))
 			stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
 			require.NoError(t, err)
 			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
@@ -197,8 +202,7 @@ func TestDatabaseAgentCredentialOverrideUsesVault(t *testing.T) {
 	vaultClient, err := vault.NewVaultClientForTesting(server.URL, "test-token", configuration)
 	require.NoError(t, err)
 	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) { opts.VaultConfig = configuration })
-	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient, VaultClient: vaultClient}, *mdb, sts, options, zap.S())
+	created, err := reconcileDatabase(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient, VaultClient: vaultClient}, *mdb, options)
 	require.NoError(t, err)
 	select {
 	case data := <-writes:
@@ -236,10 +240,11 @@ func TestDatabaseAgentCredentialFallsBackToKubernetesSecretWithoutVaultClient(t 
 	require.NotEmpty(t, keySecret.Name)
 	require.NoError(t, fakeClient.CreateSecret(ctx, keySecret))
 
-	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	created, err := reconcileDatabase(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, options)
 
 	require.NoError(t, err)
 	assert.Len(t, created.Spec.Template.Annotations[construct.AgentSettingsHash], 64)
+	assert.Equal(t, keySecret.Name, construct.AgentAPIKeySecretName(*created), "the member cluster key Secret must be mounted")
 }
 
 func TestDatabaseAgentSettingsHashTracksConsumedCredentials(t *testing.T) {
@@ -262,7 +267,7 @@ func TestDatabaseAgentSettingsHashTracksConsumedCredentials(t *testing.T) {
 	secretClient := secrets.SecretClient{KubeClient: fakeClient}
 	apply := func() string {
 		t.Helper()
-		created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+		created, err := reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
 		require.NoError(t, err)
 		hash := created.Spec.Template.Annotations[construct.AgentSettingsHash]
 		assert.Len(t, hash, 64)
@@ -300,7 +305,7 @@ func TestDatabaseAgentSettingsCredentialSources(t *testing.T) {
 			mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{StartupParameters: tc.parameters}).Build()
 			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) { opts.PodVars.BaseURL = tc.baseURL })
 			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-			_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+			_, err := reconcileDatabase(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, options)
 			if tc.wantError {
 				require.Error(t, err)
 				_, err = fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
@@ -352,7 +357,7 @@ func TestDatabaseAgentEmptyBaseURLOverrideKeepsConfiguredMode(t *testing.T) {
 		construct.WithDefaultArchitecture(architectures.NonStatic),
 	)
 	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	_, err := reconcileDatabase(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, options)
 	require.NoError(t, err)
 	cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(sts.Namespace, sts.Name+"-agent-settings"))
 	require.NoError(t, err)
@@ -382,19 +387,14 @@ func TestReconcileAgentCredentialFailsOnTransientVaultRead(t *testing.T) {
 	t.Cleanup(server.Close)
 	vaultClient, err := vault.NewVaultClientForTesting(server.URL, "test-token", configuration)
 	require.NoError(t, err)
-	sts := appsv1.StatefulSet{}
-	sts.Name = "test-sts"
-	sts.Namespace = "test-ns"
-	sts.Spec.Template.Annotations = map[string]string{
-		"vault.hashicorp.com/agent-inject-secret-agentApiKey": "agent-config-tests/test-ns/test-sts-agent-api-key",
-	}
+	opts := construct.DatabaseStatefulSetOptions{PodVars: &env.PodEnvVars{ProjectID: "test-project"}}
 	secretClient := secrets.SecretClient{VaultClient: vaultClient}
-	_, err = databaseAgentCredentialIfPresent(ctx, secretClient, sts)
+	_, err = databaseAgentCredentialIfPresent(ctx, secretClient, "test-ns", opts)
 	require.Error(t, err)
 	failMu.Lock()
 	fail = false
 	failMu.Unlock()
-	credential, err := databaseAgentCredentialIfPresent(ctx, secretClient, sts)
+	credential, err := databaseAgentCredentialIfPresent(ctx, secretClient, "test-ns", opts)
 	require.NoError(t, err)
 	assert.Equal(t, "vault-key", credential)
 }
@@ -415,7 +415,7 @@ func TestReconcileDatabaseAgentSettingsMultiCluster(t *testing.T) {
 		Data:       map[string][]byte{util.OmAgentApiKey: []byte("member-cluster-key")},
 	}))
 
-	require.NoError(t, ReconcileDatabaseAgentSettings(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, &sts, options(*mdb)))
+	require.NoError(t, ReconcileDatabaseAgentSettings(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, sts, options(*mdb)))
 
 	agent := construct.AgentContainer(sts)
 	require.NotNil(t, agent)
@@ -458,21 +458,20 @@ func TestDatabaseAgentSettingsHashTracksVaultCredential(t *testing.T) {
 		opts.VaultConfig = configuration
 		opts.PodVars.BaseURL = "https://ops-manager.example.com"
 	})
-	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
 	secretClient := secrets.SecretClient{KubeClient: fakeClient, VaultClient: vaultClient}
-	created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+	created, err := reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
 	require.NoError(t, err)
 	original := created.Spec.Template.Annotations[construct.AgentSettingsHash]
 	dataLock.Lock()
 	data["unrelated"] = "not-consumed"
 	dataLock.Unlock()
-	created, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+	created, err = reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
 	require.NoError(t, err)
 	assert.Equal(t, original, created.Spec.Template.Annotations[construct.AgentSettingsHash])
 	dataLock.Lock()
 	data[util.OmAgentApiKey] = "vault-key-two"
 	dataLock.Unlock()
-	created, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+	created, err = reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
 	require.NoError(t, err)
 	assert.NotEqual(t, original, created.Spec.Template.Annotations[construct.AgentSettingsHash])
 }
@@ -566,12 +565,12 @@ func TestDatabaseAgentHostnameEnvFollowsMergedEnvironment(t *testing.T) {
 			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture), func(opts *construct.DatabaseStatefulSetOptions) {
 				opts.HostNameOverrideConfigmapName = "hostname-override"
 			})
-			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+			var sts appsv1.StatefulSet
 			reconcile := func() {
 				t.Helper()
-				created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+				created, err := reconcileDatabase(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, options)
 				require.NoError(t, err)
-				stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
+				stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(created.Namespace, created.Name))
 				require.NoError(t, err)
 				assert.Equal(t, construct.AgentContainer(*created).Env, construct.AgentContainer(stored).Env)
 				sts = *created
@@ -618,6 +617,61 @@ func TestDatabaseAgentSettingsConfigMapFailurePreservesStatefulSet(t *testing.T)
 	after, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
 	require.NoError(t, err)
 	assert.Equal(t, stored, after)
+}
+
+func TestDatabaseInKubernetesDoesNotChangeStatefulSet(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().SetAgentConfig(mdbv1.AgentConfig{
+		StartupParameters: mdbv1.StartupParameters{"mmsApiKey": "customer-api-key", "overrideLocalHost": "customer.example.com"},
+	}).Build()
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions())
+	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
+	want := sts.DeepCopy()
+	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	require.NoError(t, err)
+	assert.Equal(t, want.Spec.Template, sts.Spec.Template)
+	assert.Equal(t, want.Spec.Template, created.Spec.Template, "the StatefulSet must already be final when it reaches DatabaseInKubernetes")
+}
+
+func TestWithAgentCredentialMountsKeySecretWithoutVaultClient(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	options, err := WithAgentCredential(ctx, secrets.SecretClient{KubeClient: fakeClient}, mdb.Namespace, *mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()))
+	require.NoError(t, err)
+	assert.True(t, options(*mdb).MountAgentAPIKeySecret)
+	assert.NotEmpty(t, construct.AgentAPIKeySecretName(construct.DatabaseStatefulSet(*mdb, options, zap.S())))
+}
+
+func TestDatabaseAgentSettingsHashTracksCustomerKeyVolume(t *testing.T) {
+	ctx := context.Background()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate = &corev1.PodTemplateSpec{Spec: corev1.PodSpec{Volumes: []corev1.Volume{{
+		Name: construct.AgentAPIKeyVolumeName,
+		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+			SecretName: "customer-credential",
+			Items:      []corev1.KeyToPath{{Key: "custom-key", Path: util.OmAgentApiKey}},
+		}},
+	}}}}
+	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.PodVars.BaseURL = "https://ops-manager.example.com"
+	})
+	keySecret := corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "customer-credential", Namespace: mdb.Namespace}, Data: map[string][]byte{"custom-key": []byte("customer-key-one")}}
+	require.NoError(t, fakeClient.CreateSecret(ctx, keySecret))
+	secretClient := secrets.SecretClient{KubeClient: fakeClient}
+	apply := func() string {
+		t.Helper()
+		created, err := reconcileDatabase(ctx, fakeClient, secretClient, *mdb, options)
+		require.NoError(t, err)
+		return created.Spec.Template.Annotations[construct.AgentSettingsHash]
+	}
+	original := apply()
+	keySecret.Data["custom-key"] = []byte("customer-key-two")
+	require.NoError(t, fakeClient.UpdateSecret(ctx, keySecret))
+	assert.NotEqual(t, original, apply(), "rotating the Secret the agent actually reads must roll the pods")
 }
 
 func TestBuildService(t *testing.T) {
