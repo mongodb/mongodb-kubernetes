@@ -83,6 +83,8 @@ const (
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="Version of MongoDB server."
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster' and 'Standalone'."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
+// +kubebuilder:printcolumn:name="ServerCertRenewal",type="string",JSONPath=".status.certificateRenewals.server.renewalTime",priority=1,description="Next automatic renewal of the operator-managed server certificates."
+// +kubebuilder:printcolumn:name="ClientCertRenewal",type="string",JSONPath=".status.certificateRenewals.client.renewalTime",priority=1,description="Next automatic renewal of the operator-managed client certificates."
 type MongoDB struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -413,6 +415,10 @@ type MongoDbStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// CertificateRenewals reports the next automatic renewal of the operator-managed leaf certificates,
+	// per category. Set only with spec.security.managedCertificate.
+	// +optional
+	CertificateRenewals *status.CertificateRenewalStatus `json:"certificateRenewals,omitempty"`
 	// MigrationObservedExternalMembersCount is how many spec.externalMembers were observed on the last
 	// reconcile while migration is active. The next reconcile compares this to the current external count
 	// to detect Pruning. Unset when no externalMembers remain (omitted from serialized status).
@@ -2002,6 +2008,13 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 func (m *MongoDB) SetStatusCondition(condition metav1.Condition) {
 	condition.ObservedGeneration = m.GetGeneration()
 	meta.SetStatusCondition(&m.Status.Conditions, condition)
+}
+
+// SetCertificateRenewals records the next automatic renewal of the operator-managed leaf
+// certificates on the resource status. This only changes the in-memory object; the controllers
+// persist it along with the rest of the status.
+func (m *MongoDB) SetCertificateRenewals(renewals *status.CertificateRenewalStatus) {
+	m.Status.CertificateRenewals = renewals
 }
 
 func (m *MongoDB) SetWarnings(warnings []status.Warning, _ ...status.Option) {

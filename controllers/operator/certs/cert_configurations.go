@@ -11,6 +11,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -145,6 +146,12 @@ func (o appDBManagedCertificateOwner) GetSecurity() *mdbv1.Security {
 
 func (o appDBManagedCertificateOwner) ownerResource() v1.ObjectOwner {
 	return o.MongoDBOpsManager
+}
+
+// SetCertificateRenewals records the AppDB's next automatic certificate renewal on the Ops Manager
+// resource's applicationDatabase status.
+func (o appDBManagedCertificateOwner) SetCertificateRenewals(renewals *mdbstatus.CertificateRenewalStatus) {
+	o.Status.AppDbStatus.CertificateRenewals = renewals
 }
 
 // EnsureAppDBCertificatesAndCA issues the internal AppDB's certificates and CA bundles. The
