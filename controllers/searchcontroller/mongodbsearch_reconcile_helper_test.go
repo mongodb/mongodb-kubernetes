@@ -3117,6 +3117,8 @@ func newOIDCMongoDBSearch(name, namespace string, modifications ...func(*searchv
 			ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
 			IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
 			Scope:             new("openid"),
+			Audience:          new("https://mongot-search"),
+			Resource:          new("https://resource.example.com"),
 		}
 	})...)
 }
@@ -3237,6 +3239,10 @@ func TestEnsureOIDCClientConfig_MongotAndStsModification(t *testing.T) {
 	assert.Equal(t, OIDCIdPCaMountPath+"/"+OIDCIdPCAConfigMapKey, config.SyncSource.ReplicaSet.OIDC.IDPCaFile)
 	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Scope)
 	assert.Equal(t, "openid", *config.SyncSource.ReplicaSet.OIDC.Scope)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Audience)
+	assert.Equal(t, "https://mongot-search", *config.SyncSource.ReplicaSet.OIDC.Audience)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Resource)
+	assert.Equal(t, "https://resource.example.com", *config.SyncSource.ReplicaSet.OIDC.Resource)
 	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.TLS)
 	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile)
 	assert.Equal(t, tls.CAMountPath+"ca-pem", *config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile)
@@ -3246,6 +3252,8 @@ func TestEnsureOIDCClientConfig_MongotAndStsModification(t *testing.T) {
 	assert.Nil(t, config.SyncSource.Router.ScramAuth)
 	require.NotNil(t, config.SyncSource.Router.OIDC)
 	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Scope, *config.SyncSource.Router.OIDC.Scope)
+	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Audience, *config.SyncSource.Router.OIDC.Audience)
+	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Resource, *config.SyncSource.Router.OIDC.Resource)
 	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile, *config.SyncSource.Router.OIDC.TLS.CertificateAuthorityFile)
 
 	// Apply STS modification and verify volumes
