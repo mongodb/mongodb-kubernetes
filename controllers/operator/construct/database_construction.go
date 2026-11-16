@@ -71,6 +71,9 @@ const (
 	LogFileAgentMonitoringEnv        = "MDB_LOG_FILE_MONITORING_AGENT"
 	LogFileAgentBackupEnv            = "MDB_LOG_FILE_BACKUP_AGENT"
 	DownloadBaseEnv                  = "MMS_DOWNLOAD_BASE"
+	MmsHomeEnv                       = "MMS_HOME"
+	MmsLogDirEnv                     = "MMS_LOG_DIR"
+	StaticContainersArchitectureEnv  = "MDB_STATIC_CONTAINERS_ARCHITECTURE"
 )
 
 type StsType int
@@ -990,7 +993,7 @@ func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMon
 func staticContainersEnvVars(mdb databaseStatefulSetSource, defaultArchitecture architectures.DefaultArchitecture) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
-		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
+		envVars = append(envVars, corev1.EnvVar{Name: StaticContainersArchitectureEnv, Value: "true"})
 	}
 	return envVars
 }

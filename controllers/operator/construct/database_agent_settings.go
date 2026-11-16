@@ -34,10 +34,10 @@ type agentRuntime struct {
 
 func newAgentRuntime(variables map[string]string) agentRuntime {
 	return agentRuntime{
-		home:         cmp.Or(variables["MMS_HOME"], "/mongodb-automation"),
-		logDirectory: cmp.Or(variables["MMS_LOG_DIR"], util.PvcMountPathLogs),
+		home:         cmp.Or(variables[MmsHomeEnv], util.PvcMmsHomeMountPath),
+		logDirectory: cmp.Or(variables[MmsLogDirEnv], util.PvcMountPathLogs),
 		downloadBase: variables[DownloadBaseEnv],
-		static:       variables["MDB_STATIC_CONTAINERS_ARCHITECTURE"] != "",
+		static:       variables[StaticContainersArchitectureEnv] != "",
 	}
 }
 
@@ -173,10 +173,10 @@ var agentSettingsEnvironmentVariables = map[string]struct{}{
 	util.EnvVarMultiClusterMode:               {},
 	util.EnvVarSSLRequireValidMMSCertificates: {},
 	util.EnvVarSSLTrustedMMSServerCertificate: {},
-	"MMS_HOME":                           {},
-	"MMS_LOG_DIR":                        {},
-	DownloadBaseEnv:                      {},
-	"MDB_STATIC_CONTAINERS_ARCHITECTURE": {},
+	MmsHomeEnv:                      {},
+	MmsLogDirEnv:                    {},
+	DownloadBaseEnv:                 {},
+	StaticContainersArchitectureEnv: {},
 }
 
 // ValidateNoRuntimeAgentSettingsEnv rejects a runtime reference for an environment variable
