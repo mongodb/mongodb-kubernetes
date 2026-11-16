@@ -388,6 +388,11 @@ const (
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
 
 	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
+
+	// The MongoDB finalizers keep their CR until cleanup finishes. Without them,
+	// a delete can race a reconcile that re-adds the deployment and leaves SCRAM auth behind.
+	MongoDBFinalizer             = "mongodb.com/v1.mongoDBRemovalFinalizer"
+	MongoDBMultiClusterFinalizer = "mongodb.com/v1.mongoDBMultiClusterRemovalFinalizer"
 )
 
 const (

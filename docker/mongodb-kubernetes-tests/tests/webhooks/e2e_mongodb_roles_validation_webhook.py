@@ -1,7 +1,10 @@
+import uuid
+
 import kubernetes.client.rest
 import pytest
 from kubernetes import client
 from kubernetes.client.rest import ApiException
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_role import ClusterMongoDBRole
@@ -11,15 +14,17 @@ from pytest import fixture
 
 @fixture(scope="function")
 def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
-    resource = MongoDB.from_yaml(yaml_fixture("role-validation-base.yaml"), namespace=namespace)
+    name = f"role-validation-{uuid.uuid4().hex[:8]}"
+    resource = MongoDB.from_yaml(yaml_fixture("role-validation-base.yaml"), name=name, namespace=namespace)
     resource.set_version(custom_mdb_version)
     return resource
 
 
 @fixture(scope="function")
 def mdbr() -> ClusterMongoDBRole:
+    name = f"cluster-mongodb-role-{uuid.uuid4().hex[:8]}"
     resource = ClusterMongoDBRole.from_yaml(
-        yaml_fixture("cluster_mongodb_role_base.yaml"), namespace="", cluster_scoped=True
+        yaml_fixture("cluster_mongodb_role_base.yaml"), name=name, namespace="", cluster_scoped=True
     )
     return resource
 
@@ -240,3 +245,7 @@ def _assert_role_error(mdb: MongoDB, mdbr: ClusterMongoDBRole, role, err_msg):
 
     mdb.delete()
     mdbr.delete()
+    KubernetesTester.wait_until(
+        lambda: KubernetesTester.is_deleted(mdb.namespace, mdb["metadata"]["name"]),
+        timeout=120,
+    )

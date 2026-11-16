@@ -25,3 +25,17 @@ func TestBackupWaitsForTermination(t *testing.T) {
 
 	connection.CheckResourcesAndBackupDeleted(t, "test")
 }
+
+// A host cluster can be missing during deletion. Cleanup must skip it, not panic.
+func TestStopBackupIfEnabledSkipsHostClusterReadError(t *testing.T) {
+	ctx := t.Context()
+	clusterID := uuid.New().String()
+	connection := NewMockedOmConnection(NewDeployment())
+	connection.EnableBackup("test", backup.ReplicaSetType, clusterID)
+	delete(connection.BackupHostClusters, clusterID)
+
+	assert.NotPanics(t, func() {
+		err := backup.StopBackupIfEnabled(ctx, connection, connection, "test", backup.ReplicaSetType, zap.S())
+		assert.NoError(t, err)
+	})
+}
