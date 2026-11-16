@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from kubetester.mongodb import MongoDB
 
 import requests
+import semver
 from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
 from kubetester import create_configmap, create_or_update_secret, read_configmap, read_secret
@@ -121,13 +122,20 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         need a session cookie instead of an API key.
         """
         admin_secret = read_secret(self.namespace, self.get_admin_secret_name())
+        password = admin_secret["Password"]
+
+        # Ops Manager 8.0.26 and newer expect the password base64 encoded, the way their own UI
+        # sends it (CLOUDP-427896). Older versions, 7.0.x in particular, expect the plain
+        # password and answer 400 to the encoded one.
+        if semver.VersionInfo.parse(self.get_version()) >= semver.VersionInfo.parse("8.0.26"):
+            password = b64encode(password.encode()).decode()
+
         session = requests.Session()
         response = session.post(
             f"{self.om_status().get_url()}/user/v1/auth",
             json={
                 "username": admin_secret["Username"],
-                # the UI sends the password base64 encoded
-                "password": b64encode(admin_secret["Password"].encode()).decode(),
+                "password": password,
             },
             timeout=30,
             verify=False,

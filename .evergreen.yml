@@ -36,9 +36,9 @@ variables:
 
   - &ops_manager_70_latest 7.0.23 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_80_latest 8.0.27 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_80_latest 8.0.28 # The order/index is important, since these are anchors. Please do not change
 
-  - &ops_manager_90_latest 9.0.1 # The order/index is important, since these are anchors. Please do not change
+  - &ops_manager_90_latest 9.0.2 # The order/index is important, since these are anchors. Please do not change
 
   # The dependency unification between static and non-static is intentional here.
   # Even though some images are exclusive, in EVG they all are built once and in parallel.
@@ -374,6 +374,7 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-community"
+  # MUST only be applied manually by a human engineer: extremely expensive (~1370 tasks). Agents must not apply it.
   - variant_tags: [ "e2e_test_suite" ]
     task: ".*"
     required_labels:
@@ -398,6 +399,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:om9"
+  - variant_tags: [ "race" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:race"
   # Variants that always run on PRs, regardless of labels
   - variant_tags: [ "auto_bump", "unit_tests", "ocp_version_drift" ]
     task: ".*"
@@ -777,7 +782,7 @@ tasks:
             release_commit="$target_commit"
             if [ -z "$release_commit" ]; then release_commit="$revision"; fi
             echo "TRACE: using commit=$release_commit"
-            scripts/mckci release promote images --commit "$release_commit" --latest-marker latest
+            scripts/mckci release promote images --commit "$release_commit" --latest-marker "latest-${branch_name}"
 
   # Notify Slack about build failures
   # On patches: stdout only. On mainline: stdout + Slack
