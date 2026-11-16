@@ -149,6 +149,35 @@ func TestAppDbStatefulSet_MonitoringCredentialsAsCLIFlags(t *testing.T) {
 		"agent container must mount the agent-api-key volume when monitoring is enabled")
 }
 
+func TestAppDbStatefulSet_MonitoringTrustsOpsManagerCA(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	podVars := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key", SSLProjectConfig: env.SSLProjectConfig{SSLMMSCAConfigMap: "om-ca"}}
+
+	sts, err := AppDbStatefulSet(*om, podVars, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
+	command := agent.Command[len(agent.Command)-1]
+	assert.Contains(t, command, "-httpsCAFile=/mongodb-automation/certs/mms-ca.crt")
+	assert.True(t, containerMountsVolume(agent.VolumeMounts, CaCertName),
+		"agent container must mount the Ops Manager CA the -httpsCAFile flag points at")
+}
+
+func TestAppDbStatefulSet_NoOpsManagerCAFlagWithoutCA(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	podVars := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key"}
+
+	sts, err := AppDbStatefulSet(*om, podVars, AppDBStatefulSetOptions{}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+
+	agent := findContainerByName(t, sts.Spec.Template.Spec.Containers, util.AgentContainerName)
+	assert.NotContains(t, agent.Command[len(agent.Command)-1], "-httpsCAFile=")
+}
+
 func TestAppDbStatefulSet_StripsUserOwnerLabels(t *testing.T) {
 	om := omv1.NewOpsManagerBuilderDefault().Build()
 	om.Labels = map[string]string{

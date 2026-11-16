@@ -1501,6 +1501,7 @@ task_groups:
       - e2e_om_ops_manager_https_enabled_hybrid
       - e2e_om_ops_manager_https_enabled_internet_mode
       - e2e_om_ops_manager_https_enabled_prefix
+      - e2e_om_ops_manager_managedcert
       - e2e_om_ops_manager_scale
       - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
@@ -1539,6 +1540,7 @@ task_groups:
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_scale
+      - e2e_om_ops_manager_managedcert
       - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation

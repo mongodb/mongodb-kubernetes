@@ -9,14 +9,19 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
+	"net/url"
 	"reflect"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/blang/semver"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
@@ -27,10 +32,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
@@ -41,6 +49,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -100,6 +109,9 @@ type OpsManagerReconciler struct {
 	initOpsManagerImageVersion string
 	defaultArchitecture        architectures.DefaultArchitecture
 	defaultImageType           architectures.ImageType
+	// certManagerReadiness is decided once at startup; it gates the Certificate watch and managed
+	// certificate preparation against cert-manager CRDs and RBAC.
+	certManagerReadiness certs.CertManagerReadiness
 }
 
 var _ reconcile.Reconciler = &OpsManagerReconciler{}
@@ -431,7 +443,6 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	r.configureWatchersForDynamicResources(ctx, opsManager, log)
 
-	// 1. Reconcile AppDB
 	emptyResult := reconcile.Result{RequeueAfter: util.TWENTY_FOUR_HOURS}
 	retryResult := reconcile.Result{RequeueAfter: time.Second}
 
@@ -440,17 +451,25 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("Error initializing AppDB reconciler: %w", appDBReconcilerErr)), log, opsManagerExtraStatusParams)
 	}
 
+	opsManagerReconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
+	}
+
+	// AppDB agents need the Ops Manager CA before their project configuration is read.
+	if result, blocked, err := r.prepareManagedCertificates(ctx, opsManager, log); err != nil {
+		return result, err
+	} else if blocked {
+		return result, nil
+	}
+
+	// 1. Reconcile AppDB
 	result, err := appDbReconciler.ReconcileAppDB(ctx, opsManager)
 	if err != nil || (result != emptyResult && result != retryResult) {
 		return result, err
 	}
 
 	appDBConfig, err := appDbReconciler.GetAppDBConfig(ctx, opsManager, log)
-	if err != nil {
-		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
-	}
-
-	opsManagerReconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
 	}
@@ -512,6 +531,214 @@ func (r *OpsManagerReconciler) createAppDBReconcile(ctx context.Context, opsMana
 	}
 
 	return r.createNewExternalAppDBReconciler(log), nil
+}
+
+type componentCertificateResult struct {
+	part      mdbstatus.Part
+	status    workflow.Status
+	condition *metav1.Condition
+}
+
+func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
+	results := []componentCertificateResult{
+		r.ensureOpsManagerCertificateAndCA(ctx, opsManager, log),
+	}
+
+	return r.applyManagedCertificateResults(ctx, opsManager, results, log)
+}
+
+func (r *OpsManagerReconciler) ensureOpsManagerCertificateAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) componentCertificateResult {
+	if !r.certManagerReadiness.Ready {
+		return r.managedCertificateGateResult(mdbstatus.OpsManager, opsManager.IsManagedCertificateEnabled())
+	}
+	if !opsManager.IsManagedCertificateEnabled() {
+		return componentCertificateResult{part: mdbstatus.OpsManager, status: workflow.OK()}
+	}
+
+	dnsNames, ipAddresses, err := opsManagerCertificateSANs(opsManager)
+	if err != nil {
+		condition := certs.IssuanceFailedCondition(err.Error())
+		return componentCertificateResult{
+			part:      mdbstatus.OpsManager,
+			status:    workflow.Failed(err),
+			condition: &condition,
+		}
+	}
+	status, condition := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, opsManager.Spec.Security.ManagedCertificate, certs.ServerCertificateOptions{
+		NamingBase:   opsManager.Name + "-managed-om",
+		SecretName:   opsManager.TLSCertificateSecretName(),
+		DNSNames:     dnsNames,
+		IPAddresses:  ipAddresses,
+		CABundleName: opsManager.GetOpsManagerCA(),
+		CABundleKey:  util.CaCertMMS,
+	}, log)
+	return componentCertificateResult{part: mdbstatus.OpsManager, status: status, condition: &condition}
+}
+
+func opsManagerCertificateSANs(opsManager *omv1.MongoDBOpsManager) ([]string, []string, error) {
+	dnsNames := []string{dns.GetServiceFQDN(opsManager.SvcName(), opsManager.Namespace, opsManager.Spec.GetClusterDomain())}
+	var ipAddresses []string
+
+	centralURL, err := url.Parse(opsManager.CentralURL())
+	if err != nil {
+		return nil, nil, xerrors.Errorf("invalid Ops Manager central URL: %w", err)
+	}
+	if centralURL.Hostname() == "" || (centralURL.Scheme != "http" && centralURL.Scheme != "https") {
+		return nil, nil, xerrors.Errorf("invalid Ops Manager central URL %q: an HTTP or HTTPS URL with a host is required", opsManager.CentralURL())
+	}
+
+	if ip := net.ParseIP(centralURL.Hostname()); ip != nil {
+		ipAddresses = append(ipAddresses, ip.String())
+	} else {
+		dnsNames = append(dnsNames, centralURL.Hostname())
+	}
+	// The same service names are used in each member cluster, including clusters
+	// currently unavailable to the operator.
+	if opsManager.Spec.MongoDBOpsManagerExternalConnectivity != nil || slices.ContainsFunc(opsManager.Spec.ClusterSpecList, func(cluster omv1.ClusterSpecOMItem) bool {
+		return cluster.MongoDBOpsManagerExternalConnectivity != nil
+	}) {
+		dnsNames = append(dnsNames, dns.GetServiceFQDN(opsManager.ExternalSvcName(), opsManager.Namespace, opsManager.Spec.GetClusterDomain()))
+	}
+
+	slices.Sort(dnsNames)
+	slices.Sort(ipAddresses)
+	return slices.Compact(dnsNames), slices.Compact(ipAddresses), nil
+}
+
+func (r *OpsManagerReconciler) managedCertificateGateResult(part mdbstatus.Part, enabled bool) componentCertificateResult {
+	if !enabled {
+		return componentCertificateResult{part: part, status: workflow.OK()}
+	}
+
+	message := r.certManagerReadiness.UnavailableMessage()
+	condition := certs.IssuanceFailedCondition(message)
+	return componentCertificateResult{part: part, status: workflow.Failed(xerrors.New(message)), condition: &condition}
+}
+
+func (r *OpsManagerReconciler) applyManagedCertificateResults(ctx context.Context, opsManager *omv1.MongoDBOpsManager, results []componentCertificateResult, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
+	if err := r.patchCertificateReadyCondition(ctx, opsManager, aggregateCertificateConditions(results)); err != nil {
+		return reconcile.Result{}, false, err
+	}
+
+	var aggregateStatus workflow.Status = workflow.OK()
+	blocked := false
+	for _, componentResult := range results {
+		aggregateStatus = aggregateStatus.Merge(componentResult.status)
+		if componentResult.status.IsOK() {
+			continue
+		}
+
+		blocked = true
+		if _, err := r.updateStatus(ctx, opsManager, componentResult.status, log, mdbstatus.NewOMPartOption(componentResult.part)); err != nil {
+			return reconcile.Result{}, true, err
+		}
+	}
+
+	if !blocked {
+		return reconcile.Result{}, false, nil
+	}
+
+	result, _ := aggregateStatus.ReconcileResult()
+	return result, true, nil
+}
+
+func aggregateCertificateConditions(results []componentCertificateResult) *metav1.Condition {
+	var messages []string
+	highestSeverity := -1
+	highestReason := ""
+
+	for _, part := range []mdbstatus.Part{mdbstatus.OpsManager, mdbstatus.AppDb, mdbstatus.Backup} {
+		for _, result := range results {
+			if result.part != part || result.condition == nil {
+				continue
+			}
+
+			if severity := certificateConditionSeverity(result.condition.Reason); severity > highestSeverity {
+				highestSeverity = severity
+				highestReason = result.condition.Reason
+			}
+			messages = append(messages, fmt.Sprintf("%s: %s", componentCertificateName(result.part), result.condition.Message))
+		}
+	}
+
+	if len(messages) == 0 {
+		return nil
+	}
+
+	conditionStatus := metav1.ConditionFalse
+	if highestReason == certs.ReasonAllCertificatesReady {
+		conditionStatus = metav1.ConditionTrue
+	}
+
+	condition := certs.CertificatesReadyCondition(conditionStatus, highestReason, strings.Join(messages, "; "))
+	return &condition
+}
+
+func certificateConditionSeverity(reason string) int {
+	switch reason {
+	case certs.ReasonIssuanceFailed:
+		return 3
+	case certs.ReasonCertificatesIssuing:
+		return 2
+	case certs.ReasonRenewalFailed:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func componentCertificateName(part mdbstatus.Part) string {
+	switch part {
+	case mdbstatus.OpsManager:
+		return "OpsManager"
+	case mdbstatus.AppDb:
+		return "AppDB"
+	case mdbstatus.Backup:
+		return "Backup"
+	default:
+		return "Component"
+	}
+}
+
+func (r *OpsManagerReconciler) patchCertificateReadyCondition(ctx context.Context, opsManager *omv1.MongoDBOpsManager, condition *metav1.Condition) error {
+	existingOpsManager := &omv1.MongoDBOpsManager{}
+	if err := r.client.Get(ctx, client.ObjectKeyFromObject(opsManager), existingOpsManager); err != nil {
+		return err
+	}
+	// The condition was computed from the snapshot being reconciled. If the stored resource
+	// has already moved to another generation, that result does not describe the current spec
+	// and must not be published as if it did. Surface a conflict so the controller requeues.
+	if existingOpsManager.Generation != opsManager.Generation {
+		return apiErrors.NewConflict(
+			schema.GroupResource{Group: v1.SchemeGroupVersion.Group, Resource: "mongodbopsmanagers"},
+			opsManager.Name,
+			xerrors.Errorf("MongoDBOpsManager generation changed from %d to %d while preparing certificates; retrying", opsManager.Generation, existingOpsManager.Generation))
+	}
+	base := existingOpsManager.DeepCopy()
+
+	if condition == nil {
+		if !meta.RemoveStatusCondition(&existingOpsManager.Status.Conditions, certs.ConditionCertificatesReady) {
+			return nil
+		}
+	} else {
+		// The guard above pins the observed generation to the one this result was computed for.
+		existingOpsManager.SetStatusCondition(*condition)
+	}
+
+	if reflect.DeepEqual(base.Status.Conditions, existingOpsManager.Status.Conditions) {
+		return nil
+	}
+
+	// Optimistic locking makes a spec/status change between the Get and this Patch surface as
+	// a conflict instead of a merge that silently replaces the whole conditions array. That
+	// protects unrelated conditions written by another actor and prevents the condition from
+	// describing a generation newer than the one actually reconciled.
+	patch := client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})
+	if err := r.client.Status().Patch(ctx, existingOpsManager, patch); err != nil {
+		return err
+	}
+	opsManager.Status.Conditions = existingOpsManager.Status.Conditions
+	return nil
 }
 
 // ensureSharedGlobalResources ensures that resources that are shared across watched namespaces (e.g. secrets) are in sync
@@ -861,7 +1088,12 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 }
 
 func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
+	// make sure cert-manager resources are registered and operator has authz to access them, before
+	// registering watches or doing anything with cert-manager resources.
+	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+
 	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
+	reconciler.certManagerReadiness = certManagerReadiness
 	c, err := controller.New(util.MongoDbOpsManagerController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -874,16 +1106,20 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 		return err
 	}
 
-	// watch the secret with the Ops Manager user password
+	// watch the Secrets and ConfigMaps referenced by Ops Manager resources (API keys, TLS/CA bundles, backup credentials)
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
 
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
 		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
+		return err
+	}
+
+	if err = reconciler.watchManagedCertificates(c, mgr); err != nil {
 		return err
 	}
 
@@ -926,6 +1162,17 @@ func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClu
 
 	zap.S().Infof("Registered controller %s", util.MongoDbOpsManagerController)
 	return nil
+}
+
+// watchManagedCertificates re-triggers the owning Ops Manager when cert-manager issues, renews or
+// fails a Certificate created for it.
+func (r *OpsManagerReconciler) watchManagedCertificates(c controller.Controller, mgr manager.Manager) error {
+	if !r.certManagerReadiness.Ready {
+		zap.S().Info("Operator is not configured to use cert-manager integration for MongoDBOpsManager (either cert-manager CRDs are not installed or operator doesn't have appropriate authz). Operator managed certificate feature will not work.")
+		return nil
+	}
+	return c.Watch(source.Kind[client.Object](mgr.GetCache(), &certmanagerv1.Certificate{},
+		handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &omv1.MongoDBOpsManager{}, handler.OnlyControllerOwner())))
 }
 
 // ensureConfiguration makes sure the mandatory configuration is specified.
@@ -1010,6 +1257,23 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 
 	if opsManager.IsTLSEnabled() {
 		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
+	}
+
+	if opsManager.IsManagedCertificateEnabled() {
+		cfg := opsManager.Spec.Security.ManagedCertificate
+		registerCA := func(ref mdbv1.CARef) {
+			resourceType := watch.ConfigMap
+			if ref.Kind == "Secret" {
+				resourceType = watch.Secret
+			}
+			r.resourceWatcher.AddWatchedResourceIfNotAdded(ref.Name, opsManager.Namespace, resourceType, opsManager.ObjectKey())
+		}
+		if cfg.CA != nil {
+			registerCA(*cfg.CA)
+		}
+		for _, ref := range cfg.AdditionalTrustedCAs {
+			registerCA(ref)
+		}
 	}
 
 	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
