@@ -115,6 +115,7 @@ def assert_tls_handshake(
     Asserts the handshake succeeds when should_succeed, otherwise that it raises
     ssl.SSLError/OSError (e.g. because the presented client certificate is revoked)."""
     context = ssl.create_default_context(cafile=ca_path)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.set_alpn_protocols(["h2"])
     context.load_cert_chain(certfile=cert_path, keyfile=key_path)
 
