@@ -1,0 +1,56 @@
+suite: test operator health probes
+templates:
+  - operator.yaml
+tests:
+  - it: probes the operator health endpoint by default
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].ports
+          value:
+            - name: health
+              containerPort: 8081
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].env
+          content:
+            name: MDB_OPERATOR_HEALTH_PROBE_PORT
+            value: "8081"
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].livenessProbe
+          value:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].readinessProbe
+          value:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+  - it: uses a custom health port
+    set:
+      operator.probes.port: 9440
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].ports[0].containerPort
+          value: 9440
+      - contains:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].env
+          content:
+            name: MDB_OPERATOR_HEALTH_PROBE_PORT
+            value: "9440"
+  - it: removes a probe set to null
+    set:
+      operator.probes.liveness: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].livenessProbe
+      - exists:
+          path: spec.template.spec.containers[?(@.name=="mongodb-kubernetes-operator")].readinessProbe

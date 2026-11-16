@@ -167,6 +167,10 @@ const (
 	OperatorPprofPortEnv     = "MDB_OPERATOR_PPROF_PORT"
 	OperatorPprofDefaultPort = 10081
 
+	// health probe variables
+	OperatorHealthProbePortEnv     = "MDB_OPERATOR_HEALTH_PROBE_PORT"
+	OperatorHealthProbeDefaultPort = 8081
+
 	// these were historically used and constituted a security issue—if set they should be changed
 	InvalidKeyFileContents         = "DUMMYFILE"
 	InvalidAutomationAgentPassword = "D9XK2SfdR2obIevI9aKsYlVH" //nolint //Part of the algorithm
