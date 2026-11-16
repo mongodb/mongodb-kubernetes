@@ -161,7 +161,10 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 
 	bundle := managedCAConfigMap(t, ctx, c, "example-db-managed-server-ca-bundle")
 	assert.Equal(t, managedTestNamespace, bundle.Namespace)
-	assert.Equal(t, map[string]string{"ca-pem": serverCAPEM}, bundle.Data)
+	assert.Equal(t, serverCAPEM, bundle.Data["ca-pem"])
+	latestHash := bundle.Data[util.LatestHashSecretKey]
+	require.NotEmpty(t, latestHash)
+	assert.Equal(t, serverCAPEM, bundle.Data[latestHash])
 	assertOwnedByManagedTestOM(t, bundle.OwnerReferences)
 
 	err := c.Get(ctx, types.NamespacedName{Name: "example-db-managed-client-ca-bundle", Namespace: managedTestNamespace}, &corev1.ConfigMap{})

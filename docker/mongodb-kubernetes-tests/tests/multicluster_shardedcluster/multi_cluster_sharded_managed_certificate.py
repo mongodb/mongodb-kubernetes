@@ -19,7 +19,11 @@ from tests.conftest import (
     get_multi_cluster_operator_installation_config,
 )
 from tests.multicluster.conftest import cluster_spec_list
-from tests.tls.managedcert_helper import assert_reachable_with_client_certificate, client_certificate_user
+from tests.tls.managedcert_helper import (
+    assert_reachable_with_client_certificate,
+    client_certificate_user,
+    latest_ca_bundle,
+)
 
 MDB_RESOURCE = "sh"
 SHARD_COUNT = 2
@@ -180,17 +184,16 @@ def test_ca_bundles_replicated_to_member_clusters(namespace: str, member_cluster
     # The pods run in the member clusters and mount these ConfigMaps, but the operator only creates
     # them centrally. They must be copied into every member cluster, otherwise the pods have no CA to
     # trust and TLS fails.
-    for ca_bundle, key in (
-        (f"{MDB_RESOURCE}-managed-server-ca-bundle", "ca-pem"),
-        (f"{MDB_RESOURCE}-managed-client-ca-bundle", "clusterca-pem"),
+    for ca_bundle in (
+        f"{MDB_RESOURCE}-managed-server-ca-bundle",
+        f"{MDB_RESOURCE}-managed-client-ca-bundle",
     ):
         central = read_configmap(namespace, ca_bundle)
-        assert central.get(key, "").strip() != "", f"{ca_bundle} ({key}) missing/empty on the central cluster"
+        assert latest_ca_bundle(central) != "", f"{ca_bundle} latest bundle missing/empty on the central cluster"
         for cluster_client in member_cluster_clients:
             cm = cluster_client.read_namespaced_config_map(ca_bundle, namespace)
-            assert (cm.data or {}).get(
-                key, ""
-            ).strip() != "", f"{ca_bundle} ({key}) missing/empty in member cluster {cluster_client.cluster_name}"
+            member_data = cm.data or {}
+            assert member_data == central, f"{ca_bundle} differs in member cluster {cluster_client.cluster_name}"
 
 
 @mark.e2e_managed_certificate_multi_cluster_sharded
