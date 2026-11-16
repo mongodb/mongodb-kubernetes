@@ -1970,11 +1970,16 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		hasKeyPassword = true
 	}
 
+	crlPath := r.crlFilePath()
+
 	mongotModification := func(config *mongot.Config) {
 		config.SyncSource.ReplicaSet.ScramAuth = nil
 		config.SyncSource.ReplicaSet.X509 = &mongot.ConfigX509{
 			TLSCertificateKeyFile:    new(certPath),
 			CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
+		}
+		if crlPath != "" {
+			config.SyncSource.ReplicaSet.X509.CRLFile = new(crlPath)
 		}
 		if hasKeyPassword {
 			config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
@@ -1985,6 +1990,9 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 			config.SyncSource.Router.X509 = &mongot.ConfigX509{
 				TLSCertificateKeyFile:    new(certPath),
 				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
+			}
+			if crlPath != "" {
+				config.SyncSource.Router.X509.CRLFile = new(crlPath)
 			}
 			if hasKeyPassword {
 				config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
@@ -2165,10 +2173,25 @@ func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.Namespaced
 	return p.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
+// crlFilePath returns the mounted CRL path for the sync source CA, or "" when
+// no CRL is configured. The CRL is a key in the CA ConfigMap/Secret that MCK
+// already mounts at tls.CAMountPath.
+func (r *MongoDBSearchReconcileHelper) crlFilePath() string {
+	crlFile := r.mdbSearch.SourceCRLFile()
+	if crlFile == "" {
+		return ""
+	}
+	return tls.CAMountPath + crlFile
+}
+
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
 	removeScramClientVolumes := removeMongotVolumesAndMounts("scram-client-cert", "scram-key-password")
+	crlPath := r.crlFilePath()
 	sourceTLSConfig := r.db.TLSConfig()
 	if sourceTLSConfig == nil {
+		if crlPath != "" {
+			return nil, nil, xerrors.New("spec.source.crlFile requires TLS with a CA on the source MongoDB")
+		}
 		return mongot.NOOP(), removeScramClientVolumes, nil
 	}
 
@@ -2205,6 +2228,9 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 				scramTLS.TLSCertificateKeyFilePasswordFile = new(TempScramKeyPasswordPath)
 			}
 		}
+		if crlPath != "" {
+			scramTLS.CRLFile = new(crlPath)
+		}
 
 		config.SyncSource.ReplicaSet.ScramAuth.TLS = scramTLS
 
@@ -2220,6 +2246,9 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 					routerScramTLS.TLSCertificateKeyFilePasswordFile = new(TempScramKeyPasswordPath)
 				}
 			}
+			if crlPath != "" {
+				routerScramTLS.CRLFile = new(crlPath)
+			}
 			config.SyncSource.Router.ScramAuth.TLS = routerScramTLS
 		}
 
@@ -2227,6 +2256,9 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
 			config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeMTLS
 			config.Server.Grpc.TLS.CertificateAuthorityFile = new(tls.CAMountPath + sourceTLSConfig.CAFileName)
+			if crlPath != "" {
+				config.Server.Grpc.TLS.CRLFile = new(crlPath)
+			}
 		}
 	}
 
