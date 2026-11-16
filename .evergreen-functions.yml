@@ -1065,6 +1065,8 @@ functions:
           - EVERGREEN_USER
           - EVERGREEN_API_KEY
           - SLACK_WEBHOOK_URL
+          - SLACK_BOT_TOKEN
+          - SLACK_CHANNEL_ID
           - HONEYCOMB_API_KEY
           - version_id
         binary: scripts/dev/run_python.sh scripts/evergreen/notify_master_failures.py
