@@ -107,6 +107,7 @@ def assert_tls_handshake(
     key_path: str,
     ca_path: str,
     should_succeed: bool,
+    expected_error: str | None = None,
     timeout: float = 10.0,
 ) -> None:
     """Opens a raw TLS connection to host:port presenting the given client cert/key and
@@ -132,4 +133,9 @@ def assert_tls_handshake(
         logger.info(f"TLS handshake to {host}:{port} succeeded")
     else:
         assert handshake_error is not None, f"TLS handshake to {host}:{port} unexpectedly succeeded"
+        if expected_error is not None:
+            assert expected_error.lower() in str(handshake_error).lower(), (
+                f"TLS handshake to {host}:{port} failed for an unexpected reason: {handshake_error!r}; "
+                f"expected the error to mention {expected_error!r}"
+            )
         logger.info(f"TLS handshake to {host}:{port} failed as expected: {handshake_error!r}")

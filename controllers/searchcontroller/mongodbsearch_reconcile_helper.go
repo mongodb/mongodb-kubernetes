@@ -40,6 +40,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
@@ -2180,6 +2181,31 @@ func (r *MongoDBSearchReconcileHelper) crlFilePath() *string {
 	return new(tls.CAMountPath + crlFile)
 }
 
+// validateCRLFileExists rejects a CRL key that is absent from the object providing
+// the source CA: mongot would otherwise fail at startup on the missing file.
+func (r *MongoDBSearchReconcileHelper) validateCRLFileExists(ctx context.Context, kubeClient kubernetesClient.Client, tlsSourceConfig *TLSSourceConfig) error {
+	crlFile := r.mdbSearch.SourceCRLFile()
+	if crlFile == "" {
+		return nil
+	}
+
+	objectKey := types.NamespacedName{Namespace: r.mdbSearch.Namespace}
+	caVolume := tlsSourceConfig.CAVolume
+	switch {
+	case caVolume.ConfigMap != nil:
+		objectKey.Name = caVolume.ConfigMap.Name
+		if _, err := configmap.ReadKey(ctx, kubeClient, crlFile, objectKey); err != nil {
+			return xerrors.Errorf("reading the CRL file from the source CA ConfigMap: %w", err)
+		}
+	case caVolume.Secret != nil:
+		objectKey.Name = caVolume.Secret.SecretName
+		if _, err := secret.ReadKey(ctx, kubeClient, crlFile, objectKey); err != nil {
+			return xerrors.Errorf("reading the CRL file from the source CA Secret: %w", err)
+		}
+	}
+	return nil
+}
+
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
 	removeScramClientVolumes := removeMongotVolumesAndMounts("scram-client-cert", "scram-key-password")
 	crlFile := r.crlFilePath()
@@ -2189,6 +2215,10 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 			return nil, nil, xerrors.New("spec.source.crlFile requires TLS with a CA on the source MongoDB")
 		}
 		return mongot.NOOP(), removeScramClientVolumes, nil
+	}
+
+	if err := r.validateCRLFileExists(ctx, kubeClient, sourceTLSConfig); err != nil {
+		return nil, nil, err
 	}
 
 	// Process optional SCRAM client certificate for mTLS

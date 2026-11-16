@@ -340,7 +340,9 @@ def test_revoked_client_cert_is_rejected(
 
     host = mongot_grpc_host(mdbs, namespace)
     wait_for_mounted_crl(namespace, mongot_pod_name(mdbs), crl_pem)
-    assert_handshake_eventually(host, client_certs[CLIENT_A_SECRET_NAME], should_succeed=False)
+    assert_handshake_eventually(
+        host, client_certs[CLIENT_A_SECRET_NAME], should_succeed=False, expected_error="revoked"
+    )
     assert_handshake_eventually(host, client_certs[CLIENT_B_SECRET_NAME], should_succeed=True)
     logger.info("revoked client-A rejected; client-B accepted")
 
@@ -358,7 +360,9 @@ def test_crl_reload_without_restart(
     host = mongot_grpc_host(mdbs, namespace)
     wait_for_mounted_crl(namespace, mongot_pod_name(mdbs), crl_pem)
     assert_handshake_eventually(host, client_certs[CLIENT_A_SECRET_NAME], should_succeed=True)
-    assert_handshake_eventually(host, client_certs[CLIENT_B_SECRET_NAME], should_succeed=False)
+    assert_handshake_eventually(
+        host, client_certs[CLIENT_B_SECRET_NAME], should_succeed=False, expected_error="revoked"
+    )
 
     pod_after = mongot_pod_identity(namespace, mdbs)
     assert pod_after == pod_before, f"mongot pod was replaced: {pod_before} -> {pod_after}"
@@ -376,7 +380,9 @@ def test_malformed_crl_rotation_keeps_last_good_crl(
     host = mongot_grpc_host(mdbs, namespace)
     wait_for_mounted_crl(namespace, mongot_pod_name(mdbs), malformed_crl)
     assert_handshake_eventually(host, client_certs[CLIENT_A_SECRET_NAME], should_succeed=True)
-    assert_handshake_eventually(host, client_certs[CLIENT_B_SECRET_NAME], should_succeed=False)
+    assert_handshake_eventually(
+        host, client_certs[CLIENT_B_SECRET_NAME], should_succeed=False, expected_error="revoked"
+    )
     logger.info("malformed CRL rotation ignored; last good CRL still enforced")
 
 
@@ -421,7 +427,9 @@ def wait_for_mounted_crl(namespace: str, pod_name: str, expected_pem: str, timeo
     run_periodically(check, timeout=timeout, sleep_time=5, msg=f"CRL mounted in {pod_name} to update")
 
 
-def assert_handshake_eventually(host: str, cert: dict, should_succeed: bool, timeout: int = 120) -> None:
+def assert_handshake_eventually(
+    host: str, cert: dict, should_succeed: bool, expected_error: str | None = None, timeout: int = 120
+) -> None:
     """Retries the TLS handshake until it matches should_succeed (mongot reloads the CRL async)."""
 
     def check() -> tuple:
@@ -433,6 +441,7 @@ def assert_handshake_eventually(host: str, cert: dict, should_succeed: bool, tim
                 cert["key_path"],
                 get_issuer_ca_filepath(),
                 should_succeed,
+                expected_error,
             )
             return True, f"{host}:{MONGOT_GRPC_PORT} handshake matched should_succeed={should_succeed}"
         except AssertionError as e:
