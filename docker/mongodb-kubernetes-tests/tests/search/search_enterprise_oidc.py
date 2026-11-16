@@ -48,6 +48,13 @@ COGNITO_CLIENT_SECRET_NAME = f"{MDB_RESOURCE_NAME}-cognito-client-secret"
 # certificate (spec.source.oidc.idpCAConfigMapRef) -- Amazon Root CA 1.
 COGNITO_IDP_CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-cognito-idp-ca"
 
+# The OIDC sync-source block needs the enterprise mongot build at or above the operator's
+# 1.78.0 OIDC floor; the chart default is community content that cannot parse it. This is the
+# internal per-merge enterprise build; the GA quay image replaces it once promoted.
+MONGOT_ENTERPRISE_IMAGE_REPO = "901841024863.dkr.ecr.us-east-1.amazonaws.com"
+MONGOT_ENTERPRISE_IMAGE_NAME = "mongot-community/rapid-releases"
+MONGOT_ENTERPRISE_IMAGE_TAG = "1.79.0-88-gbfa7e50bd4-ent"
+
 # Requires the Cognito test environment (the cognito_* expansions). Tests fail when it is
 # not configured rather than silently skipping: the expansions come from project variables,
 # so a miss is a misconfiguration that should read red, not green.
@@ -228,9 +235,9 @@ def mdbs(namespace: str) -> MongoDBSearch:
         },
     }
 
-    # The OIDC sync-source block needs mongot >= 1.78.0 (the operator's OIDC floor as well);
-    # the chart default is community content that cannot parse it.
-    resource["spec"]["version"] = "1.78.0"
+    # The OIDC sync-source block needs the enterprise mongot build (the chart default is
+    # community content that cannot parse it) at or above the 1.78.0 OIDC floor.
+    resource["spec"]["version"] = MONGOT_ENTERPRISE_IMAGE_TAG
 
     try_load(resource)
     return resource
@@ -264,9 +271,18 @@ def oidc_mongot_user(namespace: str, helper: SearchDeploymentHelper, cc_claims: 
     return resource
 
 
+@fixture(scope="module")
+def oidc_operator_installation_config(operator_installation_config: dict[str, str]) -> dict[str, str]:
+    config = dict(operator_installation_config)
+    config["search.repo"] = MONGOT_ENTERPRISE_IMAGE_REPO
+    config["search.name"] = MONGOT_ENTERPRISE_IMAGE_NAME
+    config["search.version"] = MONGOT_ENTERPRISE_IMAGE_TAG
+    return config
+
+
 @mark.e2e_search_enterprise_oidc
-def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
-    operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
+def test_install_operator(namespace: str, oidc_operator_installation_config: dict[str, str]):
+    operator = get_default_operator(namespace, operator_installation_config=oidc_operator_installation_config)
     operator.wait_for_operator_ready()
 
 
