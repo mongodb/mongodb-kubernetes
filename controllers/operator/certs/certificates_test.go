@@ -119,11 +119,11 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 	assert.False(t, leaf.Spec.IsCA)
 	assertOwnedByManagedTestOM(t, leaf.OwnerReferences)
 
-	serverCA := getManagedCertificate(t, ctx, c, "example-db-server-ca")
-	assert.True(t, serverCA.Spec.IsCA)
-	assert.Equal(t, "example-db-server-ca", serverCA.Spec.SecretName)
-	assert.Equal(t, "example-db-server-selfsigned", serverCA.Spec.IssuerRef.Name)
-	assertOwnedByManagedTestOM(t, serverCA.OwnerReferences)
+	serverCACert := getManagedCertificate(t, ctx, c, "example-db-server-ca")
+	assert.True(t, serverCACert.Spec.IsCA)
+	assert.Equal(t, "example-db-server-ca", serverCACert.Spec.SecretName)
+	assert.Equal(t, "example-db-server-selfsigned", serverCACert.Spec.IssuerRef.Name)
+	assertOwnedByManagedTestOM(t, serverCACert.OwnerReferences)
 
 	certNames := make([]string, 0)
 	for _, cert := range listManagedCertificates(t, ctx, c) {
@@ -146,10 +146,10 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 		assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not issue client Secret %s", name)
 	}
 	markManagedCertificatesReady(t, ctx, c, nil)
-	const serverCAPEM = "-----BEGIN CERTIFICATE-----\nAPP-DB-SERVER-CA\n-----END CERTIFICATE-----\n"
+	serverCA := newTestCA(t, "app-db-server-ca")
 	require.NoError(t, c.Create(ctx, &corev1.Secret{
 		ObjectMeta: v1.ObjectMeta{Name: "example-db-server-ca", Namespace: managedTestNamespace},
-		Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte(serverCAPEM)},
+		Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte(serverCA.pem)},
 	}))
 	issued := issuedCertificateSecret(t, managedTestNamespace, "example-db-managed-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
 	require.NoError(t, c.Create(ctx, &issued))
@@ -161,10 +161,11 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 
 	bundle := managedCAConfigMap(t, ctx, c, "example-db-managed-server-ca-bundle")
 	assert.Equal(t, managedTestNamespace, bundle.Namespace)
-	assert.Equal(t, serverCAPEM, bundle.Data["ca-pem"])
+	assert.Equal(t, expectedBundle(serverCA), bundle.Data["ca-pem"])
 	latestHash := bundle.Data[util.LatestHashSecretKey]
 	require.NotEmpty(t, latestHash)
-	assert.Equal(t, serverCAPEM, bundle.Data[latestHash])
+	assert.Equal(t, hashOfBundle(expectedBundle(serverCA)), latestHash)
+	assert.Equal(t, expectedBundle(serverCA), bundle.Data[latestHash])
 	assertOwnedByManagedTestOM(t, bundle.OwnerReferences)
 
 	err := c.Get(ctx, types.NamespacedName{Name: "example-db-managed-client-ca-bundle", Namespace: managedTestNamespace}, &corev1.ConfigMap{})
