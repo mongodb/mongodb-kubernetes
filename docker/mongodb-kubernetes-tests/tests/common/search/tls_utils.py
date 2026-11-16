@@ -43,7 +43,7 @@ def encrypt_tls_key_with_password(namespace: str, secret_name: str, password: st
         data={"tls.key": encrypted_key_pem.decode()},
         api_client=api_client,
     )
-    logger.info(f"Encrypted private key in secret {secret_name} with password")
+    logger.info("Encrypted the private key in the TLS secret with the password")
 
 
 def create_keyfile_password_secret(namespace: str, password_secret_name: str, password: str, api_client=None):
@@ -56,7 +56,7 @@ def create_keyfile_password_secret(namespace: str, password_secret_name: str, pa
         data={KEY_FILE_PASSWORD_SECRET_KEY: password},
         api_client=api_client,
     )
-    logger.info(f"Created keyFilePassword secret {password_secret_name}")
+    logger.info("Created the keyFilePassword secret")
 
 
 def create_crl(
