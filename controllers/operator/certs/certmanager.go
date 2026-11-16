@@ -91,6 +91,56 @@ func certificateOwnerReferences(res CertificateOwner) []metav1.OwnerReference {
 	return kube.BaseOwnerReference(res)
 }
 
+// Prune targets of a MongoDBOpsManager: the values the mongodb.com/prune-previous-ca annotation
+// accepts on it. Each one names one of the three parts of the resource that have their own
+// operator-managed certificates and CA: the Ops Manager application server, its AppDB and the
+// queryable backup daemon. They are unrelated to the components of a sharded cluster (mongos,
+// config servers and shards), which share one CA per certificate category and are pruned by
+// category ("server" or "client") instead.
+const (
+	OpsManagerPruneTargetOM     = "om"
+	OpsManagerPruneTargetAppDB  = "appdb"
+	OpsManagerPruneTargetBackup = "backup"
+)
+
+var opsManagerPruneTargets = []string{OpsManagerPruneTargetOM, OpsManagerPruneTargetAppDB, OpsManagerPruneTargetBackup}
+
+// pruneTargetOwner is implemented by the certificate owners of the Ops Manager parts (see
+// OpsManagerPruneTargetOM): their prune annotation selects Ops Manager prune targets instead of
+// certificate categories.
+type pruneTargetOwner interface {
+	pruneTarget() string
+}
+
+// ownerPruneTarget returns the Ops Manager prune target of an owner, or "" when it prunes by
+// category.
+func ownerPruneTarget(res CertificateOwner) string {
+	if o, ok := res.(pruneTargetOwner); ok {
+		return o.pruneTarget()
+	}
+	return ""
+}
+
+// PruneRequestedTargets returns the Ops Manager prune targets a prune annotation selects: every
+// target for "true", otherwise the recognised entries of the comma-separated list. Unknown
+// entries are ignored.
+func PruneRequestedTargets(value string) []string {
+	for token := range strings.SplitSeq(value, ",") {
+		if strings.TrimSpace(token) == "true" {
+			return slices.Clone(opsManagerPruneTargets)
+		}
+	}
+
+	var requested []string
+	for token := range strings.SplitSeq(value, ",") {
+		token = strings.TrimSpace(token)
+		if slices.Contains(opsManagerPruneTargets, token) && !slices.Contains(requested, token) {
+			requested = append(requested, token)
+		}
+	}
+	return requested
+}
+
 var memberServerCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageDigitalSignature,
 	certmanagerv1.UsageKeyEncipherment,
@@ -377,14 +427,20 @@ func certificatesReadyMessage(message string) string {
 }
 
 // previousCASentence tells the user that a category still retains its previous CA, how to prune it
-// and, when a prune was requested, why it did not happen. Empty when nothing is retained.
-func previousCASentence(cat certCategory, retained, refused bool) string {
+// and, when a prune was requested, why it did not happen. Empty when nothing is retained. The owners
+// of the Ops Manager parts are pruned by Ops Manager prune target, so the suggested annotation value
+// is the target.
+func previousCASentence(res CertificateOwner, cat certCategory, retained, refused bool) string {
 	if !retained {
 		return ""
 	}
+	target := string(cat)
+	if pruneTarget := ownerPruneTarget(res); pruneTarget != "" {
+		target = pruneTarget
+	}
 	sentence := fmt.Sprintf(
 		"Previous %s CA retained in the trust bundle; annotate the resource with %s=%s (or true) once all members and clients use the new CA.",
-		cat, util.PrunePreviousCAAnnotation, cat)
+		cat, util.PrunePreviousCAAnnotation, target)
 	if refused {
 		sentence += fmt.Sprintf(" The previous %s CA was not pruned: issued certificates are still signed by it.", cat)
 	}
@@ -1042,7 +1098,7 @@ func ensureCAConfigMapsFromIssuedSecret(
 			return "", false, workflow.Failed(err)
 		}
 		refused := pruneRequested(res, cat) && previousRetained
-		if sentence := previousCASentence(cat, previousRetained, refused); sentence != "" {
+		if sentence := previousCASentence(res, cat, previousRetained, refused); sentence != "" {
 			details = append(details, sentence)
 		}
 		// a refused category still retains its previous CA, so the annotation stays for a retry
