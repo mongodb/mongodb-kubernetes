@@ -946,7 +946,7 @@ func TestMongoDBSearchReconcile_FailsX509SearchWhenSourceLacksX509Mode(t *testin
 	).Build()
 	reconciler := newMongoDBSearchReconciler(c, operatorConfig, map[string]client.Client{}, "")
 
-	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "x509 search authentication requires an X509 auth mode")
+	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "X509 search authentication requires an X509 auth mode")
 }
 
 func TestMongoDBSearchReconcile_RegistersOIDCClientSecretWatch(t *testing.T) {

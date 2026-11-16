@@ -1866,7 +1866,7 @@ func TestApplySearchOverrides_SkipsX509SearchWhenSourceLacksX509Mode(t *testing.
 	c := mock.NewEmptyFakeClientBuilder().WithObjects(x509Search).Build()
 
 	rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
-	reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c)}
+	reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c, nil)}
 	helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
 
 	applied, err := helper.applySearchOverrides(ctx)
