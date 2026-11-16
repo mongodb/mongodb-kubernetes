@@ -27,10 +27,16 @@ jobs:
         uses: ./.github/actions/switch-context
         with:
           context-name: 'root-context'
-      - name: Setup host
-        uses: ./.github/actions/setup-ubuntu-host
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '${{ vars.PYTHON_VERSION }}'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Install host dependencies
+        run: |
+          set -o pipefail
+          grep -v '^python-ldap==' requirements.txt | python -m pip install -r /dev/stdin
       - name: Check if changelog entry file was added in this PR
         run: |
           set -o pipefail
