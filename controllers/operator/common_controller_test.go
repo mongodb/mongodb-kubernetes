@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,7 +56,7 @@ func init() {
 func TestEnsureTagAdded(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	// normal tag
@@ -72,7 +74,7 @@ func TestEnsureTagAdded(t *testing.T) {
 func TestEnsureTagAddedDuplicates(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	opsManagerController := NewReconcileCommonController(ctx, kubeClient)
+	opsManagerController := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	mockOm, _ := prepareConnection(ctx, opsManagerController, omConnectionFactory.GetConnectionFunc, t)
 	err := connection.EnsureTagAdded(ctx, mockOm, mockOm.FindGroup(om.TestGroupName), "MYTAG", zap.S())
@@ -89,7 +91,7 @@ func TestPrepareOpsManagerConnection_TagNamespace(t *testing.T) {
 	callPrepare := func(tagNamespace bool) *om.MockedOmConnection {
 		ctx := context.Background()
 		kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-		controller := NewReconcileCommonController(ctx, kubeClient)
+		controller := NewReconcileCommonController(ctx, kubeClient, nil)
 		projectConfig, err := project.ReadProjectConfig(ctx, controller.client, kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName), "mdb-name")
 		require.NoError(t, err)
 		credsConfig, err := project.ReadCredentials(ctx, controller.SecretClient, kube.ObjectKey(mock.TestNamespace, mock.TestCredentialsSecretName), &zap.SugaredLogger{})
@@ -128,7 +130,7 @@ func TestPrepareOmConnection_FindExistingGroup(t *testing.T) {
 		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{{ID: om.TestOrgID, Name: "foo"}: {{Name: om.TestGroupName, ID: "existing-group-id", OrgID: om.TestOrgID}}}
 	})
 
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	assert.Equal(t, "existing-group-id", mockOm.GroupID())
 	// No new group was created
@@ -156,7 +158,7 @@ func TestPrepareOmConnection_DuplicatedGroups(t *testing.T) {
 
 	// The only difference from TestPrepareOmConnection_FindExistingGroup above is that the config map contains only project name
 	// but no org ID (see newMockedKubeApi())
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	assert.Equal(t, om.TestGroupID, mockOm.GroupID())
@@ -177,7 +179,7 @@ func TestPrepareOmConnection_CreateGroup(t *testing.T) {
 		c.(*om.MockedOmConnection).OrganizationsWithGroups = map[*om.Organization][]*om.Project{}
 	})
 
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	mockOm, vars := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
@@ -211,7 +213,7 @@ func TestPrepareOmConnection_CreateGroupFixTags(t *testing.T) {
 		}
 	})
 
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	assert.Contains(t, mockOm.FindGroup(om.TestGroupName).Tags, strings.ToUpper(mock.TestNamespace))
@@ -237,7 +239,7 @@ func readAgentApiKeyForProject(ctx context.Context, client kubernetesClient.Clie
 func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	ctx := context.Background()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	key, e := readAgentApiKeyForProject(ctx, controller.client, mock.TestNamespace, agents.ApiKeySecretName(om.TestGroupID))
@@ -256,7 +258,7 @@ func TestUpdateStatus_Patched(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().Build()
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	reconciledObject := rs.DeepCopy()
 	// The current reconciled object "has diverged" from the one in API server
 	reconciledObject.Spec.Version = "10.0.0"
@@ -317,7 +319,7 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{customRole}).SetRoleRefs([]mdbv1.MongoDBRoleRef{roleRef}).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
@@ -343,7 +345,7 @@ func TestRoleRefsAreAdded(t *testing.T) {
 	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	_ = kubeClient.Create(ctx, roleResource)
@@ -370,7 +372,7 @@ func TestErrorWhenRoleRefIsWrong(t *testing.T) {
 	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	_ = kubeClient.Create(ctx, roleResource)
@@ -398,7 +400,7 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
@@ -426,7 +428,7 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	assert.Nil(t, customRole.Privileges)
 	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{customRole}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	ac, err := mockOm.ReadAutomationConfig(ctx)
@@ -525,7 +527,7 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 
 	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{roleWithEmptyStrings, roleWithoutEmptyStrings}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
@@ -661,7 +663,7 @@ func TestExternalRoleIsNotRemoved(t *testing.T) {
 
 	rs := DefaultReplicaSetBuilder().SetRoles([]mdbv1.MongoDBRole{role}).Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	// Create deployment with one embedded role
@@ -717,7 +719,7 @@ func TestSetupCommonWatchers_NilTLSConfig_WithCertificatesSecretsPrefix(t *testi
 	}
 
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	assert.NotPanics(t, func() {
 		controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
@@ -730,7 +732,7 @@ func TestSecretWatcherWithAllResources(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA(caName).Build()
 	rs.Spec.Security.Authentication.InternalCluster = "X509"
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	controller.SetupCommonWatchers(rs, nil, nil, rs.Name)
 
@@ -757,7 +759,7 @@ func TestSecretWatcherWithSelfProvidedTLSSecretNames(t *testing.T) {
 
 	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA(caName).Build()
 	kubeClient, _ := mock.NewDefaultFakeClient(rs)
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	controller.SetupCommonWatchers(rs, func() []string {
 		return []string{"a-secret"}
@@ -797,7 +799,7 @@ func TestAgentCertHashAndPath(t *testing.T) {
 			Type: corev1.SecretTypeOpaque,
 		},
 	)
-	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	tests := []struct {
 		name         string
@@ -1987,4 +1989,144 @@ func TestValidateVotingLimitRS(t *testing.T) {
 	st := validateVotingLimitRS(mdb, rs)
 	require.False(t, st.IsOK())
 	assert.Contains(t, statusMsg(st), "8 voting members")
+}
+
+func TestLogAgentErrors(t *testing.T) {
+	tests := []struct {
+		name                string
+		processes           []om.ProcessStatus
+		readError           error
+		expectedErrors      []map[string]any
+		expectedReadFailure bool
+	}{
+		{
+			name: "error of a prefixed pod of the resource is logged",
+			processes: []om.ProcessStatus{
+				{Name: "k8s/ns/rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "could not connect to member"},
+			},
+			expectedErrors: []map[string]any{
+				{"process": "k8s/ns/rs-0", "errorCode": int64(106), "error": "could not connect to member"},
+			},
+		},
+		{
+			name: "error of a legacy pod of the resource is logged",
+			processes: []om.ProcessStatus{
+				{Name: "rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "could not connect to member"},
+			},
+			expectedErrors: []map[string]any{
+				{"process": "rs-0", "errorCode": int64(106), "error": "could not connect to member"},
+			},
+		},
+		{
+			name: "error of a process of another resource is ignored",
+			processes: []om.ProcessStatus{
+				{Name: "k8s/ns/other-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: "boom"},
+			},
+		},
+		{
+			name: "error of a process at goal is ignored",
+			processes: []om.ProcessStatus{
+				{Name: "k8s/ns/rs-0", LastGoalVersionAchieved: 1, ErrorCode: 106, ErrorString: "boom"},
+			},
+		},
+		{
+			name: "blank error is ignored",
+			processes: []om.ProcessStatus{
+				{Name: "k8s/ns/rs-0", LastGoalVersionAchieved: 0, ErrorCode: 106, ErrorString: " \n\t "},
+			},
+		},
+		{
+			name:      "no processes",
+			processes: nil,
+		},
+		{
+			name:                "read error is logged as a warning",
+			readError:           xerrors.New("boom"),
+			expectedReadFailure: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := om.NewMockedOmConnection(om.NewDeployment())
+			conn.ReadAutomationStatusFunc = func() (*om.AutomationStatus, error) {
+				if tt.readError != nil {
+					return nil, tt.readError
+				}
+				return &om.AutomationStatus{GoalVersion: 1, Processes: tt.processes}, nil
+			}
+			core, logs := observer.New(zap.WarnLevel)
+			controller := &ReconcileCommonController{agentErrorsThrottle: util.NewThrottle(time.Hour)}
+
+			controller.logAgentErrors(context.Background(), &metav1.ObjectMeta{Namespace: "ns", Name: "rs"}, conn, zap.New(core).Sugar())
+
+			errorEntries := logs.FilterMessage("MongoDB agent reported an error").All()
+			require.Len(t, errorEntries, len(tt.expectedErrors))
+			for i, expectedFields := range tt.expectedErrors {
+				assert.Equal(t, zapcore.WarnLevel, errorEntries[i].Level)
+				assert.Equal(t, expectedFields, errorEntries[i].ContextMap())
+			}
+
+			readFailureEntries := logs.FilterMessage("failed to read agent errors: boom").All()
+			if tt.expectedReadFailure {
+				require.Len(t, readFailureEntries, 1)
+				return
+			}
+			require.Empty(t, readFailureEntries)
+		})
+	}
+}
+
+func TestLogAgentErrors_ThrottlesPerResource(t *testing.T) {
+	nsRS := types.NamespacedName{Namespace: "ns", Name: "rs"}
+	nsOther := types.NamespacedName{Namespace: "ns", Name: "other"}
+	otherRS := types.NamespacedName{Namespace: "other", Name: "rs"}
+
+	tests := []struct {
+		name             string
+		calls            []types.NamespacedName
+		expectedReads    int
+		expectedLogCount int
+	}{
+		{
+			name:             "repeated calls for the same resource read the status and log once",
+			calls:            []types.NamespacedName{nsRS, nsRS},
+			expectedReads:    1,
+			expectedLogCount: 1,
+		},
+		{
+			name:             "another resource has its own budget",
+			calls:            []types.NamespacedName{nsRS, nsOther},
+			expectedReads:    2,
+			expectedLogCount: 2,
+		},
+		{
+			name:             "the same name in another namespace is another resource",
+			calls:            []types.NamespacedName{nsRS, otherRS},
+			expectedReads:    2,
+			expectedLogCount: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reads := 0
+			conn := om.NewMockedOmConnection(om.NewDeployment())
+			conn.ReadAutomationStatusFunc = func() (*om.AutomationStatus, error) {
+				reads++
+				return &om.AutomationStatus{GoalVersion: 1, Processes: []om.ProcessStatus{
+					{Name: "k8s/ns/rs-0", ErrorCode: 106, ErrorString: "boom"},
+					{Name: "k8s/ns/other-0", ErrorCode: 106, ErrorString: "boom"},
+					{Name: "k8s/other/rs-0", ErrorCode: 106, ErrorString: "boom"},
+				}}, nil
+			}
+			core, logs := observer.New(zap.WarnLevel)
+			controller := &ReconcileCommonController{agentErrorsThrottle: util.NewThrottle(time.Hour)}
+
+			for _, call := range tt.calls {
+				controller.logAgentErrors(context.Background(), &metav1.ObjectMeta{Namespace: call.Namespace, Name: call.Name}, conn, zap.New(core).Sugar())
+			}
+
+			assert.Equal(t, tt.expectedReads, reads)
+			assert.Len(t, logs.FilterMessage("MongoDB agent reported an error").All(), tt.expectedLogCount)
+		})
+	}
 }

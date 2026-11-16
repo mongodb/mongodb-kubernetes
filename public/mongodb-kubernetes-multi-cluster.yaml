@@ -430,7 +430,7 @@ spec:
             - name: OPS_MANAGER_IMAGE_PULL_POLICY
               value: Always
             - name: AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent:109.0.1.9310-1"
+              value: "quay.io/mongodb/mongodb-agent:109.0.2.9380-1"
             - name: MDB_AGENT_IMAGE_REPOSITORY
               value: "quay.io/mongodb/mongodb-agent"
             - name: MONGODB_IMAGE
@@ -445,6 +445,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: MCK_INSTALLER
               valueFrom:
                 fieldRef:
@@ -453,7 +457,7 @@ spec:
               value: mongodb-kubernetes-operator-multi-cluster
             # Community Env Vars Start
             - name: MDB_COMMUNITY_AGENT_IMAGE
-              value: "quay.io/mongodb/mongodb-agent:109.0.1.9310-1"
+              value: "quay.io/mongodb/mongodb-agent:109.0.2.9380-1"
             - name: VERSION_UPGRADE_HOOK_IMAGE
               value: "quay.io/mongodb/mongodb-kubernetes-operator-version-upgrade-post-start-hook:1.0.10"
             - name: READINESS_PROBE_IMAGE
@@ -468,7 +472,7 @@ spec:
             - name: MDB_SEARCH_REPO_URL
               value: "quay.io/mongodb"
             - name: MDB_SEARCH_NAME
-              value: "mongodb-search"
+              value: "mongodb-enterprise-search"
             - name: MDB_SEARCH_VERSION
               value: "1.70.1"
             - name: MDB_ENVOY_IMAGE

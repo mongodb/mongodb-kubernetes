@@ -49,14 +49,14 @@ kind export kubeconfig --name "kind"
 echo "Interconnecting Kind clusters"
 scripts/dev/interconnect_kind_clusters.sh -v e2e-cluster-1 e2e-cluster-2 e2e-cluster-3 e2e-operator 2>&1 | prepend "interconnect_kind_clusters"
 
-export VERSION=${VERSION:-1.16.1}
+export VERSION=${VERSION:-1.30.8}
 
 source multi_cluster/tools/download_istio.sh 2>&1 | prepend "download_istio"
 
 istio_pids=()
-VERSION=1.16.1 CTX_CLUSTER1=kind-e2e-cluster-1 CTX_CLUSTER2=kind-e2e-cluster-2 CTX_CLUSTER3=kind-e2e-cluster-3 multi_cluster/tools/install_istio.sh 2>&1 | prepend "install_istio" &
+VERSION=1.30.8 CTX_CLUSTER1=kind-e2e-cluster-1 CTX_CLUSTER2=kind-e2e-cluster-2 CTX_CLUSTER3=kind-e2e-cluster-3 multi_cluster/tools/install_istio.sh 2>&1 | prepend "install_istio" &
 istio_pids+=($!)
-VERSION=1.16.1 CTX_CLUSTER=kind-e2e-operator multi_cluster/tools/install_istio_central.sh 2>&1 | prepend "install_istio_central" &
+VERSION=1.30.8 CTX_CLUSTER=kind-e2e-operator multi_cluster/tools/install_istio_central.sh 2>&1 | prepend "install_istio_central" &
 istio_pids+=($!)
 
 for pid in "${istio_pids[@]}"; do wait "${pid}" || { echo "Istio install PID ${pid} failed" >&2; exit 1; }; done

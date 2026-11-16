@@ -30,7 +30,7 @@ jobs:
       - name: Setup host
         uses: ./.github/actions/setup-ubuntu-host
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: '${{ vars.PYTHON_VERSION }}'
       - name: Check if changelog entry file was added in this PR
         run: |
           set -o pipefail

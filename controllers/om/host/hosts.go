@@ -9,6 +9,7 @@ type Host struct {
 	Port              int    `json:"port"`
 	AuthMechanismName string `json:"authMechanismName"`
 	Id                string `json:"id"`
+	SSLEnabled        bool   `json:"sslEnabled"`
 }
 
 type Result struct {

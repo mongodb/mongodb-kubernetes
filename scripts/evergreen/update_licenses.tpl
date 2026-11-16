@@ -1,3 +1,3 @@
 {{ range . }}
-{{.Name}},{{.Version}},{{.LicenseURL}},{{.LicenseName}}
+{{.Name}},{{.Version}},{{.LicenseName}}
 {{- end }}
