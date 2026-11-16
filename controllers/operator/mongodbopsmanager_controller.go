@@ -623,15 +623,11 @@ func (r *OpsManagerReconciler) ensureAppDBCertAndCA(ctx context.Context, opsMana
 	owned, err := r.appDBStatefulSetReadyForManagedCertificates(ctx, opsManager)
 	if err != nil {
 		message := fmt.Sprintf("Failed to read AppDB StatefulSet %s before preparing its operator-managed certificates: %s", opsManager.Spec.AppDB.Name(), err)
+		condition := certs.IssuanceFailedCondition(message)
 		return componentCertificateResult{
-			part:   mdbstatus.AppDb,
-			status: workflow.Failed(xerrors.New(message)),
-			condition: &metav1.Condition{
-				Type:    certs.ConditionCertificatesReady,
-				Status:  metav1.ConditionFalse,
-				Reason:  certificateReasonIssuanceFailed,
-				Message: message,
-			},
+			part:      mdbstatus.AppDb,
+			status:    workflow.Failed(xerrors.New(message)),
+			condition: &condition,
 		}
 	}
 	if !owned {
