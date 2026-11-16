@@ -21,7 +21,7 @@ python-dateutil==2.9.0.post0
 python-ldap==3.4.8
 GitPython==3.2.1
 setuptools>=84.2.1 # not directly required, pinned by Snyk to avoid a vulnerability
-opentelemetry-api==1.45.1
+opentelemetry-api==1.45.2
 opentelemetry-sdk==1.45.1
 # grpcio segfaults at process exit on s390x + Python 3.13 and is pulled by pytest-opentelemetry
 pytest-opentelemetry==1.1.0 ; platform_machine != "s390x"
