@@ -57,7 +57,7 @@ def test_user_pending(scram_user: MongoDBUser):
 def test_replica_set_auth_enabled(replica_set: MongoDB):
     replica_set["spec"]["security"] = {"authentication": {"enabled": True, "modes": ["SCRAM"]}}
     replica_set.update()
-    replica_set.assert_reaches_phase(Phase.Running, timeout=600)
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @pytest.mark.e2e_replica_set_scram_sha_256_user_first

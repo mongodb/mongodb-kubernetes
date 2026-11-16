@@ -73,7 +73,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     # The Ops Manager project keeps the authentication of an earlier run (also of one that failed half way), and a
     # new resource then starts with it. Asking for no authentication makes the operator switch it off.
     resource["spec"]["security"] = {"authentication": {"enabled": False}}
-    # The proxy only exists in the static-ga architecture, whatever the default of the test run is.
+    # The proxy is part of static-ga, whatever the default of the test run is.
     resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static-ga"
     # The released Agent does not support -mongodProxyAddress, so run the branch Agent image.
     resource["spec"].setdefault("podSpec", {}).setdefault("podTemplate", {}).setdefault("spec", {})[
@@ -380,6 +380,22 @@ def test_agent_container_restart_does_not_restart_mongod(replica_set: MongoDB, n
 
 
 MEMBER_CONFIG = "/data/automation-mongod.conf"
+
+
+def restart_agent_container(pod: str, namespace: str):
+    before = restart_counts(pod, namespace)[AGENT_CONTAINER]
+    KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["bash", "-c", "kill -TERM 1"], container=AGENT_CONTAINER
+    )
+
+    def restarted_and_ready() -> bool:
+        current = KubernetesTester.clients("corev1").read_namespaced_pod(pod, namespace)
+        return any(
+            c.name == AGENT_CONTAINER and c.restart_count > before and c.ready
+            for c in current.status.container_statuses
+        )
+
+    wait_until("the agent container to restart and become ready", restarted_and_ready, timeout_seconds=180)
 
 
 @mark.e2e_replica_set_mongodb_proxy
