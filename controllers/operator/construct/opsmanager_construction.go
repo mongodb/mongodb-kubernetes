@@ -254,14 +254,8 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 		return appsv1.StatefulSet{}, err
 	}
 
-	secretName := opsManager.Spec.Backup.QueryableBackupSecretRef.Name
-	opts.QueryableBackupPemSecretName = secretName
-	if secretName != "" {
-		// if the secret is specified, we must have a queryable.pem entry.
-		_, err := secret.ReadKey(ctx, centralClusterSecretClient, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
-		if err != nil {
-			return appsv1.StatefulSet{}, xerrors.Errorf("error reading queryable.pem key from secret %s/%s: %w", opsManager.Namespace, secretName, err)
-		}
+	if err := setQueryableBackupPEM(ctx, centralClusterSecretClient, opsManager, &opts); err != nil {
+		return appsv1.StatefulSet{}, err
 	}
 
 	opts.LoggingConfiguration = opsManager.Spec.Logging
@@ -281,6 +275,20 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 		return appsv1.StatefulSet{}, err
 	}
 	return omSts, nil
+}
+
+// setQueryableBackupPEM records the Secret that supplies queryable.pem to both StatefulSets
+// and verifies it carries the mounted key.
+func setQueryableBackupPEM(ctx context.Context, secretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, opts *OpsManagerStatefulSetOptions) error {
+	if !opsManager.IsQueryableBackupTLSConfigured() {
+		return nil
+	}
+	secretName := opsManager.QueryableBackupTLSSecretName()
+	if _, err := secret.ReadKey(ctx, secretClient, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName)); err != nil {
+		return xerrors.Errorf("error reading queryable.pem key from secret %s/%s: %w", opsManager.Namespace, secretName, err)
+	}
+	opts.QueryableBackupPemSecretName = secretName
+	return nil
 }
 
 // getSharedOpsManagerOptions returns the options that are shared between both the OpsManager
