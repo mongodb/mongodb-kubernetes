@@ -128,10 +128,13 @@ get_operator_helm_values() {
 
 prepare_operator_config_map() {
   local context=${1}
+  local helm_values_output
+  helm_values_output=$(get_operator_helm_values) || return "$?"
+  read -ra helm_values <<< "${helm_values_output}"
+
   kubectl --context "${context}" delete configmap operator-installation-config --ignore-not-found
   title "Preparing the ConfigMap with Operator installation configuration"
 
-  read -ra helm_values < <(get_operator_helm_values)
   declare -a config_map_values=()
   for param in "${helm_values[@]}"; do
     config_map_values+=("--from-literal" "${param}")

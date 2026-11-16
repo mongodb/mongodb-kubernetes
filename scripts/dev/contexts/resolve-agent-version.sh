@@ -16,7 +16,19 @@ if [[ -z "${MDB_AGENT_IMAGE_REPOSITORY:-}" ]]; then
   exit 1
 fi
 
-if [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
+if [[ -n "${MDB_CUSTOM_AGENT_VERSION:-}" ]]; then
+  # Explicit override. A caller can pin the version directly.
+  AGENT_VERSION="${MDB_CUSTOM_AGENT_VERSION}"
+elif [[ -n "${MDB_CUSTOM_AGENT_URL:-}" ]]; then
+  # The e2e task receives the custom Agent URL from the patch parameter.
+  # The tarball name carries the version, for example
+  # mongodb-mms-automation-agent-110.0.0.9427-4.rhel8_x86_64.tar.gz.
+  AGENT_VERSION="$(basename "${MDB_CUSTOM_AGENT_URL}" | sed -nE 's/^mongodb-mms-automation-agent-([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-[0-9]+)\..*/\1/p')"
+  if [[ -z "${AGENT_VERSION}" ]]; then
+    echo "resolve-agent-version.sh: cannot derive the agent version from MDB_CUSTOM_AGENT_URL=${MDB_CUSTOM_AGENT_URL}" >&2
+    exit 1
+  fi
+elif [[ -n "${CUSTOM_OM_VERSION:-}" ]]; then
   AGENT_VERSION="$(jq -r --arg om "${CUSTOM_OM_VERSION}" \
     '.supportedImages."mongodb-agent".opsManagerMapping.ops_manager[$om].agent_version // empty' \
     "${PROJECT_DIR}/release.json")"
