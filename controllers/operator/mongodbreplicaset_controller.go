@@ -7,7 +7,6 @@ import (
 	"path"
 	"strings"
 
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -23,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	stdErrors "errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -218,7 +218,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(err))
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
+	conn, agentApiKey, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
@@ -367,6 +367,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
 	}
 
+	reconciler.EnsureOtelExporterForDeployment(conn, agentApiKey, rs.Status.Link, rs, log)
+
 	if status := controlledfeature.EnsureFeatureControls(ctx, *rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
@@ -378,7 +380,12 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			return r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
+			st := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
+			if !st.IsOK() {
+				r.reconciler.logAgentErrors(ctx, rs, conn, log)
+			}
+
+			return st
 		})
 
 	if !status.IsOK() {
@@ -422,9 +429,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
 
-func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omFunc om.ConnectionFactory) *ReconcileMongoDbReplicaSet {
+func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omFunc om.ConnectionFactory, omMetrics OMMetricsMultiplexer) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
-		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient, omMetrics),
 		omConnectionFactory:       omFunc,
 		imageUrls:                 imageUrls,
 		forceEnterprise:           forceEnterprise,
@@ -657,9 +664,9 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 // AddReplicaSetController creates a new MongoDbReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
+func AddReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omMetrics OMMetricsMultiplexer) error {
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, omMetrics)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1214,12 +1221,12 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 	var errs error
 
 	if err := om.WaitForReadyState(ctx, conn, processNames, false, log); err != nil {
-		errs = multierror.Append(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
+		errs = stdErrors.Join(errs, xerrors.Errorf("failed to wait for ready state. Continuing with cleanup: %w", err))
 	}
 
 	if rs.Spec.Backup != nil && rs.Spec.Backup.AutoTerminateOnDeletion {
 		if err := backup.StopBackupIfEnabled(ctx, conn, conn, rs.Name, backup.ReplicaSetType, log); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
+			errs = stdErrors.Join(errs, xerrors.Errorf("failed to stop backup. Continuing with cleanup: %w", err))
 		}
 	}
 
@@ -1230,11 +1237,11 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 
 	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
-		errs = multierror.Append(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
+		errs = stdErrors.Join(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
 
 	if err := r.reconciler.clearProjectAuthenticationSettings(ctx, conn, rs, processNames, log); err != nil {
-		errs = multierror.Append(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
+		errs = stdErrors.Join(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
 	}
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())
@@ -1253,6 +1260,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
+	r.ReleaseOtelExporter(rs.Status.Link, log)
 	if rs.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)

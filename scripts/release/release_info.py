@@ -21,7 +21,7 @@ from scripts.release.build.image_build_process import DockerImageBuilder
 from scripts.release.kubectl_mongodb.utils import upload_assets_to_github_release
 
 SEARCH_IMAGE = "search"
-SEARCH_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-search"
+SEARCH_IMAGE_REPOSITORY = "quay.io/mongodb/mongodb-enterprise-search"
 
 MONGODB_ENTERPRISE_SERVER_IMAGE = "mongodb-enterprise-server"
 MONGODB_ENTERPRISE_SERVER_REPOSITORY = "quay.io/mongodb/mongodb-enterprise-server"
