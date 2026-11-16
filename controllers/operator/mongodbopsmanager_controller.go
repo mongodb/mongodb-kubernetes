@@ -562,9 +562,8 @@ func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsMan
 	}
 	dnsNames, ipAddresses, err := opsManagerCertificateSANs(opsManager)
 	if err != nil {
-		return componentCertificateResult{part: mdbstatus.Backup, status: workflow.Failed(err), condition: &metav1.Condition{
-			Type: certs.ConditionCertificatesReady, Status: metav1.ConditionFalse, Reason: certificateReasonIssuanceFailed, Message: err.Error(),
-		}}
+		condition := certs.IssuanceFailedCondition(err.Error())
+		return componentCertificateResult{part: mdbstatus.Backup, status: workflow.Failed(err), condition: &condition}
 	}
 	for _, fqdn := range helper.BackupDaemonHeadlessFQDNs() {
 		dnsNames = append(dnsNames, fqdn.hostname)
@@ -585,9 +584,9 @@ func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsMan
 		if pemStatus := r.ensureManagedQueryablePEM(ctx, opsManager, log); !pemStatus.IsOK() {
 			status = pemStatus
 			condition.Status = metav1.ConditionFalse
-			condition.Reason = certificateReasonIssuanceFailed
+			condition.Reason = certs.ReasonIssuanceFailed
 			if pemStatus.Phase() == mdbstatus.PhasePending {
-				condition.Reason = certificateReasonIssuing
+				condition.Reason = certs.ReasonCertificatesIssuing
 			}
 			condition.Message = pemStatus.Message()
 		}
