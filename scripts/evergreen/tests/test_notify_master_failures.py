@@ -248,6 +248,16 @@ class TestFormatRetryFollowUp:
         assert "and 70 more" in text
         assert text.count("e2e_") == 50
 
+    def test_splits_long_variant_lines(self):
+        long_name = "e2e_" + "x" * 70
+        retried = [make_mock_task(f"{long_name}_{i:02d}", "variant_a", "success", execution=1) for i in range(50)]
+        message = format_retry_follow_up(retried)
+        texts = [block["text"]["text"] for block in message["blocks"]]
+        assert all(len(text) <= 3000 for text in texts)
+        # The variant prefix repeats on continuation lines.
+        assert sum(text.count("*variant_a*") for text in texts) > 1
+        assert sum(text.count("e2e_") for text in texts) == 50
+
 
 class TestPrintStdoutReport:
     def _report(self, failed_tasks=None, running_tasks=None, **kwargs):

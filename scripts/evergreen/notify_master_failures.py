@@ -308,7 +308,19 @@ def _retry_detail_sections(retried_tasks: list[TaskInfo]) -> list[dict[str, obje
     for task in shown:
         by_variant.setdefault(task.build_variant, []).append(f"{task.display_name} ({task.run_count} runs)")
 
-    lines = [f"*{variant}*: {', '.join(tasks)}" for variant, tasks in sorted(by_variant.items())]
+    # A variant can hold enough tasks to exceed one section. Repeat the variant
+    # prefix on continuation lines so no single line passes the section limit.
+    lines: list[str] = []
+    for variant, task_strings in sorted(by_variant.items()):
+        prefix = f"*{variant}*: "
+        chunk: list[str] = []
+        for task_string in task_strings:
+            if chunk and len(prefix + ", ".join(chunk + [task_string])) > MAX_RETRY_SECTION_CHARS:
+                lines.append(prefix + ", ".join(chunk))
+                chunk = [task_string]
+            else:
+                chunk.append(task_string)
+        lines.append(prefix + ", ".join(chunk))
     if hidden:
         lines.append(f"_and {hidden} more_")
 
