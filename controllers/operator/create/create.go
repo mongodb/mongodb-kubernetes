@@ -130,8 +130,6 @@ func ReconcileDatabaseAgentSettings(ctx context.Context, client kubernetesClient
 	if err != nil {
 		return err
 	}
-	// The launcher takes everything from the settings file, so no arguments are passed.
-	container.WithArgs(nil)(agent)
 	setAgentHostnameEnv(agent, parameters)
 	return nil
 }
