@@ -20,8 +20,8 @@ Optional Slack bot-token variables (needed to post the retry follow-up in a thre
 - SLACK_BOT_TOKEN: Slack bot token with chat:write
 - SLACK_CHANNEL_ID: Channel ID to post to
 
-Without the bot token, the script posts through the webhook and appends the retry
-details to the status message.
+Without the bot token, the script posts the retry count through the webhook. The
+restarted task list stays in the task log.
 
 Usage:
     python notify_master_failures.py [--dry-run] [--version-id <id>]
@@ -121,11 +121,6 @@ class TaskInfo:
         execution is the 0-based index of the current run, so 1 means one restart.
         """
         return (self.task.execution or 0) > 0
-
-    @property
-    def run_count(self) -> int:
-        """Number of times this task ran, including the current run."""
-        return (self.task.execution or 0) + 1
 
 
 @dataclass(frozen=True)
@@ -306,7 +301,7 @@ def _retry_detail_sections(retried_tasks: list[TaskInfo]) -> list[dict[str, obje
 
     by_variant: dict[str, list[str]] = {}
     for task in shown:
-        by_variant.setdefault(task.build_variant, []).append(f"{task.display_name} ({task.run_count} runs)")
+        by_variant.setdefault(task.build_variant, []).append(task.display_name)
 
     # A variant can hold enough tasks to exceed one section. Repeat the variant
     # prefix on continuation lines so no single line passes the section limit.
@@ -363,7 +358,6 @@ def format_slack_message(
     prev_failed: set[tuple[str, str]] | None = None,
     retried_tasks: list[TaskInfo] | None = None,
     total_tasks: int | None = None,
-    include_retry_details: bool = False,
 ) -> dict[str, object]:
     """Format a Slack message for build status.
 
@@ -374,7 +368,6 @@ def format_slack_message(
         prev_failed: Optional set of (task_name, variant) that also failed on the previous master
         retried_tasks: Tasks that ran more than once, reported on passing builds
         total_tasks: Total task count, used as the denominator for the retry count
-        include_retry_details: Append the restarted task list to this message
     """
     flaky_map = flaky_map or {}
     prev_failed = prev_failed or set()
@@ -511,15 +504,6 @@ def format_slack_message(
                 }
             )
 
-    if include_retry_details and retry_summary and num_retried:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*Restarted tasks ({num_retried}):*"},
-            }
-        )
-        blocks.extend(_retry_detail_sections(retried_tasks))
-
     button = {
         "type": "button",
         "text": {"type": "plain_text", "text": "View in Evergreen", "emoji": True},
@@ -641,7 +625,6 @@ def main() -> None:
     notify_on_success = os.environ.get("NOTIFY_ON_SUCCESS", "true").lower() == "true"
 
     use_slack_dry_run = args.dry_run
-    use_slack_api = bool(slack_bot_token and slack_channel_id)
 
     if not version_id:
         print("Error: version_id not provided (use --version-id or set env var)", file=sys.stderr)
@@ -703,8 +686,8 @@ def main() -> None:
         print("No failed or running tasks found", file=sys.stderr)
     print(f"Restarted tasks: {len(retried_tasks)} of {total_tasks}", file=sys.stderr)
 
-    # Without a bot token, the retry details go into the status message because a
-    # webhook cannot return the ts that a thread reply needs.
+    # A webhook cannot return the ts that a thread reply needs. Without a bot
+    # token, only the count appears in Slack. The task list stays in the task log.
     message = format_slack_message(
         version_info,
         failed_tasks,
@@ -712,7 +695,6 @@ def main() -> None:
         prev_failed,
         retried_tasks,
         total_tasks,
-        include_retry_details=not use_slack_api,
     )
     retry_follow_up = None if failed_tasks else format_retry_follow_up(retried_tasks, total_tasks)
 

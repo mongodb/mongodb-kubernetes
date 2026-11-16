@@ -210,24 +210,24 @@ class TestFormatSlackMessage:
         )
         assert "restarted" not in text
 
-    def test_retry_details_appended_on_request(self):
+    def test_retry_details_stay_out_of_the_parent_message(self):
         retried = [make_mock_task("e2e_retry_1", "variant_a", "success", execution=1)]
         version_info = make_mock_version(status="succeeded")
         message = format_slack_message(
             version_info,
             retried_tasks=retried,
             total_tasks=1400,
-            include_retry_details=True,
         )
         text = " ".join(
             b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
         )
-        assert "Restarted tasks (1)" in text
-        assert "e2e_retry_1 (2 runs)" in text
+        assert "1 of 1400 tasks restarted before this pass" in text
+        assert "Restarted tasks (" not in text
+        assert "e2e_retry_1" not in text
 
 
 class TestFormatRetryFollowUp:
-    def test_lists_tasks_by_variant_with_run_count(self):
+    def test_lists_tasks_by_variant(self):
         retried = [
             make_mock_task("e2e_a", "variant_a", "success", execution=1),
             make_mock_task("e2e_b", "variant_b", "success", execution=2),
@@ -235,8 +235,9 @@ class TestFormatRetryFollowUp:
         message = format_retry_follow_up(retried, 100)
         text = "\n".join(block["text"]["text"] for block in message["blocks"])
         assert "2 of 100 tasks restarted before this pass" in message["text"]
-        assert "*variant_a*: e2e_a (2 runs)" in text
-        assert "*variant_b*: e2e_b (3 runs)" in text
+        assert "*variant_a*: e2e_a" in text
+        assert "*variant_b*: e2e_b" in text
+        assert "runs)" not in text
 
     def test_returns_none_without_restarts(self):
         assert format_retry_follow_up([], 100) is None
@@ -557,7 +558,7 @@ class TestMainOutputBehavior:
         self._run(mocks, "failed", failed=[{"build_variant": "v", "display_name": "e2e_t"}], args=["--dry-run"])
         assert not mocks["slack"].called
 
-    def test_webhook_message_includes_retry_details(self, mocks, monkeypatch):
+    def test_webhook_message_reports_only_the_count(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
         self._run(
             mocks,
@@ -570,7 +571,7 @@ class TestMainOutputBehavior:
             block["text"]["text"] for block in message["blocks"] if block["type"] == "section" and "text" in block
         )
         assert "1 of 100 tasks restarted before this pass" in text
-        assert "Restarted tasks (1)" in text
+        assert "e2e_retried" not in text
 
     def test_bot_token_posts_thread_follow_up(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_BOT_TOKEN", "tok")
