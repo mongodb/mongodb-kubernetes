@@ -206,6 +206,10 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, l
 }
 
 func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
+	if appDb.GetSecurity().IsManagedCertificateEnabled() {
+		return appDb.GetCAConfigMapName()
+	}
+
 	caName := fmt.Sprintf("%s-ca", appDb.Name())
 
 	tlsConfig := appDb.GetTLSConfig()

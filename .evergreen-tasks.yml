@@ -1025,6 +1025,21 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_om_ops_manager_managedcert_om_issuer
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_managedcert_appdb_issuer
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_managedcert_both_issuers
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_om_jvm_params
     tags: [ "patch-run" ]
     commands:

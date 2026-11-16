@@ -1502,6 +1502,9 @@ task_groups:
       - e2e_om_ops_manager_https_enabled_internet_mode
       - e2e_om_ops_manager_https_enabled_prefix
       - e2e_om_ops_manager_managedcert
+      - e2e_om_ops_manager_managedcert_om_issuer
+      - e2e_om_ops_manager_managedcert_appdb_issuer
+      - e2e_om_ops_manager_managedcert_both_issuers
       - e2e_om_ops_manager_scale
       - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
@@ -1541,6 +1544,9 @@ task_groups:
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_scale
       - e2e_om_ops_manager_managedcert
+      - e2e_om_ops_manager_managedcert_om_issuer
+      - e2e_om_ops_manager_managedcert_appdb_issuer
+      - e2e_om_ops_manager_managedcert_both_issuers
       - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
