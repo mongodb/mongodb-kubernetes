@@ -17,5 +17,4 @@ fi
 
 release_commit="${target_commit:-${revision}}"
 echo "TRACE: tag=${triggered_by_git_tag:-} commit=${release_commit}"
-scripts/mckci release publish images --commit "${release_commit}" --latest-marker latest --registry-override "${registry_override}"
-
+scripts/mckci release publish images --commit "${release_commit}" --latest-marker "latest-${branch_name}" --registry-override "${registry_override}"

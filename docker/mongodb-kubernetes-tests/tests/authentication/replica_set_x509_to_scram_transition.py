@@ -3,7 +3,7 @@ import time
 import pytest
 from kubetester import try_load
 from kubetester.automation_config_tester import AutomationConfigTester
-from kubetester.certs import ISSUER_CA_NAME, create_agent_tls_certs, create_mongodb_tls_certs
+from kubetester.certs import ISSUER_CA_NAME, create_mongodb_tls_certs, create_x509_agent_tls_certs
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as load_fixture
 from kubetester.mongodb import MongoDB
@@ -33,7 +33,7 @@ def server_certs(issuer: str, namespace: str):
 
 @pytest.fixture(scope="module")
 def agent_certs(issuer: str, namespace: str) -> str:
-    return create_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
+    return create_x509_agent_tls_certs(issuer, namespace, MDB_RESOURCE)
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition
@@ -77,6 +77,46 @@ def test_x509_is_still_configured(replica_set: MongoDB):
     tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256", active_auth_mechanism=False)
     tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
     tester.assert_expected_users(0)
+    tester.assert_tls_client_certificate_mode("OPTIONAL")
+
+
+@pytest.mark.e2e_replica_set_x509_to_scram_transition
+def test_require_client_certs_with_x509_agents(replica_set: MongoDB):
+    replica_set.load()
+    replica_set["spec"]["security"]["authentication"]["requireClientTLSAuthentication"] = True
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+    tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    tester.assert_tls_client_certificate_mode("REQUIRE")
+    tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
+
+
+@pytest.mark.e2e_replica_set_x509_to_scram_transition
+def test_client_certs_made_optional_with_x509_agents(replica_set: MongoDB):
+    replica_set.load()
+    replica_set["spec"]["security"]["authentication"]["requireClientTLSAuthentication"] = False
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+    tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    tester.assert_tls_client_certificate_mode("OPTIONAL")
+    tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
+
+
+@pytest.mark.e2e_replica_set_x509_to_scram_transition
+def test_remove_scram_leaving_x509_only(replica_set: MongoDB):
+    replica_set.load()
+    # Removing SCRAM while the mode is OPTIONAL: X509 as the only mode always requires client certificates.
+    replica_set["spec"]["security"]["authentication"]["modes"] = ["X509"]
+    replica_set.update()
+    replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+
+    tester = AutomationConfigTester(KubernetesTester.get_automation_config())
+    tester.assert_tls_client_certificate_mode("REQUIRE")
+    tester.assert_authentication_mechanism_enabled("MONGODB-X509")
+    tester.assert_authentication_mechanism_disabled("SCRAM-SHA-256")
+    tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=1)
 
 
 @pytest.mark.e2e_replica_set_x509_to_scram_transition

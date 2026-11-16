@@ -222,9 +222,7 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
 def build_om_image(build_configuration: ImageBuildConfiguration):
     om_version = build_configuration.version
 
-    om_download_url = os.environ.get("om_download_url", "")
-    if om_download_url == "":
-        om_download_url = find_om_url(om_version)
+    om_download_url = build_configuration.om_download_url or find_om_url(om_version)
 
     args = {
         "version": om_version,
