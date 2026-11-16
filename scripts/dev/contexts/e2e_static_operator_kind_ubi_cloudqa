@@ -9,7 +9,7 @@ source "${script_dir}/root-context"
 source "${script_dir}/variables/om70"
 
 export ops_manager_version="cloud_qa"
-export MDB_DEFAULT_ARCHITECTURE=static
+export MDB_DEFAULT_ARCHITECTURE=static-ga
 
 export CUSTOM_MDB_VERSION=6.0.16
 # We can't use a 5.0.x version for this static variant because there's no UBI9 image for the 5.0.x series

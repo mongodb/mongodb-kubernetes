@@ -29,10 +29,14 @@ source scripts/funcs/operator_deployment
 source scripts/funcs/printing
 source scripts/dev/set_env_context.sh
 
+get_operator_helm_values >/dev/null
+
 # Generates helm charts the same way they are generates part of pre-commit hook.
 # We also provide helm values override the same way it's done when installing the operator helm chart in e2e tests.
 generate_helm_charts() {
-  read -ra helm_values < <(get_operator_helm_values)
+  local helm_values_output
+  helm_values_output=$(get_operator_helm_values) || return "$?"
+  read -ra helm_values <<< "${helm_values_output}"
   echo "Passing overrides to helm values: "
   tr ' ' '\n' <<<"${helm_values[*]}"
 
