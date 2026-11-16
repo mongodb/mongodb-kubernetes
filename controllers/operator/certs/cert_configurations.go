@@ -1,14 +1,21 @@
 package certs
 
 import (
+	"context"
+
+	"go.uber.org/zap"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
@@ -120,6 +127,40 @@ func (mdbm MongoDBMultiX509CertConfigurator) GetSecretWriteClient() secrets.Secr
 
 func (mdbm MongoDBMultiX509CertConfigurator) GetDbCommonSpec() *mdbv1.DbCommonSpec {
 	return &mdbm.Spec.DbCommonSpec
+}
+
+// appDBManagedCertificateOwner presents the internal AppDB's MongoDB security to the shared
+// issuance helpers: certificates, secrets and subjects are named after the AppDB while the
+// Ops Manager resource owns every created object.
+type appDBManagedCertificateOwner struct {
+	*omv1.MongoDBOpsManager
+}
+
+var _ CertificateOwner = appDBManagedCertificateOwner{}
+
+func (o appDBManagedCertificateOwner) GetName() string { return o.AppDBName() }
+func (o appDBManagedCertificateOwner) GetSecurity() *mdbv1.Security {
+	return o.Spec.AppDB.GetSecurity()
+}
+
+func (o appDBManagedCertificateOwner) ownerResource() v1.ObjectOwner {
+	return o.MongoDBOpsManager
+}
+
+// EnsureAppDBCertificatesAndCA issues the internal AppDB's certificates and CA bundles. The
+// Ops Manager resource owns every created object; names, secrets and subjects derive from the
+// AppDB name.
+func EnsureAppDBCertificatesAndCA(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	om *omv1.MongoDBOpsManager,
+	allOpts []Options,
+	log *zap.SugaredLogger,
+) (workflow.Status, metav1.Condition) {
+	if om == nil || om.Spec.AppDB == nil {
+		return workflow.OK(), certificatesReadyCondition(metav1.ConditionTrue, reasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
+	}
+	return EnsureCertificatesAndCA(ctx, c, appDBManagedCertificateOwner{om}, allOpts, log)
 }
 
 type Options struct {

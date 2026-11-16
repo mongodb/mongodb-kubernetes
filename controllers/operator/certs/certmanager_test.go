@@ -462,7 +462,7 @@ func TestCertificateReady(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Generation: tc.generation},
 				Status:     tc.status,
 			}
-			assert.Equal(t, tc.expected, certificateReady(cert))
+			assert.Equal(t, tc.expected, certificateReadyAtGeneration(cert, 0))
 		})
 	}
 }
@@ -503,7 +503,7 @@ func TestInspectCertificateStatus(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			insp := inspectCertificateStatus(certName, tc.cert)
+			insp := inspectCertificateStatusAtGeneration(certName, tc.cert, 0)
 			assert.Equal(t, tc.expReady, insp.ready)
 			assert.Equal(t, tc.expRenewalFailed, insp.renewalFailed)
 			assert.Equal(t, tc.expIssuanceFailing, insp.issuanceFailing)
