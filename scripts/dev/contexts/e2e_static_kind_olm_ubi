@@ -12,4 +12,4 @@ source "${script_dir}/variables/om70"
 export CUSTOM_OM_VERSION=7.0.12
 export KUBE_ENVIRONMENT_NAME=kind
 export CUSTOM_MDB_PREV_VERSION=4.4.20
-export MDB_DEFAULT_ARCHITECTURE=static
+export MDB_DEFAULT_ARCHITECTURE=static-ga
