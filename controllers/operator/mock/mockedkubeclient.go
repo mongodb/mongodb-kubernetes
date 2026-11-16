@@ -118,7 +118,7 @@ func NewEmptyFakeClientBuilder() *fake.ClientBuilder {
 		return nil
 	}
 
-	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{}, &searchv1.MongoDBSearch{}, &mdbcv1.MongoDBCommunity{}, &rolev1.ClusterMongoDBRole{}, &vaiv1.VoyageAI{})
+	builder.WithStatusSubresource(&mdbv1.MongoDB{}, &mdbmulti.MongoDBMultiCluster{}, &omv1.MongoDBOpsManager{}, &user.MongoDBUser{}, &searchv1.MongoDBSearch{}, &mdbcv1.MongoDBCommunity{}, &rolev1.ClusterMongoDBRole{}, &vaiv1.VoyageAI{}, &certmanagerv1.Certificate{})
 
 	ot := testing.NewObjectTracker(s, scheme.Codecs.UniversalDecoder())
 	return builder.WithScheme(s).WithObjectTracker(ot).WithIndex(&searchv1.MongoDBSearch{}, searchv1.MongoDBSearchIndexFieldName, func(obj client.Object) []string {
