@@ -2,7 +2,7 @@ from kubetester import try_load
 from kubetester.custom_podspec import assert_stateful_set_podspec
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
-from kubetester.kubetester import skip_if_static_containers
+from kubetester.kubetester import get_default_architecture, skip_if_static_containers
 from kubetester.mongodb import MongoDB
 from kubetester.phase import Phase
 from pytest import fixture, mark
@@ -42,8 +42,8 @@ def test_stateful_set_spec_updated(replica_set, namespace):
             },
             "volume_mounts": [
                 {
-                    "name": "database-scripts",
-                    "mount_path": "/opt/scripts",
+                    "name": "mongodb-proxy" if get_default_architecture() == "static-ga" else "database-scripts",
+                    "mount_path": "/mnt/proxy" if get_default_architecture() == "static-ga" else "/opt/scripts",
                     "sub_path": None,
                     "sub_path_expr": None,
                     "mount_propagation": None,

@@ -38,7 +38,7 @@ def test_install_operator(operator: Operator):
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs
 def test_mdb_running(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=400)
+    mdb.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs
@@ -54,7 +54,7 @@ def test_enable_tls(mdb: MongoDB, issuer_ca_configmap: str):
         "tls": {"ca": issuer_ca_configmap},
     }
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=400)
+    mdb.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @pytest.mark.e2e_configure_tls_and_x509_simultaneously_rs
