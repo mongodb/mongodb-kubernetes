@@ -289,6 +289,24 @@ def _format_task_name(
     return task.display_name
 
 
+MAX_RETRY_TASK_NAMES = 3
+
+
+def _format_retry_tasks(retried_tasks: list[TaskInfo]) -> str:
+    """Summarize the tasks that restarted, capped for a short message.
+
+    Task names repeat across variants. The list is deduplicated so a task that
+    restarted in three variants appears once.
+    """
+    names = sorted({task.display_name for task in retried_tasks})
+    shown = names[:MAX_RETRY_TASK_NAMES]
+    hidden = len(names) - len(shown)
+    text = f"Tasks: {', '.join(shown)}"
+    if hidden:
+        text += f" and {hidden} more"
+    return text
+
+
 def _retry_detail_sections(retried_tasks: list[TaskInfo]) -> list[dict[str, object]]:
     """Build section blocks that list restarted tasks, grouped by build variant.
 
@@ -430,10 +448,13 @@ def format_slack_message(
     # Retry context appears only on passing builds. On failures the retry count is
     # not the reason the message was sent.
     if retry_summary:
+        retry_text = f"_{retry_summary}_"
+        if num_retried:
+            retry_text += f"\n_{_format_retry_tasks(retried_tasks)}_"
         blocks.append(
             {
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": f"_{retry_summary}_"},
+                "text": {"type": "mrkdwn", "text": retry_text},
             }
         )
 

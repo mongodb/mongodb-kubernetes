@@ -210,8 +210,8 @@ class TestFormatSlackMessage:
         )
         assert "restarted" not in text
 
-    def test_retry_details_stay_out_of_the_parent_message(self):
-        retried = [make_mock_task("e2e_retry_1", "variant_a", "success", execution=1)]
+    def test_parent_lists_a_capped_sample_of_tasks(self):
+        retried = [make_mock_task(f"e2e_retry_{i}", "variant_a", "success", execution=1) for i in range(6)]
         version_info = make_mock_version(status="succeeded")
         message = format_slack_message(
             version_info,
@@ -221,9 +221,42 @@ class TestFormatSlackMessage:
         text = " ".join(
             b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
         )
-        assert "1 of 1400 tasks restarted before this pass" in text
-        assert "Restarted tasks (" not in text
-        assert "e2e_retry_1" not in text
+        assert "6 of 1400 tasks restarted before this pass" in text
+        assert "Tasks: e2e_retry_0, e2e_retry_1, e2e_retry_2 and 3 more" in text
+        assert "runs)" not in text
+
+    def test_success_lists_restarted_task_names(self):
+        retried = [
+            make_mock_task("e2e_a", "variant_a", "success", execution=1),
+            make_mock_task("e2e_b", "variant_b", "success", execution=1),
+        ]
+        version_info = make_mock_version(status="succeeded")
+        message = format_slack_message(version_info, retried_tasks=retried, total_tasks=100)
+        text = " ".join(
+            b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
+        )
+        assert "Tasks: e2e_a, e2e_b" in text
+
+    def test_retry_task_names_are_deduplicated(self):
+        retried = [
+            make_mock_task("e2e_a", "variant_a", "success", execution=1),
+            make_mock_task("e2e_a", "variant_b", "success", execution=1),
+        ]
+        version_info = make_mock_version(status="succeeded")
+        message = format_slack_message(version_info, retried_tasks=retried, total_tasks=100)
+        text = " ".join(
+            b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
+        )
+        assert text.count("e2e_a") == 1
+
+    def test_retry_task_names_are_capped(self):
+        retried = [make_mock_task(f"e2e_{i:02d}", "variant_a", "success", execution=1) for i in range(10)]
+        version_info = make_mock_version(status="succeeded")
+        message = format_slack_message(version_info, retried_tasks=retried, total_tasks=100)
+        text = " ".join(
+            b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
+        )
+        assert "Tasks: e2e_00, e2e_01, e2e_02 and 7 more" in text
 
 
 class TestFormatRetryFollowUp:
@@ -558,20 +591,21 @@ class TestMainOutputBehavior:
         self._run(mocks, "failed", failed=[{"build_variant": "v", "display_name": "e2e_t"}], args=["--dry-run"])
         assert not mocks["slack"].called
 
-    def test_webhook_message_reports_only_the_count(self, mocks, monkeypatch):
+    def test_webhook_message_includes_capped_task_sample(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
         self._run(
             mocks,
             "success",
-            retried=[{"build_variant": "v", "display_name": "e2e_retried", "execution": 1}],
+            retried=[{"build_variant": "v", "display_name": f"e2e_retried_{i}", "execution": 1} for i in range(6)],
             total=100,
         )
         message = mocks["slack"].call_args.args[1]
         text = " ".join(
             block["text"]["text"] for block in message["blocks"] if block["type"] == "section" and "text" in block
         )
-        assert "1 of 100 tasks restarted before this pass" in text
-        assert "e2e_retried" not in text
+        assert "6 of 100 tasks restarted before this pass" in text
+        assert "and 3 more" in text
+        assert "e2e_retried_3" not in text
 
     def test_bot_token_posts_thread_follow_up(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_BOT_TOKEN", "tok")
