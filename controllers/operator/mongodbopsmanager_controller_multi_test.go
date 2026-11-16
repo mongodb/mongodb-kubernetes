@@ -88,7 +88,7 @@ func newOMMemberClusterChecks(ctx context.Context, t *testing.T, opsManager *omv
 func createOMCAConfigMap(ctx context.Context, t *testing.T, kubeClient client.Client, opsManager *omv1.MongoDBOpsManager) string {
 	cert, _ := createMockCertAndKeyBytes()
 	cm := configmap.Builder().
-		SetName(opsManager.Spec.GetOpsManagerCA()).
+		SetName(opsManager.GetOpsManagerCA()).
 		SetNamespace(opsManager.GetNamespace()).
 		SetDataField("mms-ca.crt", string(cert)).
 		Build()
@@ -96,7 +96,7 @@ func createOMCAConfigMap(ctx context.Context, t *testing.T, kubeClient client.Cl
 	err := kubeClient.Create(ctx, &cm)
 	require.NoError(t, err)
 
-	return opsManager.Spec.GetOpsManagerCA()
+	return opsManager.GetOpsManagerCA()
 }
 
 func createOMTLSCert(ctx context.Context, t *testing.T, kubeClient client.Client, opsManager *omv1.MongoDBOpsManager) (string, string) {
@@ -291,7 +291,7 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 	centralClusterChecks.checkOmUserScramCredentialsSecretName(opsManager.Name)
 	centralClusterChecks.checkSecretNotFound(appDbPemSecretName)
 	centralClusterChecks.checkSecretNotFound(omPemSecretName)
-	centralClusterChecks.checkOMCAConfigMap(opsManager.Spec.GetOpsManagerCA())
+	centralClusterChecks.checkOMCAConfigMap(opsManager.GetOpsManagerCA())
 
 	for clusterIdx, clusterSpecItem := range clusterSpecItems {
 		memberClusterClient := memberClusterMap[clusterSpecItem.ClusterName]
@@ -302,7 +302,7 @@ func TestOpsManagerMultiCluster(t *testing.T) {
 		memberClusterChecks.checkPEMSecret(appDbPemSecretName, appDbTLSSecretPemHash)
 		memberClusterChecks.checkPEMSecret(omPemSecretName, omTLSSecretPemHash)
 		memberClusterChecks.checkAppDBCAConfigMap(appDbCAConfigMapName)
-		memberClusterChecks.checkOMCAConfigMap(opsManager.Spec.GetOpsManagerCA())
+		memberClusterChecks.checkOMCAConfigMap(opsManager.GetOpsManagerCA())
 	}
 }
 
@@ -503,7 +503,7 @@ func TestOpsManagerMultiClusterUnreachableNoPanic(t *testing.T) {
 	centralClusterChecks.checkOmUserScramCredentialsSecretName(opsManager.Name)
 	centralClusterChecks.checkSecretNotFound(appDbPemSecretName)
 	centralClusterChecks.checkSecretNotFound(omPemSecretName)
-	centralClusterChecks.checkOMCAConfigMap(opsManager.Spec.GetOpsManagerCA())
+	centralClusterChecks.checkOMCAConfigMap(opsManager.GetOpsManagerCA())
 
 	for clusterIdx, clusterSpecItem := range clusterSpecItems {
 		if clusterSpecItem.ClusterName == memberClusterNameUnreachable {
@@ -518,6 +518,6 @@ func TestOpsManagerMultiClusterUnreachableNoPanic(t *testing.T) {
 		memberClusterChecks.checkPEMSecret(appDbPemSecretName, appDbTLSSecretPemHash)
 		memberClusterChecks.checkPEMSecret(omPemSecretName, omTLSSecretPemHash)
 		memberClusterChecks.checkAppDBCAConfigMap(appDbCAConfigMapName)
-		memberClusterChecks.checkOMCAConfigMap(opsManager.Spec.GetOpsManagerCA())
+		memberClusterChecks.checkOMCAConfigMap(opsManager.GetOpsManagerCA())
 	}
 }

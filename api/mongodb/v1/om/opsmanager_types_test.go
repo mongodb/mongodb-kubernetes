@@ -3,12 +3,14 @@ package om
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
@@ -172,6 +174,189 @@ func TestIsTLSEnabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			om.Spec.Security = tc.security
 			assert.Equal(t, tc.expected, om.IsTLSEnabled())
+		})
+	}
+}
+
+func TestOpsManagerManagedCertificateNames(t *testing.T) {
+	managed := &ManagedCertificate{}
+
+	tests := []struct {
+		name                 string
+		security             *MongoDBOpsManagerSecurity
+		backup               *MongoDBOpsManagerBackup
+		wantTLS              bool
+		wantManaged          bool
+		wantBackupManaged    bool
+		wantCertSecret       string
+		wantCA               string
+		wantBackupPEMSecret  string
+		wantBackupCertSecret string
+	}{
+		{
+			name:                 "nil security and backup are safe",
+			wantCertSecret:       "",
+			wantCA:               "",
+			wantBackupPEMSecret:  "",
+			wantBackupCertSecret: "",
+		},
+		{
+			name:           "managed OM certificate enables TLS",
+			security:       &MongoDBOpsManagerSecurity{ManagedCertificate: managed},
+			wantTLS:        true,
+			wantManaged:    true,
+			wantCertSecret: "example-managed-om-cert",
+			wantCA:         "example-managed-om-ca-bundle",
+		},
+		{
+			name: "legacy TLS secret ref keeps precedence when managed mode is absent",
+			security: &MongoDBOpsManagerSecurity{
+				TLS: MongoDBOpsManagerTLS{SecretRef: TLSSecretRef{Name: "custom-om-cert"}},
+			},
+			wantTLS:        true,
+			wantCertSecret: "custom-om-cert",
+		},
+		{
+			name: "legacy certificates prefix keeps precedence when managed mode is absent",
+			security: &MongoDBOpsManagerSecurity{
+				CertificatesSecretsPrefix: "prefix",
+			},
+			wantTLS:        true,
+			wantCertSecret: "prefix-example-cert",
+		},
+		{
+			name: "legacy CA is resolved from the spec when managed mode is absent",
+			security: &MongoDBOpsManagerSecurity{
+				TLS: MongoDBOpsManagerTLS{CA: "custom-om-ca"},
+			},
+			wantCA: "custom-om-ca",
+		},
+		{
+			name:                 "managed backup certificate activates independently",
+			backup:               &MongoDBOpsManagerBackup{Enabled: true, ManagedCertificate: managed},
+			wantBackupManaged:    true,
+			wantBackupPEMSecret:  "example-managed-backup-pem",
+			wantBackupCertSecret: "example-managed-backup-cert",
+		},
+		{
+			name:                 "legacy queryable backup secret is kept when managed mode is absent",
+			backup:               &MongoDBOpsManagerBackup{Enabled: true, QueryableBackupSecretRef: SecretRef{Name: "custom-queryable"}},
+			wantBackupPEMSecret:  "custom-queryable",
+			wantBackupCertSecret: "",
+		},
+		{
+			name:                 "managed OM and backup certificates activate independently",
+			security:             &MongoDBOpsManagerSecurity{ManagedCertificate: managed},
+			backup:               &MongoDBOpsManagerBackup{Enabled: true, ManagedCertificate: managed},
+			wantTLS:              true,
+			wantManaged:          true,
+			wantBackupManaged:    true,
+			wantCertSecret:       "example-managed-om-cert",
+			wantCA:               "example-managed-om-ca-bundle",
+			wantBackupPEMSecret:  "example-managed-backup-pem",
+			wantBackupCertSecret: "example-managed-backup-cert",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := &MongoDBOpsManager{
+				ObjectMeta: metav1.ObjectMeta{Name: "example"},
+				Spec: MongoDBOpsManagerSpec{
+					Security: tc.security,
+					Backup:   tc.backup,
+				},
+			}
+
+			assert.Equal(t, tc.wantTLS, om.IsTLSEnabled())
+			assert.Equal(t, tc.wantManaged, om.IsManagedCertificateEnabled())
+			assert.Equal(t, tc.wantBackupManaged, om.IsBackupManagedCertificateEnabled())
+			assert.Equal(t, tc.wantCertSecret, om.TLSCertificateSecretName())
+			assert.Equal(t, tc.wantCA, om.GetOpsManagerCA())
+			assert.Equal(t, tc.wantBackupPEMSecret, om.QueryableBackupTLSSecretName())
+			assert.Equal(t, tc.wantBackupCertSecret, om.QueryableBackupCertificateSecretName())
+		})
+	}
+}
+
+func TestOpsManagerManagedCertificateConditions(t *testing.T) {
+	om := &MongoDBOpsManager{ObjectMeta: metav1.ObjectMeta{Name: "example", Generation: 3}}
+	first := metav1.NewTime(time.Date(2026, 10, 21, 10, 0, 0, 0, time.UTC))
+
+	om.SetStatusCondition(metav1.Condition{
+		Type:               "CertificatesReady",
+		Status:             metav1.ConditionFalse,
+		Reason:             "Issuing",
+		Message:            "issuing certificates",
+		LastTransitionTime: first,
+	})
+	require.Len(t, om.Status.Conditions, 1)
+	condition := om.Status.Conditions[0]
+	assert.Equal(t, int64(3), condition.ObservedGeneration)
+	assert.Equal(t, first, condition.LastTransitionTime)
+
+	om.SetGeneration(4)
+	om.SetStatusCondition(metav1.Condition{
+		Type:               "CertificatesReady",
+		Status:             metav1.ConditionFalse,
+		Reason:             "Issuing",
+		Message:            "still issuing certificates",
+		LastTransitionTime: metav1.NewTime(first.Add(time.Hour)),
+	})
+	require.Len(t, om.Status.Conditions, 1)
+	condition = om.Status.Conditions[0]
+	assert.Equal(t, first, condition.LastTransitionTime, "unchanged status must keep the transition time")
+	assert.Equal(t, "still issuing certificates", condition.Message)
+	assert.Equal(t, int64(4), condition.ObservedGeneration)
+
+	ready := metav1.NewTime(first.Add(2 * time.Hour))
+	om.SetStatusCondition(metav1.Condition{
+		Type:               "CertificatesReady",
+		Status:             metav1.ConditionTrue,
+		Reason:             "AllCertificatesReady",
+		Message:            "all certificates are ready",
+		LastTransitionTime: ready,
+	})
+	require.Len(t, om.Status.Conditions, 1)
+	condition = om.Status.Conditions[0]
+	assert.Equal(t, metav1.ConditionTrue, condition.Status)
+	assert.Equal(t, ready, condition.LastTransitionTime)
+	assert.Equal(t, int64(4), condition.ObservedGeneration)
+}
+
+func TestManagedCertificateEmbedsSharedConfig(t *testing.T) {
+	tests := []struct {
+		name           string
+		certificate    *ManagedCertificate
+		wantIssuerName string
+		wantSubjectCN  string
+	}{
+		{
+			name:        "empty block uses operator-managed CA",
+			certificate: &ManagedCertificate{},
+		},
+		{
+			name: "issuer, CA and subject are accepted",
+			certificate: &ManagedCertificate{
+				CertificateConfig: mdbv1.CertificateConfig{
+					IssuerRef: &mdbv1.IssuerRef{Name: "custom-issuer"},
+					CA:        &mdbv1.CARef{Name: "custom-ca", Kind: "ConfigMap", Key: "ca.crt"},
+				},
+				Subject: &mdbv1.X509Subject{CommonName: "om.example.com"},
+			},
+			wantIssuerName: "custom-issuer",
+			wantSubjectCN:  "om.example.com",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.certificate.IssuerRef != nil {
+				assert.Equal(t, tc.wantIssuerName, tc.certificate.IssuerRef.Name)
+			}
+			if tc.certificate.Subject != nil {
+				assert.Equal(t, tc.wantSubjectCN, tc.certificate.Subject.CommonName)
+			}
 		})
 	}
 }

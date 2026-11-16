@@ -459,7 +459,7 @@ func TestOpsManagerReconcilePrepareOpsManagerWithTLSHostCA(t *testing.T) {
 
 func addOmCACm(ctx context.Context, t *testing.T, testOm *omv1.MongoDBOpsManager, reconciler *OpsManagerReconciler) {
 	cm := configmap.Builder().
-		SetName(testOm.Spec.GetOpsManagerCA()).
+		SetName(testOm.GetOpsManagerCA()).
 		SetNamespace(testOm.Namespace).
 		SetData(map[string]string{"mms-ca.crt": "abc"}).
 		SetOwnerReferences(kube.BaseOwnerReference(testOm)).

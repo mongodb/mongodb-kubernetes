@@ -127,6 +127,161 @@ func TestOpsManagerCELValidation_ObjectLockRetention(t *testing.T) {
 	}
 }
 
+func TestOpsManagerCELValidation_ManagedCertificate(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	withExternalAppDB := func(om *omv1.MongoDBOpsManager) {
+		om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: "test-om-db", Kind: "MongoDB"}
+	}
+
+	tests := []struct {
+		name          string
+		mutate        func(*omv1.MongoDBOpsManager)
+		errorContains string
+	}{
+		{
+			name: "empty managed certificate is accepted",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{}}
+			},
+		},
+		{
+			name: "empty legacy TLS object alongside managed certificate is accepted",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{
+					TLS:                omv1.MongoDBOpsManagerTLS{},
+					ManagedCertificate: &omv1.ManagedCertificate{},
+				}
+			},
+		},
+		{
+			name: "managed certificate with issuerRef is accepted",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{
+					CertificateConfig: mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "custom-issuer"}},
+				}}
+			},
+		},
+		{
+			name: "managed certificate ca with issuerRef is accepted",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{
+					CertificateConfig: mdbv1.CertificateConfig{
+						IssuerRef: &mdbv1.IssuerRef{Name: "custom-issuer"},
+						CA:        &mdbv1.CARef{Name: "custom-ca", Kind: "ConfigMap", Key: "ca.crt"},
+					},
+				}}
+			},
+		},
+		{
+			name: "certsSecretPrefix conflicts with managed certificate",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{
+					CertificatesSecretsPrefix: "prefix",
+					ManagedCertificate:        &omv1.ManagedCertificate{},
+				}
+			},
+			errorContains: "security.certsSecretPrefix and security.managedCertificate are mutually exclusive",
+		},
+		{
+			name: "tls.secretRef conflicts with managed certificate",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{
+					TLS:                omv1.MongoDBOpsManagerTLS{SecretRef: omv1.TLSSecretRef{Name: "custom-om-cert"}},
+					ManagedCertificate: &omv1.ManagedCertificate{},
+				}
+			},
+			errorContains: "security.tls.secretRef and security.managedCertificate are mutually exclusive",
+		},
+		{
+			name: "tls.ca conflicts with managed certificate",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{
+					TLS:                omv1.MongoDBOpsManagerTLS{CA: "custom-om-ca"},
+					ManagedCertificate: &omv1.ManagedCertificate{},
+				}
+			},
+			errorContains: "security.tls.ca and security.managedCertificate are mutually exclusive",
+		},
+		{
+			name: "managed certificate ca without issuerRef is rejected",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{
+					CertificateConfig: mdbv1.CertificateConfig{CA: &mdbv1.CARef{Name: "custom-ca", Kind: "ConfigMap", Key: "ca.crt"}},
+				}}
+			},
+			errorContains: "is only used with issuerRef",
+		},
+		{
+			name: "empty managed backup certificate is accepted",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Backup = &omv1.MongoDBOpsManagerBackup{Enabled: true, ManagedCertificate: &omv1.ManagedCertificate{}}
+			},
+		},
+		{
+			name: "empty legacy queryable backup secret ref alongside managed backup certificate is accepted",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Backup = &omv1.MongoDBOpsManagerBackup{
+					Enabled:                  true,
+					QueryableBackupSecretRef: omv1.SecretRef{},
+					ManagedCertificate:       &omv1.ManagedCertificate{},
+				}
+			},
+		},
+		{
+			name: "queryableBackupSecretRef conflicts with managed backup certificate",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Backup = &omv1.MongoDBOpsManagerBackup{
+					Enabled:                  true,
+					QueryableBackupSecretRef: omv1.SecretRef{Name: "custom-queryable"},
+					ManagedCertificate:       &omv1.ManagedCertificate{},
+				}
+			},
+			errorContains: "backup.queryableBackupSecretRef and backup.managedCertificate are mutually exclusive",
+		},
+		{
+			name: "managed backup certificate ca without issuerRef is rejected",
+			mutate: func(om *omv1.MongoDBOpsManager) {
+				withExternalAppDB(om)
+				om.Spec.Backup = &omv1.MongoDBOpsManagerBackup{
+					Enabled: true,
+					ManagedCertificate: &omv1.ManagedCertificate{
+						CertificateConfig: mdbv1.CertificateConfig{CA: &mdbv1.CARef{Name: "custom-ca", Kind: "ConfigMap", Key: "ca.crt"}},
+					},
+				}
+			},
+			errorContains: "is only used with issuerRef",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := newOpsManager(t, tc.mutate)
+			err := k8sClient.Create(ctx, om)
+
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
+
 func TestOpsManagerCELValidation_AppDBOrExternalRefRequired(t *testing.T) {
 	ctx := context.Background()
 	k8sClient := env.Shared(t).Client

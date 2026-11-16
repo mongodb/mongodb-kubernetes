@@ -1009,7 +1009,7 @@ func (r *OpsManagerReconciler) configureWatchersForDynamicResources(ctx context.
 	}
 
 	if opsManager.IsTLSEnabled() {
-		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.Spec.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
+		r.resourceWatcher.RegisterWatchedTLSResources(opsManager.ObjectKey(), opsManager.GetOpsManagerCA(), []string{opsManager.TLSCertificateSecretName()})
 	}
 
 	r.watchMongoDBResourcesReferencedByBackup(ctx, opsManager, log)
@@ -1219,11 +1219,11 @@ func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Conte
 }
 
 func (r *OpsManagerReconciler) replicateTLSCAInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
-	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || reconcileHelper.opsManager.Spec.GetOpsManagerCA() == "" {
+	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || reconcileHelper.opsManager.GetOpsManagerCA() == "" {
 		return nil
 	}
 
-	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.GetOpsManagerCA())
+	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.GetOpsManagerCA())
 }
 
 func (r *OpsManagerReconciler) replicateLogBackInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
@@ -1355,7 +1355,7 @@ func (r *OpsManagerReconciler) prepareOpsManager(ctx context.Context, opsManager
 	var ca *string
 	if opsManager.IsTLSEnabled() {
 		log.Debug("TLS is enabled, creating the first user with the mms-ca.crt")
-		opsManagerCA := opsManager.Spec.GetOpsManagerCA()
+		opsManagerCA := opsManager.GetOpsManagerCA()
 		if opsManagerCA == "" {
 			log.Info("Custom CA was not provided, will use host root CA")
 		} else {
