@@ -2561,6 +2561,8 @@ buildvariants:
   - name: init_tests_with_olm
     display_name: init_tests_with_olm
     depends_on:
+      - name: build_mongodb_proxy_image
+        variant: init_test_run
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi

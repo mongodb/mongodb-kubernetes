@@ -41,6 +41,7 @@ otel_resource_attributes:
 pytestOtelEnabled: true
 mdbDefaultArchitecture: "non-static"
 mdbDefaultImageType: ""
+mongodbProxyImage: ""
 
 # set to "true" to set OM_DEBUG_HTTP=true for the operator
 omDebugHttp:
