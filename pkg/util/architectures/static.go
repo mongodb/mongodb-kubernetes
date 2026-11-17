@@ -38,6 +38,7 @@ const (
 	DefaultEnvImageType                              = "MDB_DEFAULT_IMAGE_TYPE"
 	Static                       DefaultArchitecture = "static"
 	NonStatic                    DefaultArchitecture = "non-static"
+	StaticGA                     DefaultArchitecture = "static-ga"
 	// MdbAssumeEnterpriseImage allows the customer to override the version image detection used by the operator to
 	// set up the automation config.
 	// true: always append the -ent suffix and assume enterprise
@@ -51,21 +52,26 @@ const (
 // The resource annotation takes precedence.
 // A nil map is equivalent to an empty map except that no elements may be added.
 func IsRunningStaticArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) bool {
-	if architecture, ok := annotations[ArchitectureAnnotation]; ok {
-		if architecture == string(Static) {
-			return true
-		}
-		if architecture == string(NonStatic) {
-			return false
-		}
-	}
+	return GetArchitecture(annotations, defaultArchitecture) != NonStatic
+}
 
-	return defaultArchitecture == Static
+// IsRunningStaticGAArchitecture reports whether the proxy-backed static mode is selected.
+func IsRunningStaticGAArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) bool {
+	return GetArchitecture(annotations, defaultArchitecture) == StaticGA
 }
 
 func GetArchitecture(annotations map[string]string, defaultArchitecture DefaultArchitecture) DefaultArchitecture {
-	if IsRunningStaticArchitecture(annotations, defaultArchitecture) {
-		return Static
+	if annotations != nil {
+		if architecture, ok := annotations[ArchitectureAnnotation]; ok {
+			switch DefaultArchitecture(architecture) {
+			case Static, NonStatic, StaticGA:
+				return DefaultArchitecture(architecture)
+			}
+		}
+	}
+
+	if defaultArchitecture == Static || defaultArchitecture == StaticGA {
+		return defaultArchitecture
 	}
 	return NonStatic
 }
@@ -128,10 +134,10 @@ func supportedImageTypesString() string {
 // If we are in static containers architecture, we need the -ent suffix in case we are running the ea image.
 // If not, the agent will try to change the version to reflect the non-enterprise image.
 func GetMongoVersionForAutomationConfig(mongoDBImage, version string, forceEnterprise bool, architecture DefaultArchitecture) string {
-	if architecture != Static {
+	if architecture != Static && architecture != StaticGA {
 		return version
 	}
-	// the image repo should be	either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
+	// the image repo should be either mongodb / mongodb-enterprise-server or mongodb / mongodb-community-server
 	if strings.Contains(mongoDBImage, util.OfficialEnterpriseServerImageName) || forceEnterprise {
 		if !strings.HasSuffix(version, "-ent") {
 			version = version + "-ent"
