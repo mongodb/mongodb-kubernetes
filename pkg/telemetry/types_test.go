@@ -64,7 +64,9 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 			MigrationStartedAt:       "2026-01-01T00:00:00Z",
 			MigrationCompletedAt:     "2026-01-01T01:00:00Z",
 
-			ManagedCertificateIssuers: "Both",
+			ManagedCertificateIssuers:       "Server",
+			BackupManagedCertificateIssuers: "Server",
+			AppDBManagedCertificateIssuers:  "Both",
 		},
 		IsAutoEmbeddingEnabled: true,
 	}

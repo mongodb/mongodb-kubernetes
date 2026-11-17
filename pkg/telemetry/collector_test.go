@@ -2183,6 +2183,170 @@ func TestCollectDeploymentsSnapshotManagedCertificate(t *testing.T) {
 	}
 }
 
+func TestCollectDeploymentsSnapshotOmManagedCertificate(t *testing.T) {
+	issuer := &mdbv1.IssuerRef{Name: "user-issuer"}
+
+	omResource := func(name string, spec omv1.MongoDBOpsManagerSpec) *omv1.MongoDBOpsManager {
+		return &omv1.MongoDBOpsManager{
+			ObjectMeta: metav1.ObjectMeta{Name: name, UID: types.UID(name + "-uid")},
+			Spec:       spec,
+		}
+	}
+
+	omEvent := func(t *testing.T, events []Event, name string) map[string]any {
+		t.Helper()
+		event := findEventWithDeploymentUID(events, name+"-uid")
+		require.NotNilf(t, event, "event with deploymentUID %s not found", name+"-uid")
+		return event.Properties
+	}
+
+	tests := map[string]struct {
+		objects     []client.Object
+		totalEvents int
+		validate    func(t *testing.T, events []Event)
+	}{
+		"nothing set reports nothing": {
+			objects: []client.Object{
+				omResource("plain-om", omv1.MongoDBOpsManagerSpec{AppDB: &omv1.AppDBSpec{}}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				props := omEvent(t, events, "plain-om")
+				assert.NotContains(t, props, "managedCertificateIssuers")
+				assert.NotContains(t, props, "backupManagedCertificateIssuers")
+				assert.NotContains(t, props, "appDBManagedCertificateIssuers")
+			},
+		},
+		"app server self-signed": {
+			objects: []client.Object{
+				omResource("om-self-signed", omv1.MongoDBOpsManagerSpec{
+					AppDB:    &omv1.AppDBSpec{},
+					Security: &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{}},
+				}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				assert.Equal(t, "None", omEvent(t, events, "om-self-signed")["managedCertificateIssuers"])
+			},
+		},
+		"app server user issuer": {
+			objects: []client.Object{
+				omResource("om-user-issuer", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{},
+					Security: &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{
+						CertificateConfig: mdbv1.CertificateConfig{IssuerRef: issuer},
+					}},
+				}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				assert.Equal(t, "Server", omEvent(t, events, "om-user-issuer")["managedCertificateIssuers"])
+			},
+		},
+		"backup self-signed is reported even when backup is disabled": {
+			objects: []client.Object{
+				omResource("om-backup-self-signed", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{},
+					Backup: &omv1.MongoDBOpsManagerBackup{
+						Enabled:            false,
+						ManagedCertificate: &omv1.ManagedCertificate{},
+					},
+				}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				assert.Equal(t, "None", omEvent(t, events, "om-backup-self-signed")["backupManagedCertificateIssuers"])
+			},
+		},
+		"backup user issuer": {
+			objects: []client.Object{
+				omResource("om-backup-user-issuer", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{},
+					Backup: &omv1.MongoDBOpsManagerBackup{
+						Enabled: true,
+						ManagedCertificate: &omv1.ManagedCertificate{
+							CertificateConfig: mdbv1.CertificateConfig{IssuerRef: issuer},
+						},
+					},
+				}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				assert.Equal(t, "Server", omEvent(t, events, "om-backup-user-issuer")["backupManagedCertificateIssuers"])
+			},
+		},
+		"appdb self-signed": {
+			objects: []client.Object{
+				omResource("om-appdb-self-signed", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{
+						Security: &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}},
+					},
+				}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				assert.Equal(t, "None", omEvent(t, events, "om-appdb-self-signed")["appDBManagedCertificateIssuers"])
+			},
+		},
+		"appdb both issuers": {
+			objects: []client.Object{
+				omResource("om-appdb-both-issuers", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{
+						Security: &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{
+							Server: &mdbv1.CertificateConfig{IssuerRef: issuer},
+							Client: &mdbv1.CertificateConfig{IssuerRef: issuer},
+						}},
+					},
+				}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				assert.Equal(t, "Both", omEvent(t, events, "om-appdb-both-issuers")["appDBManagedCertificateIssuers"])
+			},
+		},
+		"external appdb is not reported on the OpsManager event": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "om-external-db", Namespace: "test-ns", UID: "external-db-uid"},
+					Spec:       mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ReplicaSet}},
+				},
+				omResource("om-external", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{
+						Security: &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}},
+					},
+					ExternalAppDBRef: &omv1.ExternalAppDBRef{Name: "om-external-db", Kind: "MongoDB"},
+				}),
+			},
+			totalEvents: 2,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				assert.NotContains(t, omEvent(t, events, "om-external"), "appDBManagedCertificateIssuers")
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			k8sClient := mock.NewEmptyFakeClientBuilder().WithObjects(tc.objects...).Build()
+			mgr := mockClient.NewManagerWithClient(k8sClient)
+
+			events := collectDeploymentsSnapshot(context.Background(), mgr, testOperatorUUID, testDatabaseStaticImage, testDatabaseNonStaticImage, architectures.NonStatic)
+
+			require.Len(t, events, tc.totalEvents)
+			tc.validate(t, events)
+		})
+	}
+}
+
 func mdbWithManagedCertificate(name string, managedCertificate *mdbv1.ManagedCertificate) client.Object {
 	var security *mdbv1.Security
 	if managedCertificate != nil {

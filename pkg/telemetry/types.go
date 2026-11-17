@@ -69,6 +69,13 @@ type DeploymentUsageSnapshotProperties struct {
 	// presence is the usage signal. It says which certificate categories reference a user-provided
 	// issuer; None means both are signed by the operator's self-signed CA.
 	ManagedCertificateIssuers string `json:"managedCertificateIssuers,omitempty"`
+	// BackupManagedCertificateIssuers reports spec.backup.managedCertificate of a MongoDBOpsManager
+	// (the queryable backup daemon cert); it uses the same values as ManagedCertificateIssuers.
+	BackupManagedCertificateIssuers string `json:"backupManagedCertificateIssuers,omitempty"`
+	// AppDBManagedCertificateIssuers reports the internally-managed AppDB's
+	// spec.security.managedCertificate. External AppDBs are not reported here: their MongoDB
+	// resource is its own deployment event.
+	AppDBManagedCertificateIssuers string `json:"appDBManagedCertificateIssuers,omitempty"`
 }
 
 type FakeDeploymentUsageSnapshotProperties DeploymentUsageSnapshotProperties

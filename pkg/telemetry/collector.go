@@ -341,6 +341,8 @@ func addOmEvents(ctx context.Context, operatorClusterClient kubeclient.Client, o
 				properties.AppDBClusters = &appDBProperties.Clusters
 			}
 
+			populateOmManagedCertificateFields(&properties, &item)
+
 			if event := createEvent(properties, now, Deployments); event != nil {
 				events = append(events, *event)
 			}
@@ -666,8 +668,36 @@ const (
 // certificate categories reference a user-provided issuer. Nothing is set when the feature is off, so
 // the presence of the field is the usage signal.
 func populateManagedCertificateFields(props *DeploymentUsageSnapshotProperties, security *mdbv1.Security) {
+	if issuers, ok := managedCertificateIssuers(security); ok {
+		props.ManagedCertificateIssuers = issuers
+	}
+}
+
+// populateOmManagedCertificateFields records the managedCertificate signals of the Ops Manager app
+// server, its queryable backup daemon and its internally-managed AppDB.
+func populateOmManagedCertificateFields(props *DeploymentUsageSnapshotProperties, om *omv1.MongoDBOpsManager) {
+	if om.IsManagedCertificateEnabled() {
+		props.ManagedCertificateIssuers = singleIssuerManagedCertificateValue(&om.Spec.Security.ManagedCertificate.CertificateConfig)
+	}
+
+	if om.IsBackupManagedCertificateEnabled() {
+		props.BackupManagedCertificateIssuers = singleIssuerManagedCertificateValue(&om.Spec.Backup.ManagedCertificate.CertificateConfig)
+	}
+
+	// An external AppDB is a MongoDB resource with its own deployment event, so reporting it here
+	// would double count.
+	if om.Spec.ExternalAppDBRef == nil && om.Spec.AppDB != nil {
+		if issuers, ok := managedCertificateIssuers(om.Spec.AppDB.Security); ok {
+			props.AppDBManagedCertificateIssuers = issuers
+		}
+	}
+}
+
+// managedCertificateIssuers maps a Security block with server/client certificate categories to a
+// telemetry value. ok is false when the feature is off.
+func managedCertificateIssuers(security *mdbv1.Security) (string, bool) {
 	if security == nil || !security.IsManagedCertificateEnabled() {
-		return
+		return "", false
 	}
 
 	managedCertificate := security.ManagedCertificate
@@ -676,14 +706,24 @@ func populateManagedCertificateFields(props *DeploymentUsageSnapshotProperties, 
 
 	switch {
 	case serverIssuer && clientIssuer:
-		props.ManagedCertificateIssuers = ManagedCertificateIssuersBoth
+		return ManagedCertificateIssuersBoth, true
 	case serverIssuer:
-		props.ManagedCertificateIssuers = ManagedCertificateIssuersServer
+		return ManagedCertificateIssuersServer, true
 	case clientIssuer:
-		props.ManagedCertificateIssuers = ManagedCertificateIssuersClient
+		return ManagedCertificateIssuersClient, true
 	default:
-		props.ManagedCertificateIssuers = ManagedCertificateIssuersNone
+		return ManagedCertificateIssuersNone, true
 	}
+}
+
+// singleIssuerManagedCertificateValue maps a single-issuer certificate config (the Ops Manager
+// components) to a telemetry value. Those components only carry server certificates, so a user
+// issuer is reported as Server.
+func singleIssuerManagedCertificateValue(cfg *mdbv1.CertificateConfig) string {
+	if hasUserConfiguredIssuer(cfg) {
+		return ManagedCertificateIssuersServer
+	}
+	return ManagedCertificateIssuersNone
 }
 
 func hasUserConfiguredIssuer(cfg *mdbv1.CertificateConfig) bool {
