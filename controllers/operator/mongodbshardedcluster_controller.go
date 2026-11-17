@@ -1553,7 +1553,8 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
-		mongosOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, r.getMongosOptions(ctx, *s, opts, log, memberCluster))
+		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
+		mongosOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, mongosOpts)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to prepare Mongos Stateful Set: %w", err))
 		}
@@ -1599,7 +1600,8 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
 			shardsNames[shardIdx] = s.ShardName(shardIdx)
 			secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
-			shardOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster))
+			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)
+			shardOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, shardOpts)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to prepare StatefulSet for shard %d: %w", shardIdx, err))
 			}
@@ -1651,7 +1653,8 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
-		configSrvOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, r.getConfigServerOptions(ctx, *s, opts, log, memberCluster))
+		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)
+		configSrvOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, configSrvOpts)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to prepare Config Server Stateful Set: %w", err))
 		}

@@ -576,7 +576,8 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	}
 
 	// Build the replica set config
-	rsConfig, err := create.WithAgentCredential(ctx, reconciler.SecretClient, rs.Namespace, *rs, r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions))
+	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
+	rsConfig, err := create.WithAgentCredential(ctx, reconciler.SecretClient, rs.Namespace, *rs, rsConfig)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to prepare StatefulSet: %w", err))
 	}
