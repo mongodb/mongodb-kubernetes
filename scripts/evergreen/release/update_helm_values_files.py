@@ -27,6 +27,7 @@ from scripts.release.version import find_previous_version
 RELEASE_JSON_TO_HELM_KEY = {
     "mongodbOperator": "operator",
     "initDatabaseVersion": "initDatabase",
+    "mongodbProxyVersion": "mongodbProxy",
     "initOpsManagerVersion": "initOpsManager",
     "databaseImageVersion": "database",
     "agentVersion": "agent",
