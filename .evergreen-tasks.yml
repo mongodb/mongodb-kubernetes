@@ -388,6 +388,11 @@ tasks:
   # The same prerequisites, with an Ops Manager of the operator (amd64 only, slow under emulation) in place of
   # Cloud Manager. It runs in the static operator task group.
   - name: e2e_om_appdb_mongodb_proxy
+    depends_on:
+      - name: build_agent_images_ubi
+        variant: init_test_run
+      - name: build_mongodb_proxy_image
+        variant: init_test_run
     commands:
       - func: "e2e_test"
 
