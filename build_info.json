@@ -85,6 +85,40 @@
         ]
       }
     },
+    "mongodb-proxy": {
+      "version-ref": "mongodbProxyVersion",
+      "dockerfile-path": "docker/mongodb-kubernetes-mongodb-proxy/Dockerfile",
+      "patch": {
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-kubernetes-mongodb-proxy",
+        "platforms": [
+          "linux/amd64"
+        ]
+      },
+      "staging": {
+        "sign": true,
+        "latest-tag": true,
+        "repository": "268558157000.dkr.ecr.us-east-1.amazonaws.com/staging/mongodb-kubernetes-mongodb-proxy",
+        "secondary-repositories": ["quay.io/mongodb/staging/mongodb-kubernetes-mongodb-proxy"],
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
+        ]
+      },
+      "release": {
+        "sign": true,
+        "olm-tag": true,
+        "skip-if-exists": true,
+        "repository": "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy",
+        "platforms": [
+          "linux/arm64",
+          "linux/amd64",
+          "linux/s390x",
+          "linux/ppc64le"
+        ]
+      }
+    },
     "init-ops-manager": {
       "version-ref": "initOpsManagerVersion",
       "dockerfile-path": "docker/mongodb-kubernetes-init-ops-manager/Dockerfile",
