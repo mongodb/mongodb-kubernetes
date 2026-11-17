@@ -2975,7 +2975,7 @@ func TestOpsManagerManagedCAConsumableByMongoDBProjectConfig(t *testing.T) {
 				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "SSL_TRUSTED_MMS_SERVER_CERTIFICATE", Value: "/mongodb-automation/certs/mms-ca.crt"})
 				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "SSL_REQUIRE_VALID_MMS_CERTIFICATES", Value: "true"})
 				deployment := om.NewDeployment()
-				deployment.ConfigureTLS(rs.GetSecurity(), rs.GetSecurity().GetTLSCAFilePath(util.TLSCaMountPath+"/ca-pem"))
+				deployment.ConfigureTLS(rs.GetSecurity(), rs.GetSecurity().GetTLSCAFilePath(util.TLSCaMountPath+"/ca-pem"), "")
 				assert.Equal(t, util.TLSCaMountPath+"/ca-pem", deployment["tls"].(map[string]any)["CAFilePath"])
 				processes := replicaset.BuildFromMongoDBWithReplicas("mongodb", false, rs, 1, rs.CalculateFeatureCompatibilityVersion(), util.TLSCertMountPath+"/leaf", architectures.NonStatic, nil)
 				assert.Equal(t, "requireTLS", processes.Processes[0].TLSConfig()["mode"])
@@ -3360,7 +3360,8 @@ func TestAppDBManagedCertificateCustomerConfiguration(t *testing.T) {
 		},
 		Subjects: &mdbv1.CertSubjects{Server: &mdbv1.X509Subject{Organizations: []string{"AppDB Org"}, CommonName: "appdb.example.com"}},
 	}
-	extraCA := "-----BEGIN CERTIFICATE-----\nEXTRA-APP-DB-CA\n-----END CERTIFICATE-----\n"
+	extraCAPEM, _ := createMockCertAndKeyBytes()
+	extraCA := string(extraCAPEM)
 	c := newManagedCertificateKubeClient(t, om, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "extra-ca", Namespace: om.Namespace}, Data: map[string]string{"ca-pem": extraCA}})
 	r := newManagedCertificateTestReconciler(ctx, c)
 	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
@@ -3395,6 +3396,10 @@ func TestAppDBManagedCertificateCustomerConfiguration(t *testing.T) {
 	require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, "managed-om-db-managed-server-ca-bundle"), bundle))
 	assert.Contains(t, bundle.Data["ca-pem"], string(appDBLeaf.Data["ca.crt"]))
 	assert.Contains(t, bundle.Data["ca-pem"], extraCA, "additional trusted CAs must reach the shared issuance engine")
+	assert.Equal(t, 2, strings.Count(bundle.Data["ca-pem"], "-----BEGIN CERTIFICATE-----"), "the bundle holds exactly the AppDB CA and the additional trusted CA")
+	latestHash := bundle.Data[util.LatestHashSecretKey]
+	require.NotEmpty(t, latestHash)
+	assert.Equal(t, bundle.Data["ca-pem"], bundle.Data[latestHash])
 }
 
 func TestAppDBManagedCertificateUnusedClientWarning(t *testing.T) {

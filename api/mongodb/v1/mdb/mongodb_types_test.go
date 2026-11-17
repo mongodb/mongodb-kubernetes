@@ -14,6 +14,31 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
+func TestOpsManagerDeploymentName(t *testing.T) {
+	tests := map[string]struct {
+		spec MongoDbSpec
+		want string
+	}{
+		"replica set":                   {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ReplicaSet}}, want: "my-db"},
+		"replica set with override":     {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ReplicaSet}, ReplicaSetNameOverride: "rs-override"}, want: "rs-override"},
+		"sharded cluster":               {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster}}, want: "my-db"},
+		"sharded cluster with override": {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: ShardedCluster}, ShardedClusterSpec: ShardedClusterSpec{ShardedClusterNameOverride: "sc-override"}}, want: "sc-override"},
+		"standalone":                    {spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: Standalone}}, want: "my-db-0.my-db-svc.my-ns.svc.cluster.local"},
+		"standalone with cluster domain": {
+			spec: MongoDbSpec{DbCommonSpec: DbCommonSpec{ResourceType: Standalone, ClusterDomain: "example.internal"}},
+			want: "my-db-0.my-db-svc.my-ns.svc.example.internal",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			m := &MongoDB{Spec: tc.spec}
+			m.Name, m.Namespace, m.UID = "my-db", "my-ns", "uid-1"
+			assert.Equal(t, tc.want, m.OpsManagerDeploymentName())
+			assert.Equal(t, "uid-1", m.TelemetryIdentifier())
+		})
+	}
+}
+
 func TestEnsureSecurity_WithAllNilValues(t *testing.T) {
 	spec := &MongoDbSpec{
 		DbCommonSpec: DbCommonSpec{
@@ -487,6 +512,28 @@ func TestAgentClientCertificateSecretName(t *testing.T) {
 	rs.Spec.Security.CertificatesSecretsPrefix = ""
 	rs.Spec.Security.ManagedCertificate = &ManagedCertificate{}
 	assert.Equal(t, fmt.Sprintf("%s-managed-%s", rs.Name, util.AgentSecretName), rs.GetSecurity().AgentClientCertificateSecretName(rs.Name))
+}
+
+func TestManagedCertificateCARefs(t *testing.T) {
+	serverCA := CARef{Name: "server-ca", Kind: "ConfigMap", Key: "ca.crt"}
+	serverExtra := CARef{Name: "server-extra", Kind: "Secret", Key: "tls.crt"}
+	clientCA := CARef{Name: "client-ca", Kind: "Secret", Key: "ca.crt"}
+	clientExtra := CARef{Name: "client-extra", Kind: "ConfigMap", Key: "ca.crt"}
+
+	var nilSecurity *Security
+	assert.Empty(t, nilSecurity.ManagedCertificateCARefs())
+	assert.Empty(t, (&Security{}).ManagedCertificateCARefs())
+	assert.Empty(t, (&Security{ManagedCertificate: &ManagedCertificate{}}).ManagedCertificateCARefs())
+	assert.Empty(t, (&Security{ManagedCertificate: &ManagedCertificate{Server: &CertificateConfig{}, Client: &CertificateConfig{}}}).ManagedCertificateCARefs())
+
+	security := &Security{ManagedCertificate: &ManagedCertificate{
+		Server: &CertificateConfig{CA: &serverCA, AdditionalTrustedCAs: []CARef{serverExtra}},
+		Client: &CertificateConfig{CA: &clientCA, AdditionalTrustedCAs: []CARef{clientExtra}},
+	}}
+	assert.Equal(t, []CARef{serverCA, serverExtra, clientCA, clientExtra}, security.ManagedCertificateCARefs())
+
+	onlyClient := &Security{ManagedCertificate: &ManagedCertificate{Client: &CertificateConfig{AdditionalTrustedCAs: []CARef{clientExtra}}}}
+	assert.Equal(t, []CARef{clientExtra}, onlyClient.ManagedCertificateCARefs())
 }
 
 func TestInternalClusterAuthSecretName(t *testing.T) {

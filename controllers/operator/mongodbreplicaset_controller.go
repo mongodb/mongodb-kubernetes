@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"path"
 	"strings"
 
 	"go.uber.org/zap"
@@ -223,7 +222,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(err))
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
+	conn, agentApiKey, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
@@ -248,6 +247,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
+	reconciler.watchUserClientCertificateSecrets(ctx, rs, log)
 
 	reconcileResult := checkIfHasExcessProcesses(ctx, conn, rs.GetReplicaSetName(), rs.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
@@ -305,7 +305,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 				r.reconciler.certManagerReadiness.UnavailableMessage())))
 		}
 
-		status, certsCondition := certs.EnsureCertificatesAndCA(
+		status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(
 			ctx,
 			reconciler.client,
 			rs,
@@ -315,6 +315,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 		rs.SetStatusCondition(certsCondition)
 		if !status.IsOK() {
+			return r.updateStatus(ctx, status)
+		}
+		if status := reconciler.removeFulfilledPruneAnnotation(ctx, rs, pruneApplied); !status.IsOK() {
 			return r.updateStatus(ctx, status)
 		}
 	}
@@ -398,6 +401,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
 	}
 
+	reconciler.EnsureOtelExporterForDeployment(conn, agentApiKey, rs.Status.Link, rs, log)
+
 	if status := controlledfeature.EnsureFeatureControls(ctx, *rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
@@ -454,6 +459,12 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)))
 	}
 
+	// The members are now running with the widened trust bundle (the reconcile above published it
+	// and waited for the agents), so a leaf can safely move to a rotated self-signed CA.
+	if err := certs.ReissueLeavesOnRotatedSelfSignedCA(ctx, reconciler.client, rs, []certs.Options{rsCertsConfig}, log); err != nil {
+		log.Warnf("Failed to re-issue certificates after a self-signed CA rotation: %s", err)
+	}
+
 	log.Infof("Finished reconciliation for MongoDbReplicaSet! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
 	return r.updateStatus(ctx, workflow.OK(), mdbstatus.NewBaseUrlOption(deployment.Link(conn.BaseURL(), conn.GroupID())), mdbstatus.NewProjectIdOption(conn.GroupID()), mdbstatus.MembersOption(rs), mdbstatus.NewPVCsStatusOptionEmptyStatus())
 }
@@ -471,10 +482,11 @@ func newReplicaSetReconciler(
 	defaultArchitecture architectures.DefaultArchitecture,
 	defaultImageType architectures.ImageType,
 	omFunc om.ConnectionFactory,
+	omMetrics OMMetricsMultiplexer,
 	certManagerReadiness certs.CertManagerReadiness,
 ) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
-		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient, omMetrics),
 		omConnectionFactory:       omFunc,
 		imageUrls:                 imageUrls,
 		forceEnterprise:           forceEnterprise,
@@ -735,13 +747,14 @@ func AddReplicaSetController(
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
 	defaultImageType architectures.ImageType,
+	omMetrics OMMetricsMultiplexer,
 ) error {
 	// make sure cert-manager resources are registered and operator has authz to access them, before actually registering
 	// watches or doing anything with cert-manager resources.
 	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
 
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, certManagerReadiness)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, omMetrics, certManagerReadiness)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -855,7 +868,10 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		return workflow.Failed(err)
 	}
 
-	caFilePath := rs.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
+	caFilePath, clusterCAFilePath, err := databaseCAFilePaths(ctx, reconciler.client, rs.Spec.GetSecurity(), rs.Name, rs.Namespace)
+	if err != nil {
+		return workflow.Failed(err)
+	}
 
 	existingDeployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
@@ -898,7 +914,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 					return err
 				}
 			}
-			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, internalClusterCertPath, &prometheusConfiguration, log)
+			return ReconcileReplicaSetAC(ctx, d, rs.Spec.DbCommonSpec, lastRsConfig.ToMap(), rs.GetReplicaSetName(), replicaSet, rs.Spec.GetExternalMemberProcessNames(), caFilePath, clusterCAFilePath, internalClusterCertPath, &prometheusConfiguration, log)
 		},
 		log)
 
@@ -1345,6 +1361,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
+	r.ReleaseOtelExporter(rs.Status.Link, log)
 	if rs.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)

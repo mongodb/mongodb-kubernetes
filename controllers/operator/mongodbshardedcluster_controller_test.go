@@ -111,6 +111,16 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.GetHosts), reflect.ValueOf(mockedConn.RemoveHost))
 }
 
+func TestShardedClusterReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	sc.SetUID(types.UID("sharded-cluster-uid"))
+	reconciler, _, kubeClient, _, err := defaultShardedClusterReconcilerWithConnectionFactory(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic, monitoringMappingConnectionFactory())
+	require.NoError(t, err)
+
+	runReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, sc, sc.GetShardedClusterName())
+}
+
 // TestReconcileCreateSingleClusterShardedClusterWithNoServiceMeshSimplest assumes only Services for Mongos
 // will be created.
 func TestReconcileCreateSingleClusterShardedClusterWithExternalDomainSimplest(t *testing.T) {
@@ -206,7 +216,7 @@ func TestShardedClusterRace(t *testing.T) {
 		WithObjects(mock.GetDefaultResources()...).
 		Build()
 
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, certs.CertManagerReadiness{})
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{})
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, sc1, sc2, sc3)
 }
@@ -1183,7 +1193,7 @@ func TestFeatureControlsNoAuth(t *testing.T) {
 	sc := test.DefaultClusterBuilder().RemoveAuth().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, certs.CertManagerReadiness{})
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{})
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1384,7 +1394,7 @@ func TestFeatureControlsAuthEnabled(t *testing.T) {
 	sc := test.DefaultClusterBuilder().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
-	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, certs.CertManagerReadiness{})
+	reconciler := newShardedClusterReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{})
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, fakeClient)
 
@@ -1822,6 +1832,65 @@ func TestShardSpecificPodSpec(t *testing.T) {
 	assertPodSpecSts(t, &statefulSetSc1, shardPodSpec.NodeName, shardPodSpec.Hostname, shardPodSpec.RestartPolicy, architectures.NonStatic)
 }
 
+// TestShardedClusterStatefulSetStatus checks that on first deployment the pending StatefulSets are reported component
+// by component, in the order config servers, shards, mongos.
+func TestShardedClusterStatefulSetStatus(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	// the default builder seeds the sizes of an existing deployment, which skips the first deployment path
+	sc.Status = mdbv1.MongoDbStatus{}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	ready := map[string]bool{}
+	kubeClient := newStatefulSetReadinessClient(omConnectionFactory, ready, append(mock.GetDefaultResources(), sc)...)
+	reconciler, _, err := newShardedClusterReconcilerFromResource(ctx, nil, "", "", sc, nil, kubeClient, omConnectionFactory, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	steps := [][]status.ResourceNotReady{
+		{statefulSetNotReady(sc.Name+"-config", sc.Spec.ConfigServerCount)},
+		{statefulSetNotReady(sc.Name+"-0", sc.Spec.MongodsPerShardCount)},
+		{statefulSetNotReady(sc.Name+"-1", sc.Spec.MongodsPerShardCount)},
+		{statefulSetNotReady(sc.Name+"-mongos", sc.Spec.MongosCount)},
+	}
+	checkStatefulSetStatusInSteps(ctx, t, reconciler, sc, kubeClient, ready, steps)
+}
+
+// newStatefulSetReadinessClient returns a fake client on which a StatefulSet reports ready only once its name is in ready.
+func newStatefulSetReadinessClient(omConnectionFactory *om.CachedOMConnectionFactory, ready map[string]bool, objects ...client.Object) kubernetesClient.Client {
+	return kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, ready[key.Name], true)(ctx, c, key, obj, opts...)
+		},
+	}).Build())
+}
+
+func statefulSetNotReady(name string, members int) status.ResourceNotReady {
+	return status.ResourceNotReady{
+		Kind:    status.StatefulsetKind,
+		Name:    name,
+		Message: fmt.Sprintf("Not all the Pods are ready (wanted: %d, updated: 0, ready: 0, current: 0)", members),
+	}
+}
+
+// checkStatefulSetStatusInSteps reconciles once per step, expecting exactly the StatefulSets of the step to be reported
+// not ready, and marks them ready afterwards. Once all steps are done the resource must reach Running.
+func checkStatefulSetStatusInSteps(ctx context.Context, t *testing.T, reconciler *ReconcileMongoDbShardedCluster, sc *mdbv1.MongoDB, kubeClient kubernetesClient.Client, ready map[string]bool, steps [][]status.ResourceNotReady) {
+	for _, expected := range steps {
+		result, err := reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		assert.Positive(t, result.RequeueAfter)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
+		assert.Equal(t, status.PhasePending, sc.Status.Phase)
+		assert.ElementsMatch(t, expected, sc.Status.ResourcesNotReady)
+		for _, resource := range expected {
+			ready[resource.Name] = true
+		}
+	}
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	assert.Empty(t, sc.Status.ResourcesNotReady)
+}
+
 func TestShardedClusterAgentVersionMapping(t *testing.T) {
 	ctx := context.Background()
 	defaultResource := test.DefaultClusterBuilder().Build()
@@ -1984,8 +2053,8 @@ func createDeploymentFromShardedCluster(t *testing.T, updatable v1.CustomResourc
 	return d
 }
 
-func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
-	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
+func defaultShardedClusterReconcilerWithConnectionFactory(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, sc)
 	r, reconcileHelper, err := newShardedClusterReconcilerFromResource(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, sc, globalMemberClustersMap, kubeClient, omConnectionFactory, backupEnableDelay, arch)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -1993,8 +2062,12 @@ func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.Image
 	return r, reconcileHelper, kubeClient, omConnectionFactory, nil
 }
 
+func defaultShardedClusterReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, kubernetesClient.Client, *om.CachedOMConnectionFactory, error) {
+	return defaultShardedClusterReconcilerWithConnectionFactory(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, sc, globalMemberClustersMap, backupEnableDelay, arch, om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection))
+}
+
 func newShardedClusterReconcilerFromResource(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory, backupEnableDelay time.Duration, arch architectures.DefaultArchitecture) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay, certs.CertManagerReadiness{})
+	r := newShardedClusterReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, backupEnableDelay, nil, certs.CertManagerReadiness{})
 	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, r.defaultImageType, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), backupEnableDelay, certs.CertManagerReadiness{})
 	if err != nil {
 		return nil, nil, err
@@ -3213,7 +3286,7 @@ func TestApplySearchParametersForShards_AuthGateAllRoutingModes(t *testing.T) {
 		}
 		helper := &ShardedClusterReconcileHelper{
 			sc:                         sc,
-			commonController:           NewReconcileCommonController(ctx, kubeClient),
+			commonController:           NewReconcileCommonController(ctx, kubeClient, nil),
 			desiredShardsConfiguration: shards,
 			desiredMongosConfiguration: &mdbv1.ShardedClusterComponentSpec{},
 		}

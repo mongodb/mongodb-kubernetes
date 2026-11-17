@@ -172,7 +172,7 @@ func TestManagedServerCertificate(t *testing.T) {
 			Subject: &mdbv1.X509Subject{Organizations: []string{"Example Org"}, CommonName: "om.example.com"},
 		}
 
-		status, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+		status, _, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		assert.False(t, status.IsOK(), "the certificate has not been reported ready")
 
 		cert := getManagedCertificate(t, ctx, c, "example-managed-om-cert")
@@ -202,7 +202,7 @@ func TestManagedServerCertificate(t *testing.T) {
 		ctx := context.Background()
 		c := newManagedCertTestClient(t)
 
-		status, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		status, _, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
 		assert.False(t, status.IsOK(), "the certificates have not been reported ready")
 
 		caCert := getManagedCertificate(t, ctx, c, "example-managed-om-server-ca")
@@ -227,9 +227,11 @@ func TestManagedServerCertificate(t *testing.T) {
 
 	t.Run("CA bundle prefers the issuer emitted ca.crt", func(t *testing.T) {
 		ctx := context.Background()
+		fallbackCA := newTestCA(t, "fallback-ca")
+		emittedCA := newTestCA(t, "emitted-ca")
 		fallback := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "fallback-ca", Namespace: managedTestNamespace},
-			Data:       map[string]string{"ca.crt": "FALLBACK-CA"},
+			Data:       map[string]string{"ca.crt": fallbackCA.pem},
 		}
 		c := newManagedCertTestClient(t, fallback)
 		cfg := &omv1.ManagedCertificate{CertificateConfig: mdbv1.CertificateConfig{
@@ -237,31 +239,36 @@ func TestManagedServerCertificate(t *testing.T) {
 			CA:        &mdbv1.CARef{Name: "fallback-ca", Kind: "ConfigMap", Key: "ca.crt"},
 		}}
 
-		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+		_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
 		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
-		issued.Data[corev1.ServiceAccountRootCAKey] = []byte("EMITTED-CA")
+		issued.Data[corev1.ServiceAccountRootCAKey] = []byte(emittedCA.pem)
 		require.NoError(t, c.Create(ctx, &issued))
 
-		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+		status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
 		assert.Equal(t, metav1.ConditionTrue, condition.Status)
 
 		bundle := managedCAConfigMap(t, ctx, c, "example-managed-om-ca-bundle")
-		assert.Contains(t, bundle.Data["mms-ca.crt"], "EMITTED-CA")
-		assert.NotContains(t, bundle.Data["mms-ca.crt"], "FALLBACK-CA")
+		assert.Equal(t, expectedBundle(emittedCA), bundle.Data["mms-ca.crt"])
+		assert.NotContains(t, bundle.Data["mms-ca.crt"], fallbackCA.pem)
+		latestHash := bundle.Data[util.LatestHashSecretKey]
+		require.NotEmpty(t, latestHash)
+		assert.Equal(t, expectedBundle(emittedCA), bundle.Data[latestHash])
 		assertOwnedByManagedTestOM(t, bundle.OwnerReferences)
 	})
 
 	t.Run("CA bundle falls back to the configured CA and appends additional trusted CAs", func(t *testing.T) {
 		ctx := context.Background()
+		fallbackCA := newTestCA(t, "fallback-ca")
+		extraCA := newTestCA(t, "extra-ca")
 		fallback := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "fallback-ca", Namespace: managedTestNamespace},
-			Data:       map[string]string{"ca.crt": "FALLBACK-CA"},
+			Data:       map[string]string{"ca.crt": fallbackCA.pem},
 		}
 		extra := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "extra-ca", Namespace: managedTestNamespace},
-			Data:       map[string]string{"ca.crt": "EXTRA-CA"},
+			Data:       map[string]string{"ca.crt": extraCA.pem},
 		}
 		c := newManagedCertTestClient(t, fallback, extra)
 		cfg := &omv1.ManagedCertificate{CertificateConfig: mdbv1.CertificateConfig{
@@ -270,17 +277,20 @@ func TestManagedServerCertificate(t *testing.T) {
 			AdditionalTrustedCAs: []mdbv1.CARef{{Name: "extra-ca", Kind: "ConfigMap", Key: "ca.crt"}},
 		}}
 
-		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+		_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
 		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 		require.NoError(t, c.Create(ctx, &issued))
 
-		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+		status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
 		assert.Equal(t, metav1.ConditionTrue, condition.Status)
 
 		bundle := managedCAConfigMap(t, ctx, c, "example-managed-om-ca-bundle")
-		assert.Equal(t, "FALLBACK-CA\nEXTRA-CA\n", bundle.Data["mms-ca.crt"])
+		assert.Equal(t, expectedBundle(fallbackCA, extraCA), bundle.Data["mms-ca.crt"])
+		latestHash := bundle.Data[util.LatestHashSecretKey]
+		require.NotEmpty(t, latestHash)
+		assert.Equal(t, expectedBundle(fallbackCA, extraCA), bundle.Data[latestHash])
 	})
 
 	t.Run("missing required CA input fails with an actionable message", func(t *testing.T) {
@@ -290,12 +300,12 @@ func TestManagedServerCertificate(t *testing.T) {
 			IssuerRef: &mdbv1.IssuerRef{Name: "custom-issuer"},
 		}}
 
-		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+		_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
 		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 		require.NoError(t, c.Create(ctx, &issued))
 
-		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+		status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		assert.False(t, status.IsOK())
 		assert.Equal(t, apistatus.PhaseFailed, status.Phase())
 		assert.Contains(t, status.Message(), "did not populate ca.crt")
@@ -306,10 +316,10 @@ func TestManagedServerCertificate(t *testing.T) {
 }
 
 func TestManagedServerCertificateReadiness(t *testing.T) {
-	fallback := func() *corev1.ConfigMap {
+	fallback := func(t *testing.T) *corev1.ConfigMap {
 		return &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: "fallback-ca", Namespace: managedTestNamespace},
-			Data:       map[string]string{"ca.crt": "FALLBACK-CA"},
+			Data:       map[string]string{"ca.crt": newTestCA(t, "fallback-ca").pem},
 		}
 	}
 	cfgWithFallback := &omv1.ManagedCertificate{CertificateConfig: mdbv1.CertificateConfig{
@@ -319,13 +329,13 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 
 	t.Run("fresh ready condition completes", func(t *testing.T) {
 		ctx := context.Background()
-		c := newManagedCertTestClient(t, fallback())
-		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
+		c := newManagedCertTestClient(t, fallback(t))
+		_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
 		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 		require.NoError(t, c.Create(ctx, &issued))
 
-		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
+		status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
 		assert.Equal(t, metav1.ConditionTrue, condition.Status)
 		assert.Equal(t, ReasonAllCertificatesReady, condition.Reason)
@@ -333,13 +343,13 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 
 	t.Run("stale ready condition does not pass the generation check", func(t *testing.T) {
 		ctx := context.Background()
-		c := newManagedCertTestClient(t, fallback())
-		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
+		c := newManagedCertTestClient(t, fallback(t))
+		_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, func(cert *certmanagerv1.Certificate) {
 			cert.Generation = 4
 		})
 
-		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
+		status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		assert.Equal(t, apistatus.PhasePending, status.Phase())
 		assert.Contains(t, status.Message(), "example-managed-om-cert")
 		assert.Equal(t, metav1.ConditionFalse, condition.Status)
@@ -352,10 +362,10 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		cfg := &omv1.ManagedCertificate{CertificateConfig: mdbv1.CertificateConfig{
 			IssuerRef: &mdbv1.IssuerRef{Name: "custom-issuer"},
 		}}
-		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+		_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
 
-		status, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
+		status, _, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, serverCertificateOptions(), managedTestLogger())
 		assert.Equal(t, apistatus.PhasePending, status.Phase())
 		assert.Contains(t, status.Message(), "Waiting for cert-manager to write the certificate secret example-managed-om-cert")
 	})
@@ -363,7 +373,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 	t.Run("self-signed leaf without its output Secret remains pending", func(t *testing.T) {
 		ctx := context.Background()
 		c := newManagedCertTestClient(t)
-		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
 		// The self-signed CA Secret alone is enough to resolve the trust bundle, but not
 		// enough to prove that the leaf certificate material has been written.
@@ -372,7 +382,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 			Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte("CA")},
 		}))
 
-		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
 		assert.Equal(t, apistatus.PhasePending, status.Phase())
 		assert.Contains(t, status.Message(), "Waiting for cert-manager to write the certificate secret example-managed-om-cert")
 		assert.Equal(t, metav1.ConditionFalse, condition.Status)
@@ -391,7 +401,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 				return inner.Get(ctx, key, obj, opts...)
 			},
 		})
-		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
 		markManagedCertificatesReady(t, ctx, c, nil)
 		require.NoError(t, c.Create(ctx, &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: "example-managed-om-server-ca", Namespace: managedTestNamespace},
@@ -399,7 +409,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		}))
 
 		failLeafSecretRead = true
-		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
 		assert.Equal(t, apistatus.PhaseFailed, status.Phase())
 		assert.Contains(t, status.Message(), "leaf secret read denied")
 		assert.Equal(t, metav1.ConditionFalse, condition.Status)
@@ -408,8 +418,8 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 
 	t.Run("renewal failure keeps the workflow OK and reports a false condition", func(t *testing.T) {
 		ctx := context.Background()
-		c := newManagedCertTestClient(t, fallback())
-		_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
+		c := newManagedCertTestClient(t, fallback(t))
+		_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		lastFailure := metav1.NewTime(time.Now().Add(-time.Hour))
 		markManagedCertificatesReady(t, ctx, c, func(cert *certmanagerv1.Certificate) {
 			cert.Status.LastFailureTime = &lastFailure
@@ -417,7 +427,7 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		issued := issuedCertificateSecret(t, managedTestNamespace, "example-managed-om-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 		require.NoError(t, c.Create(ctx, &issued))
 
-		status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
+		status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfgWithFallback, serverCertificateOptions(), managedTestLogger())
 		assert.True(t, status.IsOK())
 		assert.Equal(t, metav1.ConditionFalse, condition.Status)
 		assert.Equal(t, ReasonRenewalFailed, condition.Reason)
@@ -428,10 +438,10 @@ func TestManagedServerCertificateReadiness(t *testing.T) {
 		ctx := context.Background()
 		c := newManagedCertTestClient(t)
 
-		omStatus, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+		omStatus, _, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
 		assert.Equal(t, apistatus.PhasePending, omStatus.Phase())
 
-		backupStatus, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, backupServerCertificateOptions(), managedTestLogger())
+		backupStatus, _, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), &omv1.ManagedCertificate{}, backupServerCertificateOptions(), managedTestLogger())
 		assert.Equal(t, apistatus.PhasePending, backupStatus.Phase())
 
 		backupLeaf := getManagedCertificate(t, ctx, c, "example-managed-backup-cert")
@@ -477,7 +487,7 @@ func TestManagedServerCertificateWriteGenerationReadiness(t *testing.T) {
 
 	opts := serverCertificateOptions()
 	opts.DNSNames = []string{"old.example.com"}
-	_, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, opts, managedTestLogger())
+	_, _, _ = EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, opts, managedTestLogger())
 
 	leaf := getManagedCertificate(t, ctx, c, "example-managed-om-cert")
 	leaf.Generation = 1
@@ -496,7 +506,7 @@ func TestManagedServerCertificateWriteGenerationReadiness(t *testing.T) {
 	// Certificate to generation 2 with the new SAN.
 	cachedLeaf = leaf.DeepCopy()
 	opts.DNSNames = []string{"new.example.com"}
-	status, condition := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, opts, managedTestLogger())
+	status, condition, _ := EnsureServerCertificateAndCA(ctx, c, managedTestOM(), cfg, opts, managedTestLogger())
 	cachedLeaf = nil
 
 	persisted := getManagedCertificate(t, ctx, c, "example-managed-om-cert")

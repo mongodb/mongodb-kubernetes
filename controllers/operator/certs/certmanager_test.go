@@ -3,23 +3,29 @@ package certs
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -515,6 +521,78 @@ func TestInspectCertificateStatus(t *testing.T) {
 	}
 }
 
+func TestCertificateRenewals(t *testing.T) {
+	base := time.Now()
+	at := func(d time.Duration) *metav1.Time {
+		t := metav1.NewTime(base.Add(d))
+		return &t
+	}
+	leaf := func(name string, renewal, notAfter *metav1.Time) *certmanagerv1.Certificate {
+		return &certmanagerv1.Certificate{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Status: certmanagerv1.CertificateStatus{
+				RenewalTime: renewal,
+				NotAfter:    notAfter,
+			},
+		}
+	}
+	inspect := func(certs ...*certmanagerv1.Certificate) map[string]certInspection {
+		inspections := make(map[string]certInspection, len(certs))
+		for _, cert := range certs {
+			inspections[cert.Name] = inspectCertificateStatusAtGeneration(cert.Name, cert, 0)
+		}
+		return inspections
+	}
+
+	t.Run("server and client pick the earliest renewal", func(t *testing.T) {
+		serverLater := leaf("shard-0", at(48*time.Hour), at(96*time.Hour))
+		serverSoonest := leaf("config-0", at(24*time.Hour), at(72*time.Hour))
+		clusterfile := leaf("clusterfile", at(36*time.Hour), at(84*time.Hour))
+		agentSoonest := leaf("agent", at(12*time.Hour), at(60*time.Hour))
+		// The CA Certificate is fetched during the readiness inspection but is not a leaf,
+		// so even with the earliest time it must never be reported.
+		ca := leaf("mdb-server-ca", at(time.Hour), at(2*time.Hour))
+
+		required := []certToEnsure{
+			{certName: serverLater.Name, category: categoryServer},
+			{certName: serverSoonest.Name, category: categoryServer},
+			{certName: clusterfile.Name, category: categoryClient},
+			{certName: agentSoonest.Name, category: categoryClient},
+		}
+
+		got := certificateRenewals(required, inspect(serverLater, serverSoonest, clusterfile, agentSoonest, ca))
+		require.NotNil(t, got)
+		require.NotNil(t, got.Server)
+		require.NotNil(t, got.Client)
+		assert.Equal(t, serverSoonest.Name, got.Server.Name)
+		assert.Equal(t, at(24*time.Hour), got.Server.RenewalTime)
+		assert.Equal(t, at(72*time.Hour), got.Server.NotAfter)
+		assert.Equal(t, agentSoonest.Name, got.Client.Name)
+		assert.Equal(t, at(12*time.Hour), got.Client.RenewalTime)
+	})
+
+	t.Run("falls back to the earliest notAfter without a renewalTime", func(t *testing.T) {
+		serverLater := leaf("shard-0", nil, at(96*time.Hour))
+		serverSoonest := leaf("config-0", nil, at(72*time.Hour))
+		required := []certToEnsure{
+			{certName: serverLater.Name, category: categoryServer},
+			{certName: serverSoonest.Name, category: categoryServer},
+		}
+
+		got := certificateRenewals(required, inspect(serverLater, serverSoonest))
+		require.NotNil(t, got)
+		require.NotNil(t, got.Server)
+		assert.Equal(t, serverSoonest.Name, got.Server.Name)
+		assert.Nil(t, got.Server.RenewalTime)
+		assert.Equal(t, at(72*time.Hour), got.Server.NotAfter)
+		assert.Nil(t, got.Client, "no client certs means no client renewal")
+	})
+
+	t.Run("no leaves at all leaves the field nil", func(t *testing.T) {
+		assert.Nil(t, certificateRenewals(nil, nil))
+	})
+}
+
 func TestBuildDNSNamesExternalDomain(t *testing.T) {
 	ext := "example.com"
 	opts := Options{
@@ -782,4 +860,330 @@ func TestMemberClusterDNSNames(t *testing.T) {
 			"mrs-1-0.example.com",
 		}, names)
 	})
+}
+
+// managedCATestFixture creates the self-signed CA secrets cert-manager would write for a resource that
+// needs both server and client certs, and returns the owner and a function setting their CA certificates.
+func managedCATestFixture(t *testing.T, c kubernetesClient.Client) (*mdbv1.MongoDB, Options, func(serverCA, clientCA string)) {
+	ctx := context.Background()
+	owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		m.Spec.Security.Authentication = &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{mdbv1.AuthMode(util.X509)}, InternalCluster: util.X509}
+	})
+	require.True(t, owner.GetSecurity().RequiresX509ClientCerts())
+
+	setCAs := func(serverCA, clientCA string) {
+		for name, ca := range map[string]string{
+			managedCACertName(owner, categoryServer): serverCA,
+			managedCACertName(owner, categoryClient): clientCA,
+		} {
+			secret := corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: resNamespace},
+				Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte(ca)},
+			}
+			if err := c.CreateSecret(ctx, secret); err != nil {
+				require.NoError(t, c.UpdateSecret(ctx, secret))
+			}
+		}
+	}
+	return owner, Options{ResourceName: resName, CertSecretName: resName + "-cert", Namespace: resNamespace}, setCAs
+}
+
+func TestEnsureCAConfigMapFromIssuedSecret(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	serverCMKey := types.NamespacedName{Name: ManagedServerCABundleConfigMapName(resName), Namespace: resNamespace}
+	clientCMKey := types.NamespacedName{Name: ManagedClientCABundleConfigMapName(resName), Namespace: resNamespace}
+	serverCA1, serverCA2 := newTestCA(t, "server-ca-1"), newTestCA(t, "server-ca-2")
+	clientCA1 := newTestCA(t, "client-ca-1")
+
+	ensure := func(t *testing.T, c kubernetesClient.Client, owner CertificateOwner, opts Options, hasClientCerts bool) {
+		t.Helper()
+		status := EnsureCAConfigMapFromIssuedSecret(ctx, c, owner, []Options{opts}, hasClientCerts, log)
+		require.True(t, status.IsOK(), status.Message())
+	}
+
+	t.Run("first write stores the bundle under its hash and latestHash, for both categories", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		setCAs(serverCA1.pem, clientCA1.pem)
+
+		ensure(t, c, owner, opts, true)
+
+		serverCM, err := c.GetConfigMap(ctx, serverCMKey)
+		require.NoError(t, err)
+		// the server bundle also keeps a stable ca-pem copy for client applications, the client bundle does not
+		serverHash, clientHash := hashOfBundle(serverCA1.pem), hashOfBundle(clientCA1.pem)
+		assert.Equal(t, map[string]string{serverHash: serverCA1.pem, util.LatestHashSecretKey: serverHash, tls.CAConfigMapKey: serverCA1.pem}, serverCM.Data)
+		clientCM, err := c.GetConfigMap(ctx, clientCMKey)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{clientHash: clientCA1.pem, util.LatestHashSecretKey: clientHash}, clientCM.Data)
+
+		readServer, readClient, err := ReadManagedCABundleHashes(ctx, c, resName, resNamespace, true)
+		require.NoError(t, err)
+		assert.Equal(t, serverHash, readServer)
+		assert.Equal(t, clientHash, readClient)
+	})
+
+	t.Run("no client bundle without client certs", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		setCAs(serverCA1.pem, clientCA1.pem)
+
+		ensure(t, c, owner, opts, false)
+		_, err := c.GetConfigMap(ctx, clientCMKey)
+		assert.True(t, apiErrors.IsNotFound(err))
+
+		readServer, readClient, err := ReadManagedCABundleHashes(ctx, c, resName, resNamespace, false)
+		require.NoError(t, err)
+		assert.Equal(t, hashOfBundle(serverCA1.pem), readServer)
+		assert.Equal(t, "", readClient)
+	})
+
+	t.Run("a changed bundle keeps the previous one", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		setCAs(serverCA1.pem, clientCA1.pem)
+		ensure(t, c, owner, opts, true)
+
+		// rotate the server CA only; the previous CA is retained next to the new one
+		setCAs(serverCA2.pem, clientCA1.pem)
+		ensure(t, c, owner, opts, true)
+		readServer, readClient, err := ReadManagedCABundleHashes(ctx, c, resName, resNamespace, true)
+		require.NoError(t, err)
+		both := expectedBundle(serverCA1, serverCA2)
+		assert.Equal(t, hashOfBundle(both), readServer)
+		assert.Equal(t, hashOfBundle(clientCA1.pem), readClient)
+
+		serverCM, err := c.GetConfigMap(ctx, serverCMKey)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			hashOfBundle(both):          both,
+			util.LatestHashSecretKey:    hashOfBundle(both),
+			util.PreviousHashSecretKey:  hashOfBundle(serverCA1.pem),
+			hashOfBundle(serverCA1.pem): serverCA1.pem,
+			tls.CAConfigMapKey:          both,
+		}, serverCM.Data)
+		clientCM, err := c.GetConfigMap(ctx, clientCMKey)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{hashOfBundle(clientCA1.pem): clientCA1.pem, util.LatestHashSecretKey: hashOfBundle(clientCA1.pem)}, clientCM.Data)
+	})
+
+	t.Run("unchanged bundle does not write the ConfigMap", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		setCAs(serverCA1.pem, clientCA1.pem)
+		ensure(t, c, owner, opts, true)
+		setCAs(serverCA2.pem, clientCA1.pem)
+		ensure(t, c, owner, opts, true)
+
+		before, err := c.GetConfigMap(ctx, serverCMKey)
+		require.NoError(t, err)
+		beforeClient, err := c.GetConfigMap(ctx, clientCMKey)
+		require.NoError(t, err)
+
+		ensure(t, c, owner, opts, true)
+
+		after, err := c.GetConfigMap(ctx, serverCMKey)
+		require.NoError(t, err)
+		afterClient, err := c.GetConfigMap(ctx, clientCMKey)
+		require.NoError(t, err)
+		assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "ConfigMap must not be updated")
+		assert.Equal(t, beforeClient.ResourceVersion, afterClient.ResourceVersion, "ConfigMap must not be updated")
+		assert.Equal(t, before.Data, after.Data, "the previous bundle is kept by a no-op reconcile")
+	})
+
+	t.Run("not ready CA secret does not write anything", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, _ := managedCATestFixture(t, c)
+		status := EnsureCAConfigMapFromIssuedSecret(ctx, c, owner, []Options{opts}, true, log)
+		assert.False(t, status.IsOK())
+		_, err := c.GetConfigMap(ctx, serverCMKey)
+		assert.True(t, apiErrors.IsNotFound(err))
+	})
+}
+
+func TestPruneAnnotationAggregation(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	serverCA1, serverCA2 := newTestCA(t, "server-ca-1"), newTestCA(t, "server-ca-2")
+	clientCA1, clientCA2 := newTestCA(t, "client-ca-1"), newTestCA(t, "client-ca-2")
+
+	ensure := func(t *testing.T, c kubernetesClient.Client, owner CertificateOwner, opts Options) (string, bool) {
+		t.Helper()
+		message, pruneApplied, status := ensureCAConfigMapsFromIssuedSecret(ctx, c, owner, []Options{opts}, true, log)
+		require.True(t, status.IsOK(), status.Message())
+		return message, pruneApplied
+	}
+
+	t.Run("a retained CA is reported until a prune is requested", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.False(t, pruneApplied)
+		assert.Contains(t, message, "Previous server CA retained in the trust bundle")
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+		assert.Less(t, strings.Index(message, "Previous server CA"), strings.Index(message, "Previous client CA"))
+	})
+
+	t.Run("true fulfils the annotation once no leaf is signed by the previous CAs", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "true"}
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.True(t, pruneApplied)
+		assert.Empty(t, message)
+	})
+
+	t.Run("a leaf still signed by the previous CA refuses the prune and keeps the annotation", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "true"}
+		// the clusterFile certificate has not been reissued yet, it is still signed by the previous client CA
+		setSecret(t, c, opts.InternalClusterSecretName, map[string][]byte{corev1.TLSCertKey: clientCA1.issueLeaf(t, "clusterfile")})
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.False(t, pruneApplied)
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+		assert.Contains(t, message, "The previous client CA was not pruned: issued certificates are still signed by it.")
+		assert.NotContains(t, message, "Previous server CA retained", "the server CA was pruned")
+	})
+
+	t.Run("nothing retained fulfils the annotation", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		setCAs(serverCA1.pem, clientCA1.pem)
+		ensure(t, c, owner, opts)
+
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "true"}
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.True(t, pruneApplied)
+		assert.Empty(t, message)
+	})
+
+	t.Run("a configured additionalTrustedCAs entry is not reported as a retained CA", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		owner, opts, setCAs := managedCATestFixture(t, c)
+		additionalCA := newTestCA(t, "additional-ca")
+		setConfigMap(t, c, "additional-ca", map[string]string{"ca.crt": additionalCA.pem})
+		owner.Spec.Security.ManagedCertificate.Server = &mdbv1.CertificateConfig{
+			AdditionalTrustedCAs: []mdbv1.CARef{{Name: "additional-ca", Kind: "ConfigMap", Key: "ca.crt"}},
+		}
+		setCAs(serverCA1.pem, clientCA1.pem)
+
+		// the second reconcile reads back the bundle that already has the additional CA
+		ensure(t, c, owner, opts)
+		message, _ := ensure(t, c, owner, opts)
+
+		assert.Empty(t, message)
+	})
+
+	t.Run("server targets the server category only", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "server"}
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.True(t, pruneApplied)
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+		assert.NotContains(t, message, "Previous server CA retained", "the targeted server CA was pruned")
+	})
+
+	t.Run("an unknown annotation value is left untouched", func(t *testing.T) {
+		owner, opts, c := rotatedFixture(t, serverCA1, serverCA2, clientCA1, clientCA2)
+		owner.Annotations = map[string]string{util.PrunePreviousCAAnnotation: "yes"}
+
+		message, pruneApplied := ensure(t, c, owner, opts)
+
+		assert.False(t, pruneApplied)
+		assert.Contains(t, message, "Previous server CA retained in the trust bundle")
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+	})
+}
+
+func TestCertificatesReadyMessage(t *testing.T) {
+	t.Run("no retained CA keeps the plain message", func(t *testing.T) {
+		assert.Equal(t, "", previousCASentence(categoryServer, false, false))
+		assert.Equal(t, "All operator-managed certificates are issued and up to date", certificatesReadyMessage(""))
+	})
+
+	t.Run("a retained CA names the category and how to prune it", func(t *testing.T) {
+		message := certificatesReadyMessage(previousCASentence(categoryServer, true, false))
+
+		assert.Equal(t,
+			"All operator-managed certificates are issued and up to date. Previous server CA retained in the trust bundle; annotate the resource with mongodb.com/prune-previous-ca=server (or true) once all members and clients use the new CA.",
+			message)
+	})
+
+	t.Run("a refused prune says issued certificates are still signed by the previous CA", func(t *testing.T) {
+		message := certificatesReadyMessage(previousCASentence(categoryClient, true, true))
+
+		assert.Contains(t, message, "Previous client CA retained in the trust bundle")
+		assert.Contains(t, message, util.PrunePreviousCAAnnotation+"=client (or true)")
+		assert.Contains(t, message, "The previous client CA was not pruned: issued certificates are still signed by it.")
+	})
+}
+
+func TestBundleDataWithPrevious(t *testing.T) {
+	latest, previous := util.LatestHashSecretKey, util.PreviousHashSecretKey
+
+	tests := []struct {
+		name     string
+		existing map[string]string
+		hash     string
+		bundle   string
+		expected map[string]string
+	}{
+		{
+			name:     "no existing data",
+			hash:     "B",
+			bundle:   "bundle-b",
+			expected: map[string]string{"B": "bundle-b", latest: "B"},
+		},
+		{
+			name:     "existing data without latestHash (legacy layout) is dropped",
+			existing: map[string]string{"ca-pem": "legacy"},
+			hash:     "B",
+			bundle:   "bundle-b",
+			expected: map[string]string{"B": "bundle-b", latest: "B"},
+		},
+		{
+			name:     "rotation keeps the previous bundle",
+			existing: map[string]string{"A": "bundle-a", latest: "A"},
+			hash:     "B",
+			bundle:   "bundle-b",
+			expected: map[string]string{"B": "bundle-b", latest: "B", previous: "A", "A": "bundle-a"},
+		},
+		{
+			name:     "rotation drops the bundle older than the previous one",
+			existing: map[string]string{"B": "bundle-b", latest: "B", previous: "A", "A": "bundle-a"},
+			hash:     "C",
+			bundle:   "bundle-c",
+			expected: map[string]string{"C": "bundle-c", latest: "C", previous: "B", "B": "bundle-b"},
+		},
+		{
+			name:     "rotating back to the previous bundle",
+			existing: map[string]string{"B": "bundle-b", latest: "B", previous: "A", "A": "bundle-a"},
+			hash:     "A",
+			bundle:   "bundle-a",
+			expected: map[string]string{"A": "bundle-a", latest: "A", previous: "B", "B": "bundle-b"},
+		},
+		{
+			name:     "no rotation keeps the existing previous bundle",
+			existing: map[string]string{"B": "bundle-b", latest: "B", previous: "A", "A": "bundle-a"},
+			hash:     "B",
+			bundle:   "bundle-b",
+			expected: map[string]string{"B": "bundle-b", latest: "B", previous: "A", "A": "bundle-a"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			original := maps.Clone(tc.existing)
+			assert.Equal(t, tc.expected, bundleDataWithPrevious(tc.existing, tc.hash, tc.bundle))
+			assert.Equal(t, original, tc.existing, "the existing data must not be modified")
+		})
+	}
 }

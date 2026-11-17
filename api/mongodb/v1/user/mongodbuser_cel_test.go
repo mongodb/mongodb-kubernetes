@@ -2,7 +2,6 @@ package user_test
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,10 +12,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
-
-func TestMain(m *testing.M) {
-	os.Exit(env.RunShared(m, env.WithCRDs("mongodb.com_mongodbusers.yaml")))
-}
 
 func TestMongoDBUserClientCertificateCELValidation(t *testing.T) {
 	ctx := context.Background()

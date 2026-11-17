@@ -343,6 +343,11 @@ const (
 	MigrationDryRunAnnotation    = "mongodb.com/migration-dry-run"
 	MigrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
 
+	// PrunePreviousCAAnnotation asks the operator to drop the CAs that it retains in the managed CA
+	// trust bundles from previously published bundles after a CA rotation. Accepted values are "true"
+	// (both categories), "server" or "client" (only that category); any other value is ignored.
+	PrunePreviousCAAnnotation = "mongodb.com/prune-previous-ca"
+
 	// DisableReconciliationAnnotation when set to "true" on a CR, short-circuits
 	// the reconciler: it returns Result{} + nil without mutating any owned objects.
 	DisableReconciliationAnnotation = "mongodb.com/disable-reconciliation"

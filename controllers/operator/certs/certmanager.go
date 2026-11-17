@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,12 +25,12 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -71,7 +72,14 @@ type CertificateOwner interface {
 	// GetSecurity exposes security.managedCertificate, internal-cluster/agent auth
 	// modes, the derived secret names and the CA ConfigMap name.
 	GetSecurity() *mdbv1.Security
+	// SetCertificateRenewals records the next automatic renewal of the operator-managed
+	// leaf certificates on the resource status.
+	SetCertificateRenewals(*mdbstatus.CertificateRenewalStatus)
 }
+
+// selfSignedCADuration is the requested lifetime of the operator's self-signed root CA
+// certificate.
+const selfSignedCADuration = 5 * 365 * 24 * time.Hour
 
 // certificateOwnerReferences returns the owner references of the objects issued for res. An adapter
 // can name certificates after one resource (e.g. the AppDB) while another (the Ops Manager
@@ -127,6 +135,9 @@ type certToEnsure struct {
 	certName    string
 	spec        certmanagerv1.CertificateSpec
 	annotations map[string]string
+	// category is the issuer category the leaf belongs to (server or client). The CA
+	// Certificates are not part of certToEnsure, so every entry here is a leaf.
+	category certCategory
 }
 
 // coveredMembersAnnotation stores how many members' SANs the operator-managed member/server
@@ -186,22 +197,24 @@ func signerIssuerRef(res CertificateOwner, cat certCategory) cmmeta.ObjectRefere
 // are passed per component, one for RS and many for sharded deployment (mongos, config server, each shard).
 // The certificates are created using cert-manager project and issuer is either user configured
 // or operator managed self signed CA if user has not configured. It also waits for all certs to
-// be ready and eventually populates the per category (client/server) CA configmap.
+// be ready and eventually populates the per category (client/server) CA configmap. The returned
+// bool reports that the mongodb.com/prune-previous-ca annotation has been fulfilled (every category
+// it targets has nothing retained any more), so the caller removes it.
 func EnsureCertificatesAndCA(
 	ctx context.Context,
 	c kubernetesClient.Client,
 	res CertificateOwner,
 	allOpts []Options,
 	log *zap.SugaredLogger,
-) (workflow.Status, metav1.Condition) {
+) (workflow.Status, metav1.Condition, bool) {
 	if len(allOpts) == 0 {
-		return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
+		return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, "Operator-managed certificates are not required for this resource"), false
 	}
 
 	// Validate the computed subjects before issuing anything, the agent subject must not match
 	// the membership subject on O and OU attributes.
 	if status := verifyAgentSubjectDistinct(res); !status.IsOK() {
-		return status, IssuanceFailedCondition(status.Message())
+		return status, IssuanceFailedCondition(status.Message()), false
 	}
 
 	hasClientCerts := res.GetSecurity().RequiresX509ClientCerts()
@@ -218,21 +231,24 @@ func EnsureCertificatesAndCA(
 
 	renewalFailures, status, condition := ensureCertificatesReady(ctx, c, res, required, hasClientCerts)
 	if !status.IsOK() {
-		return status, condition
+		return status, condition, false
 	}
 
 	// the member cert (server-signed) and the clusterFile cert (client-signed) must carry
 	// the same membership subject
 	if status := verifyMembershipSubjects(ctx, c, res, allOpts); !status.IsOK() {
-		return status, IssuanceFailedCondition(status.Message())
+		return status, IssuanceFailedCondition(status.Message()), false
 	}
 
-	// All certs Ready, populate the per-category CA trust bundle.
-	if status := EnsureCAConfigMapFromIssuedSecret(ctx, c, res, allOpts[0], hasClientCerts, log); !status.IsOK() {
-		return status, IssuanceFailedCondition(status.Message())
+	// All certs Ready, populate the per-category CA trust bundle. Callers read the resulting bundle
+	// hashes with ReadManagedCABundleHashes when they build the automation config CA paths.
+	message, pruneApplied, status := ensureCAConfigMapsFromIssuedSecret(ctx, c, res, allOpts, hasClientCerts, log)
+	if !status.IsOK() {
+		return status, IssuanceFailedCondition(status.Message()), false
 	}
 
-	return certificatesResult(renewalFailures)
+	status, condition = certificatesResult(renewalFailures, message)
+	return status, condition, pruneApplied
 }
 
 // ensureCertificatesReady ensures the self-signed CA(s) when no user issuer is configured and the
@@ -284,11 +300,13 @@ func ensureCertificatesReady(
 	// that are not ready and whose issuance is actively failing (so we can surface the error),
 	// and ready ones whose renewal is failing (a soft warning).
 	var notReady, issuanceFailures, renewalFailures []string
+	inspections := make(map[string]certInspection, len(writtenCertificates))
 	for _, cert := range writtenCertificates {
 		insp, status := inspectCertificateAtGeneration(ctx, c, res.GetNamespace(), cert.name, cert.generation)
 		if !status.IsOK() {
 			return nil, status, IssuanceFailedCondition(status.Message())
 		}
+		inspections[cert.name] = insp
 		switch {
 		case !insp.ready:
 			notReady = append(notReady, cert.name)
@@ -313,6 +331,11 @@ func ensureCertificatesReady(
 		return nil, workflow.Pending("%s", msg), CertificatesReadyCondition(metav1.ConditionFalse, ReasonCertificatesIssuing, msg)
 	}
 
+	// Every leaf is issued, so show when cert-manager will renew them. The CA Certificates are
+	// deliberately not included: they are not in required, and their rotation is reported by the
+	// CertificatesReady condition instead.
+	res.SetCertificateRenewals(certificateRenewals(required, inspections))
+
 	// A Ready condition and the issued Secret are written independently. Require every
 	// leaf's output Secret regardless of whether its CA is self-signed or user provided,
 	// so a deleted/not-yet-written leaf cannot be reported as current.
@@ -329,7 +352,7 @@ func ensureCertificatesReady(
 }
 
 // certificatesResult is the final CertificatesReady condition once all certificates are ready.
-func certificatesResult(renewalFailures []string) (workflow.Status, metav1.Condition) {
+func certificatesResult(renewalFailures []string, message string) (workflow.Status, metav1.Condition) {
 	// the certificates that are failing renewals must be reflected in the status condition. This shouldn't set
 	// the overall resource phase to not ready because even though the renewal failed the already existing secret
 	// would still be valid
@@ -338,7 +361,34 @@ func certificatesResult(renewalFailures []string) (workflow.Status, metav1.Condi
 		return workflow.OK(), CertificatesReadyCondition(metav1.ConditionFalse, ReasonRenewalFailed, msg)
 	}
 
-	return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, "All operator-managed certificates are issued and up to date")
+	return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, certificatesReadyMessage(message))
+}
+
+// certificatesReadyMessage is the CertificatesReady=True message. It appends the per-category
+// details: which previous CAs are still retained in the trust bundles and why a requested prune was
+// refused, if any.
+func certificatesReadyMessage(message string) string {
+	const base = "All operator-managed certificates are issued and up to date"
+	if message == "" {
+		return base
+	}
+
+	return base + ". " + message
+}
+
+// previousCASentence tells the user that a category still retains its previous CA, how to prune it
+// and, when a prune was requested, why it did not happen. Empty when nothing is retained.
+func previousCASentence(cat certCategory, retained, refused bool) string {
+	if !retained {
+		return ""
+	}
+	sentence := fmt.Sprintf(
+		"Previous %s CA retained in the trust bundle; annotate the resource with %s=%s (or true) once all members and clients use the new CA.",
+		cat, util.PrunePreviousCAAnnotation, cat)
+	if refused {
+		sentence += fmt.Sprintf(" The previous %s CA was not pruned: issued certificates are still signed by it.", cat)
+	}
+	return sentence
 }
 
 // requireIssuedSecrets checks that cert-manager wrote the output Secret of every issued leaf
@@ -394,6 +444,8 @@ func IssuanceFailedCondition(message string) metav1.Condition {
 // certInspection captures the readiness and failure state of a single Certificate.
 type certInspection struct {
 	name string
+	// certificate is the fetched Certificate, nil when it does not exist yet.
+	certificate *certmanagerv1.Certificate
 	// ready is true when cert-manager has issued a usable cert for the current Certificate spec.
 	ready bool
 	// renewalFailed is true when the cert is ready but a renewal attempt is failing. The
@@ -427,8 +479,9 @@ func inspectCertificateAtGeneration(ctx context.Context, c kubernetesClient.Clie
 	return inspectCertificateStatusAtGeneration(name, cert, writtenGeneration), workflow.OK()
 }
 
+// inspectCertificateStatusAtGeneration classifies a fetched Certificate's readiness and failure state.
 func inspectCertificateStatusAtGeneration(name string, cert *certmanagerv1.Certificate, writtenGeneration int64) certInspection {
-	insp := certInspection{name: name, ready: certificateReadyAtGeneration(cert, writtenGeneration)}
+	insp := certInspection{name: name, certificate: cert, ready: certificateReadyAtGeneration(cert, writtenGeneration)}
 	// cert-manager sets LastFailureTime when an issuance attempt fails and clears it on the
 	// next success, so a non-nil value means the most recent attempt failed and has not yet
 	// been cleared. Surface it whether or not the cert is currently ready.
@@ -448,6 +501,66 @@ func inspectCertificateStatusAtGeneration(name string, cert *certmanagerv1.Certi
 		}
 	}
 	return insp
+}
+
+// certificateRenewals selects, per category, the leaf Certificate that cert-manager renews
+// soonest. Only the leaves described by required are considered, so the operator-managed CA
+// Certificates never show up here. The result is nil when there is no leaf to report.
+func certificateRenewals(required []certToEnsure, inspections map[string]certInspection) *mdbstatus.CertificateRenewalStatus {
+	leavesByCategory := map[certCategory][]*certmanagerv1.Certificate{}
+	for _, cert := range required {
+		insp, ok := inspections[cert.certName]
+		if !ok || insp.certificate == nil {
+			continue
+		}
+		leavesByCategory[cert.category] = append(leavesByCategory[cert.category], insp.certificate)
+	}
+
+	renewals := &mdbstatus.CertificateRenewalStatus{
+		Server: soonestRenewal(leavesByCategory[categoryServer]),
+		Client: soonestRenewal(leavesByCategory[categoryClient]),
+	}
+	if renewals.Server == nil && renewals.Client == nil {
+		return nil
+	}
+	return renewals
+}
+
+// soonestRenewal picks the leaf with the earliest status.renewalTime. Until cert-manager sets
+// renewalTime on any of them, it falls back to the earliest status.notAfter.
+func soonestRenewal(leaves []*certmanagerv1.Certificate) *mdbstatus.CategoryRenewal {
+	chosen := soonestBy(leaves, func(c *certmanagerv1.Certificate) *metav1.Time {
+		return c.Status.RenewalTime
+	})
+	if chosen == nil {
+		chosen = soonestBy(leaves, func(c *certmanagerv1.Certificate) *metav1.Time {
+			return c.Status.NotAfter
+		})
+	}
+	if chosen == nil {
+		return nil
+	}
+	return &mdbstatus.CategoryRenewal{
+		Name:        chosen.Name,
+		NotAfter:    chosen.Status.NotAfter,
+		RenewalTime: chosen.Status.RenewalTime,
+	}
+}
+
+// soonestBy returns the certificate with the earliest non-nil time from at.
+func soonestBy(leaves []*certmanagerv1.Certificate, at func(*certmanagerv1.Certificate) *metav1.Time) *certmanagerv1.Certificate {
+	var chosen *certmanagerv1.Certificate
+	var chosenTime *metav1.Time
+	for _, cert := range leaves {
+		t := at(cert)
+		if t == nil {
+			continue
+		}
+		if chosenTime == nil || t.Before(chosenTime) {
+			chosen, chosenTime = cert, t
+		}
+	}
+	return chosen
 }
 
 // componentCertificates returns the per-component Certificates the operator must issue
@@ -507,6 +620,7 @@ func componentCertificates(ctx context.Context, c kubernetesClient.Client, res C
 			certName:    opts.CertSecretName,
 			spec:        certSpec(res, categoryServer, opts.CertSecretName, dnsNames, memberCN, memberSub, memberUsages),
 			annotations: memberCertAnnotations,
+			category:    categoryServer,
 		},
 	}
 
@@ -526,6 +640,7 @@ func componentCertificates(ctx context.Context, c kubernetesClient.Client, res C
 		required = append(required, certToEnsure{
 			certName: opts.InternalClusterSecretName,
 			spec:     certSpec(res, categoryClient, opts.InternalClusterSecretName, nil, cn, sub, clientAuthCertUsages),
+			category: categoryClient,
 		})
 	}
 
@@ -544,6 +659,7 @@ func agentCertificate(res CertificateOwner) (certToEnsure, bool) {
 	return certToEnsure{
 		certName: name,
 		spec:     certSpec(res, categoryClient, name, nil, cn, sub, clientAuthCertUsages),
+		category: categoryClient,
 	}, true
 }
 
@@ -829,6 +945,10 @@ func ensureSelfSignedCA(ctx context.Context, c kubernetesClient.Client, res Cert
 			SecretName: managedCACertName(res, cat),
 			CommonName: fmt.Sprintf("%s-%s-ca", res.GetName(), cat),
 			IssuerRef:  cmmeta.ObjectReference{Name: selfSignedIssuerName(res, cat), Kind: certmanagerv1.IssuerKind},
+			Duration:   &metav1.Duration{Duration: selfSignedCADuration},
+			PrivateKey: &certmanagerv1.CertificatePrivateKey{
+				RotationPolicy: certmanagerv1.RotationPolicyAlways,
+			},
 		},
 	}
 	generation, status := ensureCertificate(ctx, c, res, caCert)
@@ -882,60 +1002,96 @@ func ensureIssuer(ctx context.Context, c kubernetesClient.Client, res Certificat
 
 // EnsureCAConfigMapFromIssuedSecret writes the operator-owned CA ConfigMaps that are later mounted to
 // workload pods. Each per-category trust bundle lives in its own ConfigMap wired to two distinct
-// mongod config fields, net.tls.CAFile (server CA) and net.tls.clsuterCAFile (client CA).
+// mongod config fields, net.tls.CAFile (server CA) and net.tls.clusterCAFile (client CA).
 // Each category's CA is the user issuer's CA (issued secret's ca.crt, or the category's `ca` input
 // (server/client.ca) when the issuer emits none) OR that category's operator self-signed CA cert,
-// plus any `additionalTrustedCAs` for that category.
+// plus the previous CA kept after a CA rotation until it is pruned, plus any `additionalTrustedCAs`
+// for that category, see ensureCategoryBundle.
 func EnsureCAConfigMapFromIssuedSecret(
 	ctx context.Context,
 	c kubernetesClient.Client,
 	res CertificateOwner,
-	opts Options,
+	allOpts []Options,
 	hasClientCerts bool,
 	log *zap.SugaredLogger,
 ) workflow.Status {
-	serverCA, status := resolveCategoryCA(ctx, c, res, categoryServer, opts.CertSecretName)
-	if !status.IsOK() {
-		return status
-	}
-	// concatenate additionalTrustedCAs
-	serverBundle, status := categoryBundle(ctx, c, res, categoryServer, serverCA)
-	if !status.IsOK() {
-		return status
-	}
-	serverCM := configmap.Builder().
-		SetName(ManagedServerCABundleConfigMapName(res.GetName())).
-		SetNamespace(res.GetNamespace()).
-		SetOwnerReferences(certificateOwnerReferences(res)).
-		SetDataField(tls.CAConfigMapKey, serverBundle).
-		Build()
-	if err := configmap.CreateOrUpdate(ctx, c, serverCM); err != nil {
-		return workflow.Failed(err)
+	_, _, status := ensureCAConfigMapsFromIssuedSecret(ctx, c, res, allOpts, hasClientCerts, log)
+	return status
+}
+
+// ensureCAConfigMapsFromIssuedSecret ensures the CA trust bundles and returns the CertificatesReady
+// detail for what happened to the previous CAs, plus whether the prune annotation has been applied.
+func ensureCAConfigMapsFromIssuedSecret(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	res CertificateOwner,
+	allOpts []Options,
+	hasClientCerts bool,
+	log *zap.SugaredLogger,
+) (string, bool, workflow.Status) {
+	categories := []certCategory{categoryServer}
+	if hasClientCerts {
+		categories = append(categories, categoryClient)
 	}
 
-	if hasClientCerts {
-		clientCA, status := resolveCategoryCA(ctx, c, res, categoryClient, clientIssuedSecretName(res, opts))
-		if !status.IsOK() {
-			return status
+	var details []string
+	pruneApplied := pruneRequested(res, categoryServer) || pruneRequested(res, categoryClient)
+	for _, cat := range categories {
+		previousRetained, err := ensureCategoryBundle(ctx, c, res, cat, allOpts, defaultCABundleTarget(res, cat))
+		if err != nil {
+			return "", false, workflow.Failed(err)
 		}
-		// concatenate additionalTrustedCAs
-		clientBundle, status := categoryBundle(ctx, c, res, categoryClient, clientCA)
-		if !status.IsOK() {
-			return status
+		refused := pruneRequested(res, cat) && previousRetained
+		if sentence := previousCASentence(cat, previousRetained, refused); sentence != "" {
+			details = append(details, sentence)
 		}
-		clientCM := configmap.Builder().
-			SetName(ManagedClientCABundleConfigMapName(res.GetName())).
-			SetNamespace(res.GetNamespace()).
-			SetOwnerReferences(certificateOwnerReferences(res)).
-			SetDataField(tls.ClusterCAConfigMapKey, clientBundle).
-			Build()
-		if err := configmap.CreateOrUpdate(ctx, c, clientCM); err != nil {
-			return workflow.Failed(err)
-		}
+		// a refused category still retains its previous CA, so the annotation stays for a retry
+		pruneApplied = pruneApplied && !refused
 	}
 
 	log.Debugf("Populated operator-managed CA ConfigMaps for %s (server always; client: %t)", res.GetName(), hasClientCerts)
-	return workflow.OK()
+	return strings.Join(details, " "), pruneApplied, workflow.OK()
+}
+
+// ReadManagedCABundleHashes returns the hashes of the CA bundles currently published in the
+// operator-managed CA ConfigMaps (their latestHash key).
+func ReadManagedCABundleHashes(ctx context.Context, getter configmap.Getter, resourceName, namespace string, hasClientCerts bool) (string, string, error) {
+	var serverCAHash, clientCAHash string
+	var err error
+
+	if serverCAHash, err = configmap.ReadKey(ctx, getter, util.LatestHashSecretKey, kube.ObjectKey(namespace, ManagedServerCABundleConfigMapName(resourceName))); err != nil {
+		return "", "", err
+	}
+
+	if hasClientCerts {
+		if clientCAHash, err = configmap.ReadKey(ctx, getter, util.LatestHashSecretKey, kube.ObjectKey(namespace, ManagedClientCABundleConfigMapName(resourceName))); err != nil {
+			return "", "", err
+		}
+	}
+
+	return serverCAHash, clientCAHash, nil
+}
+
+// bundleDataWithPrevious returns the ConfigMap data for a bundle: the bundle under its hash, the
+// latestHash key and, after a change, the previous bundle under its hash with a previousHash key.
+func bundleDataWithPrevious(existing map[string]string, hash, bundle string) map[string]string {
+	data := map[string]string{hash: bundle, util.LatestHashSecretKey: hash}
+
+	oldHash, ok := existing[util.LatestHashSecretKey]
+	if !ok {
+		return data
+	}
+	if oldHash == hash {
+		// no rotation, keep whatever previous bundle is there
+		data = maps.Clone(existing)
+		data[hash] = bundle
+		return data
+	}
+	if oldBundle, ok := existing[oldHash]; ok {
+		data[util.PreviousHashSecretKey] = oldHash
+		data[oldHash] = oldBundle
+	}
+	return data
 }
 
 // resolveCategoryCA returns the primary CA cert for a category's trust bundle: the
@@ -952,24 +1108,6 @@ func resolveCategoryCA(
 		return readSelfSignedCACert(ctx, c, res, cat)
 	}
 	return resolveUserCA(ctx, c, res, cat, issuedSecretName)
-}
-
-// categoryBundle concatenates a category's primary CA with any additionalTrustedCAs.
-// Every PEM block is newline-terminated so the concatenation stays a valid bundle.
-func categoryBundle(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cat certCategory, primaryCA string) (string, workflow.Status) {
-	bundle := strings.TrimRight(primaryCA, "\n") + "\n"
-	cfg := certCategoryConfig(res, cat)
-	if cfg == nil {
-		return bundle, workflow.OK()
-	}
-	for _, src := range cfg.AdditionalTrustedCAs {
-		ca, status := readCASource(ctx, c, res, src)
-		if !status.IsOK() {
-			return "", status
-		}
-		bundle += strings.TrimRight(ca, "\n") + "\n"
-	}
-	return bundle, workflow.OK()
 }
 
 // resolveUserCA returns the CA that verifies a category's certs when signed by a user
@@ -1023,20 +1161,6 @@ func readCASource(ctx context.Context, c kubernetesClient.Client, res Certificat
 		return v, workflow.OK()
 	}
 	return "", workflow.Failed(xerrors.Errorf("CA ConfigMap %q has no data under key %q", src.Name, src.Key))
-}
-
-// clientIssuedSecretName returns the name of a client-category issued leaf secret to read
-// the client issuer's ca.crt from (the clusterFile secret, else the agent secret). Only
-// meaningful when the resource has client certs.
-func clientIssuedSecretName(res CertificateOwner, opts Options) string {
-	sec := res.GetSecurity()
-	if sec.GetInternalClusterAuthenticationMode() == util.X509 && opts.InternalClusterSecretName != "" {
-		return opts.InternalClusterSecretName
-	}
-	if sec.GetAgentMechanism("") == util.X509 {
-		return sec.AgentClientCertificateSecretName(res.GetName())
-	}
-	return ""
 }
 
 // readSelfSignedCACert reads a category's operator-managed self-signed CA certificate

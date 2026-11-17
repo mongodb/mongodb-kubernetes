@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,9 +32,9 @@ func TestManagedIssuanceScopeOwnership(t *testing.T) {
 	om := managedTestOM()
 	c := newManagedCertTestClient(t)
 
-	_, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
-	_, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, backupServerCertificateOptions(), managedTestLogger())
-	_, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	_, _, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, serverCertificateOptions(), managedTestLogger())
+	_, _, _ = EnsureServerCertificateAndCA(ctx, c, om, &omv1.ManagedCertificate{}, backupServerCertificateOptions(), managedTestLogger())
+	_, _, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
 
 	certs := listManagedCertificates(t, ctx, c)
 	require.NotEmpty(t, certs)
@@ -108,7 +109,7 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 	assert.Same(t, om.Spec.AppDB.GetSecurity(), owner.GetSecurity())
 
 	c := newManagedCertTestClient(t)
-	status, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	status, _, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
 	assert.False(t, status.IsOK(), "the certificates have not been reported ready")
 
 	leaf := getManagedCertificate(t, ctx, c, "example-db-managed-cert")
@@ -119,11 +120,11 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 	assert.False(t, leaf.Spec.IsCA)
 	assertOwnedByManagedTestOM(t, leaf.OwnerReferences)
 
-	serverCA := getManagedCertificate(t, ctx, c, "example-db-server-ca")
-	assert.True(t, serverCA.Spec.IsCA)
-	assert.Equal(t, "example-db-server-ca", serverCA.Spec.SecretName)
-	assert.Equal(t, "example-db-server-selfsigned", serverCA.Spec.IssuerRef.Name)
-	assertOwnedByManagedTestOM(t, serverCA.OwnerReferences)
+	serverCACert := getManagedCertificate(t, ctx, c, "example-db-server-ca")
+	assert.True(t, serverCACert.Spec.IsCA)
+	assert.Equal(t, "example-db-server-ca", serverCACert.Spec.SecretName)
+	assert.Equal(t, "example-db-server-selfsigned", serverCACert.Spec.IssuerRef.Name)
+	assertOwnedByManagedTestOM(t, serverCACert.OwnerReferences)
 
 	certNames := make([]string, 0)
 	for _, cert := range listManagedCertificates(t, ctx, c) {
@@ -146,26 +147,69 @@ func TestManagedAppDBCertificateIdentity(t *testing.T) {
 		assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not issue client Secret %s", name)
 	}
 	markManagedCertificatesReady(t, ctx, c, nil)
-	const serverCAPEM = "-----BEGIN CERTIFICATE-----\nAPP-DB-SERVER-CA\n-----END CERTIFICATE-----\n"
+	serverCA := newTestCA(t, "app-db-server-ca")
 	require.NoError(t, c.Create(ctx, &corev1.Secret{
 		ObjectMeta: v1.ObjectMeta{Name: "example-db-server-ca", Namespace: managedTestNamespace},
-		Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte(serverCAPEM)},
+		Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte(serverCA.pem)},
 	}))
 	issued := issuedCertificateSecret(t, managedTestNamespace, "example-db-managed-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
 	require.NoError(t, c.Create(ctx, &issued))
 
-	status, condition := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	status, condition, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
 	require.True(t, status.IsOK(), status.Message())
 	assert.Equal(t, v1.ConditionTrue, condition.Status)
 	assert.Equal(t, ReasonAllCertificatesReady, condition.Reason)
 
 	bundle := managedCAConfigMap(t, ctx, c, "example-db-managed-server-ca-bundle")
 	assert.Equal(t, managedTestNamespace, bundle.Namespace)
-	assert.Equal(t, map[string]string{"ca-pem": serverCAPEM}, bundle.Data)
+	assert.Equal(t, expectedBundle(serverCA), bundle.Data["ca-pem"])
+	latestHash := bundle.Data[util.LatestHashSecretKey]
+	require.NotEmpty(t, latestHash)
+	assert.Equal(t, hashOfBundle(expectedBundle(serverCA)), latestHash)
+	assert.Equal(t, expectedBundle(serverCA), bundle.Data[latestHash])
 	assertOwnedByManagedTestOM(t, bundle.OwnerReferences)
 
 	err := c.Get(ctx, types.NamespacedName{Name: "example-db-managed-client-ca-bundle", Namespace: managedTestNamespace}, &corev1.ConfigMap{})
 	assert.True(t, apiErrors.IsNotFound(err), "SCRAM AppDB must not publish a client CA bundle")
+}
+
+func TestManagedAppDBCertificateRenewalsInStatus(t *testing.T) {
+	ctx := context.Background()
+	om := managedTestOM()
+	c := newManagedCertTestClient(t)
+
+	status, _, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	require.False(t, status.IsOK(), "the certificates have not been reported ready")
+	assert.Nil(t, om.Status.AppDbStatus.CertificateRenewals, "no renewal is reported before the leaves are issued")
+
+	renewalTime := v1.NewTime(time.Now().Add(48 * time.Hour).Truncate(time.Second))
+	notAfter := v1.NewTime(time.Now().Add(72 * time.Hour).Truncate(time.Second))
+	markManagedCertificatesReady(t, ctx, c, func(cert *certmanagerv1.Certificate) {
+		if cert.Name == "example-db-managed-cert" {
+			cert.Status.RenewalTime = &renewalTime
+			cert.Status.NotAfter = &notAfter
+		}
+	})
+	serverCA := newTestCA(t, "app-db-server-ca")
+	require.NoError(t, c.Create(ctx, &corev1.Secret{
+		ObjectMeta: v1.ObjectMeta{Name: "example-db-server-ca", Namespace: managedTestNamespace},
+		Data:       map[string][]byte{corev1.ServiceAccountRootCAKey: []byte(serverCA.pem)},
+	}))
+	issued := issuedCertificateSecret(t, managedTestNamespace, "example-db-managed-cert", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	require.NoError(t, c.Create(ctx, &issued))
+
+	status, _, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBReplicaSetConfig(om)}, managedTestLogger())
+	require.True(t, status.IsOK(), status.Message())
+
+	renewals := om.Status.AppDbStatus.CertificateRenewals
+	require.NotNil(t, renewals, "the AppDB renewal is recorded on the Ops Manager status")
+	require.NotNil(t, renewals.Server)
+	assert.Equal(t, "example-db-managed-cert", renewals.Server.Name)
+	require.NotNil(t, renewals.Server.RenewalTime)
+	assert.True(t, renewalTime.Equal(renewals.Server.RenewalTime))
+	require.NotNil(t, renewals.Server.NotAfter)
+	assert.True(t, notAfter.Equal(renewals.Server.NotAfter))
+	assert.Nil(t, renewals.Client, "a SCRAM AppDB has no client certificates")
 }
 
 func TestAppDBManagedCertificateOptions(t *testing.T) {
@@ -206,7 +250,7 @@ func TestAppDBManagedCertificateScaling(t *testing.T) {
 
 	issue := func() *certmanagerv1.Certificate {
 		t.Helper()
-		_, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
+		_, _, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
 		return getManagedCertificate(t, ctx, c, "example-db-managed-cert")
 	}
 	expectedNames := func(members int) []string {

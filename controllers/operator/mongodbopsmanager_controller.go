@@ -122,7 +122,7 @@ var _ reconcile.Reconciler = &OpsManagerReconciler{}
 
 func NewOpsManagerReconciler(ctx context.Context, kubeClient client.Client, memberClustersMap map[string]client.Client, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omFunc om.ConnectionFactory, initializer api.Initializer, adminProvider api.AdminProvider) *OpsManagerReconciler {
 	return &OpsManagerReconciler{
-		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController:  NewReconcileCommonController(ctx, kubeClient, nil),
 		omConnectionFactory:        omFunc,
 		omInitializer:              initializer,
 		omAdminProvider:            adminProvider,
@@ -576,7 +576,7 @@ func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsMan
 		// OM uses this subject as the issuer DN when signing query-client certificates.
 		config.Subject = &mdbv1.X509Subject{CommonName: "MongoDB Queryable Backup"}
 	}
-	status, condition := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, config, certs.ServerCertificateOptions{
+	status, condition, _ := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, config, certs.ServerCertificateOptions{
 		NamingBase: opsManager.Name + "-managed-backup", SecretName: opsManager.QueryableBackupCertificateSecretName(),
 		DNSNames: slices.Compact(dnsNames), IPAddresses: ipAddresses,
 		CABundleName: opsManager.ManagedBackupCABundleConfigMapName(), CABundleKey: util.CaCertMMS,
@@ -685,7 +685,7 @@ func (r *OpsManagerReconciler) ensureOpsManagerCertificateAndCA(ctx context.Cont
 			condition: &condition,
 		}
 	}
-	status, condition := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, opsManager.Spec.Security.ManagedCertificate, certs.ServerCertificateOptions{
+	status, condition, _ := certs.EnsureServerCertificateAndCA(ctx, r.client, opsManager, opsManager.Spec.Security.ManagedCertificate, certs.ServerCertificateOptions{
 		NamingBase:   opsManager.Name + "-managed-om",
 		SecretName:   opsManager.TLSCertificateSecretName(),
 		DNSNames:     dnsNames,
@@ -758,7 +758,7 @@ func (r *OpsManagerReconciler) ensureAppDBCertAndCA(ctx context.Context, opsMana
 	}
 
 	opts := certs.AppDBManagedCertConfig(opsManager)
-	status, condition := certs.EnsureAppDBCertificatesAndCA(ctx, r.client, opsManager, []certs.Options{opts}, log)
+	status, condition, _ := certs.EnsureAppDBCertificatesAndCA(ctx, r.client, opsManager, []certs.Options{opts}, log)
 	return componentCertificateResult{part: mdbstatus.AppDb, status: status, condition: &condition}
 }
 

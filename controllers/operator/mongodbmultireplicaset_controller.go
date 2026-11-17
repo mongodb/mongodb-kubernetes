@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"path"
 	"reflect"
 	"sort"
 
@@ -101,7 +100,7 @@ type ReconcileMongoDbMultiReplicaSet struct {
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbMultiReplicaSet {
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, omFunc om.ConnectionFactory, memberClustersMap map[string]client.Client, omMetrics OMMetricsMultiplexer, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbMultiReplicaSet {
 	clientsMap := make(map[string]kubernetesClient.Client)
 	secretClientsMap := make(map[string]secrets.SecretClient)
 
@@ -115,7 +114,7 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 	}
 
 	return &ReconcileMongoDbMultiReplicaSet{
-		ReconcileCommonController:         NewReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController:         NewReconcileCommonController(ctx, kubeClient, omMetrics),
 		omConnectionFactory:               omFunc,
 		memberClusterClientsMap:           clientsMap,
 		memberClusterSecretClientsMap:     secretClientsMap,
@@ -173,10 +172,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("Error reading project config and credentials: %w", err)), log)
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, true, log)
+	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, mrs.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.Errorf("error establishing connection to Ops Manager: %w", err)), log)
 	}
+	r.EnsureOtelExporterForDeployment(conn, agentAPIKey, mrs.Status.Link, &mrs, log)
 
 	if !architectures.IsRunningStaticArchitecture(mrs.Annotations, r.defaultArchitecture) {
 		agents.UpgradeIfNeededMC(ctx, &mrs, conn)
@@ -205,6 +205,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	r.SetupCommonWatchers(&mrs, nil, nil, mrs.Name)
+	r.watchUserClientCertificateSecrets(ctx, &mrs, log)
 
 	// When managedCertificate is enabled, issue and wait for the cert-manager Certificates,
 	// and copy the operator-owned CA bundles into the member clusters (the pods there mount them).
@@ -302,6 +303,16 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	needToRequeue := !clusterSpecListsEqual(actualSpecList, desiredSpecList)
 	if needToRequeue {
 		return r.updateStatus(ctx, &mrs, workflow.Pending("MongoDBMultiCluster deployment is not yet ready, requeuing reconciliation."), log)
+	}
+
+	// The members are now running with the widened trust bundle (the reconcile above published it
+	// and waited for the agents), so a leaf can safely move to a rotated self-signed CA.
+	if mrs.GetSecurity().IsManagedCertificateEnabled() {
+		if allOpts, err := r.managedCertOptions(&mrs); err != nil {
+			log.Warnf("Failed to build the managed certificate options to re-issue certificates after a self-signed CA rotation: %s", err)
+		} else if err := certs.ReissueLeavesOnRotatedSelfSignedCA(ctx, r.client, &mrs, allOpts, log); err != nil {
+			log.Warnf("Failed to re-issue certificates after a self-signed CA rotation: %s", err)
+		}
 	}
 
 	log.Infow("Finished reconciliation for MultiReplicaSet", "Spec", mrs.Spec, "Status", mrs.Status)
@@ -1096,7 +1107,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 	}
 	rs := om.NewMultiClusterReplicaSetWithProcesses(om.NewReplicaSet(mrs.GetName(), mrs.Spec.Version), processes, mrs.Spec.GetMemberOptions(), processIds, mrs.Spec.Connectivity)
 
-	caFilePath := mrs.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
+	caFilePath, clusterCAFilePath, err := databaseCAFilePaths(ctx, r.client, mrs.GetSecurity(), mrs.Name, mrs.Namespace)
+	if err != nil {
+		return err
+	}
 
 	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), mrs, agentCertPath, caFilePath, internalClusterCertPath, mrs.Spec.GetDownloadBase(), isRecovering, log)
 	if !status.IsOK() && !isRecovering {
@@ -1107,7 +1121,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 
 	err = conn.ReadUpdateDeployment(ctx,
 		func(d om.Deployment) error {
-			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.GetName(), rs, nil, caFilePath, internalClusterCertPath, nil, log)
+			return ReconcileReplicaSetAC(ctx, d, mrs.Spec.DbCommonSpec, lastMongodbConfig, mrs.GetName(), rs, nil, caFilePath, clusterCAFilePath, internalClusterCertPath, nil, log)
 		},
 		log)
 
@@ -1462,13 +1476,13 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster, omMetrics OMMetricsMultiplexer) error {
 	// The operator decides once, at startup, whether it may use cert-manager, the same way the
 	// single-cluster controllers do. The managed-certificate path reports the reason when it may not.
 	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
 
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), certManagerReadiness)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), omMetrics, certManagerReadiness)
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1503,6 +1517,14 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 
 	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.Secret{},
 		&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
+	if err != nil {
+		return err
+	}
+
+	// Watch the ConfigMaps the managed certificates take their CA inputs from, so that editing one
+	// re-triggers the reconciliation that rebuilds the CA trust bundle.
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &corev1.ConfigMap{},
+		&watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: reconciler.resourceWatcher}))
 	if err != nil {
 		return err
 	}
@@ -1563,6 +1585,7 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 // OnDelete cleans up Ops Manager state and all Kubernetes resources associated with this instance.
 func (r *ReconcileMongoDbMultiReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	mrs := obj.(*mdbmultiv1.MongoDBMultiCluster)
+	r.ReleaseOtelExporter(mrs.Status.Link, log)
 	if mrs.IsReconciliationDisabled() {
 		log.Infof("MongoDBMultiCluster %s/%s OnDelete skipped due to %s annotation",
 			mrs.Namespace, mrs.Name, util.DisableReconciliationAnnotation)
@@ -1643,13 +1666,12 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureManagedCertificates(
 	mrs *mdbmultiv1.MongoDBMultiCluster,
 	log *zap.SugaredLogger,
 ) workflow.Status {
-	clusterSpecList, err := mrs.GetClusterSpecItems()
+	allOpts, err := r.managedCertOptions(mrs)
 	if err != nil {
 		return workflow.Failed(err)
 	}
 
-	mcRSOpts := certs.MultiReplicaSetManagedCertConfig(*mrs, memberClustersForManagedCert(mrs, clusterSpecList))
-	status, certsCondition := certs.EnsureCertificatesAndCA(ctx, r.client, mrs, []certs.Options{mcRSOpts}, log)
+	status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(ctx, r.client, mrs, allOpts, log)
 	// Record the certificate state on the resource so it is visible in the status, the same way the
 	// replica set and sharded controllers do.
 	mrs.SetStatusCondition(certsCondition)
@@ -1657,7 +1679,21 @@ func (r *ReconcileMongoDbMultiReplicaSet) ensureManagedCertificates(
 		return status
 	}
 
-	return r.replicateManagedCABundlesInMemberClusters(ctx, mrs, log)
+	if status := r.replicateManagedCABundlesInMemberClusters(ctx, mrs, log); !status.IsOK() {
+		return status
+	}
+
+	return r.removeFulfilledPruneAnnotation(ctx, mrs, pruneApplied)
+}
+
+// managedCertOptions builds the single Options the multi-cluster replica set uses for its shared
+// member and internal-cluster/agent certificates.
+func (r *ReconcileMongoDbMultiReplicaSet) managedCertOptions(mrs *mdbmultiv1.MongoDBMultiCluster) ([]certs.Options, error) {
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return nil, err
+	}
+	return []certs.Options{certs.MultiReplicaSetManagedCertConfig(*mrs, memberClustersForManagedCert(mrs, clusterSpecList))}, nil
 }
 
 // memberClustersForManagedCert returns how many members the shared member certificate must cover, per member

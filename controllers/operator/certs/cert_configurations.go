@@ -11,6 +11,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -147,18 +148,25 @@ func (o appDBManagedCertificateOwner) ownerResource() v1.ObjectOwner {
 	return o.MongoDBOpsManager
 }
 
+// SetCertificateRenewals records the AppDB's next automatic certificate renewal on the Ops Manager
+// resource's applicationDatabase status.
+func (o appDBManagedCertificateOwner) SetCertificateRenewals(renewals *mdbstatus.CertificateRenewalStatus) {
+	o.Status.AppDbStatus.CertificateRenewals = renewals
+}
+
 // EnsureAppDBCertificatesAndCA issues the internal AppDB's certificates and CA bundles. The
 // Ops Manager resource owns every created object; names, secrets and subjects derive from the
-// AppDB name.
+// AppDB name. The returned bool reports that a requested prune of the previous CA has been
+// applied and the caller may remove the prune annotation.
 func EnsureAppDBCertificatesAndCA(
 	ctx context.Context,
 	c kubernetesClient.Client,
 	om *omv1.MongoDBOpsManager,
 	allOpts []Options,
 	log *zap.SugaredLogger,
-) (workflow.Status, metav1.Condition) {
+) (workflow.Status, metav1.Condition, bool) {
 	if om == nil || om.Spec.AppDB == nil {
-		return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, "Operator-managed certificates are not required for this resource")
+		return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, "Operator-managed certificates are not required for this resource"), false
 	}
 	for _, warning := range UnusedClientConfigured(appDBManagedCertificateOwner{om}) {
 		om.AddAppDBWarningIfNotExists(warning)

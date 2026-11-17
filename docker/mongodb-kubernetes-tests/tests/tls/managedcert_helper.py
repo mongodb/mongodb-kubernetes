@@ -5,6 +5,9 @@ category, if any, uses a user configured issuer), so the resource setup and the 
 live here and the test files only keep what is specific to their scenario.
 """
 
+import hashlib
+import re
+import ssl
 import tempfile
 from typing import Any, List, Optional
 
@@ -66,6 +69,7 @@ def assert_reachable_with_client_certificate(
     user.load()
     cert_status = user["status"]["clientCertificate"]
     cert = read_secret(namespace, cert_status["secretName"])
+    # Applications read the fixed ca-pem key the user status documents, not the hash-named copy mongod uses.
     server_ca = read_configmap(namespace, cert_status["serverCAConfigMapName"])["ca-pem"]
 
     with (
@@ -144,18 +148,69 @@ def assert_leaf_secrets_created(name: str, namespace: str):
         assert "tls.key" in secret, f"{secret_name} missing tls.key"
 
 
+def latest_ca_bundle(bundle_configmap: dict) -> str:
+    """Returns the current CA bundle from a managed CA bundle ConfigMap's data.
+
+    The bundle is stored under its content hash (the file name in the pod, and what the automation
+    config points at), and the `latestHash` key names the current one.
+    """
+    latest_hash = bundle_configmap.get("latestHash", "")
+    assert latest_hash != "", "latestHash missing/empty"
+    return bundle_configmap.get(latest_hash, "").strip()
+
+
 def read_ca_bundles(name: str, namespace: str) -> tuple[str, str]:
     """Returns the server and client CA bundles the operator writes for the pods to trust.
 
-    <name>-managed-server-ca-bundle (key ca-pem) is configured as net.tls.CAFile, and
-    <name>-managed-client-ca-bundle (key clusterca-pem) as net.tls.clusterCAFile. Both must exist
-    and be non-empty.
+    <name>-managed-server-ca-bundle is configured as net.tls.CAFile, and
+    <name>-managed-client-ca-bundle as net.tls.clusterCAFile. In both the bundle is stored under
+    its content hash, and the `latestHash` key says which one is current. Both must exist and be
+    non-empty.
     """
-    server_ca = read_configmap(namespace, f"{name}-managed-server-ca-bundle").get("ca-pem", "").strip()
-    client_ca = read_configmap(namespace, f"{name}-managed-client-ca-bundle").get("clusterca-pem", "").strip()
-    assert server_ca != "", "ca-pem (server CA) missing/empty"
-    assert client_ca != "", "clusterca-pem (client CA) missing/empty"
+    server_ca = latest_ca_bundle(read_configmap(namespace, f"{name}-managed-server-ca-bundle"))
+    client_ca = latest_ca_bundle(read_configmap(namespace, f"{name}-managed-client-ca-bundle"))
+    assert server_ca != "", "latest server CA bundle missing/empty"
+    assert client_ca != "", "latest client CA bundle missing/empty"
     return server_ca, client_ca
+
+
+# The annotation that asks the operator to drop the previous CA it retains in the CA bundles after a CA
+# rotation. "true" prunes both categories, "server" or "client" only that one. The operator does not
+# remove the annotation from the resource.
+PRUNE_PREVIOUS_CA_ANNOTATION = "mongodb.com/prune-previous-ca"
+
+
+def bundle_fingerprints(bundle: str) -> List[str]:
+    """The SHA-256 fingerprints (hex of the DER) of the certificates currently in a PEM bundle."""
+    pems = re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", bundle, re.DOTALL)
+    return [hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest() for pem in pems]
+
+
+def _bundle_contains(bundle: str, ca_pem: str) -> bool:
+    expected = set(bundle_fingerprints(ca_pem))
+    assert expected, "the CA to look for is not a PEM certificate"
+    return expected.issubset(set(bundle_fingerprints(bundle)))
+
+
+def assert_previous_ca_retained(resource: MongoDB, category: str, previous_ca: str):
+    """The category's published CA bundle still trusts previous_ca (PEM) after a rotation."""
+    bundle = latest_ca_bundle(read_configmap(resource.namespace, f"{resource.name}-managed-{category}-ca-bundle"))
+    assert _bundle_contains(bundle, previous_ca), f"the {category} CA bundle must still contain the previous CA"
+
+
+def assert_previous_ca_pruned(resource: MongoDB, category: str, previous_ca: str):
+    """The category's published CA bundle no longer trusts previous_ca (PEM)."""
+    bundle = latest_ca_bundle(read_configmap(resource.namespace, f"{resource.name}-managed-{category}-ca-bundle"))
+    assert not _bundle_contains(
+        bundle, previous_ca
+    ), f"the {category} CA bundle must not contain the previous CA anymore"
+
+
+def request_prune_previous_ca(resource: MongoDB, value: str = "true"):
+    """Annotates the resource so that the operator prunes the retained previous CA(s)."""
+    resource.load()
+    resource["metadata"].setdefault("annotations", {})[PRUNE_PREVIOUS_CA_ANNOTATION] = value
+    resource.update()
 
 
 def assert_self_signed_ca_created(name: str, namespace: str, category: str):
@@ -181,6 +236,18 @@ def assert_leaf_certs_signed_by_its_category_ca(name: str, namespace: str, serve
     assert cert_signed_by_bundle(clusterfile_crt, client_ca), "clusterfile cert must be signed by the client CA"
     assert cert_signed_by_bundle(agent_crt, client_ca), "agent cert must be signed by the client CA"
     assert not cert_signed_by_bundle(clusterfile_crt, server_ca), "clusterfile cert must not be signed by the server CA"
+
+
+def read_certificate_renewals(resource: MongoDB) -> Optional[dict]:
+    """Returns status.certificateRenewals, or None when the operator has not set it.
+
+    The operator reports, per category, the leaf certificate that cert-manager renews soonest and
+    when: renewalTime is when the members roll onto the new certificate.
+    """
+    resource.load()
+    if "status" not in resource:
+        return None
+    return resource["status"].get("certificateRenewals")
 
 
 def member_cert_issuance(name: str, namespace: str) -> tuple[int, str]:
