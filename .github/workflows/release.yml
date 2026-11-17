@@ -23,6 +23,14 @@ on:
         description: "Dry run: post a non release tag"
         type: boolean
         default: false
+      release_branch:
+        description: 'Selects the Evergreen release project'
+        type: choice
+        required: true
+        default: latest
+        options:
+          - latest
+          - v1-test
 
 jobs:
   create_tag_and_draft_release:
@@ -92,6 +100,7 @@ jobs:
         env:
           VERSION: ${{ github.event.inputs.version }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha }}
+          EVERGREEN_PROJECT: ${{ inputs.release_branch == 'latest' && 'mongodb-kubernetes' || 'mongodb-kubernetes-v1-test' }}
         run: scripts/release/show_links.sh evergreen | tee -a "$GITHUB_STEP_SUMMARY"
         shell: bash
 
