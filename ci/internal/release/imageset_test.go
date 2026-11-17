@@ -120,7 +120,7 @@ func TestLoadReleaseImages(t *testing.T) {
 
 func TestLoadReleaseImagesRealFiles(t *testing.T) {
 	// Guards against drift between the checked-in build_info.json and release.json:
-	// the six product images must load and version-resolve cleanly.
+	// the seven product images must load and version-resolve cleanly.
 	biPath := filepath.Join("..", "..", "..", "build_info.json")
 	rjPath := filepath.Join("..", "..", "..", "release.json")
 
@@ -131,7 +131,7 @@ func TestLoadReleaseImagesRealFiles(t *testing.T) {
 
 	want := map[string]bool{
 		"operator": true, "init-database": true, "init-ops-manager": true,
-		"database": true, "readiness-probe": true, "upgrade-hook": true,
+		"database": true, "readiness-probe": true, "upgrade-hook": true, "mongodb-proxy": true,
 	}
 	if len(images) != len(want) {
 		t.Errorf("image set size: got %d, want %d (%v)", len(images), len(want), images)
