@@ -117,16 +117,17 @@ PY
     [[ "${output}" == *'value: "static"'* ]] || return 1
 }
 
-@test "proxy test and OLM bundle preparation wait for required image builds" {
+@test "proxy tests and OLM bundle preparation wait for required image builds" {
     run python3 - <<'PY'
 import yaml
 
 with open(".evergreen-tasks.yml") as source:
     tasks = yaml.safe_load(source)["tasks"]
-proxy_test = next(task for task in tasks if task["name"] == "e2e_replica_set_mongodb_proxy")
-dependencies = {(dep["variant"], dep["name"]) for dep in proxy_test.get("depends_on", [])}
-assert ("init_test_run", "build_mongodb_proxy_image") in dependencies
-assert ("init_test_run", "build_agent_images_ubi") in dependencies
+for task_name in ("e2e_replica_set_mongodb_proxy", "e2e_om_appdb_mongodb_proxy"):
+    proxy_test = next(task for task in tasks if task["name"] == task_name)
+    dependencies = {(dep["variant"], dep["name"]) for dep in proxy_test.get("depends_on", [])}
+    assert ("init_test_run", "build_mongodb_proxy_image") in dependencies, task_name
+    assert ("init_test_run", "build_agent_images_ubi") in dependencies, task_name
 
 with open(".evergreen.yml") as source:
     variants = yaml.safe_load(source)["buildvariants"]
