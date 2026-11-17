@@ -603,6 +603,10 @@ def test_agent_starts_mongod_again_after_it_was_killed_with_authentication(repli
 
     wait_for_new_mongod(pod, namespace, identity, timeout_seconds=600)
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
+    wait_until(
+        "the restarted mongod to accept connections",
+        lambda: mongosh(pod, namespace, "db.adminCommand({ping: 1}).ok", member_uri()) == "1",
+    )
     assert unauthenticated_result(pod, namespace) == "denied:Unauthorized"
     script = f'db.getSiblingDB("{INDEX_DATABASE}").{INDEX_COLLECTION}.countDocuments({{}})'
     assert mongosh(pod, namespace, script, member_uri(SCRAM_USER, SCRAM_PASSWORD)) == "100"
