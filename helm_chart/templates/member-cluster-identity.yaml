@@ -1,0 +1,22 @@
+{{- /*
+Member-cluster identity ConfigMap.
+
+Rendered only when `memberCluster.enabled=true`, which is set exclusively by
+`kubectl` plugin.
+*/ -}}
+
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false -}}
+
+{{- if $memberMode }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mck-member-cluster
+  namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
+  annotations:
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
+data:
+  clusterName: {{ $memberCluster.name | quote }}
+{{- end }}

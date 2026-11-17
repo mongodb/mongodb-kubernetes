@@ -57,6 +57,16 @@ subjects:
     name: mck-member-sa
     namespace: mongodb
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mck-member-cluster
+  namespace: mongodb
+  annotations:
+    mongodb.com/rbac-version: "2.0.0"
+data:
+  clusterName: "member-cluster"
+---
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:

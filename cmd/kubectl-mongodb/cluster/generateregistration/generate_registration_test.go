@@ -37,7 +37,7 @@ func TestParseFlags(t *testing.T) {
 		{name: "missing operator namespace rejected", cluster: "cluster-east", context: "east-ctx", wantError: "[member-cluster, member-cluster-context, operator-namespace]"},
 		{name: "whitespace-only member cluster rejected", cluster: "  ", context: "east-ctx", operatorNs: "mongodb", wantError: "[member-cluster, member-cluster-context, operator-namespace]"},
 		{name: "RFC 1123 member cluster passes through unchanged", cluster: "cluster-east", context: "east-ctx", operatorNs: "mongodb", wantClusterName: "cluster-east", wantLogicalName: "cluster-east"},
-		{name: "non RFC 1123 member cluster carried verbatim as logical name", cluster: "gke_east_us", context: "east-ctx", operatorNs: "mongodb", wantLogicalName: "gke_east_us"},
+		{name: "non RFC 1123 member cluster used unchanged as logical name", cluster: "gke_east_us", context: "east-ctx", operatorNs: "mongodb", wantLogicalName: "gke_east_us"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
