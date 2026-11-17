@@ -229,6 +229,70 @@ func TestOperatorClusterNotInSearchSpec(t *testing.T) {
 	}
 }
 
+// selfRegisteredMemberProvider builds the member-cluster registry shape of simulated
+// multi-cluster mode: exactly one registered MemberCluster — this cluster itself,
+// keyed by the operator's identity.
+func selfRegisteredMemberProvider(identity string, c client.Client) *multicluster.Provider {
+	return multiClusterProviderFromClientMap(map[string]client.Client{identity: c})
+}
+
+func TestIsSimulatedMultiCluster(t *testing.T) {
+	entries := func(names ...string) map[string]multicluster.Entry {
+		m := make(map[string]multicluster.Entry, len(names))
+		for _, name := range names {
+			m[name] = multicluster.Entry{}
+		}
+		return m
+	}
+	for _, tc := range []struct {
+		name     string
+		identity string
+		entries  map[string]multicluster.Entry
+		want     bool
+	}{
+		{
+			name:     "no identity with one self-registered member",
+			identity: "",
+			entries:  entries("cluster-a"),
+			want:     false,
+		},
+		{
+			name:     "identity with no registered members",
+			identity: "cluster-a",
+			entries:  entries(),
+			want:     false,
+		},
+		{
+			name:     "identity whose single registered member is this cluster",
+			identity: "cluster-a",
+			entries:  entries("cluster-a"),
+			want:     true,
+		},
+		{
+			name:     "identity whose single registered member is another cluster",
+			identity: "cluster-a",
+			entries:  entries("cluster-b"),
+			want:     false,
+		},
+		{
+			name:     "identity among several members (hub-spoke central)",
+			identity: "cluster-a",
+			entries:  entries("cluster-a", "cluster-b"),
+			want:     false,
+		},
+		{
+			name:     "identity not among several members",
+			identity: "cluster-a",
+			entries:  entries("cluster-b", "cluster-c"),
+			want:     false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isSimulatedMultiCluster(tc.identity, tc.entries))
+		})
+	}
+}
+
 func TestMongoDBSearchOnDelete_SweepsOwnedResourcesAndDependentWatches(t *testing.T) {
 	ctx := context.Background()
 	searchKey := types.NamespacedName{Name: "missing-search", Namespace: mock.TestNamespace}
@@ -989,6 +1053,22 @@ func newSearchReconcilerWithMembers(
 	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, multiClusterProviderFromClientMap(memberClients), operatorClusterName), centralClient
 }
 
+func newSimulatedSearchReconciler(
+	t *testing.T,
+	identity string,
+	searches ...*searchv1.MongoDBSearch,
+) (*MongoDBSearchReconciler, client.Client) {
+	t.Helper()
+	builder := mock.NewEmptyFakeClientBuilder().WithStatusSubresource(&searchv1.MongoDBSearch{})
+	for _, s := range searches {
+		if s != nil {
+			builder.WithObjects(s)
+		}
+	}
+	centralClient := builder.Build()
+	return newMongoDBSearchReconciler(centralClient, searchcontroller.OperatorSearchConfig{}, selfRegisteredMemberProvider(identity, centralClient), identity), centralClient
+}
+
 // driveSearchReconcileToRunning loops Reconcile up to maxPasses, seeding LoadBalancer
 // status + marking STSes ready (on c plus readyOn) each pass: the per-unit STS
 // readiness gate exits Pending until every unit's STS is ready, so one pass can't
@@ -1091,7 +1171,7 @@ func TestReconcile_OperatorPerCluster_ProjectedReconcilesLocalOnly(t *testing.T)
 				search.Spec.Clusters[1].Index = tc.pinClusterB
 			}
 
-			reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, tc.opCluster, search)
+			reconciler, c := newSimulatedSearchReconciler(t, tc.opCluster, search)
 
 			got := driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
 
@@ -1131,7 +1211,7 @@ func TestReconcile_OperatorPerCluster_RemovedClusterCleansLocalResources(t *test
 	ctx := context.Background()
 	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 
-	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-c", search)
+	reconciler, c := newSimulatedSearchReconciler(t, "cluster-c", search)
 	legacyAuthLabels := khandler.SearchOwnershipLabels(search, "", "")
 	managed := []client.Object{
 		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "removed-mongot", Namespace: search.Namespace, UID: "removed-sts", Labels: khandler.SearchOwnershipLabels(search, "", searchMongotComponent)}},
@@ -1322,7 +1402,7 @@ func TestReconcile_OperatorPerCluster_RePinUpdatesNames(t *testing.T) {
 	ctx := context.Background()
 	search := newOperatorPerClusterMongoDBSearch("mdb-search", mock.TestNamespace)
 
-	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
+	reconciler, c := newSimulatedSearchReconciler(t, "cluster-a", search)
 	driveSearchReconcileToRunning(ctx, t, reconciler, c, search, 5)
 	require.NoError(t, c.Get(ctx, search.StatefulSetNamespacedNameForCluster(0), &appsv1.StatefulSet{}),
 		"initial reconcile must render at the original pinned index 0")
@@ -1391,7 +1471,7 @@ func operatorPerClusterShardedTLSSecrets(search *searchv1.MongoDBSearch, cluster
 func TestMongoDBSearchReconcile_ShardRemovalDeletesStaleResources(t *testing.T) {
 	ctx := t.Context()
 	search := newOperatorPerClusterShardedMongoDBSearch("mdb-search", mock.TestNamespace)
-	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
+	reconciler, c := newSimulatedSearchReconciler(t, "cluster-a", search)
 	sourceSecrets := operatorPerClusterShardedTLSSecrets(search, 0)
 	for i, obj := range sourceSecrets {
 		secret := obj.(*corev1.Secret)
@@ -1453,7 +1533,7 @@ func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly
 				search.Spec.Clusters[1].Index = tc.pinClusterB
 			}
 
-			reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, tc.opCluster, search)
+			reconciler, c := newSimulatedSearchReconciler(t, tc.opCluster, search)
 			for _, obj := range operatorPerClusterShardedTLSSecrets(search, tc.wantIdx) {
 				require.NoError(t, c.Create(ctx, obj))
 			}
@@ -1509,7 +1589,7 @@ func TestReconcile_OperatorPerCluster_ShardedSource_NoMatchSilentNoOp(t *testing
 	search := newOperatorPerClusterShardedMongoDBSearch("mdb-search", mock.TestNamespace)
 
 	// operatorClusterName="cluster-c" — NOT in spec.clusters[].
-	reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-c", search)
+	reconciler, c := newSimulatedSearchReconciler(t, "cluster-c", search)
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
 	res, err := reconciler.Reconcile(ctx, req)
@@ -1551,7 +1631,7 @@ func TestReconcile_OperatorPerCluster_ClusterIndexEnforcement(t *testing.T) {
 			{Name: "cluster-a", Replicas: new(int32(1))},
 		}
 
-		reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
+		reconciler, c := newSimulatedSearchReconciler(t, "cluster-a", search)
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
 		_, err := reconciler.Reconcile(ctx, req)
 		require.NoError(t, err, "workflow.Invalid returns nil error; assert via Status")
@@ -1572,7 +1652,7 @@ func TestReconcile_OperatorPerCluster_ClusterIndexEnforcement(t *testing.T) {
 		// before the sim-MC gate.
 		search.Spec.Clusters[1].Index = nil
 
-		reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
+		reconciler, c := newSimulatedSearchReconciler(t, "cluster-a", search)
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
 		_, err := reconciler.Reconcile(ctx, req)
 		require.NoError(t, err, "workflow.Invalid returns nil error; assert via Status")
@@ -1593,7 +1673,7 @@ func TestReconcile_OperatorPerCluster_ClusterIndexEnforcement(t *testing.T) {
 		// failure is attributable to the clusters check, not the LB validators.
 		search.Spec.Clusters = []searchv1.ClusterSpec{}
 
-		reconciler, c := newSearchReconcilerWithMembers(t, nil, nil, "cluster-a", search)
+		reconciler, c := newSimulatedSearchReconciler(t, "cluster-a", search)
 		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace}}
 		_, err := reconciler.Reconcile(ctx, req)
 		require.NoError(t, err, "workflow.Invalid returns nil error; assert via Status")

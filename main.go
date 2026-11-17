@@ -58,6 +58,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/membercluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/operatorconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/operatoridentity"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -284,6 +285,17 @@ func run() error {
 	// startup-built snapshot.
 	memberClustersProvider := multicluster.NewProvider()
 
+	clusterIdentity, err := operatoridentity.Load(ctx, mgr.GetAPIReader(), currentNamespace)
+	if err != nil {
+		return fmt.Errorf("loading operator cluster identity: %w", err)
+	}
+	if clusterIdentity != "" {
+		log.Infof("Operator cluster identity: %q", clusterIdentity)
+	}
+	if err := mgr.Add(operatoridentity.NewWatcher(mgr.GetCache(), currentNamespace, clusterIdentity, cancel)); err != nil {
+		return err
+	}
+
 	memberClusterReconciler := membercluster.NewReconciler(ctx, mgr.GetClient(), currentNamespace, time.Duration(memberClusterClientTimeout)*time.Second, memberClustersProvider,
 		func(restConfig *rest.Config) (runtime_cluster.Cluster, error) {
 			return runtime_cluster.New(restConfig, func(options *runtime_cluster.Options) {
@@ -327,11 +339,7 @@ func run() error {
 		}
 	}
 	if slices.Contains(watchedResources, mongoDBSearchCRDPlural) {
-		operatorClusterName := env.ReadOrDefault(util.OperatorClusterNameEnv, "")
-		if operatorClusterName != "" {
-			log.Infof("Per-cluster operator mode enabled for MongoDBSearch: operator cluster identity = %q", operatorClusterName)
-		}
-		if err := setupMongoDBSearchCRD(ctx, mgr, memberClustersProvider, operatorClusterName, operatorCfg.Spec.MaxConcurrentReconciles, memberClusterClientTimeout, requiredHealthyStreak); err != nil {
+		if err := setupMongoDBSearchCRD(ctx, mgr, memberClustersProvider, clusterIdentity, operatorCfg.Spec.MaxConcurrentReconciles, memberClusterClientTimeout, requiredHealthyStreak); err != nil {
 			return err
 		}
 	}
@@ -464,7 +472,7 @@ func setupMongoDBSearchCRD(
 	ctx context.Context,
 	mgr manager.Manager,
 	memberClustersProvider *multicluster.Provider,
-	operatorClusterName string,
+	clusterIdentity string,
 	maxConcurrentReconciles int,
 	memberClusterClientTimeout int,
 	requiredHealthyStreak int,
@@ -475,20 +483,20 @@ func setupMongoDBSearchCRD(
 		SearchName:      env.ReadOrPanic(util.SearchNameEnv),
 		SearchVersion:   env.ReadOrPanic(util.SearchVersionEnv),
 		ImagePullPolicy: imagePullPolicy,
-	}, memberClustersProvider, operatorClusterName, maxConcurrentReconciles, memberClusterClientTimeout, requiredHealthyStreak); err != nil {
+	}, memberClustersProvider, clusterIdentity, maxConcurrentReconciles, memberClusterClientTimeout, requiredHealthyStreak); err != nil {
 		return err
 	}
 
 	// We cannot use ReadOrPanic here because this variable is only needed when Search is used with a managed load
 	// balancer
 	envoyImage := env.ReadOrDefault(util.EnvoyImageEnv, "")
-	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, imagePullPolicy, memberClustersProvider, operatorClusterName, maxConcurrentReconciles); err != nil {
+	if err := operator.AddMongoDBSearchEnvoyController(ctx, mgr, envoyImage, imagePullPolicy, memberClustersProvider, clusterIdentity, maxConcurrentReconciles); err != nil {
 		return err
 	}
 
 	// Metrics forwarder controller — image is again enforced in controller
 	metricsForwarderImage := env.ReadOrDefault(util.MetricsForwarderImageEnv, "")
-	if err := operator.AddMongoDBSearchMetricsForwarderController(ctx, mgr, metricsForwarderImage, imagePullPolicy, memberClustersProvider, operatorClusterName, maxConcurrentReconciles); err != nil {
+	if err := operator.AddMongoDBSearchMetricsForwarderController(ctx, mgr, metricsForwarderImage, imagePullPolicy, memberClustersProvider, clusterIdentity, maxConcurrentReconciles); err != nil {
 		return err
 	}
 

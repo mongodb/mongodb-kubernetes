@@ -84,22 +84,19 @@ type MongoDBSearchEnvoyReconciler struct {
 	watch                  *watch.ResourceWatcher
 	defaultEnvoyImage      string
 	imagePullPolicy        corev1.PullPolicy
-	operatorClusterName    string
+	clusterIdentity        string
 	memberClustersProvider *multicluster.Provider
-
-	prepareSearch prepareSearchFuncs
 }
 
-func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, imagePullPolicy corev1.PullPolicy, memberClustersProvider *multicluster.Provider, operatorClusterName string) *MongoDBSearchEnvoyReconciler {
+func newMongoDBSearchEnvoyReconciler(c client.Client, defaultEnvoyImage string, imagePullPolicy corev1.PullPolicy, memberClustersProvider *multicluster.Provider, clusterIdentity string) *MongoDBSearchEnvoyReconciler {
 	central := kubernetesClient.NewClient(c)
 	return &MongoDBSearchEnvoyReconciler{
 		kubeClient:             central,
 		watch:                  watch.NewResourceWatcher(),
 		defaultEnvoyImage:      defaultEnvoyImage,
 		imagePullPolicy:        imagePullPolicy,
-		operatorClusterName:    operatorClusterName,
+		clusterIdentity:        clusterIdentity,
 		memberClustersProvider: memberClustersProvider,
-		prepareSearch:          newPrepareSearch(operatorClusterName),
 	}
 }
 
@@ -124,11 +121,18 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 
 	// Snapshot the member-cluster registry once: this whole reconcile works on a single
 	// membership view.
-	memberClients := memberClusterClients(r.memberClustersProvider.Entries())
+	memberClusterEntries := r.memberClustersProvider.Entries()
+	memberClients := memberClusterClients(memberClusterEntries)
+
+	operatorClusterName := r.clusterIdentity
+	if !isSimulatedMultiCluster(r.clusterIdentity, memberClusterEntries) {
+		operatorClusterName = ""
+	}
+	prepareSearch := newPrepareSearch(operatorClusterName)
 
 	// Envoy validation failures surface on /status/loadBalancer so the Envoy sub-status
 	// stays authoritative for LB shape errors.
-	if st := r.prepareSearch.validate(mdbSearch); !st.IsOK() {
+	if st := prepareSearch.validate(mdbSearch); !st.IsOK() {
 		if !mdbSearch.IsLBModeManaged() && mdbSearch.Status.LoadBalancer == nil {
 			// No LB configured and no sub-status to correct: don't invent a
 			// /status/loadBalancer for a validation failure the main controller
@@ -145,15 +149,15 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	if err := deleteRemovedMemberClusterResources(ctx, mdbSearch, memberClients, deleteEnvoySearchResources, log); err != nil {
 		log.Warnf("Failed to clean up Envoy resources on removed member clusters: %v", err)
 	}
-	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
+	if operatorClusterNotInSearchSpec(mdbSearch, operatorClusterName) {
 		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
-		if err := deleteEnvoySearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
-			log.Warnf("Failed to clean up Envoy resources on removed cluster %q: %v", r.operatorClusterName, err)
+		if err := deleteEnvoySearchResources(ctx, r.kubeClient, mdbSearch, operatorClusterName, log); err != nil {
+			log.Warnf("Failed to clean up Envoy resources on removed cluster %q: %v", operatorClusterName, err)
 		}
 		return reconcile.Result{}, nil
 	}
 
-	if r.prepareSearch.shouldSkipCluster(mdbSearch, log) {
+	if prepareSearch.shouldSkipCluster(mdbSearch, log) {
 		return reconcile.Result{}, nil
 	}
 
@@ -163,7 +167,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	if !mdbSearch.IsLBModeManaged() {
 		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
 		if mdbSearch.Status.LoadBalancer != nil {
-			if err := r.deleteEnvoyResources(ctx, mdbSearch, r.buildClusterWorkList(mdbSearch, memberClients), log); err != nil {
+			if err := r.deleteEnvoyResources(ctx, mdbSearch, r.buildClusterWorkList(mdbSearch, memberClients, operatorClusterName), log); err != nil {
 				return reconcile.Result{}, err
 			}
 			r.clearLBStatus(ctx, mdbSearch, log)
@@ -197,7 +201,7 @@ func (r *MongoDBSearchEnvoyReconciler) Reconcile(ctx context.Context, request re
 	tlsCfg := searchSource.TLSConfig()
 	tlsEnabled := mdbSearch.IsTLSConfigured()
 
-	workList := r.buildClusterWorkList(mdbSearch, memberClients)
+	workList := r.buildClusterWorkList(mdbSearch, memberClients, operatorClusterName)
 	if tlsEnabled {
 		for _, w := range workList {
 			for _, name := range []types.NamespacedName{mdbSearch.LoadBalancerServerCert(w.ClusterIndex), mdbSearch.LoadBalancerClientCert(w.ClusterIndex)} {
@@ -253,13 +257,13 @@ type clusterWorkItem struct {
 
 // spec.clusters is validated non-empty, so the empty-clusters branch is a
 // defensive backstop only.
-func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, memberClients map[string]kubernetesClient.Client) []clusterWorkItem {
+func (r *MongoDBSearchEnvoyReconciler) buildClusterWorkList(search *searchv1.MongoDBSearch, memberClients map[string]kubernetesClient.Client, operatorClusterName string) []clusterWorkItem {
 	if len(search.Spec.Clusters) == 0 {
-		return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, memberClients, r.operatorClusterName)}
+		return []clusterWorkItem{newClusterWorkItem(search, "", 0, r.kubeClient, memberClients, operatorClusterName)}
 	}
 	work := make([]clusterWorkItem, 0, len(search.Spec.Clusters))
 	for _, c := range search.Spec.Clusters {
-		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, memberClients, r.operatorClusterName))
+		work = append(work, newClusterWorkItem(search, c.Name, c.ResolveIndex(), r.kubeClient, memberClients, operatorClusterName))
 	}
 	return work
 }
@@ -873,11 +877,11 @@ func envoyPodLabelsForCluster(search *searchv1.MongoDBSearch, clusterIndex int) 
 //
 // For each member cluster we register watches on Envoy Deployment + ConfigMap
 // using the label-based mapper (cross-cluster owner refs do not GC).
-func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, imagePullPolicy corev1.PullPolicy, memberClustersProvider *multicluster.Provider, operatorClusterName string, maxConcurrentReconciles int) error {
+func AddMongoDBSearchEnvoyController(ctx context.Context, mgr manager.Manager, defaultEnvoyImage string, imagePullPolicy corev1.PullPolicy, memberClustersProvider *multicluster.Provider, clusterIdentity string, maxConcurrentReconciles int) error {
 	// NOTE: The field index for MongoDBSearchIndexFieldName is already registered
 	// by AddMongoDBSearchController. Do not register it again here.
 
-	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, imagePullPolicy, memberClustersProvider, operatorClusterName)
+	r := newMongoDBSearchEnvoyReconciler(mgr.GetClient(), defaultEnvoyImage, imagePullPolicy, memberClustersProvider, clusterIdentity)
 
 	c, err := controller.New("mongodbsearchenvoy", mgr, controller.Options{
 		Reconciler:              r,

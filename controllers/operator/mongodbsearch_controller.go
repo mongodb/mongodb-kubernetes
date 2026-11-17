@@ -77,7 +77,20 @@ func operatorClusterNotInSearchSpec(search *searchv1.MongoDBSearch, operatorClus
 	return true
 }
 
-// newPrepareSearch picks the gates once at construction so Reconcile never
+// isSimulatedMultiCluster reports whether this operator runs in the MongoDBSearch
+// simulated multi-cluster topology: it has a cluster identity and the only registered
+// MemberCluster is its own cluster. A hub-spoke central operator also carries the
+// identity ConfigMap (it is part of the member render), so identity alone is not
+// sufficient.
+func isSimulatedMultiCluster(identity string, entries map[string]multicluster.Entry) bool {
+	if identity == "" || len(entries) != 1 {
+		return false
+	}
+	_, ok := entries[identity]
+	return ok
+}
+
+// newPrepareSearch picks the gates for one reconcile so the reconcile path never
 // branches on the operator mode. validate must see the full spec: once
 // spec.clusters is narrowed to one entry, the multi-cluster validators skip
 // themselves and would let a bad multi-cluster spec through.
@@ -120,16 +133,14 @@ type MongoDBSearchReconciler struct {
 	operatorSearchConfig searchcontroller.OperatorSearchConfig
 
 	memberClustersProvider *multicluster.Provider
-	operatorClusterName    string
-
-	prepareSearch prepareSearchFuncs
+	clusterIdentity        string
 }
 
 func newMongoDBSearchReconciler(
 	kubeClient client.Client,
 	operatorSearchConfig searchcontroller.OperatorSearchConfig,
 	memberClustersProvider *multicluster.Provider,
-	operatorClusterName string,
+	clusterIdentity string,
 ) *MongoDBSearchReconciler {
 	central := kubernetesClient.NewClient(kubeClient)
 	return &MongoDBSearchReconciler{
@@ -137,8 +148,7 @@ func newMongoDBSearchReconciler(
 		watch:                  watch.NewResourceWatcher(),
 		operatorSearchConfig:   operatorSearchConfig,
 		memberClustersProvider: memberClustersProvider,
-		operatorClusterName:    operatorClusterName,
-		prepareSearch:          newPrepareSearch(operatorClusterName),
+		clusterIdentity:        clusterIdentity,
 	}
 }
 
@@ -172,6 +182,12 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	memberClusterEntries := r.memberClustersProvider.Entries()
 	memberClients := memberClusterClients(memberClusterEntries)
 
+	operatorClusterName := r.clusterIdentity
+	if !isSimulatedMultiCluster(r.clusterIdentity, memberClusterEntries) {
+		operatorClusterName = ""
+	}
+	prepareSearch := newPrepareSearch(operatorClusterName)
+
 	// Short-circuit: the disable-reconciliation annotation allows to
 	// pause reconciliation on a single CR so owned objects can be mutated
 	// without the operator reverting them.
@@ -182,7 +198,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		return reconcile.Result{}, nil
 	}
 
-	if st := r.prepareSearch.validate(mdbSearch); !st.IsOK() {
+	if st := prepareSearch.validate(mdbSearch); !st.IsOK() {
 		return commoncontroller.UpdateStatus(ctx, r.kubeClient, mdbSearch, st, log)
 	}
 
@@ -198,15 +214,15 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		log.Warnf("Failed to clean up Search resources on removed member clusters: %v", err)
 	}
 
-	if operatorClusterNotInSearchSpec(mdbSearch, r.operatorClusterName) {
+	if operatorClusterNotInSearchSpec(mdbSearch, operatorClusterName) {
 		r.watch.RemoveDependentWatchedResources(mdbSearch.NamespacedName())
-		if err := deleteLocalSearchResources(ctx, r.kubeClient, mdbSearch, r.operatorClusterName, log); err != nil {
-			log.Warnf("Failed to clean up Search resources on removed cluster %q: %v", r.operatorClusterName, err)
+		if err := deleteLocalSearchResources(ctx, r.kubeClient, mdbSearch, operatorClusterName, log); err != nil {
+			log.Warnf("Failed to clean up Search resources on removed cluster %q: %v", operatorClusterName, err)
 		}
 		return reconcile.Result{}, nil
 	}
 
-	if r.prepareSearch.shouldSkipCluster(mdbSearch, log) {
+	if prepareSearch.shouldSkipCluster(mdbSearch, log) {
 		return reconcile.Result{}, nil
 	}
 
@@ -268,7 +284,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		searchSource,
 		r.operatorSearchConfig,
 		memberClusterEntries,
-		r.operatorClusterName,
+		operatorClusterName,
 		state,
 	)
 
@@ -606,7 +622,7 @@ func AddMongoDBSearchController(
 	mgr manager.Manager,
 	operatorSearchConfig searchcontroller.OperatorSearchConfig,
 	memberClustersProvider *multicluster.Provider,
-	operatorClusterName string,
+	clusterIdentity string,
 	maxConcurrentReconciles int,
 	memberClusterClientTimeout int,
 	requiredHealthyStreak int,
@@ -619,7 +635,7 @@ func AddMongoDBSearchController(
 		mgr.GetClient(),
 		operatorSearchConfig,
 		memberClustersProvider,
-		operatorClusterName,
+		clusterIdentity,
 	)
 
 	c, err := controller.New(util.MongoDbSearchController, mgr, controller.Options{
