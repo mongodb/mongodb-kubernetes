@@ -216,6 +216,10 @@ const (
 	AgentImageUrlDefault          = "quay.io/mongodb/mongodb-agent"
 	AgentImageEnv                 = "AGENT_IMAGE"
 
+	// MongodbProxyImageEnv is the full reference (registry/name:tag or digest) of the mongodb-proxy image.
+	// The image is mounted as an OCI image volume into the container that runs mongod/mongos.
+	MongodbProxyImageEnv = "MDB_MONGODB_PROXY_IMAGE"
+
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
 	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"
