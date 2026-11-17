@@ -15,8 +15,8 @@ import (
 // Those are part of the version itself and must not be mistaken for an image type suffix.
 var preReleaseRegex = regexp.MustCompile(`-(rc|alpha|beta)\.?\d*$`)
 
-// replaceImageTagOrDigestToTag returns the image with the tag or digest replaced to a given version
-func replaceImageTagOrDigestToTag(image string, newVersion string) string {
+// ReplaceImageTagOrDigestToTag returns the image with the tag or digest replaced to a given version
+func ReplaceImageTagOrDigestToTag(image string, newVersion string) string {
 	// example: quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a
 	if strings.Contains(image, "sha256:") {
 		imageSplit := strings.Split(image, "@")
@@ -70,6 +70,7 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		util.NonStaticDatabaseEnterpriseImage: "",
 		util.AgentImageEnv:                    "",
 		util.AgentImageUrlEnv:                 util.AgentImageUrlDefault,
+		util.MongodbProxyImageEnv:             "",
 		util.OperatorImageEnv:                 "", // Used by migration dry-run Jobs (connectivity-validator in same image).
 	} {
 		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue) // nolint:forbidigo
@@ -113,10 +114,26 @@ func ContainerImage(imageUrls ImageUrls, imageName string, version string) strin
 		// and not as a pair of host and version.
 		// In case AGENT_IMAGE is full URL with digest it will be replaced to given tag version,
 		// but most probably if it has digest, there is also RELATED_IMAGE defined, which will be picked up first.
-		return replaceImageTagOrDigestToTag(imageURL, version)
+		return ReplaceImageTagOrDigestToTag(imageURL, version)
 	}
 
 	return fmt.Sprintf("%s:%s", imageURL, version)
+}
+
+// MongodbProxyImage returns the mongodb-proxy image. MDB_MONGODB_PROXY_IMAGE holds a full reference with the
+// version (registry/name:version), like AGENT_IMAGE does; when a RELATED_IMAGE_MDB_MONGODB_PROXY_IMAGE_<version>
+// exists, as it does in a disconnected OpenShift installation, that reference (a digest) is used instead. It returns
+// an empty string when the variable is not set, and a reference without a tag (a digest) as it is.
+func MongodbProxyImage(imageUrls ImageUrls) string {
+	image := imageUrls[util.MongodbProxyImageEnv]
+	if image == "" || strings.Contains(image, "@") {
+		return image
+	}
+	idx := strings.LastIndex(image, ":")
+	if idx == -1 || strings.Contains(image[idx:], "/") {
+		return image // no tag: the part after the last colon is a registry port
+	}
+	return ContainerImage(imageUrls, util.MongodbProxyImageEnv, image[idx+1:])
 }
 
 func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) string {
