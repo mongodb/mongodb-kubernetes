@@ -56,7 +56,7 @@ Guidelines:
   can never silently skip envtest coverage.
 - envtest runs no controllers: objects are stored and validated, but nothing reconciles
   them, and namespaces cannot be deleted.
-- To test an admission webhook, add `env.WithWebhooks("webhooks.yaml")` to the package's
+- To test an admission webhook, add `env.WithOperatorWebhooks()` to the package's
   `TestMain` and call `env.Shared(t).StartWebhookServer` in the test, registering the
   validator. The server stops with the test: while it runs, it rejects the invalid objects
   other tests of the package create. The configuration ignores unreachable webhooks, so

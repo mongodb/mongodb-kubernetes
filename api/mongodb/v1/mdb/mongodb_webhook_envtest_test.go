@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	mongodbWebhookName   = "validate-mongodb.mongodb.com"
+	mongodbWebhookName   = "mdbpolicy.mongodb.com"
 	webhookTestNamespace = "default"
 )
 
