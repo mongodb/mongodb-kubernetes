@@ -168,12 +168,18 @@ def read_member_pods(replica_set: MongoDB) -> dict:
     return pods
 
 
-def count_unavailable_members(replica_set: MongoDB) -> int:
-    """Counts members whose pod is missing, terminating or not Ready."""
+def count_unavailable_members(replica_set: MongoDB, previous_uids: dict) -> int:
+    """Counts members being replaced: pods that are missing, terminating, or recreated and not Ready yet.
+
+    A pod that was not replaced is ignored even when its readiness probe flaps, as peers' probes do while the agents
+    replan after each replacement.
+    """
     return sum(
         1
-        for pod in read_member_pods(replica_set).values()
-        if pod is None or pod.metadata.deletion_timestamp or not pod_is_ready(pod)
+        for pod_name, pod in read_member_pods(replica_set).items()
+        if pod is None
+        or pod.metadata.deletion_timestamp
+        or (pod.metadata.uid != previous_uids[pod_name] and not pod_is_ready(pod))
     )
 
 
@@ -210,7 +216,7 @@ def test_desired_infra_revision_follows_template_change(replica_set: MongoDB, na
     def converged_on_new_revision():
         nonlocal max_unavailable
         try:
-            max_unavailable = max(max_unavailable, count_unavailable_members(replica_set))
+            max_unavailable = max(max_unavailable, count_unavailable_members(replica_set, previous_uids))
             revision = assert_infra_revisions_match(replica_set, namespace)
         except Exception as e:
             return False, str(e)
