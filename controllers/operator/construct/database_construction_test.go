@@ -314,6 +314,13 @@ func TestDatabaseAgentSettings(t *testing.T) {
 			absent:    []string{"useLocalMongoDbTools"},
 		},
 		{
+			name:       "static-ga uses agent image tools",
+			variables:  map[string]string{StaticContainersArchitectureEnv: "static-ga"},
+			parameters: mdbv1.StartupParameters{"mongodbToolsPath": "/other/tools"},
+			want:       mdbv1.StartupParameters{"operatorMode": "true", "mongodbToolsPath": "/tools"},
+			absent:     []string{"binariesFixedPath", "useLocalMongoDbTools"},
+		},
+		{
 			name:       "customer settings win including unknown keys",
 			parameters: mdbv1.StartupParameters{"logLevel": "DEBUG", "logFile": "/custom logs/agent.log", "maxLogFileDurationHrs": "12", "futureAgentSetting": "one,two=three"},
 			want:       mdbv1.StartupParameters{"logLevel": "DEBUG", "logFile": "/custom logs/agent.log", "maxLogFileDurationHrs": "12", "futureAgentSetting": "one,two=three"},

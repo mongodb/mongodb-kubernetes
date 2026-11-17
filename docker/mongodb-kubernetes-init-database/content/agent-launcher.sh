@@ -25,7 +25,12 @@ export MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT="${MMS_LOG_DIR}/agent-launcher-script.
 # -n0 parameter is instructing tail to show only new lines (by default tail is showing last 10 lines)
 tail -F -n0 "${MDB_LOG_FILE_AGENT_LAUNCHER_SCRIPT}" 2> /dev/null &
 
-source /opt/scripts/agent-launcher-lib.sh
+if [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" = "static-ga" ]; then
+  # shellcheck disable=SC1090
+  source "$(dirname "$0")/agent-launcher-lib.sh"
+else
+  source /opt/scripts/agent-launcher-lib.sh
+fi
 
 # all the following MDB_LOG_FILE_* env var should be defined in container's env vars
 tail -F -n0 "${MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE}" 2> /dev/null | json_log 'automation-agent-verbose' &
@@ -118,6 +123,10 @@ fi
 # and if it is stale we can quickly mark the container as ready, while in fact it is still booting up.
 rm -f "${MMS_LOG_DIR}/agent-health-status.json" 2>/dev/null || true
 
+if [ -n "${MDB_MONGODB_PROXY_ADDRESS:-}" ]; then
+  agentOpts+=("-mongodProxyAddress=${MDB_MONGODB_PROXY_ADDRESS}")
+fi
+
 # We never set the -httpProxy flag.
 # Without the flag, the agent relies solely on standard environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
 # This avoids conflicts between environment settings and agent CLI parameters.
@@ -128,6 +137,10 @@ rm /tmp/mongodb-mms-automation-cluster-backup.json &> /dev/null || true
 
 if [ -z "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" ]; then
   echo "Skipping creating symlinks because this is not Static Containers Architecture"
+elif [ "${MDB_STATIC_CONTAINERS_ARCHITECTURE}" = "static-ga" ]; then
+  # This container has no mongodb_marker process. The block below waits MAX_WAIT seconds for it and exits 1.
+  # The proxy owns mongod, and the agent uses the tools from its own image, so the symlinks are not needed.
+  echo "Skipping creating symlinks because static-ga uses the tools from the agent image"
 else
   WAIT_TIME=5
   MAX_WAIT=300
