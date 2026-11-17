@@ -14,7 +14,7 @@ STATIC_GA_ARCHITECTURE = "static-ga"
 NON_STATIC_ARCHITECTURE = "non-static"
 REPLICA_SET_NAME = "mdb"
 AGENT_CONTAINER_NAME = "mongodb-agent"
-AGENT_IMAGE_ENV = "AGENT_IMAGE"
+CUSTOM_AGENT_URL_ENV = "MDB_CUSTOM_AGENT_URL"
 
 # Dev OM build that supports desiredInfraRevision; replace with a released version once OM ships the field.
 DEV_OM_VERSION = "10.0.0-alpha0.489.20261106T1228Z"
@@ -33,19 +33,18 @@ def ops_manager(namespace: str, custom_appdb_version: str) -> MongoDBOpsManager:
     return resource
 
 
-@fixture(scope="module")
-def agent_image(namespace: str) -> str:
+@fixture(scope="module", autouse=True)
+def custom_agent_url_configured(namespace: str):
     deployment = client.AppsV1Api().read_namespaced_deployment(OPERATOR_NAME, namespace)
-    image = next(
-        (env.value for env in deployment.spec.template.spec.containers[0].env or [] if env.name == AGENT_IMAGE_ENV),
-        None,
+    env = deployment.spec.template.spec.containers[0].env or []
+    assert any(var.name == CUSTOM_AGENT_URL_ENV and var.value for var in env), (
+        f"{OPERATOR_NAME} deployment has no {CUSTOM_AGENT_URL_ENV}: pass --param mdb_custom_agent_url=<agent tarball URL> "
+        "after building its mongodb-agent image with the manual_release_specific_agent patch variant"
     )
-    assert image, f"{OPERATOR_NAME} deployment in namespace {namespace} has no {AGENT_IMAGE_ENV} env var"
-    return image
 
 
 @fixture(scope="module")
-def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str, agent_image: str) -> MongoDB:
+def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_version: str) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("replica-set-for-om.yaml"),
         namespace=namespace,
@@ -55,10 +54,6 @@ def replica_set(ops_manager: MongoDBOpsManager, namespace: str, custom_mdb_versi
 
     try_load(resource)
     resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = STATIC_GA_ARCHITECTURE
-    # The dev OM reports an agent version with no published image, so the operator must use the one it was built with.
-    resource["spec"].setdefault("podSpec", {}).setdefault("podTemplate", {}).setdefault("spec", {})["containers"] = [
-        {"name": AGENT_CONTAINER_NAME, "image": agent_image}
-    ]
     return resource
 
 
@@ -191,8 +186,9 @@ def test_infra_revision_matches_desired_infra_revision(replica_set: MongoDB, nam
 def test_desired_infra_revision_follows_template_change(replica_set: MongoDB, namespace: str):
     """Rolls the members onto a new revision one at a time, primary last, with at most one election.
 
-    Needs an agent implementing the WaitNodeReplacement replacement handshake: run the Evergreen patch with
-    --param mdb_custom_agent_url=<agent tarball URL>, otherwise this test is expected to fail.
+    Needs an agent implementing the WaitNodeReplacement replacement handshake. The operator takes the agent version
+    from --param mdb_custom_agent_url=<agent tarball URL> and pulls the mongodb-agent image of that version, which
+    the manual_release_specific_agent patch variant builds from the same tarball.
     """
     previous_revision = replica_set.read_statefulset().status.update_revision
     previous_uids = {pod_name: pod.metadata.uid for pod_name, pod in read_member_pods(replica_set).items()}
