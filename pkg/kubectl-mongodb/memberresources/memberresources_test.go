@@ -280,7 +280,7 @@ func TestRender(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := Render(memberNs, tc.workload, tc.operatorClusterScoped, tc.operatorTelemetry, "")
+			out, err := Render("test-cluster", memberNs, tc.workload, tc.operatorClusterScoped, tc.operatorTelemetry, "")
 			require.NoError(t, err, "render failed")
 			resources := parseResources(t, out)
 
@@ -350,7 +350,7 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 	const memberNs = "mongodb"
 	n := expectedNames()
 
-	out, err := Render(memberNs, []string{memberNs}, false, true, "")
+	out, err := Render("test-cluster", memberNs, []string{memberNs}, false, true, "")
 	require.NoError(t, err, "render failed")
 
 	byName := map[string]*unstructured.Unstructured{}
@@ -399,7 +399,7 @@ func TestRender_ImagePullSecrets(t *testing.T) {
 	const memberNs = "mongodb"
 	n := expectedNames()
 
-	out, err := Render(memberNs, []string{memberNs}, false, true, "my-pull-secret")
+	out, err := Render("test-cluster", memberNs, []string{memberNs}, false, true, "my-pull-secret")
 	require.NoError(t, err, "render failed")
 	resources := parseResources(t, out)
 
@@ -496,7 +496,7 @@ func TestHelmTemplateParity(t *testing.T) {
 		return stdout.String()
 	}
 
-	embeddedOut, err := Render("mongodb", []string{"mongodb"}, false, true, "")
+	embeddedOut, err := Render("test-cluster", "mongodb", []string{"mongodb"}, false, true, "")
 	require.NoError(t, err, "embedded render failed")
 	embeddedResources := parseResources(t, embeddedOut)
 

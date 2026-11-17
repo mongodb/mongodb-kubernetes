@@ -1511,6 +1511,8 @@ def generate_and_apply_member_resources(
             plugin,
             "cluster",
             "generate-resources",
+            "--member-cluster",
+            cluster,
             "--operator-namespace",
             member_namespace,
         ]
