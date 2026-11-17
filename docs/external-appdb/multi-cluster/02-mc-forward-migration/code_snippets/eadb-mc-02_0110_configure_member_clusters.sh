@@ -3,6 +3,7 @@ echo "Applying member-cluster RBAC..."
 
 for ctx in "${K8S_CTX_0}" "${K8S_CTX_1}" "${K8S_CTX_2}"; do
   kubectl mongodb cluster generate-resources \
+    --member-cluster="${ctx}" \
     --operator-namespace="${MDB_NS}" \
     ${IMAGE_PULL_SECRET_NAME:+--workload-image-pull-secrets="${IMAGE_PULL_SECRET_NAME}"} \
     | kubectl apply --context "${ctx}" -f -
