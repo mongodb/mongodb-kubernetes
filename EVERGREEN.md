@@ -58,6 +58,15 @@ starts with "[new]"; the CLI patch below runs the same variants. See .evergreen-
 evergreen patch -p mongodb-kubernetes -a release-publish -d "Test release-publish build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
 ```
 
+### Evergreen project isolation for major releases
+
+Each Evergreen project tracks a different GitHub branch. Before the first release of a new major version, bump the
+tracking project's `git_tag` major-version regex in `.evergreen.yml` on the soon-to-be-next-major branch (for example,
+from `^1\.\d+\.\d+$` to `^2\.\d+\.\d+$`). This prevents the previous-major and next-major projects from both
+triggering on the same release tags. Also add the corresponding release-branch selector and full Evergreen project
+mapping to `.github/workflows/release.yml` so the release workflow targets the matching project. Make these updates on
+every major version bump.
+
 ### Release-style preflight only (no image push, no Pyxis submit)
 
 Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, but **does not** run *
