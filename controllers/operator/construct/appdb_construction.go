@@ -46,9 +46,10 @@ type AppDBStatefulSetOptions struct {
 	VaultConfig vault.VaultConfiguration
 	CertHash    string
 
-	InitAppDBImage string
-	MongodbImage   string
-	AgentImage     string
+	InitAppDBImage    string
+	MongodbImage      string
+	MongodbProxyImage string
+	AgentImage        string
 
 	PrometheusTLSCertHash string
 	CustomAgentURL        string
@@ -385,8 +386,10 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		podSpec.Spec = WithoutHolderContainer(appsv1.StatefulSetSpec{Template: *podSpec}, log).Template.Spec
 	}
 
+	usesProxy := architectures.IsRunningStaticGAArchitecture(opsManager.Annotations, defaultArchitecture)
 	// We copy the Automation Agent command from community and add the agent startup parameters
-	automationAgentCommand := AutomationAgentCommand(architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture), ShouldEnableMonitoring(podVars), opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
+	isStatic := architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture)
+	automationAgentCommand := AutomationAgentCommand(isStatic, usesProxy, ShouldEnableMonitoring(podVars), opsManager.Spec.AppDB.GetAgentLogLevel(), opsManager.Spec.AppDB.GetAgentLogFile(), opsManager.Spec.AppDB.GetAgentMaxLogFileDurationHours())
 	idx := len(automationAgentCommand) - 1
 	automationAgentCommand[idx] += appDb.AutomationAgent.StartupParameters.ToCommandLineArgs()
 
@@ -435,6 +438,10 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	hooksVolumeMod := podtemplatespec.WithVolume(hooksVolume)
 	scriptsVolumeMod := podtemplatespec.WithVolume(scriptsVolume)
 	withStaticContainerModification := podtemplatespec.NOOP()
+	withProxyAgentModification := podtemplatespec.NOOP()
+	withProxyMongodbModification := podtemplatespec.NOOP()
+	proxyInitContainer := podtemplatespec.NOOP()
+	proxyVolumes := []corev1.Volume{}
 	shareProcessNs := statefulset.NOOP()
 
 	withInitContainers := !architectures.IsRunningStaticArchitecture(opsManager.Annotations, defaultArchitecture)
@@ -453,8 +460,38 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 			podtemplatespec.WithContainer(util.AgentContainerName, container.WithReadinessProbe(probes.WithExecCommand([]string{staticDatabaseReadinessProbeCmd}))),
 		)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
-		shareProcessNs = func(sts *appsv1.StatefulSet) {
-			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
+		if usesProxy {
+			proxyVolumes = append(proxyVolumes,
+				imageVolume(mongodbProxyVolumeName, opts.MongodbProxyImage),
+				mongodbProxySocketVolume(),
+			)
+			proxyInitContainer = podtemplatespec.WithInitContainer(
+				InitDatabaseContainerName,
+				buildDatabaseInitContainer(opts.InitAppDBImage, []corev1.VolumeMount{scriptsVolumeMount}),
+			)
+			withProxyAgentModification = podtemplatespec.WithContainer(
+				util.AgentContainerName,
+				container.Apply(
+					container.WithEnvs(corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress}),
+					container.WithVolumeMounts([]corev1.VolumeMount{mongodbProxySocketMount()}),
+				),
+			)
+			withProxyMongodbModification = podtemplatespec.WithContainer(
+				util.MongodbContainerName,
+				container.Apply(
+					container.WithEnvs(corev1.EnvVar{Name: "MDB_LOG_FILE_MONGODB", Value: automationconfig.DefaultAgentLogPath + "/mongodb.log"}),
+					container.WithCommand([]string{mongodbProxyBinaryPath}),
+					container.WithArgs([]string{"-listen", MongodbProxyAddress}),
+					container.WithVolumeMounts([]corev1.VolumeMount{
+						readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath),
+						mongodbProxySocketMount(),
+					}),
+				),
+			)
+		} else {
+			shareProcessNs = func(sts *appsv1.StatefulSet) {
+				sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
+			}
 		}
 	}
 
@@ -500,14 +537,18 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 				automationConfigVolumeFunc,
 				hooksVolumeMod,
 				scriptsVolumeMod,
+				podtemplatespec.WithVolumes(proxyVolumes),
 				podtemplatespec.WithVolume(tmpVolume),
 				podtemplatespec.WithVolume(keyFileVolume),
 				podtemplatespec.WithVolume(acVersionConfigMapVolume),
 				podtemplatespec.WithContainer(util.AgentContainerName, appdbMongodbAgentContainer(appDb.AutomationConfigSecretName(), mongodbAgentVolumeMounts, opts.AgentImage, automationAgentCommand)),
-				podtemplatespec.WithContainer(util.MongodbContainerName, appdbMongodbContainer(opts.MongodbImage, mongodVolumeMounts, appDb.GetMongodConfiguration(), !withInitContainers)),
+				podtemplatespec.WithContainer(util.MongodbContainerName, appdbMongodbContainer(opts.MongodbImage, mongodVolumeMounts, appDb.GetMongodConfiguration(), !withInitContainers && !usesProxy)),
+				withProxyAgentModification,
+				withProxyMongodbModification,
 				withStaticContainerModification,
 				upgradeInitContainer,
 				readinessInitContainer,
+				proxyInitContainer,
 				podtemplatespec.WithContainer(util.AgentContainerName,
 					container.WithEnvs(appdbContainerEnv(*appDb, opts.CustomAgentURL)...),
 				),

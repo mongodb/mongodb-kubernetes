@@ -962,12 +962,12 @@ func buildNonStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, 
 	// scripts volume is shared by the init container and the AppDB, so the startup
 	// script can be copied over
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("database-scripts")
-	databaseScriptsVolumeMount := databaseScriptsVolumeMount(true)
+	scriptsMount := databaseScriptsVolumeMount(true)
 
 	volumes := []corev1.Volume{scriptsVolume}
-	volumeMounts := []corev1.VolumeMount{databaseScriptsVolumeMount}
+	volumeMounts := []corev1.VolumeMount{scriptsMount}
 
-	initContainerModifications := []func(*corev1.Container){buildDatabaseInitContainer(opts.InitDatabaseImage)}
+	initContainerModifications := []func(*corev1.Container){buildDatabaseInitContainer(opts.InitDatabaseImage, []corev1.VolumeMount{databaseScriptsVolumeMount(false)})}
 
 	databaseContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.DatabaseContainerName),
@@ -1135,15 +1135,13 @@ func databaseScriptsVolumeMount(readOnly bool) corev1.VolumeMount {
 }
 
 // buildDatabaseInitContainer builds the container specification for mongodb-enterprise-init-database image
-func buildDatabaseInitContainer(initDatabaseImage string) container.Modification {
+func buildDatabaseInitContainer(initDatabaseImage string, volumeMounts []corev1.VolumeMount) container.Modification {
 	_, configureContainerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 
 	return container.Apply(
 		container.WithName(InitDatabaseContainerName),
 		container.WithImage(initDatabaseImage),
-		container.WithVolumeMounts([]corev1.VolumeMount{
-			databaseScriptsVolumeMount(false),
-		}),
+		container.WithVolumeMounts(volumeMounts),
 		configureContainerSecurityContext,
 	)
 }
