@@ -159,7 +159,7 @@ func clusterfileTestSecurity(managed bool) *mdbv1.Security {
 
 func newClusterfileCheckController(ctx context.Context) (*ReconcileCommonController, secrets.SecretClient) {
 	kubeClient, _ := mock.NewDefaultFakeClient()
-	return NewReconcileCommonController(ctx, kubeClient), secrets.SecretClient{KubeClient: kubeClient}
+	return NewReconcileCommonController(ctx, kubeClient, nil), secrets.SecretClient{KubeClient: kubeClient}
 }
 
 // putClusterfileWithoutHostnames writes the clusterfile secret the options name, holding a valid

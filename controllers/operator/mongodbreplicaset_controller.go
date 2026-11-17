@@ -222,7 +222,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(err))
 	}
 
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
+	conn, agentApiKey, err := connection.PrepareOpsManagerConnection(ctx, reconciler.SecretClient, projectConfig, credsConfig, reconciler.omConnectionFactory, rs.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to prepare Ops Manager connection: %w", err)))
 	}
@@ -401,6 +401,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.runConnectivityValidationDryRun(ctx, conn, projectConfig, rs.Spec.ExternalMembers, rs, deploymentOpts, operatorImage, log)
 	}
 
+	reconciler.EnsureOtelExporterForDeployment(conn, agentApiKey, rs.Status.Link, rs, log)
+
 	if status := controlledfeature.EnsureFeatureControls(ctx, *rs, conn, conn.OpsManagerVersion(), log); !status.IsOK() {
 		return r.updateStatus(ctx, status)
 	}
@@ -480,10 +482,11 @@ func newReplicaSetReconciler(
 	defaultArchitecture architectures.DefaultArchitecture,
 	defaultImageType architectures.ImageType,
 	omFunc om.ConnectionFactory,
+	omMetrics OMMetricsMultiplexer,
 	certManagerReadiness certs.CertManagerReadiness,
 ) *ReconcileMongoDbReplicaSet {
 	return &ReconcileMongoDbReplicaSet{
-		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient, omMetrics),
 		omConnectionFactory:       omFunc,
 		imageUrls:                 imageUrls,
 		forceEnterprise:           forceEnterprise,
@@ -744,13 +747,14 @@ func AddReplicaSetController(
 	agentDebugImage string,
 	defaultArchitecture architectures.DefaultArchitecture,
 	defaultImageType architectures.ImageType,
+	omMetrics OMMetricsMultiplexer,
 ) error {
 	// make sure cert-manager resources are registered and operator has authz to access them, before actually registering
 	// watches or doing anything with cert-manager resources.
 	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
 
 	// Create a new controller
-	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, certManagerReadiness)
+	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, omMetrics, certManagerReadiness)
 	c, err := controller.New(util.MongoDbReplicaSetController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)}) // nolint:forbidigo
 	if err != nil {
 		return err
@@ -1357,6 +1361,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 
 func (r *ReconcileMongoDbReplicaSet) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	rs := obj.(*mdbv1.MongoDB)
+	r.ReleaseOtelExporter(rs.Status.Link, log)
 	if rs.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			rs.Namespace, rs.Name, util.DisableReconciliationAnnotation)

@@ -66,7 +66,7 @@ def test_create_release_info_json(mock_get_digest, monkeypatch):
                 "digest": "sha256:436fc328f3887f022a4760afd03da1a7091d285baf3d627a17d80bbdaab0ee47",
             },
             "search": {
-                "repoURL": "quay.io/mongodb/mongodb-search",
+                "repoURL": "quay.io/mongodb/mongodb-enterprise-search",
                 "platforms": ["linux/arm64", "linux/amd64"],
                 "tag": "0.55.0",
                 "digest": "sha256:c1e636119aa206ff98cefed37ee4b488d75c6a5e6025dcb71f44275a8f3f546a",

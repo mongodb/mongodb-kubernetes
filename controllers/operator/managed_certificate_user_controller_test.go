@@ -52,7 +52,7 @@ func TestReplicaSetManagedCertificate_UserClientCertificateFollowsCARotation(t *
 	}).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{Ready: true})
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{Ready: true})
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	// The first reconcile creates the Certificates, then cert-manager issues them.
@@ -169,7 +169,7 @@ func TestReplicaSetManagedCertificate_WatchesUserClientCertificateSecrets(t *tes
 	}).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{Ready: true})
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{Ready: true})
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	user := &userv1.MongoDBUser{Spec: userv1.MongoDBUserSpec{

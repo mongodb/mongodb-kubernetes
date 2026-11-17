@@ -49,7 +49,7 @@ func TestMultiClusterShardedManagedCertificate_RetainsPreviousCAInEveryMemberClu
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
 	memberClients := getFakeMultiClusterMapWithClusters(memberClusters.ClusterNames, omConnectionFactory)
-	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, memberClients, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, certs.CertManagerReadiness{Ready: true})
+	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, memberClients, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{Ready: true})
 
 	// Register the agents the way the pods would when they start, so that Ops Manager reports the
 	// deployment as ready once the StatefulSets are created.

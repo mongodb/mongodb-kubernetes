@@ -157,7 +157,7 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 	}).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{Ready: true})
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{Ready: true})
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	// the first reconcile creates the Certificates, then cert-manager issues them
@@ -263,7 +263,7 @@ func TestShardedClusterManagedCertificate_CAFilePathIsBundleHash(t *testing.T) {
 	sc := test.DefaultClusterBuilder().SetSecurity(mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
-	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, certs.CertManagerReadiness{Ready: true})
+	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, certs.CertManagerReadiness{Ready: true})
 
 	// the first reconcile creates the Certificates, then cert-manager issues them
 	_, err := reconciler.Reconcile(ctx, requestFromObject(sc))
@@ -409,7 +409,7 @@ func TestReplicaSetManagedCertificate_ReissuesLeavesOnCARotation(t *testing.T) {
 	}).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{Ready: true})
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{Ready: true})
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	memberSecretName := rs.Name + "-managed-cert"
@@ -556,7 +556,7 @@ func TestReplicaSetManagedCertificate_StatusReportsRenewal(t *testing.T) {
 	}).Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{Ready: true})
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{Ready: true})
 
 	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
 	require.NoError(t, err)

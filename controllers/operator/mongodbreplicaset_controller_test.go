@@ -84,6 +84,15 @@ func TestCreateReplicaSet(t *testing.T) {
 	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
+func TestReplicaSetReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	rs.SetUID(types.UID("replica-set-uid"))
+	reconciler, kubeClient, _ := defaultReplicaSetReconcilerWithConnectionFactory(ctx, nil, "", "", rs, architectures.NonStatic, monitoringMappingConnectionFactory())
+
+	runReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, rs, rs.GetReplicaSetName())
+}
+
 func TestReplicaSetRace(t *testing.T) {
 	ctx := context.Background()
 	rs, cfgMap, projectName := buildReplicaSetWithCustomProjectName("my-rs")
@@ -105,7 +114,7 @@ func TestReplicaSetRace(t *testing.T) {
 			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
 		}).Build()
 
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{})
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{})
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
 }
@@ -306,6 +315,85 @@ func TestReplicaSetServiceName(t *testing.T) {
 	assert.Equal(t, "foo", rs.ServiceName())
 	_, err := client.GetService(ctx, kube.ObjectKey(rs.Namespace, rs.ServiceName()))
 	assert.NoError(t, err)
+}
+
+func TestReplicaSetCustomServiceAccount(t *testing.T) {
+	for _, arch := range []architectures.DefaultArchitecture{architectures.NonStatic, architectures.Static} {
+		t.Run(string(arch), func(t *testing.T) {
+			ctx := context.Background()
+			podSpec := corev1.PodSpec{ServiceAccountName: "test-sa"}
+			rs := DefaultReplicaSetBuilder().SetPodSpecTemplate(corev1.PodTemplateSpec{Spec: podSpec}).Build()
+			reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, arch)
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+			sts, err := client.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, rs.Name))
+			require.NoError(t, err)
+			assert.Equal(t, podSpec.ServiceAccountName, sts.Spec.Template.Spec.ServiceAccountName)
+		})
+	}
+}
+
+func TestReplicaSetStatefulSetStatus(t *testing.T) {
+	for _, arch := range []architectures.DefaultArchitecture{architectures.NonStatic, architectures.Static} {
+		t.Run(string(arch), func(t *testing.T) {
+			ctx := context.Background()
+			rs := DefaultReplicaSetBuilder().SetMembers(2).Build()
+
+			markStsAsReady := false
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+			kubeClient := interceptor.NewClient(
+				mock.NewEmptyFakeClientBuilder().WithObjects(rs).WithObjects(mock.GetDefaultResources()...).Build(),
+				interceptor.Funcs{
+					Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, markStsAsReady, markStsAsReady)(ctx, client, key, obj, opts...)
+					},
+				})
+			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{})
+
+			checkReconcilePending(ctx, t, reconciler, rs, "StatefulSet not ready", kubeClient, 3)
+			assert.Equal(t, "StatefulSet not ready", rs.Status.Message)
+			assert.Equal(t, []status.ResourceNotReady{{
+				Kind:    status.StatefulsetKind,
+				Name:    rs.Name,
+				Message: "Not all the Pods are ready (wanted: 2, updated: 0, ready: 0, current: 0)",
+			}}, rs.Status.ResourcesNotReady)
+
+			markStsAsReady = true
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+			assert.Empty(t, rs.Status.ResourcesNotReady)
+			assert.Empty(t, rs.Status.Message)
+		})
+	}
+}
+
+func TestReplicaSetRecoversFromMissingCredentials(t *testing.T) {
+	ctx := context.Background()
+	const missingCredentials = "missing-credentials"
+	rs := DefaultReplicaSetBuilder().Build()
+	rs.Spec.Credentials = missingCredentials
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	checkReconcileFailed(ctx, t, reconciler, rs, true, fmt.Sprintf(`Error reading Credentials secret: secrets %q not found`, missingCredentials), client)
+
+	rs.Spec.Credentials = mock.TestCredentialsSecretName
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+}
+
+func TestReplicaSetMembersNotSpecified(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(0).Build()
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	msg := "'spec.members' must be specified if type of MongoDB is ReplicaSet"
+	checkReconcileFailed(ctx, t, reconciler, rs, false, msg, client)
 }
 
 func TestHorizonVerificationTLS(t *testing.T) {
@@ -716,7 +804,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{})
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{})
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -740,7 +828,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{})
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{})
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -1129,7 +1217,7 @@ func TestReplicaSetAnnotations_NotWrittenOnFailure(t *testing.T) {
 		WithObjects(mock.GetProjectConfigMap(mock.TestProjectConfigMapName, "testProject", "testOrg")).
 		Build()
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, certs.CertManagerReadiness{})
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, nil, certs.CertManagerReadiness{})
 
 	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
 	require.NoError(t, err, "Reconcile should not return error (error captured in status)")
@@ -1359,12 +1447,16 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 	assert.Len(t, dep.ProcessesCopy(), expected)
 }
 
-func defaultReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
-	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+func defaultReplicaSetReconcilerWithConnectionFactory(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateReplicaSetExternalHostnames(rs)
 	})
-	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, certs.CertManagerReadiness{}), kubeClient, omConnectionFactory
+	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{}), kubeClient, omConnectionFactory
+}
+
+func defaultReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
+	return defaultReplicaSetReconcilerWithConnectionFactory(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, rs, arch, om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection))
 }
 
 func calculateReplicaSetExternalHostnames(rs *mdbv1.MongoDB) []string {
@@ -1823,7 +1915,7 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 	}
 	applyOverrides := func(t *testing.T, c client.Client) string {
 		rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").Build()
-		reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c)}
+		reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c, nil)}
 		helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
 		applied, err := helper.applySearchOverrides(ctx)
 		require.NoError(t, err)
