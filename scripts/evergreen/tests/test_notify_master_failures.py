@@ -9,12 +9,10 @@ from scripts.evergreen.notify_flaky_tests import FlakyTask
 from scripts.evergreen.notify_master_failures import (
     TaskInfo,
     VersionInfo,
-    format_retry_follow_up,
     format_slack_message,
     get_previous_version_failures,
     get_task_summary,
     print_stdout_report,
-    send_slack_api_message,
     send_slack_notification,
 )
 
@@ -259,40 +257,6 @@ class TestFormatSlackMessage:
         assert "Tasks: e2e_00, e2e_01, e2e_02 and 7 more" in text
 
 
-class TestFormatRetryFollowUp:
-    def test_lists_tasks_by_variant(self):
-        retried = [
-            make_mock_task("e2e_a", "variant_a", "success", execution=1),
-            make_mock_task("e2e_b", "variant_b", "success", execution=2),
-        ]
-        message = format_retry_follow_up(retried, 100)
-        text = "\n".join(block["text"]["text"] for block in message["blocks"])
-        assert "2 of 100 tasks restarted before this pass" in message["text"]
-        assert "*variant_a*: e2e_a" in text
-        assert "*variant_b*: e2e_b" in text
-        assert "runs)" not in text
-
-    def test_returns_none_without_restarts(self):
-        assert format_retry_follow_up([], 100) is None
-
-    def test_caps_long_lists(self):
-        retried = [make_mock_task(f"e2e_{i}", "variant_a", "success", execution=1) for i in range(120)]
-        message = format_retry_follow_up(retried)
-        text = "\n".join(block["text"]["text"] for block in message["blocks"])
-        assert "and 70 more" in text
-        assert text.count("e2e_") == 50
-
-    def test_splits_long_variant_lines(self):
-        long_name = "e2e_" + "x" * 70
-        retried = [make_mock_task(f"{long_name}_{i:02d}", "variant_a", "success", execution=1) for i in range(50)]
-        message = format_retry_follow_up(retried)
-        texts = [block["text"]["text"] for block in message["blocks"]]
-        assert all(len(text) <= 3000 for text in texts)
-        # The variant prefix repeats on continuation lines.
-        assert sum(text.count("*variant_a*") for text in texts) > 1
-        assert sum(text.count("e2e_") for text in texts) == 50
-
-
 class TestPrintStdoutReport:
     def _report(self, failed_tasks=None, running_tasks=None, **kwargs):
         version_info = make_mock_version(**kwargs)
@@ -482,36 +446,6 @@ class TestSendSlackNotification:
         assert send_slack_notification("http://test", {"text": "hi"}) is False
 
 
-class TestSendSlackApiMessage:
-    @patch("scripts.evergreen.notify_master_failures.requests.post")
-    def test_returns_ts(self, mock_post):
-        mock_post.return_value.raise_for_status = MagicMock()
-        mock_post.return_value.json.return_value = {"ok": True, "ts": "1700000000.000100"}
-        assert send_slack_api_message("tok", "C1", {"text": "hi"}) == "1700000000.000100"
-
-    @patch("scripts.evergreen.notify_master_failures.requests.post")
-    def test_posts_thread_reply(self, mock_post):
-        mock_post.return_value.raise_for_status = MagicMock()
-        mock_post.return_value.json.return_value = {"ok": True, "ts": "2.0"}
-        send_slack_api_message("tok", "C1", {"text": "hi"}, thread_ts="1.0")
-        payload = mock_post.call_args.kwargs["json"]
-        assert payload["thread_ts"] == "1.0"
-        assert payload["channel"] == "C1"
-
-    @patch("scripts.evergreen.notify_master_failures.requests.post")
-    def test_returns_none_on_slack_error(self, mock_post):
-        mock_post.return_value.raise_for_status = MagicMock()
-        mock_post.return_value.json.return_value = {"ok": False, "error": "channel_not_found"}
-        assert send_slack_api_message("tok", "C1", {"text": "hi"}) is None
-
-    @patch("scripts.evergreen.notify_master_failures.requests.post")
-    def test_returns_none_on_request_error(self, mock_post):
-        from requests.exceptions import RequestException
-
-        mock_post.side_effect = RequestException("fail")
-        assert send_slack_api_message("tok", "C1", {"text": "hi"}) is None
-
-
 class TestMainOutputBehavior:
     @pytest.fixture
     def mocks(self, monkeypatch):
@@ -521,23 +455,18 @@ class TestMainOutputBehavior:
             patch("scripts.evergreen.notify_master_failures.get_task_summary") as tasks,
             patch("scripts.evergreen.notify_master_failures.get_previous_version_failures") as prev_failed,
             patch("scripts.evergreen.notify_master_failures.send_slack_notification") as slack,
-            patch("scripts.evergreen.notify_master_failures.send_slack_api_message") as slack_api,
             patch("scripts.evergreen.notify_master_failures.print_stdout_report") as stdout,
         ):
             api.return_value = MagicMock()
             slack.return_value = True
-            slack_api.return_value = "1700000000.000100"
             prev_failed.return_value = set()
             monkeypatch.setenv("version_id", "test")
             monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
-            monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
-            monkeypatch.delenv("SLACK_CHANNEL_ID", raising=False)
             monkeypatch.delenv("NOTIFY_ON_SUCCESS", raising=False)
             yield {
                 "wait": wait,
                 "tasks": tasks,
                 "slack": slack,
-                "slack_api": slack_api,
                 "stdout": stdout,
                 "prev_failed": prev_failed,
             }
@@ -606,28 +535,3 @@ class TestMainOutputBehavior:
         assert "6 of 100 tasks restarted before this pass" in text
         assert "and 3 more" in text
         assert "e2e_retried_3" not in text
-
-    def test_bot_token_posts_thread_follow_up(self, mocks, monkeypatch):
-        monkeypatch.setenv("SLACK_BOT_TOKEN", "tok")
-        monkeypatch.setenv("SLACK_CHANNEL_ID", "C1")
-        self._run(
-            mocks,
-            "success",
-            retried=[{"build_variant": "v", "display_name": "e2e_retried", "execution": 1}],
-            total=100,
-        )
-        assert mocks["slack_api"].call_count == 2
-        thread_call = mocks["slack_api"].call_args_list[1]
-        assert thread_call.kwargs["thread_ts"] == "1700000000.000100"
-
-    def test_no_thread_on_failure(self, mocks, monkeypatch):
-        monkeypatch.setenv("SLACK_BOT_TOKEN", "tok")
-        monkeypatch.setenv("SLACK_CHANNEL_ID", "C1")
-        self._run(
-            mocks,
-            "failed",
-            failed=[{"build_variant": "v", "display_name": "e2e_t"}],
-            retried=[{"build_variant": "v", "display_name": "e2e_retried", "execution": 1}],
-            total=100,
-        )
-        assert mocks["slack_api"].call_count == 1

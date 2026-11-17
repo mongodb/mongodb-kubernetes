@@ -16,18 +16,11 @@ Environment variables required:
 - HONEYCOMB_API_KEY: Honeycomb API key for flakiness lookup (optional)
 - version_id: The Evergreen version ID to check for failures
 
-Optional Slack bot-token variables (needed to post the retry follow-up in a thread):
-- SLACK_BOT_TOKEN: Slack bot token with chat:write
-- SLACK_CHANNEL_ID: Channel ID to post to
-
-Without the bot token, the script posts the retry count through the webhook. The
-restarted task list stays in the task log.
-
 Usage:
     python notify_master_failures.py [--dry-run] [--version-id <id>]
 
 Options:
-    --dry-run          Print the Slack payloads instead of sending them
+    --dry-run          Print the Slack payload instead of sending it
     --version-id       Override the version_id environment variable
 """
 
@@ -63,15 +56,6 @@ NOTIFICATION_TASKS = [
 # when the elapsed-build-activator fires the task early.
 VERSION_POLL_TIMEOUT = 600
 VERSION_POLL_INTERVAL = 30
-
-# Slack chat.postMessage endpoint. The webhook cannot return a message ts, so a
-# bot token is required to post a threaded follow-up.
-SLACK_API_URL = "https://slack.com/api/chat.postMessage"
-
-# Retry details are capped because a full-version restart marks every task as
-# restarted. Slack also limits a section text to 3000 characters.
-MAX_RETRY_DETAILS = 50
-MAX_RETRY_SECTION_CHARS = 2800
 
 # Global counter for API calls
 _api_call_count = 0
@@ -307,68 +291,6 @@ def _format_retry_tasks(retried_tasks: list[TaskInfo]) -> str:
     return text
 
 
-def _retry_detail_sections(retried_tasks: list[TaskInfo]) -> list[dict[str, object]]:
-    """Build section blocks that list restarted tasks, grouped by build variant.
-
-    Slack caps a section text at 3000 characters. Long lists are split across
-    sections and capped at MAX_RETRY_DETAILS entries.
-    """
-    sorted_tasks = sorted(retried_tasks, key=lambda t: (t.build_variant, t.display_name))
-    shown = sorted_tasks[:MAX_RETRY_DETAILS]
-    hidden = len(sorted_tasks) - len(shown)
-
-    by_variant: dict[str, list[str]] = {}
-    for task in shown:
-        by_variant.setdefault(task.build_variant, []).append(task.display_name)
-
-    # A variant can hold enough tasks to exceed one section. Repeat the variant
-    # prefix on continuation lines so no single line passes the section limit.
-    lines: list[str] = []
-    for variant, task_strings in sorted(by_variant.items()):
-        prefix = f"*{variant}*: "
-        chunk: list[str] = []
-        for task_string in task_strings:
-            if chunk and len(prefix + ", ".join(chunk + [task_string])) > MAX_RETRY_SECTION_CHARS:
-                lines.append(prefix + ", ".join(chunk))
-                chunk = [task_string]
-            else:
-                chunk.append(task_string)
-        lines.append(prefix + ", ".join(chunk))
-    if hidden:
-        lines.append(f"_and {hidden} more_")
-
-    sections: list[dict[str, object]] = []
-    chunk: list[str] = []
-    for line in lines:
-        if chunk and len("\n".join(chunk + [line])) > MAX_RETRY_SECTION_CHARS:
-            sections.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(chunk)}})
-            chunk = []
-        chunk.append(line)
-    if chunk:
-        sections.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(chunk)}})
-    return sections
-
-
-def format_retry_follow_up(retried_tasks: list[TaskInfo], total_tasks: int | None = None) -> dict[str, object] | None:
-    """Format the threaded follow-up that lists restarted tasks.
-
-    Returns None when no task restarted.
-    """
-    if not retried_tasks:
-        return None
-    if total_tasks:
-        summary = f"{len(retried_tasks)} of {total_tasks} tasks restarted before this pass"
-    else:
-        summary = f"{len(retried_tasks)} tasks restarted before this pass"
-    return {
-        "blocks": [
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"*{summary}:*"}},
-            *_retry_detail_sections(retried_tasks),
-        ],
-        "text": summary,
-    }
-
-
 def format_slack_message(
     version_info: VersionInfo,
     failed_tasks: list[TaskInfo] | None = None,
@@ -554,36 +476,6 @@ def send_slack_notification(webhook_url: str, message: dict[str, object]) -> boo
         return False
 
 
-def send_slack_api_message(
-    token: str, channel: str, message: dict[str, object], thread_ts: str | None = None
-) -> str | None:
-    """Post a message with chat.postMessage and return its ts, or None on failure.
-
-    A thread reply needs the ts of the parent message. An incoming webhook does
-    not return one, so threaded follow-ups use the Web API.
-    """
-    payload = {"channel": channel, **message}
-    if thread_ts:
-        payload["thread_ts"] = thread_ts
-    try:
-        response = requests.post(
-            SLACK_API_URL,
-            json=payload,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-    except (requests.RequestException, ValueError) as e:
-        print(f"Failed to send Slack message: {e}", file=sys.stderr)
-        return None
-    if not data.get("ok"):
-        print(f"Failed to send Slack message: {data.get('error')}", file=sys.stderr)
-        return None
-    print("Slack message sent successfully")
-    return data.get("ts")
-
-
 def print_stdout_report(
     version_info: VersionInfo,
     failed_tasks: list[TaskInfo],
@@ -641,8 +533,6 @@ def main() -> None:
 
     version_id = args.version_id or os.environ.get("version_id")
     slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
-    slack_bot_token = os.environ.get("SLACK_BOT_TOKEN")
-    slack_channel_id = os.environ.get("SLACK_CHANNEL_ID")
     notify_on_success = os.environ.get("NOTIFY_ON_SUCCESS", "true").lower() == "true"
 
     use_slack_dry_run = args.dry_run
@@ -707,8 +597,8 @@ def main() -> None:
         print("No failed or running tasks found", file=sys.stderr)
     print(f"Restarted tasks: {len(retried_tasks)} of {total_tasks}", file=sys.stderr)
 
-    # A webhook cannot return the ts that a thread reply needs. Without a bot
-    # token, only the count appears in Slack. The task list stays in the task log.
+    # The webhook message carries the retry count and up to three task names.
+    # The full restarted-task list stays in the task log.
     message = format_slack_message(
         version_info,
         failed_tasks,
@@ -717,28 +607,14 @@ def main() -> None:
         retried_tasks,
         total_tasks,
     )
-    retry_follow_up = None if failed_tasks else format_retry_follow_up(retried_tasks, total_tasks)
 
     if use_slack_dry_run:
-        payload: dict[str, object] = {"message": message}
-        if retry_follow_up:
-            payload["thread"] = retry_follow_up
-        print(json.dumps(payload, indent=2))
+        print(json.dumps({"message": message}, indent=2))
     else:
         print_stdout_report(version_info, failed_tasks, running_tasks, flaky_map, retried_tasks)
         should_notify = bool(failed_tasks) or (not running_tasks and notify_on_success)
-        if should_notify:
-            if slack_bot_token and slack_channel_id:
-                parent_ts = send_slack_api_message(slack_bot_token, slack_channel_id, message)
-                if parent_ts and retry_follow_up:
-                    send_slack_api_message(
-                        slack_bot_token,
-                        slack_channel_id,
-                        retry_follow_up,
-                        thread_ts=parent_ts,
-                    )
-            elif slack_webhook_url:
-                send_slack_notification(slack_webhook_url, message)
+        if should_notify and slack_webhook_url:
+            send_slack_notification(slack_webhook_url, message)
 
     elapsed = time.time() - start_time
     print("\n--- Summary ---", file=sys.stderr)
