@@ -354,7 +354,7 @@ func TestReplicaSetStatefulSetStatus(t *testing.T) {
 						return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, markStsAsReady, markStsAsReady)(ctx, client, key, obj, opts...)
 					},
 				})
-			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
+			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 			checkReconcilePending(ctx, t, reconciler, rs, "StatefulSet not ready", kubeClient, 3)
 			assert.Equal(t, "StatefulSet not ready", rs.Status.Message)
@@ -383,6 +383,16 @@ func TestReplicaSetRecoversFromMissingCredentials(t *testing.T) {
 
 	rs.Spec.Credentials = mock.TestCredentialsSecretName
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+}
+
+func TestReplicaSetMembersNotSpecified(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(0).Build()
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	msg := "'spec.members' must be specified if type of MongoDB is ReplicaSet"
+	checkReconcileFailed(ctx, t, reconciler, rs, false, msg, client)
 }
 
 func TestHorizonVerificationTLS(t *testing.T) {
