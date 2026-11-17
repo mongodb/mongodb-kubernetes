@@ -45,6 +45,14 @@ func TestWithin(t *testing.T) {
 	}
 }
 
+func TestEnvValue(t *testing.T) {
+	env := []string{"PATH=/bin", "A=1", "B=2=3", "A=4"}
+	assert.Equal(t, "4", envValue(env, "A"), "a later entry wins for the child")
+	assert.Equal(t, "2=3", envValue(env, "B"))
+	assert.Equal(t, "", envValue(env, "C"))
+	assert.Equal(t, "", envValue([]string{"A"}, "A"))
+}
+
 func TestOpenBelowDoesNotFollowASymlinkOutOfTheDirectory(t *testing.T) {
 	dir := t.TempDir()
 	secret := outside(t, "secret")
@@ -91,10 +99,10 @@ func TestStartRefusesPathsOutsideThePolicy(t *testing.T) {
 	tests := map[string]StartRequest{
 		"config outside":     {ConfigPath: elsewhere, Role: RoleMain},
 		"config not clean":   {ConfigPath: f.dir + "/../" + filepath.Base(f.dir) + "/main.conf", Role: RoleMain},
-		"keytab outside":     {ConfigPath: cfg, Role: RoleMain, Other: Other{KerberosKeytab: elsewhere}},
-		"ldap CA outside":    {ConfigPath: cfg, Role: RoleMain, Other: Other{LdapCaPath: elsewhere}},
-		"keytab not clean":   {ConfigPath: cfg, Role: RoleMain, Other: Other{KerberosKeytab: f.dir + "/../x"}},
-		"keytab is the root": {ConfigPath: cfg, Role: RoleMain, Other: Other{KerberosKeytab: "/"}},
+		"keytab outside":     {ConfigPath: cfg, Role: RoleMain, Other: Other{Env: []string{"KRB5_KTNAME=" + elsewhere}}},
+		"ldap CA outside":    {ConfigPath: cfg, Role: RoleMain, Other: Other{Env: []string{"LDAPTLS_CACERT=" + elsewhere}}},
+		"keytab not clean":   {ConfigPath: cfg, Role: RoleMain, Other: Other{Env: []string{"KRB5_KTNAME=" + f.dir + "/../x"}}},
+		"keytab is the root": {ConfigPath: cfg, Role: RoleMain, Other: Other{Env: []string{"KRB5_KTNAME=/"}}},
 	}
 	for name, req := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -121,7 +129,7 @@ func TestStartRefusesAKeytabThatIsASymlinkOutOfTheDirectory(t *testing.T) {
 	link := filepath.Join(f.dir, "krb5.keytab")
 	require.NoError(t, os.Symlink(outside(t, "key"), link))
 
-	_, err := f.sup.Start(StartRequest{ConfigPath: f.config("main", "run"), Role: RoleMain, Other: Other{KerberosKeytab: link}})
+	_, err := f.sup.Start(StartRequest{ConfigPath: f.config("main", "run"), Role: RoleMain, Other: Other{Env: []string{"KRB5_KTNAME=" + link}}})
 
 	assert.ErrorIs(t, err, ErrInvalidRequest)
 }
@@ -131,7 +139,7 @@ func TestStartLeavesAMissingKeytabToMongod(t *testing.T) {
 	e, err := f.sup.Start(StartRequest{
 		ConfigPath: f.config("main", "env"),
 		Role:       RoleMain,
-		Other:      Other{KerberosKeytab: filepath.Join(f.dir, "not-yet-there.keytab")},
+		Other:      Other{Env: []string{"KRB5_KTNAME=" + filepath.Join(f.dir, "not-yet-there.keytab")}},
 	})
 	require.NoError(t, err)
 	waitDone(t, e)

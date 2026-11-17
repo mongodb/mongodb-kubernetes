@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -182,9 +183,8 @@ func TestStartFailures(t *testing.T) {
 		"relative config path": {StartRequest{ConfigPath: "mongod.conf", Role: RoleMain}, ErrInvalidRequest},
 		"missing role":         {StartRequest{ConfigPath: cfg}, ErrInvalidRequest},
 		"unknown binary":       {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{Binary: "sh"}}, ErrInvalidRequest},
-		"bad replSet name":     {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{ShardMaintenanceReplSet: "--fork"}}, ErrInvalidRequest},
-		"relative keytab":      {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{KerberosKeytab: "krb5.keytab"}}, ErrInvalidRequest},
-		"relative ldap CA":     {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{LdapCaPath: "ca.pem"}}, ErrInvalidRequest},
+		"relative keytab":      {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{Env: []string{"KRB5_KTNAME=krb5.keytab"}}}, ErrInvalidRequest},
+		"relative ldap CA":     {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{Env: []string{"LDAPTLS_CACERT=ca.pem"}}}, ErrInvalidRequest},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -202,15 +202,37 @@ func TestStartFailures(t *testing.T) {
 	})
 }
 
-func TestTypedSettingsAreTurnedIntoEnvironment(t *testing.T) {
+func TestStartRejectsTheFlagsTheProxyOwns(t *testing.T) {
+	f := newFixture(t)
+	cfg := f.config("main", "run")
+
+	for _, args := range [][]string{
+		{"-f", cfg},
+		{"-f=" + cfg},
+		{"--config", cfg},
+		{"--config=" + cfg},
+		{"--fork"},
+		{"--fork=true"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			_, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{Args: args}})
+			assert.ErrorIs(t, err, ErrInvalidRequest)
+			assert.Equal(t, StateIdle, f.sup.Status().State, "nothing may have been started")
+		})
+	}
+}
+
+func TestEnvIsPassedToTheChild(t *testing.T) {
 	f := newFixture(t)
 	e, err := f.sup.Start(StartRequest{
 		ConfigPath: f.config("main", "env"),
 		Role:       RoleMain,
 		Other: Other{
-			KerberosKeytab: filepath.Join(f.dir, "krb5.keytab"),
-			LdapCaPath:     filepath.Join(f.dir, "ldap-ca.pem"),
-			RseqDisabled:   true,
+			Env: []string{
+				"KRB5_KTNAME=" + filepath.Join(f.dir, "krb5.keytab"),
+				"LDAPTLS_CACERT=" + filepath.Join(f.dir, "ldap-ca.pem"),
+				"GLIBC_TUNABLES=glibc.pthread.rseq=0",
+			},
 		},
 	})
 	require.NoError(t, err)
@@ -220,18 +242,18 @@ func TestTypedSettingsAreTurnedIntoEnvironment(t *testing.T) {
 			" GLIBC_TUNABLES=glibc.pthread.rseq=0 SET_THP_DISABLED=")
 }
 
-func TestTypedSettingsAreTurnedIntoFlags(t *testing.T) {
+func TestArgsArePassedToTheChild(t *testing.T) {
 	f := newFixture(t)
 	cfg := f.config("main", "args")
+	args := []string{"--configExpand", "rest", "--restore", "--replicaSetConfigShardMaintenanceMode", "--replSet", "cs0", "--configOnly"}
 	e, err := f.sup.Start(StartRequest{
 		ConfigPath: cfg,
 		Role:       RoleMain,
-		Other:      Other{ConfigExpandRest: true, Restore: true, ShardMaintenanceReplSet: "cs0", ConfigOnly: true},
+		Other:      Other{Args: args},
 	})
 	require.NoError(t, err)
 	waitDone(t, e)
-	assert.Contains(t, f.sup.Status().Output,
-		"ARGS: -f "+cfg+" --configExpand rest --restore --replicaSetConfigShardMaintenanceMode --replSet cs0 --configOnly")
+	assert.Contains(t, f.sup.Status().Output, "ARGS: -f "+cfg+" "+strings.Join(args, " "))
 }
 
 func TestNumaPolicyAutoRunsUnderNumactl(t *testing.T) {
@@ -401,8 +423,7 @@ func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
 		ConfigPath: cfg,
 		Role:       RoleMain,
 		Other: Other{
-			LdapCaPath:     ldapCA,
-			KerberosKeytab: keytab,
+			Env: []string{"LDAPTLS_CACERT=" + ldapCA, "KRB5_KTNAME=" + keytab},
 		},
 	})
 	require.NoError(t, err)

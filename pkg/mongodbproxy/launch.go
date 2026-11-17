@@ -3,7 +3,7 @@ package mongodbproxy
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
+	"strings"
 )
 
 const binaryNumactl = "numactl"
@@ -12,8 +12,17 @@ const binaryNumactl = "numactl"
 // as the Agent's direct-process path.
 const numaPolicyAuto = "auto"
 
-// replSetName limits the replica set name so that it can never be mistaken for a flag.
-var replSetName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+// reservedArg reports whether arg is a flag that the proxy owns. The proxy gives mongod its config file, and a
+// forking mongod leaves the proxy's control, so the agent must not set either itself. Both the separate form
+// ("--config path") and the "=" form ("--config=path") are reserved.
+func reservedArg(arg string) bool {
+	name, _, _ := strings.Cut(arg, "=")
+	switch name {
+	case "-f", "--config", "--fork":
+		return true
+	}
+	return false
+}
 
 // launchSpec is a validated StartRequest turned into what exec needs.
 type launchSpec struct {
@@ -45,39 +54,14 @@ func (r StartRequest) validate(baseEnv []string) (launchSpec, error) {
 	default:
 		return launchSpec{}, fmt.Errorf("%w: binary must be %q or %q", ErrInvalidRequest, BinaryMongod, BinaryMongos)
 	}
-	if o.ShardMaintenanceReplSet != "" && !replSetName.MatchString(o.ShardMaintenanceReplSet) {
-		return launchSpec{}, fmt.Errorf("%w: shardMaintenanceReplSet %q is not a valid replica set name", ErrInvalidRequest, o.ShardMaintenanceReplSet)
-	}
-	for field, path := range map[string]string{"kerberosKeytab": o.KerberosKeytab, "ldapCaPath": o.LdapCaPath} {
-		if path != "" && !filepath.IsAbs(path) {
-			return launchSpec{}, fmt.Errorf("%w: %s must be an absolute path", ErrInvalidRequest, field)
+	for _, arg := range o.Args {
+		if reservedArg(arg) {
+			return launchSpec{}, fmt.Errorf("%w: args must not contain %q: the proxy gives mongod its config file and keeps it in the foreground", ErrInvalidRequest, arg)
 		}
 	}
 
-	args := []string{"-f", r.ConfigPath}
-	if o.ConfigExpandRest {
-		args = append(args, "--configExpand", "rest")
-	}
-	if o.Restore {
-		args = append(args, "--restore")
-	}
-	if o.ShardMaintenanceReplSet != "" {
-		args = append(args, "--replicaSetConfigShardMaintenanceMode", "--replSet", o.ShardMaintenanceReplSet)
-	}
-	if o.ConfigOnly {
-		args = append(args, "--configOnly")
-	}
-
-	env := append([]string(nil), baseEnv...)
-	if o.KerberosKeytab != "" {
-		env = append(env, "KRB5_KTNAME="+o.KerberosKeytab)
-	}
-	if o.LdapCaPath != "" {
-		env = append(env, "LDAPTLS_CACERT="+o.LdapCaPath)
-	}
-	if o.RseqDisabled {
-		env = append(env, "GLIBC_TUNABLES=glibc.pthread.rseq=0")
-	}
+	args := append([]string{"-f", r.ConfigPath}, o.Args...)
+	env := append(append([]string(nil), baseEnv...), o.Env...)
 	if o.DisableTHP {
 		env = append(env, "SET_THP_DISABLED=yes")
 	}

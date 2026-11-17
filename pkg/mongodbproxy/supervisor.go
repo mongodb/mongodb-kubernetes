@@ -197,8 +197,8 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 
 	output := &tailBuffer{limit: maxOutputBytes}
-	// The program is mongod/mongos (optionally behind numactl) and every argument is built by
-	// validate() from typed fields; nothing from the request reaches a shell or is used as a flag verbatim.
+	// The program is mongod/mongos (optionally behind numactl). The arguments are the config path plus the
+	// agent's own args, which validate() screened for the flags that the proxy owns. Nothing reaches a shell.
 	cmd := exec.Command(name, args...) //nolint:gosec
 	cmd.Env = spec.env
 	cmd.Stdout = io.MultiWriter(s.stdout, output)
@@ -219,8 +219,8 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		pid:        cmd.Process.Pid,
 		startedAt:  time.Now().UTC(),
 		launchEnv: LaunchEnvironment{
-			LdapCaPath:     req.Other.LdapCaPath,
-			KerberosKeytab: req.Other.KerberosKeytab,
+			LdapCaPath:     envValue(req.Other.Env, "LDAPTLS_CACERT"),
+			KerberosKeytab: envValue(req.Other.Env, "KRB5_KTNAME"),
 		},
 		cmd:    cmd,
 		output: output,

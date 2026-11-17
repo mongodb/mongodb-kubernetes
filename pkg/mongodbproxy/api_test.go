@@ -112,12 +112,12 @@ func TestAPIErrors(t *testing.T) {
 		status int
 		code   string
 	}{
-		"start without role":      {"/v1/process/start", StartRequest{ConfigPath: main}, http.StatusBadRequest, "invalid_request"},
-		"start with unknown json": {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "shell": "rm -rf /"}, http.StatusBadRequest, "invalid_request"},
-		"start with raw args":     {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "other": map[string]any{"args": []string{"--fork"}}}, http.StatusBadRequest, "invalid_request"},
-		"start with raw env":      {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "other": map[string]any{"env": map[string]string{"LD_PRELOAD": "/x"}}}, http.StatusBadRequest, "invalid_request"},
-		"stop without timeout":    {"/v1/process/stop", StopRequest{}, http.StatusBadRequest, "invalid_request"},
-		"stop with bad role":      {"/v1/process/stop", StopRequest{TimeoutSeconds: 1, Role: "other"}, http.StatusBadRequest, "invalid_request"},
+		"start without role":        {"/v1/process/start", StartRequest{ConfigPath: main}, http.StatusBadRequest, "invalid_request"},
+		"start with unknown json":   {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "shell": "rm -rf /"}, http.StatusBadRequest, "invalid_request"},
+		"start with a reserved arg": {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "other": map[string]any{"args": []string{"--fork"}}}, http.StatusBadRequest, "invalid_request"},
+		"start with env as object":  {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "other": map[string]any{"env": map[string]string{"LD_PRELOAD": "/x"}}}, http.StatusBadRequest, "invalid_request"},
+		"stop without timeout":      {"/v1/process/stop", StopRequest{}, http.StatusBadRequest, "invalid_request"},
+		"stop with bad role":        {"/v1/process/stop", StopRequest{TimeoutSeconds: 1, Role: "other"}, http.StatusBadRequest, "invalid_request"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

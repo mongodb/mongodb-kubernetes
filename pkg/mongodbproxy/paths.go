@@ -24,7 +24,7 @@ import (
 type PathPolicy struct {
 	// ConfigDirs is for configPath.
 	ConfigDirs []string
-	// FileDirs is for kerberosKeytab and ldapCaPath.
+	// FileDirs is for the files named by KRB5_KTNAME and LDAPTLS_CACERT.
 	FileDirs []string
 }
 
@@ -110,15 +110,27 @@ func (p PathPolicy) checkFile(kind, path string) error {
 	return f.Close()
 }
 
+// envValue returns the value of key in env, or "" when env does not set it. A later entry wins, as it does for
+// the child: exec removes duplicate keys in favour of the last value.
+func envValue(env []string, key string) string {
+	value := ""
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			value = v
+		}
+	}
+	return value
+}
+
 // checkRequest validates the paths of a start request.
 func (p PathPolicy) checkRequest(r StartRequest) error {
 	if err := checkLexically("configPath", p.ConfigDirs, r.ConfigPath); err != nil {
 		return err
 	}
-	if err := p.checkFile("kerberosKeytab", r.Other.KerberosKeytab); err != nil {
+	if err := p.checkFile("KRB5_KTNAME", envValue(r.Other.Env, "KRB5_KTNAME")); err != nil {
 		return err
 	}
-	return p.checkFile("ldapCaPath", r.Other.LdapCaPath)
+	return p.checkFile("LDAPTLS_CACERT", envValue(r.Other.Env, "LDAPTLS_CACERT"))
 }
 
 // readConfig reads the config file once and refuses it when it sets processManagement.fork. A forking mongod makes
