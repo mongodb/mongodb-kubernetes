@@ -1,0 +1,267 @@
+name: Bump Third-Party Images
+
+# Keeps the default third-party images used by MongoDBSearch up to date:
+#   otel  -> otel/opentelemetry-collector-contrib (release.json: search.metricsForwarderVersion)
+#   envoy -> envoyproxy/envoy                     (release.json: search.envoyVersion)
+#
+# Policy (scripts/dev/bump_third_party_images.py): patch-only within the current minor, the tag must be at least
+# 14 days old (soak). `allow_minor` permits newer minors, `security` skips the soak so CVE fixes are not delayed.
+#
+# A bump PR is only opened when the validation gate passes. The gate is NOT a substitute for e2e tests: before a bump PR
+# is merged, these Evergreen tasks must pass (run an Evergreen patch for the PR):
+#   e2e_search_enterprise_metrics_forwarder_replicaset
+#   e2e_search_enterprise_metrics_forwarder_sharded
+#   e2e_search_external_metrics_forwarder_replicaset
+#   e2e_search_external_metrics_forwarder_sharded
+# (see .evergreen-tasks.yml). Note that PRs opened with GITHUB_TOKEN (as done by go-bump-policy.yml) do not trigger
+# other GitHub workflows.
+
+on:
+  schedule:
+    # Mondays at 07:23 UTC.
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Image to bump'
+        required: true
+        type: choice
+        options:
+          - both
+          - otel
+          - envoy
+        default: both
+      allow_minor:
+        description: 'Allow bumping to a newer minor version (default policy: patch-only within the current minor)'
+        required: false
+        type: boolean
+        default: false
+      security:
+        description: 'Security fix: skip the 14-day soak so that CVE fixes are not delayed'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  bump:
+    name: Check, validate and bump third-party images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: '0'
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Switch to root context
+        uses: ./.github/actions/switch-context
+        with:
+          context-name: 'root-context'
+
+      - name: Setup host
+        uses: ./.github/actions/setup-ubuntu-host
+        with:
+          python-version: '${{ vars.PYTHON_VERSION }}'
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Apply bump policy
+        id: bump
+        env:
+          IMAGE: ${{ inputs.image || 'both' }}
+          ALLOW_MINOR: ${{ inputs.allow_minor }}
+          SECURITY: ${{ inputs.security }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          flags=()
+          [[ "${ALLOW_MINOR}" == "true" ]] && flags+=(--allow-minor)
+          [[ "${SECURITY}" == "true" ]] && flags+=(--security)
+          for name in otel envoy; do
+            if [[ "${IMAGE}" == "both" || "${IMAGE}" == "${name}" ]]; then
+              python scripts/dev/bump_third_party_images.py --image "${name}" "${flags[@]}"
+            fi
+          done
+
+      - name: Compute bump summary
+        id: summary
+        env:
+          OTEL_CHANGED: ${{ steps.bump.outputs.otel_changed }}
+          OTEL_VERSION: ${{ steps.bump.outputs.otel_version }}
+          ENVOY_CHANGED: ${{ steps.bump.outputs.envoy_changed }}
+          ENVOY_VERSION: ${{ steps.bump.outputs.envoy_version }}
+        run: |
+          suffix=""
+          [[ "${OTEL_CHANGED}" == "true" ]] && suffix="otel-${OTEL_VERSION}"
+          [[ "${ENVOY_CHANGED}" == "true" ]] && suffix="${suffix:+${suffix}-}envoy-${ENVOY_VERSION}"
+          if [[ -z "${suffix}" ]]; then
+            echo "No eligible version, nothing to bump." | tee -a "${GITHUB_STEP_SUMMARY}"
+            echo "bump=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "bump=true" >> "${GITHUB_OUTPUT}"
+          echo "branch_suffix=${suffix}" >> "${GITHUB_OUTPUT}"
+
+      - name: Regenerate derived files
+        if: steps.summary.outputs.bump == 'true'
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          # release.json -> helm_chart/values.yaml
+          python scripts/evergreen/release/update_helm_values_files.py
+          # helm_chart/values.yaml -> public/*.yaml and config/manager/manager.yaml
+          scripts/dev/generate_files.sh generate_standalone_yaml
+          git status --short
+
+      - name: Validation gate - OTel collector accepts the operator-rendered config
+        if: steps.bump.outputs.otel_changed == 'true'
+        env:
+          OTEL_VERSION: ${{ steps.bump.outputs.otel_version }}
+        run: |
+          cfg_dir="${RUNNER_TEMP}/otel-config"
+          dummy_dir="${RUNNER_TEMP}/otel-dummy"
+          mkdir -p "${cfg_dir}" "${dummy_dir}"
+          chmod 755 "${cfg_dir}" "${dummy_dir}"
+
+          # Render the ReplicaSet and sharded collector configs with the operator's own template.
+          OTEL_CONFIG_RENDER_DIR="${cfg_dir}" go test ./controllers/searchcontroller \
+            -run '^TestRenderMetricsForwarderConfigsForValidation$' -count=1 -v
+          ls -l "${cfg_dir}"
+
+          # The rendered config references files the operator mounts at runtime; provide dummies for validation.
+          printf 'dummy-agent-api-key' > "${dummy_dir}/agentApiKey"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=dummy-mms-ca' \
+            -keyout "${dummy_dir}/ca.key" -out "${dummy_dir}/mms-ca.crt"
+          chmod 644 "${dummy_dir}/agentApiKey" "${dummy_dir}/mms-ca.crt"
+
+          image="otel/opentelemetry-collector-contrib:${OTEL_VERSION}"
+          docker pull "${image}"
+          for config in replicaset sharded; do
+            echo "::group::validate ${config} config with ${image}"
+            docker run --rm \
+              -v "${cfg_dir}:/cfg:ro" \
+              -v "${dummy_dir}/agentApiKey:/mongodb-automation/agent-api-key/agentApiKey:ro" \
+              -v "${dummy_dir}/mms-ca.crt:/mongodb-automation/certs/mms-ca.crt:ro" \
+              -e MONGOT_NAMESPACE=ns \
+              -e MEMORY_LIMITER_SPIKE_PERCENTAGE=20 \
+              -e BATCH_SIZE=8192 \
+              -e BATCH_TIMEOUT=30s \
+              -e SENDING_QUEUE_SIZE=1000 \
+              "${image}" validate --config="/cfg/${config}.yaml"
+            echo "::endgroup::"
+          done
+
+      - name: Validation gate - Go and Helm chart tests
+        if: steps.summary.outputs.bump == 'true'
+        run: |
+          go test ./controllers/searchcontroller/... -count=1
+          go test ./controllers/operator -run 'Metrics|Envoy|Search' -count=1
+          make helm-tests
+
+      - name: Verify generated files only changed in the image tag
+        if: steps.summary.outputs.bump == 'true'
+        run: |
+          # Every changed line in the generated manifests must be an image reference.
+          changed="$(git diff -U0 -- public config helm_chart | grep -E '^[+-]' | grep -v -E '^(\+\+\+|---)' || true)"
+          unexpected="$(echo "${changed}" | grep -v -E 'opentelemetry-collector-contrib:|envoyproxy/envoy:' || true)"
+          if [[ -n "${unexpected}" ]]; then
+            echo "Unexpected changes in generated files:" >&2
+            echo "${unexpected}" >&2
+            exit 1
+          fi
+
+      - name: Add changelog entries
+        if: steps.summary.outputs.bump == 'true'
+        env:
+          OTEL_CHANGED: ${{ steps.bump.outputs.otel_changed }}
+          OTEL_VERSION: ${{ steps.bump.outputs.otel_version }}
+          ENVOY_CHANGED: ${{ steps.bump.outputs.envoy_changed }}
+          ENVOY_VERSION: ${{ steps.bump.outputs.envoy_version }}
+          SECURITY: ${{ inputs.security }}
+        run: |
+          kind="other"
+          [[ "${SECURITY}" == "true" ]] && kind="fix"
+          today="$(date -u +%Y-%m-%d)"
+          prefix="$(date -u +%Y%m%d)"
+          write_entry() { # <slug> <text>
+            cat > "changelog/${prefix}_${kind}_${1}.md" <<EOF
+          ---
+          kind: ${kind}
+          date: ${today}
+          ---
+
+          * ${2}
+          EOF
+          }
+          if [[ "${OTEL_CHANGED}" == "true" ]]; then
+            write_entry "search_metrics_forwarder_image_bumped_to_${OTEL_VERSION//./_}" \
+              "**MongoDBSearch**: Updated the default metrics forwarder image to \`otel/opentelemetry-collector-contrib:${OTEL_VERSION}\`."
+          fi
+          if [[ "${ENVOY_CHANGED}" == "true" ]]; then
+            write_entry "search_envoy_image_bumped_to_${ENVOY_VERSION//./_}" \
+              "**MongoDBSearch**: Updated the default managed load balancer image to \`envoyproxy/envoy:${ENVOY_VERSION}\`."
+          fi
+          git status --short changelog
+
+      - name: Open pull request
+        if: steps.summary.outputs.bump == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH_SUFFIX: ${{ steps.summary.outputs.branch_suffix }}
+          OTEL_CHANGED: ${{ steps.bump.outputs.otel_changed }}
+          OTEL_VERSION: ${{ steps.bump.outputs.otel_version }}
+          ENVOY_CHANGED: ${{ steps.bump.outputs.envoy_changed }}
+          ENVOY_VERSION: ${{ steps.bump.outputs.envoy_version }}
+          ALLOW_MINOR: ${{ inputs.allow_minor }}
+          SECURITY: ${{ inputs.security }}
+        run: |
+          title="Bump third-party images:"
+          [[ "${OTEL_CHANGED}" == "true" ]] && title="${title} otel ${OTEL_VERSION}"
+          [[ "${ENVOY_CHANGED}" == "true" ]] && title="${title} envoy ${ENVOY_VERSION}"
+
+          scope="patch-only"
+          [[ "${ALLOW_MINOR}" == "true" ]] && scope="minor and patch allowed"
+          soak="14-day soak"
+          [[ "${SECURITY}" == "true" ]] && soak="soak skipped (security)"
+          policy="${scope}, ${soak}"
+
+          body_file="${RUNNER_TEMP}/pr-body.md"
+          {
+            echo "## Summary"
+            echo
+            echo "Automated bump of the default third-party images used by MongoDBSearch (policy: ${policy})."
+            echo
+            [[ "${OTEL_CHANGED}" == "true" ]] && echo "- \`otel/opentelemetry-collector-contrib\` -> \`${OTEL_VERSION}\` (\`release.json\`: \`search.metricsForwarderVersion\`)"
+            [[ "${ENVOY_CHANGED}" == "true" ]] && echo "- \`envoyproxy/envoy\` -> \`${ENVOY_VERSION}\` (\`release.json\`: \`search.envoyVersion\`)"
+            echo
+            echo "\`release.json\` is the source of truth; \`helm_chart/values.yaml\`, \`public/*.yaml\` and \`config/manager/manager.yaml\` were regenerated from it."
+            echo
+            echo "## Proof of Work"
+            echo
+            [[ "${OTEL_CHANGED}" == "true" ]] && echo "- \`otelcol-contrib validate\` from the new image passed on the operator-rendered ReplicaSet and sharded collector configs."
+            echo "- Go tests (\`controllers/searchcontroller\`, search/metrics/envoy tests in \`controllers/operator\`) and \`make helm-tests\` passed."
+            echo "- Generated files differ only in image references."
+            echo
+            echo "The validation gate does not exercise the metrics scrape/export path or a running Envoy."
+            echo
+            echo "## Checklist"
+            echo
+            echo "- [ ] Run an Evergreen patch and make sure these tasks pass before merging (add the \`evergreen:\` labels or run a patch manually):"
+            echo "  - \`e2e_search_enterprise_metrics_forwarder_replicaset\`"
+            echo "  - \`e2e_search_enterprise_metrics_forwarder_sharded\`"
+            echo "  - \`e2e_search_external_metrics_forwarder_replicaset\`"
+            echo "  - \`e2e_search_external_metrics_forwarder_sharded\`"
+            echo "- [ ] Review the upstream release notes for breaking changes"
+            echo "- [ ] Changelog entry reviewed (added by the workflow)"
+            echo
+            echo "_Opened by \`.github/workflows/bump-third-party-images.yml\`. PRs opened with \`GITHUB_TOKEN\` do not trigger other GitHub workflows; close and reopen the PR if checks do not start._"
+          } > "${body_file}"
+
+          scripts/create-third-party-images-bump-pr.sh "${BRANCH_SUFFIX}" "${title}" "${body_file}"
