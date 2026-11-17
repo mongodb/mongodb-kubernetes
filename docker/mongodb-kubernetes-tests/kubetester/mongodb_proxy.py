@@ -59,12 +59,17 @@ def read_processes(pod: str, namespace: str, container: str) -> list[str]:
 
 def query_proxy(pod: str, namespace: str) -> dict:
     """Asks the proxy for its state from the agent container, the way the agent does it: over the socket."""
+    return query_proxy_path(pod, namespace, "/v1/process")
+
+
+def query_proxy_path(pod: str, namespace: str, path: str) -> dict:
+    """Calls one proxy endpoint from the agent container and returns the JSON body."""
     # The status code is appended on a line of its own. The Kubernetes client turns an output that is only JSON into a
     # dict and returns its Python repr, which json.loads cannot read; the extra line keeps the output a plain string.
     out = KubernetesTester.run_command_in_pod_container(
         pod,
         namespace,
-        ["curl", "-sS", "--unix-socket", PROXY_SOCKET, "-w", "\n%{http_code}", "http://proxy/v1/process"],
+        ["curl", "-sS", "--unix-socket", PROXY_SOCKET, "-w", "\n%{http_code}", f"http://proxy{path}"],
         container=AGENT_CONTAINER,
     )
     payload, _, status = out.rpartition("\n")
