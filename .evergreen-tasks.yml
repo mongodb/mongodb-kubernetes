@@ -1665,6 +1665,7 @@ tasks:
   - name: e2e_search_enterprise_oidc
     tags: [ "patch-run" ]
     commands:
+      - func: "login_search_rapid_releases_ecr"
       - func: "e2e_test"
 
   - name: e2e_search_sharded_openshift_external
