@@ -25,8 +25,8 @@ in `kubernetes-versions.json`; override with `make envtest-assets ENVTEST_K8S_VE
 
 Use the shared helper in `test/envtest/env` — it starts the control plane, installs the
 CRDs from `config/crd/bases` and returns a client with the `mongodb.com/v1` scheme
-registered. It works from any package — co-locate CEL tests next to the API types that
-define the rules (see below), or use it from controller tests:
+registered. It works from any package — co-locate CRD and webhook tests next to the API
+types that define the rules (see below), or use it from controller tests:
 
 ```go
 func TestMain(m *testing.M) {
@@ -56,6 +56,13 @@ Guidelines:
   can never silently skip envtest coverage.
 - envtest runs no controllers: objects are stored and validated, but nothing reconciles
   them, and namespaces cannot be deleted.
+- To test an admission webhook, add `env.WithWebhooks("webhooks.yaml")` to the package's
+  `TestMain` and call `env.Shared(t).StartWebhookServer` in the test, registering the
+  validator. The server stops with the test: while it runs, it rejects the invalid objects
+  other tests of the package create. The configuration ignores unreachable webhooks, so
+  only a denial asserted with `env.RequireDeniedByWebhook` proves the webhook was reached:
+  pair every rejected object with an accepted one.
 
-See `api/mongodb/v1/search/mongodbsearch_cel_envtest_test.go` for a complete example:
+See `api/mongodb/v1/search/mongodbsearch_crd_envtest_test.go` for a complete example:
 it verifies the CEL rules declared on the `MongoDBSearch` type in the very same package.
+`api/mongodb/v1/om/opsmanager_webhook_envtest_test.go` shows a webhook test.
