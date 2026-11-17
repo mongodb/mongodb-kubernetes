@@ -78,8 +78,6 @@ type Other struct {
 	// DisableTHP disables transparent huge pages for the child (prctl PR_SET_THP_DISABLE, Linux only)
 	// and sets SET_THP_DISABLED=yes.
 	DisableTHP bool `json:"disableTHP,omitempty"`
-	// NumaInterleave runs the child under "numactl --interleave=all".
-	NumaInterleave bool `json:"numaInterleave,omitempty"`
 	// NumaPolicy is the Agent's NUMA policy. "auto" runs the child under "numactl --interleave=all" when numactl
 	// is available, matching the Agent's direct-process path. The Agent sends "auto" for every start request.
 	NumaPolicy string `json:"numaPolicy,omitempty"`

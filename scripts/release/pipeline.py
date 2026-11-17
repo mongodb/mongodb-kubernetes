@@ -17,14 +17,13 @@ from scripts.release.argparse_utils import (
     get_scenario_from_arg,
     str2bool,
 )
+from scripts.release.atomic_pipeline import build_agent, build_database_image
+from scripts.release.atomic_pipeline import build_image as build_mongodb_proxy_image
 from scripts.release.atomic_pipeline import (
-    build_agent,
-    build_database_image,
     build_init_database_image,
     build_init_om_image,
     build_mco_tests_image,
     build_meko_tests_image,
-    build_mongodb_proxy_image,
     build_om_image,
     build_operator_image,
     build_readiness_probe_image,

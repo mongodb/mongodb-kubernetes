@@ -27,8 +27,22 @@ func main() {
 	binDir := flag.String("bin-dir", "", "directory with mongod/mongos; PATH is used when empty")
 	debug := flag.Bool("debug", false, "log the status requests too")
 	paths := mongodbproxy.DefaultPathPolicy()
-	flag.Var(&dirsFlag{&paths.ConfigDirs}, "config-dir", "comma-separated directories that the config file of a request has to be in")
-	flag.Var(&dirsFlag{&paths.FileDirs}, "file-dir", "comma-separated directories that the Kerberos keytab and the LDAP CA file of a request have to be in")
+	flag.Func("config-dir", "comma-separated directories that the config file of a request has to be in", func(v string) error {
+		dirs, err := parseDirs(v)
+		if err != nil {
+			return err
+		}
+		paths.ConfigDirs = dirs
+		return nil
+	})
+	flag.Func("file-dir", "comma-separated directories that the Kerberos keytab and the LDAP CA file of a request have to be in", func(v string) error {
+		dirs, err := parseDirs(v)
+		if err != nil {
+			return err
+		}
+		paths.FileDirs = dirs
+		return nil
+	})
 	flag.Parse()
 
 	log := newLogger(*debug)
@@ -111,17 +125,8 @@ func followLog(log *zap.SugaredLogger, path string) (stop func()) {
 	}
 }
 
-// dirsFlag is a flag that holds a list of directories, written comma-separated. Setting it replaces the default.
-type dirsFlag struct{ dirs *[]string }
-
-func (f *dirsFlag) String() string {
-	if f == nil || f.dirs == nil {
-		return ""
-	}
-	return strings.Join(*f.dirs, ",")
-}
-
-func (f *dirsFlag) Set(v string) error {
+// parseDirs parses a comma-separated list of absolute directories. Setting a flag replaces the default.
+func parseDirs(v string) ([]string, error) {
 	var dirs []string
 	for d := range strings.SplitSeq(v, ",") {
 		d = strings.TrimSpace(d)
@@ -129,15 +134,14 @@ func (f *dirsFlag) Set(v string) error {
 			continue
 		}
 		if !filepath.IsAbs(d) || filepath.Clean(d) != d || d == "/" {
-			return fmt.Errorf("%q must be a clean absolute path other than /", d)
+			return nil, fmt.Errorf("%q must be a clean absolute path other than /", d)
 		}
 		dirs = append(dirs, d)
 	}
 	if len(dirs) == 0 {
-		return errors.New("at least one directory is needed")
+		return nil, errors.New("at least one directory is needed")
 	}
-	*f.dirs = dirs
-	return nil
+	return dirs, nil
 }
 
 func newLogger(debug bool) *zap.SugaredLogger {

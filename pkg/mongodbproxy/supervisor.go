@@ -86,10 +86,8 @@ type Execution struct {
 	done       chan struct{}
 
 	startedAt time.Time
-	// set under Supervisor.mu before done is closed
-	exitCode int
-	signal   string
-	exitedAt time.Time
+	// exitStatus is set under Supervisor.mu before done is closed.
+	exitStatus *ExitStatus
 }
 
 // Done is closed once the child has exited.
@@ -135,23 +133,11 @@ func (s *Supervisor) statusLocked(e *Execution) Status {
 		st.StartedAt = e.startedAt.UTC().Format(time.RFC3339Nano)
 	}
 	if e.finished() {
-		code := e.exitCode
 		st.State = StateExited
-		st.ExitCode = &code
-		st.Signal = e.signal
+		st.ExitCode = &e.exitStatus.ExitCode
+		st.Signal = e.exitStatus.Signal
 		st.Output = e.output.String()
-		if !e.exitedAt.IsZero() {
-			uptime := 0.0
-			if !e.startedAt.IsZero() {
-				uptime = e.exitedAt.Sub(e.startedAt).Seconds()
-			}
-			st.LastExit = &ExitStatus{
-				ExitCode:      code,
-				Signal:        e.signal,
-				ExitedAt:      e.exitedAt.UTC().Format(time.RFC3339Nano),
-				UptimeSeconds: uptime,
-			}
-		}
+		st.LastExit = e.exitStatus
 	} else {
 		pid := e.pid
 		launchEnv := e.launchEnv
@@ -190,11 +176,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 
 	// The config file is read once, and the check for fork comes from that one read.
-	facts, err := s.paths.readConfig(req.ConfigPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := facts.rejectFork(req.ConfigPath); err != nil {
+	if err := s.paths.readConfig(req.ConfigPath); err != nil {
 		return nil, err
 	}
 
@@ -207,7 +189,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	if spec.numactl {
 		// Interleaving is a tuning that the server image may not ship the tool for, and a database that does not
 		// start is worse than one that starts without it.
-		if numactl, err := s.resolveOptional(binaryNumactl); err != nil {
+		if numactl, err := s.resolve(binaryNumactl); err != nil {
 			s.log.Warnw("numactl is not available, starting without it", "error", err)
 		} else {
 			name, args = numactl, append([]string{"--interleave=all", path}, spec.args...)
@@ -255,43 +237,31 @@ func (s *Supervisor) wait(e *Execution) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	e.exitCode = e.cmd.ProcessState.ExitCode()
-	if ws, ok := e.cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		e.signal = ws.Signal().String()
-	}
-	e.exitedAt = time.Now().UTC()
+	exitedAt := time.Now().UTC()
 	uptime := 0.0
 	if !e.startedAt.IsZero() {
-		uptime = e.exitedAt.Sub(e.startedAt).Seconds()
+		uptime = exitedAt.Sub(e.startedAt).Seconds()
 	}
-	s.lastExit = &ExitStatus{
-		ExitCode:      e.exitCode,
-		Signal:        e.signal,
-		ExitedAt:      e.exitedAt.UTC().Format(time.RFC3339Nano),
+	signal := ""
+	if ws, ok := e.cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		signal = ws.Signal().String()
+	}
+	e.exitStatus = &ExitStatus{
+		ExitCode:      e.cmd.ProcessState.ExitCode(),
+		Signal:        signal,
+		ExitedAt:      exitedAt.Format(time.RFC3339Nano),
 		UptimeSeconds: uptime,
 	}
-	s.log.Infow("process exited", "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitCode, "signal", e.signal, "uptime_s", uptime)
+	s.lastExit = e.exitStatus
+	s.log.Infow("process exited", "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitStatus.ExitCode, "signal", e.exitStatus.Signal, "uptime_s", uptime)
 	close(e.done)
 }
 
-// resolveOptional is resolve for a program that may be missing. Without a bin dir the answer comes from PATH; with
-// one, resolve alone does not look at the file system.
-func (s *Supervisor) resolveOptional(binary string) (string, error) {
-	path, err := s.resolve(binary)
-	if err != nil {
-		return "", err
-	}
-	if s.binDir != "" {
-		if _, err := os.Stat(path); err != nil {
-			return "", err
-		}
-	}
-	return path, nil
-}
-
+// resolve finds a program in binDir, or on PATH when binDir is empty. exec.LookPath also checks that the file exists
+// and is executable.
 func (s *Supervisor) resolve(binary string) (string, error) {
 	if s.binDir != "" {
-		return filepath.Join(s.binDir, binary), nil
+		binary = filepath.Join(s.binDir, binary)
 	}
 	return exec.LookPath(binary)
 }

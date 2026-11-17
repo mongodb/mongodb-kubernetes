@@ -82,7 +82,7 @@ func (r StartRequest) validate(baseEnv []string) (launchSpec, error) {
 		env = append(env, "SET_THP_DISABLED=yes")
 	}
 
-	return launchSpec{binary: binary, args: args, env: env, numactl: o.NumaInterleave || o.NumaPolicy == numaPolicyAuto, disableTHP: o.DisableTHP}, nil
+	return launchSpec{binary: binary, args: args, env: env, numactl: o.NumaPolicy == numaPolicyAuto, disableTHP: o.DisableTHP}, nil
 }
 
 func (r StopRequest) validate() error {

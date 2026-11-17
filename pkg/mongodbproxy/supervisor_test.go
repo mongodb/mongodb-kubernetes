@@ -234,10 +234,10 @@ func TestTypedSettingsAreTurnedIntoFlags(t *testing.T) {
 		"ARGS: -f "+cfg+" --configExpand rest --restore --replicaSetConfigShardMaintenanceMode --replSet cs0 --configOnly")
 }
 
-func TestNumaInterleaveRunsUnderNumactl(t *testing.T) {
+func TestNumaPolicyAutoRunsUnderNumactl(t *testing.T) {
 	f := newFixture(t)
 	cfg := f.config("main", "args")
-	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaInterleave: true}})
+	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaPolicy: numaPolicyAuto}})
 	require.NoError(t, err)
 	waitDone(t, e)
 	out := f.sup.Status().Output
@@ -245,12 +245,12 @@ func TestNumaInterleaveRunsUnderNumactl(t *testing.T) {
 	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
 }
 
-func TestNumaInterleaveWithoutNumactlStartsWithoutIt(t *testing.T) {
+func TestNumaPolicyAutoWithoutNumactlStartsWithoutIt(t *testing.T) {
 	f := newFixture(t)
 	require.NoError(t, os.Remove(filepath.Join(f.dir, binaryNumactl)))
 	cfg := f.config("main", "args")
 
-	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaInterleave: true}})
+	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaPolicy: numaPolicyAuto}})
 
 	require.NoError(t, err)
 	waitDone(t, e)
@@ -288,14 +288,10 @@ func TestConfigWithoutForkIsNotRejected(t *testing.T) {
 		"not yaml":   "{{{ not yaml",
 	} {
 		t.Run(name, func(t *testing.T) {
-			facts, err := onlyIn(f.dir).readConfig(writeConfig(t, f.dir, config))
-			require.NoError(t, err)
-			assert.NoError(t, facts.rejectFork("x.conf"))
+			assert.NoError(t, onlyIn(f.dir).readConfig(writeConfig(t, f.dir, config)))
 		})
 	}
-	facts, err := onlyIn(f.dir).readConfig(filepath.Join(f.dir, "missing.conf"))
-	require.NoError(t, err, "a missing file is left to mongod")
-	assert.NoError(t, facts.rejectFork("missing.conf"))
+	assert.NoError(t, onlyIn(f.dir).readConfig(filepath.Join(f.dir, "missing.conf")), "a missing file is left to mongod")
 }
 
 func writeConfig(t *testing.T, dir, content string) string {

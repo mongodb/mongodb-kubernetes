@@ -121,29 +121,25 @@ func (p PathPolicy) checkRequest(r StartRequest) error {
 	return p.checkFile("ldapCaPath", r.Other.LdapCaPath)
 }
 
-// configFacts is what the proxy needs to know of a config file.
-type configFacts struct {
-	// forks is processManagement.fork.
-	forks bool
-}
-
-// readConfig reads the config file once, without leaving the allowed directories, and takes the check for fork from
-// that one read.
+// readConfig reads the config file once and refuses it when it sets processManagement.fork. A forking mongod makes
+// its parent exit with code 0 while the real process lives on outside the proxy's reach: the proxy would report an
+// exit and the agent would start a second mongod on the same data.
 //
-// A missing file is left to mongod, as is one that cannot be parsed. A path that leads out of the directory is refused.
-func (p PathPolicy) readConfig(configPath string) (configFacts, error) {
+// A missing file is left to mongod, as is one that cannot be parsed. A path that leads out of the directory is
+// refused.
+func (p PathPolicy) readConfig(configPath string) error {
 	f, err := openBelow(p.ConfigDirs, configPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return configFacts{}, nil
+		return nil
 	}
 	if err != nil {
-		return configFacts{}, fmt.Errorf("%w: configPath: %w", ErrInvalidRequest, err)
+		return fmt.Errorf("%w: configPath: %w", ErrInvalidRequest, err)
 	}
 	defer func() { _ = f.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(f, maxConfigBytes))
 	if err != nil {
-		return configFacts{}, nil
+		return nil
 	}
 	var config struct {
 		ProcessManagement struct {
@@ -151,17 +147,9 @@ func (p PathPolicy) readConfig(configPath string) (configFacts, error) {
 		} `json:"processManagement"`
 	}
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		return configFacts{}, nil
+		return nil
 	}
-
-	return configFacts{forks: config.ProcessManagement.Fork}, nil
-}
-
-// rejectFork refuses a config file that sets processManagement.fork. A forking mongod makes its parent exit with
-// code 0 while the real process lives on outside the proxy's reach: the proxy would report an exit and the agent
-// would start a second mongod on the same data.
-func (f configFacts) rejectFork(configPath string) error {
-	if f.forks {
+	if config.ProcessManagement.Fork {
 		return fmt.Errorf("%w: %s sets processManagement.fork, which is not supported: the proxy needs mongod in the foreground", ErrInvalidRequest, configPath)
 	}
 	return nil
