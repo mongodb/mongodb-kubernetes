@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import time
 import urllib.parse
 from typing import Dict, List, Optional, Self, cast
@@ -163,14 +162,6 @@ class MongoDB(CustomObject, MongoDBCommon):
         span.set_attribute("mck.action", "assert_backup_reaches_status")
         span.set_attribute("mck.expected_status", expected_status)
         span.set_attribute("mck.time_needed", end_time - start_time)
-
-    def assert_status_resource_not_ready(self, name: str, kind: str = "StatefulSet", msg_regexp=None, idx=0):
-        """Checks the element in 'resources_not_ready' field by index 'idx'"""
-        resources = self.get_status_resources_not_ready()
-        assert resources is not None, "resources_not_ready is None"
-        assert resources[idx]["kind"] == kind
-        assert resources[idx]["name"] == name
-        assert re.search(msg_regexp, resources[idx]["message"]) is not None
 
     @property
     def type(self) -> str:
@@ -480,12 +471,6 @@ class MongoDB(CustomObject, MongoDBCommon):
     def get_status_members(self) -> Optional[str]:
         try:
             return self["status"]["members"]
-        except KeyError:
-            return None
-
-    def get_status_resources_not_ready(self) -> Optional[List[Dict]]:
-        try:
-            return self["status"]["resourcesNotReady"]
         except KeyError:
             return None
 

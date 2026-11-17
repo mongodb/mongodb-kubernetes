@@ -214,11 +214,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_replica_set_recovery
-    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_replica_set_config_map
     tags: [ "patch-run" ]
     commands:
@@ -329,11 +324,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_replica_set_statefulset_status
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_replica_set_update_delete_parallel
     tags: [ "patch-run" ]
     commands:
@@ -404,11 +394,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_statefulset_status
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_sharded_cluster_agent_flags
     tags: [ "patch-run" ]
     commands:
@@ -431,11 +416,6 @@ tasks:
 
   - name: e2e_replica_set_custom_podspec
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_replica_set_custom_sa
-    tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
