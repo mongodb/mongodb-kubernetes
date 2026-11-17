@@ -63,6 +63,17 @@ tasks:
         vars:
           image_name: database
 
+  - name: release_mongodb_proxy
+    tags: [ "image_release" ]
+    allowed_requesters: [ "patch", "github_tag" ]
+    commands:
+      - func: clone
+      - func: setup_building_host
+      - func: quay_login
+      - func: pipeline
+        vars:
+          image_name: mongodb-proxy
+
   - name: release_readiness_probe
     tags: [ "image_release" ]
     allowed_requesters: [ "patch", "github_tag" ]
@@ -167,6 +178,7 @@ buildvariants:
       - name: release_init_database
       - name: release_init_ops_manager
       - name: release_database
+      - name: release_mongodb_proxy
       - name: release_readiness_probe
       - name: release_version_upgrade_hook
 

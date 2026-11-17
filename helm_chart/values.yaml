@@ -156,6 +156,12 @@ initDatabase:
   name: mongodb-kubernetes-init-database
   version: 1.15.1
 
+# The process proxy of the database container. It is mounted as an OCI image volume (Kubernetes 1.36 or newer), and
+# is only used by resources that opt in with the annotation mongodb.com/v1.mongodbProxy: "true".
+mongodbProxy:
+  name: mongodb-kubernetes-mongodb-proxy
+  version: 1.15.1
+
 ## Ops Manager
 opsManager:
   name: mongodb-enterprise-ops-manager-ubi
@@ -191,6 +197,7 @@ registry:
   operator: quay.io/mongodb
   database: quay.io/mongodb
   initDatabase: quay.io/mongodb
+  mongodbProxy: quay.io/mongodb
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
   agent: quay.io/mongodb
