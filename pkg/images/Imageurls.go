@@ -70,6 +70,7 @@ func LoadImageUrlsFromEnv() ImageUrls {
 		util.NonStaticDatabaseEnterpriseImage: "",
 		util.AgentImageEnv:                    "",
 		util.AgentImageUrlEnv:                 util.AgentImageUrlDefault,
+		util.MongodbProxyImageEnv:             "",
 		util.OperatorImageEnv:                 "", // Used by migration dry-run Jobs (connectivity-validator in same image).
 	} {
 		imageUrls[imageName] = env.ReadOrDefault(imageName, defaultValue) // nolint:forbidigo
@@ -117,6 +118,22 @@ func ContainerImage(imageUrls ImageUrls, imageName string, version string) strin
 	}
 
 	return fmt.Sprintf("%s:%s", imageURL, version)
+}
+
+// MongodbProxyImage returns the mongodb-proxy image. MDB_MONGODB_PROXY_IMAGE holds a full reference with the
+// version (registry/name:version), like AGENT_IMAGE does; when a RELATED_IMAGE_MDB_MONGODB_PROXY_IMAGE_<version>
+// exists, as it does in a disconnected OpenShift installation, that reference (a digest) is used instead. It returns
+// an empty string when the variable is not set, and a reference without a tag (a digest) as it is.
+func MongodbProxyImage(imageUrls ImageUrls) string {
+	image := imageUrls[util.MongodbProxyImageEnv]
+	if image == "" || strings.Contains(image, "@") {
+		return image
+	}
+	idx := strings.LastIndex(image, ":")
+	if idx == -1 || strings.Contains(image[idx:], "/") {
+		return image // no tag: the part after the last colon is a registry port
+	}
+	return ContainerImage(imageUrls, util.MongodbProxyImageEnv, image[idx+1:])
 }
 
 func GetOfficialImage(imageUrls ImageUrls, version string, annotations map[string]string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) string {
