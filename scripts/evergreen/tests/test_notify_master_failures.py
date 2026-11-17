@@ -188,8 +188,8 @@ class TestFormatSlackMessage:
         text = " ".join(
             b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
         )
-        assert "3 of 1400 tasks restarted before this pass" in text
-        assert "3 of 1400 tasks restarted before this pass" in message["text"]
+        assert "3 of 1400 task runs restarted before this pass" in text
+        assert "3 of 1400 task runs restarted before this pass" in message["text"]
 
     def test_success_reports_no_restarts(self):
         version_info = make_mock_version(status="succeeded")
@@ -219,8 +219,8 @@ class TestFormatSlackMessage:
         text = " ".join(
             b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
         )
-        assert "6 of 1400 tasks restarted before this pass" in text
-        assert "Tasks: e2e_retry_0, e2e_retry_1, e2e_retry_2 and 3 more" in text
+        assert "6 of 1400 task runs restarted before this pass" in text
+        assert "Tasks: e2e_retry_0, e2e_retry_1, e2e_retry_2, e2e_retry_3, e2e_retry_4 and 1 more" in text
         assert "runs)" not in text
 
     def test_success_lists_restarted_task_names(self):
@@ -247,6 +247,19 @@ class TestFormatSlackMessage:
         )
         assert text.count("e2e_a") == 1
 
+    def test_summary_reports_unique_task_names(self):
+        retried = [
+            make_mock_task("e2e_a", "variant_a", "success", execution=1),
+            make_mock_task("e2e_a", "variant_b", "success", execution=1),
+            make_mock_task("e2e_b", "variant_a", "success", execution=1),
+        ]
+        version_info = make_mock_version(status="succeeded")
+        message = format_slack_message(version_info, retried_tasks=retried, total_tasks=100)
+        text = " ".join(
+            b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
+        )
+        assert "3 of 100 task runs restarted before this pass (2 unique task names)" in text
+
     def test_retry_task_names_are_capped(self):
         retried = [make_mock_task(f"e2e_{i:02d}", "variant_a", "success", execution=1) for i in range(10)]
         version_info = make_mock_version(status="succeeded")
@@ -254,7 +267,7 @@ class TestFormatSlackMessage:
         text = " ".join(
             b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
         )
-        assert "Tasks: e2e_00, e2e_01, e2e_02 and 7 more" in text
+        assert "Tasks: e2e_00, e2e_01, e2e_02, e2e_03, e2e_04 and 5 more" in text
 
 
 class TestPrintStdoutReport:
@@ -532,6 +545,6 @@ class TestMainOutputBehavior:
         text = " ".join(
             block["text"]["text"] for block in message["blocks"] if block["type"] == "section" and "text" in block
         )
-        assert "6 of 100 tasks restarted before this pass" in text
-        assert "and 3 more" in text
-        assert "e2e_retried_3" not in text
+        assert "6 of 100 task runs restarted before this pass" in text
+        assert "and 1 more" in text
+        assert "e2e_retried_5" not in text

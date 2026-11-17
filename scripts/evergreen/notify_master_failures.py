@@ -273,16 +273,22 @@ def _format_task_name(
     return task.display_name
 
 
-MAX_RETRY_TASK_NAMES = 3
+# A full-version restart marks every task as restarted. Cap the list so the
+# message stays readable.
+MAX_RETRY_TASK_NAMES = 5
 
 
-def _format_retry_tasks(retried_tasks: list[TaskInfo]) -> str:
-    """Summarize the tasks that restarted, capped for a short message.
+def _retry_task_names(retried_tasks: list[TaskInfo]) -> list[str]:
+    """Return the distinct restarted task names in sorted order.
 
-    Task names repeat across variants. The list is deduplicated so a task that
-    restarted in three variants appears once.
+    Task names repeat across variants. A task that restarted in three variants
+    appears once.
     """
-    names = sorted({task.display_name for task in retried_tasks})
+    return sorted({task.display_name for task in retried_tasks})
+
+
+def _format_retry_tasks(names: list[str]) -> str:
+    """Summarize the restarted task names, capped for a short message."""
     shown = names[:MAX_RETRY_TASK_NAMES]
     hidden = len(names) - len(shown)
     text = f"Tasks: {', '.join(shown)}"
@@ -317,10 +323,14 @@ def format_slack_message(
     num_failures = len(failed_tasks) if failed_tasks else 0
     run_number = getattr(version_info, "order", None)
     num_retried = len(retried_tasks)
+    retry_names = _retry_task_names(retried_tasks)
     retry_summary = ""
     if not is_failure and total_tasks:
         if num_retried:
-            retry_summary = f"{num_retried} of {total_tasks} tasks restarted before this pass"
+            retry_summary = f"{num_retried} of {total_tasks} task runs restarted before this pass"
+            if len(retry_names) != num_retried:
+                noun = "name" if len(retry_names) == 1 else "names"
+                retry_summary += f" ({len(retry_names)} unique task {noun})"
         else:
             retry_summary = "no tasks restarted"
 
@@ -372,7 +382,7 @@ def format_slack_message(
     if retry_summary:
         retry_text = f"_{retry_summary}_"
         if num_retried:
-            retry_text += f"\n_{_format_retry_tasks(retried_tasks)}_"
+            retry_text += f"\n_{_format_retry_tasks(retry_names)}_"
         blocks.append(
             {
                 "type": "section",
