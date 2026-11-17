@@ -21,7 +21,7 @@ import (
 func TestMain(m *testing.M) {
 	os.Exit(env.RunShared(m,
 		env.WithCRDs("mongodb.com_opsmanagers.yaml"),
-		env.WithWebhooks("webhooks.yaml"),
+		env.WithOperatorWebhooks(),
 	))
 }
 

@@ -23,7 +23,7 @@ import (
 func TestMain(m *testing.M) {
 	os.Exit(env.RunShared(m,
 		env.WithCRDs("mongodb.com_mongodbmulticluster.yaml"),
-		env.WithWebhooks("webhooks.yaml"),
+		env.WithOperatorWebhooks(),
 	))
 }
 
