@@ -354,7 +354,7 @@ func TestReplicaSetStatefulSetStatus(t *testing.T) {
 						return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, markStsAsReady, markStsAsReady)(ctx, client, key, obj, opts...)
 					},
 				})
-			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc)
+			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 			checkReconcilePending(ctx, t, reconciler, rs, "StatefulSet not ready", kubeClient, 3)
 			assert.Equal(t, "StatefulSet not ready", rs.Status.Message)
