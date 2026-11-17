@@ -441,7 +441,7 @@ func TestEnsureRolesErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
-			controller := NewReconcileCommonController(ctx, kubeClient)
+			controller := NewReconcileCommonController(ctx, kubeClient, nil)
 			mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 			require.NoError(t, kubeClient.Create(ctx, tt.referencedRole))
