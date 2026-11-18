@@ -213,8 +213,6 @@ spec:
       value: "{{ .Values.cognito_workload_url }}"
     - name: cognito_workload_user_id
       value: {{ .Values.cognito_workload_user_id }}
-    - name: cognito_workload_token_endpoint
-      value: "{{ .Values.cognito_workload_token_endpoint }}"
     - name: oidc_provider
       value: "{{ .Values.oidc_provider }}"
     - name: auth0_issuer

@@ -116,7 +116,6 @@ deploy_test_app() {
         "--set" "cognito_user_password=${cognito_user_password}"
         "--set" "cognito_workload_url=${cognito_workload_url}"
         "--set" "cognito_workload_user_id=${cognito_workload_user_id}"
-        "--set" "cognito_workload_token_endpoint=${cognito_workload_token_endpoint:-}"
         "--set" "oidc_provider=${oidc_provider:-cognito}"
         "--set" "auth0_issuer=${auth0_issuer:-}"
         "--set" "auth0_client_id=${auth0_client_id:-}"
