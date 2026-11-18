@@ -2706,13 +2706,15 @@ buildvariants:
     tasks:
       - name: release_om_and_agents
 
-  # Manually selected by the test_all_and_promote patch alias after all tagged
-  # test and prerequisite variants succeed; it does not run on commit builds.
+  # Scheduled for cron promotion from the current mainline revision; normal
+  # merge-time promotion is handled separately. Also manually selected by the
+  # test_all_and_promote patch alias after all tagged test and prerequisite
+  # variants succeed.
   - name: mckci_release_promote
     display_name: mckci_release_promote
-    batchtime: 60
     tags: [ "test_all_and_promote", "test_all_and_promote_promotion" ]
-    allowed_requesters: [ "patch" ]
+    allowed_requesters: [ "commit", "patch" ]
+    cron: "0 0,6,12,18 * * *"
     depends_on:
       - name: "*"
         variant: ".test_all_and_promote_test"
