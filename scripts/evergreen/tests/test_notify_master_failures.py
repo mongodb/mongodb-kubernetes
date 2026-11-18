@@ -282,8 +282,17 @@ class TestFormatSlackMessage:
         assert "e2e_smoke_ibm_z" in text
         assert "Completed results remain included" in text
 
-    def test_partial_pass_caps_skipped_variants_at_five(self):
-        skipped = [make_mock_task("e2e_replica_set", f"e2e_variant_{i}", "undispatched") for i in range(1, 8)]
+    def test_partial_pass_caps_and_sorts_skipped_variants(self):
+        variant_names = [
+            "e2e_variant_3",
+            "e2e_variant_1",
+            "e2e_variant_2",
+            "e2e_variant_5",
+            "e2e_variant_4",
+            "e2e_variant_7",
+            "e2e_variant_6",
+        ]
+        skipped = [make_mock_task("e2e_replica_set", name, "undispatched") for name in variant_names]
         version_info = make_mock_version(status="started")
         message = format_slack_message(version_info, skipped_tasks=skipped)
         text = " ".join(
@@ -291,6 +300,8 @@ class TestFormatSlackMessage:
         )
         for i in range(1, 6):
             assert f"e2e_variant_{i}" in text
+        positions = [text.index(f"e2e_variant_{i}") for i in range(1, 6)]
+        assert positions == sorted(positions)
         assert "e2e_variant_6" not in text
         assert "e2e_variant_7" not in text
         assert "and 2 more" in text
