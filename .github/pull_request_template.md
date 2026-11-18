@@ -11,7 +11,7 @@
 - [ ] Have you linked a jira ticket and/or is the ticket in the title?
 - [ ] Have you checked whether your jira ticket required DOCSP changes?
 - [ ] Does your PR require running e2e tests?
-    - add `evergreen:e2e-light` to run light set of e2e tests or more specific `evergreen:` labels to run specific e2e tests
+    - add `evergreen:e2e-default` to run the set of e2e tests that used to run on every PR, or more specific `evergreen:` labels to run specific e2e tests
     - refer to [Evergreen PR Labels](https://github.com/mongodb/mongodb-kubernetes/blob/master/EVERGREEN.md#pr-labels) section in Evergreen.md for more details
 - [ ] Does your PR produce user visible change?
     - use `skip-changelog` label if not user facing change

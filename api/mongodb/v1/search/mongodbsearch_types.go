@@ -266,6 +266,11 @@ type ClusterSpec struct {
 	// reconcile loop, for customizations not exposed as first-class fields.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Service sets labels and annotations on this cluster's Services. Labels must not use the
+	// operator-managed keys app, component, shard, mongodb.com/search-name or mongodb.com/search-namespace.
+	// +kubebuilder:validation:XValidation:rule="!has(self.metadata) || !has(self.metadata.labels) || ['app', 'component', 'shard', 'mongodb.com/search-name', 'mongodb.com/search-namespace'].all(k, !(k in self.metadata.labels))",message="service.metadata.labels must not set operator-managed label keys"
+	// +optional
+	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// +optional
 	SyncSourceSelector *SyncSourceSelector `json:"syncSourceSelector,omitempty"`
 	// LoadBalancer configures how mongod/mongos connect to this cluster's mongot
@@ -276,8 +281,8 @@ type ClusterSpec struct {
 	// JVMFlags sets the `--jvm-flags` option for this cluster's mongot pods.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
-	// ShardOverrides applies per-shard sizing exceptions within this cluster,
-	// for external sharded sources only. Each entry layers its set sizing fields
+	// ShardOverrides applies per-shard sizing and metadata exceptions within this cluster,
+	// for external sharded sources only. Each entry layers its set fields
 	// onto this cluster's resolved values for the named shards.
 	// +optional
 	ShardOverrides []ShardOverride `json:"shardOverrides,omitempty"`
@@ -298,11 +303,11 @@ func (c ClusterSpec) ResolveIndex() int {
 	return int(*c.Index)
 }
 
-// ShardOverride sizes specific shards within the enclosing cluster differently
+// ShardOverride configures specific shards within the enclosing cluster differently
 // from the cluster default. Replicas, ResourceRequirements, Persistence,
 // JVMFlags and NodeAffinity replace the cluster value for the named shards when set;
-// StatefulSetConfiguration is deep-merged onto the cluster value. Unset fields
-// inherit the cluster value.
+// StatefulSetConfiguration is deep-merged and Service metadata is merged per key.
+// Unset fields inherit the cluster value.
 type ShardOverride struct {
 	// ShardNames are the shards (within this cluster) this override applies to.
 	// Each must exist in spec.source.external.shardedCluster.shards[].
@@ -325,6 +330,10 @@ type ShardOverride struct {
 	// StatefulSetConfiguration is deep-merged onto the cluster's StatefulSet override for these shards.
 	// +optional
 	StatefulSetConfiguration *v1.StatefulSetConfiguration `json:"statefulSet,omitempty"`
+	// Service metadata overrides the cluster's per key for these shards' Services (not the
+	// mongos proxy). Operator-managed label keys are ignored.
+	// +optional
+	Service *v1.ServiceConfiguration `json:"service,omitempty"`
 	// JVMFlags replaces the cluster's jvmFlags for these shards when non-empty.
 	// +optional
 	JVMFlags []string `json:"jvmFlags,omitempty"`
@@ -449,6 +458,7 @@ type FeatureFlags struct {
 	EnableOverloadRetrySignal *bool `json:"enableOverloadRetrySignal,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.oidc) || (!has(self.x509) && !has(self.passwordSecretRef) && !has(self.username))",message="spec.source.oidc is mutually exclusive with spec.source.x509, spec.source.passwordSecretRef, and spec.source.username"
 type MongoDBSource struct {
 	// MongoDBResourceRef points to an operator-managed MongoDB resource to sync from.
 	// Mutually exclusive with External.
@@ -469,9 +479,14 @@ type MongoDBSource struct {
 	// Mutually exclusive with PasswordSecretRef and Username.
 	// +optional
 	X509 *X509Auth `json:"x509,omitempty"`
+	// OIDC configures OIDC client-credentials authentication for the sync source connection (Enterprise only):
+	// mongot mints an access token at the IdP token endpoint and authenticates to the source with it via
+	// MONGODB-OIDC. Requires source TLS. Mutually exclusive with PasswordSecretRef, Username, and X509.
+	// +optional
+	OIDC *OIDCAuth `json:"oidc,omitempty"`
 	// TLS configures TLS transport settings for the sync source SCRAM connection.
 	// When set, mongot presents the specified client certificate during the TLS handshake.
-	// Only applicable when using SCRAM auth (passwordSecretRef). Mutually exclusive with X509.
+	// Only applicable when using SCRAM auth (passwordSecretRef) or OIDC auth. Mutually exclusive with X509.
 	// +optional
 	TLS *SourceTLS `json:"tls,omitempty"`
 }
@@ -487,6 +502,38 @@ type X509Auth struct {
 	// decrypts the password-encrypted client private key. Omit when the key is not encrypted.
 	// +optional
 	KeyFilePasswordSecret corev1.LocalObjectReference `json:"keyFilePasswordSecretRef,omitempty"`
+}
+
+// OIDCAuth configures OIDC client-credentials authentication for mongot's sync source
+// connection (Enterprise only). Trust validation (issuer, audience, signature) is performed
+// by the source MongoDB server's OIDC provider configuration.
+// +kubebuilder:validation:XValidation:rule="self.clientSecretSecretRef.name != \"\" && self.clientSecretSecretRef.key != \"\" && self.idpCAConfigMapRef.name != \"\"",message="clientSecretSecretRef.name, clientSecretSecretRef.key, and idpCAConfigMapRef.name must not be empty"
+type OIDCAuth struct {
+	// TokenEndpoint is the identity provider's OAuth2 token endpoint URL. Must be an
+	// absolute HTTPS URI with a host and no userinfo or fragment, e.g.
+	// "https://idp.example.com/realms/search/protocol/openid-connect/token".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:XValidation:rule="self.matches('^(?i)https://([a-zA-Z0-9._-]+|\\\\[[0-9a-fA-F:.]+\\\\])(:[0-9]{1,5})?([/?][^#]*)?$')",message="tokenEndpoint must be an absolute HTTPS URI with a host and no userinfo or fragment"
+	TokenEndpoint string `json:"tokenEndpoint"`
+	// ClientID is the OAuth2 client id mongot authenticates as at the token endpoint.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	ClientID string `json:"clientId"`
+	// ClientSecretRef references the Secret holding the OIDC client secret. The value
+	// at the given key is mounted as a file for mongot; the secret value never appears in
+	// the mongot configuration.
+	// +kubebuilder:validation:Required
+	ClientSecretRef userv1.SecretKeyRef `json:"clientSecretSecretRef"`
+	// IdPCAConfigMapRef references a ConfigMap containing the CA certificate that issued
+	// the identity provider's TLS certificate. The CA certificate is expected to be PEM
+	// encoded and available at the "ca.crt" key (same convention as spec.source.external.tls.ca).
+	// +kubebuilder:validation:Required
+	IdPCAConfigMapRef corev1.LocalObjectReference `json:"idpCAConfigMapRef"`
+	// Scope is an optional OAuth2 scope requested at the token endpoint (e.g. "openid").
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Scope *string `json:"scope,omitempty"`
 }
 
 // SourceTLS configures TLS transport settings for the sync source connection.
@@ -948,6 +995,11 @@ func (s *MongoDBSearch) IsX509Auth() bool {
 	return s.Spec.Source != nil && s.Spec.Source.X509 != nil
 }
 
+// IsOIDCAuth returns true if OIDC client-credentials authentication is configured for the sync source.
+func (s *MongoDBSearch) IsOIDCAuth() bool {
+	return s.Spec.Source != nil && s.Spec.Source.OIDC != nil
+}
+
 // X509ClientCertSecret returns the namespaced name of the user-provided x509 client certificate secret.
 func (s *MongoDBSearch) X509ClientCertSecret() types.NamespacedName {
 	if !s.IsX509Auth() {
@@ -1132,11 +1184,11 @@ func (s *MongoDBSearch) EffectiveClusterFor(clusterName string) (ClusterSpec, er
 	return ClusterSpec{}, fmt.Errorf("cluster %q not found in spec.clusters", clusterName)
 }
 
-// ResolveSizingForClusterShard returns the effective sizing for one
+// ResolveSizingForClusterShard returns the effective sizing and metadata for one
 // (cluster, shard) cell: the named cluster's ClusterSpec with the matching
 // shardOverride (if any) layered on top. Replicas, ResourceRequirements,
 // Persistence, NodeAffinity and JVMFlags are replaced when the override sets them;
-// StatefulSetConfiguration is deep-merged onto the cluster value. An empty
+// StatefulSetConfiguration is deep-merged; Service metadata is merged per key. An empty
 // shardName (replica-set sources) or a cluster without a matching override
 // returns the cluster spec.
 func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName string) (ClusterSpec, error) {
@@ -1173,6 +1225,9 @@ func (s *MongoDBSearch) ResolveSizingForClusterShard(clusterName, shardName stri
 	if override.StatefulSetConfiguration != nil {
 		resolved.StatefulSetConfiguration = mergeStatefulSetConfiguration(resolved.StatefulSetConfiguration, override.StatefulSetConfiguration)
 	}
+	if override.Service != nil {
+		resolved.Service = mergeServiceConfiguration(resolved.Service, override.Service)
+	}
 	return resolved, nil
 }
 
@@ -1198,6 +1253,19 @@ func mergeStatefulSetConfiguration(base, override *v1.StatefulSetConfiguration) 
 	merged.MetadataWrapper.Labels = merge.StringToStringMap(merged.MetadataWrapper.Labels, override.MetadataWrapper.Labels)
 	merged.MetadataWrapper.Annotations = merge.StringToStringMap(merged.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations)
 	return merged
+}
+
+// mergeServiceConfiguration merges override's labels and annotations onto base per key,
+// override winning. The result shares no maps with either input, so resolving never
+// mutates the CR's spec.
+func mergeServiceConfiguration(base, override *v1.ServiceConfiguration) *v1.ServiceConfiguration {
+	if base == nil {
+		return override.DeepCopy()
+	}
+	return &v1.ServiceConfiguration{MetadataWrapper: v1.ServiceMetadataWrapper{
+		Labels:      merge.StringToStringMap(base.MetadataWrapper.Labels, override.MetadataWrapper.Labels),
+		Annotations: merge.StringToStringMap(base.MetadataWrapper.Annotations, override.MetadataWrapper.Annotations),
+	}}
 }
 
 // HasMultipleReplicas reports whether any cluster runs more than one mongot

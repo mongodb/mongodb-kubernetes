@@ -55,6 +55,8 @@ const (
 	ReplicaSet     ResourceType = "ReplicaSet"
 	ShardedCluster ResourceType = "ShardedCluster"
 
+	StandaloneDeprecationMessage = "Standalone is deprecated and will not be supported in the next major version, migrate to a one member ReplicaSet"
+
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
 
@@ -67,7 +69,7 @@ const (
 	OIDCAuthorizationMethodWorkforceIdentityFederation = "WorkforceIdentityFederation"
 	OIDCAuthorizationMethodWorkloadIdentityFederation  = "WorkloadIdentityFederation"
 
-	LabelResourceOwner = "mongodb.com/v1.mongodbResourceOwner"
+	LabelResourceOwner = util.MongoDBResourceOwnerLabel
 )
 
 // MongoDB resources allow you to deploy Standalones, ReplicaSets or SharedClusters
@@ -255,6 +257,30 @@ func (m *MongoDB) GetReplicaSetName() string {
 		return m.Spec.ReplicaSetNameOverride
 	}
 	return m.GetName()
+}
+
+func (m *MongoDB) TelemetryIdentifier() string {
+	return string(m.UID)
+}
+
+// OpsManagerDeploymentName is the name Ops Manager resolves this deployment by; standalones match on hostname:
+// https://github.com/10gen/ops-manager/blob/main/server/src/main/com/xgen/cloud/monitoring/ingestion/_public/svc/MetricsIngestionSvc.java#L333-L355
+func (m *MongoDB) OpsManagerDeploymentName() string {
+	switch m.GetResourceType() {
+	case ReplicaSet:
+		return m.GetReplicaSetName()
+	case ShardedCluster:
+		return m.GetShardedClusterName()
+	case Standalone:
+		return m.StandaloneHostname()
+	default:
+		return ""
+	}
+}
+
+// StandaloneHostname is the hostname of the standalone's single pod, as registered in the automation config.
+func (m *MongoDB) StandaloneHostname() string {
+	return dns.GetPodFQDN(dns.GetPodName(m.Name, 0), m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), nil)
 }
 
 func (m *MongoDB) IsRoleAppDB() bool {
@@ -458,7 +484,6 @@ const (
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.security) || !has(self.security.authentication) || (self.security.authentication.enabled == true && has(self.security.authentication.modes) && size(self.security.authentication.modes) == 1 && self.security.authentication.modes[0] == 'SCRAM')",message="spec.security.authentication must be enabled with modes [SCRAM] only when spec.role is AppDB, or omitted entirely"
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.security) || !has(self.security.authentication) || self.security.authentication.ignoreUnknownUsers == true",message="spec.security.authentication.ignoreUnknownUsers must be true when spec.role is AppDB and authentication is set"
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || self.type == 'ReplicaSet'",message="spec.resourceType must be ReplicaSet when spec.role is AppDB"
-// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.topology) || self.topology != 'MultiCluster'",message="spec.topology MultiCluster is not supported when spec.role is AppDB"
 // +kubebuilder:validation:XValidation:rule="has(self.role) == has(oldSelf.role) && (!has(self.role) || self.role == oldSelf.role)",message="spec.role is immutable: it cannot be added, removed, or changed after creation; to stop using a resource as AppDB, perform a reverse migration (delete the resource)"
 type DbCommonSpec struct {
 	// +kubebuilder:validation:Pattern=^[0-9]+.[0-9]+.[0-9]+(-.+)?$|^$
@@ -477,6 +502,9 @@ type DbCommonSpec struct {
 	ExternalAccessConfiguration *ExternalAccessConfiguration `json:"externalAccess,omitempty"`
 
 	Persistent *bool `json:"persistent,omitempty"`
+	// The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster' and 'Standalone'.
+	// Standalone is deprecated and will not be supported in the next major version, migrate to a
+	// one member ReplicaSet.
 	// +kubebuilder:validation:Enum=Standalone;ReplicaSet;ShardedCluster
 	// +kubebuilder:validation:Required
 	ResourceType ResourceType `json:"type"`
@@ -536,6 +564,7 @@ type DbCommonSpec struct {
 	DownloadBase string `json:"downloadBase,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || !has(self.topology) || self.topology != 'MultiCluster'",message="spec.topology MultiCluster is not supported when spec.role is AppDB"
 // +kubebuilder:validation:XValidation:rule="!has(self.role) || self.role != 'AppDB' || (has(self.members) && self.members >= 3)",message="spec.members must be >= 3 when spec.role is AppDB"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.externalMembers) || (has(self.externalMembers) ? size(self.externalMembers.filter(m, m.type != 'mongos')) : 0) >= size(oldSelf.externalMembers.filter(m, m.type != 'mongos')) - 1",message="at most one external mongod may be removed per update: remove mongod entries from spec.externalMembers one at a time so the replica set keeps its voting majority"
 type MongoDbSpec struct {

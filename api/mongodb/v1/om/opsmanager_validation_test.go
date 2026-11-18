@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -185,13 +186,58 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'s3SecretRef' must be specified if not using IRSA (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
 		},
-		"Invalid S3 OpLog Store config - objectLock enabled for s3 oplog": {
+		"Valid S3 OpLog Store config - objectLock enabled": {
 			testedOm: NewOpsManagerBuilderDefault().
-				SetVersion("8.0.19").
+				SetVersion("8.0.28").
 				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true)}).
 				Build(),
-			expectedErrorMessage: "'objectLockEnabled' cannot be configured for OpLog S3 Stores (S3 OpLog Store: test)",
+			expectedPart: status.None,
+		},
+		"Invalid S3 OpLog Store config - objectLock enabled for version older than 8.0.28": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true)}).
+				Build(),
+			expectedErrorMessage: "'objectLockEnabled' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
 			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 OpLog Store config - objectLockEnabled explicitly disabled for version older than 8.0.28": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(false)}).
+				Build(),
+			expectedErrorMessage: "'objectLockEnabled' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 Store config - object lock retention fields for version older than 8.0.27": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.26").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectRetentionDays: new(30)}).
+				Build(),
+			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= 8.0.27 (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Valid S3 Store config - object lock retention fields at exactly the 8.0.27 version floor": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}).
+				Build(),
+			expectedPart: status.None,
+		},
+		"Invalid S3 OpLog Store config - object lock retention fields for version older than 8.0.28": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectRetentionDays: new(30)}).
+				Build(),
+			expectedErrorMessage: "'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= 8.0.28 (S3 OpLog Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Valid S3 OpLog Store config - object lock retention fields at exactly the 8.0.28 version floor": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.28").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}).
+				Build(),
+			expectedPart: status.None,
 		},
 		"Valid S3 OpLog Store config - no s3SecretRef if irsaEnabled": {
 			testedOm: NewOpsManagerBuilderDefault().
@@ -241,6 +287,13 @@ func TestOpsManagerValidation(t *testing.T) {
 			expectedErrorMessage: "'4.4.0_0' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.0_0 is invalid",
 			expectedPart:         status.OpsManager,
 		},
+		"Invalid 4.4.4.4 OpsManager version": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("4.4.4.4").
+				Build(),
+			expectedErrorMessage: "'4.4.4.4' is an invalid value for spec.version: Ops Manager Status spec.version 4.4.4.4 is invalid",
+			expectedPart:         status.OpsManager,
+		},
 		"Valid 4.0.0 OpsManager version": {
 			testedOm:     NewOpsManagerBuilderDefault().SetVersion("4.0.0").Build(),
 			expectedPart: status.None,
@@ -269,6 +322,37 @@ func TestOpsManagerValidation(t *testing.T) {
 				Build(),
 			expectedPart:         status.OpsManager,
 			expectedErrorMessage: "Single cluster AppDB deployment should have empty clusterSpecList",
+		},
+		"Multi cluster AppDB deployment should have non-empty clusterSpecList": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetAppDBTopology(ClusterTopologyMultiCluster).
+				Build(),
+			expectedPart:         status.AppDb,
+			expectedErrorMessage: "ClusterSpecList empty is not allowed, please define at least one cluster",
+		},
+		"Multi cluster OM should have non-empty clusterSpecList": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "At least one ClusterSpecList entry must be specified for MultiCluster mode OM",
+		},
+		"Multi cluster OM with backup enabled should have backup members configured": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test", Members: 1}}).
+				SetBackup(MongoDBOpsManagerBackup{Enabled: true}).
+				Build(),
+			expectedPart:         status.OpsManager,
+			expectedErrorMessage: "At least one ClusterSpecList item must have backup members configured",
+		},
+		"Multi cluster OM with backup members configured is valid": {
+			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
+				SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).
+				SetOpsManagerClusterSpecList([]ClusterSpecOMItem{{ClusterName: "test", Members: 1, Backup: &MongoDBOpsManagerBackupClusterSpecItem{Members: 1}}}).
+				SetBackup(MongoDBOpsManagerBackup{Enabled: true}).
+				Build(),
+			expectedPart: status.None,
 		},
 		"Topology 'MultiCluster' must be specified while setting a not empty spec.clusterSpecList": {
 			testedOm: NewOpsManagerBuilderDefault().SetVersion("4.5.0-ent").
@@ -375,11 +459,11 @@ func TestOpsManagerValidation(t *testing.T) {
 			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
 
 			if testConfig.expectedErrorMessage != "" {
-				assert.NotNil(t, err)
+				require.NotNil(t, err)
 				assert.Equal(t, testConfig.expectedPart, part)
 				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, status.None, part)
 			}
 
@@ -461,11 +545,11 @@ func TestOpsManagerValidation_AppDBAndExternalRef(t *testing.T) {
 			part, err := testConfig.testedOm.ProcessValidationsOnReconcile()
 
 			if testConfig.expectedErrorMessage != "" {
-				assert.NotNil(t, err)
+				require.NotNil(t, err)
 				assert.Equal(t, testConfig.expectedPart, part)
 				assert.Equal(t, testConfig.expectedErrorMessage, err.Error())
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, status.None, part)
 			}
 		})

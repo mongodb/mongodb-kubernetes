@@ -117,11 +117,27 @@ fi
 echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
 export BUILD_SCENARIO="${BUILD_SCENARIO}"
 
+# Default preflight_submit to true for release builds only; preserve any
+# explicitly supplied Evergreen expansion/override.
+export preflight_submit="${preflight_submit:-}"
+if [ "${BUILD_SCENARIO}" == "${BUILD_SCENARIO_RELEASE}" ] && [ "${preflight_submit}" == "" ]; then
+  export preflight_submit="true"
+fi
+
 # Select Quay credentials: staging and dryrun-release use staging creds, everything else uses prod creds.
 source "${script_dir:-scripts/dev/contexts}/select_quay_credentials.sh"
 select_quay_credentials "${BUILD_SCENARIO}"
 
 export RELEASE_VERSION="${RELEASE_VERSION:-$(jq -r '.mongodbOperator' "${PROJECT_DIR}/release.json")}"
+
+# Detect "test" branches, e.g. "release-v1-test", "release-v2-test" -- these simulate real backport branches
+# (e.g. "release-v1", "release-v2") for CI/CD testing purposes only, without affecting production registries.
+IS_TEST_BRANCH=false
+if [[ "${branch_name:-}" =~ ^release-v[0-9]+-test$ ]]; then
+  IS_TEST_BRANCH=true
+fi
+export IS_TEST_BRANCH
+echo "IS_TEST_BRANCH=${IS_TEST_BRANCH}"
 
 # Set REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION based on build scenario
 # REGISTRY and OPERATOR_VERSION, READINESS_PROBE_VERSION, VERSION_UPGRADE_HOOK_VERSION can be overridden externally if needed
@@ -145,6 +161,10 @@ case ${BUILD_SCENARIO} in
 
   "${BUILD_SCENARIO_STAGING}")
     COMMIT_SHA_SHORT=$(git rev-parse --short=8 HEAD)
+    if [ "${IS_TEST_BRANCH}" == "true" ]; then
+      REGISTRY="${REGISTRY:-${TEST_BRANCH_REGISTRY:-268558157000.dkr.ecr.us-east-1.amazonaws.com/test}}"
+      export FLAGS="${FLAGS:-} --registry ${REGISTRY}"
+    fi
     REGISTRY="${REGISTRY:-${STAGING_REGISTRY}}"
     OPERATOR_VERSION="${OPERATOR_VERSION:-${COMMIT_SHA_SHORT}}"
     READINESS_PROBE_VERSION="${READINESS_PROBE_VERSION:-${COMMIT_SHA_SHORT}}"

@@ -237,6 +237,137 @@ func TestValidateX509AuthConfig(t *testing.T) {
 	}
 }
 
+func TestValidateOIDCAuthConfig(t *testing.T) {
+	validOIDC := func() *OIDCAuth {
+		return &OIDCAuth{
+			TokenEndpoint:     "https://idp.example.com/realms/search/protocol/openid-connect/token",
+			ClientID:          "search-sync-source",
+			ClientSecretRef:   userv1.SecretKeyRef{Name: "my-oidc-client-secret", Key: "clientSecret"},
+			IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "my-idp-ca"},
+		}
+	}
+	oidcSource := func(mutate func(*OIDCAuth)) *MongoDBSource {
+		o := validOIDC()
+		if mutate != nil {
+			mutate(o)
+		}
+		return &MongoDBSource{OIDC: o}
+	}
+
+	// One case per validator branch: the CEL envtest is the apply-time gate, so this table
+	// only pins each backstop branch rather than restating the whole URL matrix.
+	tests := []struct {
+		name          string
+		searchSource  *MongoDBSource
+		errorContains string
+	}{
+		{name: "no source configured"},
+		{name: "no oidc configured", searchSource: &MongoDBSource{}},
+		{name: "valid oidc config", searchSource: oidcSource(nil)},
+		{name: "valid oidc config with scope", searchSource: oidcSource(func(o *OIDCAuth) { o.Scope = new("openid") })},
+		{
+			name:          "oidc with empty tokenEndpoint",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.TokenEndpoint = "" }),
+			errorContains: "spec.source.oidc.tokenEndpoint must not be empty",
+		},
+		{
+			name:          "oidc with non-https scheme",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.TokenEndpoint = "http://idp.example.com/token" }),
+			errorContains: "scheme must be https",
+		},
+		{
+			name:          "oidc with missing host",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.TokenEndpoint = "https:///token" }),
+			errorContains: "host is required",
+		},
+		{
+			// url.Parse accepts a port-only authority (Host == ":443", empty Hostname),
+			// so the host check must key on Hostname(), not Host.
+			name:          "oidc with port-only authority",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.TokenEndpoint = "https://:443/token" }),
+			errorContains: "host is required",
+		},
+		{
+			name:          "oidc with userinfo",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.TokenEndpoint = "https://user:pass@idp.example.com/token" }),
+			errorContains: "userinfo is not allowed",
+		},
+		{
+			name:          "oidc with fragment",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.TokenEndpoint = "https://idp.example.com/token#frag" }),
+			errorContains: "fragment is not allowed",
+		},
+		{
+			name:          "oidc with unparsable tokenEndpoint",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.TokenEndpoint = "https://idp.example.com:port/token" }),
+			errorContains: "must be an absolute HTTPS URI",
+		},
+		{
+			// url.Parse lowercases the scheme, so an uppercase one is accepted here and by
+			// the case-insensitive CEL rule.
+			name:         "oidc with uppercase https scheme",
+			searchSource: oidcSource(func(o *OIDCAuth) { o.TokenEndpoint = "HTTPS://idp.example.com/token" }),
+		},
+		{
+			name:          "oidc with empty clientSecretSecretRef name",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.ClientSecretRef.Name = "" }),
+			errorContains: "spec.source.oidc.clientSecretSecretRef.name must not be empty",
+		},
+		{
+			name:          "oidc with empty clientSecretSecretRef key",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.ClientSecretRef.Key = "" }),
+			errorContains: "spec.source.oidc.clientSecretSecretRef.key must not be empty",
+		},
+		{
+			name:          "oidc with empty idpCAConfigMapRef name",
+			searchSource:  oidcSource(func(o *OIDCAuth) { o.IdPCAConfigMapRef.Name = "" }),
+			errorContains: "spec.source.oidc.idpCAConfigMapRef.name must not be empty",
+		},
+		{
+			name: "oidc with x509 is mutually exclusive",
+			searchSource: &MongoDBSource{
+				OIDC: validOIDC(),
+				X509: &X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "my-cert"}},
+			},
+			errorContains: "spec.source.oidc and spec.source.x509 are mutually exclusive",
+		},
+		{
+			name: "oidc with passwordSecretRef is mutually exclusive",
+			searchSource: &MongoDBSource{
+				OIDC:              validOIDC(),
+				PasswordSecretRef: &userv1.SecretKeyRef{Name: "my-password"},
+			},
+			errorContains: "spec.source.oidc and spec.source.passwordSecretRef are mutually exclusive",
+		},
+		{
+			name: "oidc with username is mutually exclusive",
+			searchSource: &MongoDBSource{
+				OIDC:     validOIDC(),
+				Username: new("some-user"),
+			},
+			errorContains: "spec.source.oidc and spec.source.username are mutually exclusive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			search := &MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-search", Namespace: "test-ns"},
+				Spec:       MongoDBSearchSpec{Source: tt.searchSource},
+			}
+
+			result := validateOIDCAuthConfig(search)
+
+			if tt.errorContains != "" {
+				assert.Equal(t, v1.ErrorLevel, result.Level)
+				assert.Contains(t, result.Msg, tt.errorContains)
+			} else {
+				assert.Equal(t, v1.SuccessLevel, result.Level)
+			}
+		})
+	}
+}
+
 func TestValidateClustersUniqueClusterName(t *testing.T) {
 	tests := []struct {
 		name          string

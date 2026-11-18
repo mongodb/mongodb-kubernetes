@@ -58,6 +58,15 @@ starts with "[new]"; the CLI patch below runs the same variants. See .evergreen-
 evergreen patch -p mongodb-kubernetes -a release-publish -d "Test release-publish build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
 ```
 
+### Evergreen project isolation for major releases
+
+Each Evergreen project tracks a different GitHub branch. Before the first release of a new major version, bump the
+tracking project's `git_tag` major-version regex in `.evergreen.yml` on the soon-to-be-next-major branch (for example,
+from `^1\.\d+\.\d+$` to `^2\.\d+\.\d+$`). This prevents the previous-major and next-major projects from both
+triggering on the same release tags. Also add the corresponding release-branch selector and full Evergreen project
+mapping to `.github/workflows/release.yml` so the release workflow targets the matching project. Make these updates on
+every major version bump.
+
 ### Release-style preflight only (no image push, no Pyxis submit)
 
 Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, but **does not** run *
@@ -86,6 +95,36 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test custom agent" -f -y -
   --param mdb_custom_agent_url=https://example.com/mongodb-mms-automation-agent-108.0.26.9047-1.rhel8_x86_64.tar.gz
 ```
 
+### Custom Ops Manager image
+
+Build an Ops Manager image from a custom tarball, for example from an Ops Manager patch build.
+
+**1. Build the Ops Manager tarball.** From the Ops Manager repository, run the `PACKAGE_OPS_MANAGER` task of the
+`package_rpm` variant in the `ops-manager-main` project:
+
+```shell
+evergreen patch -p ops-manager-main -v package_rpm -t PACKAGE_OPS_MANAGER -d "OM tarball for testing" -f -y
+```
+
+When the task finishes, open it in Spruce, go to the **Files** tab and copy the link of the
+`mongodb-mms-<version>.tar.gz` artifact.
+
+**2. Build the image.** Pass `om_download_url` and `om_version` to the `build_om_images` task; `om_version` is the image
+tag and must be passed together with the URL.
+
+```shell
+evergreen patch -p mongodb-kubernetes -v build_om90_images -t build_om_images -d "OM image from custom tarball" -f -y \
+  --param om_download_url=https://mciuploads.s3.amazonaws.com/ops-manager-main/.../mongodb-mms-10.0.0-alpha0.489.20261106T1228Z.tar.gz \
+  --param om_version=10.0.0-alpha0.489.20261106T1228Z
+```
+
+The image is pushed to `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-enterprise-ops-manager-ubi:<om_version>`.
+
+- Pass `--param BUILD_SCENARIO=staging` to push to the `staging` registry instead, with the same tag.
+- An existing tag in the registry is skipped (`skip-if-exists`), so pass a new `om_version` when rebuilding with a different
+  tarball.
+- `om_version` without a URL rebuilds the image of that released OM version, for example after a Dockerfile-only change.
+
 ## E2E Test Path Filtering on PRs
 
 Evergreen uses two levels of file-based filtering on PRs:
@@ -111,19 +150,40 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
-| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1000 tasks, complete e2e set (excludes multi-arch smoke tests)                                                |
-| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~250 tasks tagged `e2e_medium`: subset of e2e-all across static/non-static, OM 7/8/9, multi-cluster, OpenShift |
-| `evergreen:e2e-light`      | `e2e_test_suite`     | ~125 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
+| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1320 tasks, every e2e variant; It **MUST** only be applied manually by a human engineer because it's extremely expensive (see "Choosing a label") |
+| `evergreen:e2e-default`    | `e2e_test_suite`     | ~540 tasks, e2e suite minus static, OM7 and race variants; close to the former default PR set                  |
+| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~320 tasks tagged `e2e_medium` across static/non-static, OM 7/8/9, multi-cluster                               |
+| `evergreen:e2e-light`      | `e2e_test_suite`     | ~170 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
 | `evergreen:e2e-static`     | `static`             | Static-container e2e variants + shared init/build (`init_test_run`, `init_tests_with_olm`, `build_om*_images`) |
 | `evergreen:e2e-non-static` | `non_static`         | Non-static e2e variants + shared init/build                                                                    |
-| `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (including OpenShift)                                                                        |
+| `evergreen:multi-cluster`  | `multi_cluster`      | Non-static multi-cluster variants only (kind, 2 clusters, OM AppDB, OM70 upgrade, OM80 search, operator-not-in-mesh) |
+| `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (excluding OpenShift)                                                                        |
 | `evergreen:e2e-community`  | `e2e_mco_test_suite` | Community suites (`e2e_mdb_community`, `e2e_mco_tests`)                                                        |
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
+| `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
+
+Task counts are rounded PR patch sizes: the tasks selected by the label, their dependencies and the always-on checks.
+They change as tasks are added or removed.
+
+OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
+the `staging` alias.
 
 Labels are evaluated when the PR patch is created; adding one afterwards injects the newly-satisfied tasks into the
 existing patch in place. Removing a label is a no-op and never cancels running tasks. Variant `paths:` filtering still
 applies on top — a labeled variant whose paths don't match the PR's changed files is skipped.
+
+### Choosing a label
+
+Start with `evergreen:e2e-light` and add `e2e-medium`, `e2e-default` or a dimension label (`e2e-static`, `om7`, `om9`,
+`race`, ...) only when the change touches that area.
+
+**Do not use `evergreen:e2e-all`.** It MUST only be applied manually by a human engineer: it schedules ~1370 tasks
+(about 2.5x `e2e-default`), runs again on every push while the label is on, and master already runs the full suite on
+every merge (plus variants `e2e-all` does not select: OpenShift, multi-arch smoke, release). AI agents and automation
+must never apply it. A human who needs the full result before merge (for example for core reconcile logic or a shared
+library used by every resource type) applies it by hand and removes it once the run has finished, so later pushes do
+not schedule the whole set again.
 
 ## Manual Variant Aliases
 
@@ -138,7 +198,7 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 | `non_static` | Non-static container variants (shared init/build)             | With `evergreen:e2e-non-static` label |
 | `om7`        | Ops Manager 7.0 variants (static and non-static)              | With `evergreen:om7` label            |
 | `om9`        | Ops Manager 9.0 variants                                      | With `evergreen:om9` label            |
-| `race`       | Race detector variant                                         | With `evergreen:e2e-all` label        |
+| `race`       | Race detector variant                                         | With `evergreen:race` label           |
 | `smoke_test` | Smoke e2e suite (`patch-run` tasks)                           | No                                    |
 | `cloudqa`    | Cloud QA non-static variants                                  | With `evergreen:e2e-cloudqa` label    |
 
@@ -193,48 +253,3 @@ ticket.
 Because of `patchable: false`, these tasks cannot be force-run in a patch — the only way to
 check whether the upstream issue is fixed is to look at the task's result on master, or
 temporarily flip `patchable: true` in a throwaway branch.
-
-## CVE Image Scanning (trivy)
-
-Every build-and-publish task runs a `trivy_scan` step (function in `.evergreen-functions.yml`)
-right after the image is pushed. The step invokes `scripts/release/trivy_scan.sh`, which
-resolves the image repository/tag the same way the build pipeline does (from `build_info.json`
-and the version env vars) and scans it with
-[trivy](https://github.com/aquasecurity/trivy) (pinned in `scripts/evergreen/setup_trivy.sh`).
-Only findings with an available fix are reported (stdout/Slack); unfixed findings are still
-captured in the uploaded raw JSON.
-
-Where scans run:
-
-- **Staging builds** (`init_test_run` build tasks, `build_om*_images`, `release_om_and_agents`)
-  after each image is pushed by the `pipeline` function on master merges.
-- **New release process** (`release_publish` variant): after `mckci_release_publish_images`
-  publishes the promoted image set to production, each published image is scanned at its
-  production ref with a fresh vulnerability DB. Skipped when `IS_DRYRUN=true`, since dry runs
-  publish to an override registry.
-- **Legacy release process** (`release_images` variant, deprecated): after each `release_*`
-  rebuild task.
-
-PR/patch builds skip the scan by default (only `staging`/`release` build scenarios are
-scanned). To force a scan on a regular PR patch (e.g. to test a trivy/pipeline change), add
-`--param TRIVY_SCAN_FORCE=true`:
-
-```shell
-evergreen patch -p mongodb-kubernetes -a pr_patch -d "test trivy scan" -u -y --param TRIVY_SCAN_FORCE=true
-```
-
-Raw trivy JSON reports are written to `trivy-reports/` in the task working directory and
-uploaded to S3 (bucket `operator-e2e-artifacts`, same bucket/pattern as `upload_e2e_logs`) at
-`trivy-reports/${task_id}/${execution}/`, so findings remain inspectable even for tasks that
-didn't trigger a Slack notification. These raw reports contain *all* findings, including the
-unfixed ones. The stdout/Slack report lists only vulnerabilities that have an available fix
-(a non-empty `FixedVersion`), since those are the only actionable ones, and states the total
-(fixable vs not fixable). Images with no findings, or with only unfixable findings, are
-omitted entirely: no stdout line, no Slack notification. The upload
-link is available on the task page in the Evergreen UI (Files tab). To run a scan locally:
-
-```bash
-scripts/evergreen/setup_trivy.sh
-scripts/dev/run_python.sh scripts/release/trivy_scan.py operator --build-scenario release \
-  --version 1.5.0 --platform linux/amd64 --dry-run
-```

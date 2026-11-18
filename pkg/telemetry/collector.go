@@ -243,7 +243,7 @@ func getMdbEvents(ctx context.Context, operatorClusterClient kubeclient.Client, 
 			numberOfClustersUsed := getMaxNumberOfClustersSCIsDeployedOn(item)
 			properties := DeploymentUsageSnapshotProperties{
 				Role:                     item.Spec.Role,
-				DeploymentUID:            string(item.UID),
+				DeploymentUID:            item.TelemetryIdentifier(),
 				OperatorID:               operatorUUID,
 				Architecture:             string(architectures.GetArchitecture(item.Annotations, defaultArchitecture)),
 				IsMultiCluster:           item.Spec.IsMultiCluster(),
@@ -287,7 +287,7 @@ func addMultiEvents(ctx context.Context, operatorClusterClient kubeclient.Client
 		properties := DeploymentUsageSnapshotProperties{
 			DatabaseClusters:         &clusters, // cannot be null in mdbmulti
 			Role:                     item.Spec.Role,
-			DeploymentUID:            string(item.UID),
+			DeploymentUID:            item.TelemetryIdentifier(),
 			OperatorID:               operatorUUID,
 			Architecture:             string(architectures.GetArchitecture(item.Annotations, defaultArchitecture)),
 			IsMultiCluster:           true,
@@ -699,7 +699,7 @@ func resolveExternalAppDBProperties(ctx context.Context, operatorClusterClient k
 	appDBProperties := AppDBProperties{
 		ExternalAppDB: ref.Kind,
 	}
-	if ref.Kind == "MongoDB" {
+	if ref.Kind == omv1.ExternalAppDBRefKindMongoDB {
 		mdb := &mdbv1.MongoDB{}
 		if err := operatorClusterClient.Get(ctx, key, mdb); err != nil {
 			Logger.Warnf("Couldn't fetch MongoDB %s/%s for OpsManager external database reference: %v", ref.Namespace, ref.Name, err)

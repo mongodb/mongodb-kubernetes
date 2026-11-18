@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/mitchellh/copystructure"
 	"go.uber.org/zap"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -93,13 +94,17 @@ func (amc *AdditionalMongodConfig) DeepCopy() *AdditionalMongodConfig {
 }
 
 func (amc *AdditionalMongodConfig) DeepCopyInto(out *AdditionalMongodConfig) {
-	cp, err := util.MapDeepCopy(amc.object)
+	cp, err := copystructure.Copy(amc.object)
 	if err != nil {
 		zap.S().Errorf("Failed to copy the map: %s", err)
 		return
 	}
-	config := AdditionalMongodConfig{object: cp}
-	*out = config
+	object := cp.(map[string]any)
+	if object == nil {
+		// keep the object always initialized, as NewEmptyAdditionalMongodConfig does
+		object = map[string]any{}
+	}
+	*out = AdditionalMongodConfig{object: object}
 }
 
 // ToMap creates a copy of the config as a map (Go is quite restrictive to types, and sometimes we need to
@@ -108,10 +113,10 @@ func (amc *AdditionalMongodConfig) ToMap() map[string]any {
 	if amc == nil || amc.object == nil {
 		return map[string]any{}
 	}
-	cp, err := util.MapDeepCopy(amc.object)
+	cp, err := copystructure.Copy(amc.object)
 	if err != nil {
 		zap.S().Errorf("Failed to copy the map: %s", err)
 		return nil
 	}
-	return cp
+	return cp.(map[string]any)
 }

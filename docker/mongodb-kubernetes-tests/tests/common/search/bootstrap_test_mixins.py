@@ -428,8 +428,8 @@ class SearchSampleDataAndIndexTests:
         return None
 
     @fixture(scope="module")
-    def search_tools_pod(self, namespace: str) -> mongodb_tools_pod.ToolsPod:
-        return get_tools_pod(namespace, api_client=self.tools_pod_api_client())
+    def search_tools_pod(self, namespace: str, custom_mdb_version: str) -> mongodb_tools_pod.ToolsPod:
+        return get_tools_pod(namespace, custom_mdb_version, api_client=self.tools_pod_api_client())
 
     def test_deploy_tools_pod(self, search_tools_pod: mongodb_tools_pod.ToolsPod):
         logger.info(f"Tools pod {search_tools_pod.pod_name} is ready")

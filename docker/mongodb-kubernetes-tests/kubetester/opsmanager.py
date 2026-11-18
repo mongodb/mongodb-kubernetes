@@ -4,7 +4,7 @@ import ast
 import json
 import re
 import time
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import kubernetes.client
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from kubetester.mongodb import MongoDB
 
 import requests
+import semver
 from kubeobject import CustomObject
 from kubernetes.client.rest import ApiException
 from kubetester import create_configmap, create_or_update_secret, read_configmap, read_secret
@@ -114,6 +115,49 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         tester.assert_group_exists()
         return tester.api_get_hosts()["results"]
 
+    def om_ui_session(self) -> requests.Session:
+        """Logs in to the Ops Manager UI and returns the logged in session.
+
+        The UI endpoints, such as /allClusters, are not part of the public API. They
+        need a session cookie instead of an API key.
+        """
+        admin_secret = read_secret(self.namespace, self.get_admin_secret_name())
+        password = admin_secret["Password"]
+
+        # Ops Manager 8.0.26 and newer expect the password base64 encoded, the way their own UI
+        # sends it (CLOUDP-427896). Older versions, 7.0.x in particular, expect the plain
+        # password and answer 400 to the encoded one.
+        if semver.VersionInfo.parse(self.get_version()) >= semver.VersionInfo.parse("8.0.26"):
+            password = b64encode(password.encode()).decode()
+
+        session = requests.Session()
+        response = session.post(
+            f"{self.om_status().get_url()}/user/v1/auth",
+            json={
+                "username": admin_secret["Username"],
+                "password": password,
+            },
+            timeout=30,
+            verify=False,
+        )
+        response.raise_for_status()
+        return session
+
+    def get_appdb_cluster_from_all_clusters(self, session: requests.Session) -> Optional[dict]:
+        """Returns the AppDB entry of the All Clusters view in the Ops Manager UI."""
+        response = session.get(f"{self.om_status().get_url()}/allClusters", timeout=30, verify=False)
+        response.raise_for_status()
+
+        for group in response.json():
+            if group.get("groupName") != self.app_db_name():
+                continue
+
+            for cluster in group.get("clusters", []):
+                if cluster.get("name") == self.app_db_name():
+                    return cluster
+
+        return None
+
     def get_appdb_preferred_hostnames(self):
         tester = self.get_om_tester(self.app_db_name())
         return tester.api_get_preferred_hostnames()
@@ -149,6 +193,32 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             return True
 
         KubernetesTester.wait_until(appdb_hostnames_are_correct, timeout=300, sleep_time=10)
+
+    @TRACER.start_as_current_span("assert_appdb_hosts_have_ssl_enabled")
+    def assert_appdb_hosts_have_ssl_enabled(self):
+        def appdb_hosts_have_ssl_enabled():
+            hosts = self.get_appdb_hosts()
+
+            if not hosts:
+                return False
+
+            return all(host.get("sslEnabled", False) for host in hosts)
+
+        KubernetesTester.wait_until(appdb_hosts_have_ssl_enabled, timeout=300, sleep_time=10)
+
+    @TRACER.start_as_current_span("assert_appdb_cluster_has_ssl_enabled")
+    def assert_appdb_cluster_has_ssl_enabled(self):
+        session = self.om_ui_session()
+
+        def appdb_cluster_has_ssl_enabled():
+            cluster = self.get_appdb_cluster_from_all_clusters(session)
+
+            if cluster is None:
+                return False
+
+            return cluster.get("sslEnabled", False)
+
+        KubernetesTester.wait_until(appdb_cluster_has_ssl_enabled, timeout=300, sleep_time=10)
 
     @TRACER.start_as_current_span("assert_appdb_monitoring_group_was_created")
     def assert_appdb_monitoring_group_was_created(self):

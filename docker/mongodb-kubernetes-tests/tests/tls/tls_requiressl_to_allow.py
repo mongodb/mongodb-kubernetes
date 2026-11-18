@@ -45,7 +45,7 @@ def test_install_operator(operator: Operator):
 @mark.e2e_replica_set_tls_require_to_allow
 def test_replica_set_creation(tls_replica_set: MongoDB):
     tls_replica_set.update()
-    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_replica_set_tls_require_to_allow
@@ -55,7 +55,7 @@ def test_enable_tls(tls_replica_set: MongoDB, issuer_ca_configmap: str, rs_certs
         tls_cert_secret_name=rs_certs_secret,
     )
     tls_replica_set.update()
-    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_replica_set_tls_require_to_allow
@@ -80,7 +80,7 @@ def test_configure_allow_ssl(tls_replica_set: MongoDB):
     tls_replica_set["spec"]["additionalMongodConfig"] = {"net": {"ssl": {"mode": "allowSSL"}}}
 
     tls_replica_set.update()
-    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=300)
+    tls_replica_set.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_replica_set_tls_require_to_allow

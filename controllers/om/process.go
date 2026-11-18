@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/mitchellh/copystructure"
 	"github.com/spf13/cast"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -204,7 +205,11 @@ func getTLSMode(spec mdbv1.DbSpec, additionalMongodConfig mdbv1.AdditionalMongod
 }
 
 func (p Process) DeepCopy() (Process, error) {
-	return util.MapDeepCopy(p)
+	cp, err := copystructure.Copy(p)
+	if err != nil {
+		return nil, err
+	}
+	return cp.(Process), nil
 }
 
 // Name returns the name of the process.
@@ -362,10 +367,11 @@ func (p Process) AdditionalMongodConfig() *mdbv1.AdditionalMongodConfig {
 	if len(p.Args()) == 0 {
 		return nil
 	}
-	m, err := util.MapDeepCopy(p.Args())
+	cp, err := copystructure.Copy(p.Args())
 	if err != nil {
 		return nil
 	}
+	m := cp.(map[string]any)
 
 	for _, path := range infrastructureFieldPaths {
 		if len(path) == 1 {

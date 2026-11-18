@@ -2,6 +2,7 @@ package process
 
 import (
 	"fmt"
+	"strings"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
@@ -60,4 +61,16 @@ func CreateMongodProcessesWithLimitMulti(mongoDBImage string, forceEnterprise bo
 // PodNameToProcessName returns the process name with the "k8s/<namespace>/" prefix added to the legacy name
 func PodNameToProcessName(legacyName, namespace string) string {
 	return fmt.Sprintf("k8s/%s/%s", namespace, legacyName)
+}
+
+// IsResourceProcess returns true for the names of the processes of the resource, with or without the k8s/<namespace>/ prefix:
+// its Pods (<name>-<suffix>) and a process named exactly like the resource.
+func IsResourceProcess(processName, resourceName, resourceNamespace string) bool {
+	canonicalProcessName := strings.TrimPrefix(processName, PodNameToProcessName("", resourceNamespace))
+	rest, ok := strings.CutPrefix(canonicalProcessName, resourceName)
+	if ok {
+		return rest == "" || (strings.HasPrefix(rest, "-") && len(rest) > 1)
+	}
+
+	return false
 }

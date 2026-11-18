@@ -85,7 +85,8 @@ func TestIsStatefulSetUpdatableTo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, isStatefulSetEqualOnForbiddenFields(tt.existing, tt.desired), "isStatefulSetEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
+			actual, _ := isStatefulSetEqualOnForbiddenFields(tt.existing, tt.desired)
+			assert.Equalf(t, tt.want, actual, "isStatefulSetEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
 		})
 	}
 }
@@ -240,10 +241,47 @@ func TestIsVolumeClaimUpdatableTo(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "VolumeAttributesClassName: equal",
+			existing: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			want: true,
+		},
+		{
+			name: "VolumeAttributesClassName: unequal",
+			existing: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("silver")},
+			},
+			desired: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			want: false,
+		},
+		{
+			name:     "VolumeAttributesClassName: added",
+			existing: corev1.PersistentVolumeClaim{},
+			desired: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			want: false,
+		},
+		{
+			name: "VolumeAttributesClassName: removed",
+			existing: corev1.PersistentVolumeClaim{
+				Spec: corev1.PersistentVolumeClaimSpec{VolumeAttributesClassName: new("gold")},
+			},
+			desired: corev1.PersistentVolumeClaim{},
+			want:    false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, isVolumeClaimEqualOnForbiddenFields(tt.existing, tt.desired), "isVolumeClaimEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
+			actual, _ := isVolumeClaimEqualOnForbiddenFields(tt.existing, tt.desired)
+			assert.Equalf(t, tt.want, actual, "isVolumeClaimEqualOnForbiddenFields(%v, %v)", tt.existing, tt.desired)
 		})
 	}
 }

@@ -29,6 +29,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.multicluster.multicluster_utils import assert_deployment_ready_in_cluster
 from tests.common.search import search_resource_names
+from tests.common.search.mc_search_helper import patch_per_cluster_mongot_host_via_om
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_deployment_helper import MCSearchDeploymentHelper
 from tests.common.search.search_tester import SearchTester
@@ -455,32 +456,15 @@ def test_verify_per_cluster_resources(
 def test_patch_per_cluster_mongot_host(
     mdb: MongoDBMulti,
     helper: MCSearchDeploymentHelper,
-    namespace: str,
+    member_cluster_clients: List[MultiClusterClient],
 ):
     """Patch OM automation config to set mongotHost per process pointing to envoy proxy."""
-    om_tester = mdb.get_om_tester()
-    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
-    ac = om_tester.om_request("get", ac_path).json()
-
-    for process in ac.get("processes", []):
-        hostname = process.get("hostname", "")
-        # Determine cluster index from hostname pattern: mdb-mc-rs-x509-{clusterIdx}-{podIdx}-svc...
-        parts = hostname.split("-svc")[0].split("-")
-        # The cluster index is after the resource name parts
-        # hostname pattern: mdb-mc-rs-x509-{clusterIdx}-{podIdx}-svc.namespace...
-        cluster_idx = int(parts[-2])
-
-        proxy_host = (
-            f"{MDBS_RESOURCE_NAME}-search-{cluster_idx}-proxy-svc.{namespace}.svc.cluster.local:{ENVOY_PROXY_PORT}"
-        )
-        set_param = process.setdefault("args2_6", {}).setdefault("setParameter", {})
-        set_param["mongotHost"] = proxy_host
-        set_param["searchIndexManagementHostAndPort"] = proxy_host
-        logger.info(f"Patched process {process.get('name')} mongotHost -> {proxy_host}")
-
-    ac["version"] = ac.get("version", 0) + 1
-    om_tester.om_request("put", ac_path, json_object=ac)
-    om_tester.wait_agents_ready(timeout=900)
+    patch_per_cluster_mongot_host_via_om(
+        mdb=mdb,
+        helper=helper,
+        member_cluster_clients=member_cluster_clients,
+        envoy_proxy_port=ENVOY_PROXY_PORT,
+    )
     logger.info("All agents reached goal state with mongotHost configured")
 
 

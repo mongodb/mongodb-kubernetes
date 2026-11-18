@@ -9,6 +9,7 @@ import requests
 from kubeobject import CustomObject
 from kubernetes import client, utils
 from kubetester.kubetester import run_periodically
+from opentelemetry import trace
 from tests import test_logger
 
 # Re-exports
@@ -62,19 +63,6 @@ def update_secret(
 
 def delete_secret(namespace: str, name: str, api_client: Optional[kubernetes.client.ApiClient] = None):
     client.CoreV1Api(api_client=api_client).delete_namespaced_secret(name, namespace)
-
-
-def create_service_account(namespace: str, name: str) -> str:
-    """Creates a service account with `name` in `namespace`"""
-    sa = client.V1ServiceAccount(metadata=client.V1ObjectMeta(name=name))
-    client.CoreV1Api().create_namespaced_service_account(namespace=namespace, body=sa)
-    return name
-
-
-def delete_service_account(namespace: str, name: str) -> str:
-    """Deletes a service account with `name` in `namespace`"""
-    client.CoreV1Api().delete_namespaced_service_account(namespace=namespace, name=name)
-    return name
 
 
 def get_service(
@@ -470,6 +458,8 @@ def get_pod_when_ready(
     Ready state.
     """
     cnt = 0
+    span = trace.get_current_span()
+    span.set_attribute("mck.wait.name", "get_pod_when_ready")
 
     while default_retry is not None and cnt < default_retry:
         print(f"get_pod_when_ready: namespace={namespace}, label_selector={label_selector}")
@@ -491,6 +481,7 @@ def get_pod_when_ready(
 
             for condition in pod.status.conditions:
                 if condition.type == "Ready" and condition.status == "True":
+                    span.set_attribute("mck.wait.attempts", cnt)
                     return pod
 
         except client.rest.ApiException as e:
@@ -498,6 +489,8 @@ def get_pod_when_ready(
             if e.status != 404:
                 raise
 
+    span.set_attribute("mck.wait.attempts", cnt)
+    span.set_attribute("mck.wait.error", f"pod with label_selector '{label_selector}' not ready after {cnt} attempts")
     print(f"bailed on getting pod ready after 10 retries")
 
 

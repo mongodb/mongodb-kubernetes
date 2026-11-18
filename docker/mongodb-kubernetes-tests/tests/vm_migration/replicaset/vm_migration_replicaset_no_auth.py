@@ -291,8 +291,8 @@ def test_migration_data_exists_after_migration(mdb_migration: MongoDB):
 
 
 @mark.e2e_vm_migration_replicaset_no_auth
-def test_promote_and_prune(mdb_migration: MongoDB, vm_sts):
-    promote_and_prune_extend(mdb_migration, vm_sts)
+def test_promote_and_prune(mdb_migration: MongoDB, vm_sts, om_tester: OMTester):
+    promote_and_prune_extend(mdb_migration, vm_sts, om_tester)
 
 
 @mark.e2e_vm_migration_replicaset_no_auth

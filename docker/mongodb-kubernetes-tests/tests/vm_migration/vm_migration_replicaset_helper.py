@@ -25,7 +25,7 @@ from tests.vm_migration.vm_migration_common_helper import (
 from tests.vm_migration.vm_migration_dry_run import (
     MIGRATING_CONDITION_REASON_EXTENDING,
     MIGRATING_CONDITION_REASON_IN_PROGRESS,
-    MIGRATING_CONDITION_REASON_PRUNING,
+    wait_until_external_member_pruned,
     wait_until_migrating_condition_reason,
     wait_until_phase_and_migrating_condition_reason,
     wait_until_running_and_migration_complete,
@@ -217,14 +217,13 @@ def promote_and_prune(mdb_migration, vm_sts):
     wait_until_running_and_migration_complete(mdb_migration)
 
 
-def promote_and_prune_extend(mdb_migration, vm_sts):
+def promote_and_prune_extend(mdb_migration, vm_sts, om_tester):
     """Incremental VM → K8s cutover: grow spec.members one at a time, then prune one VM per step.
 
     Unlike promote_and_prune (which pre-provisions all K8s members and only re-prioritizes), this
-    starts VM-only (spec.members == 0) and adds a K8s member per iteration, exercising the
-    ``Migrating`` lifecycle reasons the operator emits: ``Extending`` when a member is added,
-    ``Pruning`` when a VM member is removed, ``InProgress`` once counts stabilize, and finally
-    ``MigrationComplete`` after the last VM member is pruned.
+    starts VM-only (spec.members == 0) and adds a K8s member per iteration. ``Extending`` and
+    ``InProgress`` are asserted from status; each removed VM is verified against the OM automation
+    config, and the last prune also waits for ``MigrationComplete``.
     """
     try_load(mdb_migration)
     if not isinstance(mdb_migration["spec"].get("memberConfig"), list):
@@ -247,16 +246,11 @@ def promote_and_prune_extend(mdb_migration, vm_sts):
         assert_connection_string_contains_current_hosts(mdb_migration)
 
         # --- Prune: remove one VM member ---
-        mdb_migration["spec"]["externalMembers"].pop()
+        removed = mdb_migration["spec"]["externalMembers"].pop()
         mdb_migration.update()
-        if is_last:
-            wait_until_running_and_migration_complete(mdb_migration)
-        else:
-            # Pruning is a single-reconcile transient state — check Running + Pruning atomically in
-            # one poll so the next reconcile flipping it to InProgress can't race the assertion.
-            wait_until_phase_and_migrating_condition_reason(
-                mdb_migration, "Running", MIGRATING_CONDITION_REASON_PRUNING, timeout=600
-            )
+        wait_until_external_member_pruned(
+            mdb_migration, om_tester, removed["processName"], is_last=is_last, timeout=600
+        )
 
         # --- Re-prioritize: restore full votes/priority for the promoted member ---
         mdb_migration["spec"]["memberConfig"][i] = {"priority": "1", "votes": 1}

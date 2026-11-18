@@ -129,13 +129,18 @@ def test_appdb_statefulsets_multi_cluster_identity(
     A cross-cluster ownerReference points to the MongoDBOpsManager CR that only exists in
     the central cluster. The Kubernetes GC treats the StatefulSet as an orphan and deletes
     it immediately, causing an infinite create-delete reconciliation loop. Cleanup on CR
-    deletion is handled through explicit label-based deletion instead."""
+    deletion is handled through explicit label-based deletion instead, and the owner label
+    is the identity the controllers arbitrate ownership with."""
     for cluster_name in appdb_member_cluster_names:
         sts = ops_manager.read_appdb_statefulset(member_cluster_name=cluster_name)
         owner_refs = sts.metadata.owner_references
         assert not owner_refs, (
             f"AppDB StatefulSet {sts.metadata.name} in cluster {cluster_name} must have no "
             f"ownerReferences in multi-cluster mode, but got: {owner_refs}"
+        )
+        assert sts.metadata.labels.get("mongodb.com/v1.mongodbOpsManagerResourceOwner") == ops_manager.name, (
+            f"AppDB StatefulSet {sts.metadata.name} in cluster {cluster_name} must carry the "
+            f"Ops Manager owner label, but got labels: {sts.metadata.labels}"
         )
 
 

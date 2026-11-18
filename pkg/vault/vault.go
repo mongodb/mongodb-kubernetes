@@ -338,14 +338,14 @@ func (v *VaultClient) OpsManagerSecretMetadataPath() string {
 }
 
 func (v *VaultClient) DatabaseSecretPath() string {
-	if v.VaultConfig.OperatorSecretPath != "" {
+	if v.VaultConfig.DatabaseSecretPath != "" {
 		return fmt.Sprintf("/secret/data/%s", v.VaultConfig.DatabaseSecretPath)
 	}
 	return fmt.Sprintf("/secret/data/%s", DEFAULT_DATABASE_SECRET_PATH)
 }
 
 func (v *VaultClient) DatabaseSecretMetadataPath() string {
-	if v.VaultConfig.OperatorSecretPath != "" {
+	if v.VaultConfig.DatabaseSecretPath != "" {
 		return fmt.Sprintf("/secret/metadata/%s", v.VaultConfig.DatabaseSecretPath)
 	}
 	return fmt.Sprintf("/secret/metadata/%s", DEFAULT_DATABASE_SECRET_PATH)

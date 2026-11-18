@@ -189,8 +189,17 @@ function kind_install_metallb() {
   kubectl get --kubeconfig "${kubeconfig_path}" nodes -owide
   kubectl_apply_retry --kubeconfig "${kubeconfig_path}" --timeout=600s -f https://raw.githubusercontent.com/metallb/metallb/${metallb_version}/config/manifests/metallb-native.yaml
 
+  # kubectl wait exits with "no matching resources found" when the selector matches no pod
+  # yet, which happens when the manifests were applied moments ago. Wait for a pod first.
+  echo "waiting metallb pods to be created"
+  kubectl wait --kubeconfig "${kubeconfig_path}" --timeout=120s --namespace metallb-system \
+    --for=create pod \
+    --selector=app=metallb
+
   echo "waiting metallb to be ready"
-  kubectl wait --kubeconfig "${kubeconfig_path}" --timeout=3000s --namespace metallb-system \
+  # Pods are normally ready in under a minute, with a 51 s maximum across 170
+  # task logs. Ten minutes gives ample headroom and still fails a stuck host quickly.
+  kubectl wait --kubeconfig "${kubeconfig_path}" --timeout=600s --namespace metallb-system \
     --for=condition=ready pod \
     --selector=app=metallb
 

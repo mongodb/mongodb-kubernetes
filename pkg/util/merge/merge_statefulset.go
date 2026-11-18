@@ -181,6 +181,10 @@ func PersistentVolumeClaim(defaultPvc corev1.PersistentVolumeClaim, overridePvc 
 		defaultPvc.Spec.StorageClassName = overridePvc.Spec.StorageClassName
 	}
 
+	if overridePvc.Spec.VolumeAttributesClassName != nil {
+		defaultPvc.Spec.VolumeAttributesClassName = overridePvc.Spec.VolumeAttributesClassName
+	}
+
 	for _, accessMode := range overridePvc.Spec.AccessModes {
 		if !contains.AccessMode(defaultPvc.Spec.AccessModes, accessMode) {
 			defaultPvc.Spec.AccessModes = append(defaultPvc.Spec.AccessModes, accessMode)

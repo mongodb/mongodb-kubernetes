@@ -717,6 +717,68 @@ func TestMergeShardedCluster_UnrelatedReplicaSetMatchingShardPattern(t *testing.
 	assert.NotNil(t, d.GetReplicaSetByName("cluster-5"))
 }
 
+// TestMergeShardedCluster_ShardInRemovalTrackedWhenDrainingCleared verifies that a removed shard is still
+// cleaned up when Ops Manager clears the draining array on its own before the finalizing pass.
+func TestMergeShardedCluster_ShardInRemovalTrackedWhenDrainingCleared(t *testing.T) {
+	d := NewDeployment()
+	shards := createSpecificNumberOfShards(2, "sc")
+	mergeOpts := DeploymentShardedClusterMergeOptions{
+		Name:            "sc",
+		MongosProcesses: createMongosProcesses(3, "mongos", ""),
+		ConfigServerRs:  createConfigSrvRs("configSrv", false),
+		Shards:          shards,
+	}
+	_, err := d.MergeShardedCluster(mergeOpts)
+	require.NoError(t, err)
+
+	mergeOpts.Shards = shards[0:1]
+	shardsRemoving, err := d.MergeShardedCluster(mergeOpts)
+	require.NoError(t, err)
+	require.True(t, shardsRemoving)
+	removed := d.GetDrainingShards("sc")
+	require.Equal(t, []string{"sc-1"}, removed)
+
+	// Ops Manager clears the draining array once the drain completes.
+	d.getShardedClusterByName("sc").removeDraining()
+
+	// Without the operator's own record the removed shard is indistinguishable from another cluster.
+	assert.Positive(t, d.GetNumberOfExcessProcesses("sc", nil))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcessesWithShardsInRemoval("sc", nil, removed))
+
+	mergeOpts.Finalizing = true
+	mergeOpts.ShardsInRemoval = removed
+	shardsRemoving, err = d.MergeShardedCluster(mergeOpts)
+	require.NoError(t, err)
+	assert.False(t, shardsRemoving)
+	assert.Nil(t, d.GetReplicaSetByName("sc-1"))
+	assert.Equal(t, 0, d.GetNumberOfExcessProcesses("sc", nil))
+}
+
+// TestMergeShardedCluster_ShardsInRemovalDoNotClaimOtherReplicaSets verifies that the operator's record only
+// affects the replica sets it names and never a shard that is part of the desired cluster.
+func TestMergeShardedCluster_ShardsInRemovalDoNotClaimOtherReplicaSets(t *testing.T) {
+	d := NewDeployment()
+	shards := createShards("cluster")
+	mergeOpts := DeploymentShardedClusterMergeOptions{
+		Name:            "cluster",
+		MongosProcesses: createMongosProcesses(3, "mongos", ""),
+		ConfigServerRs:  createConfigSrvRs("configSrv", false),
+		Shards:          shards,
+		Finalizing:      true,
+		ShardsInRemoval: []string{"cluster-9", shards[0].Rs.Name()},
+	}
+	_, err := d.MergeShardedCluster(mergeOpts)
+	require.NoError(t, err)
+	mergeReplicaSet(d, "cluster-5", createReplicaSetProcesses("cluster-5"))
+
+	_, err = d.MergeShardedCluster(mergeOpts)
+	require.NoError(t, err)
+
+	assert.NotNil(t, d.GetReplicaSetByName("cluster-5"), "unrelated replica set must not be removed")
+	assert.NotNil(t, d.GetReplicaSetByName(shards[0].Rs.Name()), "a shard still in the desired cluster must not be removed")
+	assert.Equal(t, 3, d.GetNumberOfExcessProcessesWithShardsInRemoval("cluster", nil, mergeOpts.ShardsInRemoval))
+}
+
 // TestGetShardedClusterShardProcessNamesByRs verifies the lookup by replica set name stays correct
 // when the AC shards array order (sorted by _id) differs from the shard index order.
 func TestGetShardedClusterShardProcessNamesByRs(t *testing.T) {
