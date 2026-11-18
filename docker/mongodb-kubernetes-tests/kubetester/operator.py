@@ -25,6 +25,13 @@ OPERATOR_CRDS = (
     "opsmanagers.mongodb.com",
 )
 
+# Linux amd64 Agent from mms-automation PR #14286 at c353afac2.
+STATIC_GA_AGENT_URL = (
+    "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/"
+    "builds/patches/6afc8e82ea574a00077e6299/automation-agent/local/"
+    "mongodb-mms-automation-agent-110.0.0.9459-1.rhel8_x86_64.tar.gz"
+)
+
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -65,6 +72,11 @@ class Operator(object):
 
         if local_operator():
             helm_args["operator.replicas"] = "0"
+
+        if helm_args.get("operator.mdbDefaultArchitecture") == "static-ga" and not helm_args.get(
+            "agent.customAgentUrl"
+        ):
+            helm_args = {**helm_args, "agent.customAgentUrl": STATIC_GA_AGENT_URL}
 
         self.namespace = namespace
         self.helm_arguments = helm_args
