@@ -66,8 +66,8 @@ type DeploymentUsageSnapshotProperties struct {
 	MigrationStartedAt   string `json:"migrationStartedAt,omitempty"`
 	MigrationCompletedAt string `json:"migrationCompletedAt,omitempty"`
 	// ManagedCertificateIssuers is only set when spec.security.managedCertificate is enabled, so its
-	// presence is the usage signal. It says which certificate categories reference a user-provided
-	// issuer; None means both are signed by the operator's self-signed CA.
+	// presence is the usage signal. Values: bothOperatorManaged (both categories are signed by the
+	// operator's self-signed CA), serverUserConfigured, clientUserConfigured, bothUserConfigured.
 	ManagedCertificateIssuers string `json:"managedCertificateIssuers,omitempty"`
 	// BackupManagedCertificateIssuers reports spec.backup.managedCertificate of a MongoDBOpsManager
 	// (the queryable backup daemon cert); it uses the same values as ManagedCertificateIssuers.
@@ -76,6 +76,33 @@ type DeploymentUsageSnapshotProperties struct {
 	// spec.security.managedCertificate. External AppDBs are not reported here: their MongoDB
 	// resource is its own deployment event.
 	AppDBManagedCertificateIssuers string `json:"appDBManagedCertificateIssuers,omitempty"`
+	// ManagedCertificateServerDurationSeconds is the requested server leaf-certificate lifetime in
+	// whole seconds. Set only when the server category's duration is configured; absence means the
+	// cert-manager default (90 days). On Ops Manager events the same field reports its own
+	// server-only app-server certificate.
+	ManagedCertificateServerDurationSeconds *int64 `json:"managedCertificateServerDurationSeconds,omitempty"`
+	// ManagedCertificateServerRenewBeforeSeconds is the server certificate renewal lead time in
+	// whole seconds; absence means cert-manager's default (1/3 of duration).
+	ManagedCertificateServerRenewBeforeSeconds *int64 `json:"managedCertificateServerRenewBeforeSeconds,omitempty"`
+	// ManagedCertificateClientDurationSeconds is the requested client leaf-certificate lifetime in
+	// whole seconds; absence means the cert-manager default (90 days).
+	ManagedCertificateClientDurationSeconds *int64 `json:"managedCertificateClientDurationSeconds,omitempty"`
+	// ManagedCertificateClientRenewBeforeSeconds is the client certificate renewal lead time in
+	// whole seconds; absence means cert-manager's default (1/3 of duration).
+	ManagedCertificateClientRenewBeforeSeconds *int64 `json:"managedCertificateClientRenewBeforeSeconds,omitempty"`
+	// BackupManagedCertificateDurationSeconds is the requested lifetime of a MongoDBOpsManager's
+	// queryable backup daemon certificate, in whole seconds.
+	BackupManagedCertificateDurationSeconds *int64 `json:"backupManagedCertificateDurationSeconds,omitempty"`
+	// BackupManagedCertificateRenewBeforeSeconds is the queryable backup daemon certificate's
+	// renewal lead time in whole seconds.
+	BackupManagedCertificateRenewBeforeSeconds *int64 `json:"backupManagedCertificateRenewBeforeSeconds,omitempty"`
+	// AppDBManagedCertificateServerDurationSeconds is the requested lifetime of the internally-
+	// managed AppDB's server certificate, in whole seconds. The AppDB client category is not
+	// reported.
+	AppDBManagedCertificateServerDurationSeconds *int64 `json:"appDBManagedCertificateServerDurationSeconds,omitempty"`
+	// AppDBManagedCertificateServerRenewBeforeSeconds is the internally-managed AppDB server
+	// certificate's renewal lead time in whole seconds.
+	AppDBManagedCertificateServerRenewBeforeSeconds *int64 `json:"appDBManagedCertificateServerRenewBeforeSeconds,omitempty"`
 }
 
 type FakeDeploymentUsageSnapshotProperties DeploymentUsageSnapshotProperties

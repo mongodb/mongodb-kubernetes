@@ -658,10 +658,10 @@ func getAuthenticationModes(security *mdbv1.Security) []string {
 }
 
 const (
-	ManagedCertificateIssuersNone   = "None"
-	ManagedCertificateIssuersServer = "Server"
-	ManagedCertificateIssuersClient = "Client"
-	ManagedCertificateIssuersBoth   = "Both"
+	ManagedCertificateIssuersBothOperatorManaged  = "bothOperatorManaged"
+	ManagedCertificateIssuersServerUserConfigured = "serverUserConfigured"
+	ManagedCertificateIssuersClientUserConfigured = "clientUserConfigured"
+	ManagedCertificateIssuersBothUserConfigured   = "bothUserConfigured"
 )
 
 // populateManagedCertificateFields records whether spec.security.managedCertificate is used and which
@@ -671,17 +671,32 @@ func populateManagedCertificateFields(props *DeploymentUsageSnapshotProperties, 
 	if issuers, ok := managedCertificateIssuers(security); ok {
 		props.ManagedCertificateIssuers = issuers
 	}
+
+	if security == nil || !security.IsManagedCertificateEnabled() {
+		return
+	}
+	mc := security.ManagedCertificate
+	props.ManagedCertificateServerDurationSeconds = certificateDurationSeconds(mc.Server)
+	props.ManagedCertificateServerRenewBeforeSeconds = certificateRenewBeforeSeconds(mc.Server)
+	props.ManagedCertificateClientDurationSeconds = certificateDurationSeconds(mc.Client)
+	props.ManagedCertificateClientRenewBeforeSeconds = certificateRenewBeforeSeconds(mc.Client)
 }
 
 // populateOmManagedCertificateFields records the managedCertificate signals of the Ops Manager app
 // server, its queryable backup daemon and its internally-managed AppDB.
 func populateOmManagedCertificateFields(props *DeploymentUsageSnapshotProperties, om *omv1.MongoDBOpsManager) {
 	if om.IsManagedCertificateEnabled() {
-		props.ManagedCertificateIssuers = singleIssuerManagedCertificateValue(&om.Spec.Security.ManagedCertificate.CertificateConfig)
+		cfg := &om.Spec.Security.ManagedCertificate.CertificateConfig
+		props.ManagedCertificateIssuers = singleIssuerManagedCertificateValue(cfg)
+		props.ManagedCertificateServerDurationSeconds = certificateDurationSeconds(cfg)
+		props.ManagedCertificateServerRenewBeforeSeconds = certificateRenewBeforeSeconds(cfg)
 	}
 
 	if om.IsBackupManagedCertificateEnabled() {
-		props.BackupManagedCertificateIssuers = singleIssuerManagedCertificateValue(&om.Spec.Backup.ManagedCertificate.CertificateConfig)
+		cfg := &om.Spec.Backup.ManagedCertificate.CertificateConfig
+		props.BackupManagedCertificateIssuers = singleIssuerManagedCertificateValue(cfg)
+		props.BackupManagedCertificateDurationSeconds = certificateDurationSeconds(cfg)
+		props.BackupManagedCertificateRenewBeforeSeconds = certificateRenewBeforeSeconds(cfg)
 	}
 
 	// An external AppDB is a MongoDB resource with its own deployment event, so reporting it here
@@ -689,6 +704,9 @@ func populateOmManagedCertificateFields(props *DeploymentUsageSnapshotProperties
 	if om.Spec.ExternalAppDBRef == nil && om.Spec.AppDB != nil {
 		if issuers, ok := managedCertificateIssuers(om.Spec.AppDB.Security); ok {
 			props.AppDBManagedCertificateIssuers = issuers
+			mc := om.Spec.AppDB.Security.ManagedCertificate
+			props.AppDBManagedCertificateServerDurationSeconds = certificateDurationSeconds(mc.Server)
+			props.AppDBManagedCertificateServerRenewBeforeSeconds = certificateRenewBeforeSeconds(mc.Server)
 		}
 	}
 }
@@ -706,28 +724,48 @@ func managedCertificateIssuers(security *mdbv1.Security) (string, bool) {
 
 	switch {
 	case serverIssuer && clientIssuer:
-		return ManagedCertificateIssuersBoth, true
+		return ManagedCertificateIssuersBothUserConfigured, true
 	case serverIssuer:
-		return ManagedCertificateIssuersServer, true
+		return ManagedCertificateIssuersServerUserConfigured, true
 	case clientIssuer:
-		return ManagedCertificateIssuersClient, true
+		return ManagedCertificateIssuersClientUserConfigured, true
 	default:
-		return ManagedCertificateIssuersNone, true
+		return ManagedCertificateIssuersBothOperatorManaged, true
 	}
 }
 
 // singleIssuerManagedCertificateValue maps a single-issuer certificate config (the Ops Manager
 // components) to a telemetry value. Those components only carry server certificates, so a user
-// issuer is reported as Server.
+// issuer is reported as serverUserConfigured.
 func singleIssuerManagedCertificateValue(cfg *mdbv1.CertificateConfig) string {
 	if hasUserConfiguredIssuer(cfg) {
-		return ManagedCertificateIssuersServer
+		return ManagedCertificateIssuersServerUserConfigured
 	}
-	return ManagedCertificateIssuersNone
+	return ManagedCertificateIssuersBothOperatorManaged
 }
 
 func hasUserConfiguredIssuer(cfg *mdbv1.CertificateConfig) bool {
 	return cfg != nil && cfg.IssuerRef != nil
+}
+
+// certificateDurationSeconds returns the configured leaf-certificate lifetime in whole seconds,
+// or nil when the category or the field is unset so the property stays absent.
+func certificateDurationSeconds(cfg *mdbv1.CertificateConfig) *int64 {
+	if cfg == nil || cfg.Duration == nil {
+		return nil
+	}
+	seconds := int64(cfg.Duration.Seconds())
+	return &seconds
+}
+
+// certificateRenewBeforeSeconds returns the configured renewal lead time in whole seconds, or nil
+// when the category or the field is unset so the property stays absent.
+func certificateRenewBeforeSeconds(cfg *mdbv1.CertificateConfig) *int64 {
+	if cfg == nil || cfg.RenewBefore == nil {
+		return nil
+	}
+	seconds := int64(cfg.RenewBefore.Seconds())
+	return &seconds
 }
 
 func getAuthenticationAgentMode(security *mdbv1.Security) string {

@@ -40,6 +40,8 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 	appDBClusters := 3
 	omClusters := 2
 	externalMembersCount := 2
+	managedCertDuration := int64(2160)
+	managedCertRenewBefore := int64(720)
 
 	props := SearchDeploymentUsageSnapshotProperties{
 		DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
@@ -64,9 +66,18 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 			MigrationStartedAt:       "2026-01-01T00:00:00Z",
 			MigrationCompletedAt:     "2026-01-01T01:00:00Z",
 
-			ManagedCertificateIssuers:       "Server",
-			BackupManagedCertificateIssuers: "Server",
-			AppDBManagedCertificateIssuers:  "Both",
+			ManagedCertificateIssuers:       "serverUserConfigured",
+			BackupManagedCertificateIssuers: "bothOperatorManaged",
+			AppDBManagedCertificateIssuers:  "bothUserConfigured",
+
+			ManagedCertificateServerDurationSeconds:         &managedCertDuration,
+			ManagedCertificateServerRenewBeforeSeconds:      &managedCertRenewBefore,
+			ManagedCertificateClientDurationSeconds:         &managedCertDuration,
+			ManagedCertificateClientRenewBeforeSeconds:      &managedCertRenewBefore,
+			BackupManagedCertificateDurationSeconds:         &managedCertDuration,
+			BackupManagedCertificateRenewBeforeSeconds:      &managedCertRenewBefore,
+			AppDBManagedCertificateServerDurationSeconds:    &managedCertDuration,
+			AppDBManagedCertificateServerRenewBeforeSeconds: &managedCertRenewBefore,
 		},
 		IsAutoEmbeddingEnabled: true,
 	}
@@ -134,4 +145,27 @@ func getExpectedKeysFromStruct(t reflect.Type) []string {
 	}
 
 	return keys
+}
+
+func TestDeploymentUsageSnapshotProperties_ManagedCertificateDurations(t *testing.T) {
+	duration := int64(2160)
+	renewBefore := int64(720)
+	props := DeploymentUsageSnapshotProperties{
+		ManagedCertificateServerDurationSeconds:    &duration,
+		ManagedCertificateServerRenewBeforeSeconds: &renewBefore,
+	}
+
+	result, err := props.ConvertToFlatMap()
+	assert.NoError(t, err)
+	assert.EqualValues(t, 2160, result["managedCertificateServerDurationSeconds"])
+	assert.EqualValues(t, 720, result["managedCertificateServerRenewBeforeSeconds"])
+
+	zero := int64(0)
+	zeroProps := DeploymentUsageSnapshotProperties{
+		ManagedCertificateClientDurationSeconds: &zero,
+	}
+	zeroResult, err := zeroProps.ConvertToFlatMap()
+	assert.NoError(t, err)
+	assert.Contains(t, zeroResult, "managedCertificateClientDurationSeconds")
+	assert.EqualValues(t, 0, zeroResult["managedCertificateClientDurationSeconds"])
 }

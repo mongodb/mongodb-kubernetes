@@ -2104,7 +2104,7 @@ func TestCollectDeploymentsSnapshotManagedCertificate(t *testing.T) {
 			},
 			validate: func(t *testing.T, props map[string]any) {
 				t.Helper()
-				assert.Equal(t, "None", props["managedCertificateIssuers"])
+				assert.Equal(t, "bothOperatorManaged", props["managedCertificateIssuers"])
 				assert.NotContains(t, props, "managedCertificateServerDurationSeconds")
 				assert.NotContains(t, props, "managedCertificateServerRenewBeforeSeconds")
 				assert.NotContains(t, props, "managedCertificateClientDurationSeconds")
@@ -2119,7 +2119,7 @@ func TestCollectDeploymentsSnapshotManagedCertificate(t *testing.T) {
 			},
 			validate: func(t *testing.T, props map[string]any) {
 				t.Helper()
-				assert.Equal(t, "Server", props["managedCertificateIssuers"])
+				assert.Equal(t, "serverUserConfigured", props["managedCertificateIssuers"])
 			},
 		},
 		"client issuer only": {
@@ -2130,7 +2130,7 @@ func TestCollectDeploymentsSnapshotManagedCertificate(t *testing.T) {
 			},
 			validate: func(t *testing.T, props map[string]any) {
 				t.Helper()
-				assert.Equal(t, "Client", props["managedCertificateIssuers"])
+				assert.Equal(t, "clientUserConfigured", props["managedCertificateIssuers"])
 			},
 		},
 		"both issuers": {
@@ -2142,7 +2142,7 @@ func TestCollectDeploymentsSnapshotManagedCertificate(t *testing.T) {
 			},
 			validate: func(t *testing.T, props map[string]any) {
 				t.Helper()
-				assert.Equal(t, "Both", props["managedCertificateIssuers"])
+				assert.Equal(t, "bothUserConfigured", props["managedCertificateIssuers"])
 			},
 		},
 		"managedCertificate on MongoDBMultiCluster": {
@@ -2163,7 +2163,106 @@ func TestCollectDeploymentsSnapshotManagedCertificate(t *testing.T) {
 			},
 			validate: func(t *testing.T, props map[string]any) {
 				t.Helper()
-				assert.Equal(t, "Client", props["managedCertificateIssuers"])
+				assert.Equal(t, "clientUserConfigured", props["managedCertificateIssuers"])
+			},
+		},
+		"server duration and renewBefore": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("server-durations", &mdbv1.ManagedCertificate{
+					Server: &mdbv1.CertificateConfig{
+						Duration:    &metav1.Duration{Duration: 2160 * time.Hour},
+						RenewBefore: &metav1.Duration{Duration: 720 * time.Hour},
+					},
+				}),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.Equal(t, "bothOperatorManaged", props["managedCertificateIssuers"])
+				assert.EqualValues(t, 7776000, props["managedCertificateServerDurationSeconds"])
+				assert.EqualValues(t, 2592000, props["managedCertificateServerRenewBeforeSeconds"])
+				assert.NotContains(t, props, "managedCertificateClientDurationSeconds")
+				assert.NotContains(t, props, "managedCertificateClientRenewBeforeSeconds")
+			},
+		},
+		"client duration and renewBefore": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("client-durations", &mdbv1.ManagedCertificate{
+					Client: &mdbv1.CertificateConfig{
+						Duration:    &metav1.Duration{Duration: 2160 * time.Hour},
+						RenewBefore: &metav1.Duration{Duration: 720 * time.Hour},
+					},
+				}),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.EqualValues(t, 7776000, props["managedCertificateClientDurationSeconds"])
+				assert.EqualValues(t, 2592000, props["managedCertificateClientRenewBeforeSeconds"])
+				assert.NotContains(t, props, "managedCertificateServerDurationSeconds")
+			},
+		},
+		"duration without renewBefore leaves renewBefore unset": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("duration-only", &mdbv1.ManagedCertificate{
+					Server: &mdbv1.CertificateConfig{
+						Duration: &metav1.Duration{Duration: 2160 * time.Hour},
+					},
+				}),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.EqualValues(t, 7776000, props["managedCertificateServerDurationSeconds"])
+				assert.NotContains(t, props, "managedCertificateServerRenewBeforeSeconds")
+			},
+		},
+		"zero duration is reported": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("zero-duration", &mdbv1.ManagedCertificate{
+					Server: &mdbv1.CertificateConfig{
+						Duration: &metav1.Duration{Duration: 0},
+					},
+				}),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.EqualValues(t, 0, props["managedCertificateServerDurationSeconds"])
+			},
+		},
+		"sub-second duration truncates to whole seconds": {
+			objects: []client.Object{
+				mdbWithManagedCertificate("sub-second-duration", &mdbv1.ManagedCertificate{
+					Server: &mdbv1.CertificateConfig{
+						Duration: &metav1.Duration{Duration: 1500 * time.Millisecond},
+					},
+				}),
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.EqualValues(t, 1, props["managedCertificateServerDurationSeconds"])
+			},
+		},
+		"durations on MongoDBMultiCluster": {
+			objects: []client.Object{
+				&mdbmulti.MongoDBMultiCluster{
+					ObjectMeta: metav1.ObjectMeta{Name: "multi-durations", UID: "multi-durations-uid"},
+					Spec: mdbmulti.MongoDBMultiSpec{
+						DbCommonSpec: mdbv1.DbCommonSpec{
+							ResourceType: mdbv1.ReplicaSet,
+							Security: &mdbv1.Security{
+								ManagedCertificate: &mdbv1.ManagedCertificate{
+									Client: &mdbv1.CertificateConfig{
+										Duration:    &metav1.Duration{Duration: 2160 * time.Hour},
+										RenewBefore: &metav1.Duration{Duration: 720 * time.Hour},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			validate: func(t *testing.T, props map[string]any) {
+				t.Helper()
+				assert.EqualValues(t, 7776000, props["managedCertificateClientDurationSeconds"])
+				assert.EqualValues(t, 2592000, props["managedCertificateClientRenewBeforeSeconds"])
 			},
 		},
 	}
@@ -2228,7 +2327,9 @@ func TestCollectDeploymentsSnapshotOmManagedCertificate(t *testing.T) {
 			totalEvents: 1,
 			validate: func(t *testing.T, events []Event) {
 				t.Helper()
-				assert.Equal(t, "None", omEvent(t, events, "om-self-signed")["managedCertificateIssuers"])
+				props := omEvent(t, events, "om-self-signed")
+				assert.Equal(t, "bothOperatorManaged", props["managedCertificateIssuers"])
+				assert.NotContains(t, props, "managedCertificateServerDurationSeconds")
 			},
 		},
 		"app server user issuer": {
@@ -2243,7 +2344,7 @@ func TestCollectDeploymentsSnapshotOmManagedCertificate(t *testing.T) {
 			totalEvents: 1,
 			validate: func(t *testing.T, events []Event) {
 				t.Helper()
-				assert.Equal(t, "Server", omEvent(t, events, "om-user-issuer")["managedCertificateIssuers"])
+				assert.Equal(t, "serverUserConfigured", omEvent(t, events, "om-user-issuer")["managedCertificateIssuers"])
 			},
 		},
 		"backup self-signed is reported even when backup is disabled": {
@@ -2259,7 +2360,7 @@ func TestCollectDeploymentsSnapshotOmManagedCertificate(t *testing.T) {
 			totalEvents: 1,
 			validate: func(t *testing.T, events []Event) {
 				t.Helper()
-				assert.Equal(t, "None", omEvent(t, events, "om-backup-self-signed")["backupManagedCertificateIssuers"])
+				assert.Equal(t, "bothOperatorManaged", omEvent(t, events, "om-backup-self-signed")["backupManagedCertificateIssuers"])
 			},
 		},
 		"backup user issuer": {
@@ -2277,7 +2378,7 @@ func TestCollectDeploymentsSnapshotOmManagedCertificate(t *testing.T) {
 			totalEvents: 1,
 			validate: func(t *testing.T, events []Event) {
 				t.Helper()
-				assert.Equal(t, "Server", omEvent(t, events, "om-backup-user-issuer")["backupManagedCertificateIssuers"])
+				assert.Equal(t, "serverUserConfigured", omEvent(t, events, "om-backup-user-issuer")["backupManagedCertificateIssuers"])
 			},
 		},
 		"appdb self-signed": {
@@ -2291,7 +2392,7 @@ func TestCollectDeploymentsSnapshotOmManagedCertificate(t *testing.T) {
 			totalEvents: 1,
 			validate: func(t *testing.T, events []Event) {
 				t.Helper()
-				assert.Equal(t, "None", omEvent(t, events, "om-appdb-self-signed")["appDBManagedCertificateIssuers"])
+				assert.Equal(t, "bothOperatorManaged", omEvent(t, events, "om-appdb-self-signed")["appDBManagedCertificateIssuers"])
 			},
 		},
 		"appdb both issuers": {
@@ -2308,7 +2409,7 @@ func TestCollectDeploymentsSnapshotOmManagedCertificate(t *testing.T) {
 			totalEvents: 1,
 			validate: func(t *testing.T, events []Event) {
 				t.Helper()
-				assert.Equal(t, "Both", omEvent(t, events, "om-appdb-both-issuers")["appDBManagedCertificateIssuers"])
+				assert.Equal(t, "bothUserConfigured", omEvent(t, events, "om-appdb-both-issuers")["appDBManagedCertificateIssuers"])
 			},
 		},
 		"external appdb is not reported on the OpsManager event": {
@@ -2328,6 +2429,100 @@ func TestCollectDeploymentsSnapshotOmManagedCertificate(t *testing.T) {
 			validate: func(t *testing.T, events []Event) {
 				t.Helper()
 				assert.NotContains(t, omEvent(t, events, "om-external"), "appDBManagedCertificateIssuers")
+			},
+		},
+		"app server duration and renewBefore": {
+			objects: []client.Object{
+				omResource("om-durations", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{},
+					Security: &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{
+						CertificateConfig: mdbv1.CertificateConfig{
+							Duration:    &metav1.Duration{Duration: 2160 * time.Hour},
+							RenewBefore: &metav1.Duration{Duration: 720 * time.Hour},
+						},
+					}},
+				}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				props := omEvent(t, events, "om-durations")
+				assert.EqualValues(t, 7776000, props["managedCertificateServerDurationSeconds"])
+				assert.EqualValues(t, 2592000, props["managedCertificateServerRenewBeforeSeconds"])
+				assert.NotContains(t, props, "managedCertificateDurationSeconds")
+			},
+		},
+		"backup duration is reported even when backup is disabled": {
+			objects: []client.Object{
+				omResource("om-backup-durations", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{},
+					Backup: &omv1.MongoDBOpsManagerBackup{
+						Enabled: false,
+						ManagedCertificate: &omv1.ManagedCertificate{
+							CertificateConfig: mdbv1.CertificateConfig{
+								Duration:    &metav1.Duration{Duration: 2160 * time.Hour},
+								RenewBefore: &metav1.Duration{Duration: 720 * time.Hour},
+							},
+						},
+					},
+				}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				props := omEvent(t, events, "om-backup-durations")
+				assert.EqualValues(t, 7776000, props["backupManagedCertificateDurationSeconds"])
+				assert.EqualValues(t, 2592000, props["backupManagedCertificateRenewBeforeSeconds"])
+			},
+		},
+		"appdb server duration only; client is ignored": {
+			objects: []client.Object{
+				omResource("om-appdb-durations", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{
+						Security: &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{
+							Server: &mdbv1.CertificateConfig{
+								Duration: &metav1.Duration{Duration: 2160 * time.Hour},
+							},
+							Client: &mdbv1.CertificateConfig{
+								Duration:    &metav1.Duration{Duration: 2160 * time.Hour},
+								RenewBefore: &metav1.Duration{Duration: 720 * time.Hour},
+							},
+						}},
+					},
+				}),
+			},
+			totalEvents: 1,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				props := omEvent(t, events, "om-appdb-durations")
+				assert.EqualValues(t, 7776000, props["appDBManagedCertificateServerDurationSeconds"])
+				assert.NotContains(t, props, "appDBManagedCertificateServerRenewBeforeSeconds")
+				assert.NotContains(t, props, "appDBManagedCertificateClientDurationSeconds")
+				assert.NotContains(t, props, "appDBManagedCertificateClientRenewBeforeSeconds")
+			},
+		},
+		"external appdb durations are not reported": {
+			objects: []client.Object{
+				&mdbv1.MongoDB{
+					ObjectMeta: metav1.ObjectMeta{Name: "om-external-db-2", Namespace: "test-ns", UID: "external-db-2-uid"},
+					Spec:       mdbv1.MongoDbSpec{DbCommonSpec: mdbv1.DbCommonSpec{ResourceType: mdbv1.ReplicaSet}},
+				},
+				omResource("om-external-2", omv1.MongoDBOpsManagerSpec{
+					AppDB: &omv1.AppDBSpec{
+						Security: &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{
+							Server: &mdbv1.CertificateConfig{
+								Duration: &metav1.Duration{Duration: 2160 * time.Hour},
+							},
+						}},
+					},
+					ExternalAppDBRef: &omv1.ExternalAppDBRef{Name: "om-external-db-2", Kind: "MongoDB"},
+				}),
+			},
+			totalEvents: 2,
+			validate: func(t *testing.T, events []Event) {
+				t.Helper()
+				props := omEvent(t, events, "om-external-2")
+				assert.NotContains(t, props, "appDBManagedCertificateServerDurationSeconds")
 			},
 		},
 	}
