@@ -7,6 +7,7 @@ import pytest
 
 from scripts.evergreen.notify_flaky_tests import FlakyTask
 from scripts.evergreen.notify_master_failures import (
+    EXCLUDED_TASKS,
     TaskInfo,
     VersionInfo,
     format_slack_message,
@@ -442,6 +443,25 @@ class TestGetTaskSummary:
 
         assert total == 0
         assert retried == []
+
+    @patch("scripts.evergreen.notify_master_failures.get_build_tasks")
+    @patch("scripts.evergreen.notify_master_failures.get_version_info")
+    def test_excludes_end_of_build_tasks(self, mock_version, mock_tasks):
+        mock_bv = MagicMock()
+        mock_bv.build_id = "b1"
+        mock_bv.build_variant = "mckci_release_promote"
+        mock_bv.json = {"build_variant": "mckci_release_promote", "build_id": "b1"}
+        mock_ver = make_mock_version()
+        mock_ver.version.build_variants_status = [mock_bv]
+        mock_version.return_value = mock_ver
+        mock_tasks.return_value = [make_mock_task("mckci_release_promote", "mckci_release_promote", "undispatched")]
+
+        failed, running, retried, total = get_task_summary(MagicMock(), "v1", EXCLUDED_TASKS)
+
+        assert failed == []
+        assert running == []
+        assert retried == []
+        assert total == 0
 
 
 class TestGetPreviousVersionFailures:

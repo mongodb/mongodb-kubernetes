@@ -46,11 +46,12 @@ from scripts.python.evergreen_api import get_evergreen_api
 # Terminal statuses that indicate a patch/version has completed
 COMPLETED_STATUSES = {"succeeded", "failed"}
 
-# Tasks to exclude when checking for build completion (notification/reporting tasks)
-# These tasks run at the end and shouldn't block success notifications
-NOTIFICATION_TASKS = [
+# End-of-build tasks to exclude from the report. They do not describe the
+# build result.
+EXCLUDED_TASKS = [
     "notify_master_build_status",
     "notify_flaky_tests_weekly",
+    "mckci_release_promote",
 ]
 
 # Variants that do not block the notification when their tasks are still queued.
@@ -194,7 +195,7 @@ def get_task_summary(
     Args:
         api: Evergreen API client
         version_id: Version ID to query
-        exclude_tasks: List of task display names to exclude from results (e.g., notification tasks)
+        exclude_tasks: List of task display names to exclude from results (e.g., end-of-build tasks)
     Returns: (failed_tasks, running_tasks, retried_tasks, total_tasks)
     """
     exclude_tasks = exclude_tasks or []
@@ -265,7 +266,7 @@ def get_previous_version_failures(api: EvergreenApi, version_info: VersionInfo) 
 
     prev_version_id = max(candidates, key=lambda v: v["order"])["version_id"]
     print(f"Checking previous master version: {prev_version_id}", file=sys.stderr)
-    prev_failed, _, _, _ = get_task_summary(api, prev_version_id, NOTIFICATION_TASKS)
+    prev_failed, _, _, _ = get_task_summary(api, prev_version_id, EXCLUDED_TASKS)
     return {(t.display_name, t.build_variant) for t in prev_failed}
 
 
@@ -614,7 +615,7 @@ def main() -> None:
     print(f"Final status: {version_info.status}", file=sys.stderr)
 
     try:
-        failed_tasks, running_tasks, retried_tasks, total_tasks = get_task_summary(api, version_id, NOTIFICATION_TASKS)
+        failed_tasks, running_tasks, retried_tasks, total_tasks = get_task_summary(api, version_id, EXCLUDED_TASKS)
     except Exception as e:
         print(f"Error fetching tasks: {e}", file=sys.stderr)
         sys.exit(1)
