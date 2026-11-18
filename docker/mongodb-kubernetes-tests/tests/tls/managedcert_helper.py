@@ -143,6 +143,8 @@ def assert_member_certificate_client_usage(name: str, namespace: str, *, client_
         assert (
             x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH not in usages
         ), "the members withhold the member certificate, so the operator must not request the client usage"
+
+
 def leaf_secret_names_for(name: str, components: List[str]) -> List[str]:
     """The leaf certificate secrets of a resource: for every component a member certificate and a
     clusterfile certificate, plus the agent certificate. A test compares these between two deployments
