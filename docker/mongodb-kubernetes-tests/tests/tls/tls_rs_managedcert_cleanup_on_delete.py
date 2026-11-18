@@ -1,10 +1,10 @@
 """Deleting a MongoDB that uses operator-managed certificates deletes what the feature created for it,
 so a resource created afterwards with the same name is issued a fresh certificate.
 
-cert-manager writes the secret it issues without an owner reference, so without the owner the operator
-sets on it, the secret outlives the resource. The next Certificate with the same name then adopts it,
-because cert-manager compares a Certificate with its secret by name only, and the new deployment runs
-with the certificate of the deleted one.
+cert-manager writes the secret it issues without an owner reference, so the operator makes the
+Certificate that issued it its owner. Without that, the secret outlives the resource. The next
+Certificate with the same name then adopts it, because cert-manager compares a Certificate with its
+secret by name only, and the new deployment runs with the certificate of the deleted one.
 """
 
 import pytest
@@ -71,8 +71,8 @@ def test_cleanup(mdb: MongoDB, namespace: str):
         objects = [("mongodb", MDB_RESOURCE)] + dependent_k8s_resources()
         return all(is_gone(kind, name, namespace) for kind, name in objects)
 
-    # Everything is in the operator's cluster and carries the resource as its owner, so Kubernetes
-    # deletes it together with the resource.
+    # Everything is in the operator's cluster, so Kubernetes deletes it together with the resource:
+    # the issued secrets with the Certificates that own them, everything else with the resource.
     wait_until(everything_is_gone, timeout=300)
 
 

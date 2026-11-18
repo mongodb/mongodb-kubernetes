@@ -3,8 +3,8 @@ created for it, in the operator's cluster and in every member cluster, so a reso
 with the same name is issued fresh certificates.
 
 The two clusters are cleaned up by different routes. In the operator's cluster the Certificates,
-issuers, issued secrets and CA bundles carry the resource as their owner, so Kubernetes deletes them
-with it. The member clusters cannot point at a resource in another cluster, so the -pem secrets the
+issuers and CA bundles carry the resource as their owner, and each issued secret carries the
+Certificate that issued it, so Kubernetes deletes them all with the resource. The member clusters cannot point at a resource in another cluster, so the -pem secrets the
 pods mount and the copies of the CA bundles there carry the resource's labels instead, and the
 operator deletes them when the resource is deleted.
 """
@@ -150,7 +150,8 @@ def test_cleanup(
     operator_cluster_objects, member_cluster_objects = dependent_k8s_resources()
 
     def everything_is_gone() -> bool:
-        # In the operator's cluster, Kubernetes deletes what carries the resource as its owner.
+        # In the operator's cluster, Kubernetes deletes what is owned by the resource, and the issued
+        # secrets with the Certificates that own them.
         objects = [("mongodbmulticluster", MDB_RESOURCE)] + operator_cluster_objects
         if not all(is_gone(kind, name, namespace, central_cluster_client) for kind, name in objects):
             return False

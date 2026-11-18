@@ -3,9 +3,10 @@ for it, so a resource created afterwards with the same name is issued fresh cert
 
 The sharded cluster issues a member and a clusterfile certificate for every component (the mongos, the
 config server and each shard), so it creates more than a replica set does, and through a different
-controller. cert-manager writes the secrets it issues without an owner reference, so without the owner
-the operator sets on them, they outlive the resource. The next Certificate with the same name then
-adopts the old secret, because cert-manager compares a Certificate with its secret by name only.
+controller. cert-manager writes the secrets it issues without an owner reference, so the operator
+makes the Certificate that issued each one its owner. Without that, they outlive the resource. The next
+Certificate with the same name then adopts the old secret, because cert-manager compares a Certificate
+with its secret by name only.
 """
 
 import pytest
@@ -94,8 +95,8 @@ def test_cleanup(sc: MongoDB, namespace: str):
         objects = [("mongodb", MDB_RESOURCE)] + dependent_k8s_resources()
         return all(is_gone(kind, name, namespace) for kind, name in objects)
 
-    # Everything is in the operator's cluster and carries the resource as its owner, so Kubernetes
-    # deletes it together with the resource.
+    # Everything is in the operator's cluster, so Kubernetes deletes it together with the resource:
+    # the issued secrets with the Certificates that own them, everything else with the resource.
     wait_until(everything_is_gone, timeout=300)
 
 
