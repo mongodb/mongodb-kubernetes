@@ -7912,6 +7912,22 @@ spec:
       jsonPath: .status.backup.phase
       name: State (Backup)
       type: string
+    - description: Next automatic renewal of the operator-managed Ops Manager certificates.
+      jsonPath: .status.opsManager.certificateRenewals.server.renewalTime
+      name: OMCertRenewal
+      priority: 1
+      type: string
+    - description: Next automatic renewal of the operator-managed AppDB certificates.
+      jsonPath: .status.applicationDatabase.certificateRenewals.server.renewalTime
+      name: AppDBCertRenewal
+      priority: 1
+      type: string
+    - description: Next automatic renewal of the operator-managed queryable backup
+        certificates.
+      jsonPath: .status.backup.certificateRenewals.server.renewalTime
+      name: BackupCertRenewal
+      priority: 1
+      type: string
     - description: The time since the MongoDBOpsManager resource was created.
       jsonPath: .metadata.creationTimestamp
       name: Age
@@ -10597,6 +10613,52 @@ spec:
                 type: object
               backup:
                 properties:
+                  certificateRenewals:
+                    description: |-
+                      CertificateRenewals reports the next automatic renewal of the operator-managed leaf certificates,
+                      per category. Set only with spec.backup.managedCertificate.
+                    properties:
+                      client:
+                        description: Client is the soonest upcoming renewal among
+                          the client-category (clientAuth) leaf certificates.
+                        properties:
+                          name:
+                            description: Name of the soonest-renewing Certificate
+                              in this category.
+                            type: string
+                          notAfter:
+                            description: NotAfter is that certificate's expiry.
+                            format: date-time
+                            type: string
+                          renewalTime:
+                            description: RenewalTime is when cert-manager renews it,
+                              which is when the members roll onto the new certificate.
+                            format: date-time
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      server:
+                        description: Server is the soonest upcoming renewal among
+                          the server-category (serverAuth) leaf certificates.
+                        properties:
+                          name:
+                            description: Name of the soonest-renewing Certificate
+                              in this category.
+                            type: string
+                          notAfter:
+                            description: NotAfter is that certificate's expiry.
+                            format: date-time
+                            type: string
+                          renewalTime:
+                            description: RenewalTime is when cert-manager renews it,
+                              which is when the members roll onto the new certificate.
+                            format: date-time
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    type: object
                   clusterStatusList:
                     items:
                       properties:
@@ -10724,6 +10786,52 @@ spec:
                 x-kubernetes-list-type: map
               opsManager:
                 properties:
+                  certificateRenewals:
+                    description: |-
+                      CertificateRenewals reports the next automatic renewal of the operator-managed leaf certificates,
+                      per category. Set only with spec.security.managedCertificate.
+                    properties:
+                      client:
+                        description: Client is the soonest upcoming renewal among
+                          the client-category (clientAuth) leaf certificates.
+                        properties:
+                          name:
+                            description: Name of the soonest-renewing Certificate
+                              in this category.
+                            type: string
+                          notAfter:
+                            description: NotAfter is that certificate's expiry.
+                            format: date-time
+                            type: string
+                          renewalTime:
+                            description: RenewalTime is when cert-manager renews it,
+                              which is when the members roll onto the new certificate.
+                            format: date-time
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      server:
+                        description: Server is the soonest upcoming renewal among
+                          the server-category (serverAuth) leaf certificates.
+                        properties:
+                          name:
+                            description: Name of the soonest-renewing Certificate
+                              in this category.
+                            type: string
+                          notAfter:
+                            description: NotAfter is that certificate's expiry.
+                            format: date-time
+                            type: string
+                          renewalTime:
+                            description: RenewalTime is when cert-manager renews it,
+                              which is when the members roll onto the new certificate.
+                            format: date-time
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    type: object
                   clusterStatusList:
                     items:
                       properties:

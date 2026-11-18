@@ -993,6 +993,12 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	appdbOpts.PrometheusTLSCertHash = prometheusCertHash
 
+	opsManagerCABundleHash, err := r.managedOpsManagerCABundleHash(ctx, opsManager, &podVars)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, appDbStatusOption)
+	}
+	appdbOpts.OpsManagerCABundleHash = opsManagerCABundleHash
+
 	allStatefulSetsExistAndValid, err := r.allStatefulSetsExistsInValidState(ctx, opsManager, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("failed to check the state of all stateful sets: %w", err)), log, appDbStatusOption)
@@ -1088,10 +1094,16 @@ func (r *ReconcileAppDbReplicaSet) GetAppDBConfig(ctx context.Context, opsManage
 	}
 	connectionString := buildMongoConnectionUrl(opsManager, password, r.getCurrentStatefulsetHostnames(opsManager))
 
+	caBundleHash, err := r.managedAppDBCABundleHash(ctx, opsManager)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AppDBConfig{
 		IsTLSEnabled:     opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled(),
 		CAConfigMapName:  opsManager.Spec.AppDB.GetCAConfigMapName(),
 		ConnectionString: connectionString,
+		CABundleHash:     caBundleHash,
 	}, nil
 }
 
@@ -1437,6 +1449,49 @@ func (r *ReconcileAppDbReplicaSet) getExistingAutomationConfig(ctx context.Conte
 	return latestAc, nil
 }
 
+// appDBCAFilePath returns the CA file path configured for AppDB mongod and its monitoring agent.
+// With operator-managed certificates the trust bundle is published under its content hash: mongod
+// reads CAFile only at startup and the agent restarts it when the automation config changes, so
+// pointing at the hash-keyed file makes a widened or rotated bundle take effect. Non-managed and
+// multi-cluster AppDBs keep the fixed ca-pem path.
+func (r *ReconcileAppDbReplicaSet) appDBCAFilePath(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
+	caHash, err := r.managedAppDBCABundleHash(ctx, opsManager)
+	if err != nil || caHash == "" {
+		return appdbCAFilePath, err
+	}
+
+	return path.Join(util.ConfigMapVolumeCAMountPath, caHash), nil
+}
+
+// managedAppDBCABundleHash returns the hash of the published operator-managed AppDB CA bundle, or
+// "" when the AppDB does not use operator-managed certificates (non-managed or multi-cluster AppDB).
+func (r *ReconcileAppDbReplicaSet) managedAppDBCABundleHash(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
+	if !opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() || opsManager.Spec.AppDB.IsMultiCluster() {
+		return "", nil
+	}
+
+	caHash, _, err := certs.ReadManagedCABundleHashes(ctx, r.client, opsManager.Spec.AppDB.Name(), opsManager.Namespace, false)
+	if err != nil {
+		return "", xerrors.Errorf("failed to read the operator-managed AppDB CA bundle hash: %w", err)
+	}
+	return caHash, nil
+}
+
+// managedOpsManagerCABundleHash returns the hash of the published operator-managed Ops Manager CA
+// bundle the AppDB agent trusts through -httpsCAFile, or "" when Ops Manager does not use
+// operator-managed certificates or the agent does not mount the Ops Manager CA.
+func (r *ReconcileAppDbReplicaSet) managedOpsManagerCABundleHash(ctx context.Context, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars) (string, error) {
+	if !opsManager.IsManagedCertificateEnabled() || !construct.ShouldMountSSLMMSCAConfigMap(podVars) {
+		return "", nil
+	}
+
+	caHash, err := configmap.ReadKey(ctx, r.client, util.LatestHashSecretKey, kube.ObjectKey(opsManager.Namespace, podVars.SSLMMSCAConfigMap))
+	if err != nil {
+		return "", xerrors.Errorf("failed to read the operator-managed Ops Manager CA bundle hash: %w", err)
+	}
+	return caHash, nil
+}
+
 func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Context, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, prometheusCertHash string, memberClusterName string, log *zap.SugaredLogger) (automationconfig.AutomationConfig, error) {
 	rs := opsManager.Spec.AppDB
 	domain := getDomain(rs.ServiceName(), opsManager.Namespace, opsManager.Spec.GetClusterDomain())
@@ -1465,6 +1520,11 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		appdbSecretPath = r.VaultClient.AppDBSecretPath()
 	}
 	certHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, opsManager.Namespace, tlsSecretName, appdbSecretPath, log)
+
+	caFilePath, err := r.appDBCAFilePath(ctx, opsManager)
+	if err != nil {
+		return automationconfig.AutomationConfig{}, err
+	}
 
 	prometheusModification, err := buildPrometheusModification(ctx, r.SecretClient, opsManager, prometheusCertHash)
 	if err != nil {
@@ -1495,7 +1555,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 		SetPreviousAutomationConfig(existingAutomationConfig).
 		SetTLSConfig(
 			automationconfig.TLS{
-				CAFilePath:            appdbCAFilePath,
+				CAFilePath:            caFilePath,
 				ClientCertificateMode: automationconfig.ClientCertificateModeOptional,
 			}).
 		AddProcessModification(func(i int, p *automationconfig.Process) {
@@ -1548,6 +1608,7 @@ func (r *ReconcileAppDbReplicaSet) buildAppDbAutomationConfig(ctx context.Contex
 					podVars.ProjectID,
 					podVars.AgentAPIKey,
 					opsManager.Spec.AppDB.AutomationAgent.MonitoringAgent.LogRotate,
+					caFilePath,
 				)
 			} else {
 				automationConfig.MonitoringVersions = []automationconfig.MonitoringVersion{}
@@ -1801,7 +1862,7 @@ func toMonitoringLogRotate(lr *mdbv1.LogRotateForBackupAndMonitoring) *automatio
 	}
 }
 
-func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, logRotate *mdbv1.LogRotateForBackupAndMonitoring) {
+func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.SugaredLogger, tls bool, projectID string, agentAPIKey string, logRotate *mdbv1.LogRotateForBackupAndMonitoring, caFilePath string) {
 	if projectID == "" || agentAPIKey == "" {
 		ac.MonitoringVersions = []automationconfig.MonitoringVersion{}
 		return
@@ -1820,7 +1881,7 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 			// AppDB uses SCRAM with optional TLS client certificates, so no client PEM is needed.
 			// Do not reuse mongod's server PEM as sslClientCertificate: serverAuth-only certificates
 			// are invalid for TLS client authentication, regardless of the database auth mechanism.
-			maps.Copy(params, om.NewTLSParams(appdbCAFilePath, ""))
+			maps.Copy(params, om.NewTLSParams(caFilePath, ""))
 		} else {
 			om.ClearTLSParams(params)
 		}
