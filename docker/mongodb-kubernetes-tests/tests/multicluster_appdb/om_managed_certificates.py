@@ -24,9 +24,7 @@ from tests.conftest import (
     get_multi_cluster_operator_installation_config,
 )
 from tests.multicluster.conftest import cluster_spec_list
-from tests.multicluster_appdb.multicluster_appdb_external_test_helpers import (
-    configure_appdb_backup_mongodb_ops_manager,
-)
+from tests.multicluster_appdb.multicluster_appdb_external_test_helpers import configure_appdb_backup_mongodb_ops_manager
 from tests.opsmanager.managedcert_helper import (
     APP_DB_CA_BUNDLE_KEY,
     APP_DB_CA_DIR,
@@ -277,7 +275,7 @@ def _assert_backup_delivery(ops_manager: MongoDBOpsManager):
     ca = read_configmap(namespace, f"{prefix}-ca-bundle", api_client=central)[CA_BUNDLE_KEY]
     assert issued["tls.crt"] in derived
     assert issued["tls.key"] in derived
-    assert ca in derived
+    assert ca.rstrip("\n") in derived
     _assert_signed_by(issued["tls.crt"], ca, "the queryable-backup certificate")
     _assert_issued_ekus(issued["tls.crt"], {ExtendedKeyUsageOID.SERVER_AUTH}, "the queryable-backup certificate")
     assert ExtendedKeyUsageOID.CLIENT_AUTH not in _issued_ekus(issued["tls.crt"])
