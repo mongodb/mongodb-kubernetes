@@ -126,7 +126,7 @@ func TestManagedCertificateObjectsAreCleanedUp(t *testing.T) {
 			for _, name := range caNames {
 				caCert := certToEnsure{certName: name, spec: certmanagerv1.CertificateSpec{SecretName: name}}
 				ensureEnvtestCertificate(t, c, res, caCert)
-				createCertManagerSecret(t, c, name, res.GetOwnerLabels())
+				createCertManagerSecret(t, c, name, ManagedCertificateOwnerLabels(res))
 			}
 
 			// 3. The operator gives every secret cert-manager wrote (steps 1 and 2) an owner reference to
@@ -156,7 +156,7 @@ func TestManagedCertificateObjectsAreCleanedUp(t *testing.T) {
 			if tc.multiCluster {
 				member, _ := mock.NewDefaultFakeClient()
 				targets := []MemberClusterTarget{{Name: "test-cluster-0", Client: member}}
-				status := ReplicateManagedCABundlesToMemberClusters(ctx, c, res.GetNamespace(), bundleNames, targets, res.GetOwnerLabels(), log)
+				status := ReplicateManagedCABundlesToMemberClusters(ctx, c, res.GetNamespace(), bundleNames, targets, ManagedCertificateOwnerLabels(res), log)
 				require.True(t, status.IsOK(), "copying the CA bundles to a member cluster: %s", status.Message())
 				for _, name := range bundleNames {
 					cm := getConfigMap(t, member, name)
@@ -181,7 +181,7 @@ func TestManagedCertificateObjectsAreCleanedUp(t *testing.T) {
 			agentSecretName := security.AgentClientCertificateSecretName(res.GetName())
 			require.NoError(t, VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
 				ctx, sc, sc, kube.ObjectKey(res.GetNamespace(), agentSecretName),
-				tc.configurator.GetOwnerReferences(), tc.configurator.GetOwnerLabels(), log))
+				tc.configurator.GetOwnerReferences(), ManagedCertificateOwnerLabels(tc.configurator), log))
 			pemNames = append(pemNames, agentSecretName+OperatorGeneratedCertSuffix)
 
 			//    5b. Single-cluster: they are in the cluster that holds the resource, so removed by owner.
@@ -470,7 +470,7 @@ func assertCertSpecCarriesOwnerLabels(t *testing.T, res CertificateOwner, cert c
 	t.Helper()
 	require.NotNil(t, cert.spec.SecretTemplate,
 		"certificate %s has no secretTemplate, so the secret it is issued into carries no labels", cert.certName)
-	assert.Equal(t, res.GetOwnerLabels(), cert.spec.SecretTemplate.Labels,
+	assert.Equal(t, ManagedCertificateOwnerLabels(res), cert.spec.SecretTemplate.Labels,
 		"certificate %s has to stamp the resource's owner labels on the secret it is issued into", cert.certName)
 }
 
@@ -489,7 +489,7 @@ func assertRemovedByOwner(t *testing.T, obj metav1.Object, ownerRefs []metav1.Ow
 // looks for.
 func assertRemovedByLabels(t *testing.T, obj metav1.Object, res CertificateOwner) {
 	t.Helper()
-	assert.Equal(t, res.GetOwnerLabels(), obj.GetLabels(),
+	assert.Equal(t, ManagedCertificateOwnerLabels(res), obj.GetLabels(),
 		"%s is in a member cluster, so it has to carry the labels the cleanup on deletion looks for", obj.GetName())
 	assert.Empty(t, obj.GetOwnerReferences(),
 		"%s is in a member cluster, where an owner in another cluster cannot be found, so it must have no owner reference", obj.GetName())

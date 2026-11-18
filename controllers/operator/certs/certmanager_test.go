@@ -227,7 +227,7 @@ func TestComponentCertificates(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, baseOpts.CertSecretName, got[0].certName)
 		// cert-manager writes these labels onto the issued secret, so the cleanup on deletion finds it.
-		assert.Equal(t, owner.GetOwnerLabels(), got[0].spec.SecretTemplate.Labels)
+		assert.Equal(t, ManagedCertificateOwnerLabels(owner), got[0].spec.SecretTemplate.Labels)
 		// There is no clusterfile, so the members also present the member cert to each other.
 		assert.Equal(t, memberServerAndClientCertUsages, got[0].spec.Usages)
 		assert.Nil(t, got[0].spec.Subject, "member cert is SAN-only when internal auth is not x509")
@@ -1233,7 +1233,7 @@ func TestEnsureSelfSignedCAAddsOwnerLabels(t *testing.T) {
 	cert := &certmanagerv1.Certificate{}
 	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: managedCACertName(res, categoryServer), Namespace: resNamespace}, cert))
 	require.NotNil(t, cert.Spec.SecretTemplate, "the CA Certificate has to ask cert-manager for the owner labels")
-	assert.Equal(t, res.GetOwnerLabels(), cert.Spec.SecretTemplate.Labels)
+	assert.Equal(t, ManagedCertificateOwnerLabels(res), cert.Spec.SecretTemplate.Labels)
 }
 
 func TestEnsureIssuedSecretsAreOwned(t *testing.T) {

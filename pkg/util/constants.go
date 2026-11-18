@@ -411,6 +411,10 @@ const (
 	MongoDBResourceOwnerLabel             = "mongodb.com/v1.mongodbResourceOwner"
 	MongoDBOpsManagerResourceOwnerLabel   = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
 	MongoDBMultiClusterResourceOwnerLabel = "mongodbmulticluster"
+
+	// ManagedCertificateOwnerUIDLabel is the label operator-managed certificates put on the objects
+	// they create, holding the UID of the resource they were created for.
+	ManagedCertificateOwnerUIDLabel = "mongodb.com/v1.managedCertificateOwnerUID"
 )
 
 var mongoDBOwnerLabels = []string{

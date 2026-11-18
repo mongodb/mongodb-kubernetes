@@ -750,7 +750,7 @@ func certSpec(
 		Subject:        subject,
 		Usages:         usages,
 		IssuerRef:      signerIssuerRef(res, cat),
-		SecretTemplate: &certmanagerv1.CertificateSecretTemplate{Labels: res.GetOwnerLabels()},
+		SecretTemplate: &certmanagerv1.CertificateSecretTemplate{Labels: ManagedCertificateOwnerLabels(res)},
 	}
 	if cfg := certCategoryConfig(res, cat); cfg != nil {
 		spec.Duration = cfg.Duration
@@ -1020,7 +1020,7 @@ func ensureSelfSignedCA(ctx context.Context, c kubernetesClient.Client, res Cert
 			},
 			// cert-manager puts these labels on the secret it issues, so the operator's cleanup on
 			// deletion finds it by label, like the other secrets of the resource.
-			SecretTemplate: &certmanagerv1.CertificateSecretTemplate{Labels: res.GetOwnerLabels()},
+			SecretTemplate: &certmanagerv1.CertificateSecretTemplate{Labels: ManagedCertificateOwnerLabels(res)},
 		},
 	}
 	generation, status := ensureCertificate(ctx, c, res, caCert)

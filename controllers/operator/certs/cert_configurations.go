@@ -6,6 +6,7 @@ import (
 	"go.uber.org/zap"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -19,6 +20,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
 )
 
@@ -32,7 +34,7 @@ type X509CertConfigurator interface {
 	GetSecretReadClient() secrets.SecretClient
 	GetSecretWriteClient() secrets.SecretClient
 	GetOwnerReferences() []metav1.OwnerReference
-	GetOwnerLabels() map[string]string
+	GetUID() types.UID
 }
 
 type ReplicaSetX509CertConfigurator struct {
@@ -278,11 +280,24 @@ func (o Options) WithoutHostnames() Options {
 // nothing when the resource does not use operator-managed certificates. The labels decide what the
 // cleanup on deletion removes, and only the managed-certificate feature relies on that today: a
 // deployment that brings its own certificates keeps the behaviour it had.
-func ownerLabelsFor(sec *mdbv1.Security, labels map[string]string) map[string]string {
+func ownerLabelsFor(sec *mdbv1.Security, owner interface{ GetUID() types.UID }) map[string]string {
 	if sec == nil || !sec.IsManagedCertificateEnabled() {
 		return nil
 	}
-	return labels
+	return ManagedCertificateOwnerLabels(owner)
+}
+
+// ManagedCertificateOwnerLabels returns the labels the operator puts on everything operator-managed
+// certificates create for a resource. The cleanup on deletion finds what to remove by these labels.
+//
+// They point at the resource by its UID, not its name. A resource that is deleted and created again
+// with the same name gets a new UID, so the cleanup of the deleted resource, which can still be
+// running when the new one is created, cannot remove what was created for the new one.
+func ManagedCertificateOwnerLabels(owner interface{ GetUID() types.UID }) map[string]string {
+	return map[string]string{
+		util.OperatorLabelName:               util.OperatorLabelValue,
+		util.ManagedCertificateOwnerUIDLabel: string(owner.GetUID()),
+	}
 }
 
 // OwnerReferenceFor returns the owner reference the operator puts on the -pem secrets it writes itself
@@ -316,7 +331,7 @@ func StandaloneConfig(mdb mdbv1.MongoDB) Options {
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               OwnerReferenceFor(mdb.GetSecurity(), &mdb, true),
-		OwnerLabels:                  ownerLabelsFor(mdb.GetSecurity(), mdb.GetOwnerLabels()),
+		OwnerLabels:                  ownerLabelsFor(mdb.GetSecurity(), &mdb),
 		WithholdsClientCertificate:   WithholdsClientCertificate(mdb.Spec.AdditionalMongodConfig),
 		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
@@ -336,7 +351,7 @@ func ReplicaSetConfig(mdb mdbv1.MongoDB) Options {
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		horizons:                     mdb.Spec.Connectivity.ReplicaSetHorizons,
 		OwnerReference:               OwnerReferenceFor(mdb.GetSecurity(), &mdb, true),
-		OwnerLabels:                  ownerLabelsFor(mdb.GetSecurity(), mdb.GetOwnerLabels()),
+		OwnerLabels:                  ownerLabelsFor(mdb.GetSecurity(), &mdb),
 		WithholdsClientCertificate:   WithholdsClientCertificate(mdb.Spec.AdditionalMongodConfig),
 		ExternalDomain:               mdb.Spec.DbCommonSpec.GetExternalDomain(),
 	}
@@ -415,7 +430,7 @@ func shardedComponentConfig(
 		ClusterDomain:                mdb.Spec.GetClusterDomain(),
 		additionalCertificateDomains: mdb.Spec.Security.TLSConfig.AdditionalCertificateDomains,
 		OwnerReference:               OwnerReferenceFor(mdb.GetSecurity(), &mdb, !mdb.Spec.IsMultiCluster()),
-		OwnerLabels:                  ownerLabelsFor(mdb.GetSecurity(), mdb.GetOwnerLabels()),
+		OwnerLabels:                  ownerLabelsFor(mdb.GetSecurity(), &mdb),
 		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
 		ExternalDomain:               externalDomain,
 		Topology:                     mdb.Spec.GetTopology(),
@@ -449,7 +464,7 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 		ClusterDomain:              mdbm.Spec.GetClusterDomain(),
 		Topology:                   mdbv1.ClusterTopologyMultiCluster,
 		OwnerReference:             OwnerReferenceFor(mdbm.GetSecurity(), &mdbm, false),
-		OwnerLabels:                ownerLabelsFor(mdbm.GetSecurity(), mdbm.GetOwnerLabels()),
+		OwnerLabels:                ownerLabelsFor(mdbm.GetSecurity(), &mdbm),
 		WithholdsClientCertificate: WithholdsClientCertificate(mdbm.Spec.AdditionalMongodConfig),
 		ExternalDomain:             mdbm.Spec.GetExternalDomainForMemberCluster(clusterName),
 	}
@@ -467,7 +482,7 @@ func MultiReplicaSetManagedCertConfig(mdbm mdbmulti.MongoDBMultiCluster, cluster
 		ClusterDomain:              mdbm.Spec.GetClusterDomain(),
 		Topology:                   mdbv1.ClusterTopologyMultiCluster,
 		OwnerReference:             OwnerReferenceFor(mdbm.GetSecurity(), &mdbm, false),
-		OwnerLabels:                ownerLabelsFor(mdbm.GetSecurity(), mdbm.GetOwnerLabels()),
+		OwnerLabels:                ownerLabelsFor(mdbm.GetSecurity(), &mdbm),
 		WithholdsClientCertificate: WithholdsClientCertificate(mdbm.Spec.AdditionalMongodConfig),
 		MultiClusterMembers:        clusters,
 	}
@@ -496,7 +511,7 @@ func MultiShardedComponentManagedCertConfig(
 		ClusterDomain:                sc.Spec.GetClusterDomain(),
 		Topology:                     mdbv1.ClusterTopologyMultiCluster,
 		OwnerReference:               OwnerReferenceFor(sc.GetSecurity(), &sc, false),
-		OwnerLabels:                  ownerLabelsFor(sc.GetSecurity(), sc.GetOwnerLabels()),
+		OwnerLabels:                  ownerLabelsFor(sc.GetSecurity(), &sc),
 		WithholdsClientCertificate:   WithholdsClientCertificate(mongodConfig),
 		MultiClusterMembers:          clusters,
 		additionalCertificateDomains: sc.Spec.Security.TLSConfig.AdditionalCertificateDomains,

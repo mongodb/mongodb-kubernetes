@@ -1248,7 +1248,7 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 		// Only a deployment with operator-managed certificates gets an owner and labels on its secrets:
 		// they decide what the cleanup on deletion removes, and a deployment that brings its own
 		// certificates keeps the behaviour it had.
-		ownerReferences, ownerLabels := managedCertOwnership(security, configurator.GetOwnerReferences(), configurator.GetOwnerLabels())
+		ownerReferences, ownerLabels := managedCertOwnership(security, configurator.GetOwnerReferences(), configurator)
 		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), ownerReferences, ownerLabels, log)
 		if err != nil {
 			return workflow.Failed(err)
@@ -1275,11 +1275,11 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 // itself for a resource (the -pem secrets), or nothing when the resource does not use
 // operator-managed certificates. The secrets cert-manager writes get their labels from the
 // Certificate's secretTemplate and their owner from ensureIssuedSecretsAreOwned.
-func managedCertOwnership(sec *mdbv1.Security, ownerReferences []metav1.OwnerReference, ownerLabels map[string]string) ([]metav1.OwnerReference, map[string]string) {
+func managedCertOwnership(sec *mdbv1.Security, ownerReferences []metav1.OwnerReference, owner interface{ GetUID() types.UID }) ([]metav1.OwnerReference, map[string]string) {
 	if sec == nil || !sec.IsManagedCertificateEnabled() {
 		return nil, nil
 	}
-	return ownerReferences, ownerLabels
+	return ownerReferences, certs.ManagedCertificateOwnerLabels(owner)
 }
 
 // setupInternalClusterAuthIfItHasChanged enables internal cluster auth if possible in case the path has changed and did exist before.
@@ -1356,16 +1356,60 @@ func (r *ReconcileCommonController) stopManagedCertificateIssuance(ctx context.C
 }
 
 // deleteManagedCertificateObjects removes what operator-managed certificates created for a resource
-// from the cluster the operator runs in, by the labels every secret the feature creates carries. The
-// delete handlers call it last, after the Ops Manager cleanup: it removes the secrets the pods mount
-// and the objects running the pods, and the pods have to stay up while Ops Manager is cleaned up.
-// It catches a secret cert-manager wrote after its Certificate was deleted, which nothing else
-// removes.
+// from the cluster the operator runs in. The delete handlers call it last, after the Ops Manager
+// cleanup: it removes the secrets the pods mount, and the pods have to stay up while Ops Manager is
+// cleaned up. It catches a secret cert-manager wrote after its Certificate was deleted, which nothing
+// else removes.
 func (r *ReconcileCommonController) deleteManagedCertificateObjects(ctx context.Context, res certs.CertificateOwner, log *zap.SugaredLogger) error {
+	return deleteManagedCertificateObjectsInCluster(ctx, r.client, multicluster.LegacyCentralClusterName, res, log)
+}
+
+// deleteManagedCertificateObjectsInCluster removes the secrets and ConfigMaps operator-managed
+// certificates created for a resource in one cluster. It finds them by the labels the feature puts on
+// everything it creates, which point at the resource by its UID: the cleanup can still be running when
+// a new resource with the same name is created, and what was created for the new one must stay.
+func deleteManagedCertificateObjectsInCluster(ctx context.Context, c kubernetesClient.Client, clusterName string, res certs.CertificateOwner, log *zap.SugaredLogger) error {
 	if sec := res.GetSecurity(); sec == nil || !sec.IsManagedCertificateEnabled() {
 		return nil
 	}
-	return deleteOwnedClusterResources(ctx, r.client, multicluster.LegacyCentralClusterName, res, log)
+	if res.GetUID() == "" {
+		// Nothing can be found by the UID of a resource that has none.
+		return nil
+	}
+
+	// List and delete one by one rather than delete them all in one call: the operator's role in the
+	// cluster it runs in does not allow deleting a whole collection.
+	listOptions := []client.ListOption{
+		client.InNamespace(res.GetNamespace()),
+		client.MatchingLabels(certs.ManagedCertificateOwnerLabels(res)),
+	}
+	secrets := corev1.SecretList{}
+	configMaps := corev1.ConfigMapList{}
+	var objects []client.Object
+	if err := c.List(ctx, &secrets, listOptions...); err != nil {
+		return xerrors.Errorf("failed to list the managed certificate secrets of %s in cluster %s: %w", res.GetName(), clusterName, err)
+	}
+	for i := range secrets.Items {
+		objects = append(objects, &secrets.Items[i])
+	}
+	if err := c.List(ctx, &configMaps, listOptions...); err != nil {
+		return xerrors.Errorf("failed to list the managed certificate ConfigMaps of %s in cluster %s: %w", res.GetName(), clusterName, err)
+	}
+	for i := range configMaps.Items {
+		objects = append(objects, &configMaps.Items[i])
+	}
+
+	var errs error
+	for _, obj := range objects {
+		if err := c.Delete(ctx, obj); err != nil && !apiErrors.IsNotFound(err) {
+			errs = errors.Join(errs, xerrors.Errorf("failed to delete %s in cluster %s: %w", obj.GetName(), clusterName, err))
+		}
+	}
+	if errs != nil {
+		return errs
+	}
+	log.Infof("Removed the managed certificate objects of %s in cluster %s", res.GetName(), clusterName)
+	return nil
 }
 
 // deleteOwnedClusterResources removes the label-owned resources of the given resource owner in a given cluster.
@@ -1777,7 +1821,7 @@ func (r *ReconcileCommonController) ensureAgentSubjectDN(
 		// The connectivity Job mounts the operator-generated agent PEM secret. The full reconcile
 		// creates it in ensureX509SecretAndCheckTLSType, which the dry-run path skips, so create
 		// it here. Without it the Job pod stays Pending and the connectivity check never completes.
-		ownerReferences, ownerLabels := managedCertOwnership(sec, certs.OwnerReferenceFor(sec, mdb, !mdb.Spec.IsMultiCluster()), mdb.GetOwnerLabels())
+		ownerReferences, ownerLabels := managedCertOwnership(sec, certs.OwnerReferenceFor(sec, mdb, !mdb.Spec.IsMultiCluster()), mdb)
 		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), ownerReferences, ownerLabels, log); err != nil {
 			return "", workflow.Failed(xerrors.Errorf("connectivity dry-run: ensure agent certificate: %w", err)).
 				WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
