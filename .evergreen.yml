@@ -2432,15 +2432,6 @@ buildvariants:
     tasks:
       - name: e2e_multi_cluster_om70_appdb_upgrade_task_group
 
-  - name: e2e_static_multi_cluster_om70_appdb_upgrade
-    display_name: e2e_static_multi_cluster_om70_appdb_upgrade
-    tags: [ "staging", "e2e_test_suite", "static", "static_amd64" ]
-    run_on:
-      - ubuntu2404-large
-    <<: *base_om7_dependency
-    tasks:
-      - name: e2e_multi_cluster_om70_appdb_upgrade_task_group
-
   - name: e2e_static_multi_cluster_om_appdb_ubi9_slim
     display_name: e2e_static_multi_cluster_om_appdb_ubi9_slim
     tags: [ "staging", "e2e_test_suite", "om9", "static", "static_amd64" ]
@@ -2722,7 +2713,7 @@ buildvariants:
 
   - name: build_om70_images
     display_name: build_om70_images
-    tags:  [ "staging", "om7", "static", "non_static" ]
+    tags:  [ "staging", "om7", "non_static" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2730,7 +2721,7 @@ buildvariants:
 
   - name: build_om80_images
     display_name: build_om80_images
-    tags: [ "staging", "om8", "static", "non_static" ]
+    tags: [ "staging", "om8", "non_static" ]
     run_on:
       - ubuntu2404-small
     tasks:
