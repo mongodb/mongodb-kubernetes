@@ -59,9 +59,12 @@ func TestAPIStartGetStop(t *testing.T) {
 	f.waitReady(cfg)
 	assert.Equal(t, StateRunning, getStatus(t, srv).State)
 
-	code = post(t, srv.URL+"/v1/process/stop", StopRequest{TimeoutSeconds: 5, Role: RoleMain}, &st)
+	id := st.ExecutionID
+	require.NotEmpty(t, id)
+	code = post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: id, TimeoutSeconds: 5, Role: RoleMain}, &st)
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, StateExited, st.State)
+	assert.Equal(t, id, st.ExecutionID)
 	assert.Equal(t, StateExited, getStatus(t, srv).State)
 }
 
@@ -89,10 +92,11 @@ func TestAPIGetAndStopAnswerWhileStartWaits(t *testing.T) {
 	}()
 
 	f.waitReady(cfg)
-	assert.Equal(t, StateRunning, getStatus(t, srv).State)
+	running := getStatus(t, srv)
+	assert.Equal(t, StateRunning, running.State)
 
 	var st Status
-	assert.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/stop", StopRequest{TimeoutSeconds: 5, Role: RoleEphemeral}, &st))
+	assert.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: running.ExecutionID, TimeoutSeconds: 5, Role: RoleEphemeral}, &st))
 
 	select {
 	case waited := <-done:
@@ -116,8 +120,9 @@ func TestAPIErrors(t *testing.T) {
 		"start with unknown json":   {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "shell": "rm -rf /"}, http.StatusBadRequest, "invalid_request"},
 		"start with a reserved arg": {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "other": map[string]any{"args": []string{"--fork"}}}, http.StatusBadRequest, "invalid_request"},
 		"start with env as object":  {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "other": map[string]any{"env": map[string]string{"LD_PRELOAD": "/x"}}}, http.StatusBadRequest, "invalid_request"},
-		"stop without timeout":      {"/v1/process/stop", StopRequest{}, http.StatusBadRequest, "invalid_request"},
-		"stop with bad role":        {"/v1/process/stop", StopRequest{TimeoutSeconds: 1, Role: "other"}, http.StatusBadRequest, "invalid_request"},
+		"stop without timeout":      {"/v1/process/stop", StopRequest{ExecutionID: "id", Role: RoleMain}, http.StatusBadRequest, "invalid_request"},
+		"stop without execution":    {"/v1/process/stop", StopRequest{TimeoutSeconds: 1, Role: RoleMain}, http.StatusBadRequest, "invalid_request"},
+		"stop with bad role":        {"/v1/process/stop", StopRequest{ExecutionID: "id", TimeoutSeconds: 1, Role: "other"}, http.StatusBadRequest, "invalid_request"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -135,20 +140,38 @@ func TestAPIErrors(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, post(t, srv.URL+"/v1/process/start", StartRequest{ConfigPath: main, Role: RoleEphemeral}, &e))
 		assert.Equal(t, "role_conflict", e.Code)
 
-		assert.Equal(t, http.StatusConflict, post(t, srv.URL+"/v1/process/stop", StopRequest{TimeoutSeconds: 1, Role: RoleEphemeral}, &e))
+		id := getStatus(t, srv).ExecutionID
+		assert.Equal(t, http.StatusConflict, post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: id, TimeoutSeconds: 1, Role: RoleEphemeral}, &e))
 		assert.Equal(t, "role_mismatch", e.Code)
 	})
 
 	t.Run("stop timeout", func(t *testing.T) {
-		require.NoError(t, f.sup.Stop(t.Context(), "", 0, true))
+		require.NoError(t, stopCurrent(f.sup, t.Context(), "", 0, true))
 		stubborn := f.config("stubborn", "ignoreterm")
 		require.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/start", StartRequest{ConfigPath: stubborn, Role: RoleMain}, nil))
 		f.waitReady(stubborn)
 
 		var e errorResponse
-		assert.Equal(t, http.StatusGatewayTimeout, post(t, srv.URL+"/v1/process/stop", StopRequest{TimeoutSeconds: 0.3}, &e))
+		id := getStatus(t, srv).ExecutionID
+		assert.Equal(t, http.StatusGatewayTimeout, post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: id, TimeoutSeconds: 0.3, Role: RoleMain}, &e))
 		assert.Equal(t, "stop_timeout", e.Code)
 	})
+}
+
+func TestAPIStopDoesNotSignalReplacementExecution(t *testing.T) {
+	f, srv := newServer(t)
+	first := f.start(RoleMain, "exit:0")
+	waitDone(t, first)
+	old := getStatus(t, srv)
+	second := f.start(RoleMain, "run")
+	current := getStatus(t, srv)
+	require.NotEqual(t, current.ExecutionID, old.ExecutionID)
+
+	var e errorResponse
+	code := post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: old.ExecutionID, Role: RoleMain, Force: true}, &e)
+	require.Equal(t, http.StatusConflict, code)
+	require.Equal(t, "execution_mismatch", e.Code)
+	require.False(t, second.finished())
 }
 
 func TestAPIStartRejectsAConfigWithFork(t *testing.T) {
@@ -219,6 +242,7 @@ func TestAPIEventsAndStatusTimestamps(t *testing.T) {
 	assert.Greater(t, childStarted.PID, 0)
 
 	require.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/stop", StopRequest{
+		ExecutionID:    st.ExecutionID,
 		TimeoutSeconds: 5,
 		Role:           RoleMain,
 	}, nil))

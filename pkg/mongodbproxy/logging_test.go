@@ -24,7 +24,7 @@ func observedFixture(t *testing.T) (*fixture, *observer.ObservedLogs) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, BinaryMongod), []byte(fakeMongod), 0o755)) //nolint:gosec
 	stdout := &syncBuffer{}
 	sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(stdout, stdout), WithLogger(zap.New(core).Sugar()), WithPathPolicy(onlyIn(dir)))
-	t.Cleanup(func() { _ = sup.Stop(context.Background(), "", 0, true) })
+	t.Cleanup(func() { _ = stopCurrent(sup, context.Background(), "", 0, true) })
 	return &fixture{t: t, sup: sup, dir: dir, stdout: stdout}, logs
 }
 
@@ -52,7 +52,7 @@ func TestLogsGracefulStopWithoutKill(t *testing.T) {
 	f, logs := observedFixture(t)
 	e := f.start(RoleMain, "run")
 
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 5*time.Second, true))
+	require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, 5*time.Second, true))
 	waitDone(t, e)
 
 	assert.Equal(t, 1, logs.FilterMessage("sending SIGTERM").Len())
@@ -63,7 +63,7 @@ func TestLogsForcedStopKills(t *testing.T) {
 	f, logs := observedFixture(t)
 	e := f.start(RoleMain, "ignoreterm")
 
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 100*time.Millisecond, true))
+	require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, 100*time.Millisecond, true))
 	waitDone(t, e)
 
 	assert.Equal(t, 1, logs.FilterMessage("sending SIGKILL").Len())
@@ -99,12 +99,12 @@ func TestLogsRequestCorrelation(t *testing.T) {
 		status                          int
 		errorClass                      string
 	}{
-		{"stop", "/v1/process/stop", `{"role":"main","timeoutSeconds":1}`, "agent-call-1", "stop requested", 200, ""},
-		{"generated", "/v1/process/stop", `{"role":"main","timeoutSeconds":1}`, "", "stop requested", 200, ""},
-		{"unsafe header", "/v1/process/stop", `{"role":"main","timeoutSeconds":1}`, "sensitive value", "stop requested", 200, ""},
-		{"long header", "/v1/process/stop", `{"role":"main","timeoutSeconds":1}`, strings.Repeat("a", 129), "stop requested", 200, ""},
+		{"stop", "/v1/process/stop", `{"executionId":"absent","role":"main","timeoutSeconds":1}`, "agent-call-1", "stop requested", 200, ""},
+		{"generated", "/v1/process/stop", `{"executionId":"absent","role":"main","timeoutSeconds":1}`, "", "stop requested", 200, ""},
+		{"unsafe header", "/v1/process/stop", `{"executionId":"absent","role":"main","timeoutSeconds":1}`, "sensitive value", "stop requested", 200, ""},
+		{"long header", "/v1/process/stop", `{"executionId":"absent","role":"main","timeoutSeconds":1}`, strings.Repeat("a", 129), "stop requested", 200, ""},
 		{"invalid body", "/v1/process/start", `{"credential":"secret"}`, "agent-call-2", "start requested", 400, "invalid_request"},
-		{"invalid role", "/v1/process/stop", `{"role":"secret","timeoutSeconds":1}`, "agent-call-3", "stop requested", 400, "invalid_request"},
+		{"invalid role", "/v1/process/stop", `{"executionId":"absent","role":"secret","timeoutSeconds":1}`, "agent-call-3", "stop requested", 400, "invalid_request"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, logs := observedFixture(t)

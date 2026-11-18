@@ -84,7 +84,7 @@ func newFixture(t *testing.T) *fixture {
 	sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(stdout, stdout), WithPathPolicy(onlyIn(dir)))
 	t.Cleanup(func() {
 		// make sure no child outlives the test
-		_ = sup.Stop(context.Background(), "", 0, true)
+		_ = stopCurrent(sup, context.Background(), "", 0, true)
 	})
 	return &fixture{t: t, sup: sup, dir: dir, stdout: stdout}
 }
@@ -323,11 +323,20 @@ func writeConfig(t *testing.T, dir, content string) string {
 	return path
 }
 
+func stopCurrent(s *Supervisor, ctx context.Context, role Role, timeout time.Duration, force bool) error {
+	status := s.Status()
+	if role == "" {
+		role = status.Role
+	}
+	_, err := s.stopExecution(ctx, status.ExecutionID, role, timeout, force)
+	return err
+}
+
 func TestStopSendsSIGTERMAndWaits(t *testing.T) {
 	f := newFixture(t)
 	e := f.start(RoleMain, "run")
 
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 5*time.Second, false))
+	require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, 5*time.Second, false))
 	waitDone(t, e)
 	st := f.sup.Status()
 	assert.Equal(t, StateExited, st.State)
@@ -336,17 +345,17 @@ func TestStopSendsSIGTERMAndWaits(t *testing.T) {
 
 func TestStopWhenDownIsNoOp(t *testing.T) {
 	f := newFixture(t)
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, time.Second, false), "idle")
+	require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, time.Second, false), "idle")
 
 	waitDone(t, f.start(RoleMain, "exit:0"))
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, time.Second, false), "exited")
+	require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, time.Second, false), "exited")
 }
 
 func TestStopWithOtherRoleDoesNotTouchTheChild(t *testing.T) {
 	f := newFixture(t)
 	f.start(RoleMain, "run")
 
-	err := f.sup.Stop(context.Background(), RoleEphemeral, time.Second, true)
+	err := stopCurrent(f.sup, context.Background(), RoleEphemeral, time.Second, true)
 	assert.ErrorIs(t, err, ErrRoleMismatch)
 	assert.Equal(t, StateRunning, f.sup.Status().State)
 }
@@ -355,7 +364,7 @@ func TestStopTimeoutWithoutForceLeavesTheChildAlive(t *testing.T) {
 	f := newFixture(t)
 	f.start(RoleMain, "ignoreterm")
 
-	err := f.sup.Stop(context.Background(), RoleMain, 300*time.Millisecond, false)
+	err := stopCurrent(f.sup, context.Background(), RoleMain, 300*time.Millisecond, false)
 	assert.ErrorIs(t, err, ErrStopTimeout)
 	assert.Equal(t, StateRunning, f.sup.Status().State)
 }
@@ -364,7 +373,7 @@ func TestStopTimeoutWithForceKills(t *testing.T) {
 	f := newFixture(t)
 	e := f.start(RoleMain, "ignoreterm")
 
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 300*time.Millisecond, true))
+	require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, 300*time.Millisecond, true))
 	waitDone(t, e)
 	st := f.sup.Status()
 	assert.Equal(t, StateExited, st.State)
@@ -377,7 +386,7 @@ func TestStopZeroTimeoutWithForceKillsImmediately(t *testing.T) {
 	e := f.start(RoleMain, "ignoreterm")
 
 	begin := time.Now()
-	require.NoError(t, f.sup.Stop(context.Background(), "", 0, true))
+	require.NoError(t, stopCurrent(f.sup, context.Background(), "", 0, true))
 	waitDone(t, e)
 	assert.Less(t, time.Since(begin), 2*time.Second)
 	assert.Equal(t, "killed", f.sup.Status().Signal)
@@ -386,7 +395,7 @@ func TestStopZeroTimeoutWithForceKillsImmediately(t *testing.T) {
 func TestStopZeroTimeoutWithoutForceIsInvalid(t *testing.T) {
 	f := newFixture(t)
 	f.start(RoleMain, "run")
-	err := f.sup.Stop(context.Background(), "", 0, false)
+	err := stopCurrent(f.sup, context.Background(), "", 0, false)
 	assert.ErrorIs(t, err, ErrInvalidRequest)
 }
 
@@ -436,7 +445,7 @@ func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
 	assert.Equal(t, ldapCA, st.LaunchEnvironment.LdapCaPath)
 	assert.Equal(t, keytab, st.LaunchEnvironment.KerberosKeytab)
 
-	require.NoError(t, f.sup.Stop(context.Background(), RoleMain, 5*time.Second, false))
+	require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, 5*time.Second, false))
 	waitDone(t, e)
 
 	st = f.sup.Status()
