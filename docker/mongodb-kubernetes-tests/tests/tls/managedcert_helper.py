@@ -296,7 +296,12 @@ def bundle_fingerprints(bundle: str) -> List[str]:
     return [hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest() for pem in pems]
 
 
-def _bundle_contains(bundle: str, ca_pem: str) -> bool:
+def bundle_contains(bundle: str, ca_pem: str) -> bool:
+    """Whether the bundle trusts every certificate of ca_pem.
+
+    The certificates are compared one at a time, by fingerprint, because the same certificates can be
+    listed in a different order in the bundle than in the ConfigMap they came from.
+    """
     expected = set(bundle_fingerprints(ca_pem))
     assert expected, "the CA to look for is not a PEM certificate"
     return expected.issubset(set(bundle_fingerprints(bundle)))
@@ -305,13 +310,13 @@ def _bundle_contains(bundle: str, ca_pem: str) -> bool:
 def assert_previous_ca_retained(resource: MongoDB, category: str, previous_ca: str):
     """The category's published CA bundle still trusts previous_ca (PEM) after a rotation."""
     bundle = latest_ca_bundle(read_configmap(resource.namespace, f"{resource.name}-managed-{category}-ca-bundle"))
-    assert _bundle_contains(bundle, previous_ca), f"the {category} CA bundle must still contain the previous CA"
+    assert bundle_contains(bundle, previous_ca), f"the {category} CA bundle must still contain the previous CA"
 
 
 def assert_previous_ca_pruned(resource: MongoDB, category: str, previous_ca: str):
     """The category's published CA bundle no longer trusts previous_ca (PEM)."""
     bundle = latest_ca_bundle(read_configmap(resource.namespace, f"{resource.name}-managed-{category}-ca-bundle"))
-    assert not _bundle_contains(
+    assert not bundle_contains(
         bundle, previous_ca
     ), f"the {category} CA bundle must not contain the previous CA anymore"
 
