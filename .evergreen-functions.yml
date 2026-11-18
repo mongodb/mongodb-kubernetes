@@ -674,6 +674,8 @@ functions:
       retry_on_failure: true
       params:
         shell: bash
+        add_to_path:
+          - ${workdir}/bin
         working_dir: src/github.com/mongodb/mongodb-kubernetes
         binary: scripts/evergreen/login-search-rapid-releases-ecr.sh
 
