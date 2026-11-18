@@ -2621,10 +2621,13 @@ buildvariants:
     display_name: notify_master_build_status
     # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:
     # depends_on with name:"*" creates phantom dependencies for tasks with patchable:false
+    # The IBM Z variants are excluded because the zseries queue can block this task
+    # for hours. notify_master_failures.py reports their results when they finish
+    # before the report and lists them as skipped otherwise.
     allowed_requesters: [ "commit" ]
     depends_on:
       - name: "*"
-        variant: ".staging"
+        variant: ".staging !init_test_run_ibm_z !e2e_smoke_ibm_z !e2e_static_smoke_ibm_z !e2e_static_smoke_ibm_z_ubi9_slim"
         status: "*"
     run_on:
       - ubuntu2404-small
