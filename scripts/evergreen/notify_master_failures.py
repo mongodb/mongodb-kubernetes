@@ -6,7 +6,9 @@ This script queries the Evergreen API to find failed tasks in a build version
 and sends a Slack notification to #k8s-enterprise-builds with failure details
 and author information.
 
-The script runs after all other tasks complete via Evergreen's depends_on mechanism.
+The script runs after the staging tasks via Evergreen's depends_on mechanism.
+It does not wait for the IBM Z variants. Their results are included when they
+finish before the report and listed as skipped otherwise.
 It only runs on commit builds (not patches) - see .evergreen.yml for details.
 
 Environment variables required:
@@ -50,6 +52,16 @@ NOTIFICATION_TASKS = [
     "notify_master_build_status",
     "notify_flaky_tests_weekly",
 ]
+
+# Variants that do not block the notification when their tasks are still queued.
+# Their results are included when they finish before the report runs. Pending
+# tasks are reported as skipped instead of suppressing the notification.
+NON_BLOCKING_VARIANTS = {
+    "init_test_run_ibm_z",
+    "e2e_smoke_ibm_z",
+    "e2e_static_smoke_ibm_z",
+    "e2e_static_smoke_ibm_z_ubi9_slim",
+}
 
 # How long to wait for the version to reach a terminal state before proceeding
 # with whatever data is available (seconds). Prevents premature notifications
@@ -173,7 +185,7 @@ def get_build_tasks(api: EvergreenApi, build_variant_status: BuildVariantStatus)
 
 def get_task_summary(
     api: EvergreenApi, version_id: str, exclude_tasks: list[str] | None = None
-) -> tuple[list[TaskInfo], list[TaskInfo], list[TaskInfo], int]:
+) -> tuple[list[TaskInfo], list[TaskInfo], list[TaskInfo], list[TaskInfo], int]:
     """Get failed, running, and restarted tasks across all build variants for a version.
 
     All builds are fetched because the version API returns no build status, and a
@@ -183,40 +195,51 @@ def get_task_summary(
         api: Evergreen API client
         version_id: Version ID to query
         exclude_tasks: List of task display names to exclude from results (e.g., notification tasks)
-    Returns: (failed_tasks, running_tasks, retried_tasks, total_tasks)
+    Returns: (failed_tasks, running_tasks, retried_tasks, skipped_tasks, total_tasks)
+
+    ``skipped_tasks`` are pending tasks in ``NON_BLOCKING_VARIANTS``. They do not
+    suppress the notification. Failed and finished tasks in those variants stay
+    in the normal lists.
     """
     exclude_tasks = exclude_tasks or []
     version_info = get_version_info(api, version_id)
     failed_tasks: list[TaskInfo] = []
     running_tasks: list[TaskInfo] = []
     retried_tasks: list[TaskInfo] = []
+    skipped_tasks: list[TaskInfo] = []
     total_tasks = 0
 
     builds_to_check = version_info.build_variants_status
 
     def fetch_build_tasks(
         build_variant_status: BuildVariantStatus,
-    ) -> tuple[list[TaskInfo], list[TaskInfo], list[TaskInfo], int]:
+    ) -> tuple[list[TaskInfo], list[TaskInfo], list[TaskInfo], list[TaskInfo], int]:
         tasks = get_build_tasks(api, build_variant_status)
         visible = [task for task in tasks if not task.is_display_only and task.display_name not in exclude_tasks]
         failures = [task for task in visible if task.is_failed]
         pending = [task for task in visible if task.is_running]
+        if build_variant_status.build_variant in NON_BLOCKING_VARIANTS:
+            skipped = pending
+            pending = []
+        else:
+            skipped = []
         retried = [task for task in visible if task.is_retried]
-        return failures, pending, retried, len(visible)
+        return failures, pending, retried, skipped, len(visible)
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_build_tasks, bv): bv for bv in builds_to_check}
         for future in as_completed(futures):
             try:
-                failures, running, retried, num_tasks = future.result()
+                failures, running, retried, skipped, num_tasks = future.result()
                 failed_tasks.extend(failures)
                 running_tasks.extend(running)
                 retried_tasks.extend(retried)
+                skipped_tasks.extend(skipped)
                 total_tasks += num_tasks
             except Exception as e:
                 print(f"Error fetching build tasks: {e}", file=sys.stderr)
 
-    return failed_tasks, running_tasks, retried_tasks, total_tasks
+    return failed_tasks, running_tasks, retried_tasks, skipped_tasks, total_tasks
 
 
 MAX_DETAILED_FAILURES = 10
@@ -253,7 +276,7 @@ def get_previous_version_failures(api: EvergreenApi, version_info: VersionInfo) 
 
     prev_version_id = max(candidates, key=lambda v: v["order"])["version_id"]
     print(f"Checking previous master version: {prev_version_id}", file=sys.stderr)
-    prev_failed, _, _, _ = get_task_summary(api, prev_version_id, NOTIFICATION_TASKS)
+    prev_failed, _, _, _, _ = get_task_summary(api, prev_version_id, NOTIFICATION_TASKS)
     return {(t.display_name, t.build_variant) for t in prev_failed}
 
 
@@ -304,6 +327,7 @@ def format_slack_message(
     prev_failed: set[tuple[str, str]] | None = None,
     retried_tasks: list[TaskInfo] | None = None,
     total_tasks: int | None = None,
+    skipped_tasks: list[TaskInfo] | None = None,
 ) -> dict[str, object]:
     """Format a Slack message for build status.
 
@@ -314,10 +338,12 @@ def format_slack_message(
         prev_failed: Optional set of (task_name, variant) that also failed on the previous master
         retried_tasks: Tasks that ran more than once, reported on passing builds
         total_tasks: Total task count, used as the denominator for the retry count
+        skipped_tasks: Pending tasks in variants that did not block the notification
     """
     flaky_map = flaky_map or {}
     prev_failed = prev_failed or set()
     retried_tasks = retried_tasks or []
+    skipped_tasks = skipped_tasks or []
     evergreen_version_url = f"https://spruce.mongodb.com/version/{version_info.version_id}"
     is_failure = bool(failed_tasks)
     num_failures = len(failed_tasks) if failed_tasks else 0
@@ -339,12 +365,23 @@ def format_slack_message(
 
     branch = getattr(version_info, "branch", None) or "master"
     branch_label = "Master" if branch == "master" else branch
+    has_skipped = bool(skipped_tasks)
 
     if is_failure:
         header_text = f"🔴 {branch_label} Build Failures"
         button_style = "danger"
         run_prefix = f"Run #{run_number}: " if run_number else ""
         summary_text = f"{run_prefix}{branch_label} build failed: {num_failures} tasks failed for commit {version_info.revision[:8]} by {version_info.author}"
+    elif has_skipped:
+        header_text = f"🟡 {branch_label} Build Passed (Partial)"
+        button_style = None
+        run_prefix = f"Run #{run_number}: " if run_number else ""
+        summary_text = (
+            f"{run_prefix}{branch_label} build passed for commit {version_info.revision[:8]} "
+            f"by {version_info.author} with {len(skipped_tasks)} skipped task(s)"
+        )
+        if retry_summary:
+            summary_text = f"{summary_text} ({retry_summary})"
     else:
         header_text = f"✅ {branch_label} Build Passed"
         button_style = None
@@ -387,6 +424,26 @@ def format_slack_message(
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": retry_text},
+            }
+        )
+
+    # Skipped variants: pending tasks that did not block this report.
+    if skipped_tasks:
+        skipped_by_variant: dict[str, int] = {}
+        for task in skipped_tasks:
+            skipped_by_variant[task.build_variant] = skipped_by_variant.get(task.build_variant, 0) + 1
+        skipped_lines = [f"*{variant}*: {count} task(s)" for variant, count in sorted(skipped_by_variant.items())]
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "*Skipped pending variants:*\n"
+                        + "\n".join(skipped_lines)
+                        + "\n_Their results are not included in this report._"
+                    ),
+                },
             }
         )
 
@@ -492,6 +549,7 @@ def print_stdout_report(
     running_tasks: list[TaskInfo],
     flaky_map: dict[tuple[str, str], FlakyTask] | None = None,
     retried_tasks: list[TaskInfo] | None = None,
+    skipped_tasks: list[TaskInfo] | None = None,
 ) -> None:
     """Print a concise report to stdout.
 
@@ -501,9 +559,11 @@ def print_stdout_report(
         running_tasks: List of running/pending tasks
         flaky_map: Optional {(task_name, variant): FlakyTask} from Honeycomb
         retried_tasks: Tasks that ran more than once
+        skipped_tasks: Pending tasks in variants that did not block the notification
     """
     flaky_map = flaky_map or {}
     retried_tasks = retried_tasks or []
+    skipped_tasks = skipped_tasks or []
     status_str = version_info.status.upper()
     run_number = getattr(version_info, "order", None)
     run_prefix = f"Run #{run_number}: " if run_number else ""
@@ -528,6 +588,9 @@ def print_stdout_report(
 
     if running_tasks:
         print_task_table(running_tasks, "Pending Tasks", flaky_map)
+
+    if skipped_tasks:
+        print_task_table(skipped_tasks, "Skipped Pending Tasks", flaky_map)
 
     if retried_tasks:
         print_task_table(retried_tasks, "Restarted Tasks", flaky_map)
@@ -571,7 +634,9 @@ def main() -> None:
     print(f"Final status: {version_info.status}", file=sys.stderr)
 
     try:
-        failed_tasks, running_tasks, retried_tasks, total_tasks = get_task_summary(api, version_id, NOTIFICATION_TASKS)
+        failed_tasks, running_tasks, retried_tasks, skipped_tasks, total_tasks = get_task_summary(
+            api, version_id, NOTIFICATION_TASKS
+        )
     except Exception as e:
         print(f"Error fetching tasks: {e}", file=sys.stderr)
         sys.exit(1)
@@ -601,10 +666,13 @@ def main() -> None:
         except Exception as e:
             print(f"Warning: previous master lookup failed: {e}", file=sys.stderr)
 
-    if failed_tasks or running_tasks:
-        print(f"Found {len(failed_tasks)} failed, {len(running_tasks)} running tasks", file=sys.stderr)
+    if failed_tasks or running_tasks or skipped_tasks:
+        print(
+            f"Found {len(failed_tasks)} failed, {len(running_tasks)} running, " f"{len(skipped_tasks)} skipped tasks",
+            file=sys.stderr,
+        )
     else:
-        print("No failed or running tasks found", file=sys.stderr)
+        print("No failed, running, or skipped tasks found", file=sys.stderr)
     print(f"Restarted tasks: {len(retried_tasks)} of {total_tasks}", file=sys.stderr)
 
     # The webhook message carries the retry count and up to three task names.
@@ -616,12 +684,20 @@ def main() -> None:
         prev_failed,
         retried_tasks,
         total_tasks,
+        skipped_tasks,
     )
 
     if use_slack_dry_run:
         print(json.dumps({"message": message}, indent=2))
     else:
-        print_stdout_report(version_info, failed_tasks, running_tasks, flaky_map, retried_tasks)
+        print_stdout_report(
+            version_info,
+            failed_tasks,
+            running_tasks,
+            flaky_map,
+            retried_tasks,
+            skipped_tasks,
+        )
         should_notify = bool(failed_tasks) or (not running_tasks and notify_on_success)
         if should_notify and slack_webhook_url:
             send_slack_notification(slack_webhook_url, message)
