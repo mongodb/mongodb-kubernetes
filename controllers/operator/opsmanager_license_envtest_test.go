@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
@@ -173,6 +175,14 @@ func (h *licenseEnvHarness) setInstallFromSecret(om *omv1.MongoDBOpsManager, art
 		}
 	})
 	h.createSecret(secretName, util.DefaultOpsManagerLicenseKey, artifact, om)
+}
+
+func (h *licenseEnvHarness) updateSecret(name, artifact string) {
+	h.t.Helper()
+	sec := &corev1.Secret{}
+	require.NoError(h.t, h.client.Get(h.ctx, client.ObjectKey{Namespace: h.namespace, Name: name}, sec))
+	sec.Data[util.DefaultOpsManagerLicenseKey] = []byte(artifact)
+	require.NoError(h.t, h.client.Update(h.ctx, sec))
 }
 
 // seedInstalled records a prior install intent from the license Secret the last reconciliation achieved.
@@ -814,6 +824,50 @@ func TestLicenseE2E_FailedReleaseIsRetried(t *testing.T) {
 	h.admin.LicenseReleaseErr = nil
 	h.reconcileExpectOK(om.Name)
 	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
+}
+
+func TestLicenseE2E_OutdatedSwapKeepsTheInstalledLicenseOwned(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = viewWithLicenses("LICENSED", artifactView(testLicenseArtifactID))
+
+	om := h.createOM(nil)
+	h.setInstallFromSecret(om, testLicenseArtifact)
+	h.reconcileExpectOK(om.Name)
+
+	conflict := http.StatusConflict
+	h.admin.LicenseInstallErr = &apierror.Error{Status: &conflict, ErrorCode: apierror.LicenseArtifactOutdated}
+	h.createSecret("older-license", util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-older"), om)
+	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
+		om.Spec.License.SecretRef = &omv1.SecretRef{Name: "older-license"}
+	})
+	st := h.reconcile(om.Name)
+	assert.True(t, st.IsOK())
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+
+	h.admin.LicenseInstallErr = nil
+	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
+		om.Spec.License.SecretRef = nil
+	})
+	h.reconcileExpectOK(om.Name)
+	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
+}
+
+func TestLicenseE2E_ReleasesTheRenewedLicense(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = viewWithLicenses("LICENSED", artifactView(testLicenseArtifactID))
+
+	om := h.createOM(nil)
+	h.setInstallFromSecret(om, testLicenseArtifact)
+	h.reconcileExpectOK(om.Name)
+
+	h.updateSecret(om.Name+"-license", licenseArtifactJSON("art-renew"))
+	h.reconcileExpectOK(om.Name)
+
+	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
+		om.Spec.License.SecretRef = nil
+	})
+	h.reconcileExpectOK(om.Name)
+	assert.Equal(t, []string{"art-renew"}, h.admin.ReleasedIDs)
 }
 
 func TestLicenseE2E_AutoReleaseClearsMarkersWhenAlreadyUncovered(t *testing.T) {

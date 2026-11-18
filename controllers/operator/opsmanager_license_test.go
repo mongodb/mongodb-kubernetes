@@ -56,6 +56,46 @@ func ensureLicense(r *OpsManagerReconciler, om *omv1.MongoDBOpsManager, admin ap
 	return st
 }
 
+func TestAchievedLicense(t *testing.T) {
+	receipts := []omv1.LicenseReleaseReceipt{releaseReceipt("old-license")}
+	tests := []struct {
+		name               string
+		license            *omv1.MongoDBOpsManagerLicense
+		installedSecretRef string
+		want               *omv1.MongoDBOpsManagerLicense
+	}{
+		{
+			name: "no license block and nothing installed",
+		},
+		{
+			name:               "no license block but a license still installed",
+			installedSecretRef: "om-license",
+			want:               &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}},
+		},
+		{
+			name:               "spec secretRef replaced by the installed one",
+			license:            &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "new-license"}, ReleaseReceipts: receipts},
+			installedSecretRef: "om-license",
+			want:               &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}, ReleaseReceipts: receipts},
+		},
+		{
+			name:    "spec secretRef dropped when nothing is installed",
+			license: &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "new-license"}, ReleaseReceipts: receipts},
+			want:    &omv1.MongoDBOpsManagerLicense{ReleaseReceipts: receipts},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var before *omv1.MongoDBOpsManagerLicense
+			if tc.license != nil {
+				before = tc.license.DeepCopy()
+			}
+			assert.Equal(t, tc.want, achievedLicense(tc.license, tc.installedSecretRef))
+			assert.Equal(t, before, tc.license)
+		})
+	}
+}
+
 // achieveSpec records the spec as achieved on the resource, the way the controller refreshes the
 // LastAchievedSpec annotation after a successful reconciliation.
 func achieveSpec(t *testing.T, om *omv1.MongoDBOpsManager) {
