@@ -663,6 +663,22 @@ functions:
       working_dir: src/github.com/mongodb/mongodb-kubernetes
       command: scripts/evergreen/write-devprod-platforms-ecr-aws-profile.sh
 
+  # Logs Docker into the search rapid-release ECR. The search OIDC e2e pulls the enterprise mongot
+  # image from there, and needs the auth in config.json before the pull secret is created.
+  login_search_rapid_releases_ecr:
+    - *assume_devprod_platforms_ecr_role
+    - *write_devprod_platforms_ecr_aws_profile
+    - command: subprocess.exec
+      display_name: Log in to the search rapid-release ECR
+      type: setup
+      retry_on_failure: true
+      params:
+        shell: bash
+        add_to_path:
+          - ${workdir}/bin
+        working_dir: src/github.com/mongodb/mongodb-kubernetes
+        binary: scripts/evergreen/login-search-rapid-releases-ecr.sh
+
   pipeline:
     - *assume_devprod_platforms_ecr_role
     - *write_devprod_platforms_ecr_aws_profile
