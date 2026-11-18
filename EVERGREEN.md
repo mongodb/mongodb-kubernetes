@@ -3,7 +3,10 @@
 Each variant needs to be tagged with one or more tags referencing related build scenario:
 
 - pr_patch: for patches created by GitHub PRs
-- staging: for builds triggered when merging to master or release branch
+- staging: for builds triggered when merging to master or a release branch. The existing `staging` patch alias runs its
+  normal staging checks plus tasks selected by `variant_tags: [e2e_test_suite]` and `task_tags: [e2e_light]`. It does
+  not run the full E2E suite or promote. The expensive full E2E variants and their prerequisites are run on demand with
+  the `test_all_and_promote` patch alias instead.
 - deprecated-release: legacy release process (rebuilds/retests everything), triggered by "old-X.Y.Z" git tags. To be
   removed soon — see .evergreen-release.yml.
 - release-publish: new release process (publish-only, no rebuild/retest), triggered by "new-X.Y.Z" git tags. See
@@ -14,8 +17,9 @@ Examples: `migrate_all_agents`, `e2e_operator_perf` or `publish_om80_images`.
 
 This configuration allows us to run all the associated tasks for each scenario from evergreen command line.
 This is especially helpful when making changes to `staging` or `release` variants and testing them using Evergreen
-command line patches. For example there is no other way to trigger tasks that are run on merges to master other than
-combining them together using aliases. The same applies for tasks being run on git tags.
+command line patches. The `test_all_and_promote` alias runs the full E2E set and prerequisites for a selected merge
+commit, then promotes through mckci only if the patch succeeds. Starting that alias is a manual action; merges do not
+automatically promote. Other aliases can also be used to test tasks that normally run on git tags.
 
 See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-and-Distro-Settings#project-aliases
 
@@ -38,6 +42,15 @@ evergreen patch -p mongodb-kubernetes -a pr_patch -d "Test PR patch build" -f -y
 
 ```shell
 evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=staging
+```
+
+### Full E2E test and promote a merge commit:
+
+Use this manual patch alias to run the expensive full E2E variants and their prerequisites against a specific merge
+commit. On success, the alias runs mckci promotion. It does not run automatically as part of a merge.
+
+```shell
+evergreen patch -p mongodb-kubernetes --alias test_all_and_promote --ref <merge-commit-sha> -d "Test all and promote <sha>" -f -y --param BUILD_SCENARIO=staging
 ```
 
 ### Legacy release scenario (deprecated, to be removed soon):
@@ -169,7 +182,12 @@ but still run lint/static, add a negation to `production_code_paths` instead.
 Automatic PR checks are gated by GitHub PR labels via `required_labels` on the `github_pr_aliases` entries
 in
 `.evergreen.yml` ([Evergreen docs](https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-and-Distro-Settings#label-based-pr-testing)).
-Without any label only the always-on checks run: unit tests, pre-commit, and the OCP version drift check.
+Without any label only the always-on PR checks run: unit tests, lint/pre-commit, and the OCP version drift check. The
+`evergreen:e2e-light` label remains available to select e2e-light tasks on PR patches. Separately, the existing
+`staging` patch alias runs its normal staging checks plus tasks selected by `variant_tags: [e2e_test_suite]` and
+`task_tags: [e2e_light]`; staging does not run the full E2E suite or promote. Full E2E variants and their prerequisites
+are run with a separate manual `test_all_and_promote` patch against a chosen merge commit, with mckci promotion only
+after all tests in that patch pass.
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
@@ -192,12 +210,12 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 Task counts are rounded PR patch sizes: the tasks selected by the label, their dependencies and the always-on checks.
 They change as tasks are added or removed.
 
-OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
-the `staging` alias.
+OpenShift variants (`e2e_openshift_test_suite`) are included in the `test_all_and_promote` alias, but are not selected
+by any PR label unless separately selected.
 
 `evergreen:e2e-static-light` selects the `static_light` tag and is the default static choice for a PR. `evergreen:e2e-static`
 selects the full `static` tag set. Use it only when you deliberately need every static variant: it is seldom used, and
-`evergreen:e2e-static-light` is almost always the better choice. Master runs the full set through `staging`, and
+`evergreen:e2e-static-light` is almost always the better choice. Staging does not run the full static set;
 `--alias static` runs it on demand.
 
 Labels are evaluated when the PR patch is created; adding one afterwards injects the newly-satisfied tasks into the
@@ -211,17 +229,17 @@ Start with `evergreen:e2e-light` and add `e2e-medium`, `e2e-default` or a dimens
 `evergreen:e2e-static` only when you deliberately need the full static matrix: it is seldom used, and the light set is
 almost always the better choice.
 
-**Do not use `evergreen:e2e-all`.** It MUST only be applied manually by a human engineer: it schedules ~1370 tasks
-(about 2.5x `e2e-default`), runs again on every push while the label is on, and master already runs the full suite on
-every merge (plus variants `e2e-all` does not select: OpenShift, multi-arch smoke, release). AI agents and automation
-must never apply it. A human who needs the full result before merge (for example for core reconcile logic or a shared
-library used by every resource type) applies it by hand and removes it once the run has finished, so later pushes do
-not schedule the whole set again.
+**Do not use `evergreen:e2e-all` routinely.** It remains extremely expensive (~1370 tasks, about 2.5x `e2e-default`)
+and MUST only be applied manually by a human engineer. It runs again on every push while the label is on. The `staging`
+alias selects e2e-light tasks, not the full E2E suite; use the separate manual `test_all_and_promote` patch for a full
+run against a chosen merge commit, with mckci promotion only after all its tests pass. The label may still be needed for
+variants outside that alias, such as release checks. AI agents and automation must never apply it. A human who needs the
+label applies it by hand and removes it once the run has finished, so later pushes do not schedule the whole set again.
 
 ## Manual Variant Aliases
 
-Some CI variants are excluded from the default PR run to save compute time. These variants run on master commits and
-can be triggered manually via CLI aliases; most can also be pulled into a PR via the labels above.
+Some CI variants and expensive prerequisites are excluded from the default PR and merge runs to save compute time.
+They can be triggered manually via CLI aliases; most can also be pulled into a PR via the labels above.
 
 ### Test Suites
 
@@ -240,7 +258,8 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 
 | Alias                             | Description                                                     |
 |-----------------------------------|-----------------------------------------------------------------|
-| `staging`                         | Full master-merge (staging) scenario                            |
+| `staging`                         | Normal staging checks plus tasks selected by `variant_tags: [e2e_test_suite]` and `task_tags: [e2e_light]`; not full E2E or promotion |
+| `test_all_and_promote`            | Manual full E2E variants and prerequisites against a chosen merge commit; mckci promotion only after all tests pass |
 | `preflight_release_test`          | Release-style preflight only (no image push, no Pyxis submit)   |
 | `deprecated-release`              | Legacy release process (rebuilds and retests before publishing) |
 | `release-publish`                 | New release process (publishes already-promoted images)         |
@@ -265,6 +284,10 @@ evergreen patch --alias race
 # Run all static container variants
 evergreen patch --alias static
 ```
+
+For a full E2E run and success-gated promotion, use `test_all_and_promote` with `--ref` pinned to the merge commit SHA
+as shown in [Example commands](#example-commands). This patch must be started manually; merging does not promote
+automatically.
 
 ### When to Use
 
