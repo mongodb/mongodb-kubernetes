@@ -183,7 +183,7 @@ type MongoDBOpsManagerSpec struct {
 
 // MongoDBOpsManagerLicense configures the Enterprise Advanced license and its release receipts.
 // +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, r.secretRef.name == self.secretRef.name)",message="secretRef must not also be listed in releaseReceipts"
-// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
+// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || size(self.secretRef.name) > 0",message="spec.license.secretRef.name must not be empty"
 type MongoDBOpsManagerLicense struct {
 	// SecretRef names the Secret that holds the signed license under the "license" key.
 	// The operator installs it, and releases it when secretRef is removed.
@@ -216,7 +216,7 @@ const ReleaseReceiptsOnlyListed ReleaseReceiptsPolicy = "OnlyListed"
 // ReleaseReceiptsAutomatic also covers every license the operator releases.
 const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
 
-// +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="secretRef.name must not be empty"
+// +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="spec.license.releaseReceipts[].secretRef.name must not be empty"
 type LicenseReleaseReceipt struct {
 	// SecretRef names a Secret that holds the released license.
 	// +kubebuilder:validation:Required

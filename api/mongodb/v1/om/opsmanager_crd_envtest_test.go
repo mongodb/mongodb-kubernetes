@@ -470,14 +470,14 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 			license: &omv1.MongoDBOpsManagerLicense{
 				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{SecretRef: omv1.SecretRef{}}},
 			},
-			errorContains: "secretRef.name must not be empty",
+			errorContains: "spec.license.releaseReceipts[].secretRef.name must not be empty",
 		},
 		{
 			name: "install secretRef with an empty name is rejected",
 			license: &omv1.MongoDBOpsManagerLicense{
 				SecretRef: &omv1.SecretRef{},
 			},
-			errorContains: "secretRef.name must not be empty",
+			errorContains: "spec.license.secretRef.name must not be empty",
 		},
 		{
 			name: "same secretRef listed twice is rejected",

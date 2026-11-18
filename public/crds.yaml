@@ -8844,7 +8844,8 @@ spec:
                       - secretRef
                       type: object
                       x-kubernetes-validations:
-                      - message: secretRef.name must not be empty
+                      - message: spec.license.releaseReceipts[].secretRef.name must
+                          not be empty
                         rule: size(self.secretRef.name) > 0
                     maxItems: 16
                     type: array
@@ -8879,7 +8880,7 @@ spec:
                 - message: secretRef must not also be listed in releaseReceipts
                   rule: '!has(self.secretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r,
                     r.secretRef.name == self.secretRef.name)'
-                - message: secretRef.name must not be empty
+                - message: spec.license.secretRef.name must not be empty
                   rule: '!has(self.secretRef) || size(self.secretRef.name) > 0'
               logging:
                 properties:
