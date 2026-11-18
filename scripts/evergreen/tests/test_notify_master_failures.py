@@ -277,7 +277,8 @@ class TestFormatSlackMessage:
         text = " ".join(
             b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
         )
-        assert "Build Passed (Partial)" in message["blocks"][0]["text"]["text"]
+        assert "Master Build Passed" in message["blocks"][0]["text"]["text"]
+        assert "Partial" not in message["blocks"][0]["text"]["text"]
         assert "Skipped variants" in text
         assert "e2e_smoke_ibm_z" in text
         assert "Completed results remain included" in text

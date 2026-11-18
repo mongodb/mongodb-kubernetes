@@ -355,7 +355,6 @@ def format_slack_message(
 
     branch = getattr(version_info, "branch", None) or "master"
     branch_label = "Master" if branch == "master" else branch
-    has_skipped = bool(skipped_tasks)
 
     run_prefix = f"Run #{run_number}: " if run_number else ""
     if is_failure:
@@ -363,7 +362,7 @@ def format_slack_message(
         button_style = "danger"
         summary_text = f"{run_prefix}{branch_label} build failed: {num_failures} tasks failed for commit {version_info.revision[:8]} by {version_info.author}"
     else:
-        header_text = f"🟡 {branch_label} Build Passed (Partial)" if has_skipped else f"✅ {branch_label} Build Passed"
+        header_text = f"✅ {branch_label} Build Passed"
         button_style = None
         summary_text = (
             f"{run_prefix}{branch_label} build passed for commit {version_info.revision[:8]} by {version_info.author}"
