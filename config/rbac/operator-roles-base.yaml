@@ -98,8 +98,6 @@ rules:
       - voyageais
       - voyageais/finalizers
       - voyageais/status
-
-
 ---
 # Source: mongodb-kubernetes/templates/operator-roles-base.yaml
 kind: RoleBinding
@@ -115,4 +113,3 @@ subjects:
   - kind: ServiceAccount
     name: mongodb-kubernetes-operator
     namespace: mongodb
-
