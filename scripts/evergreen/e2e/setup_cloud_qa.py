@@ -238,6 +238,8 @@ def remove_group_by_id(group_id: str):
             break  # removed, already gone, or a failure that a retry won't change
         if attempt < MAX_REMOVE_ATTEMPTS - 1:
             time.sleep(BACKOFF_SECONDS * 2**attempt + random.random())
+    else:
+        print(f"Giving up on {url} after {MAX_REMOVE_ATTEMPTS} attempts, the last status is {result.status_code}")
 
     return result
 

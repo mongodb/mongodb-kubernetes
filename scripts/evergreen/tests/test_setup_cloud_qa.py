@@ -226,6 +226,29 @@ def test_remove_group_by_id_backs_off_exponentially(monkeypatch, clock):
     assert clock.sleeps == [3.5, 6.5, 12.5]
 
 
+@pytest.mark.parametrize(
+    "scripted,expected_message",
+    [
+        pytest.param([200, 200, 500, 502, 503], "the last status is 503", id="server-errors"),
+        pytest.param([200, 200, 409, 409, 409], "the last status is 409", id="conflicts"),
+        pytest.param([200, 200, *[requests.ConnectionError("reset")] * 3], "the last status is 599", id="no-response"),
+        pytest.param([200, 200, 500, 500, 202], None, id="removed-on-the-last-attempt"),
+        pytest.param([200, 200, 401], None, id="final-failure-without-retries"),
+        pytest.param([200, 200, 202], None, id="removed"),
+    ],
+)
+def test_remove_group_by_id_says_when_it_gives_up(monkeypatch, clock, capsys, scripted, expected_message):
+    fake_requests(monkeypatch, *scripted)
+
+    qa.remove_group_by_id(FAKE_GROUP_ID)
+
+    output = capsys.readouterr().out
+    if expected_message:
+        assert f"Giving up on {GROUP_URL} after 3 attempts, {expected_message}\n" in output
+    else:
+        assert "Giving up" not in output
+
+
 def test_remove_group_by_id_does_not_retry_a_programming_error(monkeypatch, clock):
     fake = fake_requests(monkeypatch, ValueError("bug"))
 
@@ -266,7 +289,7 @@ def test_remove_group_by_id_does_not_retry_a_programming_error(monkeypatch, cloc
         pytest.param(
             [200, 200, requests.ConnectionError("reset by peer")],
             [f"DELETE {GROUP_URL} -> ConnectionError('reset by peer')\n"],
-            ["599"],
+            ["-> 599"],
             id="no-response",
         ),
     ],
