@@ -53,6 +53,9 @@ func ReplicateManagedCABundlesToMemberClusters(
 				SetLabels(ownerLabels).
 				Build()
 			if existing, getErr := target.Client.GetConfigMap(ctx, kube.ObjectKey(namespace, name)); getErr == nil {
+				if cm.UID != "" && existing.UID == cm.UID {
+					continue
+				}
 				memberCM.OwnerReferences = existing.OwnerReferences
 			}
 			if err := configmap.CreateOrUpdate(ctx, target.Client, memberCM); err != nil && !apiErrors.IsAlreadyExists(err) {

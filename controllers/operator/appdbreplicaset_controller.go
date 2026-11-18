@@ -1372,6 +1372,14 @@ func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, 
 	}
 
 	caConfigMapName := construct.CAConfigMapName(*om.Spec.AppDB, log)
+	if appDBSpec.GetSecurity().IsManagedCertificateEnabled() {
+		var targets []certs.MemberClusterTarget
+		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
+			targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
+		}
+		return certs.ReplicateManagedCABundlesToMemberClusters(ctx, r.client, appDBSpec.Namespace,
+			[]string{caConfigMapName}, targets, appDBSpec.GetOwnerLabels(), log)
+	}
 
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(appDBSpec.Namespace, caConfigMapName))
 	if err != nil {
@@ -1398,6 +1406,14 @@ func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Contex
 	}
 
 	caConfigMapName := podVars.SSLMMSCAConfigMap
+	if om.IsManagedCertificateEnabled() {
+		var targets []certs.MemberClusterTarget
+		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
+			targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
+		}
+		return certs.ReplicateManagedCABundlesToMemberClusters(ctx, r.client, appDBSpec.Namespace,
+			[]string{caConfigMapName}, targets, appDBSpec.GetOwnerLabels(), log)
+	}
 
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(appDBSpec.Namespace, caConfigMapName))
 	if err != nil {
@@ -2534,6 +2550,24 @@ func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalStateSingleCluster(ctx co
 
 func (r *AppDBReconcilerHelper) getAllMemberClusters() []multicluster.MemberCluster {
 	return r.memberClusters
+}
+
+func (r *AppDBReconcilerHelper) managedCertificateOptions(om *omv1.MongoDBOpsManager) certs.Options {
+	opts := certs.AppDBManagedCertConfig(om)
+	for _, memberCluster := range r.getAllMemberClusters() {
+		if memberCluster.Legacy {
+			continue
+		}
+		scaler := scalers.GetAppDBScaler(om, memberCluster.Name, memberCluster.Index, r.memberClusters)
+		opts.MultiClusterMembers = append(opts.MultiClusterMembers, certs.MemberCluster{
+			ClusterNum:     memberCluster.Index,
+			ClusterName:    memberCluster.Name,
+			Members:        max(scaler.CurrentReplicas(), scaler.TargetReplicas()),
+			ExternalDomain: om.Spec.AppDB.GetExternalDomainForMemberCluster(memberCluster.Name),
+		})
+	}
+	opts.Topology = om.Spec.AppDB.Topology
+	return opts
 }
 
 func (r *AppDBReconcilerHelper) GetHealthyMemberClusters() []multicluster.MemberCluster {

@@ -38,7 +38,11 @@ func (r *OpsManagerReconciler) reissueManagedCertificatesOnRotatedCA(ctx context
 		opsManager.Spec.AppDB != nil &&
 		!opsManager.Spec.AppDB.IsMultiCluster() &&
 		opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() {
-		owned, err := r.appDBStatefulSetReadyForManagedCertificates(ctx, opsManager)
+		helper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, r.memberClustersMap, log)
+		owned := false
+		if err == nil {
+			owned, err = r.appDBStatefulSetReadyForManagedCertificates(ctx, opsManager, helper)
+		}
 		if err != nil {
 			log.Warnf("Skipping AppDB certificate re-issue after a CA rotation: %s", err)
 		} else if owned {

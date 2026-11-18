@@ -3501,7 +3501,7 @@ func TestAppDBManagedCertificatePreparationScopes(t *testing.T) {
 		assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c))
 	})
 
-	t.Run("multi-cluster AppDB is skipped", func(t *testing.T) {
+	t.Run("multi-cluster AppDB requires cert-manager", func(t *testing.T) {
 		om := newAppDBManagedCertificateTestOM()
 		om.Spec.AppDB.Topology = omv1.ClusterTopologyMultiCluster
 		c := newManagedCertificateKubeClient(t, om)
@@ -3510,8 +3510,11 @@ func TestAppDBManagedCertificatePreparationScopes(t *testing.T) {
 
 		_, blocked, err := r.prepareManagedCertificates(t.Context(), om, newManagedCertificateTestHelper(t, r, om), zap.S())
 		require.NoError(t, err)
-		assert.False(t, blocked)
-		assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c), "single-cluster SANs must not be issued for a multi-cluster AppDB")
+		assert.True(t, blocked)
+		condition := managedCertificateCondition(t, t.Context(), c, om)
+		require.NotNil(t, condition)
+		assert.Contains(t, condition.Message, "cert-manager CRDs are not installed")
+		assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c))
 	})
 
 	t.Run("unmanaged AppDB is skipped", func(t *testing.T) {

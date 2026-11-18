@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"testing"
@@ -11,8 +12,10 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,16 +25,164 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
+
+func newMultiClusterManagedAppDB(t *testing.T) (*omv1.MongoDBOpsManager, kubernetesClient.Client, *OpsManagerReconciler) {
+	t.Helper()
+	manager := newAppDBManagedCertificateTestOM()
+	manager.Spec.AppDB.Topology = omv1.ClusterTopologyMultiCluster
+	manager.Spec.AppDB.Members = 0
+	eastDomain, westDomain := "east.example.com", "west.example.com"
+	manager.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{
+		{ClusterName: "east", Members: 2, ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: &eastDomain}},
+		{ClusterName: "west", Members: 5, ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: &westDomain}},
+	}
+	c := newManagedCertificateKubeClient(t, manager,
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: manager.Spec.AppDB.ClusterMappingConfigMapName(), Namespace: manager.Namespace},
+			Data:       map[string]string{"east": "4", "west": "7", "retired": "9"},
+		},
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: manager.Spec.AppDB.LastAppliedMemberSpecConfigMapName(), Namespace: manager.Namespace},
+			Data:       map[string]string{"east": "3", "west": "1", "retired": "1"},
+		})
+	r := newManagedCertificateTestReconciler(t.Context(), c)
+	r.memberClustersMap = map[string]client.Client{"east": newManagedCertificateKubeClient(t), "west": newManagedCertificateKubeClient(t)}
+	r.certManagerReadiness = certs.CertManagerReadiness{Ready: true}
+	return manager, c, r
+}
+
+func TestAppDBManagedCertificatesMultiClusterCoverage(t *testing.T) {
+	ctx := t.Context()
+	manager, c, r := newMultiClusterManagedAppDB(t)
+	delete(r.memberClustersMap, "west")
+
+	result := r.ensureAppDBCertAndCA(ctx, manager, zap.S())
+	require.NotNil(t, result.condition, "managed multi-cluster AppDB must participate in certificate preparation")
+	require.False(t, result.status.IsOK(), "initial issuance must wait for cert-manager")
+	leaf := getManagedCertificateObject(t, ctx, c, "managed-om-db-managed-cert")
+	assert.Contains(t, leaf.Spec.Usages, certmanagerv1.UsageServerAuth)
+	assert.Contains(t, leaf.Spec.Usages, certmanagerv1.UsageClientAuth, "SCRAM members use this certificate for peer TLS client connections")
+	assert.Contains(t, leaf.Spec.DNSNames, "managed-om-db-4-2-svc.my-namespace.svc.cluster.local", "retain currently running members during a scale-down")
+	assert.Contains(t, leaf.Spec.DNSNames, "managed-om-db-7-4-svc.my-namespace.svc.cluster.local", "include the full target of an unavailable cluster even while another cluster scales")
+	assert.Contains(t, leaf.Spec.DNSNames, "managed-om-db-4-2.east.example.com")
+	assert.Contains(t, leaf.Spec.DNSNames, "managed-om-db-7-4.west.example.com")
+	assert.Contains(t, leaf.Spec.DNSNames, "managed-om-db-9-0-svc.my-namespace.svc.cluster.local", "retain removed clusters until their members have scaled down")
+	assert.NotContains(t, leaf.Spec.DNSNames, "managed-om-db-0.managed-om-db-svc.my-namespace.svc.cluster.local")
+	require.Len(t, leaf.OwnerReferences, 1)
+	assert.Equal(t, "managed-om", leaf.OwnerReferences[0].Name)
+	assert.Equal(t, manager.UID, leaf.OwnerReferences[0].UID)
+	coverage := map[string]int{}
+	require.NoError(t, json.Unmarshal([]byte(leaf.Annotations["mongodb.com/covered-members-per-cluster"]), &coverage))
+	assert.Equal(t, map[string]int{"east": 3, "west": 5, "retired": 1}, coverage)
+	before := leaf.Spec.DeepCopy()
+
+	manager.Spec.AppDB.ClusterSpecList[0], manager.Spec.AppDB.ClusterSpecList[1] = manager.Spec.AppDB.ClusterSpecList[1], manager.Spec.AppDB.ClusterSpecList[0]
+	manager.Spec.AppDB.ClusterSpecList[0].Members = 1
+	r.ensureAppDBCertAndCA(ctx, manager, zap.S())
+	leaf = getManagedCertificateObject(t, ctx, c, "managed-om-db-managed-cert")
+	assert.Equal(t, *before, leaf.Spec, "reordering and scaling down must not rename or shrink the shared certificate")
+	assert.Empty(t, listManagedCertificateObjects(t, ctx, kubernetesClient.NewClient(r.memberClustersMap["east"])), "issuance stays central")
+}
+
+func TestAppDBManagedCertificatesMultiClusterOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		labels map[string]string
+		issue  bool
+	}{
+		{name: "owned member permits issuance", labels: map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: "managed-om"}, issue: true},
+		{name: "foreign member defers issuance", labels: map[string]string{util.MongoDBResourceOwnerLabel: "other"}},
+		{name: "ownerless member defers issuance"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, c, r := newMultiClusterManagedAppDB(t)
+			member := r.memberClustersMap["west"]
+			sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "managed-om-db-7", Namespace: manager.Namespace, Labels: tc.labels}}
+			require.NoError(t, member.Create(t.Context(), sts))
+			result := r.ensureAppDBCertAndCA(t.Context(), manager, zap.S())
+			if tc.issue {
+				require.NotNil(t, result.condition)
+				assert.Contains(t, managedCertificateNames(listManagedCertificateObjects(t, t.Context(), c)), "managed-om-db-managed-cert")
+			} else {
+				assert.Nil(t, result.condition)
+				assert.True(t, result.status.IsOK())
+				assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c))
+			}
+			persisted := &appsv1.StatefulSet{}
+			require.NoError(t, member.Get(t.Context(), kube.ObjectKey(manager.Namespace, sts.Name), persisted))
+			assert.Equal(t, sts.ObjectMeta, persisted.ObjectMeta, "preparation must not change member ownership")
+		})
+	}
+
+	t.Run("member read error fails before issuance", func(t *testing.T) {
+		manager, c, r := newMultiClusterManagedAppDB(t)
+		r.memberClustersMap["west"] = newManagedCertificateKubeClientWithInterceptor(t, interceptor.Funcs{
+			Get: func(ctx context.Context, inner client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*appsv1.StatefulSet); ok {
+					return fmt.Errorf("west StatefulSet read denied")
+				}
+				return inner.Get(ctx, key, obj, opts...)
+			},
+		})
+		result := r.ensureAppDBCertAndCA(t.Context(), manager, zap.S())
+		require.NotNil(t, result.condition)
+		assert.Equal(t, "IssuanceFailed", result.condition.Reason)
+		assert.Contains(t, result.condition.Message, "west StatefulSet read denied")
+		assert.Empty(t, listManagedCertificateObjects(t, t.Context(), c))
+	})
+}
+
+func TestOpsManagerManagedMultiClusterTrustCopies(t *testing.T) {
+	ctx := t.Context()
+	manager, central, r := newMultiClusterManagedAppDB(t)
+	manager.Spec.Topology = omv1.ClusterTopologyMultiCluster
+	manager.Spec.ClusterSpecList = []omv1.ClusterSpecOMItem{{ClusterName: "east", Members: 1}, {ClusterName: "west", Members: 1}}
+	manager.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{}}
+	r.memberClustersMap["east"] = central
+	helper := newManagedCertificateTestHelper(t, r, manager)
+
+	for _, tc := range []struct {
+		name string
+		key  string
+		copy func() error
+	}{
+		{name: "managed-om-managed-om-ca-bundle", key: "mms-ca.crt", copy: func() error {
+			return r.replicateTLSCAInMemberClusters(ctx, helper)
+		}},
+		{name: "managed-om-db-managed-server-ca-bundle", key: "ca-pem", copy: func() error {
+			return r.replicateAppDBTLSCAInMemberClusters(ctx, helper, &AppDBConfig{CAConfigMapName: "managed-om-db-managed-server-ca-bundle"})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+				Name: tc.name, Namespace: manager.Namespace, UID: types.UID(tc.name), OwnerReferences: kube.BaseOwnerReference(manager),
+			}, Data: map[string]string{tc.key: "issued trust"}}
+			require.NoError(t, central.Create(ctx, source))
+			require.NoError(t, tc.copy())
+			retained, err := central.GetConfigMap(ctx, kube.ObjectKey(manager.Namespace, tc.name))
+			require.NoError(t, err)
+			assert.Equal(t, source.OwnerReferences, retained.OwnerReferences)
+			assert.Equal(t, source.ResourceVersion, retained.ResourceVersion, "replication must not rewrite the shared central source")
+			remote := &corev1.ConfigMap{}
+			require.NoError(t, r.memberClustersMap["west"].Get(ctx, kube.ObjectKey(manager.Namespace, tc.name), remote))
+			assert.Equal(t, source.Data, remote.Data)
+			assert.Equal(t, manager.GetOwnerLabels(), remote.Labels)
+			assert.Empty(t, remote.OwnerReferences)
+		})
+	}
+}
 
 func omStsName(name string, clusterIdx int) string {
 	return fmt.Sprintf("%s-%d", name, clusterIdx)
