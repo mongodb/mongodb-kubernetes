@@ -51,11 +51,12 @@ tasks:
 task_groups:
   - name: periodic_teardown_task_group
     <<: *setup_group
+    # a host per task: a failed task stops the rest of a single-host task group
+    max_hosts: -1
     tasks:
       - periodic_teardown_aws
-      # cloudqa is the last one: a failed task stops the rest of a single-host task group
-      - periodic_gcp_cleanup
       - periodic_teardown_cloudqa
+      - periodic_gcp_cleanup
 
 buildvariants:
   - name: periodic_teardown
