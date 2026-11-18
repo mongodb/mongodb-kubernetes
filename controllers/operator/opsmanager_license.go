@@ -323,6 +323,7 @@ func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (
 	}
 	_, artifactID, invalid, err := h.readLicenseArtifact(ctx, h.lastInstallSecretRef)
 	if invalid {
+		h.installedSecretRef = ""
 		if _, held := h.observed.HeldArtifact(); held {
 			return "", licenseFailed(xerrors.Errorf("cannot release the license Ops Manager holds, the license secret %s that identifies it is gone or no longer holds a license artifact", h.lastInstallSecretRef))
 		}

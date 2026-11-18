@@ -826,6 +826,26 @@ func TestLicenseE2E_FailedReleaseIsRetried(t *testing.T) {
 	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
 }
 
+func TestLicenseE2E_ReleaseWithoutTheSecretIsReportedOnce(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = viewWithLicenses("LICENSED", artifactView(testLicenseArtifactID))
+
+	om := h.createOM(nil)
+	h.setInstallFromSecret(om, testLicenseArtifact)
+	h.reconcileExpectOK(om.Name)
+
+	require.NoError(t, h.client.Delete(h.ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: h.namespace, Name: om.Name + "-license"}}))
+	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
+		om.Spec.License.SecretRef = nil
+	})
+	assert.False(t, h.reconcile(om.Name).IsOK())
+
+	st := h.reconcile(om.Name)
+	assert.True(t, st.IsOK())
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotProvided)
+	assert.Empty(t, h.admin.ReleasedIDs)
+}
+
 func TestLicenseE2E_OutdatedSwapKeepsTheInstalledLicenseOwned(t *testing.T) {
 	h := newLicenseEnvHarness(t)
 	h.admin.LicenseState = viewWithLicenses("LICENSED", artifactView(testLicenseArtifactID))
