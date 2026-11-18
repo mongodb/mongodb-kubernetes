@@ -446,7 +446,7 @@ class TestGetTaskSummary:
 
     @patch("scripts.evergreen.notify_master_failures.get_build_tasks")
     @patch("scripts.evergreen.notify_master_failures.get_version_info")
-    def test_excludes_end_of_build_tasks(self, mock_version, mock_tasks):
+    def test_excludes_ignored_tasks(self, mock_version, mock_tasks):
         mock_bv = MagicMock()
         mock_bv.build_id = "b1"
         mock_bv.build_variant = "mckci_release_promote"
@@ -454,7 +454,10 @@ class TestGetTaskSummary:
         mock_ver = make_mock_version()
         mock_ver.version.build_variants_status = [mock_bv]
         mock_version.return_value = mock_ver
-        mock_tasks.return_value = [make_mock_task("mckci_release_promote", "mckci_release_promote", "undispatched")]
+        mock_tasks.return_value = [
+            make_mock_task("mckci_release_promote", "mckci_release_promote", "undispatched"),
+            make_mock_task("build_test_image_ibm_z", "init_test_run_ibm_z", "started"),
+        ]
 
         failed, running, retried, total = get_task_summary(MagicMock(), "v1", EXCLUDED_TASKS)
 

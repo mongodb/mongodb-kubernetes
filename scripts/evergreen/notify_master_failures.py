@@ -46,19 +46,19 @@ from scripts.python.evergreen_api import get_evergreen_api
 # Terminal statuses that indicate a patch/version has completed
 COMPLETED_STATUSES = {"succeeded", "failed"}
 
-# End-of-build tasks to exclude from the report. They do not describe the
-# build result.
+# Tasks to exclude from the report. They do not describe the build result
+# this notification reports.
 EXCLUDED_TASKS = [
     "notify_master_build_status",
     "notify_flaky_tests_weekly",
     "mckci_release_promote",
+    "build_test_image_ibm_z",
 ]
 
 # Variants that do not block the notification when their tasks are still queued.
 # Their results are included when they finish before the report runs. Pending
 # tasks are reported as skipped instead of suppressing the notification.
 NON_BLOCKING_VARIANTS = {
-    "init_test_run_ibm_z",
     "e2e_smoke_ibm_z",
     "e2e_static_smoke_ibm_z",
     "e2e_static_smoke_ibm_z_ubi9_slim",
