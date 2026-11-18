@@ -49,7 +49,12 @@ def default_operator(namespace: str, operator_installation_config: dict[str, str
     image = proxy_image()
     if image is None:
         skip("MDB_MONGODB_PROXY_IMAGE is not set")
-    operator = get_default_operator(namespace, {**operator_installation_config, **proxy_helm_values(image)})
+    config = {
+        **operator_installation_config,
+        **proxy_helm_values(image),
+        "operator.mdbDefaultArchitecture": "static-ga",
+    }
+    operator = get_default_operator(namespace, config)
     if local_operator():
         # The proxy image reaches the operator through its environment, so the operator has to run in the cluster.
         run_operator_in_cluster(namespace)
