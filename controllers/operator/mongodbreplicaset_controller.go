@@ -1266,6 +1266,10 @@ func (r *ReplicaSetReconcilerHelper) OnDelete(ctx context.Context, obj runtime.O
 		if err := r.cleanOpsManagerState(ctx, rs, log); err != nil {
 			return err
 		}
+
+		if err := r.reconciler.deleteManagedCertificateObjects(ctx, rs, log); err != nil {
+			return err
+		}
 	}
 
 	r.reconciler.resourceWatcher.RemoveDependentWatchedResources(rs.ObjectKey())

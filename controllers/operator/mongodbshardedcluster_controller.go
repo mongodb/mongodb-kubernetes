@@ -1290,7 +1290,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		// cluster, so they have to be copied over for the pods to trust the deployment's CAs.
 		if sc.Spec.IsMultiCluster() {
 			replicateStatus := certs.ReplicateManagedCABundlesToMemberClusters(
-				ctx, r.commonController.client, sc.Namespace, r.managedCABundleNames(), r.managedCABundleTargets(), sc.GetOwnerLabels(), log)
+				ctx, r.commonController.client, sc.Namespace, r.managedCABundleNames(), r.managedCABundleTargets(), certs.ManagedCertificateOwnerLabels(sc), log)
 			if !replicateStatus.IsOK() {
 				return replicateStatus
 			}
@@ -1865,7 +1865,12 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 	sc := obj.(*mdbv1.MongoDB)
 
 	var errs error
+
 	if err := r.cleanOpsManagerState(ctx, sc, log); err != nil {
+		errs = stdErrors.Join(errs, err)
+	}
+
+	if err := r.commonController.deleteManagedCertificateObjects(ctx, sc, log); err != nil {
 		errs = stdErrors.Join(errs, err)
 	}
 
@@ -1877,6 +1882,11 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 			clusterName := item.Name
 			if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
 				errs = stdErrors.Join(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+			}
+			// After the StatefulSets are gone, because it removes the secrets their pods mount: the -pem
+			// secrets and the copies of the CA bundles, which carry no owner reference in a member cluster.
+			if err := deleteManagedCertificateObjectsInCluster(ctx, clusterClient, clusterName, sc, log); err != nil {
+				errs = stdErrors.Join(errs, err)
 			}
 		}
 	}

@@ -24,7 +24,9 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -224,6 +226,8 @@ func TestComponentCertificates(t *testing.T) {
 		got := componentCertificates(ctx, fakeClient, owner, baseOpts)
 		require.Len(t, got, 1)
 		assert.Equal(t, baseOpts.CertSecretName, got[0].certName)
+		// cert-manager writes these labels onto the issued secret, so the cleanup on deletion finds it.
+		assert.Equal(t, ManagedCertificateOwnerLabels(owner), got[0].spec.SecretTemplate.Labels)
 		// There is no clusterfile, so the members also present the member cert to each other.
 		assert.Equal(t, memberServerAndClientCertUsages, got[0].spec.Usages)
 		assert.Nil(t, got[0].spec.Subject, "member cert is SAN-only when internal auth is not x509")
@@ -1186,4 +1190,113 @@ func TestBundleDataWithPrevious(t *testing.T) {
 			assert.Equal(t, original, tc.existing, "the existing data must not be modified")
 		})
 	}
+}
+
+// The CA secrets have to carry the owner labels too: the operator's cleanup on deletion sweeps the
+// secrets by label, and cert-manager can write a CA secret again while the resource is being deleted.
+func TestEnsureSelfSignedCAAddsOwnerLabels(t *testing.T) {
+	ctx := context.Background()
+	res := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	})
+	c, _ := mock.NewDefaultFakeClient()
+
+	_, status := ensureSelfSignedCA(ctx, c, res, categoryServer)
+	require.True(t, status.IsOK(), status.Message())
+
+	cert := &certmanagerv1.Certificate{}
+	require.NoError(t, c.Get(ctx, types.NamespacedName{Name: managedCACertName(res, categoryServer), Namespace: resNamespace}, cert))
+	require.NotNil(t, cert.Spec.SecretTemplate, "the CA Certificate has to ask cert-manager for the owner labels")
+	assert.Equal(t, ManagedCertificateOwnerLabels(res), cert.Spec.SecretTemplate.Labels)
+}
+
+func TestEnsureIssuedSecretsAreOwned(t *testing.T) {
+	ctx := context.Background()
+	res := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	})
+
+	// The Certificate that issues the secret, and the secret it names.
+	certificate := &certmanagerv1.Certificate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mdb-managed-cert",
+			Namespace: resNamespace,
+			UID:       types.UID("11111111-1111-1111-1111-111111111111"),
+		},
+		Spec: certmanagerv1.CertificateSpec{SecretName: "mdb-managed-cert"},
+	}
+	ownerRef := certificateOwnerRef(certificate)
+	assert.Nil(t, ownerRef.Controller, "cert-manager may already be the secret's controller, and Kubernetes allows only one")
+
+	put := func(c kubernetesClient.Client, name string, ownerRefs []metav1.OwnerReference) corev1.Secret {
+		require.NoError(t, c.Create(ctx, certificate.DeepCopy()))
+		s := secret.Builder().SetName(name).SetNamespace(resNamespace).SetOwnerReferences(ownerRefs).Build()
+		require.NoError(t, secrets.SecretClient{KubeClient: c}.PutSecret(ctx, s, Unused))
+		return s
+	}
+
+	ownerUIDs := func(s corev1.Secret) []types.UID {
+		uids := make([]types.UID, 0, len(s.OwnerReferences))
+		for _, ref := range s.OwnerReferences {
+			uids = append(uids, ref.UID)
+		}
+		return uids
+	}
+
+	t.Run("a secret cert-manager wrote without an owner is owned by its Certificate", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		put(c, "mdb-managed-cert", nil)
+
+		status := ensureIssuedSecretsAreOwned(ctx, c, res, []string{"mdb-managed-cert"})
+		require.True(t, status.IsOK(), status.Message())
+
+		got, err := c.GetSecret(ctx, types.NamespacedName{Name: "mdb-managed-cert", Namespace: resNamespace})
+		require.NoError(t, err)
+		assert.Equal(t, []metav1.OwnerReference{ownerRef}, got.OwnerReferences)
+	})
+
+	t.Run("a secret that already has the owner is left alone", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		put(c, "mdb-managed-cert", []metav1.OwnerReference{ownerRef})
+		before, err := c.GetSecret(ctx, types.NamespacedName{Name: "mdb-managed-cert", Namespace: resNamespace})
+		require.NoError(t, err)
+
+		status := ensureIssuedSecretsAreOwned(ctx, c, res, []string{"mdb-managed-cert"})
+		require.True(t, status.IsOK(), status.Message())
+
+		after, err := c.GetSecret(ctx, types.NamespacedName{Name: "mdb-managed-cert", Namespace: resNamespace})
+		require.NoError(t, err)
+		assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "the secret must not be written again")
+	})
+
+	t.Run("cert-manager's own owner reference to the Certificate is not duplicated", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		// cert-manager makes the Certificate the controller of the secret when it runs with
+		// --enable-certificate-owner-ref: the same owner as the operator's, with the controller field
+		// set. Owner references are keyed by UID, so the operator has nothing to add.
+		certManagerRef := *metav1.NewControllerRef(certificate, certmanagerv1.SchemeGroupVersion.WithKind("Certificate"))
+		put(c, "mdb-managed-cert", []metav1.OwnerReference{certManagerRef})
+		before, err := c.GetSecret(ctx, types.NamespacedName{Name: "mdb-managed-cert", Namespace: resNamespace})
+		require.NoError(t, err)
+
+		status := ensureIssuedSecretsAreOwned(ctx, c, res, []string{"mdb-managed-cert"})
+		require.True(t, status.IsOK(), status.Message())
+
+		after, err := c.GetSecret(ctx, types.NamespacedName{Name: "mdb-managed-cert", Namespace: resNamespace})
+		require.NoError(t, err)
+		assert.Equal(t, []types.UID{certificate.UID}, ownerUIDs(after), "the Certificate appears once")
+		assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "the secret must not be written again")
+	})
+
+	t.Run("a secret that is not there yet is skipped", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient(certificate.DeepCopy())
+		status := ensureIssuedSecretsAreOwned(ctx, c, res, []string{"mdb-managed-cert"})
+		assert.True(t, status.IsOK(), status.Message())
+	})
+
+	t.Run("a Certificate that is not there fails", func(t *testing.T) {
+		c, _ := mock.NewDefaultFakeClient()
+		status := ensureIssuedSecretsAreOwned(ctx, c, res, []string{"mdb-managed-cert"})
+		assert.False(t, status.IsOK())
+	})
 }

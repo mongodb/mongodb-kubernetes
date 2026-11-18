@@ -56,6 +56,9 @@ func ClientCertificate(res CertificateOwner, user *userv1.MongoDBUser) (*certman
 	clientCert.Name = user.ClientCertificateName()
 	clientCert.Namespace = res.GetNamespace()
 	clientCert.Spec = certSpec(res, clientCertificateSigner(sec), user.ClientCertificateSecretName(), nil, sub.CommonName, clientCertSub, clientAuthCertUsages)
+	// The secret belongs to the user, not to the deployment, so it must not carry the deployment's
+	// labels: the cleanup on the deployment's deletion removes everything that carries them.
+	clientCert.Spec.SecretTemplate = nil
 	return clientCert, nil
 }
 

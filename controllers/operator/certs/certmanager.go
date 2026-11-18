@@ -393,6 +393,17 @@ func ensureCertificatesReady(
 		return nil, status, condition
 	}
 
+	// The secrets cert-manager writes carry no owner of their own, so give them one: without it they
+	// outlive the resource, and the next resource with the same name gets the old certificate back,
+	// because cert-manager compares a Certificate with its secret by name only.
+	names := make([]string, 0, len(writtenCertificates))
+	for _, cert := range writtenCertificates {
+		names = append(names, cert.name)
+	}
+	if status := ensureIssuedSecretsAreOwned(ctx, c, res, names); !status.IsOK() {
+		return nil, status, IssuanceFailedCondition(status.Message())
+	}
+
 	// every issued certificate must have the key usages it was requested with
 	if status := verifyKeyUsagesInIssuedCert(ctx, c, res, required); !status.IsOK() {
 		return nil, status, IssuanceFailedCondition(status.Message())
@@ -732,12 +743,13 @@ func certSpec(
 	usages []certmanagerv1.KeyUsage,
 ) certmanagerv1.CertificateSpec {
 	spec := certmanagerv1.CertificateSpec{
-		SecretName: secretName,
-		DNSNames:   dnsNames,
-		CommonName: commonName,
-		Subject:    subject,
-		Usages:     usages,
-		IssuerRef:  signerIssuerRef(res, cat),
+		SecretName:     secretName,
+		DNSNames:       dnsNames,
+		CommonName:     commonName,
+		Subject:        subject,
+		Usages:         usages,
+		IssuerRef:      signerIssuerRef(res, cat),
+		SecretTemplate: &certmanagerv1.CertificateSecretTemplate{Labels: ManagedCertificateOwnerLabels(res)},
 	}
 	if cfg := certCategoryConfig(res, cat); cfg != nil {
 		spec.Duration = cfg.Duration
@@ -1005,6 +1017,9 @@ func ensureSelfSignedCA(ctx context.Context, c kubernetesClient.Client, res Cert
 			PrivateKey: &certmanagerv1.CertificatePrivateKey{
 				RotationPolicy: certmanagerv1.RotationPolicyAlways,
 			},
+			// cert-manager puts these labels on the secret it issues, so the operator's cleanup on
+			// deletion finds it by label, like the other secrets of the resource.
+			SecretTemplate: &certmanagerv1.CertificateSecretTemplate{Labels: ManagedCertificateOwnerLabels(res)},
 		},
 	}
 	generation, status := ensureCertificate(ctx, c, res, caCert)
@@ -1331,6 +1346,49 @@ func readCertOrgUnits(ctx context.Context, c kubernetesClient.Client, res Certif
 		return nil, nil, workflow.Pending("Waiting for cert-manager to write the certificate secret %s", secretName)
 	}
 	return cert.Subject.Organization, cert.Subject.OrganizationalUnit, workflow.OK()
+}
+
+// ensureIssuedSecretsAreOwned gives every secret cert-manager wrote for this resource an owner
+// reference to the Certificate that issued it. cert-manager writes those secrets without an owner
+// reference, so without one they would outlive the resource. The Certificate is owned by the
+// resource, so deleting the resource deletes the Certificate, and that deletes the secret.
+func ensureIssuedSecretsAreOwned(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, names []string) workflow.Status {
+	for _, name := range names {
+		cert := &certmanagerv1.Certificate{}
+		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: res.GetNamespace()}, cert); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to read the Certificate %s: %w", name, err))
+		}
+
+		s := corev1.Secret{}
+		if err := c.Get(ctx, types.NamespacedName{Name: cert.Spec.SecretName, Namespace: res.GetNamespace()}, &s); err != nil {
+			if apiErrors.IsNotFound(err) {
+				// The certificate is ready but the secret is not there yet, which the next reconcile sees.
+				continue
+			}
+			return workflow.Failed(err)
+		}
+
+		// if the cert-managed is installed with `--enable-certificate-owner-ref` flag the cert secret
+		// would already have the certificate as owner. So check if the certificate is already present
+		// in ownerRefs of secret.
+		if slices.ContainsFunc(s.OwnerReferences, func(ref metav1.OwnerReference) bool { return ref.UID == cert.GetUID() }) {
+			continue
+		}
+		s.OwnerReferences = append(s.OwnerReferences, certificateOwnerRef(cert))
+		if err := c.Update(ctx, &s); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to set the owner of the secret %s: %w", s.GetName(), err))
+		}
+	}
+	return workflow.OK()
+}
+
+func certificateOwnerRef(cert *certmanagerv1.Certificate) metav1.OwnerReference {
+	return metav1.OwnerReference{
+		APIVersion: certmanagerv1.SchemeGroupVersion.String(),
+		Kind:       "Certificate",
+		Name:       cert.GetName(),
+		UID:        cert.GetUID(),
+	}
 }
 
 // readIssuedCertificate reads the leaf certificate cert-manager wrote into a TLS secret. found is
