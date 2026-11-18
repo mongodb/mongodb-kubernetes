@@ -1,5 +1,5 @@
 ---
-kind: breaking
+kind: other
 date: 2026-11-12
 ---
 
