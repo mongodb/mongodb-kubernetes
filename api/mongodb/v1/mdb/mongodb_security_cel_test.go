@@ -6,10 +6,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	mdb "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
