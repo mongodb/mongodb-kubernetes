@@ -335,9 +335,11 @@ const (
 	TLSCaMountPath   = PvcMmsHomeMountPath + "/tls/ca"
 
 	// Annotation keys used by the operator
-	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
-	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
-	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
+	LastAchievedSpec                = "mongodb.com/v1.lastSuccessfulConfiguration"
+	LastAchievedRsMemberIds         = "mongodb.com/v1.lastAchievedRsMemberIds"
+	LastConfiguredRoles             = "mongodb.com/v1.lastConfiguredRoles"
+	LicenseRotateIdentityAnnotation = "mongodb.com/license-rotate-identity"
+	LicenseRecomputeAnnotation      = "mongodb.com/license-recompute"
 
 	// Migration annotation keys. MigrationDryRunAnnotation triggers migration dry-run mode: when set to "true"
 	// on a MongoDB CR, the operator launches a connectivity validation Job instead of performing the

@@ -1304,3 +1304,11 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
 	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
 }
+
+func (om *MongoDBOpsManager) LicenseRotateIdentityDue() bool {
+	return om.Annotations[util.LicenseRotateIdentityAnnotation] == annotationTrue
+}
+
+func (om *MongoDBOpsManager) LicenseRecomputeDue() bool {
+	return om.Annotations[util.LicenseRecomputeAnnotation] == annotationTrue
+}
