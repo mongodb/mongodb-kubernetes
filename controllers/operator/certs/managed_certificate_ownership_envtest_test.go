@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"math/big"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -30,7 +32,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/test/envtest/env"
@@ -40,10 +41,13 @@ import (
 // real API server, because what it checks is what the API server stores on the secrets the operator
 // writes, owner references and their UID included.
 //
-// No CRDs are installed: the test builds the resources the operator manages in memory and drives the
-// code that writes the secrets, not the controllers.
+// The only CRD installed is a minimal cert-manager Certificate, so that the operator can create the
+// Certificates that own the secrets cert-manager writes. The test builds the resources the operator
+// manages in memory and drives the code that writes the secrets, not the controllers.
 func TestMain(m *testing.M) {
-	os.Exit(env.RunShared(m, env.WithCRDs()))
+	os.Exit(env.RunShared(m, func(e *envtest.Environment) {
+		e.CRDDirectoryPaths = []string{filepath.Join("testdata", "crds")}
+	}))
 }
 
 const (
@@ -94,13 +98,14 @@ func TestManagedCertificateObjectsAreCleanedUp(t *testing.T) {
 			// removed with the resource, by owner or by labels. The E2Es check that they are then deleted.
 
 			// 1. The leaf certificates: member, clusterfile (one of each per component) and agent.
-			//    Build the Certificate the operator would create for each, check that it asks cert-manager
+			//    Create the Certificate the operator creates for each, check that it asks cert-manager
 			//    to put the resource's labels on its secret, and then play cert-manager: write the secret
 			//    it would issue the certificate into, with those labels and no owner.
 			issuedNames := make([]string, 0)
 			for _, opts := range tc.issuedOptions {
 				for _, cert := range componentCertificates(ctx, c, res, opts) {
 					assertCertSpecCarriesOwnerLabels(t, res, cert)
+					ensureEnvtestCertificate(t, c, res, cert)
 					createCertManagerSecret(t, c, cert.certName, cert.spec.SecretTemplate.Labels)
 					issuedNames = append(issuedNames, cert.certName)
 				}
@@ -108,25 +113,32 @@ func TestManagedCertificateObjectsAreCleanedUp(t *testing.T) {
 			agentCert, ok := agentCertificate(res)
 			require.True(t, ok, "the fixture has to require an agent certificate")
 			assertCertSpecCarriesOwnerLabels(t, res, agentCert)
+			ensureEnvtestCertificate(t, c, res, agentCert)
 			createCertManagerSecret(t, c, agentCert.certName, agentCert.spec.SecretTemplate.Labels)
 			issuedNames = append(issuedNames, agentCert.certName)
 
 			// 2. The two self-signed CAs, server and client. Play cert-manager again and write their
 			//    secrets, with the labels the operator asks for: cert-manager can issue a CA secret
 			//    again while the resource is being deleted, and the copy it writes then has no owner,
-			//    so the cleanup has to find it by label like the other secrets.
+			//    so the cleanup has to find it by label like the other secrets. Their Certificates are
+			//    created with the same code as above; only their names matter here.
 			caNames := []string{managedCACertName(res, categoryServer), managedCACertName(res, categoryClient)}
 			for _, name := range caNames {
+				caCert := certToEnsure{certName: name, spec: certmanagerv1.CertificateSpec{SecretName: name}}
+				ensureEnvtestCertificate(t, c, res, caCert)
 				createCertManagerSecret(t, c, name, res.GetOwnerLabels())
 			}
 
 			// 3. The operator gives every secret cert-manager wrote (steps 1 and 2) an owner reference to
-			//    the resource. Check each one now has it, so it is removed by owner.
+			//    the Certificate that issued it, and the Certificate is owned by the resource. Check both
+			//    links, so the secret is removed with the Certificate, and the Certificate with the resource.
 			names := append(caNames, issuedNames...)
 			require.True(t, ensureIssuedSecretsAreOwned(ctx, c, res, names).IsOK())
 			for _, name := range names {
+				cert := getEnvtestCertificate(t, c, name)
+				assertRemovedByOwner(t, cert, kube.BaseOwnerReference(res))
 				s := getSecret(t, c, name)
-				assertRemovedByOwner(t, &s, ownerRefsForIssuedSecrets(res))
+				assertRemovedByOwner(t, &s, []metav1.OwnerReference{certificateOwnerRef(cert)})
 			}
 
 			// 4. The CA bundle ConfigMaps the pods mount, server and client.
@@ -189,45 +201,63 @@ func TestManagedCertificateObjectsAreCleanedUp(t *testing.T) {
 
 // TestManagedCertificateIssuedSecretKeepsCertManagerOwner covers cert-manager running with
 // --enable-certificate-owner-ref, which makes the Certificate the controller of the secret it writes.
-// Kubernetes allows only one controller per object, so the operator's owner reference must not be one:
-// otherwise the API server rejects the secret, whichever of the two writes it second.
+// That is the same owner the operator adds, so the secret has to end up with one reference to it,
+// whichever of the two writes it first: the API server rejects two references to the same owner.
 func TestManagedCertificateIssuedSecretKeepsCertManagerOwner(t *testing.T) {
 	ctx := context.Background()
 	c := newEnvtestClient(t)
 	res := managedCertTopologies(secrets.SecretClient{KubeClient: c})[0].resource
 
-	certificate := &certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{
-		Name: "cert-manager-owned",
-		UID:  types.UID("22222222-2222-2222-2222-222222222222"),
-	}}
-	certManagerRef := *metav1.NewControllerRef(certificate, certmanagerv1.SchemeGroupVersion.WithKind("Certificate"))
+	createCertificate := func(name string) *certmanagerv1.Certificate {
+		cert := certToEnsure{certName: name, spec: certmanagerv1.CertificateSpec{SecretName: name}}
+		ensureEnvtestCertificate(t, c, res, cert)
+		return getEnvtestCertificate(t, c, name)
+	}
+	certManagerRef := func(cert *certmanagerv1.Certificate) metav1.OwnerReference {
+		return *metav1.NewControllerRef(cert, certmanagerv1.SchemeGroupVersion.WithKind("Certificate"))
+	}
 
 	t.Run("cert-manager writes the secret first", func(t *testing.T) {
+		cert := createCertificate("cert-manager-first")
 		require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 			Name:            "cert-manager-first",
 			Namespace:       managedCertTestNamespace,
-			OwnerReferences: []metav1.OwnerReference{certManagerRef},
+			OwnerReferences: []metav1.OwnerReference{certManagerRef(cert)},
 		}}))
 
 		status := ensureIssuedSecretsAreOwned(ctx, c, res, []string{"cert-manager-first"})
 		require.True(t, status.IsOK(), status.Message())
 
 		s := getSecret(t, c, "cert-manager-first")
-		assert.True(t, secret.HasOwnerReferences(s, []metav1.OwnerReference{certManagerRef}), "cert-manager's owner has to stay")
-		assertRemovedByOwner(t, &s, ownerRefsForIssuedSecrets(res))
+		assert.Equal(t, []metav1.OwnerReference{certManagerRef(cert)}, s.OwnerReferences,
+			"cert-manager's reference already points at the Certificate, so the operator adds nothing")
 	})
 
 	t.Run("the operator owns the secret first", func(t *testing.T) {
+		cert := createCertificate("operator-first")
 		require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 			Name:      "operator-first",
 			Namespace: managedCertTestNamespace,
 		}}))
 		require.True(t, ensureIssuedSecretsAreOwned(ctx, c, res, []string{"operator-first"}).IsOK())
-
-		// cert-manager's next write adds its own owner reference.
 		s := getSecret(t, c, "operator-first")
-		s.OwnerReferences = append(s.OwnerReferences, certManagerRef)
-		require.NoError(t, c.Update(ctx, &s), "cert-manager has to be able to make the Certificate the controller of its secret")
+		assert.Equal(t, []metav1.OwnerReference{certificateOwnerRef(cert)}, s.OwnerReferences)
+
+		// cert-manager's next write applies its own reference to the same Certificate, with server-side
+		// apply, which is how cert-manager writes the secret. The API server has to accept it and keep
+		// one reference, now with cert-manager's controller field.
+		apply := &corev1.Secret{
+			TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "operator-first",
+				Namespace:       managedCertTestNamespace,
+				OwnerReferences: []metav1.OwnerReference{certManagerRef(cert)},
+			},
+		}
+		require.NoError(t, c.Patch(ctx, apply, client.Apply, client.FieldOwner("cert-manager-certificates-issuing"), client.ForceOwnership),
+			"cert-manager has to be able to make the Certificate the controller of its secret")
+		s = getSecret(t, c, "operator-first")
+		assert.Equal(t, []metav1.OwnerReference{certManagerRef(cert)}, s.OwnerReferences)
 	})
 }
 
@@ -486,6 +516,22 @@ func getConfigMap(t *testing.T, c kubernetesClient.Client, name string) corev1.C
 	cm, err := c.GetConfigMap(context.Background(), types.NamespacedName{Name: name, Namespace: managedCertTestNamespace})
 	require.NoError(t, err)
 	return cm
+}
+
+// ensureEnvtestCertificate creates the Certificate with the operator's own code, which gives it the
+// resource as its owner.
+func ensureEnvtestCertificate(t *testing.T, c kubernetesClient.Client, res CertificateOwner, cert certToEnsure) {
+	t.Helper()
+	_, status := ensureCertificate(context.Background(), c, res, cert)
+	require.True(t, status.IsOK(), status.Message())
+}
+
+func getEnvtestCertificate(t *testing.T, c kubernetesClient.Client, name string) *certmanagerv1.Certificate {
+	t.Helper()
+	cert := &certmanagerv1.Certificate{}
+	require.NoError(t, c.Get(context.Background(),
+		types.NamespacedName{Name: name, Namespace: managedCertTestNamespace}, cert))
+	return cert
 }
 
 func getSecret(t *testing.T, c kubernetesClient.Client, name string) corev1.Secret {

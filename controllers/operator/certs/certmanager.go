@@ -32,7 +32,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
-	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -1351,41 +1350,46 @@ func readCertOrgUnits(ctx context.Context, c kubernetesClient.Client, res Certif
 }
 
 // ensureIssuedSecretsAreOwned gives every secret cert-manager wrote for this resource an owner
-// reference to the resource, so Kubernetes deletes the secrets together with it. cert-manager writes
-// those secrets without an owner reference, and the resource's own deletion would leave them behind.
+// reference to the Certificate that issued it. cert-manager writes those secrets without an owner
+// reference, so without one they would outlive the resource. The Certificate is owned by the
+// resource, so deleting the resource deletes the Certificate, and that deletes the secret.
 func ensureIssuedSecretsAreOwned(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, names []string) workflow.Status {
-	ownerRefs := ownerRefsForIssuedSecrets(res)
 	for _, name := range names {
+		cert := &certmanagerv1.Certificate{}
+		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: res.GetNamespace()}, cert); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to read the Certificate %s: %w", name, err))
+		}
+
 		s := corev1.Secret{}
-		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: res.GetNamespace()}, &s); err != nil {
+		if err := c.Get(ctx, types.NamespacedName{Name: cert.Spec.SecretName, Namespace: res.GetNamespace()}, &s); err != nil {
 			if apiErrors.IsNotFound(err) {
 				// The certificate is ready but the secret is not there yet, which the next reconcile sees.
 				continue
 			}
 			return workflow.Failed(err)
 		}
-		if secret.HasOwnerReferences(s, ownerRefs) {
+
+		// if the cert-managed is installed with `--enable-certificate-owner-ref` flag the cert secret
+		// would already have the certificate as owner. So check if the certificate is already present
+		// in ownerRefs of secret.
+		if slices.ContainsFunc(s.OwnerReferences, func(ref metav1.OwnerReference) bool { return ref.UID == cert.GetUID() }) {
 			continue
 		}
-		s.OwnerReferences = append(s.OwnerReferences, ownerRefs...)
+		s.OwnerReferences = append(s.OwnerReferences, certificateOwnerRef(cert))
 		if err := c.Update(ctx, &s); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to set the owner of the secret %s: %w", name, err))
+			return workflow.Failed(xerrors.Errorf("failed to set the owner of the secret %s: %w", s.GetName(), err))
 		}
 	}
 	return workflow.OK()
 }
 
-// ownerRefsForIssuedSecrets returns the owner reference the operator puts on the secrets cert-manager
-// writes. It is not a controller reference: when cert-manager runs with
-// --enable-certificate-owner-ref, it makes the Certificate the controller of its secret, and
-// Kubernetes allows only one controller, so a second one would make the API server reject the secret.
-func ownerRefsForIssuedSecrets(res CertificateOwner) []metav1.OwnerReference {
-	ownerRefs := certificateOwnerReferences(res)
-	for i := range ownerRefs {
-		// set the controller to nil because the certificate secret might already have one Controller owner ref
-		ownerRefs[i].Controller = nil
+func certificateOwnerRef(cert *certmanagerv1.Certificate) metav1.OwnerReference {
+	return metav1.OwnerReference{
+		APIVersion: certmanagerv1.SchemeGroupVersion.String(),
+		Kind:       "Certificate",
+		Name:       cert.GetName(),
+		UID:        cert.GetUID(),
 	}
-	return ownerRefs
 }
 
 // DeleteManagedCertificates deletes the Certificates the operator created for a resource, before
