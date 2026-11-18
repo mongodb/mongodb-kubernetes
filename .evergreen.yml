@@ -1892,7 +1892,7 @@ buildvariants:
 
   - name: e2e_static_om90_kind_ubi
     display_name: e2e_static_om90_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -1925,7 +1925,7 @@ buildvariants:
 
   - name: e2e_static_om80_kind_ubi
     display_name: e2e_static_om80_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "static", "static_light" ]
+    tags: [ "staging", "e2e_test_suite", "static" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2533,7 +2533,7 @@ buildvariants:
 
   - name: build_om80_images
     display_name: build_om80_images
-    tags: [ "staging", "om8", "static", "non_static", "static_light" ]
+    tags: [ "staging", "om8", "static", "non_static" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2541,7 +2541,7 @@ buildvariants:
 
   - name: build_om90_images
     display_name: build_om90_images
-    tags: [ "staging", "om9", "static", "non_static" ]
+    tags: [ "staging", "om9", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:

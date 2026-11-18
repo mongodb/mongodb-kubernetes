@@ -154,7 +154,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:e2e-default`    | `e2e_test_suite`     | ~540 tasks, e2e suite minus static, OM7 and race variants; close to the former default PR set                  |
 | `evergreen:e2e-medium`     | `e2e_test_suite`     | ~320 tasks tagged `e2e_medium` across static/non-static, OM 7/8/9, multi-cluster                               |
 | `evergreen:e2e-light`      | `e2e_test_suite`     | ~170 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
-| `evergreen:static_light`   | `static_light`     | ~230 tasks: one static run per scenario (MDB, OM8, operator, OLM, custom domain, multi-cluster) + shared init/build |
+| `evergreen:static_light`   | `static_light`     | ~230 tasks: one static run per scenario (MDB, OM9, operator, OLM, custom domain, multi-cluster) + shared init/build |
 | `evergreen:e2e-non-static` | `non_static`         | Non-static e2e variants + shared init/build                                                                    |
 | `evergreen:multi-cluster`  | `multi_cluster`      | Non-static multi-cluster variants only (kind, 2 clusters, OM AppDB, OM70 upgrade, OM80 search, operator-not-in-mesh) |
 | `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (excluding OpenShift)                                                                        |
