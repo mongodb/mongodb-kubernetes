@@ -28,6 +28,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -218,6 +219,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		if status := r.ensureManagedCertificates(ctx, &mrs, log); !status.IsOK() {
 			return r.updateStatus(ctx, &mrs, status, log)
 		}
+	} else if meta.RemoveStatusCondition(&mrs.Status.Conditions, certs.ConditionCertificatesReady) {
+		// The deployment no longer uses operator-managed certificates, so the condition that reports
+		// them has to go with the block. Leaving it behind would keep saying the certificates are
+		// ready on a deployment that no longer has any.
+		log.Debug("Removed the CertificatesReady condition: the deployment no longer uses operator-managed certificates")
 	}
 
 	// If tls is enabled we need to configure the "processes" array in opsManager/Cloud Manager with the

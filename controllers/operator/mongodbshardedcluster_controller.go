@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -1299,6 +1300,11 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		if status := r.commonController.removeFulfilledPruneAnnotation(ctx, sc, pruneApplied); !status.IsOK() {
 			return status
 		}
+	} else if meta.RemoveStatusCondition(&sc.Status.Conditions, certs.ConditionCertificatesReady) {
+		// The deployment no longer uses operator-managed certificates, so the condition that reports
+		// them has to go with the block. Leaving it behind would keep saying the certificates are
+		// ready on a deployment that no longer has any.
+		log.Debug("Removed the CertificatesReady condition: the deployment no longer uses operator-managed certificates")
 	}
 
 	workflowStatus := r.ensureSSLCertificates(ctx, sc, log)

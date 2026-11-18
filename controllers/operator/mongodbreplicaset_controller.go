@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -320,6 +321,11 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		if status := reconciler.removeFulfilledPruneAnnotation(ctx, rs, pruneApplied); !status.IsOK() {
 			return r.updateStatus(ctx, status)
 		}
+	} else if meta.RemoveStatusCondition(&rs.Status.Conditions, certs.ConditionCertificatesReady) {
+		// The deployment no longer uses operator-managed certificates, so the condition that reports
+		// them has to go with the block. Leaving it behind would keep saying the certificates are
+		// ready on a deployment that no longer has any.
+		r.log.Debug("Removed the CertificatesReady condition: the deployment no longer uses operator-managed certificates")
 	}
 
 	var databaseSecretPath string
