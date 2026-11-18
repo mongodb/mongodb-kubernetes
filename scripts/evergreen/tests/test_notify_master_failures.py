@@ -278,9 +278,23 @@ class TestFormatSlackMessage:
             b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
         )
         assert "Build Passed (Partial)" in message["blocks"][0]["text"]["text"]
-        assert "Pending tasks omitted from completion checks" in text
+        assert "Skipped variants" in text
         assert "e2e_smoke_ibm_z" in text
         assert "Completed results remain included" in text
+
+    def test_partial_pass_caps_skipped_variants_at_five(self):
+        skipped = [make_mock_task("e2e_replica_set", f"e2e_variant_{i}", "undispatched") for i in range(1, 8)]
+        version_info = make_mock_version(status="started")
+        message = format_slack_message(version_info, skipped_tasks=skipped)
+        text = " ".join(
+            b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
+        )
+        for i in range(1, 6):
+            assert f"e2e_variant_{i}" in text
+        assert "e2e_variant_6" not in text
+        assert "e2e_variant_7" not in text
+        assert "and 2 more" in text
+        assert "task(s)" not in text
 
     def test_failure_includes_skipped_variants(self):
         skipped = [make_mock_task("e2e_replica_set", "e2e_smoke_ibm_z", "undispatched")]
@@ -290,7 +304,7 @@ class TestFormatSlackMessage:
             b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
         )
         assert "Master Build Failures" in message["blocks"][0]["text"]["text"]
-        assert "Pending tasks omitted from completion checks" in text
+        assert "Skipped variants" in text
         assert "e2e_smoke_ibm_z" in text
 
 
@@ -585,7 +599,7 @@ class TestMainOutputBehavior:
         text = " ".join(
             block["text"]["text"] for block in message["blocks"] if block["type"] == "section" and "text" in block
         )
-        assert "Pending tasks omitted from completion checks" in text
+        assert "Skipped variants" in text
         assert "e2e_smoke_ibm_z" in text
 
     def test_no_slack_for_blocking_task_with_skipped_task(self, mocks, monkeypatch):

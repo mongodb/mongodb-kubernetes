@@ -368,8 +368,6 @@ def format_slack_message(
         summary_text = (
             f"{run_prefix}{branch_label} build passed for commit {version_info.revision[:8]} by {version_info.author}"
         )
-        if has_skipped:
-            summary_text += f" with {len(skipped_tasks)} skipped task(s)"
         if retry_summary:
             summary_text = f"{summary_text} ({retry_summary})"
 
@@ -410,19 +408,17 @@ def format_slack_message(
 
     # Skipped variants: pending tasks that did not block this report.
     if skipped_tasks:
-        skipped_by_variant: dict[str, int] = {}
-        for task in skipped_tasks:
-            skipped_by_variant[task.build_variant] = skipped_by_variant.get(task.build_variant, 0) + 1
-        skipped_lines = [f"*{variant}*: {count} task(s)" for variant, count in sorted(skipped_by_variant.items())]
+        skipped_variants = sorted({task.build_variant for task in skipped_tasks})
+        skipped_lines = [f"• {variant}" for variant in skipped_variants[:5]]
+        if len(skipped_variants) > 5:
+            skipped_lines.append(f"_and {len(skipped_variants) - 5} more_")
         blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        "*Pending tasks omitted from completion checks:*\n"
-                        + "\n".join(skipped_lines)
-                        + "\n_Completed results remain included._"
+                        "*Skipped variants:*\n" + "\n".join(skipped_lines) + "\n_Completed results remain included._"
                     ),
                 },
             }
