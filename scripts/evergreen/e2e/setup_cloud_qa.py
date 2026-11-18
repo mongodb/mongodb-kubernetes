@@ -365,23 +365,27 @@ def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[List[Di
     return old_keys, new_keys
 
 
-def clean_unused_keys(org_id: str, deadline: float):
+def clean_unused_keys(org_id: str, deadline: float) -> List[str]:
     """Iterates over all existing keys in the organization and removes the leftovers.
     Stops early when Cloud QA looks unhealthy or the deadline has passed, the next run continues.
     Keeps keys:
     - older than minutes_interval
     - currently used by the script (USER_OWNER env variable)
     - containing "EVG" or "NOT_DELETE" in their description
+    Returns the problems to report: a stop, and the keys that could not be removed.
     """
     keys, newer_keys = get_keys_older_than(org_id, minutes_interval=140)
     print(f"found {len(keys)} keys for potential removal")
     deleted_keys = []
     kept_keys = []
+    failed_keys = []
+    stopped = None
     consecutive_failures = 0
 
     for key in keys:
         if time.monotonic() > deadline:
-            print("Stopping: the time budget is exhausted")
+            stopped = "because the time budget is exhausted"
+            print(f"Stopping {stopped}")
             break
 
         if not keep_the_key(key):
@@ -393,12 +397,14 @@ def clean_unused_keys(org_id: str, deadline: float):
             except Exception as e:
                 print("Got an exception trying to remove the key", e)
                 kept_keys.append(key)
+                failed_keys.append(key)
                 consecutive_failures += 1
         else:
             print("Keeping the key {} ({})".format(key["publicKey"], key["desc"]))
             kept_keys.append(key)
         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-            print(f"Stopping: {consecutive_failures} consecutive failures")
+            stopped = f"after {consecutive_failures} consecutive failures"
+            print(f"Stopping {stopped}")
             break
 
     not_attempted = len(keys) - len(deleted_keys) - len(kept_keys)
@@ -411,15 +417,23 @@ def clean_unused_keys(org_id: str, deadline: float):
         print(f"\t{key['publicKey']}\t{key['desc']}")
     print("----------")
 
+    problems = []
+    if stopped:
+        problems.append(f"stopped {stopped}, {not_attempted} keys were not attempted")
+    if failed_keys:
+        problems.append(f"{len(failed_keys)} keys could not be removed")
+    return problems
+
 
 def keep_the_key(key: Dict) -> bool:
     """Returns True if the key shouldn't be removed"""
     return key["publicKey"] == os.getenv(USER_OWNER).lower() or "EVG" in key["desc"] or "NOT_DELETE" in key["desc"]
 
 
-def clean_unused_projects(org_id: str, deadline: float):
+def clean_unused_projects(org_id: str, deadline: float) -> List[str]:
     """Iterates over all existing projects in the organization and removes the leftovers.
     Stops early when Cloud QA looks unhealthy or the deadline has passed, the next run continues.
+    Returns the problems to report: a stop, and the projects that could not be removed, not counting conflicts.
     """
     projects, newer_projects = get_projects_older_than(org_id, minutes_interval=140)
     print(f"found {len(projects)} projects for potential removal")
@@ -427,29 +441,33 @@ def clean_unused_projects(org_id: str, deadline: float):
     deleted_projects = []
     gone_projects = []
     kept_projects = []
+    failed_projects = []
+    stopped = None
     consecutive_failures = 0
 
     for project in projects:
         if time.monotonic() > deadline:
-            print("Stopping: the time budget is exhausted")
+            stopped = "because the time budget is exhausted"
+            print(f"Stopping {stopped}")
             break
 
         print("Removing the project {} ({})".format(project["id"], project["name"]))
         status_code = remove_group_by_id(project["id"]).status_code
         if status_code == 202:
             deleted_projects.append(project["id"])
+            consecutive_failures = 0
         elif status_code == 404:
             gone_projects.append(project["id"])
+            consecutive_failures = 0
         else:
             kept_projects.append(project)
-
-        # a conflict is a problem of the project itself, any other failure points at Cloud QA or the credentials
-        if status_code in (202, 404):
-            consecutive_failures = 0
-        elif status_code != 409:
-            consecutive_failures += 1
+            # a conflict is a problem of the project itself, any other failure points at Cloud QA or the credentials
+            if status_code != 409:
+                failed_projects.append(project["id"])
+                consecutive_failures += 1
         if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-            print(f"Stopping: {consecutive_failures} consecutive failures")
+            stopped = f"after {consecutive_failures} consecutive failures"
+            print(f"Stopping {stopped}")
             break
 
     not_attempted = len(projects) - len(deleted_projects) - len(gone_projects) - len(kept_projects)
@@ -463,9 +481,18 @@ def clean_unused_projects(org_id: str, deadline: float):
         print(f"\t{project['name']}\t{project['id']}")
     print("----------")
 
+    problems = []
+    if stopped:
+        problems.append(f"stopped {stopped}, {not_attempted} projects were not attempted")
+    if failed_projects:
+        problems.append(f"{len(failed_projects)} projects could not be removed, not counting conflicts")
+    return problems
 
-def unconfigure_all():
-    """Tries to remove the project and API Key from Cloud-QA, then the old projects and keys within one time budget."""
+
+def unconfigure_all() -> List[str]:
+    """Tries to remove the project and API Key from Cloud-QA, then the old projects and keys within one time budget.
+    Returns the problems to report.
+    """
     deadline = time.monotonic() + TIME_BUDGET_MINUTES * 60
     env_file_exists = True
     try:
@@ -499,10 +526,12 @@ def unconfigure_all():
             print("Got an exception trying to remove Api Key", e)
 
     # the keys are cleaned even when the projects cannot be listed or removed
+    problems = []
     try:
-        clean_unused_projects(org, deadline)
+        problems += clean_unused_projects(org, deadline)
     finally:
-        clean_unused_keys(org, deadline)
+        problems += clean_unused_keys(org, deadline)
+    return problems
 
 
 def unconfigure_from_used_project():
@@ -580,12 +609,18 @@ def main() -> int:
         print("Configuring Cloud QA")
         configure()
     elif sys.argv[1] == "delete_all":
+        problems = []
         for i, _ in enumerate(ORG_IDS):
             ORG_ID = ORG_IDS[i]
             USER_OWNER = USER_OWNERS[i]
             APIKEY_OWNER = APIKEY_OWNERS[i]
             print(f"Removing all project and api key from Cloud QA which are older than X for {ORG_ID}")
-            unconfigure_all()
+            problems += unconfigure_all()
+        if problems:
+            print("Cloud QA cleanup problems:")
+            for problem in problems:
+                print(f"  {problem}")
+            return 1
     else:
         return argv_error()
     return 0
