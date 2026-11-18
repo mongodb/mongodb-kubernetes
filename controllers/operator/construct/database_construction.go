@@ -408,7 +408,12 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 }
 
 func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
-	stsOptions := stsOptFunc(mdb)
+	return DatabaseStatefulSetFromOptions(mdb, stsOptFunc(mdb), log)
+}
+
+// DatabaseStatefulSetFromOptions builds the StatefulSet from options that are already final. Callers
+// that read a Secret to fill the options in build them once and pass the value here.
+func DatabaseStatefulSetFromOptions(mdb mdbv1.MongoDB, stsOptions DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
 	dbSts := DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
 
 	if len(stsOptions.Annotations) > 0 {

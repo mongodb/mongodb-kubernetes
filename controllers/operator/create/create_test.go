@@ -48,12 +48,12 @@ func init() {
 
 // reconcileDatabase follows the controller order: read the credential, build the StatefulSet, then apply it.
 func reconcileDatabase(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, mdb mdbv1.MongoDB, options func(mdbv1.MongoDB) construct.DatabaseStatefulSetOptions) (*appsv1.StatefulSet, error) {
-	options, err := WithAgentCredential(ctx, secretClient, mdb.Namespace, mdb, options)
-	if err != nil {
+	opts := options(mdb)
+	if err := SetAgentCredential(ctx, secretClient, mdb.Namespace, &opts); err != nil {
 		return nil, err
 	}
-	sts := construct.DatabaseStatefulSet(mdb, options, zap.S())
-	return DatabaseInKubernetes(ctx, client, secretClient, mdb, sts, options, zap.S())
+	sts := construct.DatabaseStatefulSetFromOptions(mdb, opts, zap.S())
+	return DatabaseInKubernetes(ctx, client, secretClient, mdb, sts, opts, zap.S())
 }
 
 func TestDatabaseAgentSettingsDelivery(t *testing.T) {
@@ -68,7 +68,7 @@ func TestDatabaseAgentSettingsDelivery(t *testing.T) {
 			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture))
 			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
 			sts.Spec.UpdateStrategy.Type = appsv1.OnDeleteStatefulSetStrategyType
-			created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+			created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, (options)(*mdb), zap.S())
 			require.NoError(t, err)
 			assert.Equal(t, sts.Spec.UpdateStrategy, created.Spec.UpdateStrategy)
 			cm, err := fakeClient.GetConfigMap(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-settings"))
@@ -93,7 +93,7 @@ func TestDatabaseAgentSettingsDelivery(t *testing.T) {
 			assert.NotEmpty(t, created.Spec.Template.Annotations[construct.AgentSettingsHash])
 			stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
 			require.NoError(t, err)
-			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, (options)(*mdb), zap.S())
 			require.NoError(t, err)
 			repeated, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
 			require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestDatabaseAgentCredentialOverrideWithSecretProjection(t *testing.T) {
 			}}}}
 			options := construct.ReplicaSetOptions(construct.GetPodEnvOptions(), construct.WithDefaultArchitecture(architecture))
 			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-			created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+			created, err := DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, (options)(*mdb), zap.S())
 			require.NoError(t, err)
 			keySecret, err := fakeClient.GetSecret(ctx, kube.ObjectKey(mdb.Namespace, sts.Name+"-agent-api-key"))
 			require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestDatabaseAgentCredentialOverrideWithSecretProjection(t *testing.T) {
 			assert.Equal(t, keySecret.Name, construct.AgentAPIKeySecretName(*created))
 			stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
 			require.NoError(t, err)
-			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, options, zap.S())
+			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, (options)(*mdb), zap.S())
 			require.NoError(t, err)
 			repeated, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
 			require.NoError(t, err)
@@ -158,7 +158,7 @@ func TestDatabaseAgentSettingsRejectsInvalidFileBeforeWriting(t *testing.T) {
 	}).Build()
 	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions())
 	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (options)(*mdb), zap.S())
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "secret-api-key-value")
 	_, err = fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
@@ -337,7 +337,7 @@ func TestDatabaseAgentRuntimeEnvironmentIsRejected(t *testing.T) {
 				agent = container.GetByName(util.DatabaseContainerName, sts.Spec.Template.Spec.Containers)
 			}
 			container.WithEnvs(corev1.EnvVar{Name: util.EnvVarBaseUrl, Value: "$(RUNTIME_URL)"})(agent)
-			_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+			_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (options)(*mdb), zap.S())
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "agent.startupOptions")
 		})
@@ -510,7 +510,7 @@ func TestDatabaseAgentSettingsHostname(t *testing.T) {
 				}
 			})
 			sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-			created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+			created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (options)(*mdb), zap.S())
 			require.NoError(t, err)
 			agent := &created.Spec.Template.Spec.Containers[0]
 			assert.Empty(t, agent.Args)
@@ -537,7 +537,7 @@ func TestDatabaseAgentHostnameKeyAcceptsLeadingDash(t *testing.T) {
 	}).Build()
 	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions())
 	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (options)(*mdb), zap.S())
 	require.NoError(t, err)
 	agent := construct.AgentContainer(*created)
 	require.NotNil(t, agent)
@@ -612,7 +612,7 @@ func TestDatabaseAgentSettingsConfigMapFailurePreservesStatefulSet(t *testing.T)
 	require.NoError(t, fakeClient.CreateStatefulSet(ctx, sts))
 	stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
 	require.NoError(t, err)
-	_, err = DatabaseInKubernetes(ctx, agentSettingsWriteFailureClient{Client: fakeClient}, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	_, err = DatabaseInKubernetes(ctx, agentSettingsWriteFailureClient{Client: fakeClient}, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (options)(*mdb), zap.S())
 	require.ErrorContains(t, err, "settings ConfigMap write failed")
 	after, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(sts.Namespace, sts.Name))
 	require.NoError(t, err)
@@ -628,21 +628,21 @@ func TestDatabaseInKubernetesDoesNotChangeStatefulSet(t *testing.T) {
 	options := construct.ReplicaSetOptions(construct.GetPodEnvOptions())
 	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
 	want := sts.DeepCopy()
-	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, options, zap.S())
+	created, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (options)(*mdb), zap.S())
 	require.NoError(t, err)
 	assert.Equal(t, want.Spec.Template, sts.Spec.Template)
 	assert.Equal(t, want.Spec.Template, created.Spec.Template, "the StatefulSet must already be final when it reaches DatabaseInKubernetes")
 }
 
-func TestWithAgentCredentialMountsKeySecretWithoutVaultClient(t *testing.T) {
+func TestSetAgentCredentialMountsKeySecretWithoutVaultClient(t *testing.T) {
 	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
 	ctx := context.Background()
 	fakeClient, _ := mock.NewDefaultFakeClient()
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
-	options, err := WithAgentCredential(ctx, secrets.SecretClient{KubeClient: fakeClient}, mdb.Namespace, *mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()))
-	require.NoError(t, err)
-	assert.True(t, options(*mdb).MountAgentAPIKeySecret)
-	assert.NotEmpty(t, construct.AgentAPIKeySecretName(construct.DatabaseStatefulSet(*mdb, options, zap.S())))
+	opts := construct.ReplicaSetOptions(construct.GetPodEnvOptions())(*mdb)
+	require.NoError(t, SetAgentCredential(ctx, secrets.SecretClient{KubeClient: fakeClient}, mdb.Namespace, &opts))
+	assert.True(t, opts.MountAgentAPIKeySecret)
+	assert.NotEmpty(t, construct.AgentAPIKeySecretName(construct.DatabaseStatefulSetFromOptions(*mdb, opts, zap.S())))
 }
 
 func TestDatabaseAgentSettingsHashTracksCustomerKeyVolume(t *testing.T) {
@@ -1441,7 +1441,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 	mdb.Spec.ExternalAccessConfiguration = &externalAccessConfiguration
 
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
-	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (construct.ReplicaSetOptions())(*mdb), log)
 	assert.NoError(t, err)
 
 	// we only test a subset of fields from service spec, which are the most relevant for external services
@@ -1464,7 +1464,7 @@ func testDatabaseInKubernetesExternalServices(ctx context.Context, t *testing.T,
 
 	// disable external access -> remove external services
 	mdb.Spec.ExternalAccessConfiguration = nil
-	_, err = DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, construct.ReplicaSetOptions(), log)
+	_, err = DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (construct.ReplicaSetOptions())(*mdb), log)
 	assert.NoError(t, err)
 
 	for _, expectedService := range expectedServices {
@@ -1531,7 +1531,7 @@ func TestDatabaseInKubernetesExternalServicesShardedPerTier(t *testing.T) {
 		withReplicas := func(options *construct.DatabaseStatefulSetOptions) { options.Replicas = 1 }
 		opts := construct.ShardOptions(0, shardSpec, memberCluster.Name, withReplicas)
 		sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(0, shardSpec, memberCluster.Name, withReplicas, construct.GetPodEnvOptions()), log)
-		mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, opts, log)
+		mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, (opts)(*mdb), log)
 		require.NoError(t, err)
 		require.NotNil(t, mutatedSts)
 	}
@@ -1571,7 +1571,7 @@ func TestDatabaseInKubernetesExternalServicesShardedPerTier(t *testing.T) {
 
 		opts := construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas)
 		sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas, construct.GetPodEnvOptions()), log)
-		_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, opts, log)
+		_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (opts)(*mdb), log)
 		require.NoError(t, err)
 
 		svc, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-mongos-0-svc-external", Namespace: "my-namespace"})
@@ -1628,7 +1628,7 @@ func TestDatabaseInKubernetesSkipsServicesForMultiClusterSharded(t *testing.T) {
 	// pass for the wrong reason.
 	require.NotNil(t, opts(*mdb).ExternalAccessConfiguration)
 
-	mutatedSts, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, opts, log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (opts)(*mdb), log)
 	require.NoError(t, err)
 	require.NotNil(t, mutatedSts)
 
@@ -1665,7 +1665,7 @@ func createMongosSpec(sc *mdbv1.MongoDB) *mdbv1.ShardedClusterComponentSpec {
 func createShardSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log *zap.SugaredLogger, kubeClient kubernetesClient.Client) {
 	shardSpec, memberCluster := createShardSpecAndDefaultCluster(kubeClient, mdb)
 	sts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(1, shardSpec, memberCluster.Name, construct.GetPodEnvOptions()), log)
-	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, construct.ShardOptions(1, shardSpec, memberCluster.Name), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, (construct.ShardOptions(1, shardSpec, memberCluster.Name))(*mdb), log)
 	assert.NoError(t, err)
 	assert.NotNil(t, mutatedSts)
 }
@@ -1676,7 +1676,7 @@ func createMongosSts(ctx context.Context, t *testing.T, mdb *mdbv1.MongoDB, log 
 		options.Replicas = mdb.Spec.MongosCount
 	}
 	sts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions(), withReplicas), log)
-	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas), log)
+	mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, (construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas))(*mdb), log)
 	assert.NoError(t, err)
 	assert.NotNil(t, mutatedSts)
 }

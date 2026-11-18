@@ -1847,7 +1847,7 @@ func TestPublishAutomationConfigFirst(t *testing.T) {
 						},
 					},
 				}
-			}, architectures.NonStatic, zap.S())
+			}(tc.mdb), architectures.NonStatic, zap.S())
 
 			assert.Equal(t, tc.expectedPublishACFirst, result)
 		})

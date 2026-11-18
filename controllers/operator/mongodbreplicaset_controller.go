@@ -375,7 +375,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
-	publishAutomationConfigFirst := publishAutomationConfigFirst(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts), reconciler.defaultArchitecture, log)
+	publishAutomationConfigFirst := publishAutomationConfigFirst(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)(*rs), reconciler.defaultArchitecture, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
@@ -576,12 +576,11 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	}
 
 	// Build the replica set config
-	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
-	rsConfig, err := create.WithAgentCredential(ctx, reconciler.SecretClient, rs.Namespace, *rs, rsConfig)
-	if err != nil {
+	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)(*rs)
+	if err := create.SetAgentCredential(ctx, reconciler.SecretClient, rs.Namespace, &rsConfig); err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to prepare StatefulSet: %w", err))
 	}
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	sts := construct.DatabaseStatefulSetFromOptions(*rs, rsConfig, log)
 
 	// Handle PVC resize if needed
 	if workflowStatus := r.handlePVCResize(ctx, &sts); !workflowStatus.IsOK() {

@@ -279,7 +279,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	standaloneOpts := construct.StandaloneOptions(
+	standaloneOptsFunc := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
 		AgentCertHash(agentCertHash),
 		WithAgentCertPath(agentCertPath),
@@ -299,11 +299,11 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithExternalAgentVersion(externalAgentVersion),
 	)
 
-	standaloneOpts, err = create.WithAgentCredential(ctx, r.SecretClient, s.Namespace, *s, standaloneOpts)
-	if err != nil {
+	standaloneOpts := standaloneOptsFunc(*s)
+	if err := create.SetAgentCredential(ctx, r.SecretClient, s.Namespace, &standaloneOpts); err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare StatefulSet: %w", err)), log)
 	}
-	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)
+	sts := construct.DatabaseStatefulSetFromOptions(*s, standaloneOpts, log)
 
 	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
 	if !workflowStatus.IsOK() {

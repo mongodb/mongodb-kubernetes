@@ -1402,7 +1402,7 @@ func getInternalAuthSecretNames(sc *mdbv1.MongoDB) func() []string {
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
 func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, kubeClient kubernetesClient.Client, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	for _, cf := range configs {
-		if publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cf, defaultArchitecture, log) {
+		if publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cf(sc), defaultArchitecture, log) {
 			return true
 		}
 	}
@@ -1553,12 +1553,11 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
 		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
-		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
-		mongosOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, mongosOpts)
-		if err != nil {
+		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)(*s)
+		if err := create.SetAgentCredential(ctx, secretClient, s.Namespace, &mongosOpts); err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to prepare Mongos Stateful Set: %w", err))
 		}
-		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
+		mongosSts := construct.DatabaseStatefulSetFromOptions(*s, mongosOpts, log)
 
 		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, mongosSts, mongosOpts, log)
 		if err != nil {
@@ -1600,12 +1599,11 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
 			shardsNames[shardIdx] = s.ShardName(shardIdx)
 			secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
-			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)
-			shardOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, shardOpts)
-			if err != nil {
+			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)(*s)
+			if err := create.SetAgentCredential(ctx, secretClient, s.Namespace, &shardOpts); err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to prepare StatefulSet for shard %d: %w", shardIdx, err))
 			}
-			shardSts := construct.DatabaseStatefulSet(*s, shardOpts, log)
+			shardSts := construct.DatabaseStatefulSetFromOptions(*s, shardOpts, log)
 
 			if pvcStatus := r.handlePVCResize(ctx, memberCluster, &shardSts, log); !pvcStatus.IsOK() {
 				return pvcStatus
@@ -1653,12 +1651,11 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
 		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
-		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)
-		configSrvOpts, err := create.WithAgentCredential(ctx, secretClient, s.Namespace, *s, configSrvOpts)
-		if err != nil {
+		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)(*s)
+		if err := create.SetAgentCredential(ctx, secretClient, s.Namespace, &configSrvOpts); err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to prepare Config Server Stateful Set: %w", err))
 		}
-		configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, log)
+		configSrvSts := construct.DatabaseStatefulSetFromOptions(*s, configSrvOpts, log)
 
 		if pvcStatus := r.handlePVCResize(ctx, memberCluster, &configSrvSts, log); !pvcStatus.IsOK() {
 			return pvcStatus

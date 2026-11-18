@@ -79,7 +79,10 @@ func PodLabel(mdbmName string) map[string]string {
 }
 
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
-	stsOptions := stsOptFunc(mdbm)
+	return MultiClusterStatefulSetFromOptions(mdbm, stsOptFunc(mdbm))
+}
+
+func MultiClusterStatefulSetFromOptions(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptions construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	dbSts := construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
 
 	if len(stsOptions.Annotations) > 0 {

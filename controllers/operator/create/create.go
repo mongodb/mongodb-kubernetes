@@ -52,8 +52,7 @@ var (
 
 // DatabaseInKubernetes creates (updates if it exists) the StatefulSet with its Services.
 // It returns any errors coming from Kubernetes API.
-func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, config func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
-	opts := config(mdb)
+func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, secretClient secrets.SecretClient, mdb mdbv1.MongoDB, sts appsv1.StatefulSet, opts construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) (*appsv1.StatefulSet, error) {
 	if err := ReconcileDatabaseAgentSettings(ctx, client, secretClient, sts, opts); err != nil {
 		return nil, err
 	}
@@ -102,23 +101,19 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, s
 	return set, nil
 }
 
-// WithAgentCredential reads the API key the agent will use at startup and returns config with its
-// hash set, so the StatefulSet builder can put it in the rollout annotation.
-func WithAgentCredential[T any](ctx context.Context, secretClient secrets.SecretClient, namespace string, resource T, config func(T) construct.DatabaseStatefulSetOptions) (func(T) construct.DatabaseStatefulSetOptions, error) {
-	opts := config(resource)
-	credentialHash, err := agentCredentialHash(ctx, secretClient, namespace, opts)
+// SetAgentCredential fills in the agent credential fields the StatefulSet builder needs. It reads
+// the API key the agent will use at startup and stores its hash, so rotating the key rolls the pods.
+// Callers that apply a StatefulSet call this before building it.
+func SetAgentCredential(ctx context.Context, secretClient secrets.SecretClient, namespace string, opts *construct.DatabaseStatefulSetOptions) error {
+	credentialHash, err := agentCredentialHash(ctx, secretClient, namespace, *opts)
 	if err != nil {
-		return config, err
+		return err
 	}
+	opts.AgentCredentialHash = credentialHash
 	// Member clusters have no Vault client, and the global Vault backend leaves out the Kubernetes
 	// key volume, so the member cluster Secret is mounted explicitly.
-	mountKeySecret := vault.IsVaultSecretBackend() && secretClient.VaultClient == nil && opts.PodVars != nil && opts.PodVars.ProjectID != ""
-	return func(resource T) construct.DatabaseStatefulSetOptions {
-		opts := config(resource)
-		opts.AgentCredentialHash = credentialHash
-		opts.MountAgentAPIKeySecret = mountKeySecret
-		return opts
-	}, nil
+	opts.MountAgentAPIKeySecret = vault.IsVaultSecretBackend() && secretClient.VaultClient == nil && opts.PodVars != nil && opts.PodVars.ProjectID != ""
+	return nil
 }
 
 // ReconcileDatabaseAgentSettings writes the agent settings ConfigMap, and the key Secret when the

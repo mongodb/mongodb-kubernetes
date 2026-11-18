@@ -837,12 +837,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			continue
 		}
 
-		opts, err = create.WithAgentCredential(ctx, secretMemberClient, mrs.Namespace, *mrs, opts)
-		if err != nil {
+		stsOptions := opts(*mrs)
+		if err := create.SetAgentCredential(ctx, secretMemberClient, mrs.Namespace, &stsOptions); err != nil {
 			return workflow.Failed(xerrors.Errorf("failed to prepare StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
 		}
-		stsOptions := opts(*mrs)
-		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
+		sts := mconstruct.MultiClusterStatefulSetFromOptions(*mrs, stsOptions)
 		if err := create.ReconcileDatabaseAgentSettings(ctx, memberClient, secretMemberClient, sts, stsOptions); err != nil {
 			return workflow.Failed(xerrors.Errorf("cannot render agent settings for cluster %s: %w", item.ClusterName, err))
 		}
