@@ -16,6 +16,7 @@ import re
 import time
 from typing import Optional
 
+import requests
 from kubernetes.client.rest import ApiException
 from kubetester import try_load
 from kubetester.kubetester import KubernetesTester
@@ -466,6 +467,35 @@ INDEX_DATABASE = "proxytest"
 INDEX_COLLECTION = "items"
 INDEX_NAME = "field_1"
 
+AUTOMATION_CONFIG_RETRY_SECONDS = 60
+AUTOMATION_CONFIG_RETRY_INTERVAL_SECONDS = 2
+
+
+def put_index_configs(om, index_configs: list) -> None:
+    """Stores `indexConfigs` in the automation config, retrying when Ops Manager publishes first.
+
+    Ops Manager updates the config while it builds an index, so the version this test reads can be stale
+    when the PUT arrives. Each attempt re-reads the config and reapplies the change. Other errors raise.
+    """
+    deadline = time.monotonic() + AUTOMATION_CONFIG_RETRY_SECONDS
+    while True:
+        automation_config = om.api_get_automation_config()
+        automation_config["indexConfigs"] = index_configs
+        try:
+            om.api_put_automation_config(automation_config)
+            return
+        except requests.HTTPError as exc:
+            response = exc.response
+            if (
+                response is None
+                or response.status_code != 409
+                or "AUTOMATION_CONFIG_CONCURRENT_MODIFICATION" not in response.text
+                or time.monotonic() >= deadline
+            ):
+                raise
+            print("Ops Manager published the automation config first, retrying the index config update")
+            time.sleep(AUTOMATION_CONFIG_RETRY_INTERVAL_SECONDS)
+
 
 def mongosh(pod: str, namespace: str, script: str, uri: str) -> str:
     """Runs a script with mongosh in the database container (it has the shell) and returns the last line."""
@@ -506,17 +536,18 @@ def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, 
     )
 
     om = replica_set.get_om_tester()
-    automation_config = om.api_get_automation_config()
-    automation_config["indexConfigs"] = [
-        {
-            "key": [["field", 1]],
-            "rsName": replica_set.name,
-            "dbName": INDEX_DATABASE,
-            "collectionName": INDEX_COLLECTION,
-            "options": {"name": INDEX_NAME},
-        }
-    ]
-    om.api_put_automation_config(automation_config)
+    put_index_configs(
+        om,
+        [
+            {
+                "key": [["field", 1]],
+                "rsName": replica_set.name,
+                "dbName": INDEX_DATABASE,
+                "collectionName": INDEX_COLLECTION,
+                "options": {"name": INDEX_NAME},
+            }
+        ],
+    )
 
     def built_on_all_members() -> bool:
         script = (
@@ -535,9 +566,7 @@ def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, 
 
     # Ops Manager changes the automation config itself while it works through the index builds, and an operator that
     # publishes at the same time is refused (AUTOMATION_CONFIG_CONCURRENT_MODIFICATION), so the entry goes away now.
-    automation_config = om.api_get_automation_config()
-    automation_config["indexConfigs"] = []
-    om.api_put_automation_config(automation_config)
+    put_index_configs(om, [])
 
     started = {pod: ephemeral_starts(pod, namespace) for pod in pods}
     assert any(started.values()), f"no member got a start request with the role ephemeral: {started}"
