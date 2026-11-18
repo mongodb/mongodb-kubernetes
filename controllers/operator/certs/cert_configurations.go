@@ -475,16 +475,18 @@ func MultiReplicaSetConfig(mdbm mdbmulti.MongoDBMultiCluster, clusterNum int, cl
 // across clusters.
 func MultiReplicaSetManagedCertConfig(mdbm mdbmulti.MongoDBMultiCluster, clusters []MemberCluster) Options {
 	return Options{
-		ResourceName:               mdbm.Name,
-		CertSecretName:             mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
-		InternalClusterSecretName:  mdbm.Spec.GetSecurity().InternalClusterAuthSecretName(mdbm.Name),
-		Namespace:                  mdbm.Namespace,
-		ClusterDomain:              mdbm.Spec.GetClusterDomain(),
-		Topology:                   mdbv1.ClusterTopologyMultiCluster,
-		OwnerReference:             OwnerReferenceFor(mdbm.GetSecurity(), &mdbm, false),
-		OwnerLabels:                ownerLabelsFor(mdbm.GetSecurity(), &mdbm),
-		WithholdsClientCertificate: WithholdsClientCertificate(mdbm.Spec.AdditionalMongodConfig),
-		MultiClusterMembers:        clusters,
+		ResourceName:                 mdbm.Name,
+		CertSecretName:               mdbm.Spec.GetSecurity().MemberCertificateSecretName(mdbm.Name),
+		InternalClusterSecretName:    mdbm.Spec.GetSecurity().InternalClusterAuthSecretName(mdbm.Name),
+		Namespace:                    mdbm.Namespace,
+		ClusterDomain:                mdbm.Spec.GetClusterDomain(),
+		Topology:                     mdbv1.ClusterTopologyMultiCluster,
+		OwnerReference:               OwnerReferenceFor(mdbm.GetSecurity(), &mdbm, false),
+		OwnerLabels:                  ownerLabelsFor(mdbm.GetSecurity(), &mdbm),
+		WithholdsClientCertificate:   WithholdsClientCertificate(mdbm.Spec.AdditionalMongodConfig),
+		MultiClusterMembers:          clusters,
+		additionalCertificateDomains: mdbm.Spec.Security.TLSConfig.AdditionalCertificateDomains,
+		horizons:                     mdbm.Spec.Connectivity.ReplicaSetHorizons,
 	}
 }
 
