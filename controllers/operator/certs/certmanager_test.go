@@ -1192,32 +1192,6 @@ func TestBundleDataWithPrevious(t *testing.T) {
 	}
 }
 
-// DeleteManagedCertificates removes the Certificates the operator created for the resource, and
-// leaves the ones that belong to somebody else.
-func TestDeleteManagedCertificates(t *testing.T) {
-	ctx := context.Background()
-	res := newMongoDB(resName, func(m *mdbv1.MongoDB) {
-		m.SetUID(types.UID("res-uid"))
-		m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
-	})
-	ours := &certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{
-		Name:            managedCACertName(res, categoryServer),
-		Namespace:       resNamespace,
-		OwnerReferences: []metav1.OwnerReference{{Name: res.GetName(), UID: res.GetUID()}},
-	}}
-	someoneElses := &certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{
-		Name:            "someone-elses",
-		Namespace:       resNamespace,
-		OwnerReferences: []metav1.OwnerReference{{Name: "other", UID: types.UID("other-uid")}},
-	}}
-	c, _ := mock.NewDefaultFakeClient(ours, someoneElses)
-
-	require.True(t, DeleteManagedCertificates(ctx, c, res).IsOK())
-
-	assert.Error(t, c.Get(ctx, types.NamespacedName{Name: ours.GetName(), Namespace: resNamespace}, &certmanagerv1.Certificate{}))
-	assert.NoError(t, c.Get(ctx, types.NamespacedName{Name: someoneElses.GetName(), Namespace: resNamespace}, &certmanagerv1.Certificate{}))
-}
-
 // The CA secrets have to carry the owner labels too: the operator's cleanup on deletion sweeps the
 // secrets by label, and cert-manager can write a CA secret again while the resource is being deleted.
 func TestEnsureSelfSignedCAAddsOwnerLabels(t *testing.T) {

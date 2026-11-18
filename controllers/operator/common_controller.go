@@ -1340,21 +1340,6 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 	return errs
 }
 
-// stopManagedCertificateIssuance deletes the Certificates the operator created for a resource, so
-// that cert-manager stops writing their secrets. The delete handlers call it first, before the Ops
-// Manager cleanup, which can take minutes: cert-manager issues a Certificate again when the secret it
-// names is missing, which is what happens while the resource is being deleted, and the secret it
-// writes then has no owner reference to remove it.
-func (r *ReconcileCommonController) stopManagedCertificateIssuance(ctx context.Context, res certs.CertificateOwner, log *zap.SugaredLogger) error {
-	if sec := res.GetSecurity(); sec == nil || !sec.IsManagedCertificateEnabled() {
-		return nil
-	}
-	if status := certs.DeleteManagedCertificates(ctx, r.client, res); !status.IsOK() {
-		return xerrors.New(status.Message())
-	}
-	return nil
-}
-
 // deleteManagedCertificateObjects removes what operator-managed certificates created for a resource
 // from the cluster the operator runs in. The delete handlers call it last, after the Ops Manager
 // cleanup: it removes the secrets the pods mount, and the pods have to stay up while Ops Manager is
