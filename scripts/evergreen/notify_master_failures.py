@@ -64,10 +64,10 @@ NON_BLOCKING_VARIANTS = {
     "e2e_static_smoke_ibm_z_ubi9_slim",
 }
 
-# How long to wait for the version to reach a terminal state before proceeding
-# with whatever data is available (seconds). Prevents premature notifications
-# when the elapsed-build-activator fires the task early.
-VERSION_POLL_TIMEOUT = 600
+# The notification depends on the non-IBM-Z staging tasks. The version stays
+# started while the IBM Z e2e tasks queue, so it cannot reach a terminal state.
+# Do not wait for the full version.
+VERSION_POLL_TIMEOUT = 0
 VERSION_POLL_INTERVAL = 30
 
 # Global counter for API calls
@@ -149,10 +149,11 @@ def get_version_info(api: EvergreenApi, version_id: str) -> VersionInfo:
 
 
 def wait_for_version_completion(api: EvergreenApi, version_id: str) -> VersionInfo:
-    """Poll the version until it reaches a terminal state or timeout.
+    """Fetch the current version and proceed.
 
-    The elapsed-build-activator can fire this task before the build finishes.
-    This loop ensures we report the final status, not an intermediate one.
+    The task dependency gates on the non-IBM-Z staging tasks. The full version
+    stays started while the IBM Z e2e tasks queue, so waiting for it would add
+    the full poll timeout.
     """
     deadline = time.time() + VERSION_POLL_TIMEOUT
     while True:
@@ -592,8 +593,8 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Wait for the version to reach a terminal state before reporting.
-    # The elapsed-build-activator can fire this task prematurely.
+    # The task dependency gates on the non-IBM-Z staging tasks. The version stays
+    # started while the IBM Z e2e tasks queue, so do not wait for the full version.
     try:
         version_info = wait_for_version_completion(api, version_id)
     except Exception as e:

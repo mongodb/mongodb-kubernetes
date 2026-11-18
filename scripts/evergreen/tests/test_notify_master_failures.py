@@ -8,6 +8,7 @@ import pytest
 from scripts.evergreen.notify_flaky_tests import FlakyTask
 from scripts.evergreen.notify_master_failures import (
     NOTIFICATION_TASKS,
+    VERSION_POLL_TIMEOUT,
     TaskInfo,
     VersionInfo,
     format_slack_message,
@@ -15,6 +16,7 @@ from scripts.evergreen.notify_master_failures import (
     get_task_summary,
     print_stdout_report,
     send_slack_notification,
+    wait_for_version_completion,
 )
 
 
@@ -529,6 +531,19 @@ class TestSendSlackNotification:
 
         mock_post.side_effect = RequestException("fail")
         assert send_slack_notification("http://test", {"text": "hi"}) is False
+
+
+class TestWaitForVersionCompletion:
+    @patch("scripts.evergreen.notify_master_failures.get_version_info")
+    def test_fetches_once_when_version_not_completed(self, mock_get_version):
+        assert VERSION_POLL_TIMEOUT == 0
+        version_info = make_mock_version(status="started")
+        mock_get_version.return_value = version_info
+
+        result = wait_for_version_completion(MagicMock(), "v1")
+
+        assert result is version_info
+        mock_get_version.assert_called_once()
 
 
 class TestMainOutputBehavior:
