@@ -12,15 +12,13 @@ from requests.auth import HTTPDigestAuth
 ALLOWED_OPS_MANAGER_VERSION = "cloud_qa"
 PAGINATION_LIMIT = 100
 
-REMOVED_STATUS_CODES = (202, 404)  # accepted, or already gone
-CONFLICT_STATUS_CODE = 409
 MAX_REMOVE_ATTEMPTS = 3
 BACKOFF_SECONDS = 3
 MAX_CONSECUTIVE_FAILURES = 5
 # periodic_teardown runs every 2 hours, the budget keeps consecutive runs from overlapping
 TIME_BUDGET_MINUTES = 90
 REQUEST_TIMEOUT = (5, 60)  # connect, read
-CONNECTION_ERROR_STATUS = 599  # not an HTTP status: the request got no response
+CONNECTION_ERROR_STATUS = 599  # not an HTTP status: the request got no response, retried like a 5xx
 MAX_LOGGED_BODY = 500
 
 BASE_URL = "e2e_cloud_qa_baseurl"
@@ -78,7 +76,7 @@ def create_api_key(org: str, description: str, roles: List[str] = None):
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/orgs/{}/apiKeys".format(base_url, org)
     data = {"roles": roles, "desc": description}
-    response = requests.post(url, auth=get_auth(), json=data)
+    response = requests.post(url, auth=get_auth(), json=data, timeout=REQUEST_TIMEOUT)
     if response.status_code != 200:
         raise Exception("Could not create Programmatic API Key", response.text)
 
@@ -117,7 +115,7 @@ def whitelist_key(org: str, key_id: str, whitelist: List[str] = None):
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/orgs/{}/apiKeys/{}/whitelist".format(base_url, org, key_id)
     data = [{"cidrBlock": cb} for cb in whitelist]
-    response = requests.post(url, auth=get_auth(), json=data)
+    response = requests.post(url, auth=get_auth(), json=data, timeout=REQUEST_TIMEOUT)
     if response.status_code != 200:
         raise Exception("Could not add whitelist", response.text)
 
@@ -130,7 +128,7 @@ def get_group_id_by_name(name: str, retry=3) -> str:
     url = "{}/api/public/v1.0/groups/byName/{}".format(base_url, name)
 
     while retry > 0:
-        groups = requests.get(url, auth=get_auth("project_owner"))
+        groups = requests.get(url, auth=get_auth("project_owner"), timeout=REQUEST_TIMEOUT)
 
         response = groups.json()
         if "id" not in response:
@@ -200,15 +198,31 @@ def call_group_api(method: str, url: str, **kwargs) -> requests.Response:
         response.status_code = CONNECTION_ERROR_STATUS
         return response
 
-    failure = "" if response.status_code < 300 or response.status_code == 404 else f" {response.text[:MAX_LOGGED_BODY]}"
-    print(f"{method} {url} -> {response.status_code}{failure}")
+    body = "" if response.ok or response.status_code == 404 else f" {response.text[:MAX_LOGGED_BODY]}"
+    print(f"{method} {url} -> {response.status_code}{body}")
     return response
 
 
+def attempt_group_removal(url: str, pending_puts: list) -> requests.Response:
+    """Sends the pending PUTs, then the DELETE. Returns the response that ended the attempt."""
+    for put in list(pending_puts):
+        path, data = put
+        response = call_group_api("PUT", url + path, json=data)
+        if response.status_code == 404:  # the group may be gone, the DELETE decides
+            break
+        if response.status_code in (429, CONNECTION_ERROR_STATUS):  # back off instead of sending more
+            return response
+        if response.status_code < 300:
+            pending_puts.remove(put)
+
+    return call_group_api("DELETE", url)
+
+
 def remove_group_by_id(group_id: str):
-    """Removes a group with a given Id. Only a server error or a rate limit is retried, a 404 means it is gone."""
+    """Removes a group with a given Id. Returns the last response: 202 is accepted, 404 means it is already gone."""
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
+    # a PUT that succeeded is not sent again when the removal is retried
     pending_puts = [
         (
             "/controlledFeature",
@@ -218,17 +232,9 @@ def remove_group_by_id(group_id: str):
     ]
 
     for attempt in range(MAX_REMOVE_ATTEMPTS):
-        for put in list(pending_puts):
-            path, data = put
-            status_code = call_group_api("PUT", url + path, json=data).status_code
-            if status_code == 404:  # the group may be gone, the DELETE decides
-                break
-            if status_code < 300:
-                pending_puts.remove(put)
-
-        result = call_group_api("DELETE", url)
-        if not (result.status_code >= 500 or result.status_code == 429):
-            break
+        result = attempt_group_removal(url, pending_puts)
+        if result.status_code < 500 and result.status_code != 429:
+            break  # removed, already gone, or a failure that a retry won't change
         if attempt < MAX_REMOVE_ATTEMPTS - 1:
             time.sleep(BACKOFF_SECONDS * 2**attempt + random.random())
 
@@ -240,7 +246,7 @@ def remove_group_by_name(name: str):
     _id = get_group_id_by_name(name)
     result = remove_group_by_id(_id)
 
-    status = "OK" if result.status_code in REMOVED_STATUS_CODES else "FAILED"
+    status = "OK" if result.status_code in (202, 404) else "FAILED"  # accepted, or already gone
     print("Removing group id: {} and name: {} -> {}".format(_id, name, status))
     return result
 
@@ -376,8 +382,12 @@ def clean_unused_keys(org_id: str):
     for key in keys:
         if not keep_the_key(key):
             print("Removing the key {} ({})".format(key["publicKey"], key["desc"]))
-            delete_api_key(org_id, key["id"])
-            deleted_keys.append(key["id"])
+            try:
+                delete_api_key(org_id, key["id"])
+                deleted_keys.append(key["id"])
+            except Exception as e:
+                print("Got an exception trying to remove the key", e)
+                kept_keys.append(key)
         else:
             print("Keeping the key {} ({})".format(key["publicKey"], key["desc"]))
             kept_keys.append(key)
@@ -402,6 +412,7 @@ def clean_unused_projects(org_id: str):
     deadline = time.monotonic() + TIME_BUDGET_MINUTES * 60
     projects, newer_projects = get_projects_older_than(org_id, minutes_interval=140)
     print(f"found {len(projects)} projects for potential removal")
+    random.shuffle(projects)  # projects that keep failing must not stop every run at the same place
     deleted_projects = []
     gone_projects = []
     kept_projects = []
@@ -409,29 +420,26 @@ def clean_unused_projects(org_id: str):
 
     for project in projects:
         if time.monotonic() > deadline:
-            print("Stopping: the time budget is exhausted, the remaining projects are left for the next run")
+            print("Stopping: the time budget is exhausted")
             break
 
         print("Removing the project {} ({})".format(project["id"], project["name"]))
-        response = remove_group_by_id(project["id"])
-        if response.status_code == 202:
+        status_code = remove_group_by_id(project["id"]).status_code
+        if status_code == 202:
             deleted_projects.append(project["id"])
-        elif response.status_code == 404:
+        elif status_code == 404:
             gone_projects.append(project["id"])
         else:
             kept_projects.append(project)
 
         # a conflict is a problem of the project itself, any other failure points at Cloud QA or the credentials
-        if response.status_code in (*REMOVED_STATUS_CODES, CONFLICT_STATUS_CODE):
+        if status_code in (202, 404):
             consecutive_failures = 0
-        else:
+        elif status_code != 409:
             consecutive_failures += 1
-            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                print(
-                    f"Stopping: {consecutive_failures} consecutive failures, "
-                    "the remaining projects are left for the next run"
-                )
-                break
+        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            print(f"Stopping: {consecutive_failures} consecutive failures")
+            break
 
     not_attempted = len(projects) - len(deleted_projects) - len(gone_projects) - len(kept_projects)
     print(f"PROJECT REMOVAL SUMMARY\n----------")

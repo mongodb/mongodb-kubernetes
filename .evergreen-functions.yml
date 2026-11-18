@@ -692,6 +692,9 @@ functions:
       params:
         shell: bash
         working_dir: src/github.com/mongodb/mongodb-kubernetes
+        # unbuffered, so that the last lines are not lost when the task is killed
+        env:
+          PYTHONUNBUFFERED: "1"
         script: |
           source .generated/context.export.env
           scripts/dev/run_python.sh scripts/evergreen/e2e/setup_cloud_qa.py delete_all
