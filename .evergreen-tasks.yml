@@ -841,7 +841,17 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_external_appdb_forward_managedcert
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_om_external_appdb_fresh
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_om_external_appdb_fresh_managedcert
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"

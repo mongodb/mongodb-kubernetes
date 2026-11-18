@@ -1819,7 +1819,7 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 	}
 
 	configMapNSName := types.NamespacedName{Name: configMapName, Namespace: namespace}
-	caConfigMapData, err := configmap.ReadData(ctx, r.client, configMapNSName)
+	source, err := r.client.GetConfigMap(ctx, configMapNSName)
 	if err != nil {
 		return xerrors.Errorf("failed to read config map %+v from central cluster: %w", configMapNSName, err)
 	}
@@ -1828,10 +1828,16 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 		SetLabels(reconcileHelper.opsManager.GetOwnerLabels()).
 		SetName(configMapNSName.Name).
 		SetNamespace(configMapNSName.Namespace).
-		SetData(caConfigMapData).
+		SetData(source.Data).
 		Build()
 
 	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
+		// The central cluster can also be a member, so this copy may be the source itself. Don't overwrite
+		// it: an external AppDB's managed CA bundle is owned by the database, and the write would drop its
+		// owner reference or revert a CA rotation.
+		if existing, err := memberCluster.Client.GetConfigMap(ctx, configMapNSName); err == nil && source.UID != "" && existing.UID == source.UID {
+			continue
+		}
 		if err := configmap.CreateOrUpdate(ctx, memberCluster.Client, caConfigMap); err != nil && !apiErrors.IsAlreadyExists(err) {
 			return xerrors.Errorf("failed to create or update config map %+v in cluster %s: %w", configMapNSName, memberCluster.Name, err)
 		}

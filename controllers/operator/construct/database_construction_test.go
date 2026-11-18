@@ -3,6 +3,7 @@ package construct
 import (
 	"path"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,6 +85,52 @@ func Test_tlsVolumeSource_CAFilePath(t *testing.T) {
 			return cm != nil && len(cm.Items) == 0
 		}), "default mode should not restrict ConfigMap keys via Items")
 	})
+}
+
+func TestDatabaseStatefulSetManagedCertificateTargetTLSMounts(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		architecture      architectures.DefaultArchitecture
+		launcherContainer string
+	}{
+		{name: "static", architecture: architectures.Static, launcherContainer: util.AgentContainerName},
+		{name: "non-static", architecture: architectures.NonStatic, launcherContainer: util.DatabaseContainerName},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mdb := mdbv1.NewReplicaSetBuilder().
+				SetSecurity(&mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}).
+				Build()
+
+			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(
+				GetPodEnvOptions(),
+				WithDefaultArchitecture(tt.architecture),
+			), zap.S())
+
+			launcherIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+				return c.Name == tt.launcherContainer
+			})
+			require.NotEqual(t, -1, launcherIdx, "launcher container %s must exist", tt.launcherContainer)
+			mounts := sts.Spec.Template.Spec.Containers[launcherIdx].VolumeMounts
+
+			for _, target := range []string{util.TLSCertMountPath, util.TLSCaMountPath} {
+				assert.True(t, slices.ContainsFunc(mounts, func(m corev1.VolumeMount) bool {
+					return m.MountPath == target
+				}), "ordinary target TLS path %s must be mounted", target)
+			}
+
+			assert.False(t, slices.ContainsFunc(sts.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool {
+				return strings.HasPrefix(v.Name, "appdb-handover-")
+			}), "no old AppDB path volume may be constructed")
+			for _, container := range sts.Spec.Template.Spec.Containers {
+				assert.False(t, slices.ContainsFunc(container.VolumeMounts, func(m corev1.VolumeMount) bool {
+					return strings.HasPrefix(m.Name, "appdb-handover-")
+				}), "no old AppDB path mount may reach %s", container.Name)
+				assert.False(t, slices.ContainsFunc(container.Env, func(e corev1.EnvVar) bool {
+					return e.Name == "MDB_APPDB_MANAGED_CERTIFICATE_HANDOVER"
+				}), "no handover marker may reach %s", container.Name)
+			}
+		})
+	}
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {

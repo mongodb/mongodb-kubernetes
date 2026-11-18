@@ -1094,7 +1094,7 @@ func (r *ReplicaSetReconcilerHelper) validateAppDBForwardMigration(ctx context.C
 		if !mdb.Spec.Security.IsTLSEnabled() {
 			return workflow.Invalid(appDBForwardMigrationViolationFmt, "spec.security.tls.enabled must remain true")
 		}
-		if caVolume, err := getVolumeFromStatefulSet(sts, tls.ConfigMapVolumeCAName); err == nil && specCAConfigMapName(mdb) != caVolume.ConfigMap.Name {
+		if caVolume, err := getVolumeFromStatefulSet(sts, tls.ConfigMapVolumeCAName); err == nil && specCAConfigMapName(mdb.Name, mdb.GetSecurity()) != caVolume.ConfigMap.Name {
 			return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.security.tls.ca must reference ConfigMap %q", caVolume.ConfigMap.Name))
 		}
 	}
@@ -1106,12 +1106,15 @@ func (r *ReplicaSetReconcilerHelper) validateAppDBForwardMigration(ctx context.C
 	return workflow.OK()
 }
 
-func specCAConfigMapName(mdb *mdbv1.MongoDB) string {
-	if mdb.Spec.Security.TLSConfig == nil {
+func specCAConfigMapName(resourceName string, security *mdbv1.Security) string {
+	if security.IsManagedCertificateEnabled() {
+		return certs.ManagedServerCABundleConfigMapName(resourceName)
+	}
+	if security == nil || security.TLSConfig == nil {
 		return ""
 	}
 
-	return mdb.Spec.Security.TLSConfig.CA
+	return security.TLSConfig.CA
 }
 
 func (r *ReplicaSetReconcilerHelper) reclaimAppDBStatefulsetOwnership(ctx context.Context, mdb *mdbv1.MongoDB, sts appsv1.StatefulSet) error {

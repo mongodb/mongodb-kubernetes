@@ -2,9 +2,17 @@ package certs
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"fmt"
+	"maps"
+	"math/big"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -26,6 +34,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	apistatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
@@ -580,4 +589,231 @@ func TestManagedServerCertificateWriteGenerationReadiness(t *testing.T) {
 	bundle := &corev1.ConfigMap{}
 	err := c.Get(ctx, types.NamespacedName{Name: "example-managed-om-ca-bundle", Namespace: managedTestNamespace}, bundle)
 	assert.True(t, apiErrors.IsNotFound(err), "the CA bundle must not be published before the newly written generation is ready")
+}
+
+// managedCertificateGraphFixture builds an existing operator-managed certificate graph owned by the
+// Ops Manager's internal AppDB, plus the same-profile MongoDB AppDB target that will adopt it. It is
+// source-only setup: the target certificate reconciliation has not run yet.
+func managedCertificateGraphFixture(t *testing.T, customer bool) (kubernetesClient.Client, *omv1.MongoDBOpsManager, *mdbv1.MongoDB) {
+	t.Helper()
+	ctx := t.Context()
+	om := managedTestOM()
+	if customer {
+		om.Spec.AppDB.Security.ManagedCertificate.Server = &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "customer-issuer", Kind: "Issuer"}}
+	}
+	target := mdbv1.NewReplicaSetBuilder().SetName("example-db").SetNamespace(managedTestNamespace).SetMembers(3).SetSecurity(om.Spec.AppDB.Security.DeepCopy()).Build()
+	target.Spec.Role = mdbv1.RoleAppDB
+	target.UID = types.UID("mongo-uid")
+	funcs := interceptor.Funcs{
+		Create: func(ctx context.Context, inner client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if obj.GetUID() == "" {
+				obj.SetUID(types.UID(obj.GetName() + "-uid"))
+			}
+			return inner.Create(ctx, obj, opts...)
+		},
+		// ConfigMap writers build a fresh object for UPDATE. The API server preserves metadata.uid
+		// on update; the fake client does not, so mirror the server here to keep UID identity
+		// assertions meaningful.
+		Update: func(ctx context.Context, inner client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if cm, ok := obj.(*corev1.ConfigMap); ok && cm.UID == "" {
+				stored := &corev1.ConfigMap{}
+				if err := inner.Get(ctx, client.ObjectKeyFromObject(cm), stored); err == nil {
+					cm.UID = stored.UID
+				}
+			}
+			return inner.Update(ctx, obj, opts...)
+		},
+	}
+	c := newManagedCertTestClientWithInterceptor(t, funcs)
+	om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: target.Name, Kind: "MongoDB", Namespace: target.Namespace}
+	require.NoError(t, c.Create(ctx, om))
+	require.NoError(t, c.Create(ctx, target))
+	_, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
+	markManagedCertificatesReady(t, ctx, c, nil)
+	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	caTemplate := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "handover-ca"}, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign, NotBefore: time.Now().Add(-48 * time.Hour), NotAfter: time.Now().Add(24 * time.Hour)}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+	if customer {
+		require.NoError(t, c.Create(ctx, &certmanagerv1.Issuer{ObjectMeta: metav1.ObjectMeta{Name: "customer-issuer", Namespace: om.Namespace}, Spec: certmanagerv1.IssuerSpec{IssuerConfig: certmanagerv1.IssuerConfig{CA: &certmanagerv1.CAIssuer{SecretName: "customer-key"}}}}))
+		require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "customer-key", Namespace: om.Namespace}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{"tls.crt": caPEM, "tls.key": pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(caKey)})}}))
+	}
+	for _, cert := range listManagedCertificates(t, ctx, c) {
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		require.NoError(t, err)
+		certPEM := caPEM
+		if cert.Spec.IsCA {
+			key = caKey
+		} else {
+			leaf := &x509.Certificate{SerialNumber: big.NewInt(2), DNSNames: cert.Spec.DNSNames, NotBefore: caTemplate.NotBefore, NotAfter: caTemplate.NotAfter, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+			der, err := x509.CreateCertificate(rand.Reader, leaf, caTemplate, &key.PublicKey, caKey)
+			require.NoError(t, err)
+			certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+		}
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+		require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: cert.Spec.SecretName, Namespace: om.Namespace, OwnerReferences: []metav1.OwnerReference{{APIVersion: "cert-manager.io/v1", Kind: "Certificate", Name: cert.Name, UID: cert.UID, Controller: new(true)}}}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{"tls.crt": certPEM, "tls.key": keyPEM, "ca.crt": caPEM}}))
+	}
+	status, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
+	require.True(t, status.IsOK())
+	leaf, err := c.GetSecret(ctx, kube.ObjectKey(om.Namespace, "example-db-managed-cert"))
+	require.NoError(t, err)
+	require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "example-db-managed-cert-pem", Namespace: om.Namespace}, Data: map[string][]byte{"H0": append(append([]byte{}, leaf.Data["tls.crt"]...), leaf.Data["tls.key"]...), util.LatestHashSecretKey: []byte("H0")}}))
+	return c, om, target
+}
+
+type managedCertificateSnapshot struct {
+	uid    types.UID
+	spec   certmanagerv1.CertificateSpec
+	owners []metav1.OwnerReference
+}
+
+type managedIssuerSnapshot struct {
+	uid    types.UID
+	spec   certmanagerv1.IssuerSpec
+	owners []metav1.OwnerReference
+}
+
+type managedConfigMapSnapshot struct {
+	uid    types.UID
+	data   map[string]string
+	owners []metav1.OwnerReference
+}
+
+type managedGraphSnapshot struct {
+	certificates map[string]managedCertificateSnapshot
+	issuers      map[string]managedIssuerSnapshot
+	caBundles    map[string]managedConfigMapSnapshot
+	issuedData   map[string]map[string][]byte
+	pemData      map[string][]byte
+	pemOwners    []metav1.OwnerReference
+}
+
+// snapshotManagedGraph captures the identity, spec and material of the whole shared managed
+// certificate graph without reading or writing any handover checkpoint.
+func snapshotManagedGraph(t *testing.T, ctx context.Context, c kubernetesClient.Client, namespace, pemSecretName string) managedGraphSnapshot {
+	t.Helper()
+	snapshot := managedGraphSnapshot{
+		certificates: map[string]managedCertificateSnapshot{},
+		issuers:      map[string]managedIssuerSnapshot{},
+		caBundles:    map[string]managedConfigMapSnapshot{},
+		issuedData:   map[string]map[string][]byte{},
+	}
+	for _, cert := range listManagedCertificates(t, ctx, c) {
+		snapshot.certificates[cert.Name] = managedCertificateSnapshot{uid: cert.UID, spec: *cert.Spec.DeepCopy(), owners: slices.Clone(cert.OwnerReferences)}
+		issued, err := c.GetSecret(ctx, kube.ObjectKey(namespace, cert.Spec.SecretName))
+		require.NoError(t, err)
+		snapshot.issuedData[cert.Name] = maps.Clone(issued.Data)
+	}
+	for _, issuer := range listManagedIssuers(t, ctx, c) {
+		snapshot.issuers[issuer.Name] = managedIssuerSnapshot{uid: issuer.UID, spec: *issuer.Spec.DeepCopy(), owners: slices.Clone(issuer.OwnerReferences)}
+	}
+	for _, name := range []string{ManagedServerCABundleConfigMapName("example-db"), ManagedClientCABundleConfigMapName("example-db")} {
+		cm := &corev1.ConfigMap{}
+		err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, cm)
+		if apiErrors.IsNotFound(err) {
+			continue
+		}
+		require.NoError(t, err)
+		snapshot.caBundles[name] = managedConfigMapSnapshot{uid: cm.UID, data: maps.Clone(cm.Data), owners: slices.Clone(cm.OwnerReferences)}
+	}
+	pem, err := c.GetSecret(ctx, kube.ObjectKey(namespace, pemSecretName))
+	require.NoError(t, err)
+	snapshot.pemData = maps.Clone(pem.Data)
+	snapshot.pemOwners = slices.Clone(pem.OwnerReferences)
+	return snapshot
+}
+
+func assertManagedGraphOwnedBy(t *testing.T, owners []metav1.OwnerReference, target *mdbv1.MongoDB) {
+	t.Helper()
+	require.Len(t, owners, 1)
+	assert.Equal(t, "MongoDB", owners[0].Kind)
+	assert.Equal(t, target.Name, owners[0].Name)
+	assert.Equal(t, target.UID, owners[0].UID)
+	require.NotNil(t, owners[0].Controller)
+	assert.True(t, *owners[0].Controller)
+}
+
+// TestEnsureCertificatesAndCAReownsExistingManagedGraph proves that the ordinary certificate
+// reconciliation alone takes over an existing same-profile operator-managed graph from the Ops
+// Manager's AppDB: it must keep every object identity and every spec/material byte-identical
+// while changing only the owner references.
+func TestEnsureCertificatesAndCAReownsExistingManagedGraph(t *testing.T) {
+	for _, customer := range []bool{false, true} {
+		t.Run(fmt.Sprintf("customer-issuer=%t", customer), func(t *testing.T) {
+			ctx := t.Context()
+			c, om, target := managedCertificateGraphFixture(t, customer)
+			before := snapshotManagedGraph(t, ctx, c, om.Namespace, "example-db-managed-cert-pem")
+			require.NotEmpty(t, before.certificates)
+			assert.Empty(t, before.pemOwners, "the derived PEM Secret is created unowned")
+			for name, cert := range before.certificates {
+				require.Len(t, cert.owners, 1, name)
+				assert.Equal(t, managedTestUID, cert.owners[0].UID, "%s must be owned by the source Ops Manager AppDB", name)
+			}
+
+			var customerKeyBefore *corev1.Secret
+			var customerIssuerBefore *certmanagerv1.Issuer
+			if customer {
+				key, err := c.GetSecret(ctx, kube.ObjectKey(om.Namespace, "customer-key"))
+				require.NoError(t, err)
+				customerKeyBefore = key.DeepCopy()
+				customerIssuerBefore = &certmanagerv1.Issuer{}
+				require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, "customer-issuer"), customerIssuerBefore))
+			}
+
+			// The only call under test: the ordinary target certificate reconciliation.
+			status, _ := EnsureCertificatesAndCA(ctx, c, target, []Options{ReplicaSetConfig(*target)}, managedTestLogger())
+			require.True(t, status.IsOK(), fmt.Sprint(status))
+
+			after := snapshotManagedGraph(t, ctx, c, om.Namespace, "example-db-managed-cert-pem")
+
+			require.Len(t, after.certificates, len(before.certificates))
+			for name, want := range before.certificates {
+				got, ok := after.certificates[name]
+				require.True(t, ok, "Certificate %s disappeared", name)
+				assert.Equal(t, want.uid, got.uid, "Certificate %s must keep its UID", name)
+				assert.Equal(t, want.spec, got.spec, "Certificate %s must keep its spec", name)
+				assertManagedGraphOwnedBy(t, got.owners, target)
+				assert.Equal(t, before.issuedData[name], after.issuedData[name], "issued TLS material for %s must not change", name)
+			}
+			require.Len(t, after.issuers, len(before.issuers))
+			for name, want := range before.issuers {
+				got, ok := after.issuers[name]
+				require.True(t, ok, "Issuer %s disappeared", name)
+				assert.Equal(t, want.uid, got.uid, "Issuer %s must keep its UID", name)
+				assert.Equal(t, want.spec, got.spec, "Issuer %s must keep its spec", name)
+				if len(want.owners) == 0 {
+					continue // customer-provided issuer input, asserted untouched below
+				}
+				assertManagedGraphOwnedBy(t, got.owners, target)
+			}
+			require.NotEmpty(t, before.caBundles)
+			for name, want := range before.caBundles {
+				got, ok := after.caBundles[name]
+				require.True(t, ok, "CA bundle %s disappeared", name)
+				assert.Equal(t, want.uid, got.uid, "CA bundle %s must keep its UID", name)
+				assert.Equal(t, want.data, got.data, "CA bundle %s must keep its data", name)
+				assertManagedGraphOwnedBy(t, got.owners, target)
+			}
+			assert.Equal(t, before.pemData, after.pemData, "the derived pod PEM material must not change")
+			assert.Empty(t, after.pemOwners, "ordinary reconciliation must leave the derived PEM Secret unowned")
+
+			// A second ordinary reconciliation is idempotent: the adopted graph must not be rewritten.
+			status, _ = EnsureCertificatesAndCA(ctx, c, target, []Options{ReplicaSetConfig(*target)}, managedTestLogger())
+			require.True(t, status.IsOK(), fmt.Sprint(status))
+			assert.Equal(t, after, snapshotManagedGraph(t, ctx, c, om.Namespace, "example-db-managed-cert-pem"), "a repeated ordinary reconciliation must not change the adopted graph")
+
+			if customer {
+				customerKeyAfter, err := c.GetSecret(ctx, kube.ObjectKey(om.Namespace, "customer-key"))
+				require.NoError(t, err)
+				assert.Equal(t, customerKeyBefore.Data, customerKeyAfter.Data)
+				assert.Equal(t, customerKeyBefore.OwnerReferences, customerKeyAfter.OwnerReferences)
+				customerIssuerAfter := &certmanagerv1.Issuer{}
+				require.NoError(t, c.Get(ctx, kube.ObjectKey(om.Namespace, "customer-issuer"), customerIssuerAfter))
+				assert.Equal(t, customerIssuerBefore.Spec, customerIssuerAfter.Spec)
+				assert.Equal(t, customerIssuerBefore.OwnerReferences, customerIssuerAfter.OwnerReferences)
+			}
+		})
+	}
 }

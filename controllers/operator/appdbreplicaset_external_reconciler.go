@@ -25,9 +25,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// ReconcileExternalAppDBReplicaSet implements AppDBReconciler for OpsManager resources using
-// spec.externalApplicationDatabaseRef. It never reads opsManager.Spec.AppDB — all AppDB
-// state comes from the referenced MongoDB CR instead.
+// ReconcileExternalAppDBReplicaSet handles referenced AppDB lifecycle and managed ownership
+// handover. Runtime connection and trust settings come from the referenced CR.
 type ReconcileExternalAppDBReplicaSet struct {
 	*ReconcileCommonController
 	memberClustersMap map[string]client.Client
@@ -253,6 +252,7 @@ func requestAppDBForwardMigration(ctx context.Context, c client.Client, sts *app
 type externalAppDBRefObject struct {
 	connectionstring.ConnectionStringBuilder
 	mdbv1.DbCommonSpec
+	resourceName   string
 	clusterList    []appDBClusterItem
 	isMulticluster bool
 }
@@ -260,11 +260,7 @@ type externalAppDBRefObject struct {
 // getCAConfigMapName returns the name of the ConfigMap holding the CA certificate that OpsManager
 // should trust when connecting to the external AppDB over TLS ("" if TLS is off).
 func (o *externalAppDBRefObject) getCAConfigMapName() string {
-	security := o.GetSecurity()
-	if security.TLSConfig != nil {
-		return security.TLSConfig.CA
-	}
-	return ""
+	return specCAConfigMapName(o.resourceName, o.GetSecurity())
 }
 
 // isTLSEnabled reports whether the referenced CR has TLS enabled.
@@ -304,6 +300,7 @@ func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx conte
 		return &externalAppDBRefObject{
 			ConnectionStringBuilder: mongodb,
 			DbCommonSpec:            mongodb.Spec.DbCommonSpec,
+			resourceName:            mongodb.Name,
 			clusterList:             []appDBClusterItem{{clusterName: multicluster.LegacyCentralClusterName, client: e.client, stsName: ref.Name}},
 			isMulticluster:          false,
 		}, nil
@@ -328,6 +325,7 @@ func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx conte
 		return &externalAppDBRefObject{
 			ConnectionStringBuilder: mdbm,
 			DbCommonSpec:            mdbm.Spec.DbCommonSpec,
+			resourceName:            mdbm.Name,
 			clusterList:             clusterList,
 			isMulticluster:          true,
 		}, nil

@@ -483,7 +483,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) validateAppDBForwardMigration(ctx cont
 		if !mrs.Spec.Security.IsTLSEnabled() {
 			return workflow.Invalid(appDBForwardMigrationViolationFmt, "spec.security.tls.enabled must remain true")
 		}
-		if caVolume, err := getVolumeFromStatefulSet(sts, tls.ConfigMapVolumeCAName); err == nil && mrs.Spec.Security.TLSConfig.CA != caVolume.ConfigMap.Name {
+		if caVolume, err := getVolumeFromStatefulSet(sts, tls.ConfigMapVolumeCAName); err == nil && specCAConfigMapName(mrs.Name, mrs.GetSecurity()) != caVolume.ConfigMap.Name {
 			return workflow.Invalid(appDBForwardMigrationViolationFmt, fmt.Sprintf("spec.security.tls.ca must reference ConfigMap %q", caVolume.ConfigMap.Name))
 		}
 	}
