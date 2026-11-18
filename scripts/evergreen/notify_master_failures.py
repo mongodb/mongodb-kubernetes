@@ -6,7 +6,7 @@ This script queries the Evergreen API to find failed tasks in a build version
 and sends a Slack notification to #k8s-enterprise-builds with failure details
 and author information.
 
-The script runs after the staging tasks via Evergreen's depends_on mechanism.
+The script depends on unbatched staging tasks and checks activated CloudQA tasks before reporting.
 It does not wait for the IBM Z variants. Their results are included when they
 finish before the report and listed as skipped otherwise.
 It only runs on commit builds (not patches) - see .evergreen.yml for details.
@@ -43,9 +43,6 @@ from evergreen.version import BuildVariantStatus, Version
 from scripts.evergreen.notify_flaky_tests import FlakyTask, get_flaky_tasks
 from scripts.python.evergreen_api import get_evergreen_api
 
-# Terminal statuses that indicate a patch/version has completed
-COMPLETED_STATUSES = {"succeeded", "failed"}
-
 # Tasks to exclude from the report. They do not describe the build result
 # this notification reports.
 NOTIFICATION_TASKS = [
@@ -64,10 +61,8 @@ NON_BLOCKING_VARIANTS = {
     "e2e_static_smoke_ibm_z_ubi9_slim",
 }
 
-# The notification depends on the non-IBM-Z staging tasks. The version stays
-# started while the IBM Z e2e tasks queue, so it cannot reach a terminal state.
-# Do not wait for the full version.
-VERSION_POLL_TIMEOUT = 0
+# Bound the wait for report-blocking tasks so a notifier cannot occupy a worker indefinitely.
+VERSION_POLL_TIMEOUT = 600
 VERSION_POLL_INTERVAL = 30
 
 # Global counter for API calls
@@ -84,6 +79,7 @@ class TaskInfo:
 
     task: Task
     build_variant: str
+    build_variant_tags: tuple[str, ...] = ()
 
     def __getattr__(self, name: str):
         """Forward attribute access to the wrapped Task object."""
@@ -105,6 +101,21 @@ class TaskInfo:
     def is_running(self) -> bool:
         """Check if task is currently running or pending."""
         return self.task.status in ("started", "dispatched", "undispatched")
+
+    @property
+    def is_inactive_cloudqa(self) -> bool:
+        """Check for unstarted CloudQA work outside this report's coverage."""
+        return (
+            "staging" in self.build_variant_tags
+            and "cloudqa" in self.build_variant_tags
+            and self.task.status == "undispatched"
+            and not self.task.activated
+        )
+
+    @property
+    def is_skipped(self) -> bool:
+        """Check whether pending work can be omitted from this report."""
+        return self.is_running and (self.build_variant in NON_BLOCKING_VARIANTS or self.is_inactive_cloudqa)
 
     @property
     def is_display_only(self) -> bool:
@@ -134,11 +145,6 @@ class VersionInfo:
         """Get author_id from version (not exposed as property in evergreen.Version)."""
         return self.version.json.get("author_id", "")
 
-    @property
-    def is_completed(self) -> bool:
-        """Check if version has reached a terminal state."""
-        return self.version.status in COMPLETED_STATUSES
-
 
 def get_version_info(api: EvergreenApi, version_id: str) -> VersionInfo:
     """Fetch version information from Evergreen API."""
@@ -149,27 +155,23 @@ def get_version_info(api: EvergreenApi, version_id: str) -> VersionInfo:
 
 
 def wait_for_version_completion(api: EvergreenApi, version_id: str) -> VersionInfo:
-    """Fetch the current version and proceed.
-
-    The task dependency gates on the non-IBM-Z staging tasks. The full version
-    stays started while the IBM Z e2e tasks queue, so waiting for it would add
-    the full poll timeout.
-    """
+    """Poll until all report-blocking tasks finish or the wait expires."""
     deadline = time.time() + VERSION_POLL_TIMEOUT
     while True:
         version_info = get_version_info(api, version_id)
-        if version_info.is_completed:
+        _, pending, _, _ = get_task_summary(api, version_id, NOTIFICATION_TASKS)
+        running = [task for task in pending if not task.is_skipped]
+        if not running:
             return version_info
         remaining = deadline - time.time()
         if remaining <= 0:
             print(
-                f"Version still '{version_info.status}' after {VERSION_POLL_TIMEOUT}s — "
-                f"proceeding with current data",
+                f"{len(running)} tasks still pending after {VERSION_POLL_TIMEOUT}s — proceeding with current data",
                 file=sys.stderr,
             )
             return version_info
         print(
-            f"Version status is '{version_info.status}', waiting {VERSION_POLL_INTERVAL}s "
+            f"{len(running)} tasks still pending, waiting {VERSION_POLL_INTERVAL}s "
             f"for completion ({remaining:.0f}s remaining)...",
             file=sys.stderr,
         )
@@ -182,7 +184,12 @@ def get_build_tasks(api: EvergreenApi, build_variant_status: BuildVariantStatus)
     _api_call_count += 1
     build = api.build_by_id(build_variant_status.build_id)
     tasks = build.get_tasks()
-    return [TaskInfo(task=task, build_variant=build_variant_status.build_variant) for task in tasks]
+    return [
+        TaskInfo(
+            task=task, build_variant=build_variant_status.build_variant, build_variant_tags=tuple(build.tags or [])
+        )
+        for task in tasks
+    ]
 
 
 def get_task_summary(
@@ -215,8 +222,9 @@ def get_task_summary(
         visible = [task for task in tasks if not task.is_display_only and task.display_name not in exclude_tasks]
         failures = [task for task in visible if task.is_failed]
         pending = [task for task in visible if task.is_running]
-        retried = [task for task in visible if task.is_retried]
-        return failures, pending, retried, len(visible)
+        retried = [task for task in visible if task.is_retried and not task.is_inactive_cloudqa]
+        total = sum(not task.is_inactive_cloudqa for task in visible)
+        return failures, pending, retried, total
 
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch_build_tasks, bv): bv for bv in builds_to_check}
@@ -593,8 +601,7 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # The task dependency gates on the non-IBM-Z staging tasks. The version stays
-    # started while the IBM Z e2e tasks queue, so do not wait for the full version.
+    # Activated CloudQA tasks must finish even when the version already records a failure.
     try:
         version_info = wait_for_version_completion(api, version_id)
     except Exception as e:
@@ -610,8 +617,8 @@ def main() -> None:
         print(f"Error fetching tasks: {e}", file=sys.stderr)
         sys.exit(1)
 
-    skipped_tasks = [task for task in running_tasks if task.build_variant in NON_BLOCKING_VARIANTS]
-    running_tasks = [task for task in running_tasks if task.build_variant not in NON_BLOCKING_VARIANTS]
+    skipped_tasks = [task for task in running_tasks if task.is_skipped]
+    running_tasks = [task for task in running_tasks if not task.is_skipped]
 
     # Look up flakiness when there are failures (best-effort, non-fatal).
     flaky_map: dict[tuple[str, str], FlakyTask] = {}

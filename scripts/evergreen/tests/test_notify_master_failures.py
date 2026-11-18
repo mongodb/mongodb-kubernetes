@@ -1,6 +1,7 @@
 """Tests for notify_master_failures.py"""
 
 import sys
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -8,10 +9,10 @@ import pytest
 from scripts.evergreen.notify_flaky_tests import FlakyTask
 from scripts.evergreen.notify_master_failures import (
     NOTIFICATION_TASKS,
-    VERSION_POLL_TIMEOUT,
     TaskInfo,
     VersionInfo,
     format_slack_message,
+    get_build_tasks,
     get_previous_version_failures,
     get_task_summary,
     print_stdout_report,
@@ -487,6 +488,104 @@ class TestGetTaskSummary:
         assert total == 0
 
 
+class TestCloudQASummary:
+    @pytest.mark.parametrize(
+        "tags,activated,status,expected_total,expected_retried",
+        [
+            (["staging", "cloudqa"], False, "undispatched", 0, 0),
+            (["staging", "cloudqa"], True, "undispatched", 1, 1),
+            (["staging", "cloudqa"], False, "started", 1, 1),
+            (["staging", "cloudqa"], False, "dispatched", 1, 1),
+            (["staging", "cloudqa"], False, "success", 1, 1),
+            (["staging", "cloudqa"], False, "failed", 1, 1),
+            (["staging"], False, "undispatched", 1, 1),
+            (["cloudqa"], False, "undispatched", 1, 1),
+        ],
+    )
+    @patch("scripts.evergreen.notify_master_failures.get_version_info")
+    def test_activation_filter_uses_build_tags(
+        self, mock_version, tags, activated, status, expected_total, expected_retried
+    ):
+        task = make_mock_task("e2e_task", "cloudqa_in_name_only", status, execution=1)
+        task.task.activated = activated
+        variant = MagicMock(build_id="b1", build_variant=task.build_variant)
+        version = make_mock_version()
+        version.version.build_variants_status = [variant]
+        mock_version.return_value = version
+        api = MagicMock()
+        api.build_by_id.return_value.tags = tags
+        api.build_by_id.return_value.get_tasks.return_value = [task.task]
+
+        failed, pending, retried, total = get_task_summary(api, "v1")
+
+        assert total == expected_total
+        assert len(retried) == expected_retried
+        assert bool(failed) == (status == "failed")
+        assert len(pending) == (1 if status in {"started", "dispatched", "undispatched"} else 0)
+        if pending:
+            assert pending[0].is_skipped == (expected_total == 0)
+
+    def test_fetch_preserves_build_tags(self):
+        api = MagicMock()
+        api.build_by_id.return_value.tags = ["staging", "cloudqa"]
+        api.build_by_id.return_value.get_tasks.return_value = [make_mock_task("t", "v").task]
+
+        tasks = get_build_tasks(api, MagicMock(build_id="b1", build_variant="v"))
+
+        assert tasks[0].build_variant_tags == ("staging", "cloudqa")
+
+
+class TestWaitForCompletion:
+    @pytest.mark.parametrize("final_status", ["success", "failed"])
+    @patch("scripts.evergreen.notify_master_failures.time.sleep")
+    @patch("scripts.evergreen.notify_master_failures.get_task_summary")
+    @patch("scripts.evergreen.notify_master_failures.get_version_info")
+    def test_waits_for_active_cloudqa(self, mock_version, mock_summary, mock_sleep, final_status):
+        pending = make_mock_task("t", "v", "undispatched")
+        pending.task.activated = True
+        pending = replace(pending, build_variant_tags=("staging", "cloudqa"))
+        finished = make_mock_task("t", "v", final_status)
+        mock_version.return_value = make_mock_version(status="failed")
+        mock_summary.side_effect = [([], [pending], [], 1), ([finished] if final_status == "failed" else [], [], [], 1)]
+
+        wait_for_version_completion(MagicMock(), "v1")
+
+        mock_sleep.assert_called_once()
+        assert mock_summary.call_count == 2
+
+    @patch("scripts.evergreen.notify_master_failures.time.sleep")
+    @patch("scripts.evergreen.notify_master_failures.get_task_summary")
+    @patch("scripts.evergreen.notify_master_failures.get_version_info")
+    def test_does_not_wait_for_inactive_cloudqa_or_queued_ibm_z(self, mock_version, mock_summary, mock_sleep):
+        inactive = make_mock_task("t", "v", "undispatched")
+        inactive.task.activated = False
+        inactive = replace(inactive, build_variant_tags=("staging", "cloudqa"))
+        queued_ibm_z = make_mock_task("ibm", "e2e_smoke_ibm_z", "undispatched")
+        mock_version.return_value = make_mock_version(status="started")
+        mock_summary.return_value = ([], [inactive, queued_ibm_z], [], 1)
+
+        wait_for_version_completion(MagicMock(), "v1")
+
+        mock_sleep.assert_not_called()
+
+    @patch("scripts.evergreen.notify_master_failures.time.time", side_effect=[0, 601])
+    @patch("scripts.evergreen.notify_master_failures.time.sleep")
+    @patch("scripts.evergreen.notify_master_failures.get_task_summary")
+    @patch("scripts.evergreen.notify_master_failures.get_version_info")
+    def test_wait_timeout_keeps_active_tasks_pending(self, mock_version, mock_summary, mock_sleep, mock_time):
+        active = make_mock_task("t", "v", "undispatched")
+        active.task.activated = True
+        active = replace(active, build_variant_tags=("staging", "cloudqa"))
+        mock_version.return_value = make_mock_version(status="started")
+        mock_summary.return_value = ([], [active], [], 1)
+
+        result = wait_for_version_completion(MagicMock(), "v1")
+
+        assert result.status == "started"
+        assert not active.is_skipped
+        mock_sleep.assert_not_called()
+
+
 class TestGetPreviousVersionFailures:
     @patch("scripts.evergreen.notify_master_failures.get_task_summary")
     def test_finds_previous_version(self, mock_failed_tasks):
@@ -534,16 +633,20 @@ class TestSendSlackNotification:
 
 
 class TestWaitForVersionCompletion:
+    @patch("scripts.evergreen.notify_master_failures.time.sleep")
+    @patch("scripts.evergreen.notify_master_failures.get_task_summary")
     @patch("scripts.evergreen.notify_master_failures.get_version_info")
-    def test_fetches_once_when_version_not_completed(self, mock_get_version):
-        assert VERSION_POLL_TIMEOUT == 0
+    def test_fetches_once_when_only_queued_ibm_z_remains(self, mock_get_version, mock_summary, mock_sleep):
         version_info = make_mock_version(status="started")
         mock_get_version.return_value = version_info
+        queued = make_mock_task("ibm", "e2e_smoke_ibm_z", "undispatched")
+        mock_summary.return_value = ([], [queued], [], 1)
 
         result = wait_for_version_completion(MagicMock(), "v1")
 
         assert result is version_info
         mock_get_version.assert_called_once()
+        mock_sleep.assert_not_called()
 
 
 class TestMainOutputBehavior:
@@ -579,6 +682,12 @@ class TestMainOutputBehavior:
         failed_tasks = [make_mock_task(t["display_name"], t["build_variant"]) for t in (failed or [])]
         pending_tasks = [make_mock_task(t["display_name"], t["build_variant"], "started") for t in (running or [])] + [
             make_mock_task(t["display_name"], t["build_variant"], "undispatched") for t in (skipped or [])
+        ]
+        for task, data in zip(pending_tasks, (running or []) + (skipped or [])):
+            task.task.activated = data.get("activated", True)
+        pending_tasks = [
+            replace(task, build_variant_tags=tuple(data.get("tags", [])))
+            for task, data in zip(pending_tasks, (running or []) + (skipped or []))
         ]
         retried_tasks = [
             make_mock_task(t["display_name"], t["build_variant"], "success", t["execution"]) for t in (retried or [])
@@ -630,6 +739,27 @@ class TestMainOutputBehavior:
             skipped=[{"build_variant": "e2e_smoke_ibm_z", "display_name": "e2e_replica_set"}],
         )
         assert not mocks["slack"].called
+
+    @pytest.mark.parametrize("activated", [False, True])
+    def test_cloudqa_activation_controls_notification(self, mocks, monkeypatch, activated):
+        monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
+        self._run(
+            mocks,
+            "started",
+            skipped=[
+                {
+                    "build_variant": "cloudqa_variant",
+                    "display_name": "e2e_task",
+                    "tags": ["staging", "cloudqa"],
+                    "activated": activated,
+                }
+            ],
+        )
+        assert mocks["slack"].called is not activated
+        if not activated:
+            message = mocks["slack"].call_args.args[1]
+            assert "cloudqa_variant" in str(message["blocks"])
+            assert "Skipped variants" in str(message["blocks"])
 
     def test_slack_on_success_by_default(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
