@@ -1326,11 +1326,3 @@ func (om *MongoDBOpsManager) GetLastInstallSecretRef() (string, error) {
 	}
 	return lastSpec.License.SecretRef.Name, nil
 }
-
-func (om *MongoDBOpsManager) LicenseRotateIdentityDue() bool {
-	return om.Annotations[util.LicenseRotateIdentityAnnotation] == annotationTrue
-}
-
-func (om *MongoDBOpsManager) LicenseRecomputeDue() bool {
-	return om.Annotations[util.LicenseRecomputeAnnotation] == annotationTrue
-}
