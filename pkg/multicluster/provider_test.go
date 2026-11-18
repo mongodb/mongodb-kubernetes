@@ -33,6 +33,19 @@ func TestProvider(t *testing.T) {
 	assert.Len(t, p.Entries(), 1)
 }
 
+func TestProviderGet(t *testing.T) {
+	ctx := context.Background()
+	p := NewProvider()
+
+	_, ok := p.Get("a")
+	assert.False(t, ok)
+
+	p.Set(ctx, "a", Entry{ResourceName: "cr-a"})
+	entry, ok := p.Get("a")
+	assert.True(t, ok)
+	assert.Equal(t, "cr-a", entry.ResourceName)
+}
+
 func TestProviderHooks(t *testing.T) {
 	ctx := context.Background()
 	p := NewProvider()

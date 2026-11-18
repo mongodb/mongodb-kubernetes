@@ -39,9 +39,11 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/featuregate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
@@ -52,9 +54,9 @@ import (
 
 // AddStandaloneController creates a new MongoDbStandalone Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, maxConcurrentReconciles int) error {
+func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, clusterRolesGate *featuregate.RBACGate, memberClustersProvider *multicluster.Provider, clusterIdentity string, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, maxConcurrentReconciles int) error {
 	// Create a new controller
-	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, om.NewOpsManagerConnection)
+	reconciler := newStandaloneReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, clusterRolesGate, memberClustersProvider, clusterIdentity, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, om.NewOpsManagerConnection)
 	c, err := controller.New(util.MongoDbStandaloneController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err
@@ -88,13 +90,8 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 		return err
 	}
 
-	if enableClusterMongoDBRoles {
-		err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{},
-			&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher}))
-		if err != nil {
-			return err
-		}
-	}
+	clusterRolesGate.AddWatch(c, &rolev1.ClusterMongoDBRole{},
+		&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher})
 
 	// if vault secret backend is enabled watch for Vault secret change and trigger reconcile
 	if vault.IsVaultSecretBackend() {
@@ -114,13 +111,12 @@ func AddStandaloneController(ctx context.Context, mgr manager.Manager, imageUrls
 	return nil
 }
 
-func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, enableClusterMongoDBRoles bool, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
-	return &ReconcileMongoDbStandalone{
+func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, clusterRolesGate *featuregate.RBACGate, memberClustersProvider *multicluster.Provider, clusterIdentity string, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, omFunc om.ConnectionFactory) *ReconcileMongoDbStandalone {
+	reconciler := &ReconcileMongoDbStandalone{
 		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:       omFunc,
 		imageUrls:                 imageUrls,
 		forceEnterprise:           forceEnterprise,
-		enableClusterMongoDBRoles: enableClusterMongoDBRoles,
 
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
@@ -131,15 +127,18 @@ func newStandaloneReconciler(ctx context.Context, kubeClient client.Client, imag
 		defaultImageType:    defaultImageType,
 		propagateProxyEnv:   propagateProxyEnv,
 	}
+	reconciler.clusterRolesGate = clusterRolesGate
+	reconciler.memberClustersProvider = memberClustersProvider
+	reconciler.clusterIdentity = clusterIdentity
+	return reconciler
 }
 
 // ReconcileMongoDbStandalone reconciles a MongoDbStandalone object
 type ReconcileMongoDbStandalone struct {
 	*ReconcileCommonController
-	omConnectionFactory       om.ConnectionFactory
-	imageUrls                 images.ImageUrls
-	forceEnterprise           bool
-	enableClusterMongoDBRoles bool
+	omConnectionFactory om.ConnectionFactory
+	imageUrls           images.ImageUrls
+	forceEnterprise     bool
 
 	initDatabaseNonStaticImageVersion string
 	databaseNonStaticImageVersion     string
@@ -238,7 +237,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to get last configured roles: %w", err)), log)
 	}
 
-	if status := r.ensureRoles(ctx, s.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(s), previousRoles, log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, s.Spec.DbCommonSpec, conn, kube.ObjectKeyFromApiObject(s), previousRoles, log); !status.IsOK() {
 		return r.updateStatus(ctx, s, status, log)
 	}
 
@@ -352,7 +351,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		maps.Copy(annotationsToAdd, vaultMap)
 	}
 
-	roleAnnotation, _, err := r.getRoleAnnotation(ctx, s.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(s))
+	roleAnnotation, _, err := r.getRoleAnnotation(ctx, s.Spec.DbCommonSpec, kube.ObjectKeyFromApiObject(s))
 	if err != nil {
 		return r.updateStatus(ctx, s, workflow.Failed(err), log)
 	}

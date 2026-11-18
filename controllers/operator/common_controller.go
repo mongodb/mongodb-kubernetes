@@ -44,12 +44,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/featuregate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -95,6 +97,11 @@ type ReconcileCommonController struct {
 
 	resourceWatcher *watch.ResourceWatcher
 
+	clusterRolesGate *featuregate.RBACGate
+
+	memberClustersProvider *multicluster.Provider
+	clusterIdentity        string
+
 	customAgentURL string
 
 	agentErrorsThrottle func(key any) bool
@@ -138,8 +145,8 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 }
 
-func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) (map[string]string, []string, error) {
-	previousRoles, err := r.getRoleStrings(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
+func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db mdbv1.DbCommonSpec, mongodbResourceNsName types.NamespacedName) (map[string]string, []string, error) {
+	previousRoles, err := r.getRoleStrings(ctx, db, mongodbResourceNsName)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("Error retrieving configured roles: %w", err)
 	}
@@ -154,8 +161,8 @@ func (r *ReconcileCommonController) getRoleAnnotation(ctx context.Context, db md
 	return annotationToAdd, previousRoles, nil
 }
 
-func (r *ReconcileCommonController) getRoleStrings(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) ([]string, error) {
-	roles, err := r.getRoles(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
+func (r *ReconcileCommonController) getRoleStrings(ctx context.Context, db mdbv1.DbCommonSpec, mongodbResourceNsName types.NamespacedName) ([]string, error) {
+	roles, err := r.getRoles(ctx, db, mongodbResourceNsName)
 	if err != nil {
 		return []string{}, err
 	}
@@ -168,7 +175,9 @@ func (r *ReconcileCommonController) getRoleStrings(ctx context.Context, db mdbv1
 	return roleStrings, nil
 }
 
-func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, mongodbResourceNsName types.NamespacedName) ([]mdbv1.MongoDBRole, error) {
+const clusterMongoDBRolesNotEnabledMsg = "RoleRefs are not supported because ClusterMongoDBRole support is not enabled. To enable it, render RBAC with `kubectl mongodb cluster generate-resources --operator-clustermongodbrole`, apply it to the cluster, and register the cluster with the operator via `kubectl mongodb cluster generate-registration`."
+
+func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCommonSpec, mongodbResourceNsName types.NamespacedName) ([]mdbv1.MongoDBRole, error) {
 	localRoles := db.GetSecurity().Roles
 	roleRefs := db.GetSecurity().RoleRefs
 
@@ -178,11 +187,16 @@ func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCom
 
 	var roles []mdbv1.MongoDBRole
 	if len(roleRefs) > 0 {
-		if !enableClusterMongoDBRoles {
-			return nil, xerrors.Errorf("RoleRefs are not supported when ClusterMongoDBRoles are disabled. To enable them, include `clustermongodbroles` in `.spec.watchedResources` of the OperatorConfig CR (it is included by default) and ensure the necessary RBAC exists. Setting operator.enableClusterMongoDBRoles to true in the helm values file creates that RBAC automatically; otherwise create the ClusterRole and ClusterRoleBinding manually.")
+		if !r.clusterRolesGate.Enabled(ctx) {
+			return nil, xerrors.Errorf(clusterMongoDBRolesNotEnabledMsg)
+		}
+		r.clusterRolesGate.EnsureWatches(ctx)
+		entry, ok := r.memberClustersProvider.Get(r.clusterIdentity)
+		if !ok {
+			return nil, xerrors.Errorf(clusterMongoDBRolesNotEnabledMsg)
 		}
 		var err error
-		roles, err = r.getRoleRefs(ctx, roleRefs, mongodbResourceNsName, db.Version)
+		roles, err = r.getRoleRefs(ctx, entry.Client, roleRefs, mongodbResourceNsName, db.Version)
 		if err != nil {
 			return nil, err
 		}
@@ -196,8 +210,8 @@ func (r *ReconcileCommonController) getRoles(ctx context.Context, db mdbv1.DbCom
 // ensureRoles will first check if both roles and roleRefs are populated. If both are, it will return an error, which is inline with the webhook validation rules.
 // Otherwise, if roles is populated, then it will extract the list of roles and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
 // If roleRefs is populated, it will extract the list of roles from the referenced resources and check if they are already set in Ops Manager. If they are not, it will update the roles in Ops Manager.
-func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.DbCommonSpec, enableClusterMongoDBRoles bool, conn om.Connection, mongodbResourceNsName types.NamespacedName, previousRoles []string, log *zap.SugaredLogger) workflow.Status {
-	roles, err := r.getRoles(ctx, db, enableClusterMongoDBRoles, mongodbResourceNsName)
+func (r *ReconcileCommonController) ensureRoles(ctx context.Context, db mdbv1.DbCommonSpec, conn om.Connection, mongodbResourceNsName types.NamespacedName, previousRoles []string, log *zap.SugaredLogger) workflow.Status {
+	roles, err := r.getRoles(ctx, db, mongodbResourceNsName)
 	if err != nil {
 		return workflow.Failed(err)
 	}
@@ -298,7 +312,7 @@ func mergeRoles(deployed []mdbv1.MongoDBRole, current []mdbv1.MongoDBRole, previ
 // It will also add the referenced resources to the resource watcher, so that they are watched for changes.
 // The referenced resources are expected to be of kind ClusterMongoDBRole.
 // This implementation is prepared for a future namespaced variant of ClusterMongoDBRole.
-func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []mdbv1.MongoDBRoleRef, mongodbResourceNsName types.NamespacedName, mdbVersion string) ([]mdbv1.MongoDBRole, error) {
+func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleClient client.Client, roleRefs []mdbv1.MongoDBRoleRef, mongodbResourceNsName types.NamespacedName, mdbVersion string) ([]mdbv1.MongoDBRole, error) {
 	roles := make([]mdbv1.MongoDBRole, len(roleRefs))
 
 	for idx, ref := range roleRefs {
@@ -308,10 +322,13 @@ func (r *ReconcileCommonController) getRoleRefs(ctx context.Context, roleRefs []
 		case util.ClusterMongoDBRoleKind:
 			customRole := &rolev1.ClusterMongoDBRole{}
 
-			err := r.client.Get(ctx, types.NamespacedName{Name: ref.Name}, customRole)
+			err := roleClient.Get(ctx, types.NamespacedName{Name: ref.Name}, customRole)
 			if err != nil {
 				if apiErrors.IsNotFound(err) {
 					return nil, xerrors.Errorf("ClusterMongoDBRole '%s' not found. If the resource was deleted, the role is still present in MongoDB. To correctly remove a role from MongoDB, please remove the reference from spec.security.roleRefs.", ref.Name)
+				}
+				if apiErrors.IsForbidden(err) {
+					return nil, xerrors.Errorf(clusterMongoDBRolesNotEnabledMsg)
 				}
 				return nil, xerrors.Errorf("Failed to retrieve ClusterMongoDBRole '%s': %w", ref.Name, err)
 			}

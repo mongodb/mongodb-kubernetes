@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -54,6 +55,7 @@ import (
 	mcov1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"                       //nolint:depguard
 	mcoController "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers"          //nolint:depguard
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
+	"github.com/mongodb/mongodb-kubernetes/pkg/featuregate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/membercluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -76,7 +78,6 @@ const (
 	mongoDBCommunityCRDPlural    = "mongodbcommunity"
 	mongoDBSearchCRDPlural       = "mongodbsearch"
 	voyageAICRDPlural            = "voyageais"
-	clusterMongoDBRoleCRDPlural  = "clustermongodbroles"
 )
 
 var (
@@ -97,6 +98,7 @@ func init() {
 	utilruntime.Must(mcov1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(vaiv1.AddToScheme(scheme))
+	utilruntime.Must(authorizationv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -252,7 +254,6 @@ func run() error {
 	for i, r := range operatorCfg.Spec.WatchedResources {
 		watchedResources[i] = string(r)
 	}
-	enableClusterMongoDBRoles := slices.Contains(watchedResources, clusterMongoDBRoleCRDPlural)
 
 	log.Info("Registering Components.")
 
@@ -317,9 +318,11 @@ func run() error {
 		return err
 	}
 
+	clusterMongoDBRolesGate := featuregate.NewRBACGate(ctx, clusterIdentity, memberClustersProvider, featuregate.RBACRequirement{Group: "mongodb.com", Resource: "clustermongodbroles", Verbs: []string{"get", "list", "watch"}}, log)
+
 	// Setup all Controllers
 	if slices.Contains(watchedResources, mongoDBCRDPlural) {
-		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, memberClustersProvider, backupEnableDelay, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
+		if err := setupMongoDBCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, clusterMongoDBRolesGate, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, memberClustersProvider, clusterIdentity, backupEnableDelay, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
@@ -334,7 +337,7 @@ func run() error {
 		}
 	}
 	if slices.Contains(watchedResources, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, requiredHealthyStreak, memberClusterClientTimeout, memberClustersProvider, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
+		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, clusterMongoDBRolesGate, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, requiredHealthyStreak, memberClusterClientTimeout, memberClustersProvider, clusterIdentity, operatorCfg.Spec.MaxConcurrentReconciles); err != nil {
 			return err
 		}
 	}
@@ -426,14 +429,14 @@ func shutdownTracerProvider(signalCtx context.Context, tp *sdktrace.TracerProvid
 	}
 }
 
-func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, memberClustersProvider *multicluster.Provider, backupEnableDelay time.Duration, maxConcurrentReconciles int) error {
-	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, maxConcurrentReconciles); err != nil {
+func setupMongoDBCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, clusterMongoDBRolesGate *featuregate.RBACGate, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, memberClustersProvider *multicluster.Provider, clusterIdentity string, backupEnableDelay time.Duration, maxConcurrentReconciles int) error {
+	if err := operator.AddStandaloneController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, clusterMongoDBRolesGate, memberClustersProvider, clusterIdentity, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, maxConcurrentReconciles); err != nil {
 		return err
 	}
-	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, maxConcurrentReconciles); err != nil {
+	if err := operator.AddReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, clusterMongoDBRolesGate, memberClustersProvider, clusterIdentity, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, maxConcurrentReconciles); err != nil {
 		return err
 	}
-	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, memberClustersProvider, backupEnableDelay, maxConcurrentReconciles); err != nil {
+	if err := operator.AddShardedClusterController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, clusterMongoDBRolesGate, clusterIdentity, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, memberClustersProvider, backupEnableDelay, maxConcurrentReconciles); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbv1.MongoDB{}).
@@ -454,8 +457,8 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 	return operator.AddMongoDBUserController(ctx, mgr, memberClustersProvider, backupEnableDelay, maxConcurrentReconciles)
 }
 
-func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, requiredHealthyStreak int, memberClusterClientTimeout int, memberClustersProvider *multicluster.Provider, maxConcurrentReconciles int) error {
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, requiredHealthyStreak, memberClusterClientTimeout, memberClustersProvider, maxConcurrentReconciles); err != nil {
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, clusterMongoDBRolesGate *featuregate.RBACGate, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, requiredHealthyStreak int, memberClusterClientTimeout int, memberClustersProvider *multicluster.Provider, clusterIdentity string, maxConcurrentReconciles int) error {
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, clusterMongoDBRolesGate, clusterIdentity, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, requiredHealthyStreak, memberClusterClientTimeout, memberClustersProvider, maxConcurrentReconciles); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
