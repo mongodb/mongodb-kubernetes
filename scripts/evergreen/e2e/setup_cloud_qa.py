@@ -12,6 +12,14 @@ from requests.auth import HTTPDigestAuth
 ALLOWED_OPS_MANAGER_VERSION = "cloud_qa"
 PAGINATION_LIMIT = 100
 
+REMOVED_STATUS_CODES = (202, 404)  # accepted, or already gone
+MAX_REMOVE_ATTEMPTS = 3
+BACKOFF_SECONDS = 3
+MAX_CONSECUTIVE_SERVER_ERRORS = 5
+TIME_BUDGET_MINUTES = "JANITOR_TIME_BUDGET_MINUTES"
+# periodic_teardown runs every 2 hours, the budget keeps consecutive runs from overlapping
+DEFAULT_TIME_BUDGET_MINUTES = 90
+
 BASE_URL = "e2e_cloud_qa_baseurl"
 ENV_FILE = "ENV_FILE"
 NAMESPACE_FILE = "NAMESPACE_FILE"
@@ -179,32 +187,34 @@ def generate_key_description() -> str:
     return str(int(time.time()))
 
 
-def remove_group_by_id(group_id: str, retry=3):
-    """Removes a group with a given Id."""
+def call_group_api(method: str, url: str, **kwargs) -> requests.Response:
+    """Calls the API as the org owner and logs the outcome, including the body of a failed call."""
+    response = getattr(requests, method)(url, auth=get_auth("org_owner"), **kwargs)
+    failure = "" if response.status_code < 300 else f" {response.text[:500]}"
+    print(f"{method.upper()} {url} -> {response.status_code}{failure}")
+    return response
+
+
+def remove_group_by_id(group_id: str, retry=MAX_REMOVE_ATTEMPTS):
+    """Removes a group with a given Id. A 404 means that the group is already gone, there is nothing to retry."""
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
-    while retry > 0:
-        controlled_features_data = {
-            "externalManagementSystem": {"name": "mongodb-enterprise-operator"},
-            "policies": [],
-        }
+    controlled_features_data = {
+        "externalManagementSystem": {"name": "mongodb-enterprise-operator"},
+        "policies": [],
+    }
 
-        result = requests.put(
-            f"{url}/controlledFeature",
-            auth=get_auth("org_owner"),
-            json=controlled_features_data,
-        )
-        print(result)
-        result = requests.put(f"{url}/automationConfig", auth=get_auth("org_owner"), json={})
-        print(result)
-        result = requests.delete(url, auth=get_auth("org_owner"))
-        print(result)
-        if result.status_code != 202:
-            retry -= 1
-            time.sleep(3 + random.random())
-            continue
+    for path, data in (("/controlledFeature", controlled_features_data), ("/automationConfig", {})):
+        result = call_group_api("put", url + path, json=data)
+        if result.status_code == 404:
+            return result
 
-        break
+    for attempt in range(retry):
+        result = call_group_api("delete", url)
+        if result.status_code in REMOVED_STATUS_CODES:
+            break
+        if attempt < retry - 1:
+            time.sleep(BACKOFF_SECONDS * 2**attempt + random.random())
 
     return result
 
@@ -214,7 +224,7 @@ def remove_group_by_name(name: str):
     _id = get_group_id_by_name(name)
     result = remove_group_by_id(_id)
 
-    status = "OK" if result.status_code == 202 else "FAILED"
+    status = "OK" if result.status_code in REMOVED_STATUS_CODES else "FAILED"
     print("Removing group id: {} and name: {} -> {}".format(_id, name, status))
     return result
 
@@ -277,6 +287,13 @@ def configure():
         fd.write("export OM_EXTERNALLY_CONFIGURED=true\n")
 
 
+def get_results(response: requests.Response) -> List[Dict]:
+    """Returns the results of a listing page. A failed request must not look like an empty organization."""
+    if response.status_code != 200:
+        raise Exception(f"Could not list {response.request.url}: {response.status_code} {response.text[:500]}")
+    return response.json().get("results", [])
+
+
 def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[List[Dict], List[Dict]]:
     """Returns the project ids which are older than 'age' days ago"""
     query_params = {"includeCount": True, "itemsPerPage": 500, "pageNum": 1}
@@ -287,7 +304,7 @@ def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[Lis
     while True:
         response = requests.get(url, auth=get_auth(), params=query_params)
         print(f"Queried page {query_params['pageNum']}, URL: {response.request.url}")
-        results = response.json().get("results", [])
+        results = get_results(response)
         for group in results:
             if project_was_created_before(group["name"], minutes_interval):
                 old_groups.append(group)
@@ -311,7 +328,7 @@ def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[List[Di
     while True:
         response = requests.get(url, auth=get_auth(), params=query_params)
         print(f"Queried page {query_params['pageNum']}, URL: {response.request.url}")
-        results = response.json().get("results", [])
+        results = get_results(response)
         for key in results:
             if key_is_older_than(key["desc"], minutes_interval):
                 old_keys.append(key)
@@ -361,22 +378,43 @@ def keep_the_key(key: Dict) -> bool:
 
 
 def clean_unused_projects(org_id: str):
-    """Iterates over all existing projects in the organization and removes the leftovers"""
+    """Iterates over all existing projects in the organization and removes the leftovers.
+    The run stops early, leaving the rest to the next one, after MAX_CONSECUTIVE_SERVER_ERRORS server errors in
+    a row (Cloud QA is unhealthy, retrying only adds load) or when the time budget is exhausted.
+    """
     projects, newer_projects = get_projects_older_than(org_id, minutes_interval=140)
     print(f"found {len(projects)} projects for potential removal")
+    deadline = time.monotonic() + float(os.getenv(TIME_BUDGET_MINUTES, DEFAULT_TIME_BUDGET_MINUTES)) * 60
     deleted_projects = []
+    gone_projects = []
     kept_projects = []
+    consecutive_server_errors = 0
 
     for project in projects:
+        if time.monotonic() > deadline:
+            print("Stopping: the time budget is exhausted, the remaining projects are left for the next run")
+            break
+
         print("Removing the project {} ({})".format(project["id"], project["name"]))
         response = remove_group_by_id(project["id"])
         if response.status_code == 202:
             deleted_projects.append(project["id"])
+        elif response.status_code == 404:
+            gone_projects.append(project["id"])
         else:
             kept_projects.append(project)
+
+        consecutive_server_errors = consecutive_server_errors + 1 if response.status_code >= 500 else 0
+        if consecutive_server_errors >= MAX_CONSECUTIVE_SERVER_ERRORS:
+            print(f"Stopping: {consecutive_server_errors} server errors in a row, the remaining projects are left")
+            break
+
+    not_attempted = len(projects) - len(deleted_projects) - len(gone_projects) - len(kept_projects)
     print(f"PROJECT REMOVAL SUMMARY\n----------")
     print(f"Ignored {len(newer_projects)} projects because they are too new.")
     print(f"Removed {len(deleted_projects)} projects.")
+    print(f"Already gone {len(gone_projects)} projects.")
+    print(f"Not attempted {not_attempted} projects.")
     print(f"Kept {len(kept_projects)} projects:")
     for project in kept_projects:
         print(f"\t{project['name']}\t{project['id']}")
