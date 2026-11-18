@@ -26,8 +26,12 @@ const (
 // support silently drop the volume, so fail with a message that names the cause.
 var staticAgentLauncherCommand = []string{
 	"/bin/bash", "-c",
-	"[ -f " + staticAgentLauncherPath + " ] || { echo \"ERROR: " + initDatabaseMountPath + " is empty. The static architecture needs a Kubernetes cluster with image volume support.\" >&2; exit 1; }; " +
+	initDatabaseImageVolumeCheck(staticAgentLauncherPath) +
 		"ln -sf " + initDatabaseMountPath + "/scripts/agent-launcher-lib.sh " + PvcMountPathScripts + "/agent-launcher-lib.sh && exec " + staticAgentLauncherPath,
+}
+
+func initDatabaseImageVolumeCheck(requiredFile string) string {
+	return "[ -f " + requiredFile + " ] || { echo \"ERROR: " + initDatabaseMountPath + " is empty. The static architecture needs a Kubernetes cluster with image volume support.\" >&2; exit 1; }; "
 }
 
 func initDatabaseImageVolume(initDatabaseImage string) corev1.Volume {

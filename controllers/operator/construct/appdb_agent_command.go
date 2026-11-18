@@ -73,11 +73,15 @@ func AutomationAgentCommand(withStatic bool, withAgentAPIKeyExport bool, logLeve
 	// In non-static mode, download the custom agent if MDB_CUSTOM_AGENT_URL is set.
 	// In static mode, the agent image is already built with the correct binary.
 	downloadSnippet := ""
+	// Without image volume support the readiness probe is missing and Pods never become Ready, so fail with the cause.
+	imageVolumeCheck := ""
 	if !withStatic {
 		downloadSnippet = downloadCustomAgentIfSet()
+	} else {
+		imageVolumeCheck = initDatabaseImageVolumeCheck(staticDatabaseReadinessProbeCmd) + "\n"
 	}
 
-	return []string{"/bin/bash", "-c", GetMongodbUserCommand(withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
+	return []string{"/bin/bash", "-c", imageVolumeCheck + GetMongodbUserCommand(withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + appdbAutomationAgentOptions + agentLogOptions}
 }
 
 // GetMongodbUserCommand returns the bash preamble for the automation agent. When

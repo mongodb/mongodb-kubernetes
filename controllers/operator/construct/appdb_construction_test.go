@@ -1,6 +1,7 @@
 package construct
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -434,6 +435,7 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 		assert.Contains(t, cmd[2], "MDB_CUSTOM_AGENT_URL")
 		assert.Contains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
+		assert.NotContains(t, cmd[2], "image volume support")
 	})
 
 	t.Run("static excludes download snippet", func(t *testing.T) {
@@ -444,6 +446,7 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 		assert.NotContains(t, cmd[2], "agent_binary=/tmp/mongodb-agent")
 		assert.Contains(t, cmd[2], "${agent_binary:-agent/mongodb-agent}")
 		assert.NotContains(t, cmd[2], "setup-agent-files.sh")
+		assert.True(t, strings.HasPrefix(cmd[2], initDatabaseImageVolumeCheck(staticDatabaseReadinessProbeCmd)), "static must fail early when the image volume is empty")
 	})
 }
 
