@@ -19,6 +19,8 @@ tasks:
       - func: cleanup_aws
 
   - name: periodic_teardown_cloudqa
+    # the janitor stops itself after 90 minutes, this keeps a stalled run from overlapping the next one in 2 hours
+    exec_timeout_secs: 6600
     commands:
       - func: teardown_cloud_qa_all
 

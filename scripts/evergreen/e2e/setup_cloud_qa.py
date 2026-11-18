@@ -13,12 +13,15 @@ ALLOWED_OPS_MANAGER_VERSION = "cloud_qa"
 PAGINATION_LIMIT = 100
 
 REMOVED_STATUS_CODES = (202, 404)  # accepted, or already gone
+CONFLICT_STATUS_CODE = 409
 MAX_REMOVE_ATTEMPTS = 3
 BACKOFF_SECONDS = 3
-MAX_CONSECUTIVE_SERVER_ERRORS = 5
-TIME_BUDGET_MINUTES = "JANITOR_TIME_BUDGET_MINUTES"
+MAX_CONSECUTIVE_FAILURES = 5
 # periodic_teardown runs every 2 hours, the budget keeps consecutive runs from overlapping
-DEFAULT_TIME_BUDGET_MINUTES = 90
+TIME_BUDGET_MINUTES = 90
+REQUEST_TIMEOUT = (5, 60)  # connect, read
+CONNECTION_ERROR_STATUS = 599  # not an HTTP status: the request got no response
+MAX_LOGGED_BODY = 500
 
 BASE_URL = "e2e_cloud_qa_baseurl"
 ENV_FILE = "ENV_FILE"
@@ -100,8 +103,8 @@ def delete_api_key(org: str, key_id: str):
     """Deletes an Organization level API Key object."""
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/orgs/{}/apiKeys/{}".format(base_url, org, key_id)
-    response = requests.delete(url, auth=get_auth())
-    if response.status_code != 204:
+    response = requests.delete(url, auth=get_auth(), timeout=REQUEST_TIMEOUT)
+    if response.status_code not in (204, 404):
         raise Exception("Could not remove the Programmatic API Key", response.text)
 
     return response
@@ -188,32 +191,45 @@ def generate_key_description() -> str:
 
 
 def call_group_api(method: str, url: str, **kwargs) -> requests.Response:
-    """Calls the API as the org owner and logs the outcome, including the body of a failed call."""
-    response = getattr(requests, method)(url, auth=get_auth("org_owner"), **kwargs)
-    failure = "" if response.status_code < 300 else f" {response.text[:500]}"
-    print(f"{method.upper()} {url} -> {response.status_code}{failure}")
+    """Calls the API as the org owner and logs the outcome. No response is reported as CONNECTION_ERROR_STATUS."""
+    try:
+        response = requests.request(method, url, auth=get_auth("org_owner"), timeout=REQUEST_TIMEOUT, **kwargs)
+    except requests.RequestException as e:
+        print(f"{method} {url} -> {e!r}")
+        response = requests.Response()
+        response.status_code = CONNECTION_ERROR_STATUS
+        return response
+
+    failure = "" if response.status_code < 300 or response.status_code == 404 else f" {response.text[:MAX_LOGGED_BODY]}"
+    print(f"{method} {url} -> {response.status_code}{failure}")
     return response
 
 
-def remove_group_by_id(group_id: str, retry=MAX_REMOVE_ATTEMPTS):
-    """Removes a group with a given Id. A 404 means that the group is already gone, there is nothing to retry."""
+def remove_group_by_id(group_id: str):
+    """Removes a group with a given Id. Only a server error or a rate limit is retried, a 404 means it is gone."""
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
-    controlled_features_data = {
-        "externalManagementSystem": {"name": "mongodb-enterprise-operator"},
-        "policies": [],
-    }
+    pending_puts = [
+        (
+            "/controlledFeature",
+            {"externalManagementSystem": {"name": "mongodb-enterprise-operator"}, "policies": []},
+        ),
+        ("/automationConfig", {}),
+    ]
 
-    for path, data in (("/controlledFeature", controlled_features_data), ("/automationConfig", {})):
-        result = call_group_api("put", url + path, json=data)
-        if result.status_code == 404:
-            return result
+    for attempt in range(MAX_REMOVE_ATTEMPTS):
+        for put in list(pending_puts):
+            path, data = put
+            status_code = call_group_api("PUT", url + path, json=data).status_code
+            if status_code == 404:  # the group may be gone, the DELETE decides
+                break
+            if status_code < 300:
+                pending_puts.remove(put)
 
-    for attempt in range(retry):
-        result = call_group_api("delete", url)
-        if result.status_code in REMOVED_STATUS_CODES:
+        result = call_group_api("DELETE", url)
+        if not (result.status_code >= 500 or result.status_code == 429):
             break
-        if attempt < retry - 1:
+        if attempt < MAX_REMOVE_ATTEMPTS - 1:
             time.sleep(BACKOFF_SECONDS * 2**attempt + random.random())
 
     return result
@@ -290,7 +306,9 @@ def configure():
 def get_results(response: requests.Response) -> List[Dict]:
     """Returns the results of a listing page. A failed request must not look like an empty organization."""
     if response.status_code != 200:
-        raise Exception(f"Could not list {response.request.url}: {response.status_code} {response.text[:500]}")
+        raise Exception(
+            f"Could not list {response.request.url}: {response.status_code} {response.text[:MAX_LOGGED_BODY]}"
+        )
     return response.json().get("results", [])
 
 
@@ -302,7 +320,7 @@ def get_projects_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[Lis
     old_groups = []
     new_groups = []
     while True:
-        response = requests.get(url, auth=get_auth(), params=query_params)
+        response = requests.get(url, auth=get_auth(), params=query_params, timeout=REQUEST_TIMEOUT)
         print(f"Queried page {query_params['pageNum']}, URL: {response.request.url}")
         results = get_results(response)
         for group in results:
@@ -326,7 +344,7 @@ def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[List[Di
     old_keys = []
     new_keys = []
     while True:
-        response = requests.get(url, auth=get_auth(), params=query_params)
+        response = requests.get(url, auth=get_auth(), params=query_params, timeout=REQUEST_TIMEOUT)
         print(f"Queried page {query_params['pageNum']}, URL: {response.request.url}")
         results = get_results(response)
         for key in results:
@@ -379,16 +397,15 @@ def keep_the_key(key: Dict) -> bool:
 
 def clean_unused_projects(org_id: str):
     """Iterates over all existing projects in the organization and removes the leftovers.
-    The run stops early, leaving the rest to the next one, after MAX_CONSECUTIVE_SERVER_ERRORS server errors in
-    a row (Cloud QA is unhealthy, retrying only adds load) or when the time budget is exhausted.
+    Stops early when Cloud QA looks unhealthy or the time budget is exhausted, the next run continues.
     """
+    deadline = time.monotonic() + TIME_BUDGET_MINUTES * 60
     projects, newer_projects = get_projects_older_than(org_id, minutes_interval=140)
     print(f"found {len(projects)} projects for potential removal")
-    deadline = time.monotonic() + float(os.getenv(TIME_BUDGET_MINUTES, DEFAULT_TIME_BUDGET_MINUTES)) * 60
     deleted_projects = []
     gone_projects = []
     kept_projects = []
-    consecutive_server_errors = 0
+    consecutive_failures = 0
 
     for project in projects:
         if time.monotonic() > deadline:
@@ -404,10 +421,17 @@ def clean_unused_projects(org_id: str):
         else:
             kept_projects.append(project)
 
-        consecutive_server_errors = consecutive_server_errors + 1 if response.status_code >= 500 else 0
-        if consecutive_server_errors >= MAX_CONSECUTIVE_SERVER_ERRORS:
-            print(f"Stopping: {consecutive_server_errors} server errors in a row, the remaining projects are left")
-            break
+        # a conflict is a problem of the project itself, any other failure points at Cloud QA or the credentials
+        if response.status_code in (*REMOVED_STATUS_CODES, CONFLICT_STATUS_CODE):
+            consecutive_failures = 0
+        else:
+            consecutive_failures += 1
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                print(
+                    f"Stopping: {consecutive_failures} consecutive failures, "
+                    "the remaining projects are left for the next run"
+                )
+                break
 
     not_attempted = len(projects) - len(deleted_projects) - len(gone_projects) - len(kept_projects)
     print(f"PROJECT REMOVAL SUMMARY\n----------")
@@ -454,8 +478,11 @@ def unconfigure_all():
         except Exception as e:
             print("Got an exception trying to remove Api Key", e)
 
-    clean_unused_projects(org)
-    clean_unused_keys(org)
+    # the keys are cleaned even when the projects cannot be listed or removed
+    try:
+        clean_unused_projects(org)
+    finally:
+        clean_unused_keys(org)
 
 
 def unconfigure_from_used_project():
