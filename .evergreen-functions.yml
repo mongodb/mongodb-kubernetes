@@ -1014,6 +1014,11 @@ functions:
       params:
         repo: helm-charts
         expansion_name: GH_TOKEN
+        # Clones and pushes the release branch to helm-charts (contents:write)
+        # and opens the release PR (pull_requests:write).
+        permissions:
+          contents: write
+          pull_requests: write
     - command: subprocess.exec
       type: setup
       params:
@@ -1031,6 +1036,10 @@ functions:
     - command: github.generate_token
       params:
         expansion_name: GH_TOKEN
+        # Lists, creates, updates the release and uploads/deletes its assets:
+        # contents:write.
+        permissions:
+          contents: write
     - command: subprocess.exec
       type: setup
       params:
@@ -1047,6 +1056,10 @@ functions:
     - command: github.generate_token
       params:
         expansion_name: GH_TOKEN
+        # Lists, creates, updates the release and uploads/deletes its assets:
+        # contents:write.
+        permissions:
+          contents: write
     - *assume_devprod_platforms_ecr_role
     - *write_devprod_platforms_ecr_aws_profile
     - command: subprocess.exec
