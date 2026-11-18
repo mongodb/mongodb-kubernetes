@@ -1,9 +1,21 @@
-{{- if .Values.operator.enableClusterMongoDBRoles }}
+{{- /*
+Member-cluster RBAC for ClusterMongoDBRole resources.
+
+Rendered only when `memberCluster.enabled=true` (set exclusively by the
+kubectl plugin) and `memberCluster.clusterMongoDBRole` is true.
+*/ -}}
+
+{{- $memberCluster := .Values.memberCluster | default dict -}}
+{{- $memberMode := $memberCluster.enabled | default false -}}
+
+{{- if and $memberMode $memberCluster.clusterMongoDBRole }}
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-mongodb-role
+  name: mck-member-cluster-mongodb-role
+  annotations:
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 rules:
   - apiGroups:
       - mongodb.com
@@ -15,14 +27,15 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-mongodb-role-binding
+  name: mck-member-cluster-mongodb-role-binding
+  annotations:
+    mongodb.com/rbac-version: {{ $.Chart.Version | quote }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ .Values.operator.name }}-{{ include "mongodb-kubernetes-operator.namespace" . }}-cluster-mongodb-role
+  name: mck-member-cluster-mongodb-role
 subjects:
   - kind: ServiceAccount
-    name: {{ .Values.operator.name }}
+    name: mck-member-sa
     namespace: {{ include "mongodb-kubernetes-operator.namespace" . }}
-
-{{- end }}{{/* if .Values.operator.enableClusterMongoDBRoles */}}
+{{- end }}

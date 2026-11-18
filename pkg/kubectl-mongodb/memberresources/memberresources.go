@@ -37,6 +37,9 @@ import (
 //   - operator-roles-telemetry.yaml: telemetry ClusterRole/ClusterRoleBinding. Dual-mode; in
 //     member mode it renders mck-member-cluster-telemetry bound to the member
 //     SA. Renders to nothing when operatorTelemetry is false (installClusterRole gate).
+//   - operator-roles-clustermongodbroles.yaml: member-only (renders nothing in base
+//     mode); in member mode renders mck-member-cluster-mongodb-role bound to the member
+//     SA when operatorClusterMongoDBRole is true.
 //
 // All member resources use the distinct fixed mck-member-* naming so they are
 // additive to the base-installation RBAC and never collide with it — including when the
@@ -48,6 +51,7 @@ var memberTemplates = []string{
 	"operator-roles-base.yaml",
 	"database-roles.yaml",
 	"operator-roles-telemetry.yaml",
+	"operator-roles-clustermongodbroles.yaml",
 }
 
 // Render renders the member-cluster templates from the embedded chart with the given
@@ -65,8 +69,10 @@ var memberTemplates = []string{
 //     that renders cluster-scoped operator-permission resources.
 //   - operatorTelemetry: also render the telemetry ClusterRole/ClusterRoleBinding (cluster-scoped
 //     regardless of the mode above).
+//   - operatorClusterMongoDBRole: also render the ClusterMongoDBRole ClusterRole/ClusterRoleBinding
+//     granting the member SA rights on clustermongodbroles.
 //   - imagePullSecrets: when non-empty, set as the workload ServiceAccounts' imagePullSecrets.
-func Render(memberClusterName, namespace string, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry bool, imagePullSecrets string) (string, error) {
+func Render(memberClusterName, namespace string, workloadNamespaces []string, operatorClusterScoped, operatorTelemetry, operatorClusterMongoDBRole bool, imagePullSecrets string) (string, error) {
 	chrt, err := loadEmbeddedChart()
 	if err != nil {
 		return "", xerrors.Errorf("loading embedded chart: %w", err)
@@ -78,6 +84,7 @@ func Render(memberClusterName, namespace string, workloadNamespaces []string, op
 			"name":               memberClusterName,
 			"clusterScoped":      operatorClusterScoped,
 			"workloadNamespaces": workloadNamespaces,
+			"clusterMongoDBRole": operatorClusterMongoDBRole,
 		},
 		"operator": map[string]any{
 			"namespace": namespace,

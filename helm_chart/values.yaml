@@ -43,11 +43,6 @@ operator:
       drop:
       - ALL
 
-  # If true, the helm chart will create the ClusterRole and ClusterRoleBinding for the operator to be able to access the ClusterMongoDBRole resources.
-  # Whether the operator actually reconciles ClusterMongoDBRole resources is controlled separately via `.spec.watchedResources` in the OperatorConfig CR (which includes `clustermongodbroles` by default).
-  # Set to false to not create the ClusterRole and ClusterRoleBinding.
-  enableClusterMongoDBRoles: true
-
   vaultSecretBackend:
     # set to true if you want the operator to store secrets in Vault
     enabled: false

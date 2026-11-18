@@ -26,7 +26,6 @@ generate_standalone_yaml() {
 
   FILES=(
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-base.yaml"
-    "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-telemetry.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-webhook.yaml"
     "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml"
@@ -53,7 +52,6 @@ generate_standalone_yaml() {
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator.yaml" config/manager/manager.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/database-roles.yaml" config/rbac/database-roles.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-base.yaml" config/rbac/operator-roles-base.yaml
-  cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-clustermongodbroles.yaml" config/rbac/operator-roles-clustermongodbroles.yaml
   cp "${charttmpdir}/mongodb-kubernetes/templates/operator-roles-telemetry.yaml" config/rbac/operator-roles-telemetry.yaml
 }
 
