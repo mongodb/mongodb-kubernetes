@@ -458,7 +458,7 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 		errorContains string
 	}{
 		{
-			name: "entry naming the artifact by its old licence Secret is accepted",
+			name: "releaseReceipts entry with a secretRef name is accepted",
 			license: &omv1.MongoDBOpsManagerLicense{
 				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
 					SecretRef: omv1.SecretRef{Name: "old-license"},
