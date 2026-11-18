@@ -426,6 +426,28 @@ func noTopologyMigration(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	return v1.ValidationSuccess()
 }
 
+// NoManagedCertificateX509InternalClusterTransition keeps internalCluster fixed
+// while operator-managed certificates are enabled: changing it goes through a
+// mixed state where old and restarted members validate each other against different CAs.
+//
+// Deliberately a webhook validator and not a CRD CEL rule: this restriction is expected
+// to be lifted once the transition is supported (KUBE-714), and a CEL rule would then require
+// users to re-apply the CRDs to get past it. Keep it here, where it is removed with the operator.
+func NoManagedCertificateX509InternalClusterTransition(newObj, oldObj DbCommonSpec) v1.ValidationResult {
+	newSecurity := newObj.GetSecurity()
+	if !newSecurity.IsManagedCertificateEnabled() {
+		return v1.ValidationSuccess()
+	}
+	if newSecurity.GetInternalClusterAuthenticationMode() != oldObj.GetSecurity().GetInternalClusterAuthenticationMode() {
+		return v1.ValidationError("Cannot change spec.security.authentication.internalCluster when spec.security.managedCertificate is enabled")
+	}
+	return v1.ValidationSuccess()
+}
+
+func noManagedCertificateX509InternalClusterTransition(newObj, oldObj MongoDbSpec) v1.ValidationResult {
+	return NoManagedCertificateX509InternalClusterTransition(newObj.DbCommonSpec, oldObj.DbCommonSpec)
+}
+
 func noSimultaneousTLSDisablingAndScaling(newObj, oldObj MongoDbSpec) v1.ValidationResult {
 	if newObj.ResourceType != ReplicaSet {
 		return v1.ValidationSuccess()
@@ -831,6 +853,7 @@ func (m *MongoDB) RunValidations(old *MongoDB) []v1.ValidationResult {
 		resourceTypeImmutable,
 		downloadBaseImmutable,
 		noTopologyMigration,
+		noManagedCertificateX509InternalClusterTransition,
 		noSimultaneousTLSDisablingAndScaling,
 		atMostOneMigrationChangeAtATime,
 		noExternalMembersAdditionOrChanges,

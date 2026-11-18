@@ -1,14 +1,14 @@
-"""A TLS replica set with operator-managed certificates, first with keyfile and then with x509 internal auth.
+"""A TLS replica set with operator-managed certificates and keyfile internal cluster auth.
 
 The replica set starts with SCRAM external auth and keyfile internal auth, so the operator issues only
 the member certificate: there is no clusterfile and no agent certificate. Without a clusterfile, mongod
 also presents the member certificate when it connects to the other members, so that certificate is used
 as a client certificate too and carries dual (clientAuth, serverAuth) key usage.
 
-The member certificate carries the operator's membership subject in both phases. The tests then switch
-internal cluster auth to x509 and check the deployment reaches Running with the member certificate's
-subject unchanged and a clusterfile certificate issued with the same organization and organizational
-unit, which is what mongod compares to recognise cluster peers.
+Switching internal cluster auth to x509 is not supported while managed certificates are enabled: the
+transition goes through a mixed state where old and restarted members validate each other against
+different CAs, so the deployment never converges. The tests assert the operator rejects the switch and
+that the member certificate carries the membership subject.
 """
 
 import pytest
@@ -49,6 +49,7 @@ def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
 @pytest.mark.e2e_replica_set_tls_managedcert_internal_auth_keyfile
 def test_install_operator(operator: Operator):
     operator.wait_for_operator_ready()
+    operator.wait_for_operator_webhook_ready()
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_internal_auth_keyfile
@@ -90,18 +91,18 @@ def test_member_certificate_carries_the_membership_subject(namespace: str):
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_internal_auth_keyfile
-def test_enable_x509_internal_cluster_authentication(mdb: MongoDB):
+def test_switching_to_x509_internal_cluster_auth_is_rejected(mdb: MongoDB):
     mdb.load()
     mdb["spec"]["security"]["authentication"]["internalCluster"] = "X509"
-    mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=1800)
 
+    with pytest.raises(
+        ApiException,
+        match=(
+            r"Cannot change spec\.security\.authentication\.internalCluster "
+            r"when spec\.security\.managedCertificate is enabled"
+        ),
+    ):
+        mdb.update()
 
-@pytest.mark.e2e_replica_set_tls_managedcert_internal_auth_keyfile
-def test_member_subject_is_unchanged_and_matches_the_clusterfile(namespace: str):
-    member, clusterfile, _ = leaf_secret_names(MDB_RESOURCE)
-    assert "tls.crt" in read_secret(
-        namespace, clusterfile
-    ), "clusterfile certificate must be issued after enabling x509"
-    assert_membership_subject(namespace, member)
-    assert_membership_subject(namespace, clusterfile)
+    mdb.load()
+    assert "internalCluster" not in mdb["spec"]["security"]["authentication"]

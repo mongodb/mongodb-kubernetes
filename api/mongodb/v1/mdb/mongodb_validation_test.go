@@ -315,6 +315,100 @@ func TestMongoDB_NoSimultaneousTLSDisablingAndScaling(t *testing.T) {
 	}
 }
 
+func TestMongoDB_NoManagedCertificateX509InternalClusterTransition(t *testing.T) {
+	security := func(internalCluster string, managed bool) *Security {
+		s := &Security{Authentication: &Authentication{InternalCluster: internalCluster}}
+		if managed {
+			s.ManagedCertificate = &ManagedCertificate{}
+		}
+		return s
+	}
+
+	tests := []struct {
+		name             string
+		oldInternal      string
+		oldManaged       bool
+		newInternal      string
+		newManaged       bool
+		expectedErrorMsg string
+	}{
+		{
+			name:             "switching to X509 with managed certificates is rejected",
+			newInternal:      "X509",
+			newManaged:       true,
+			expectedErrorMsg: "Cannot change spec.security.authentication.internalCluster when spec.security.managedCertificate is enabled",
+		},
+		{
+			name:             "switching from keyfile to X509 with managed certificates is rejected",
+			oldInternal:      "KEYFILE",
+			newInternal:      "X509",
+			newManaged:       true,
+			expectedErrorMsg: "Cannot change spec.security.authentication.internalCluster when spec.security.managedCertificate is enabled",
+		},
+		{
+			name:        "X509 already set with managed certificates is allowed",
+			oldInternal: "X509",
+			newInternal: "X509",
+			newManaged:  true,
+		},
+		{
+			name:        "switching to X509 without managed certificates is allowed",
+			newInternal: "X509",
+		},
+		{
+			name:             "changing internalCluster to SCRAM with managed certificates is rejected",
+			newInternal:      "SCRAM",
+			newManaged:       true,
+			expectedErrorMsg: "Cannot change spec.security.authentication.internalCluster when spec.security.managedCertificate is enabled",
+		},
+		{
+			name:             "disabling X509 with managed certificates is rejected",
+			oldInternal:      "X509",
+			oldManaged:       true,
+			newManaged:       true,
+			expectedErrorMsg: "Cannot change spec.security.authentication.internalCluster when spec.security.managedCertificate is enabled",
+		},
+		{
+			name:             "switching X509 to keyfile with managed certificates is rejected",
+			oldInternal:      "X509",
+			oldManaged:       true,
+			newInternal:      "KEYFILE",
+			newManaged:       true,
+			expectedErrorMsg: "Cannot change spec.security.authentication.internalCluster when spec.security.managedCertificate is enabled",
+		},
+		{
+			name:        "lowercase x509 to uppercase X509 with managed certificates is allowed",
+			oldInternal: "x509",
+			oldManaged:  true,
+			newInternal: "X509",
+			newManaged:  true,
+		},
+		{
+			name:        "disabling X509 together with removing managed certificates is allowed",
+			oldInternal: "X509",
+			oldManaged:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+			oldRs.Spec.Security = security(tt.oldInternal, tt.oldManaged)
+
+			newRs := NewReplicaSetBuilder().AddDummyOpsManagerConfig().Build()
+			newRs.Spec.Security = security(tt.newInternal, tt.newManaged)
+
+			_, err := validator.ValidateUpdate(ctx, oldRs, newRs)
+
+			if tt.expectedErrorMsg != "" {
+				assert.EqualError(t, err, tt.expectedErrorMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestSpecProjectOnlyOneValue(t *testing.T) {
 	rs := NewReplicaSetBuilder().Build()
 	rs.Spec.CloudManagerConfig = &PrivateCloudConfig{
