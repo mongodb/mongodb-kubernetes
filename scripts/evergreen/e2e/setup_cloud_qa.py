@@ -233,7 +233,8 @@ def remove_group_by_id(group_id: str):
 
     for attempt in range(MAX_REMOVE_ATTEMPTS):
         result = attempt_group_removal(url, pending_puts)
-        if result.status_code < 500 and result.status_code != 429:
+        # a conflict means that the project is still in use: like a rate limit, it can clear
+        if result.status_code < 500 and result.status_code not in (409, 429):
             break  # removed, already gone, or a failure that a retry won't change
         if attempt < MAX_REMOVE_ATTEMPTS - 1:
             time.sleep(BACKOFF_SECONDS * 2**attempt + random.random())
