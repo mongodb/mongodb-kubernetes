@@ -628,7 +628,7 @@ func managedCertificateGraphFixture(t *testing.T, customer bool) (kubernetesClie
 	om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: target.Name, Kind: "MongoDB", Namespace: target.Namespace}
 	require.NoError(t, c.Create(ctx, om))
 	require.NoError(t, c.Create(ctx, target))
-	_, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
+	_, _, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
 	markManagedCertificatesReady(t, ctx, c, nil)
 	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -655,7 +655,7 @@ func managedCertificateGraphFixture(t *testing.T, customer bool) (kubernetesClie
 		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 		require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: cert.Spec.SecretName, Namespace: om.Namespace, OwnerReferences: []metav1.OwnerReference{{APIVersion: "cert-manager.io/v1", Kind: "Certificate", Name: cert.Name, UID: cert.UID, Controller: new(true)}}}, Type: corev1.SecretTypeTLS, Data: map[string][]byte{"tls.crt": certPEM, "tls.key": keyPEM, "ca.crt": caPEM}}))
 	}
-	status, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
+	status, _, _ := EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
 	require.True(t, status.IsOK())
 	leaf, err := c.GetSecret(ctx, kube.ObjectKey(om.Namespace, "example-db-managed-cert"))
 	require.NoError(t, err)
@@ -763,7 +763,7 @@ func TestEnsureCertificatesAndCAReownsExistingManagedGraph(t *testing.T) {
 			}
 
 			// The only call under test: the ordinary target certificate reconciliation.
-			status, _ := EnsureCertificatesAndCA(ctx, c, target, []Options{ReplicaSetConfig(*target)}, managedTestLogger())
+			status, _, _ := EnsureCertificatesAndCA(ctx, c, target, []Options{ReplicaSetConfig(*target)}, managedTestLogger())
 			require.True(t, status.IsOK(), fmt.Sprint(status))
 
 			after := snapshotManagedGraph(t, ctx, c, om.Namespace, "example-db-managed-cert-pem")
@@ -800,7 +800,7 @@ func TestEnsureCertificatesAndCAReownsExistingManagedGraph(t *testing.T) {
 			assert.Empty(t, after.pemOwners, "ordinary reconciliation must leave the derived PEM Secret unowned")
 
 			// A second ordinary reconciliation is idempotent: the adopted graph must not be rewritten.
-			status, _ = EnsureCertificatesAndCA(ctx, c, target, []Options{ReplicaSetConfig(*target)}, managedTestLogger())
+			status, _, _ = EnsureCertificatesAndCA(ctx, c, target, []Options{ReplicaSetConfig(*target)}, managedTestLogger())
 			require.True(t, status.IsOK(), fmt.Sprint(status))
 			assert.Equal(t, after, snapshotManagedGraph(t, ctx, c, om.Namespace, "example-db-managed-cert-pem"), "a repeated ordinary reconciliation must not change the adopted graph")
 
