@@ -275,7 +275,7 @@ parameters:
 
   - key: mdb_custom_agent_url
     value: ""
-    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path."
+    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path. Agent builds also tag the image with the version in the filename, because the operator derives the Agent image tag from that filename."
 
   - key: om_download_url
     value: ""
@@ -417,7 +417,7 @@ github_checks_aliases:
 # "[new]" → release-publish pipeline, otherwise → deprecated-release.
 # The decider creates an Evergreen patch via the matching alias.
 git_tag_aliases:
-  - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+  - git_tag: "^1\\.\\d+\\.\\d+$" # Bump with major releases
     variant_tags: [ "release-decider" ]
     task: ".*"
 
@@ -501,6 +501,9 @@ tasks:
       - command: github.generate_token
         params:
           expansion_name: GH_TOKEN
+          # Only pushes the pre-commit bump commit: needs contents:write.
+          permissions:
+            contents: write
       - func: setup_chart_testing_cli
       - func: setup_prek
       - func: setup_evergreen_cli
@@ -815,6 +818,11 @@ task_groups:
       - command: github.generate_token
         params:
           expansion_name: GH_TOKEN
+          # Pushes the version-bump branch (contents:write) and opens the drift
+          # PR via `gh pr list` / `gh pr create` (pull_requests:write).
+          permissions:
+            contents: write
+            pull_requests: write
       - func: setup_openshift_client
       - func: setup_gh
     tasks:
@@ -854,18 +862,12 @@ task_groups:
     <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
     tasks:
       # e2e_kube_only_task_group
-      - e2e_crd_validation
       - e2e_replica_set_config_map
       - e2e_replica_set_exposed_externally
       - e2e_replica_set_pv
       - e2e_replica_set_pv_multiple
-      - e2e_replica_set_schema_validation
-      - e2e_replica_set_statefulset_status
       - e2e_sharded_cluster_pv
       - e2e_sharded_cluster_recovery
-      - e2e_sharded_cluster_schema_validation
-      - e2e_sharded_cluster_statefulset_status
-      - e2e_users_schema_validation
       - e2e_replica_set_tls_default
       - e2e_replica_set_tls_override
       - e2e_replica_set_ignore_unknown_users
@@ -873,9 +875,7 @@ task_groups:
       - e2e_all_mongodb_resources_parallel
       - e2e_multiple_cluster_failures
       - e2e_replica_set_custom_podspec
-      - e2e_replica_set_custom_sa
       - e2e_replica_set_report_pending_pods
-      - e2e_replica_set_recovery
       - e2e_replica_set_upgrade_downgrade
       - e2e_replica_set_agent_flags_and_readinessProbe
       - e2e_sharded_cluster
@@ -964,9 +964,6 @@ task_groups:
       - e2e_sharded_cluster_scram_sha_and_x509
       - e2e_sharded_cluster_x509_to_scram_transition
       - e2e_sharded_cluster_internal_cluster_transition
-      # e2e_webhook_validation_task_group
-      - e2e_mongodb_validation_webhook
-      - e2e_mongodb_roles_validation_webhook
       - e2e_vault_setup
       - e2e_vault_setup_tls
       # this test will either migrate from static to non-static or the other way around
@@ -1144,7 +1141,6 @@ task_groups:
     max_hosts: 2
     <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
     tasks:
-      - e2e_crd_validation
       - e2e_replica_set_scram_sha_256_user_connectivity
       - e2e_sharded_cluster_scram_sha_256_user_connectivity
       - e2e_replica_set_pv
@@ -1240,7 +1236,6 @@ task_groups:
       - e2e_multi_cluster_disaster_recovery
       - e2e_multi_cluster_multi_disaster_recovery
       - e2e_multi_cluster_recover_network_partition
-      - e2e_multi_cluster_validation
       - e2e_multi_cluster_agent_flags
       - e2e_multi_cluster_replica_set_ignore_unknown_users
       - e2e_multi_cluster_pvc_resize
@@ -1266,7 +1261,6 @@ task_groups:
       - e2e_sharded_cluster_scale_shards_name_overrides
       - e2e_sharded_cluster_shard_overrides
       - e2e_sharded_cluster_secret
-      - e2e_sharded_cluster_statefulset_status
       - e2e_sharded_cluster_upgrade_downgrade
       - e2e_configure_tls_and_x509_simultaneously_sc
       - e2e_sharded_cluster_tls_require_custom_ca
@@ -1310,8 +1304,6 @@ task_groups:
     <<: [ *setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group ]
     tasks:
       # Dedicated AppDB Multi-Cluster tests
-      - e2e_multi_cluster_appdb_validation
-      - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
       - e2e_om_external_multi_cluster_appdb_fresh
       - e2e_om_external_multi_cluster_appdb_forward
@@ -1336,7 +1328,6 @@ task_groups:
       - e2e_om_ops_manager_backup_liveness_probe
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_secure_config
-      - e2e_om_appdb_validation
       - e2e_om_appdb_scram
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
@@ -1372,8 +1363,6 @@ task_groups:
     <<: [ *setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group ]
     tasks:
       # Dedicated AppDB Multi-Cluster tests
-      - e2e_multi_cluster_appdb_validation
-      - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
       - e2e_multi_cluster_appdb_cleanup
       - e2e_multi_cluster_appdb_s3_based_backup_restore
@@ -1390,7 +1379,6 @@ task_groups:
       - e2e_om_ops_manager_backup_liveness_probe
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_secure_config
-      - e2e_om_appdb_validation
       - e2e_om_appdb_scram
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
@@ -1465,7 +1453,6 @@ task_groups:
       - e2e_om_appdb_multi_change
       - e2e_om_appdb_scale_up_down
       - e2e_om_appdb_upgrade
-      - e2e_om_appdb_validation
       - e2e_om_appdb_scram
       - e2e_om_external_appdb_forward
       - e2e_om_external_appdb_fresh
@@ -1492,7 +1479,6 @@ task_groups:
       - e2e_om_ops_manager_https_enabled_internet_mode
       - e2e_om_ops_manager_https_enabled_prefix
       - e2e_om_ops_manager_scale
-      - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple
@@ -1511,7 +1497,6 @@ task_groups:
       - e2e_om_appdb_multi_change
       - e2e_om_appdb_scale_up_down
       - e2e_om_appdb_upgrade
-      - e2e_om_appdb_validation
       - e2e_om_appdb_scram
       - e2e_om_external_appdb_forward
       - e2e_om_external_appdb_fresh
@@ -1529,7 +1514,6 @@ task_groups:
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_scale
-      - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple
@@ -2638,10 +2622,13 @@ buildvariants:
     display_name: notify_master_build_status
     # Only runs on commit builds (not patches) because of Evergreen bug DEVPROD-27436:
     # depends_on with name:"*" creates phantom dependencies for tasks with patchable:false
+    # The IBM Z variants are excluded because the zseries queue can block this task
+    # for hours. notify_master_failures.py reports their results when they finish
+    # before the report and lists them as skipped otherwise.
     allowed_requesters: [ "commit" ]
     depends_on:
       - name: "*"
-        variant: ".staging"
+        variant: ".staging !init_test_run_ibm_z !e2e_smoke_ibm_z !e2e_static_smoke_ibm_z !e2e_static_smoke_ibm_z_ubi9_slim"
         status: "*"
     run_on:
       - ubuntu2404-small
