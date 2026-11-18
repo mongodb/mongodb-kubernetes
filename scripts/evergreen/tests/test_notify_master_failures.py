@@ -7,7 +7,7 @@ import pytest
 
 from scripts.evergreen.notify_flaky_tests import FlakyTask
 from scripts.evergreen.notify_master_failures import (
-    EXCLUDED_TASKS,
+    NOTIFICATION_TASKS,
     TaskInfo,
     VersionInfo,
     format_slack_message,
@@ -350,14 +350,6 @@ class TestPrintStdoutReport:
         out = capsys.readouterr().out
         assert "flaky: 50% over 2 runs" in out
 
-    def test_shows_skipped_tasks(self, capsys):
-        skipped = [make_mock_task("e2e_replica_set", "e2e_smoke_ibm_z", "undispatched")]
-        version_info = make_mock_version(status="started")
-        print_stdout_report(version_info, [], [], skipped_tasks=skipped)
-        out = capsys.readouterr().out
-        assert "Skipped Pending Tasks (1):" in out
-        assert "e2e_smoke_ibm_z" in out
-
 
 class TestGetTaskSummary:
     @patch("scripts.evergreen.notify_master_failures.get_build_tasks")
@@ -485,7 +477,7 @@ class TestGetTaskSummary:
             make_mock_task("build_test_image_ibm_z", "init_test_run_ibm_z", "started"),
         ]
 
-        failed, running, retried, total = get_task_summary(MagicMock(), "v1", EXCLUDED_TASKS)
+        failed, running, retried, total = get_task_summary(MagicMock(), "v1", NOTIFICATION_TASKS)
 
         assert failed == []
         assert running == []

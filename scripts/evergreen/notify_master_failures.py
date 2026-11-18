@@ -48,7 +48,7 @@ COMPLETED_STATUSES = {"succeeded", "failed"}
 
 # Tasks to exclude from the report. They do not describe the build result
 # this notification reports.
-EXCLUDED_TASKS = [
+NOTIFICATION_TASKS = [
     "notify_master_build_status",
     "notify_flaky_tests_weekly",
     "mckci_release_promote",
@@ -266,7 +266,7 @@ def get_previous_version_failures(api: EvergreenApi, version_info: VersionInfo) 
 
     prev_version_id = max(candidates, key=lambda v: v["order"])["version_id"]
     print(f"Checking previous master version: {prev_version_id}", file=sys.stderr)
-    prev_failed, _, _, _ = get_task_summary(api, prev_version_id, EXCLUDED_TASKS)
+    prev_failed, _, _, _ = get_task_summary(api, prev_version_id, NOTIFICATION_TASKS)
     return {(t.display_name, t.build_variant) for t in prev_failed}
 
 
@@ -525,7 +525,6 @@ def print_stdout_report(
     running_tasks: list[TaskInfo],
     flaky_map: dict[tuple[str, str], FlakyTask] | None = None,
     retried_tasks: list[TaskInfo] | None = None,
-    skipped_tasks: list[TaskInfo] | None = None,
 ) -> None:
     """Print a concise report to stdout.
 
@@ -535,11 +534,9 @@ def print_stdout_report(
         running_tasks: List of running/pending tasks
         flaky_map: Optional {(task_name, variant): FlakyTask} from Honeycomb
         retried_tasks: Tasks that ran more than once
-        skipped_tasks: Pending tasks in variants that did not block the notification
     """
     flaky_map = flaky_map or {}
     retried_tasks = retried_tasks or []
-    skipped_tasks = skipped_tasks or []
     status_str = version_info.status.upper()
     run_number = getattr(version_info, "order", None)
     run_prefix = f"Run #{run_number}: " if run_number else ""
@@ -564,9 +561,6 @@ def print_stdout_report(
 
     if running_tasks:
         print_task_table(running_tasks, "Pending Tasks", flaky_map)
-
-    if skipped_tasks:
-        print_task_table(skipped_tasks, "Skipped Pending Tasks", flaky_map)
 
     if retried_tasks:
         print_task_table(retried_tasks, "Restarted Tasks", flaky_map)
@@ -610,7 +604,7 @@ def main() -> None:
     print(f"Final status: {version_info.status}", file=sys.stderr)
 
     try:
-        failed_tasks, running_tasks, retried_tasks, total_tasks = get_task_summary(api, version_id, EXCLUDED_TASKS)
+        failed_tasks, running_tasks, retried_tasks, total_tasks = get_task_summary(api, version_id, NOTIFICATION_TASKS)
     except Exception as e:
         print(f"Error fetching tasks: {e}", file=sys.stderr)
         sys.exit(1)
@@ -643,13 +637,10 @@ def main() -> None:
         except Exception as e:
             print(f"Warning: previous master lookup failed: {e}", file=sys.stderr)
 
-    if failed_tasks or running_tasks or skipped_tasks:
-        print(
-            f"Found {len(failed_tasks)} failed, {len(running_tasks)} running, " f"{len(skipped_tasks)} skipped tasks",
-            file=sys.stderr,
-        )
+    if failed_tasks or running_tasks:
+        print(f"Found {len(failed_tasks)} failed, {len(running_tasks)} running tasks", file=sys.stderr)
     else:
-        print("No failed, running, or skipped tasks found", file=sys.stderr)
+        print("No failed or running tasks found", file=sys.stderr)
     print(f"Restarted tasks: {len(retried_tasks)} of {total_tasks}", file=sys.stderr)
 
     # The webhook message carries the retry count and up to three task names.
@@ -673,7 +664,6 @@ def main() -> None:
             running_tasks,
             flaky_map,
             retried_tasks,
-            skipped_tasks,
         )
         should_notify = bool(failed_tasks) or (not running_tasks and notify_on_success)
         if should_notify and slack_webhook_url:
