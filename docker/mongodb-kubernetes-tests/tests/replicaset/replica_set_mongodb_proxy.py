@@ -5,9 +5,8 @@ Prerequisites, none of which the default e2e environment provides:
   * Kubernetes 1.36 or newer (the proxy and the MongoDB binaries are mounted as OCI image volumes).
   * MDB_MONGODB_PROXY_IMAGE: the full reference of a mongodb-proxy image the cluster can pull,
     for example the result of `make mongodb-proxy-image` pushed to a registry.
-  * An agent image whose /agent/mongodb-agent supports --mongodProxyAddress. The
-    operator uses the static-ga default for this. A custom agent URL selects the
-    agent version for the operator.
+  * An Agent image that supports --mongodProxyAddress. The static-ga test operator
+    selects a compatible image unless the run supplies a custom Agent URL.
 
 The test is skipped when MDB_MONGODB_PROXY_IMAGE is not set.
 """
@@ -51,7 +50,11 @@ def operator_with_proxy(namespace: str, operator_installation_config: dict[str, 
     image = proxy_image()
     if image is None:
         skip("MDB_MONGODB_PROXY_IMAGE is not set")
-    config = {**operator_installation_config, **proxy_helm_values(image)}
+    config = {
+        **operator_installation_config,
+        **proxy_helm_values(image),
+        "operator.mdbDefaultArchitecture": "static-ga",
+    }
     operator = get_default_operator(namespace, config)
     if local_operator():
         # A test run from a workstation cannot resolve the in-cluster name of the webhook, so it sets
