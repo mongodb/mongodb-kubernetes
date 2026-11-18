@@ -39,8 +39,10 @@ var (
 	ErrInvalidRequest = errors.New("invalid request")
 	// ErrRoleConflict is returned by start when a child with a different role is already running.
 	ErrRoleConflict = errors.New("a process with a different role is already running")
-	// ErrRoleMismatch is returned by stop when the running child has a different role than requested.
+	// ErrRoleMismatch is returned by stop when the selected child has a different role than requested.
 	ErrRoleMismatch = errors.New("running process has a different role")
+	// ErrExecutionMismatch reports that stop did not select the observed execution.
+	ErrExecutionMismatch = errors.New("requested execution is no longer current")
 	// ErrStopTimeout is returned by stop when the child is still alive after the timeout and force is not set.
 	ErrStopTimeout = errors.New("timed out waiting for the process to exit")
 	// ErrShuttingDown is returned by start once the proxy has received a termination signal.
@@ -84,12 +86,12 @@ type StartRequest struct {
 
 // StopRequest is the body of POST /v1/process/stop.
 type StopRequest struct {
+	ExecutionID string `json:"executionId"`
 	// TimeoutSeconds is how long to wait for the child to exit after SIGTERM. Must be > 0 unless Force is set.
 	TimeoutSeconds float64 `json:"timeoutSeconds"`
 	// Force sends SIGKILL after the timeout (immediately when the timeout is 0).
 	Force bool `json:"force,omitempty"`
-	// Role restricts the stop to an execution with this role. Empty matches any.
-	Role Role `json:"role,omitempty"`
+	Role  Role `json:"role"`
 }
 
 // LaunchEnvironment contains only the LDAP CA and Kerberos keytab paths supplied to the tracked child at launch.
@@ -109,9 +111,10 @@ type ExitStatus struct {
 
 // Status is the response of GET /v1/process and of start/stop.
 type Status struct {
-	State      State  `json:"state"`
-	Role       Role   `json:"role,omitempty"`
-	ConfigPath string `json:"configPath,omitempty"`
+	State       State  `json:"state"`
+	Role        Role   `json:"role,omitempty"`
+	ConfigPath  string `json:"configPath,omitempty"`
+	ExecutionID string `json:"executionId,omitempty"`
 	// ExitCode is set once the child has exited. It is -1 when the child was killed by a signal.
 	ExitCode *int `json:"exitCode,omitempty"`
 	// Signal is the name of the signal that terminated the child, if any.

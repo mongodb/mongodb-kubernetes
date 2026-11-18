@@ -70,8 +70,11 @@ func (r StartRequest) validate(baseEnv []string) (launchSpec, error) {
 }
 
 func (r StopRequest) validate() error {
-	if r.Role != "" && r.Role != RoleMain && r.Role != RoleEphemeral {
-		return fmt.Errorf("%w: role must be empty, %q or %q", ErrInvalidRequest, RoleMain, RoleEphemeral)
+	if r.ExecutionID == "" {
+		return fmt.Errorf("%w: executionId is required", ErrInvalidRequest)
+	}
+	if r.Role != RoleMain && r.Role != RoleEphemeral {
+		return fmt.Errorf("%w: role must be %q or %q", ErrInvalidRequest, RoleMain, RoleEphemeral)
 	}
 	if r.TimeoutSeconds < 0 {
 		return fmt.Errorf("%w: timeoutSeconds must not be negative", ErrInvalidRequest)

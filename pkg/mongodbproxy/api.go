@@ -201,16 +201,16 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	timeout = time.Duration(req.TimeoutSeconds * float64(time.Second))
-	status := h.s.Status()
-	if status.PID != nil {
-		call.pid = *status.PID
+	e, err := h.s.stopExecution(r.Context(), req.ExecutionID, req.Role, timeout, req.Force)
+	if e != nil {
+		call.pid = e.pid
 	}
-	if err := h.s.Stop(r.Context(), req.Role, timeout, req.Force); err != nil {
+	if err != nil {
 		h.fail(call, err)
 		return
 	}
 	h.log.Infow("process stopped", append(call.fields(), "force", req.Force)...)
-	writeJSON(call, http.StatusOK, h.s.Status())
+	writeJSON(call, http.StatusOK, h.s.StatusOf(e))
 }
 
 func (h *handler) fail(w *requestLog, err error) {
@@ -222,6 +222,8 @@ func (h *handler) fail(w *requestLog, err error) {
 		status, code = http.StatusConflict, "role_conflict"
 	case errors.Is(err, ErrRoleMismatch):
 		status, code = http.StatusConflict, "role_mismatch"
+	case errors.Is(err, ErrExecutionMismatch):
+		status, code = http.StatusConflict, "execution_mismatch"
 	case errors.Is(err, ErrShuttingDown):
 		status, code = http.StatusServiceUnavailable, "shutting_down"
 	case errors.Is(err, ErrStopTimeout):

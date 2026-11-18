@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -78,6 +79,7 @@ func NewSupervisor(opts ...Option) *Supervisor {
 
 // Execution is one launched child.
 type Execution struct {
+	id         string
 	role       Role
 	configPath string
 	requestID  string
@@ -130,7 +132,7 @@ func (s *Supervisor) statusLocked(e *Execution) Status {
 	if e == nil {
 		return Status{State: StateIdle}
 	}
-	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath}
+	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath, ExecutionID: e.id}
 	if !e.startedAt.IsZero() {
 		st.StartedAt = e.startedAt.UTC().Format(time.RFC3339Nano)
 	}
@@ -229,6 +231,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 
 	e := &Execution{
+		id:         uuid.NewString(),
 		role:       req.Role,
 		configPath: req.ConfigPath,
 		requestID:  req.RequestID,
@@ -311,47 +314,52 @@ func (s *Supervisor) resolve(binary string) (string, error) {
 	return exec.LookPath(binary)
 }
 
-// Stop sends SIGTERM to the running child and waits for it to exit.
+// stopExecution stops the selected child and returns it for the response.
 //   - already down: success
-//   - role set and different from the running child's role: ErrRoleMismatch, nothing is signalled
+//   - execution ID or role does not match: no signal
 //   - timeout elapsed without force: ErrStopTimeout, the child is left alone
 //   - timeout elapsed with force: SIGKILL, then wait for exit
 //   - timeout 0 with force: SIGKILL right away
-func (s *Supervisor) Stop(ctx context.Context, role Role, timeout time.Duration, force bool) error {
+func (s *Supervisor) stopExecution(ctx context.Context, executionID string, role Role, timeout time.Duration, force bool) (*Execution, error) {
 	s.mu.Lock()
 	e := s.current
 	s.mu.Unlock()
 
-	if e == nil || e.finished() {
-		return nil
+	if e == nil {
+		return nil, nil
 	}
-	if role != "" && role != e.role {
-		return ErrRoleMismatch
+	if executionID != e.id {
+		return nil, ErrExecutionMismatch
 	}
-
+	if role != e.role {
+		return nil, ErrRoleMismatch
+	}
+	if e.finished() {
+		return e, nil
+	}
 	if timeout <= 0 {
 		if !force {
-			return fmt.Errorf("%w: timeout must be > 0 unless force is set", ErrInvalidRequest)
+			return e, fmt.Errorf("%w: timeout must be > 0 unless force is set", ErrInvalidRequest)
 		}
-		return s.kill(ctx, e)
+		return e, s.kill(ctx, e)
 	}
 
 	s.log.Infow("sending SIGTERM", "role", e.role, "pid", e.pid, "timeout", timeout.String(), "force", force)
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("signalling the process: %w", err)
+		return e, fmt.Errorf("signalling the process: %w", err)
 	}
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
 	case <-e.done:
-		return nil
+		return e, nil
 	case <-timer.C:
 		if !force {
-			return ErrStopTimeout
+			return e, ErrStopTimeout
 		}
-		return s.kill(ctx, e)
+		return e, s.kill(ctx, e)
 	case <-ctx.Done():
-		return ctx.Err()
+		return e, ctx.Err()
 	}
 }
 
