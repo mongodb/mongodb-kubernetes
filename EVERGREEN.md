@@ -16,9 +16,11 @@ Examples: `migrate_all_agents`, `e2e_operator_perf` or `publish_om80_images`.
 
 This configuration allows us to run all the associated tasks for each scenario from evergreen command line.
 This is especially helpful when making changes to `staging` or `release` variants and testing them using Evergreen
-command line patches. The `test_all_and_promote` alias runs the full E2E set and prerequisites for a selected merge
-commit, then promotes through mckci only if the patch succeeds. Starting that alias is a manual action; merges do not
-automatically promote. Other aliases can also be used to test tasks that normally run on git tags.
+command line patches. The `test_all_and_promote` alias remains manually triggerable against a selected SHA; it runs the
+full E2E set and prerequisites, then promotes through mckci only if the patch succeeds. Separately, Evergreen runs the
+same test dependency gate and promotion through the `mckci_release_promote` cron at 00:00, 06:00, 12:00, and 18:00 UTC
+against mainline revisions. Merges do not trigger immediate promotion; promotion runs on the scheduled cron. Other
+aliases can also be used to test tasks that normally run on git tags.
 
 See https://docs.devprod.prod.corp.mongodb.com/evergreen/Project-Configuration/Project-and-Distro-Settings#project-aliases
 
@@ -45,8 +47,10 @@ evergreen patch -p mongodb-kubernetes -a staging -d "Test staging build" -f -y -
 
 ### Full E2E test and promote a merge commit:
 
-Use this manual patch alias to run the expensive full E2E variants and their prerequisites against a specific merge
-commit. On success, the alias runs mckci promotion. It does not run automatically as part of a merge.
+Use this manual patch alias to run the expensive full E2E variants and their prerequisites against a specific SHA. On
+success, the alias runs mckci promotion. This manual invocation is separate from the `mckci_release_promote` cron,
+which runs the same test dependency gate and promotion against mainline revisions at 00:00, 06:00, 12:00, and 18:00
+UTC. Merges do not trigger immediate promotion; the scheduled cron does.
 
 ```shell
 evergreen patch -p mongodb-kubernetes --alias test_all_and_promote --ref <merge-commit-sha> -d "Test all and promote <sha>" -f -y --param BUILD_SCENARIO=staging
@@ -221,7 +225,7 @@ They can be triggered manually via CLI aliases; most can also be pulled into a P
 | Alias                             | Description                                                     |
 |-----------------------------------|-----------------------------------------------------------------|
 | `staging`                         | Normal master-merge (staging) checks; not the full E2E suite   |
-| `test_all_and_promote`            | Full E2E variants and prerequisites; mckci promotion on success |
+| `test_all_and_promote`            | Manual selected-SHA run; also scheduled on mainline 4x daily at 00:00, 06:00, 12:00, and 18:00 UTC with mckci promotion on success |
 | `preflight_release_test`          | Release-style preflight only (no image push, no Pyxis submit)   |
 | `deprecated-release`              | Legacy release process (rebuilds and retests before publishing) |
 | `release-publish`                 | New release process (publishes already-promoted images)         |
