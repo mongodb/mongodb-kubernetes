@@ -48,6 +48,7 @@ type MockedOmAdmin struct {
 	LicenseIdentity        IdentityView
 	LicenseReadErr         error
 	LicenseInstallErr      error
+	LicenseReleaseErr      error
 	LicenseRecomputeErr    error
 	LicenseReceiptErr      error
 	LicenseIdentityErr     error
@@ -316,6 +317,9 @@ func (a *MockedOmAdmin) RecomputeLicense(ctx context.Context) (LicenseView, erro
 }
 
 func (a *MockedOmAdmin) ReleaseLicense(_ context.Context, artifactID string) (LicenseView, error) {
+	if a.LicenseReleaseErr != nil {
+		return LicenseView{}, a.LicenseReleaseErr
+	}
 	state := copyLicenseView(a.LicenseState)
 	if _, listed := state.Artifact(artifactID); !listed {
 		notFound := 404

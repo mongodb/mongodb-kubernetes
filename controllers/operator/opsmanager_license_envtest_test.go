@@ -116,19 +116,17 @@ func (h *licenseEnvHarness) loadOM(name string) *omv1.MongoDBOpsManager {
 }
 
 // reconcile runs the license reconcile and mirrors what the controller does at the end of a
-// reconciliation: the LastAchievedSpec annotation is refreshed with the spec as it was seen.
+// reconciliation: the LastAchievedSpec annotation is refreshed with the license the operator installed.
 func (h *licenseEnvHarness) reconcile(name string) workflow.Status {
 	h.t.Helper()
 	om := h.loadOM(name)
-	st := h.reconciler.ensureOpsManagerLicense(h.ctx, om, h.admin, zap.NewNop().Sugar())
+	st, installedSecretRef := h.reconciler.ensureOpsManagerLicense(h.ctx, om, h.admin, zap.NewNop().Sugar())
 
 	reconciledStatus := om.Status
-	specBytes, err := json.Marshal(om.Spec)
+	achieved, err := getAnnotationsForOpsManagerResource(om, installedSecretRef)
 	require.NoError(h.t, err)
 	om = h.loadOM(name)
-	require.NoError(h.t, annotations.SetAnnotations(h.ctx, om, map[string]string{
-		util.LastAchievedSpec: string(specBytes),
-	}, h.client))
+	require.NoError(h.t, annotations.SetAnnotations(h.ctx, om, achieved, h.client))
 
 	om = h.loadOM(name)
 	om.Status = reconciledStatus
@@ -773,6 +771,49 @@ func TestLicenseE2E_AutoReleaseOnSecretRefRemoval(t *testing.T) {
 	got := h.reconcileExpectOK(om.Name)
 	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
 	assert.Contains(t, licenseActiveCondition(t, got).Message, "no license")
+}
+
+func TestLicenseE2E_FailedSwapKeepsTheInstalledLicenseOwned(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = viewWithLicenses("LICENSED", artifactView(testLicenseArtifactID))
+
+	om := h.createOM(nil)
+	h.setInstallFromSecret(om, testLicenseArtifact)
+	h.reconcileExpectOK(om.Name)
+
+	h.admin.LicenseInstallErr = fmt.Errorf("install rejected")
+	h.createSecret("other-license", util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-other"), om)
+	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
+		om.Spec.License.SecretRef = &omv1.SecretRef{Name: "other-license"}
+	})
+	assert.False(t, h.reconcile(om.Name).IsOK())
+
+	h.admin.LicenseInstallErr = nil
+	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
+		om.Spec.License.SecretRef = nil
+	})
+	h.reconcileExpectOK(om.Name)
+	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
+}
+
+func TestLicenseE2E_FailedReleaseIsRetried(t *testing.T) {
+	h := newLicenseEnvHarness(t)
+	h.admin.LicenseState = viewWithLicenses("LICENSED", artifactView(testLicenseArtifactID))
+
+	om := h.createOM(nil)
+	h.setInstallFromSecret(om, testLicenseArtifact)
+	h.reconcileExpectOK(om.Name)
+
+	h.admin.LicenseReleaseErr = fmt.Errorf("release rejected")
+	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
+		om.Spec.License.SecretRef = nil
+	})
+	assert.False(t, h.reconcile(om.Name).IsOK())
+	assert.Empty(t, h.admin.ReleasedIDs)
+
+	h.admin.LicenseReleaseErr = nil
+	h.reconcileExpectOK(om.Name)
+	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
 }
 
 func TestLicenseE2E_AutoReleaseClearsMarkersWhenAlreadyUncovered(t *testing.T) {

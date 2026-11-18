@@ -469,7 +469,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateStatus(ctx, opsManager, opsManagerStatus, log, opsManagerExtraStatusParams, mdbstatus.NewBaseUrlOption(opsManager.CentralURL()))
 	}
 
-	licenseStatus := r.ensureOpsManagerLicense(ctx, opsManager, omAdmin, log)
+	licenseStatus, installedSecretRef := r.ensureOpsManagerLicense(ctx, opsManager, omAdmin, log)
 
 	statusOptions := []mdbstatus.Option{mdbstatus.NewOMPartOption(mdbstatus.OpsManager), mdbstatus.NewBaseUrlOption(opsManager.CentralURL())}
 	// A license failure must not hold back status.opsManager.version, the backup daemon teardown depends on it.
@@ -494,7 +494,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return r.updateBackupStatus(ctx, opsManager, backupStatus, log)
 	}
 
-	annotationsToAdd, err := getAnnotationsForOpsManagerResource(opsManager)
+	annotationsToAdd, err := getAnnotationsForOpsManagerResource(opsManager, installedSecretRef)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log)
 	}
@@ -2160,10 +2160,13 @@ func (r *OpsManagerReconciler) createNewAppDBReconciler(ctx context.Context, ops
 }
 
 // getAnnotationsForOpsManagerResource returns all the annotations that should be applied to the resource
-// at the end of the reconciliation.
-func getAnnotationsForOpsManagerResource(opsManager *omv1.MongoDBOpsManager) (map[string]string, error) {
+// at the end of the reconciliation. The last achieved spec records the license secretRef the operator
+// installed from, which differs from the spec while an install or release has not succeeded yet.
+func getAnnotationsForOpsManagerResource(opsManager *omv1.MongoDBOpsManager, installedSecretRef string) (map[string]string, error) {
 	finalAnnotations := make(map[string]string)
-	specBytes, err := json.Marshal(opsManager.Spec)
+	spec := opsManager.Spec
+	spec.License = achievedLicense(spec.License, installedSecretRef)
+	specBytes, err := json.Marshal(spec)
 	if err != nil {
 		return nil, err
 	}
