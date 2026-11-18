@@ -579,10 +579,10 @@ class TestWaitForCompletion:
         mock_version.return_value = make_mock_version(status="started")
         mock_summary.return_value = ([], [active], [], 1)
 
-        result = wait_for_version_completion(MagicMock(), "v1")
+        version, summary = wait_for_version_completion(MagicMock(), "v1")
 
-        assert result.status == "started"
-        assert not active.is_skipped
+        assert version.status == "started"
+        assert summary == ([], [active], [], 1)
         mock_sleep.assert_not_called()
 
 
@@ -642,9 +642,10 @@ class TestWaitForVersionCompletion:
         queued = make_mock_task("ibm", "e2e_smoke_ibm_z", "undispatched")
         mock_summary.return_value = ([], [queued], [], 1)
 
-        result = wait_for_version_completion(MagicMock(), "v1")
+        version, summary = wait_for_version_completion(MagicMock(), "v1")
 
-        assert result is version_info
+        assert version is version_info
+        assert summary == ([], [queued], [], 1)
         mock_get_version.assert_called_once()
         mock_sleep.assert_not_called()
 
@@ -675,9 +676,7 @@ class TestMainOutputBehavior:
             }
 
     def _run(self, mocks, status, failed=None, running=None, retried=None, skipped=None, total=None, args=None):
-        mocks["wait"].return_value = make_mock_version(
-            revision="abc", status=status, author="X", author_id="x", message="m"
-        )
+        version = make_mock_version(revision="abc", status=status, author="X", author_id="x", message="m")
         # Convert dict tasks to TaskInfo if provided as dicts
         failed_tasks = [make_mock_task(t["display_name"], t["build_variant"]) for t in (failed or [])]
         pending_tasks = [make_mock_task(t["display_name"], t["build_variant"], "started") for t in (running or [])] + [
@@ -694,7 +693,9 @@ class TestMainOutputBehavior:
         ]
         if total is None:
             total = len(failed_tasks) + len(pending_tasks) + len(retried_tasks)
-        mocks["tasks"].return_value = (failed_tasks, pending_tasks, retried_tasks, total)
+        summary = (failed_tasks, pending_tasks, retried_tasks, total)
+        mocks["tasks"].return_value = summary
+        mocks["wait"].return_value = version, summary
         sys.argv = ["test.py"] + (args or [])
         from scripts.evergreen.notify_master_failures import main
 
@@ -705,15 +706,38 @@ class TestMainOutputBehavior:
         assert mocks["stdout"].called
         assert not mocks["slack"].called
 
-    def test_slack_with_failures(self, mocks, monkeypatch):
+    def test_slack_reports_failures_with_pending_tasks(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
-        self._run(mocks, "failed", failed=[{"build_variant": "v", "display_name": "e2e_t"}])
-        assert mocks["slack"].called
+        self._run(
+            mocks,
+            "failed",
+            failed=[{"build_variant": "v", "display_name": "e2e_failed"}],
+            running=[{"build_variant": "v", "display_name": "e2e_pending"}],
+        )
+        mocks["slack"].assert_called_once()
+        message = mocks["slack"].call_args.args[1]
+        assert "Build Failures (1 pending)" in message["blocks"][0]["text"]["text"]
+        assert "e2e_failed" in str(message["blocks"])
 
-    def test_no_slack_for_running_only(self, mocks, monkeypatch):
+    @patch("scripts.evergreen.notify_master_failures.time")
+    @patch("scripts.evergreen.notify_master_failures.get_version_info")
+    def test_slack_reports_active_cloudqa_at_timeout(self, mock_version, clock, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
-        self._run(mocks, "started", running=[{"build_variant": "v", "display_name": "e2e_t"}])
-        assert not mocks["slack"].called
+        monkeypatch.setenv("NOTIFY_ON_SUCCESS", "false")
+        clock.time.side_effect = [0, 0, 601, 602]
+        mock_version.return_value = make_mock_version(status="started")
+        mocks["wait"].side_effect = wait_for_version_completion
+
+        self._run(
+            mocks,
+            "started",
+            running=[{"build_variant": "cloudqa_variant", "display_name": "e2e_task", "tags": ["staging", "cloudqa"]}],
+        )
+
+        mocks["slack"].assert_called_once()
+        mocks["tasks"].assert_called_once()
+        message = mocks["slack"].call_args.args[1]
+        assert "Build Incomplete (1 pending)" in message["blocks"][0]["text"]["text"]
 
     def test_slack_for_partial_pass_with_skipped_tasks(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
@@ -730,7 +754,7 @@ class TestMainOutputBehavior:
         assert "Skipped variants" in text
         assert "e2e_smoke_ibm_z" in text
 
-    def test_no_slack_for_blocking_task_with_skipped_task(self, mocks, monkeypatch):
+    def test_slack_pending_count_excludes_skipped_tasks(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
         self._run(
             mocks,
@@ -738,10 +762,13 @@ class TestMainOutputBehavior:
             running=[{"build_variant": "v", "display_name": "e2e_t"}],
             skipped=[{"build_variant": "e2e_smoke_ibm_z", "display_name": "e2e_replica_set"}],
         )
-        assert not mocks["slack"].called
+        mocks["slack"].assert_called_once()
+        message = mocks["slack"].call_args.args[1]
+        assert "Build Incomplete (1 pending)" in message["blocks"][0]["text"]["text"]
+        assert "Skipped variants" in str(message["blocks"])
 
     @pytest.mark.parametrize("activated", [False, True])
-    def test_cloudqa_activation_controls_notification(self, mocks, monkeypatch, activated):
+    def test_cloudqa_activation_controls_report_status(self, mocks, monkeypatch, activated):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
         self._run(
             mocks,
@@ -755,9 +782,13 @@ class TestMainOutputBehavior:
                 }
             ],
         )
-        assert mocks["slack"].called is not activated
-        if not activated:
-            message = mocks["slack"].call_args.args[1]
+        mocks["slack"].assert_called_once()
+        message = mocks["slack"].call_args.args[1]
+        if activated:
+            assert "Build Incomplete (1 pending)" in message["blocks"][0]["text"]["text"]
+            assert "Skipped variants" not in str(message["blocks"])
+        else:
+            assert "Build Passed" in message["blocks"][0]["text"]["text"]
             assert "cloudqa_variant" in str(message["blocks"])
             assert "Skipped variants" in str(message["blocks"])
 
