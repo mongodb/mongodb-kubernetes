@@ -119,6 +119,7 @@ buildvariants:
   # (.evergreen-snippets.yml) but wired into the release pipeline so that
   # the public docs are updated automatically once images are live.
   - name: release_kind_code_snippets
+    batchtime: 60
     display_name: release_kind_code_snippets
     tags: [ "release-publish" ]
     run_on:

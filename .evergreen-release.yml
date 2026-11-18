@@ -237,6 +237,7 @@ buildvariants:
       - name: publish_openshift_bundles_to_rh
 
   - name: prerelease_kind_code_snippets
+    batchtime: 60
     display_name: prerelease_kind_code_snippets
     tags: [ "deprecated-release", "prerelease_code_snippets" ]
     run_on:
@@ -349,6 +350,7 @@ buildvariants:
       - name: e2e_smoke_task_group
 
   - name: e2e_smoke_ibm_power_release
+    batchtime: 60
     display_name: e2e_smoke_ibm_power (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
@@ -364,6 +366,7 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_static_smoke_ibm_power_release
+    batchtime: 60
     display_name: e2e_static_smoke_ibm_power (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
@@ -379,6 +382,7 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_smoke_ibm_z_release
+    batchtime: 60
     display_name: e2e_smoke_ibm_z (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
@@ -394,6 +398,7 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_static_smoke_ibm_z_release
+    batchtime: 60
     display_name: e2e_static_smoke_ibm_z (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
@@ -409,6 +414,7 @@ buildvariants:
       - name: e2e_smoke_ibm_task_group
 
   - name: e2e_smoke_arm_release
+    batchtime: 60
     display_name: e2e_smoke_arm (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite" ]
     run_on:
@@ -423,6 +429,7 @@ buildvariants:
       - name: e2e_smoke_arm_task_group
 
   - name: e2e_static_smoke_arm_release
+    batchtime: 60
     display_name: e2e_static_smoke_arm (release)
     tags: [ "deprecated-release", "e2e_smoke_release_test_suite", "static" ]
     run_on:
@@ -488,6 +495,7 @@ buildvariants:
       - name: gke_code_snippets_task_group
 
   - name: release_kind_snippets
+    batchtime: 60
     display_name: release_kind_snippets
     tags: [ "deprecated-release" ]
     run_on:

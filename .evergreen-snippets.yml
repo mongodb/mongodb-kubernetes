@@ -363,6 +363,7 @@ buildvariants:
       - name: gke_code_snippets_task_group
 
   - name: public_kind_code_snippets
+    batchtime: 60
     display_name: public_kind_code_snippets
     tags: [ "manual_patch", "public_docs_snippets" ]
     allowed_requesters: [ "patch" ]
@@ -406,6 +407,7 @@ buildvariants:
       - name: gke_code_snippets_task_group
 
   - name: private_kind_code_snippets
+    batchtime: 60
     display_name: private_kind_code_snippets
     tags: [ "staging", "e2e_test_suite", "pr_patch" ]
     run_on:
@@ -415,6 +417,7 @@ buildvariants:
       - name: kind_code_snippets_task_group
 
   - name: private_kind_multi_cluster_code_snippets
+    batchtime: 60
     display_name: private_kind_multi_cluster_code_snippets
     tags: [ "staging", "e2e_test_suite", "pr_patch" ]
     run_on:
