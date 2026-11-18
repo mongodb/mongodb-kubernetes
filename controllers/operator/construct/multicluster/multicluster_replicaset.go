@@ -32,6 +32,7 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
 			StatefulSetSpecOverride:       &stsSpec,
 			StsType:                       construct.MultiReplicaSet,
+			DownloadBase:                  mdbm.Spec.GetDownloadBase(),
 			Annotations:                   handler.MultiClusterStatefulSetAnnotations(mdbm.Name),
 		}
 		for _, opt := range additionalOpts {
