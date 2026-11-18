@@ -92,7 +92,7 @@ def create_group(org: str, name: str):
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/groups".format(base_url)
     data = {"orgId": org, "name": name}
-    response = requests.post(url, auth=auth, json=data)
+    response = requests.post(url, auth=auth, json=data, timeout=REQUEST_TIMEOUT)
 
     print(response.text)
 
@@ -103,7 +103,7 @@ def delete_api_key(org: str, key_id: str):
     url = "{}/api/public/v1.0/orgs/{}/apiKeys/{}".format(base_url, org, key_id)
     response = requests.delete(url, auth=get_auth(), timeout=REQUEST_TIMEOUT)
     if response.status_code not in (204, 404):
-        raise Exception("Could not remove the Programmatic API Key", response.text)
+        raise Exception("Could not remove the Programmatic API Key", response.status_code, response.text)
 
     return response
 
@@ -203,44 +203,39 @@ def call_group_api(method: str, url: str, **kwargs) -> requests.Response:
     return response
 
 
-def attempt_group_removal(url: str, pending_puts: list) -> requests.Response:
-    """Sends the pending PUTs, then the DELETE. Returns the response that ended the attempt."""
-    for put in list(pending_puts):
-        path, data = put
+def attempt_group_removal(url: str, pending_puts: Dict[str, dict]) -> requests.Response:
+    """Sends the pending PUTs (dropping those that succeed), then the DELETE. Returns the last response."""
+    for path, data in list(pending_puts.items()):
         response = call_group_api("PUT", url + path, json=data)
         if response.status_code == 404:  # the group may be gone, the DELETE decides
             break
         if response.status_code in (429, CONNECTION_ERROR_STATUS):  # back off instead of sending more
             return response
         if response.status_code < 300:
-            pending_puts.remove(put)
+            del pending_puts[path]
 
     return call_group_api("DELETE", url)
 
 
-def remove_group_by_id(group_id: str):
+def remove_group_by_id(group_id: str) -> requests.Response:
     """Removes a group with a given Id. Returns the last response: 202 is accepted, 404 means it is already gone."""
     base_url = os.getenv(BASE_URL)
     url = "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
     # a PUT that succeeded is not sent again when the removal is retried
-    pending_puts = [
-        (
-            "/controlledFeature",
-            {"externalManagementSystem": {"name": "mongodb-enterprise-operator"}, "policies": []},
-        ),
-        ("/automationConfig", {}),
-    ]
+    pending_puts = {
+        "/controlledFeature": {"externalManagementSystem": {"name": "mongodb-enterprise-operator"}, "policies": []},
+        "/automationConfig": {},
+    }
 
     for attempt in range(MAX_REMOVE_ATTEMPTS):
+        if attempt:
+            time.sleep(BACKOFF_SECONDS * 2 ** (attempt - 1) + random.random())
         result = attempt_group_removal(url, pending_puts)
-        # a conflict means that the project is still in use: like a rate limit, it can clear
+        # a conflict (the project is still in use) and a rate limit can clear, like a server error
         if result.status_code < 500 and result.status_code not in (409, 429):
-            break  # removed, already gone, or a failure that a retry won't change
-        if attempt < MAX_REMOVE_ATTEMPTS - 1:
-            time.sleep(BACKOFF_SECONDS * 2**attempt + random.random())
-    else:
-        print(f"Giving up on {url} after {MAX_REMOVE_ATTEMPTS} attempts, the last status is {result.status_code}")
+            return result  # removed, already gone, or a failure that a retry won't change
 
+    print(f"Giving up on {url} after {MAX_REMOVE_ATTEMPTS} attempts, the last status is {result.status_code}")
     return result
 
 
@@ -370,8 +365,9 @@ def get_keys_older_than(org_id: str, minutes_interval: int = 0) -> Tuple[List[Di
     return old_keys, new_keys
 
 
-def clean_unused_keys(org_id: str):
+def clean_unused_keys(org_id: str, deadline: float):
     """Iterates over all existing keys in the organization and removes the leftovers.
+    Stops early when Cloud QA looks unhealthy or the deadline has passed, the next run continues.
     Keeps keys:
     - older than minutes_interval
     - currently used by the script (USER_OWNER env variable)
@@ -381,22 +377,35 @@ def clean_unused_keys(org_id: str):
     print(f"found {len(keys)} keys for potential removal")
     deleted_keys = []
     kept_keys = []
+    consecutive_failures = 0
 
     for key in keys:
+        if time.monotonic() > deadline:
+            print("Stopping: the time budget is exhausted")
+            break
+
         if not keep_the_key(key):
             print("Removing the key {} ({})".format(key["publicKey"], key["desc"]))
             try:
                 delete_api_key(org_id, key["id"])
                 deleted_keys.append(key["id"])
+                consecutive_failures = 0
             except Exception as e:
                 print("Got an exception trying to remove the key", e)
                 kept_keys.append(key)
+                consecutive_failures += 1
         else:
             print("Keeping the key {} ({})".format(key["publicKey"], key["desc"]))
             kept_keys.append(key)
+        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            print(f"Stopping: {consecutive_failures} consecutive failures")
+            break
+
+    not_attempted = len(keys) - len(deleted_keys) - len(kept_keys)
     print(f"KEY REMOVAL SUMMARY\n----------")
     print(f"Ignored {len(newer_keys)} keys because they are too new.")
     print(f"Removed {len(deleted_keys)} keys.")
+    print(f"Not attempted {not_attempted} keys.")
     print(f"Kept {len(kept_keys)}:")
     for key in kept_keys:
         print(f"\t{key['publicKey']}\t{key['desc']}")
@@ -408,11 +417,10 @@ def keep_the_key(key: Dict) -> bool:
     return key["publicKey"] == os.getenv(USER_OWNER).lower() or "EVG" in key["desc"] or "NOT_DELETE" in key["desc"]
 
 
-def clean_unused_projects(org_id: str):
+def clean_unused_projects(org_id: str, deadline: float):
     """Iterates over all existing projects in the organization and removes the leftovers.
-    Stops early when Cloud QA looks unhealthy or the time budget is exhausted, the next run continues.
+    Stops early when Cloud QA looks unhealthy or the deadline has passed, the next run continues.
     """
-    deadline = time.monotonic() + TIME_BUDGET_MINUTES * 60
     projects, newer_projects = get_projects_older_than(org_id, minutes_interval=140)
     print(f"found {len(projects)} projects for potential removal")
     random.shuffle(projects)  # projects that keep failing must not stop every run at the same place
@@ -457,7 +465,8 @@ def clean_unused_projects(org_id: str):
 
 
 def unconfigure_all():
-    """Tries to remove the project and API Key from Cloud-QA"""
+    """Tries to remove the project and API Key from Cloud-QA, then the old projects and keys within one time budget."""
+    deadline = time.monotonic() + TIME_BUDGET_MINUTES * 60
     env_file_exists = True
     try:
         env = read_env_file()
@@ -491,9 +500,9 @@ def unconfigure_all():
 
     # the keys are cleaned even when the projects cannot be listed or removed
     try:
-        clean_unused_projects(org)
+        clean_unused_projects(org, deadline)
     finally:
-        clean_unused_keys(org)
+        clean_unused_keys(org, deadline)
 
 
 def unconfigure_from_used_project():

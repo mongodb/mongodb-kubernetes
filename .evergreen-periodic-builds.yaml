@@ -19,8 +19,7 @@ tasks:
       - func: cleanup_aws
 
   - name: periodic_teardown_cloudqa
-    # a backstop for a stalled run, 20 minutes above the janitor's own TIME_BUDGET_MINUTES (90, setup_cloud_qa.py);
-    # the next run starts after 120
+    # a backstop for a stalled run: above TIME_BUDGET_MINUTES in setup_cloud_qa.py, below the 2 hours between runs
     exec_timeout_secs: 6600
     commands:
       - func: teardown_cloud_qa_all
