@@ -590,18 +590,30 @@ type S3Config struct {
 	CustomCertificateSecretRefs []corev1.SecretKeySelector `json:"customCertificateSecretRefs"`
 	// ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
 	// This should be enabled to leverage Immutable Backups.
+	// Deprecated: Ops Manager 8.0.28+ (8.0.x) and 9.0.2+ read the S3 Object Lock settings
+	// from the bucket, so this field is not sent to those versions. Use portableBackupEnabled instead.
 	// +optional
 	ObjectLockEnabled *bool `json:"objectLockEnabled"`
 	// ObjectRetentionDays is the number of days backup objects must be retained in S3
 	// before deletion is allowed. Requires ObjectLockEnabled.
+	// Deprecated: Ops Manager 8.0.28+ (8.0.x) and 9.0.2+ read the retention settings
+	// from the bucket's default retention rule, so this field is not sent to those versions.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	ObjectRetentionDays *int `json:"objectRetentionDays,omitempty"`
 	// ObjectRetentionMode is the S3 Object Lock retention mode applied to backup objects.
 	// Requires ObjectLockEnabled.
+	// Deprecated: Ops Manager 8.0.28+ (8.0.x) and 9.0.2+ read the retention settings
+	// from the bucket's default retention rule, so this field is not sent to those versions.
 	// +optional
 	// +kubebuilder:validation:Enum=GOVERNANCE;COMPLIANCE
 	ObjectRetentionMode *string `json:"objectRetentionMode,omitempty"`
+	// PortableBackupEnabled opts this store into portable backups, which replace Immutable
+	// Backups. Portable backups require S3 Object Lock to be enabled on the bucket and the
+	// brs.immutableBackupEnabled Ops Manager setting. Once enabled, it cannot be disabled.
+	// Can be configured only for Ops Manager 8.0.28+ (8.0.x) or 9.0.2+.
+	// +optional
+	PortableBackupEnabled *bool `json:"portableBackupEnabled,omitempty"`
 }
 
 func (s S3Config) Identifier() any {
