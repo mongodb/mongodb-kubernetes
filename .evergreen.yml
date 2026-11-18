@@ -2533,7 +2533,7 @@ buildvariants:
 
   - name: build_om80_images
     display_name: build_om80_images
-    tags: [ "staging", "om8", "static", "non_static", "static_light" ]
+    tags: [ "staging", "om8", "static", "non_static" ]
     run_on:
       - ubuntu2404-small
     tasks:
