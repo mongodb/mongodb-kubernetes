@@ -188,8 +188,10 @@ func (o appDBManagedCertificateOwner) SetCertificateRenewals(renewals *mdbstatus
 
 // EnsureAppDBCertificatesAndCA issues the internal AppDB's certificates and CA bundles. The
 // Ops Manager resource owns every created object; names, secrets and subjects derive from the
-// AppDB name. The returned bool reports that a requested prune of the previous CA has been
-// applied and the caller may remove the prune annotation.
+// AppDB name. It is a no-op for a referenced (external) AppDB, which reconciles its own managed
+// certificates: the Ops Manager must not claim or re-own them. The returned bool reports that a
+// requested prune of the previous CA has been applied and the caller may remove the prune
+// annotation.
 func EnsureAppDBCertificatesAndCA(
 	ctx context.Context,
 	c kubernetesClient.Client,
@@ -197,7 +199,7 @@ func EnsureAppDBCertificatesAndCA(
 	allOpts []Options,
 	log *zap.SugaredLogger,
 ) (workflow.Status, metav1.Condition, bool) {
-	if om == nil || om.Spec.AppDB == nil {
+	if om == nil || om.Spec.AppDB == nil || !om.IsInternalAppDB() {
 		return workflow.OK(), CertificatesReadyCondition(metav1.ConditionTrue, ReasonAllCertificatesReady, "Operator-managed certificates are not required for this resource"), false
 	}
 	for _, warning := range UnusedClientConfigured(appDBManagedCertificateOwner{om}) {
