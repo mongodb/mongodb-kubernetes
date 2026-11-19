@@ -10,10 +10,13 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.opsmanager.license_e2e_helpers import (
+    ACTIVE_STATUS,
     ENROLLMENT_RECONCILE_CRON,
     LICENSE_FINALIZER,
     LICENSE_SECRET_NAME,
     RECOMPUTE_ANNOTATION,
+    RELEASED_STATUS,
+    REVOKED_STATUS,
     ROTATE_IDENTITY_ANNOTATION,
     assert_foreign_license_kept,
     assert_license_installed,
@@ -115,7 +118,7 @@ class TestOpsManagerLicenseE2E:
         delete_secret_if_exists(namespace, LICENSE_SECRET_NAME)
         remove_install_intent_without_identity(ops_manager, installed)
 
-        wait_for_ea_artifact_state(ops_manager, installed, "ACTIVE")
+        wait_for_ea_artifact_state(ops_manager, installed, ACTIVE_STATUS)
 
     def test_release_after_license_secret_changed_leaves_license_held(
         self, ops_manager: MongoDBOpsManager, namespace: str
@@ -129,7 +132,7 @@ class TestOpsManagerLicenseE2E:
         assert "license artifact is not a valid JSON envelope" in failure["message"], failure["message"]
         remove_install_intent_without_identity(ops_manager, installed)
 
-        wait_for_ea_artifact_state(ops_manager, installed, "ACTIVE")
+        wait_for_ea_artifact_state(ops_manager, installed, ACTIVE_STATUS)
 
     def test_install_release_then_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
         """Removing secretRef releases the license at EA without a receipt. Listing the license Secret in
@@ -206,7 +209,7 @@ class TestOpsManagerLicenseE2E:
         original = install_license(ops_manager, namespace)
 
         top_up = issue_top_up_and_auto_install(ops_manager)
-        wait_for_ea_artifact_state(ops_manager, original, "RELEASED")
+        wait_for_ea_artifact_state(ops_manager, original, RELEASED_STATUS)
         managed = wait_for_operator_managed_license_reason(ops_manager, "LicenseNotManaged")
         om_view = read_om_license_view(ops_manager)
 
@@ -226,8 +229,8 @@ class TestOpsManagerLicenseE2E:
         The operator does not PUT the Secret again, and removing secretRef reconciles cleanly."""
         revoked = install_license(ops_manager, namespace)
 
-        assert revoke_at_ea(ops_manager, revoked) == "REVOKED"
-        wait_for_ea_artifact_status(ops_manager, revoked, "REVOKED")
+        assert revoke_at_ea(ops_manager, revoked) == REVOKED_STATUS
+        wait_for_ea_artifact_status(ops_manager, revoked, REVOKED_STATUS)
         wait_for_om_artifact_unusable(ops_manager, revoked)
 
         set_annotation_and_wait_cleared(ops_manager, RECOMPUTE_ANNOTATION)
@@ -252,12 +255,12 @@ class TestOpsManagerLicenseE2E:
         assert_license_installed(ops_manager, current_artifact_id())
         assert om_artifact_usable(ops_manager, current_artifact_id())
         assert om_holder_id(ops_manager) == holder
-        wait_for_ea_artifact_state(ops_manager, current_artifact_id(), "ACTIVE")
+        wait_for_ea_artifact_state(ops_manager, current_artifact_id(), ACTIVE_STATUS)
 
     def test_expired_license_is_enforced_then_recovers(self, ops_manager: MongoDBOpsManager, namespace: str):
         """The CR reports an expired license, which Ops Manager enforces, and a fresh one from the Secret recovers."""
         install_expired_license(ops_manager)
-        wait_for_ea_artifact_state(ops_manager, current_artifact_id(), "ACTIVE")
+        wait_for_ea_artifact_state(ops_manager, current_artifact_id(), ACTIVE_STATUS)
         active, om_view = wait_for_observed_api_state(
             ops_manager, effective_state="EXPIRED", enforced=True, installed=""
         )
@@ -300,5 +303,5 @@ class TestOpsManagerLicenseFinalizer:
             assert wait_for_receipt_secret(namespace, receipt_name).raw
         finally:
             # Ops Manager is gone, so the release never reaches EA. Retire the license at EA instead.
-            if ea_artifact_row(ops_manager, installed).get("status") != "RELEASED":
+            if ea_artifact_row(ops_manager, installed).get("status") != RELEASED_STATUS:
                 revoke_at_ea(ops_manager, installed)

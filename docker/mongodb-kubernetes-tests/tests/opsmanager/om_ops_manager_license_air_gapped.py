@@ -7,6 +7,8 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.opsmanager.ea_license import submit_release_receipt
 from tests.opsmanager.license_e2e_helpers import (
+    ISSUED_STATUS,
+    RELEASED_STATUS,
     build_license_ops_manager,
     current_artifact,
     current_artifact_id,
@@ -58,7 +60,7 @@ class TestOpsManagerLicenseAirGappedE2E:
         wait_for_installed_license(ops_manager, current_artifact_id())
 
         row = ea_artifact_row(ops_manager, current_artifact_id())
-        assert row["status"] == "ISSUED"
+        assert row["status"] == ISSUED_STATUS
         assert not row.get("holders")
 
         set_release_receipts_spec(ops_manager)
@@ -68,10 +70,10 @@ class TestOpsManagerLicenseAirGappedE2E:
 
         first = submit_release_receipt(credentials, receipt)
         assert first.status_code == 200, f"EA answered {first.status_code} to the release receipt"
-        assert first.json()["status"] == "RELEASED"
+        assert first.json()["status"] == RELEASED_STATUS
         assert first.json()["artifact_id"] == current_artifact_id()
         assert first.json()["holder_id"] == om_holder_id(ops_manager)
-        wait_for_ea_artifact_status(ops_manager, current_artifact_id(), "RELEASED")
+        wait_for_ea_artifact_status(ops_manager, current_artifact_id(), RELEASED_STATUS)
 
         replay = submit_release_receipt(credentials, receipt)
         assert replay.json()["status"] == "ALREADY_RELEASED"

@@ -52,7 +52,10 @@ RECEIPT_SECRET_SUFFIX = "-release-receipt"
 # Unique per run, so inventory reads only see this run's licenses.
 RUN_PRINCIPAL_ID = f"mck-ci-{uuid.uuid4()}"
 
+ISSUED_STATUS = "ISSUED"
+ACTIVE_STATUS = "ACTIVE"
 RELEASED_STATUS = "RELEASED"
+REVOKED_STATUS = "REVOKED"
 
 # The license conditions the operator writes on the Ops Manager resource.
 LICENSE_ACTIVE_CONDITION = "LicenseActive"
@@ -297,7 +300,7 @@ def assert_foreign_license_kept(ops_manager: MongoDBOpsManager, artifact_id: str
     still lists the claim and no receipt was written for it."""
     assert artifact_id in om_artifact_ids(ops_manager)
     assert_secret_absent(ops_manager.namespace, f"{artifact_id}{RECEIPT_SECRET_SUFFIX}")
-    wait_for_ea_artifact_state(ops_manager, artifact_id, "ACTIVE")
+    wait_for_ea_artifact_state(ops_manager, artifact_id, ACTIVE_STATUS)
 
 
 def assert_secret_absent(namespace: str, name: str) -> None:
@@ -453,7 +456,7 @@ def wait_for_ea_holder_released(ops_manager: MongoDBOpsManager, artifact_id: str
 
     def released() -> bool:
         holders = ea_artifact_row(ops_manager, artifact_id).get("holders", [])
-        return any(holder["holder_id"] == holder_id and holder["status"] == "RELEASED" for holder in holders)
+        return any(holder["holder_id"] == holder_id and holder["status"] == RELEASED_STATUS for holder in holders)
 
     wait_with_cron(ops_manager, ENROLLMENT_RECONCILE_CRON, released)
 
@@ -506,7 +509,7 @@ def install_license(ops_manager: MongoDBOpsManager, namespace: str, *, auto_rele
     ensure_license_artifact_secret(namespace, current_artifact())
     set_license_install_spec(ops_manager, auto_release_receipts=auto_release_receipts)
     wait_for_installed_license(ops_manager, current_artifact_id())
-    wait_for_ea_artifact_state(ops_manager, current_artifact_id(), "ACTIVE")
+    wait_for_ea_artifact_state(ops_manager, current_artifact_id(), ACTIVE_STATUS)
     return current_artifact_id()
 
 
@@ -516,8 +519,8 @@ def install_and_release_license(ops_manager: MongoDBOpsManager, namespace: str) 
     set_license_release_spec(ops_manager)
     wait_for_released_artifact(ops_manager, current_artifact_id())
     wait_for_cr_license_sync(ops_manager, installed="")
-    wait_for_ea_artifact_state(ops_manager, current_artifact_id(), "RELEASED")
-    wait_for_ea_artifact_status(ops_manager, current_artifact_id(), "RELEASED")
+    wait_for_ea_artifact_state(ops_manager, current_artifact_id(), RELEASED_STATUS)
+    wait_for_ea_artifact_status(ops_manager, current_artifact_id(), RELEASED_STATUS)
 
 
 def install_license_out_of_band(ops_manager: MongoDBOpsManager) -> None:
@@ -528,7 +531,7 @@ def install_license_out_of_band(ops_manager: MongoDBOpsManager) -> None:
     wait_for_observed_api_state(
         ops_manager, effective_state="LICENSED", artifact_id=current_artifact_id(), installed=""
     )
-    wait_for_ea_artifact_state(ops_manager, current_artifact_id(), "ACTIVE")
+    wait_for_ea_artifact_state(ops_manager, current_artifact_id(), ACTIVE_STATUS)
 
 
 def renew_license(ops_manager: MongoDBOpsManager, namespace: str) -> str:
@@ -556,7 +559,7 @@ def issue_top_up_and_auto_install(ops_manager: MongoDBOpsManager) -> str:
     _, artifact_id = _mint(ops_manager, expiry=datetime.now(timezone.utc) + timedelta(days=2 * DEFAULT_VALIDITY_DAYS))
 
     wait_with_cron(ops_manager, AUTO_INSTALL_CRON, lambda: artifact_id in om_artifact_ids(ops_manager))
-    wait_for_ea_artifact_state(ops_manager, artifact_id, "ACTIVE")
+    wait_for_ea_artifact_state(ops_manager, artifact_id, ACTIVE_STATUS)
     return artifact_id
 
 
