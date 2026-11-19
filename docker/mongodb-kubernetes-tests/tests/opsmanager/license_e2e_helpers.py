@@ -480,6 +480,14 @@ def reset_license_e2e_state(ops_manager: MongoDBOpsManager) -> None:
         delete_receipt_secrets(ops_manager.namespace)
 
 
+@fixture(scope="class")
+def reset_license_state_after_class(ops_manager: MongoDBOpsManager):
+    """Releases what the class installed, also when a test fails or is deselected, so the run holds nothing at EA."""
+    yield
+    ops_manager.load()
+    reset_license_e2e_state(ops_manager)
+
+
 def rotate_identity_and_recompute(ops_manager: MongoDBOpsManager) -> None:
     """Runs the rotate identity and recompute annotations and waits for the reconcile after them."""
     set_annotation_and_wait_cleared(ops_manager, ROTATE_IDENTITY_ANNOTATION)

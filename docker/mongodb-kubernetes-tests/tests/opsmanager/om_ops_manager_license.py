@@ -47,6 +47,7 @@ from tests.opsmanager.license_e2e_helpers import (
     remove_install_intent_without_identity,
     renew_license,
     reset_license_e2e_state,
+    reset_license_state_after_class,
     revoke_at_ea,
     rotate_identity_and_recompute,
     same_release_receipt,
@@ -77,6 +78,7 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_ops_manager_license
+@mark.usefixtures("reset_license_state_after_class")
 class TestOpsManagerLicenseE2E:
     @fixture(autouse=True)
     def _reset_license_state(self, ops_manager: MongoDBOpsManager):
@@ -267,10 +269,6 @@ class TestOpsManagerLicenseE2E:
         install_license(ops_manager, namespace)
 
         assert_license_installed(ops_manager, current_artifact_id())
-
-    def test_reset_license_state(self, ops_manager: MongoDBOpsManager):
-        """Leaves Ops Manager without a license so the run holds nothing at EA."""
-        assert not installed_artifact_id(ops_manager)
 
 
 @mark.e2e_om_ops_manager_license

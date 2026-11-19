@@ -17,7 +17,7 @@ from tests.opsmanager.license_e2e_helpers import (
     hide_failure_values,
     mint_run_license,
     om_holder_id,
-    reset_license_e2e_state,
+    reset_license_state_after_class,
     set_license_install_spec,
     set_release_receipts_spec,
     tampered_receipt,
@@ -46,6 +46,7 @@ def test_create_om(ops_manager: MongoDBOpsManager):
 
 
 @mark.e2e_om_ops_manager_license_air_gapped
+@mark.usefixtures("reset_license_state_after_class")
 class TestOpsManagerLicenseAirGappedE2E:
     def test_release_by_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
         """The license works without an EA claim, and the receipt the operator writes on release is the one
@@ -77,8 +78,3 @@ class TestOpsManagerLicenseAirGappedE2E:
         assert replay.json()["released_at"] == first.json()["released_at"]
 
         assert submit_release_receipt(credentials, tampered_receipt(receipt)).status_code in (401, 403)
-
-    def test_reset_license_state(self, ops_manager: MongoDBOpsManager):
-        """Leaves Ops Manager without a license so the run holds nothing at EA."""
-        ops_manager.load()
-        reset_license_e2e_state(ops_manager)
