@@ -270,7 +270,9 @@ def _assert_member_delivery(ops_manager: MongoDBOpsManager):
         automation = json.loads(
             read_secret(namespace, f"{names.app_db_name}-config", api_client=cluster)["cluster-config.json"]
         )
-        assert automation["tls"]["CAFilePath"] == f"{APP_DB_CA_DIR}/{APP_DB_CA_BUNDLE_KEY}"
+        # mongod reads CAFile only at startup, so it points at the bundle's hash-keyed file: a widened
+        # or rotated bundle then takes effect through the automation config change that precedes it.
+        assert automation["tls"]["CAFilePath"] == f"{APP_DB_CA_DIR}/{ca_bundle.data['latestHash']}"
         for process in automation["processes"]:
             assert process["args2_6"]["net"]["tls"]["certificateKeyFile"].endswith(f"/certs/{current_hash}")
         sts = ops_manager.read_appdb_statefulset(spec["clusterName"])

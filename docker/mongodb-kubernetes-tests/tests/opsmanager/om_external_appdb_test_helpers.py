@@ -327,6 +327,32 @@ def managed_appdb_graph(namespace: str, db_name: str) -> dict:
     }
 
 
+def managed_appdb_member_graph(
+    namespace: str, names: ManagedCertificateNames, api_client: k8s_client.ApiClient
+) -> dict:
+    """The managed AppDB CA bundle and derived PEM Secret one member cluster holds, keyed by kind/name.
+
+    Certificates and Issuers live only in the operator's cluster, so a member cluster holds just the
+    replicated ConfigMap the pods mount and the PEM Secret built from the issued material.
+    """
+    core = k8s_client.CoreV1Api(api_client=api_client)
+    serializer = k8s_client.ApiClient()
+    objects = [
+        ("ConfigMap", core.read_namespaced_config_map(names.app_db_ca_bundle_config_map, namespace)),
+        ("Secret", core.read_namespaced_secret(names.app_db_pem_secret, namespace)),
+    ]
+    graph = {}
+    for kind, obj in objects:
+        wire = serializer.sanitize_for_serialization(obj)
+        graph[f"{kind}/{obj.metadata.name}"] = {
+            "uid": wire["metadata"]["uid"],
+            "owners": wire["metadata"].get("ownerReferences") or [],
+            "labels": wire["metadata"].get("labels") or {},
+            "data": wire.get("data") or {},
+        }
+    return graph
+
+
 def managed_certificate_owner_uid(spec: Optional[dict]) -> Optional[str]:
     """The owner UID label the operator asks cert-manager to put on the Secrets of a Certificate."""
     if not spec:
