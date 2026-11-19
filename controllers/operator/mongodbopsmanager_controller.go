@@ -473,7 +473,7 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 
 	// 3. Reconcile Backup Daemon
 	if status := r.reconcileBackupDaemon(ctx, opsManagerReconcilerHelper, opsManager, omAdmin, appDBConfig, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
-		return r.updateStatus(ctx, opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.Backup))
+		return r.updateBackupStatus(ctx, opsManager, status, log)
 	}
 
 	annotationsToAdd, err := getAnnotationsForOpsManagerResource(opsManager)
@@ -712,9 +712,15 @@ func (r *OpsManagerReconciler) stopBackupDaemonIfNeeded(ctx context.Context, rec
 	return nil
 }
 
-func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConfig *AppDBConfig, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
+// updateBackupStatus re-applies the backup validation warnings before patching, because
+// every status patch decodes the stored resource into opsManager and drops in-memory warnings.
+func (r *OpsManagerReconciler) updateBackupStatus(ctx context.Context, opsManager *omv1.MongoDBOpsManager, st workflow.Status, log *zap.SugaredLogger) (reconcile.Result, error) {
 	backupStatusPartOption := mdbstatus.NewOMPartOption(mdbstatus.Backup)
+	opsManager.SetWarnings(opsManager.ValidationWarnings(mdbstatus.Backup), backupStatusPartOption)
+	return r.updateStatus(ctx, opsManager, st, log, backupStatusPartOption)
+}
 
+func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconcilerHelper *OpsManagerReconcilerHelper, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, appDBConfig *AppDBConfig, initOpsManagerImage, opsManagerImage string, log *zap.SugaredLogger) workflow.Status {
 	// If backup is not enabled, we check whether it is still configured in OM to update the status.
 	if !opsManager.Spec.Backup.Enabled {
 		var backupStatus workflow.Status = workflow.Disabled()
@@ -730,7 +736,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 			}
 		}
 
-		if _, err := r.updateStatus(ctx, opsManager, backupStatus, log, backupStatusPartOption); err != nil {
+		if _, err := r.updateBackupStatus(ctx, opsManager, backupStatus, log); err != nil {
 			return workflow.Failed(err)
 		}
 
@@ -766,7 +772,7 @@ func (r *OpsManagerReconciler) reconcileBackupDaemon(ctx context.Context, reconc
 		return workflowStatus
 	}
 
-	if _, err := r.updateStatus(ctx, opsManager, workflow.OK(), log, backupStatusPartOption); err != nil {
+	if _, err := r.updateBackupStatus(ctx, opsManager, workflow.OK(), log); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -1599,6 +1605,9 @@ func (r *OpsManagerReconciler) ensureS3OplogStoresInOpsManager(ctx context.Conte
 		if !status.IsOK() {
 			return status
 		}
+		if err := validatePortableBackupUpdate(omConfig, operatorView); err != nil {
+			return workflow.Failed(err)
+		}
 
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
 		// "owns"
@@ -1717,6 +1726,9 @@ func (r *OpsManagerReconciler) ensureS3ConfigurationInOpsManager(ctx context.Con
 		operatorView, status := r.buildOMS3Config(ctx, opsManager, operatorConfig, false, appDBConfig)
 		if !status.IsOK() {
 			return status
+		}
+		if err := validatePortableBackupUpdate(omConfig, operatorView); err != nil {
+			return workflow.Failed(err)
 		}
 
 		// Now we need to merge the Operator version into the OM one overriding only the fields that the Operator
@@ -1925,6 +1937,14 @@ func (r *OpsManagerReconciler) buildOMS3Config(ctx context.Context, opsManager *
 		return r.buildAppDbOMS3Config(ctx, opsManager, config, isOpLog, appDBConfig.ConnectionString, appDBConfig.CAConfigMapName)
 	}
 	return r.buildMongoDbOMS3Config(ctx, opsManager, config, isOpLog, appDBConfig.CAConfigMapName)
+}
+
+func validatePortableBackupUpdate(current, desired backup.S3Config) error {
+	if current.PortableBackupEnabled != nil && *current.PortableBackupEnabled &&
+		desired.PortableBackupEnabled != nil && !*desired.PortableBackupEnabled {
+		return fmt.Errorf("portableBackupEnabled cannot be set to false for S3 store %q because Ops Manager does not allow portable backups to be disabled once enabled", desired.Id)
+	}
+	return nil
 }
 
 // getMongoDbForS3Config returns the referenced MongoDB resource which should be used when configuring the backup config.

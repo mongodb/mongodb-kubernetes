@@ -154,7 +154,8 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:e2e-default`    | `e2e_test_suite`     | ~540 tasks, e2e suite minus static, OM7 and race variants; close to the former default PR set                  |
 | `evergreen:e2e-medium`     | `e2e_test_suite`     | ~320 tasks tagged `e2e_medium` across static/non-static, OM 7/8/9, multi-cluster                               |
 | `evergreen:e2e-light`      | `e2e_test_suite`     | ~170 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
-| `evergreen:e2e-static`     | `static`             | Static-container e2e variants + shared init/build (`init_test_run`, `init_tests_with_olm`, `build_om*_images`) |
+| `evergreen:e2e-static`     | `static`             | Full static matrix. Seldom used: `evergreen:e2e-static-light` is almost always the better choice; apply it only when deliberately chosen |
+| `evergreen:e2e-static-light` | `static_light`       | ~230 tasks: one static run per scenario (MDB, OM9, operator, OLM, custom domain, multi-cluster) + shared init/build; the default static choice for PRs |
 | `evergreen:e2e-non-static` | `non_static`         | Non-static e2e variants + shared init/build                                                                    |
 | `evergreen:multi-cluster`  | `multi_cluster`      | Non-static multi-cluster variants only (kind, 2 clusters, OM AppDB, OM70 upgrade, OM80 search, operator-not-in-mesh) |
 | `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (excluding OpenShift)                                                                        |
@@ -169,14 +170,21 @@ They change as tasks are added or removed.
 OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
 the `staging` alias.
 
+`evergreen:e2e-static-light` selects the `static_light` tag and is the default static choice for a PR. `evergreen:e2e-static`
+selects the full `static` tag set. Use it only when you deliberately need every static variant: it is seldom used, and
+`evergreen:e2e-static-light` is almost always the better choice. Master runs the full set through `staging`, and
+`--alias static` runs it on demand.
+
 Labels are evaluated when the PR patch is created; adding one afterwards injects the newly-satisfied tasks into the
 existing patch in place. Removing a label is a no-op and never cancels running tasks. Variant `paths:` filtering still
 applies on top — a labeled variant whose paths don't match the PR's changed files is skipped.
 
 ### Choosing a label
 
-Start with `evergreen:e2e-light` and add `e2e-medium`, `e2e-default` or a dimension label (`e2e-static`, `om7`, `om9`,
-`race`, ...) only when the change touches that area.
+Start with `evergreen:e2e-light` and add `e2e-medium`, `e2e-default` or a dimension label (`e2e-static-light`, `om7`, `om9`,
+`race`, ...) only when the change touches that area. For static coverage use `evergreen:e2e-static-light`. Apply
+`evergreen:e2e-static` only when you deliberately need the full static matrix: it is seldom used, and the light set is
+almost always the better choice.
 
 **Do not use `evergreen:e2e-all`.** It MUST only be applied manually by a human engineer: it schedules ~1370 tasks
 (about 2.5x `e2e-default`), runs again on every push while the label is on, and master already runs the full suite on
@@ -194,7 +202,8 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 
 | Alias        | Description                                                   | Runs on PRs                           |
 |--------------|---------------------------------------------------------------|---------------------------------------|
-| `static`     | Static container variants (`e2e_static_*`, shared init/build) | With `evergreen:e2e-static` label     |
+| `static_light` | Light static set: one run per scenario + shared init/build   | With `evergreen:e2e-static-light` label (default) |
+| `static`       | Full static matrix (`e2e_static_*`, shared init/build)        | With `evergreen:e2e-static` label (seldom used) |
 | `non_static` | Non-static container variants (shared init/build)             | With `evergreen:e2e-non-static` label |
 | `om7`        | Ops Manager 7.0 variants (static and non-static)              | With `evergreen:om7` label            |
 | `om9`        | Ops Manager 9.0 variants                                      | With `evergreen:om9` label            |

@@ -1,6 +1,7 @@
 package om
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -236,6 +237,36 @@ func TestOpsManagerValidation(t *testing.T) {
 			testedOm: NewOpsManagerBuilderDefault().
 				SetVersion("8.0.28").
 				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, ObjectLockEnabled: new(true), ObjectRetentionDays: new(30), ObjectRetentionMode: new("GOVERNANCE")}).
+				Build(),
+			expectedPart: status.None,
+		},
+		"Invalid S3 Store config - portableBackupEnabled for version older than 8.0.28": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.27").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, PortableBackupEnabled: new(true)}).
+				Build(),
+			expectedErrorMessage: "'portableBackupEnabled' can be configured only for Ops Manager versions >= 8.0.28 (8.0.x) or >= 9.0.2 (S3 Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Invalid S3 OpLog Store config - portableBackupEnabled for 9.0.1": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("9.0.1").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, PortableBackupEnabled: new(false)}).
+				Build(),
+			expectedErrorMessage: "'portableBackupEnabled' can be configured only for Ops Manager versions >= 8.0.28 (8.0.x) or >= 9.0.2 (S3 OpLog Store: test)",
+			expectedPart:         status.OpsManager,
+		},
+		"Valid S3 Store config - portableBackupEnabled at exactly the 8.0.28 version floor": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("8.0.28").
+				AddS3SnapshotStore(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, PortableBackupEnabled: new(true)}).
+				Build(),
+			expectedPart: status.None,
+		},
+		"Valid S3 OpLog Store config - portableBackupEnabled at exactly the 9.0.2 version floor": {
+			testedOm: NewOpsManagerBuilderDefault().
+				SetVersion("9.0.2").
+				AddS3OplogStoreConfig(S3Config{Name: "test", S3SecretRef: &SecretRef{Name: "test"}, PortableBackupEnabled: new(true)}).
 				Build(),
 			expectedPart: status.None,
 		},
@@ -586,6 +617,46 @@ func TestWarnMonitoringAgentStartupParameters_NoWarnWhenEmpty(t *testing.T) {
 	results := om.RunValidations()
 
 	assert.Empty(t, warningsFromResults(results))
+}
+
+func TestWarnBucketDerivedObjectLockSettings(t *testing.T) {
+	tests := []struct {
+		version       string
+		backupEnabled bool
+		wantWarning   bool
+	}{
+		{version: "8.0.28", backupEnabled: true, wantWarning: true},
+		{version: "8.0.28", backupEnabled: false},
+		{version: "9.0.1", backupEnabled: true},
+		{version: "9.0.2", backupEnabled: true, wantWarning: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s/backup=%t", tt.version, tt.backupEnabled), func(t *testing.T) {
+			om := NewOpsManagerBuilderDefault().SetVersion(tt.version).
+				AddS3SnapshotStore(S3Config{Name: "snapshot-lock", S3SecretRef: &SecretRef{Name: "s"}, ObjectLockEnabled: new(true)}).
+				AddS3SnapshotStore(S3Config{Name: "snapshot-plain", S3SecretRef: &SecretRef{Name: "s"}}).
+				AddS3OplogStoreConfig(S3Config{Name: "oplog-retention", S3SecretRef: &SecretRef{Name: "s"}, ObjectLockEnabled: new(true), ObjectRetentionMode: new("GOVERNANCE")}).
+				Build()
+			om.Spec.Backup.Enabled = tt.backupEnabled
+
+			part, err := om.ProcessValidationsOnReconcile()
+			require.NoError(t, err)
+			assert.Equal(t, status.None, part)
+
+			warnings := om.GetStatusWarnings(status.Backup)
+			if !tt.wantWarning {
+				assert.Empty(t, warnings)
+				return
+			}
+			require.Len(t, warnings, 1)
+			warning := string(warnings[0])
+			assert.Contains(t, warning, "deprecated")
+			assert.Contains(t, warning, "s3Stores/snapshot-lock, s3OpLogStores/oplog-retention")
+			assert.NotContains(t, warning, "snapshot-plain")
+			assert.Contains(t, warning, "portableBackupEnabled: true")
+		})
+	}
 }
 
 func warningsFromResults(results []v1.ValidationResult) []string {

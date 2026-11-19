@@ -319,6 +319,10 @@ patch_aliases:
     description: "Run all static container variants"
     variant_tags: [ "static" ]
     task: ".*"
+  - alias: "static_light"
+    description: "Run the light static set selected by evergreen:e2e-static-light"
+    variant_tags: [ "static_light" ]
+    task: ".*"
   - alias: "non_static"
     description: "Run all non-static container variants"
     variant_tags: [ "non_static" ]
@@ -358,6 +362,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-static"
+  - variant_tags: [ "static_light" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:e2e-static-light"
   - variant_tags: [ "non_static" ]
     task: ".*"
     required_labels:
@@ -1663,6 +1671,7 @@ buildvariants:
 
   ## MongoDB build variants
   - name: e2e_mdb_kind_ubi_cloudqa
+    batchtime: 60
     display_name: e2e_mdb_kind_ubi_cloudqa
     tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
@@ -1672,6 +1681,7 @@ buildvariants:
       - name: e2e_mdb_kind_cloudqa_task_group
 
   - name: e2e_custom_domain_mdb_kind_ubi_cloudqa
+    batchtime: 60
     display_name: e2e_custom_domain_mdb_kind_ubi_cloudqa
     tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
@@ -1681,8 +1691,9 @@ buildvariants:
       - name: e2e_custom_domain_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
+    batchtime: 60
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1691,6 +1702,7 @@ buildvariants:
       - name: e2e_mdb_container_image_type_task_group
 
   - name: e2e_static_mdb_kind_ubi9_slim_cloudqa
+    batchtime: 60
     display_name: e2e_static_mdb_kind_ubi9_slim_cloudqa
     tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
@@ -1701,8 +1713,9 @@ buildvariants:
       - name: e2e_mdb_container_image_type_task_group
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
+    batchtime: 60
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1721,6 +1734,7 @@ buildvariants:
       - name: e2e_custom_domain_task_group
 
   - name: e2e_mdb_kind_ubi_cloudqa_large
+    batchtime: 60
     display_name: e2e_mdb_kind_ubi_cloudqa_large
     tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
@@ -1732,6 +1746,7 @@ buildvariants:
       - name: e2e_vm_migration_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa_large
+    batchtime: 60
     display_name: e2e_static_mdb_kind_ubi_cloudqa_large
     tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
     run_on:
@@ -1776,6 +1791,7 @@ buildvariants:
       - name: e2e_mdb_container_image_type_task_group
 
   - name: e2e_static_openshift_mdb_ubi9_slim_cloudqa
+    batchtime: 60
     display_name: e2e_static_openshift_mdb_ubi9_slim_cloudqa
     tags: [ "staging", "e2e_openshift_test_suite", "cloudqa", "static" ]
     depends_on:
@@ -1889,7 +1905,7 @@ buildvariants:
 
   - name: e2e_static_om90_kind_ubi
     display_name: e2e_static_om90_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2160,6 +2176,7 @@ buildvariants:
       - name: e2e_smoke_arm_task_group
 
   - name: e2e_multi_cluster_kind
+    batchtime: 60
     display_name: e2e_multi_cluster_kind
     tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [*production_code_paths, *base_om8_dependency]
@@ -2170,8 +2187,9 @@ buildvariants:
       - name: e2e_multi_cluster_kind_meko_upgrade_task_group
 
   - name: e2e_static_multi_cluster_kind
+    batchtime: 60
     display_name: e2e_static_multi_cluster_kind
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2180,6 +2198,7 @@ buildvariants:
       - name: e2e_multi_cluster_kind_meko_upgrade_task_group
 
   - name: e2e_static_multi_cluster_kind_ubi9_slim
+    batchtime: 60
     display_name: e2e_static_multi_cluster_kind_ubi9_slim
     tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
@@ -2189,6 +2208,7 @@ buildvariants:
       - name: e2e_multi_cluster_kind_task_group
 
   - name: e2e_multi_cluster_2_clusters
+    batchtime: 60
     display_name: e2e_multi_cluster_2_clusters
     tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static", "multi_cluster" ]
     <<: [ *production_code_paths, *base_om7_dependency ]
@@ -2198,6 +2218,7 @@ buildvariants:
       - name: e2e_multi_cluster_2_clusters_task_group
 
   - name: e2e_static_multi_cluster_2_clusters
+    batchtime: 60
     display_name: e2e_static_multi_cluster_2_clusters
     tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
     run_on:
@@ -2207,6 +2228,7 @@ buildvariants:
       - name: e2e_multi_cluster_2_clusters_task_group
 
   - name: e2e_static_multi_cluster_2_clusters_ubi9_slim
+    batchtime: 60
     display_name: e2e_static_multi_cluster_2_clusters_ubi9_slim
     tags: [ "staging", "e2e_test_suite", "cloudqa", "static" ]
     run_on:
@@ -2287,6 +2309,7 @@ buildvariants:
   ## Operator tests build variants
 
   - name: e2e_operator_kind_ubi_cloudqa
+    batchtime: 60
     display_name: e2e_operator_kind_ubi_cloudqa
     tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
@@ -2296,8 +2319,9 @@ buildvariants:
       - name: e2e_operator_task_group
 
   - name: e2e_static_operator_kind_ubi_cloudqa
+    batchtime: 60
     display_name: e2e_static_operator_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -2305,6 +2329,7 @@ buildvariants:
       - name: e2e_static_operator_task_group
 
   - name: e2e_operator_no_webhook_roles_cloudqa
+    batchtime: 60
     display_name: e2e_operator_no_webhook_roles_cloudqa
     tags: [ "staging", "cloudqa", "cloudqa_non_static", "e2e_test_suite", "non_static" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
@@ -2337,7 +2362,7 @@ buildvariants:
 
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -2398,7 +2423,7 @@ buildvariants:
 
   - name: init_test_run
     display_name: init_test_run
-    tags: [ "staging", "static", "non_static" ]
+    tags: [ "staging", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2475,7 +2500,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-    tags: [ "staging", "static", "non_static" ]
+    tags: [ "staging", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2538,7 +2563,7 @@ buildvariants:
 
   - name: build_om90_images
     display_name: build_om90_images
-    tags: [ "staging", "om9", "static", "non_static" ]
+    tags: [ "staging", "om9", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2627,7 +2652,7 @@ buildvariants:
     allowed_requesters: [ "commit" ]
     depends_on:
       - name: "*"
-        variant: ".staging !init_test_run_ibm_z !e2e_smoke_ibm_z !e2e_static_smoke_ibm_z !e2e_static_smoke_ibm_z_ubi9_slim"
+        variant: ".staging !.cloudqa !init_test_run_ibm_z !e2e_smoke_ibm_z !e2e_static_smoke_ibm_z !e2e_static_smoke_ibm_z_ubi9_slim"
         status: "*"
     run_on:
       - ubuntu2404-small
