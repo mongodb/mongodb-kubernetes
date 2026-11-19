@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/mongodb/mongodb-kubernetes/internal/retry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,6 +42,36 @@ func TestNewHTTPClient_SetsRequestTimeout(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, defaultRequestTimeout, client.HTTPClient.Timeout)
+}
+
+func TestClientDoRetriesAndReplaysRequestBody(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "request body", string(body))
+		if requests.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := NewHTTPClient()
+	require.NoError(t, err)
+	client.RetryMax = 1
+	client.RetryWaitMin = 0
+	client.RetryWaitMax = 0
+
+	req, err := retry.NewRequestWithContext(context.Background(), http.MethodPost, server.URL, strings.NewReader("request body"))
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int32(2), requests.Load())
 }
 
 // hangingServer never answers; the handler returns only once the client has gone away so that srv.Close() completes.
