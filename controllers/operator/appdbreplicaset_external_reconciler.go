@@ -16,6 +16,7 @@ import (
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -78,11 +79,36 @@ func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, o
 
 	connectionString := refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-256"})
 
+	caBundleHash, err := e.managedAppDBCABundleHash(ctx, opsManager, refObject)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AppDBConfig{
 		IsTLSEnabled:     refObject.isTLSEnabled(),
 		CAConfigMapName:  refObject.getCAConfigMapName(),
 		ConnectionString: connectionString,
+		CABundleHash:     caBundleHash,
 	}, nil
+}
+
+// managedAppDBCABundleHash returns the hash of the published operator-managed AppDB CA bundle, or
+// "" when the referenced AppDB does not use operator-managed certificates or is multi-cluster.
+// Ops Manager and the backup daemon load the AppDB CA only at startup and are annotated with this
+// hash (see construct.WithAppDBCABundleHash), so a bundle change restarts them. Computing it for a
+// referenced AppDB too keeps the annotation stable across a handover from an internal AppDB, which
+// would otherwise roll Ops Manager and lose the restarts a later CA rotation requires.
+func (e *ReconcileExternalAppDBReplicaSet) managedAppDBCABundleHash(ctx context.Context, opsManager *omv1.MongoDBOpsManager, refObject externalAppDB) (string, error) {
+	if !refObject.isManagedCertificateEnabled() || refObject.isMultiCluster() {
+		return "", nil
+	}
+
+	hash, _, err := certs.ReadManagedCABundleHashes(ctx, e.client, opsManager.Spec.ExternalAppDBRef.Name, opsManager.Namespace, false)
+	if err != nil {
+		return "", xerrors.Errorf("failed to read the operator-managed AppDB CA bundle hash: %w", err)
+	}
+
+	return hash, nil
 }
 
 // getExternalAppDBReference retrieves the opsManager's spec.externalApplicationDatabaseRef resource
@@ -268,6 +294,11 @@ func (o *externalAppDBRefObject) isTLSEnabled() bool {
 	return o.IsSecurityTLSConfigEnabled()
 }
 
+// isManagedCertificateEnabled reports whether the referenced CR uses operator-managed certificates.
+func (o *externalAppDBRefObject) isManagedCertificateEnabled() bool {
+	return o.GetSecurity().IsManagedCertificateEnabled()
+}
+
 func (o *externalAppDBRefObject) getClusterList() []appDBClusterItem {
 	return o.clusterList
 }
@@ -281,6 +312,7 @@ type externalAppDB interface {
 	GetRole() string
 	getCAConfigMapName() string
 	isTLSEnabled() bool
+	isManagedCertificateEnabled() bool
 	getClusterList() []appDBClusterItem
 	isMultiCluster() bool
 }
