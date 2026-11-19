@@ -31,6 +31,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -1151,6 +1152,109 @@ func TestOpsManagerBackupObjectLockRetentionFields(t *testing.T) {
 	assert.Equal(t, true, *s3Configs[0].ObjectLockEnabled)
 	assert.Equal(t, 30, *s3Configs[0].ObjectRetentionDays)
 	assert.Equal(t, "COMPLIANCE", *s3Configs[0].ObjectRetentionMode)
+}
+
+func TestOpsManagerBackupBucketDerivedObjectLockFields(t *testing.T) {
+	ctx := context.Background()
+
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.28").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{
+			Name:                  "snapshot",
+			S3SecretRef:           &omv1.SecretRef{Name: "s3-secret"},
+			ObjectLockEnabled:     new(true),
+			ObjectRetentionDays:   new(30),
+			ObjectRetentionMode:   new("GOVERNANCE"),
+			PortableBackupEnabled: new(true),
+		}).
+		Build()
+	testOm.Spec.Backup.S3OplogStoreConfigs = []omv1.S3Config{{
+		Name:                  "oplog",
+		S3SecretRef:           &omv1.SecretRef{Name: "s3-secret"},
+		ObjectLockEnabled:     new(true),
+		ObjectRetentionDays:   new(30),
+		ObjectRetentionMode:   new("GOVERNANCE"),
+		PortableBackupEnabled: new(true),
+	}}
+
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	configureBackupResources(ctx, client, testOm)
+	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
+	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
+
+	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+	status := reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
+	require.True(t, status.IsOK())
+
+	snapshotConfigs, err := mockedAdmin.ReadS3Configs(ctx)
+	require.NoError(t, err)
+	require.Len(t, snapshotConfigs, 1)
+	assert.Nil(t, snapshotConfigs[0].ObjectLockEnabled)
+	assert.Nil(t, snapshotConfigs[0].ObjectRetentionDays)
+	assert.Nil(t, snapshotConfigs[0].ObjectRetentionMode)
+	assert.Equal(t, new(true), snapshotConfigs[0].PortableBackupEnabled)
+
+	oplogConfigs, err := mockedAdmin.ReadS3OplogStoreConfigs(ctx)
+	require.NoError(t, err)
+	require.Len(t, oplogConfigs, 1)
+	assert.Nil(t, oplogConfigs[0].ObjectLockEnabled)
+	assert.Nil(t, oplogConfigs[0].ObjectRetentionDays)
+	assert.Nil(t, oplogConfigs[0].ObjectRetentionMode)
+	assert.Equal(t, new(true), oplogConfigs[0].PortableBackupEnabled)
+}
+
+func TestOpsManagerBackupDeprecatedObjectLockWarningIsPersisted(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.28").
+		AddOplogStoreConfig("oplog-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: new(true)}).
+		Build()
+
+	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	configureBackupResources(ctx, mockedClient, testOm)
+
+	// the first reconcile is requeued to configure AppDB monitoring
+	_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	_, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+
+	require.NoError(t, mockedClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	assert.Equal(t, status.PhaseRunning, testOm.Status.BackupStatus.Phase)
+	require.Len(t, testOm.Status.BackupStatus.Warnings, 1)
+	assert.Contains(t, string(testOm.Status.BackupStatus.Warnings[0]), "s3Stores/s3-config")
+}
+
+func TestValidatePortableBackupUpdate(t *testing.T) {
+	tests := []struct {
+		name    string
+		current *bool
+		desired *bool
+		wantErr bool
+	}{
+		{name: "disable enabled portable backups", current: new(true), desired: new(false), wantErr: true},
+		{name: "omitted desired value preserves enabled setting", current: new(true)},
+		{name: "no transition from false", current: new(false), desired: new(false)},
+		{name: "no current portable setting", desired: new(false)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePortableBackupUpdate(
+				backup.S3Config{Id: "store", PortableBackupEnabled: tt.current},
+				backup.S3Config{Id: "store", PortableBackupEnabled: tt.desired},
+			)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cannot be set to false")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestTriggerOmChangedEventIfNeeded(t *testing.T) {

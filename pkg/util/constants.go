@@ -287,6 +287,12 @@ const (
 	// config endpoint with INVALID_ATTRIBUTE.
 	MinimumVersionS3OpLogObjectLock = "8.0.28"
 
+	// From these versions (CLOUDP-470804), Ops Manager reads the S3 Object Lock settings from
+	// the bucket, ignores objectLockEnabled and the retention fields, and accepts
+	// portableBackupEnabled. 9.0.0 and 9.0.1 predate the change.
+	MinimumVersionS3BucketDerivedObjectLock80 = "8.0.28"
+	MinimumVersionS3BucketDerivedObjectLock90 = "9.0.2"
+
 	// Below is a list of non-persistent PV and PVCs for OpsManager
 	OpsManagerPvcNameData       = "data"
 	OpsManagerPvcNameConf       = "conf"
