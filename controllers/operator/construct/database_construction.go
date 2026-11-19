@@ -15,7 +15,6 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
@@ -482,7 +481,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 	}
 
 	// add vault specific annotations
-	secretsToInject.AgentApiKey = agents.ApiKeySecretName(opts.PodVars.ProjectID)
+	secretsToInject.AgentApiKey = mdbv1.AgentAPIKeySecretName(opts.PodVars.ProjectID)
 	if _, ok := AgentAPIKeyOverride(opts); ok {
 		secretsToInject.AgentApiKey = AgentAPIKeyOverrideSecretName(opts.GetStatefulSetName())
 	}
@@ -793,7 +792,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 	}
 
 	if !vault.IsVaultSecretBackend() || databaseOpts.MountAgentAPIKeySecret {
-		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(databaseOpts.PodVars.ProjectID)))
+		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, mdbv1.AgentAPIKeySecretName(databaseOpts.PodVars.ProjectID)))
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
 

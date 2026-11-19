@@ -27,7 +27,7 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -138,7 +138,7 @@ func TestDatabaseAgentCredentialOverrideWithSecretProjection(t *testing.T) {
 				assert.Equal(t, &fileMode, item.Mode)
 				assert.Equal(t, "customer-api-key", string(keySecret.Data[item.Key]), "projected key must exist in generated credential Secret")
 			}
-			assert.Equal(t, keySecret.Name, construct.AgentAPIKeySecretName(*created))
+			assert.Equal(t, keySecret.Name, construct.MountedAgentAPIKeySecretName(*created))
 			stored, err := fakeClient.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, sts.Name))
 			require.NoError(t, err)
 			_, err = DatabaseInKubernetes(ctx, fakeClient, secretClient, *mdb, sts, (options)(*mdb), zap.S())
@@ -234,7 +234,7 @@ func TestDatabaseAgentCredentialFallsBackToKubernetesSecretWithoutVaultClient(t 
 	})
 	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
 	keySecret := corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: agents.ApiKeySecretName(options(*mdb).PodVars.ProjectID), Namespace: sts.Namespace},
+		ObjectMeta: metav1.ObjectMeta{Name: mdbv1.AgentAPIKeySecretName(options(*mdb).PodVars.ProjectID), Namespace: sts.Namespace},
 		Data:       map[string][]byte{util.OmAgentApiKey: []byte("member-cluster-key")},
 	}
 	require.NotEmpty(t, keySecret.Name)
@@ -244,7 +244,7 @@ func TestDatabaseAgentCredentialFallsBackToKubernetesSecretWithoutVaultClient(t 
 
 	require.NoError(t, err)
 	assert.Len(t, created.Spec.Template.Annotations[construct.AgentSettingsHash], 64)
-	assert.Equal(t, keySecret.Name, construct.AgentAPIKeySecretName(*created), "the member cluster key Secret must be mounted")
+	assert.Equal(t, keySecret.Name, construct.MountedAgentAPIKeySecretName(*created), "the member cluster key Secret must be mounted")
 }
 
 func TestDatabaseAgentSettingsHashTracksConsumedCredentials(t *testing.T) {
@@ -409,7 +409,7 @@ func TestReconcileDatabaseAgentSettingsMultiCluster(t *testing.T) {
 		opts.PodVars.BaseURL = "https://ops-manager.example.com"
 	})
 	sts := construct.DatabaseStatefulSet(*mdb, options, zap.S())
-	keySecretName := agents.ApiKeySecretName(options(*mdb).PodVars.ProjectID)
+	keySecretName := mdbv1.AgentAPIKeySecretName(options(*mdb).PodVars.ProjectID)
 	require.NoError(t, fakeClient.CreateSecret(ctx, corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: keySecretName, Namespace: sts.Namespace},
 		Data:       map[string][]byte{util.OmAgentApiKey: []byte("member-cluster-key")},
@@ -642,7 +642,7 @@ func TestSetAgentCredentialMountsKeySecretWithoutVaultClient(t *testing.T) {
 	opts := construct.ReplicaSetOptions(construct.GetPodEnvOptions())(*mdb)
 	require.NoError(t, SetAgentCredential(ctx, secrets.SecretClient{KubeClient: fakeClient}, mdb.Namespace, &opts))
 	assert.True(t, opts.MountAgentAPIKeySecret)
-	assert.NotEmpty(t, construct.AgentAPIKeySecretName(construct.DatabaseStatefulSetFromOptions(*mdb, opts, zap.S())))
+	assert.NotEmpty(t, construct.MountedAgentAPIKeySecretName(construct.DatabaseStatefulSetFromOptions(*mdb, opts, zap.S())))
 }
 
 func TestDatabaseAgentSettingsHashTracksCustomerKeyVolume(t *testing.T) {
@@ -2465,4 +2465,10 @@ func TestDroppedMetadataEntries(t *testing.T) {
 			assert.Equal(t, tc.expected, droppedMetadataEntries(tc.desired, tc.existing))
 		})
 	}
+}
+
+func TestAgentCredentialStatus(t *testing.T) {
+	notFound := fmt.Errorf("cannot read agent startup credential: %w", errors.NewNotFound(corev1.Resource("secrets"), "my-project-group-secret"))
+	assert.Equal(t, status.PhasePending, AgentCredentialStatus(notFound, "failed to prepare StatefulSet").Phase())
+	assert.Equal(t, status.PhaseFailed, AgentCredentialStatus(fmt.Errorf("boom"), "failed to prepare StatefulSet").Phase())
 }

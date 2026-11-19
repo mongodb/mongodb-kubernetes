@@ -1322,7 +1322,7 @@ func TestReconcileMultiClusterShardedClusterCertsAndSecretsReplication(t *testin
 	before := snapshotHashes()
 	memberClient := memberClusterMap[memberClusterNames[0]]
 	oldKey := &corev1.Secret{}
-	keyName := kube.ObjectKey(sc.Namespace, agents.ApiKeySecretName(om.TestGroupID))
+	keyName := kube.ObjectKey(sc.Namespace, mdbv1.AgentAPIKeySecretName(om.TestGroupID))
 	require.NoError(t, memberClient.Get(ctx, keyName, oldKey))
 	newKey := oldKey.DeepCopy()
 	newKey.Data[util.OmAgentApiKey] = []byte("member-only-key")

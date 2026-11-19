@@ -296,7 +296,7 @@ func TestDatabaseAgentSettings(t *testing.T) {
 			absent:     []string{"mmsApiKey", "overrideLocalHost"},
 		},
 		{
-			name:       "empty API key override still selects credential delivery",
+			name:       "empty API key falls back to the project key",
 			parameters: mdbv1.StartupParameters{"mmsApiKey": ""},
 			want:       mdbv1.StartupParameters{"mmsApiKeyExec": "cat '/mongodb-automation/agent-api-key/agentApiKey'"},
 		},
@@ -999,7 +999,7 @@ func TestMountAgentAPIKeySecretWithVaultBackend(t *testing.T) {
 	t.Setenv("SECRET_BACKEND", "VAULT_BACKEND")
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
 	build := func(mount bool) string {
-		return AgentAPIKeySecretName(DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), func(opts *DatabaseStatefulSetOptions) {
+		return MountedAgentAPIKeySecretName(DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), func(opts *DatabaseStatefulSetOptions) {
 			opts.MountAgentAPIKeySecret = mount
 		}), zap.S()))
 	}

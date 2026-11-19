@@ -1221,7 +1221,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
-	r.commonController.resourceWatcher.AddWatchedResourceIfNotAdded(agents.ApiKeySecretName(conn.GroupID()), sc.Namespace, watch.Secret, sc.ObjectKey())
+	r.commonController.resourceWatcher.AddWatchedResourceIfNotAdded(mdbv1.AgentAPIKeySecretName(conn.GroupID()), sc.Namespace, watch.Secret, sc.ObjectKey())
 
 	reconcileResult := checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval, log)
 	if !reconcileResult.IsOK() {
@@ -1555,7 +1555,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
 		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)(*s)
 		if err := create.SetAgentCredential(ctx, secretClient, s.Namespace, &mongosOpts); err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed to prepare Mongos Stateful Set: %w", err))
+			return create.AgentCredentialStatus(err, "Failed to prepare Mongos Stateful Set")
 		}
 		mongosSts := construct.DatabaseStatefulSetFromOptions(*s, mongosOpts, log)
 
@@ -1601,7 +1601,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
 			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)(*s)
 			if err := create.SetAgentCredential(ctx, secretClient, s.Namespace, &shardOpts); err != nil {
-				return workflow.Failed(xerrors.Errorf("Failed to prepare StatefulSet for shard %d: %w", shardIdx, err))
+				return create.AgentCredentialStatus(err, fmt.Sprintf("Failed to prepare StatefulSet for shard %d", shardIdx))
 			}
 			shardSts := construct.DatabaseStatefulSetFromOptions(*s, shardOpts, log)
 
@@ -1653,7 +1653,7 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
 		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)(*s)
 		if err := create.SetAgentCredential(ctx, secretClient, s.Namespace, &configSrvOpts); err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed to prepare Config Server Stateful Set: %w", err))
+			return create.AgentCredentialStatus(err, "Failed to prepare Config Server Stateful Set")
 		}
 		configSrvSts := construct.DatabaseStatefulSetFromOptions(*s, configSrvOpts, log)
 

@@ -193,7 +193,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	}
 
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
-	r.resourceWatcher.AddWatchedResourceIfNotAdded(agents.ApiKeySecretName(conn.GroupID()), s.Namespace, watch.Secret, s.ObjectKey())
+	r.resourceWatcher.AddWatchedResourceIfNotAdded(mdbv1.AgentAPIKeySecretName(conn.GroupID()), s.Namespace, watch.Secret, s.ObjectKey())
 
 	reconcileResult := checkIfHasExcessProcesses(ctx, conn, s.Name, nil, log)
 	if !reconcileResult.IsOK() {
@@ -301,7 +301,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 
 	standaloneOpts := standaloneOptsFunc(*s)
 	if err := create.SetAgentCredential(ctx, r.SecretClient, s.Namespace, &standaloneOpts); err != nil {
-		return r.updateStatus(ctx, s, workflow.Failed(xerrors.Errorf("Failed to prepare StatefulSet: %w", err)), log)
+		return r.updateStatus(ctx, s, create.AgentCredentialStatus(err, "Failed to prepare StatefulSet"), log)
 	}
 	sts := construct.DatabaseStatefulSetFromOptions(*s, standaloneOpts, log)
 

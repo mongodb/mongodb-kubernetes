@@ -243,7 +243,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
-	reconciler.resourceWatcher.AddWatchedResourceIfNotAdded(agents.ApiKeySecretName(conn.GroupID()), rs.Namespace, watch.Secret, rs.ObjectKey())
+	reconciler.resourceWatcher.AddWatchedResourceIfNotAdded(mdbv1.AgentAPIKeySecretName(conn.GroupID()), rs.Namespace, watch.Secret, rs.ObjectKey())
 
 	reconcileResult := checkIfHasExcessProcesses(ctx, conn, rs.GetReplicaSetName(), rs.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
@@ -578,7 +578,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	// Build the replica set config
 	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)(*rs)
 	if err := create.SetAgentCredential(ctx, reconciler.SecretClient, rs.Namespace, &rsConfig); err != nil {
-		return workflow.Failed(xerrors.Errorf("failed to prepare StatefulSet: %w", err))
+		return create.AgentCredentialStatus(err, "failed to prepare StatefulSet")
 	}
 	sts := construct.DatabaseStatefulSetFromOptions(*rs, rsConfig, log)
 

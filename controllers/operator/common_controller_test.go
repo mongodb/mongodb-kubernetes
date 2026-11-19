@@ -30,7 +30,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/process"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
@@ -242,7 +241,7 @@ func TestPrepareOmConnection_PrepareAgentKeys(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient, nil)
 
 	prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
-	key, e := readAgentApiKeyForProject(ctx, controller.client, mock.TestNamespace, agents.ApiKeySecretName(om.TestGroupID))
+	key, e := readAgentApiKeyForProject(ctx, controller.client, mock.TestNamespace, mdbv1.AgentAPIKeySecretName(om.TestGroupID))
 
 	assert.NoError(t, e)
 	// Unfortunately the key read is not equal to om.TestAgentKey - it's just some set of bytes.

@@ -107,7 +107,7 @@ func resolveAgentSettings(base mdbv1.StartupParameters, agentConfig *mdbv1.Agent
 		// An empty mmsBaseUrl must not leave the settings file with neither mmsBaseUrl nor the
 		// headless cluster/serveStatusPort keys, because the agent would have no usable mode.
 		for key, value := range AgentSettingsOverrides(agentConfig.StartupParameters) {
-			if value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec") {
+			if value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec" || key == "mmsApiKey") {
 				continue
 			}
 			settings[key] = value
@@ -136,9 +136,9 @@ func AgentSettingsConfigMapName(sts appsv1.StatefulSet) string {
 	return sts.Name + "-agent-settings"
 }
 
-// AgentAPIKeySecretName returns the Secret that provides the agent API key. It may be the
+// MountedAgentAPIKeySecretName returns the Secret mounted as the agent API key volume. It may be the
 // operator-generated key Secret or a customer override Secret.
-func AgentAPIKeySecretName(sts appsv1.StatefulSet) string {
+func MountedAgentAPIKeySecretName(sts appsv1.StatefulSet) string {
 	for _, volume := range sts.Spec.Template.Spec.Volumes {
 		if volume.Name == AgentAPIKeyVolumeName && volume.Secret != nil {
 			return volume.Secret.SecretName
@@ -237,7 +237,7 @@ func AgentAPIKeyOverride(opts DatabaseStatefulSetOptions) (string, bool) {
 		return "", false
 	}
 	key, ok := parameters["mmsApiKey"]
-	return key, ok
+	return key, ok && key != ""
 }
 
 // AgentAPIKeyOverrideSecretName returns the generated Secret that holds the customer's raw mmsApiKey.

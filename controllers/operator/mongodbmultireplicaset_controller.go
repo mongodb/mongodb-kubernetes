@@ -767,7 +767,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 
 		// Copy the agent API key to the member cluster. Skip a no-op update so the member
 		// Secret watch does not trigger another reconciliation for data that is already present.
-		apiKeySecretName := agents.ApiKeySecretName(conn.GroupID())
+		apiKeySecretName := mdb.AgentAPIKeySecretName(conn.GroupID())
 		secretObject := corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      apiKeySecretName,
@@ -839,14 +839,14 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 
 		stsOptions := opts(*mrs)
 		if err := create.SetAgentCredential(ctx, secretMemberClient, mrs.Namespace, &stsOptions); err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to prepare StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
+			return create.AgentCredentialStatus(err, fmt.Sprintf("failed to prepare StatefulSet in cluster: %s", item.ClusterName))
 		}
 		sts := mconstruct.MultiClusterStatefulSetFromOptions(*mrs, stsOptions)
 		if err := create.ReconcileDatabaseAgentSettings(ctx, memberClient, secretMemberClient, sts, stsOptions); err != nil {
 			return workflow.Failed(xerrors.Errorf("cannot render agent settings for cluster %s: %w", item.ClusterName, err))
 		}
 		mcNN := types.NamespacedName{Name: mrs.Name, Namespace: mrs.Namespace}
-		if secretName := construct.AgentAPIKeySecretName(sts); secretName != "" {
+		if secretName := construct.MountedAgentAPIKeySecretName(sts); secretName != "" {
 			r.resourceWatcher.RegisterWatchedMongodbResources(mcNN, construct.AgentSettingsConfigMapName(sts), secretName)
 		}
 
