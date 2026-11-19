@@ -1,3 +1,4 @@
+import ast
 import json
 import threading
 from typing import Callable, Iterator
@@ -562,6 +563,15 @@ def wait_for_envoy_loaded_shard_chain(
     )
 
 
+def _exec_output_as_json(content: str) -> str:
+    """The kubernetes stream client returns JSON exec output as a Python dict repr; turn it back into JSON."""
+    try:
+        json.loads(content)
+        return content
+    except ValueError:
+        return json.dumps(ast.literal_eval(content))
+
+
 def wait_for_envoy_mounted_lds(
     namespace: str,
     mdbs_resource_name: str,
@@ -584,7 +594,7 @@ def wait_for_envoy_mounted_lds(
                 )
             except Exception as e:
                 return False, f"{pod.metadata.name}: exec failed: {e}"
-            ok, reason = check(content)
+            ok, reason = check(_exec_output_as_json(content))
             if not ok:
                 return False, f"{pod.metadata.name}: mounted lds.json: {reason}"
         return True, f"all {len(pods)} envoy pods mounted {msg}"
