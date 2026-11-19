@@ -121,12 +121,12 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx256m -Xms128m -XX:+UseG1GC"`,
 		},
 		{
-			name:                 "user re-enables Base64 intrinsics - user flag follows the default so it wins",
+			name:                 "user supplies -XX:+UseBASE64Intrinsics - user flag is appended after the operator default",
 			userProvidedJVMFlags: []string{"-XX:+UseBASE64Intrinsics"},
 			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx2048m -Xms2048m -XX:+UseBASE64Intrinsics"`,
 		},
 		{
-			name:                 "user repeats -XX:-UseBASE64Intrinsics - flag is passed twice",
+			name:                 "user supplies -XX:-UseBASE64Intrinsics - user flag is appended after the operator default",
 			userProvidedJVMFlags: []string{"-XX:-UseBASE64Intrinsics"},
 			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx2048m -Xms2048m -XX:-UseBASE64Intrinsics"`,
 		},

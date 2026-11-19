@@ -274,7 +274,7 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
-// disableBase64IntrinsicsFlag mitigates CVE-2026-114938. It precedes the user flags, so users can override it.
+// disableBase64IntrinsicsFlag mitigates CVE-2026-114938.
 const disableBase64IntrinsicsFlag = "-XX:-UseBASE64Intrinsics"
 
 // jvmFlags builds the --jvm-flags argument from the per-cluster user-provided
