@@ -591,9 +591,11 @@ func TestManagedServerCertificateWriteGenerationReadiness(t *testing.T) {
 	assert.True(t, apiErrors.IsNotFound(err), "the CA bundle must not be published before the newly written generation is ready")
 }
 
-// managedCertificateGraphFixture builds an existing operator-managed certificate graph owned by the
-// Ops Manager's internal AppDB, plus the same-profile MongoDB AppDB target that will adopt it. It is
-// source-only setup: the target certificate reconciliation has not run yet.
+// managedCertificateGraphFixture builds an existing operator-managed certificate graph issued by the
+// Ops Manager on behalf of its internal AppDB (so the Ops Manager owns every object, while names come
+// from the AppDB), plus the same-profile MongoDB AppDB target that will adopt it. It is source-only
+// setup: the target certificate reconciliation has not run yet. Before returning it performs the
+// migration, so the returned Ops Manager already references the target as an external AppDB.
 func managedCertificateGraphFixture(t *testing.T, customer bool) (kubernetesClient.Client, *omv1.MongoDBOpsManager, *mdbv1.MongoDB) {
 	t.Helper()
 	ctx := t.Context()
@@ -625,9 +627,11 @@ func managedCertificateGraphFixture(t *testing.T, customer bool) (kubernetesClie
 		},
 	}
 	c := newManagedCertTestClientWithInterceptor(t, funcs)
-	om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: target.Name, Kind: "MongoDB", Namespace: target.Namespace}
 	require.NoError(t, c.Create(ctx, om))
 	require.NoError(t, c.Create(ctx, target))
+	// Build the graph before the migration: the AppDB is still internal, so the Ops Manager
+	// legitimately creates and owns it. The AppDB's name (OpsManagerName + "-db") is the same as the
+	// referenced CR's name, so the external AppDB adopts these exact objects.
 	_, _, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
 	markManagedCertificatesReady(t, ctx, c, nil)
 	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -660,6 +664,9 @@ func managedCertificateGraphFixture(t *testing.T, customer bool) (kubernetesClie
 	leaf, err := c.GetSecret(ctx, kube.ObjectKey(om.Namespace, "example-db-managed-cert"))
 	require.NoError(t, err)
 	require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "example-db-managed-cert-pem", Namespace: om.Namespace}, Data: map[string][]byte{"H0": append(append([]byte{}, leaf.Data["tls.crt"]...), leaf.Data["tls.key"]...), util.LatestHashSecretKey: []byte("H0")}}))
+	// Forward migration: the AppDB becomes external, and from now on the referenced CR owns the graph.
+	om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: target.Name, Kind: "MongoDB", Namespace: target.Namespace}
+	require.NoError(t, c.Update(ctx, om))
 	return c, om, target
 }
 
@@ -735,10 +742,30 @@ func assertManagedGraphOwnedBy(t *testing.T, owners []metav1.OwnerReference, tar
 	assert.True(t, *owners[0].Controller)
 }
 
+// managedCertificateOwnerUID returns the managed-certificate owner UID label the operator stamps on
+// the Secrets a Certificate issues.
+func managedCertificateOwnerUID(spec certmanagerv1.CertificateSpec) string {
+	if spec.SecretTemplate == nil {
+		return ""
+	}
+	return spec.SecretTemplate.Labels[util.ManagedCertificateOwnerUIDLabel]
+}
+
+// withoutManagedCertificateOwnerUID returns the Certificate spec without the managed-certificate
+// owner UID label, so the specs of the same graph can be compared across an ownership handover.
+func withoutManagedCertificateOwnerUID(spec certmanagerv1.CertificateSpec) certmanagerv1.CertificateSpec {
+	trimmed := *spec.DeepCopy()
+	if trimmed.SecretTemplate != nil {
+		delete(trimmed.SecretTemplate.Labels, util.ManagedCertificateOwnerUIDLabel)
+	}
+	return trimmed
+}
+
 // TestEnsureCertificatesAndCAReownsExistingManagedGraph proves that the ordinary certificate
 // reconciliation alone takes over an existing same-profile operator-managed graph from the Ops
 // Manager's AppDB: it must keep every object identity and every spec/material byte-identical
-// while changing only the owner references.
+// while changing only the ownership markers (the owner references and the managed-certificate
+// owner UID label on the issued Secrets).
 func TestEnsureCertificatesAndCAReownsExistingManagedGraph(t *testing.T) {
 	for _, customer := range []bool{false, true} {
 		t.Run(fmt.Sprintf("customer-issuer=%t", customer), func(t *testing.T) {
@@ -749,7 +776,7 @@ func TestEnsureCertificatesAndCAReownsExistingManagedGraph(t *testing.T) {
 			assert.Empty(t, before.pemOwners, "the derived PEM Secret is created unowned")
 			for name, cert := range before.certificates {
 				require.Len(t, cert.owners, 1, name)
-				assert.Equal(t, managedTestUID, cert.owners[0].UID, "%s must be owned by the source Ops Manager AppDB", name)
+				assert.Equal(t, managedTestUID, cert.owners[0].UID, "%s must be owned by the source Ops Manager (AppDB graph)", name)
 			}
 
 			var customerKeyBefore *corev1.Secret
@@ -773,7 +800,8 @@ func TestEnsureCertificatesAndCAReownsExistingManagedGraph(t *testing.T) {
 				got, ok := after.certificates[name]
 				require.True(t, ok, "Certificate %s disappeared", name)
 				assert.Equal(t, want.uid, got.uid, "Certificate %s must keep its UID", name)
-				assert.Equal(t, want.spec, got.spec, "Certificate %s must keep its spec", name)
+				assert.Equal(t, string(target.UID), managedCertificateOwnerUID(got.spec), "Certificate %s must carry the target's owner UID label", name)
+				assert.Equal(t, withoutManagedCertificateOwnerUID(want.spec), withoutManagedCertificateOwnerUID(got.spec), "Certificate %s must keep its spec", name)
 				assertManagedGraphOwnedBy(t, got.owners, target)
 				assert.Equal(t, before.issuedData[name], after.issuedData[name], "issued TLS material for %s must not change", name)
 			}
@@ -803,6 +831,12 @@ func TestEnsureCertificatesAndCAReownsExistingManagedGraph(t *testing.T) {
 			status, _, _ = EnsureCertificatesAndCA(ctx, c, target, []Options{ReplicaSetConfig(*target)}, managedTestLogger())
 			require.True(t, status.IsOK(), fmt.Sprint(status))
 			assert.Equal(t, after, snapshotManagedGraph(t, ctx, c, om.Namespace, "example-db-managed-cert-pem"), "a repeated ordinary reconciliation must not change the adopted graph")
+
+			// The AppDB is external now, so the Ops Manager's own AppDB certificate reconciliation is a
+			// no-op: it must not take the adopted graph back.
+			status, _, _ = EnsureAppDBCertificatesAndCA(ctx, c, om, []Options{AppDBManagedCertConfig(om)}, managedTestLogger())
+			require.True(t, status.IsOK(), fmt.Sprint(status))
+			assert.Equal(t, after, snapshotManagedGraph(t, ctx, c, om.Namespace, "example-db-managed-cert-pem"), "the Ops Manager must not take back the adopted graph")
 
 			if customer {
 				customerKeyAfter, err := c.GetSecret(ctx, kube.ObjectKey(om.Namespace, "customer-key"))

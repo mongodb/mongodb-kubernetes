@@ -3985,6 +3985,46 @@ func TestOpsManagerReplicateConfigMapPreservesSourceAndUpdatesMembers(t *testing
 	}
 }
 
+// TestOpsManagerReplicateConfigMapLeavesExternalManagedBundleToTheDatabase covers a multi-cluster OM
+// whose external AppDB also publishes its managed CA bundle into the member clusters. The database owns
+// those copies, so the Ops Manager must leave them untouched instead of replacing their labels and
+// making the two controllers fight over the same object.
+func TestOpsManagerReplicateConfigMapLeavesExternalManagedBundleToTheDatabase(t *testing.T) {
+	ctx := t.Context()
+	testOm := DefaultOpsManagerBuilder().SetOpsManagerTopology(mdbv1.ClusterTopologyMultiCluster).Build()
+	source := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-om-db-managed-server-ca-bundle", Namespace: testOm.Namespace, UID: types.UID("source-uid")},
+		Data:       map[string]string{"ca-pem": "current"},
+	}
+	central := newManagedCertificateKubeClient(t, source)
+	databaseLabels := certspkg.ManagedCertificateOwnerLabels(&metav1.ObjectMeta{UID: types.UID("database-uid")})
+	shared := newManagedCertificateKubeClient(t, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: source.Name, Namespace: testOm.Namespace, UID: types.UID("member-copy-uid"), Labels: databaseLabels},
+		Data:       map[string]string{"ca-pem": "stale"},
+	})
+	omOnly := newManagedCertificateKubeClient(t)
+	r := newManagedCertificateTestReconciler(ctx, central)
+	helper := &OpsManagerReconcilerHelper{
+		opsManager: testOm,
+		memberClusters: []multicluster.MemberCluster{
+			{Name: "shared", Client: shared, Healthy: true},
+			{Name: "om-only", Client: omOnly, Healthy: true},
+		},
+	}
+
+	require.NoError(t, r.replicateConfigMapInMemberClusters(ctx, helper, testOm.Namespace, source.Name))
+
+	persisted, err := shared.GetConfigMap(ctx, kube.ObjectKey(testOm.Namespace, source.Name))
+	require.NoError(t, err)
+	assert.Equal(t, databaseLabels, persisted.Labels, "the database owns its copy and the labels that clean it up")
+	assert.Equal(t, map[string]string{"ca-pem": "stale"}, persisted.Data, "the Ops Manager must not write the database-owned copy")
+
+	copied, err := omOnly.GetConfigMap(ctx, kube.ObjectKey(testOm.Namespace, source.Name))
+	require.NoError(t, err)
+	assert.Equal(t, testOm.GetOwnerLabels(), copied.Labels)
+	assert.Equal(t, source.Data, copied.Data, "clusters the database does not publish to still get the bundle")
+}
+
 // TestOpsManagerStatefulSetsRollOnAppDBCABundleChange checks that the Ops Manager and backup daemon
 // StatefulSets the reconciler writes carry the managed AppDB CA bundle hash. Both load the AppDB CA
 // only at startup, so the operator must restart them on the widened bundle before it re-issues the
