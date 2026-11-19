@@ -1,0 +1,122 @@
+suite: Database service accounts and roles follow the watch namespaces
+templates:
+  - database-roles.yaml
+tests:
+  # Every namespace gets the three service accounts the pods run under (appdb, database pods, ops
+  # manager) and the AppDB role that reads secrets and manages pods.
+  - it: single namespace -> in the operator namespace
+    asserts:
+      - hasDocuments:
+          count: 5
+      - isKind:
+          of: ServiceAccount
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: mongodb-kubernetes-appdb
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 0
+      - isKind:
+          of: Role
+        documentIndex: 3
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 3
+      - isKind:
+          of: RoleBinding
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 4
+      - equal:
+          path: roleRef.kind
+          value: Role
+        documentIndex: 4
+      - equal:
+          path: subjects[0].namespace
+          value: NAMESPACE
+        documentIndex: 4
+
+  - it: multiple namespaces -> in each watched namespace
+    set:
+      operator.watchNamespace: "ns1,ns2"
+    asserts:
+      - hasDocuments:
+          count: 10
+      - isKind:
+          of: ServiceAccount
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: ns1
+        documentIndex: 0
+      - isKind:
+          of: Role
+        documentIndex: 3
+      - equal:
+          path: metadata.namespace
+          value: ns1
+        documentIndex: 3
+      - isKind:
+          of: RoleBinding
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: ns1
+        documentIndex: 4
+      - isKind:
+          of: ServiceAccount
+        documentIndex: 5
+      - equal:
+          path: metadata.namespace
+          value: ns2
+        documentIndex: 5
+      - isKind:
+          of: Role
+        documentIndex: 8
+      - equal:
+          path: metadata.namespace
+          value: ns2
+        documentIndex: 8
+      - isKind:
+          of: RoleBinding
+        documentIndex: 9
+      - equal:
+          path: metadata.namespace
+          value: ns2
+        documentIndex: 9
+
+  # All namespaces cannot be enumerated, so the objects go to the operator namespace: deployments in
+  # other namespaces need their own copies.
+  - it: all namespaces -> in the operator namespace
+    set:
+      operator.watchNamespace: "*"
+    asserts:
+      - hasDocuments:
+          count: 5
+      - isKind:
+          of: ServiceAccount
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 0
+      - isKind:
+          of: Role
+        documentIndex: 3
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 3
+      - isKind:
+          of: RoleBinding
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+        documentIndex: 4
