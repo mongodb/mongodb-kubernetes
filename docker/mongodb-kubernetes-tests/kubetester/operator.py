@@ -25,11 +25,11 @@ OPERATOR_CRDS = (
     "opsmanagers.mongodb.com",
 )
 
-# Linux amd64 Agent from mms-automation PR #14286 at c353afac2.
+# Linux amd64 Agent from mms-automation PR #14286 at 825b2eaec. The Agent sends the child execution id with proxy stops.
 STATIC_GA_AGENT_URL = (
     "https://mciuploads.s3.amazonaws.com/mms-automation/mongodb-mms-build-agent/"
-    "builds/patches/6afc8e82ea574a00077e6299/automation-agent/local/"
-    "mongodb-mms-automation-agent-110.0.0.9459-1.rhel8_x86_64.tar.gz"
+    "builds/patches/6afdc2ef3cfa050007801a62/automation-agent/local/"
+    "mongodb-mms-automation-agent-110.0.0.9459-9297.rhel8_x86_64.tar.gz"
 )
 
 
