@@ -538,3 +538,47 @@ func TestReissueManagedCertificatesOnRotatedCA_Backup(t *testing.T) {
 		utAssertReissued(t, c, om.Namespace, om.QueryableBackupCertificateSecretName())
 	})
 }
+
+// newRotationTestMultiClusterAppDB returns a multi-cluster managed AppDB whose central client
+// supports Certificate status updates and whose member clusters are registered.
+func newRotationTestMultiClusterAppDB(t *testing.T) (*omv1.MongoDBOpsManager, kubernetesClient.Client, *OpsManagerReconciler) {
+	t.Helper()
+	om := newAppDBManagedCertificateTestOM()
+	om.Spec.AppDB.Topology = omv1.ClusterTopologyMultiCluster
+	om.Spec.AppDB.Members = 0
+	om.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{
+		{ClusterName: "east", Members: 1},
+		{ClusterName: "west", Members: 1},
+	}
+	c := newRotationTestClient(t, om,
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: om.Spec.AppDB.ClusterMappingConfigMapName(), Namespace: om.Namespace},
+			Data:       map[string]string{"east": "0", "west": "1"},
+		},
+		&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: om.Spec.AppDB.LastAppliedMemberSpecConfigMapName(), Namespace: om.Namespace},
+			Data:       map[string]string{"east": "1", "west": "1"},
+		})
+	r := newManagedCertificateTestReconciler(t.Context(), c)
+	r.memberClustersMap = map[string]client.Client{
+		"east": newRotationTestClient(t),
+		"west": newRotationTestClient(t),
+	}
+	r.certManagerReadiness = certspkg.CertManagerReadiness{Ready: true}
+	return om, c, r
+}
+
+func TestReissueManagedCertificatesOnRotatedCA_AppDBMultiCluster(t *testing.T) {
+	oldRoot := newRotationTestCA(t, "old-appdb-root")
+	newRoot := newRotationTestCA(t, "new-appdb-root")
+	propagated := time.Now().Add(-10 * time.Minute)
+
+	om, c, r := newRotationTestMultiClusterAppDB(t)
+	for _, obj := range utAppDBStaleLeafObjects(t, om, oldRoot, newRoot, propagated) {
+		require.NoError(t, c.Create(t.Context(), obj))
+	}
+
+	wait := r.reissueManagedCertificatesOnRotatedCA(t.Context(), om, zap.S())
+	assert.Zero(t, wait)
+	utAssertReissued(t, c, om.Namespace, certspkg.AppDBManagedCertConfig(om).CertSecretName)
+}

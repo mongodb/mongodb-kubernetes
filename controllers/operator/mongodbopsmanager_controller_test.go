@@ -2274,7 +2274,7 @@ func TestOpsManagerQueryableReplicationPreservesSourceAndRolloutHash(t *testing.
 				if tt.managed && previousHash != "" {
 					assert.NotEqual(t, previousHash, before.Spec.Template.Annotations["queryableBackupPemHash"], "renewal must change the rollout hash")
 				}
-				for attempt := 0; attempt < 2; attempt++ {
+				for attempt := range 2 {
 					require.NoError(t, r.replicateQueryableBackupTLSSecretInMemberClusters(ctx, helper))
 					afterSource, err := central.GetSecret(ctx, key)
 					require.NoError(t, err)
