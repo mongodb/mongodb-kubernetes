@@ -319,6 +319,10 @@ patch_aliases:
     description: "Run all static container variants"
     variant_tags: [ "static" ]
     task: ".*"
+  - alias: "static_light"
+    description: "Run the light static set selected by evergreen:e2e-static-light"
+    variant_tags: [ "static_light" ]
+    task: ".*"
   - alias: "non_static"
     description: "Run all non-static container variants"
     variant_tags: [ "non_static" ]
@@ -358,6 +362,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:e2e-static"
+  - variant_tags: [ "static_light" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:e2e-static-light"
   - variant_tags: [ "non_static" ]
     task: ".*"
     required_labels:
@@ -1681,7 +1689,7 @@ buildvariants:
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     display_name: e2e_static_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     <<: [ *production_code_paths, *base_no_om_image_dependency ]
     run_on:
       - ubuntu2404-medium
@@ -1701,7 +1709,7 @@ buildvariants:
 
   - name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
     display_name: e2e_static_custom_domain_mdb_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -1888,7 +1896,7 @@ buildvariants:
 
   - name: e2e_static_om90_kind_ubi
     display_name: e2e_static_om90_kind_ubi
-    tags: [ "staging", "e2e_test_suite", "om9", "static" ]
+    tags: [ "staging", "e2e_test_suite", "om9", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om9_dependency
@@ -2170,7 +2178,7 @@ buildvariants:
 
   - name: e2e_static_multi_cluster_kind
     display_name: e2e_static_multi_cluster_kind
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_om8_dependency
@@ -2296,7 +2304,7 @@ buildvariants:
 
   - name: e2e_static_operator_kind_ubi_cloudqa
     display_name: e2e_static_operator_kind_ubi_cloudqa
-    tags: [ "staging", "cloudqa", "e2e_test_suite", "static" ]
+    tags: [ "staging", "cloudqa", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     <<: *base_no_om_image_dependency
@@ -2336,7 +2344,7 @@ buildvariants:
 
   - name: e2e_static_kind_olm_ubi
     display_name: e2e_static_kind_olm_ubi
-    tags: [ "staging", "e2e_test_suite", "static" ]
+    tags: [ "staging", "e2e_test_suite", "static", "static_light" ]
     run_on:
       - ubuntu2404-large
     depends_on:
@@ -2397,7 +2405,7 @@ buildvariants:
 
   - name: init_test_run
     display_name: init_test_run
-    tags: [ "staging", "static", "non_static" ]
+    tags: [ "staging", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2474,7 +2482,7 @@ buildvariants:
         variant: init_test_run
       - name: build_init_om_images_ubi
         variant: init_test_run
-    tags: [ "staging", "static", "non_static" ]
+    tags: [ "staging", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:
@@ -2537,7 +2545,7 @@ buildvariants:
 
   - name: build_om90_images
     display_name: build_om90_images
-    tags: [ "staging", "om9", "static", "non_static" ]
+    tags: [ "staging", "om9", "static", "non_static", "static_light" ]
     run_on:
       - ubuntu2404-small
     tasks:
