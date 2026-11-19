@@ -79,28 +79,8 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_replica_set_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_sharded_cluster_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_sharded_cluster_external_access
     tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_users_schema_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_crd_validation
-    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -199,23 +179,8 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_mongodb_validation_webhook
-    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_mongodb_roles_validation_webhook
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_mongodb_custom_roles
     tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_replica_set_recovery
-    tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
       - func: "e2e_test"
 
@@ -329,11 +294,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_replica_set_statefulset_status
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_replica_set_update_delete_parallel
     tags: [ "patch-run" ]
     commands:
@@ -404,11 +364,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_sharded_cluster_statefulset_status
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_sharded_cluster_agent_flags
     tags: [ "patch-run" ]
     commands:
@@ -431,11 +386,6 @@ tasks:
 
   - name: e2e_replica_set_custom_podspec
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
-    commands:
-      - func: "e2e_test"
-
-  - name: e2e_replica_set_custom_sa
-    tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
 
@@ -539,6 +489,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_tls_managedcert_legacy_migration_new_ca
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_sharded_cluster_tls_managedcert_legacy_migration
     tags: [ "patch-run" ]
     commands:
@@ -570,6 +525,16 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_tls_managedcert_withhold_client_cert
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_managedcert_cleanup_on_delete
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_tls_managedcert_cleanup_on_delete
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -871,11 +836,6 @@ tasks:
     commands:
       - func: "e2e_test"
 
-  - name: e2e_om_appdb_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: "e2e_test"
-
   - name: e2e_om_external_appdb_forward
     tags: [ "patch-run" ]
     commands:
@@ -963,6 +923,16 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_om_ops_manager_queryable_backup_managedcert
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_queryable_backup_managedcert_issuer
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_om_feature_controls
     tags: [ "patch-run" ]
     commands:
@@ -995,10 +965,25 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_om_validation_webhook
+  - name: e2e_om_deployment_mappings_replica_set
     tags: [ "patch-run" ]
     commands:
-      - func: "e2e_test"
+      - func: e2e_test
+
+  - name: e2e_om_deployment_mappings_sharded_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_deployment_mappings_switch_project_replica_set
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_deployment_mappings_switch_project_sharded_cluster
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
 
   - name: e2e_om_ops_manager_https_enabled
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
@@ -1016,6 +1001,31 @@ tasks:
       - func: e2e_test
 
   - name: e2e_om_ops_manager_https_enabled_internet_mode
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_managedcert
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_managedcert_om_issuer
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_managedcert_appdb_issuer
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_managedcert_both_issuers
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_om_ops_manager_managedcert_rotation
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1155,16 +1165,6 @@ tasks:
     commands:
       - func: e2e_test
 
-  - name: e2e_multi_cluster_appdb_validation
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
-  - name: e2e_multi_cluster_om_validation
-    tags: [ "patch-run", "e2e_medium" ]
-    commands:
-      - func: e2e_test
-
   - name: e2e_multi_cluster_appdb
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
@@ -1196,6 +1196,16 @@ tasks:
       - func: e2e_test
 
   - name: e2e_managed_certificate_multi_cluster_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_managed_certificate_multi_cluster_rs_cleanup_on_delete
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_managed_certificate_multi_cluster_rs_horizons
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test
@@ -1276,11 +1286,6 @@ tasks:
       - func: e2e_test
 
   - name: e2e_multi_cluster_replica_set_ignore_unknown_users
-    tags: [ "patch-run" ]
-    commands:
-      - func: e2e_test
-
-  - name: e2e_multi_cluster_validation
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

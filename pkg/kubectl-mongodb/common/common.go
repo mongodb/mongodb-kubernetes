@@ -578,6 +578,13 @@ func getManagedCertificateRules(managedCertificates bool) []rbacv1.PolicyRule {
 			Resources: []string{"certificates", "issuers"},
 			APIGroups: []string{"cert-manager.io"},
 		},
+		{
+			// The operator renews a leaf by setting the Issuing condition after its
+			// self-signed CA rotates.
+			Verbs:     []string{"update", "patch"},
+			Resources: []string{"certificates/status"},
+			APIGroups: []string{"cert-manager.io"},
+		},
 	}
 }
 

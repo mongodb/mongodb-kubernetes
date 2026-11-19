@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -45,17 +46,22 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/ommetrics"
 	"github.com/mongodb/mongodb-kubernetes/pkg/passwordhash"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/stringutil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
@@ -95,12 +101,36 @@ type ReconcileCommonController struct {
 
 	resourceWatcher *watch.ResourceWatcher
 
-	customAgentURL string
-
+	customAgentURL      string
+	omMetrics           OMMetricsMultiplexer
 	agentErrorsThrottle func(key any) bool
 }
 
-func NewReconcileCommonController(ctx context.Context, client client.Client) *ReconcileCommonController {
+// OMMetricsMultiplexer must be passed as a true nil, not a typed-nil pointer.
+type OMMetricsMultiplexer interface {
+	EnsureProject(ommetrics.Project, string, ommetrics.TLSOptions, ommetrics.MongoDBDeployment) error
+	ReleaseProject(ommetrics.Project) error
+}
+
+// ReleaseOtelExporter drops the Ops Manager project recorded in the resource's status.link from the
+// metrics export destinations. Reads only the status, so it works when OM is unreachable. Fire-and-forget.
+// Controllers should call this inside their OnDelete handler to proactively shut down the metrics exporter when a deployment is removed.
+// Without this the exporter will continue sending metrics until the ommetrics reaper collects on its own.
+// TODO(KUBE-683): releases the whole project, which is correct only while MCK supports one deployment per project.
+func (r *ReconcileCommonController) ReleaseOtelExporter(statusLink string, log *zap.SugaredLogger) {
+	if r.omMetrics == nil {
+		return
+	}
+	p, ok := ommetrics.ProjectFromLink(statusLink)
+	if !ok {
+		return
+	}
+	if err := r.omMetrics.ReleaseProject(p); err != nil {
+		log.Debugf("ommetrics: failed to release metrics destination for group %s: %v", p.GroupID, err)
+	}
+}
+
+func NewReconcileCommonController(ctx context.Context, client client.Client, omMetrics OMMetricsMultiplexer) *ReconcileCommonController {
 	newClient := kubernetesClient.NewClient(client)
 	var vaultClient *vault.VaultClient
 
@@ -126,7 +156,7 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 	}
 	customAgentURL := env.ReadOrDefault(util.EnvVarCustomAgentURL, "") // nolint:forbidigo
 
-	return &ReconcileCommonController{
+	rc := &ReconcileCommonController{
 		client: newClient,
 		SecretClient: secrets.SecretClient{
 			VaultClient: vaultClient,
@@ -134,7 +164,53 @@ func NewReconcileCommonController(ctx context.Context, client client.Client) *Re
 		},
 		resourceWatcher:     watch.NewResourceWatcher(),
 		customAgentURL:      customAgentURL,
+		omMetrics:           omMetrics,
 		agentErrorsThrottle: util.NewThrottle(agentErrorsLogInterval),
+	}
+	return rc
+}
+
+// EnsureOtelExporterForDeployment makes conn's Ops Manager project a metrics export destination for the specified deployment.
+// If previousStatusLink names a different project, the resource has moved, so that project's exporter is released first.
+//
+// Call it only after the deployment has been moved into conn's project. OnDelete releases the project in
+// status.link, so a resource deleted before status.link is updated leaves conn's project registered until
+// PruneStale removes it.
+//
+// Fire-and-forget: telemetry must never fail a reconcile.
+func (r *ReconcileCommonController) EnsureOtelExporterForDeployment(conn om.Connection, agentAPIKey string, previousStatusLink string, deployment ommetrics.MongoDBDeployment, log *zap.SugaredLogger) {
+	if r.omMetrics == nil {
+		return
+	}
+	omCtx := conn.Context()
+
+	if previous, ok := ommetrics.ProjectFromLink(previousStatusLink); ok && !previous.SameDestination(ommetrics.Project{BaseURL: omCtx.BaseURL, GroupID: omCtx.GroupID}) {
+		r.ReleaseOtelExporter(previousStatusLink, log)
+	}
+
+	if omCtx.Version.IsUnknown() {
+		log.Debugf("ommetrics: Ops Manager version unknown yet; skipping metrics registration for group %s", omCtx.GroupID)
+		return
+	} else if omCtx.Version.IsCloudManager() {
+		// Cloud Manager has no OTLP ingestion endpoint.
+		return
+	}
+	sv, err := omCtx.Version.Semver()
+	if err != nil {
+		log.Debugf("ommetrics: failed to parse Ops Manager version %q for group %s: %v", omCtx.Version, omCtx.GroupID, err)
+		return
+	}
+	if !sv.GTE(versionutil.MinOTLPMetricsOpsManagerSemver) {
+		log.Debugf("ommetrics: Ops Manager %s does not support the metrics endpoint (minimum: %s) for group %s",
+			omCtx.Version, versionutil.MinOTLPMetricsOpsManagerSemver, omCtx.GroupID)
+		return
+	}
+
+	if err := r.omMetrics.EnsureProject(ommetrics.Project{BaseURL: omCtx.BaseURL, GroupID: omCtx.GroupID}, agentAPIKey, ommetrics.TLSOptions{
+		CACertificate:              omCtx.CACertificate,
+		AllowInvalidSSLCertificate: omCtx.AllowInvalidSSLCertificate,
+	}, deployment); err != nil {
+		log.Debugf("ommetrics: failed to register metrics destination for group %s: %v", omCtx.GroupID, err)
 	}
 }
 
@@ -417,6 +493,22 @@ func (r *ReconcileCommonController) SetupCommonWatchers(watcherResource WatcherR
 	}
 }
 
+// watchUserClientCertificateSecrets watches the client certificate secrets that the operator issues
+// for the MongoDBUsers of res. The MongoDBUser owns them, so without the watch a user certificate
+// moving to the new CA would not reconcile res to retry a refused prune of the previous CA.
+// It must run after SetupCommonWatchers, which removes the watches of res.
+func (r *ReconcileCommonController) watchUserClientCertificateSecrets(ctx context.Context, res certs.CertificateOwner, log *zap.SugaredLogger) {
+	secretNames, err := certs.UserClientCertificateSecretNames(ctx, r.client, res)
+	if err != nil {
+		log.Warnf("Failed to watch the client certificate secrets of the MongoDBUsers: %s", err)
+		return
+	}
+	objectKey := kube.ObjectKey(res.GetNamespace(), res.GetName())
+	for _, secretName := range secretNames {
+		r.resourceWatcher.AddWatchedResourceIfNotAdded(secretName, res.GetNamespace(), watch.Secret, objectKey)
+	}
+}
+
 // GetResource populates the provided runtime.Object with some additional error handling
 func (r *ReconcileCommonController) GetResource(ctx context.Context, request reconcile.Request, resource v1.CustomResourceReadWriter, log *zap.SugaredLogger) (reconcile.Result, error) {
 	return commoncontroller.GetResource(ctx, r.client, request, resource, log)
@@ -433,6 +525,19 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 	resource.SetWarnings([]status.Warning{})
 
 	return reconcile.Result{}, nil
+}
+
+// removeFulfilledPruneAnnotation removes the prune-previous-ca annotation once the operator has
+// applied it. The CA bundles are published before this runs, so a reconcile interrupted between the
+// two steps just finds nothing left to prune and removes the annotation next time.
+func (r *ReconcileCommonController) removeFulfilledPruneAnnotation(ctx context.Context, resource client.Object, pruneApplied bool) workflow.Status {
+	if !pruneApplied {
+		return workflow.OK()
+	}
+	if err := annotations.RemoveAnnotation(ctx, resource, util.PrunePreviousCAAnnotation, r.client); err != nil {
+		return workflow.Failed(err)
+	}
+	return workflow.OK()
 }
 
 // checkIfHasExcessProcesses will check if the project has excess processes.
@@ -1140,7 +1245,11 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 			return workflow.Failed(xerrors.Errorf("Authentication mode for project is x509 but this MDB resource is not TLS enabled"))
 		}
 		agentSecretName := security.AgentClientCertificateSecretName(configurator.GetName())
-		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), log)
+		// Only a deployment with operator-managed certificates gets an owner and labels on its secrets:
+		// they decide what the cleanup on deletion removes, and a deployment that brings its own
+		// certificates keeps the behaviour it had.
+		ownerReferences, ownerLabels := managedCertOwnership(security, configurator.GetOwnerReferences(), configurator)
+		err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, configurator.GetSecretReadClient(), configurator.GetSecretWriteClient(), kube.ObjectKey(configurator.GetNamespace(), agentSecretName), ownerReferences, ownerLabels, log)
 		if err != nil {
 			return workflow.Failed(err)
 		}
@@ -1160,6 +1269,17 @@ func (r *ReconcileCommonController) ensureX509SecretAndCheckTLSType(ctx context.
 	}
 
 	return workflow.OK()
+}
+
+// managedCertOwnership returns the owner and the labels to put on the secrets the operator writes
+// itself for a resource (the -pem secrets), or nothing when the resource does not use
+// operator-managed certificates. The secrets cert-manager writes get their labels from the
+// Certificate's secretTemplate and their owner from ensureIssuedSecretsAreOwned.
+func managedCertOwnership(sec *mdbv1.Security, ownerReferences []metav1.OwnerReference, owner interface{ GetUID() types.UID }) ([]metav1.OwnerReference, map[string]string) {
+	if sec == nil || !sec.IsManagedCertificateEnabled() {
+		return nil, nil
+	}
+	return ownerReferences, certs.ManagedCertificateOwnerLabels(owner)
 }
 
 // setupInternalClusterAuthIfItHasChanged enables internal cluster auth if possible in case the path has changed and did exist before.
@@ -1218,6 +1338,63 @@ func (r *ReconcileCommonController) deleteClusterResources(ctx context.Context, 
 	r.resourceWatcher.RemoveDependentWatchedResources(resourceOwner.ObjectKey())
 
 	return errs
+}
+
+// deleteManagedCertificateObjects removes what operator-managed certificates created for a resource
+// from the cluster the operator runs in. The delete handlers call it last, after the Ops Manager
+// cleanup: it removes the secrets the pods mount, and the pods have to stay up while Ops Manager is
+// cleaned up. It catches a secret cert-manager wrote after its Certificate was deleted, which nothing
+// else removes.
+func (r *ReconcileCommonController) deleteManagedCertificateObjects(ctx context.Context, res certs.CertificateOwner, log *zap.SugaredLogger) error {
+	return deleteManagedCertificateObjectsInCluster(ctx, r.client, multicluster.LegacyCentralClusterName, res, log)
+}
+
+// deleteManagedCertificateObjectsInCluster removes the secrets and ConfigMaps operator-managed
+// certificates created for a resource in one cluster. It finds them by the labels the feature puts on
+// everything it creates, which point at the resource by its UID: the cleanup can still be running when
+// a new resource with the same name is created, and what was created for the new one must stay.
+func deleteManagedCertificateObjectsInCluster(ctx context.Context, c kubernetesClient.Client, clusterName string, res certs.CertificateOwner, log *zap.SugaredLogger) error {
+	if sec := res.GetSecurity(); sec == nil || !sec.IsManagedCertificateEnabled() {
+		return nil
+	}
+	if res.GetUID() == "" {
+		// Nothing can be found by the UID of a resource that has none.
+		return nil
+	}
+
+	// List and delete one by one rather than delete them all in one call: the operator's role in the
+	// cluster it runs in does not allow deleting a whole collection.
+	listOptions := []client.ListOption{
+		client.InNamespace(res.GetNamespace()),
+		client.MatchingLabels(certs.ManagedCertificateOwnerLabels(res)),
+	}
+	secrets := corev1.SecretList{}
+	configMaps := corev1.ConfigMapList{}
+	var objects []client.Object
+	if err := c.List(ctx, &secrets, listOptions...); err != nil {
+		return xerrors.Errorf("failed to list the managed certificate secrets of %s in cluster %s: %w", res.GetName(), clusterName, err)
+	}
+	for i := range secrets.Items {
+		objects = append(objects, &secrets.Items[i])
+	}
+	if err := c.List(ctx, &configMaps, listOptions...); err != nil {
+		return xerrors.Errorf("failed to list the managed certificate ConfigMaps of %s in cluster %s: %w", res.GetName(), clusterName, err)
+	}
+	for i := range configMaps.Items {
+		objects = append(objects, &configMaps.Items[i])
+	}
+
+	var errs error
+	for _, obj := range objects {
+		if err := c.Delete(ctx, obj); err != nil && !apiErrors.IsNotFound(err) {
+			errs = errors.Join(errs, xerrors.Errorf("failed to delete %s in cluster %s: %w", obj.GetName(), clusterName, err))
+		}
+	}
+	if errs != nil {
+		return errs
+	}
+	log.Infof("Removed the managed certificate objects of %s in cluster %s", res.GetName(), clusterName)
+	return nil
 }
 
 // deleteOwnedClusterResources removes the label-owned resources of the given resource owner in a given cluster.
@@ -1539,6 +1716,29 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
+// databaseCAFilePaths returns the CA file paths for the automation config: the server CA
+// (net.tls.CAFile) and the client CA (net.tls.clusterCAFile, empty unless the managed
+// deployment has clientAuth certs).
+func databaseCAFilePaths(ctx context.Context, getter configmap.Getter, security *mdbv1.Security, resourceName, namespace string) (string, string, error) {
+	if !security.IsManagedCertificateEnabled() {
+		return security.GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey)), "", nil
+	}
+
+	hasClientCerts := security.RequiresX509ClientCerts()
+	serverCAHash, clientCAHash, err := certs.ReadManagedCABundleHashes(ctx, getter, resourceName, namespace, hasClientCerts)
+	if err != nil {
+		return "", "", xerrors.Errorf("failed to read the operator-managed CA bundle hashes: %w", err)
+	}
+
+	caFilePath := path.Join(util.TLSCaMountPath, serverCAHash)
+	clusterCAFilePath := ""
+	if hasClientCerts {
+		clusterCAFilePath = path.Join(util.TLSClusterCaMountPath, clientCAHash)
+	}
+
+	return caFilePath, clusterCAFilePath, nil
+}
+
 func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om.Deployment) map[string]int {
 	processIds := map[string]int{}
 
@@ -1554,7 +1754,7 @@ func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om
 	return processIds
 }
 
-func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]any, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
+func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCommonSpec, lastMongodConfig map[string]any, resourceName string, rs om.ReplicaSetWithProcesses, externalProcessNames []string, caFilePath, clusterCAFilePath string, internalClusterPath string, pc *PrometheusConfiguration, log *zap.SugaredLogger) error {
 	// it is not possible to disable internal cluster authentication once enabled
 	if d.ExistingProcessesHaveInternalClusterAuthentication(rs.Processes) && spec.Security.GetInternalClusterAuthenticationMode() == "" {
 		return xerrors.Errorf("cannot disable x509 internal cluster authentication")
@@ -1567,7 +1767,7 @@ func ReconcileReplicaSetAC(ctx context.Context, d om.Deployment, spec mdbv1.DbCo
 
 	d.MergeReplicaSet(rs, spec.GetAdditionalMongodConfig().ToMap(), lastMongodConfig, externalProcessNames, log)
 	d.ConfigureMonitoringAndBackup(log, spec.GetSecurity().IsTLSEnabled(), caFilePath)
-	d.ConfigureTLS(spec.GetSecurity(), caFilePath)
+	d.ConfigureTLS(spec.GetSecurity(), caFilePath, clusterCAFilePath)
 	d.ConfigureInternalClusterAuthentication(rs.GetProcessNames(), spec.GetSecurity().GetInternalClusterAuthenticationMode(), internalClusterPath)
 
 	// if we don't set up a prometheus connection, then we don't want to set up prometheus for instance because we do not support it yet.
@@ -1606,7 +1806,8 @@ func (r *ReconcileCommonController) ensureAgentSubjectDN(
 		// The connectivity Job mounts the operator-generated agent PEM secret. The full reconcile
 		// creates it in ensureX509SecretAndCheckTLSType, which the dry-run path skips, so create
 		// it here. Without it the Job pod stays Pending and the connectivity check never completes.
-		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), log); err != nil {
+		ownerReferences, ownerLabels := managedCertOwnership(sec, certs.OwnerReferenceFor(sec, mdb, !mdb.Spec.IsMultiCluster()), mdb)
+		if err := certs.VerifyAndEnsureClientCertificatesForAgentsAndTLSType(ctx, r.SecretClient, r.SecretClient, kube.ObjectKey(mdb.Namespace, agentCertSecretName), ownerReferences, ownerLabels, log); err != nil {
 			return "", workflow.Failed(xerrors.Errorf("connectivity dry-run: ensure agent certificate: %w", err)).
 				WithAdditionalOptions(status.NewMigrationStatusOptionWithCondition(status.MigrationCondition(
 					status.MigrationPhaseConnectivityCheckFailed, "AgentCertSecretFailed", err.Error(),

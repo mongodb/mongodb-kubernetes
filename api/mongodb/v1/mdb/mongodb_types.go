@@ -83,6 +83,8 @@ const (
 // +kubebuilder:printcolumn:name="Version",type="string",JSONPath=".status.version",description="Version of MongoDB server."
 // +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of MongoDB deployment. One of 'ReplicaSet', 'ShardedCluster' and 'Standalone'."
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp",description="The time since the MongoDB resource was created."
+// +kubebuilder:printcolumn:name="ServerCertRenewal",type="string",JSONPath=".status.certificateRenewals.server.renewalTime",priority=1,description="Next automatic renewal of the operator-managed server certificates."
+// +kubebuilder:printcolumn:name="ClientCertRenewal",type="string",JSONPath=".status.certificateRenewals.client.renewalTime",priority=1,description="Next automatic renewal of the operator-managed client certificates."
 type MongoDB struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -259,6 +261,30 @@ func (m *MongoDB) GetReplicaSetName() string {
 	return m.GetName()
 }
 
+func (m *MongoDB) TelemetryIdentifier() string {
+	return string(m.UID)
+}
+
+// OpsManagerDeploymentName is the name Ops Manager resolves this deployment by; standalones match on hostname:
+// https://github.com/10gen/ops-manager/blob/main/server/src/main/com/xgen/cloud/monitoring/ingestion/_public/svc/MetricsIngestionSvc.java#L333-L355
+func (m *MongoDB) OpsManagerDeploymentName() string {
+	switch m.GetResourceType() {
+	case ReplicaSet:
+		return m.GetReplicaSetName()
+	case ShardedCluster:
+		return m.GetShardedClusterName()
+	case Standalone:
+		return m.StandaloneHostname()
+	default:
+		return ""
+	}
+}
+
+// StandaloneHostname is the hostname of the standalone's single pod, as registered in the automation config.
+func (m *MongoDB) StandaloneHostname() string {
+	return dns.GetPodFQDN(dns.GetPodName(m.Name, 0), m.ServiceName(), m.Namespace, m.Spec.GetClusterDomain(), nil)
+}
+
 func (m *MongoDB) IsRoleAppDB() bool {
 	return m.Spec.Role == RoleAppDB
 }
@@ -413,6 +439,10 @@ type MongoDbStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// CertificateRenewals reports the next automatic renewal of the operator-managed leaf certificates,
+	// per category. Set only with spec.security.managedCertificate.
+	// +optional
+	CertificateRenewals *status.CertificateRenewalStatus `json:"certificateRenewals,omitempty"`
 	// MigrationObservedExternalMembersCount is how many spec.externalMembers were observed on the last
 	// reconcile while migration is active. The next reconcile compares this to the current external count
 	// to detect Pruning. Unset when no externalMembers remain (omitted from serialized status).
@@ -922,6 +952,12 @@ type SharedConnectionSpec struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size() > 0 && self.roleRefs.size() > 0)",message="At most one of roles or roleRefs can be non-empty"
 // +kubebuilder:validation:XValidation:rule="!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size() > 0 && has(self.managedCertificate))",message="security.certsSecretPrefix and security.managedCertificate are mutually exclusive"
 // +kubebuilder:validation:XValidation:rule="!(has(self.tls) && has(self.tls.ca) && self.tls.ca.size() > 0 && has(self.managedCertificate))",message="security.tls.ca and security.managedCertificate are mutually exclusive: with operator-managed certificates the operator supplies the CA bundle."
+// security.managedCertificate.subjects is immutable once the managedCertificate block is in place:
+// mongod recognises the members of a deployment by the subject of their certificates, and the
+// operator replaces the certificates one pod at a time, so a change leaves members carrying the old
+// subject and members carrying the new one in the same deployment, and they stop recognising each
+// other.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.managedCertificate) || !has(self.managedCertificate) || (has(self.managedCertificate.subjects) == has(oldSelf.managedCertificate.subjects) && (!has(self.managedCertificate.subjects) || self.managedCertificate.subjects == oldSelf.managedCertificate.subjects))",message="security.managedCertificate.subjects field is immutable it cannot change once the managedCertificate block is in place."
 type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`
@@ -969,6 +1005,26 @@ func (s *Security) IsManagedCertificateEnabled() bool {
 // managedCertificate is the same as turning on TLS.
 func IsMigratingToManagedCertificate(lastAchieved, current *Security) bool {
 	return lastAchieved.IsTLSEnabled() && !lastAchieved.IsManagedCertificateEnabled() && current.IsManagedCertificateEnabled()
+}
+
+// ManagedCertificateCARefs returns every CA input of the operator-managed certificates, the `ca` and the
+// additionalTrustedCAs of both the server and the client category. Changes to these ConfigMaps/Secrets
+// rebuild the CA trust bundles, so the operator watches them.
+func (s *Security) ManagedCertificateCARefs() []CARef {
+	if !s.IsManagedCertificateEnabled() {
+		return nil
+	}
+	var refs []CARef
+	for _, cfg := range []*CertificateConfig{s.ManagedCertificate.Server, s.ManagedCertificate.Client} {
+		if cfg == nil {
+			continue
+		}
+		if cfg.CA != nil {
+			refs = append(refs, *cfg.CA)
+		}
+		refs = append(refs, cfg.AdditionalTrustedCAs...)
+	}
+	return refs
 }
 
 // MemberCertificateSecretName returns the name of the secret containing the member TLS certs.
@@ -1982,6 +2038,13 @@ func (m *MongoDB) UpdateStatus(phase status.Phase, statusOptions ...status.Optio
 func (m *MongoDB) SetStatusCondition(condition metav1.Condition) {
 	condition.ObservedGeneration = m.GetGeneration()
 	meta.SetStatusCondition(&m.Status.Conditions, condition)
+}
+
+// SetCertificateRenewals records the next automatic renewal of the operator-managed leaf
+// certificates on the resource status. This only changes the in-memory object; the controllers
+// persist it along with the rest of the status.
+func (m *MongoDB) SetCertificateRenewals(renewals *status.CertificateRenewalStatus) {
+	m.Status.CertificateRenewals = renewals
 }
 
 func (m *MongoDB) SetWarnings(warnings []status.Warning, _ ...status.Option) {

@@ -343,6 +343,19 @@ const (
 	MigrationDryRunAnnotation    = "mongodb.com/migration-dry-run"
 	MigrateToolVersionAnnotation = "mongodb.com/migrate-tool-version"
 
+	// PrunePreviousCAAnnotation asks the operator to drop the CAs that it retains in the managed CA
+	// trust bundles from previously published bundles after a CA rotation. Accepted values are "true"
+	// (both categories), "server" or "client" (only that category); any other value is ignored.
+	// On a MongoDBOpsManager the accepted values are "true" or a comma-separated list of
+	// "om", "appdb", "backup".
+	PrunePreviousCAAnnotation = "mongodb.com/prune-previous-ca"
+
+	// CABundlePublishedAtAnnotation records, as RFC3339 in UTC, when the latest contents of an
+	// operator-managed CA trust bundle were published to its ConfigMap. Consumers that read the
+	// bundle from a fixed file path in a mounted ConfigMap wait until the kubelet has had time to
+	// propagate the update before they act on the new bundle.
+	CABundlePublishedAtAnnotation = "mongodb.com/ca-bundle-published-at"
+
 	// DisableReconciliationAnnotation when set to "true" on a CR, short-circuits
 	// the reconciler: it returns Result{} + nil without mutating any owned objects.
 	DisableReconciliationAnnotation = "mongodb.com/disable-reconciliation"
@@ -398,6 +411,10 @@ const (
 	MongoDBResourceOwnerLabel             = "mongodb.com/v1.mongodbResourceOwner"
 	MongoDBOpsManagerResourceOwnerLabel   = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
 	MongoDBMultiClusterResourceOwnerLabel = "mongodbmulticluster"
+
+	// ManagedCertificateOwnerUIDLabel is the label operator-managed certificates put on the objects
+	// they create, holding the UID of the resource they were created for.
+	ManagedCertificateOwnerUIDLabel = "mongodb.com/v1.managedCertificateOwnerUID"
 )
 
 var mongoDBOwnerLabels = []string{

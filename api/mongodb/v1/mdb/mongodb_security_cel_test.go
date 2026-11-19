@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -157,4 +158,107 @@ func TestMongoDBSecurityCELValidation(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.errorContains)
 		})
 	}
+}
+
+// TestManagedCertificateSubjectsAreImmutable covers the transition rule on
+// security.managedCertificate.subjects. Test makes sure that the field is immutable.
+//
+// Setting the subjects when the managedCertificate block is added stays allowed: that is how a migration
+// from user-managed TLS picks up the subjects the deployment already uses.
+func TestManagedCertificateSubjectsAreImmutable(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	// The subjects the deployment uses today, read off its certificates before the migration.
+	subjects := func(organization string) *mdb.CertSubjects {
+		return &mdb.CertSubjects{
+			Membership: &mdb.X509Subject{Organizations: []string{organization}},
+			Agent:      &mdb.X509Subject{Organizations: []string{organization}, CommonName: "agent"},
+		}
+	}
+	managedCertificate := func(subjects *mdb.CertSubjects) *mdb.ManagedCertificate {
+		return &mdb.ManagedCertificate{
+			Server:   &mdb.CertificateConfig{IssuerRef: &mdb.IssuerRef{Name: "my-issuer", Kind: "Issuer"}},
+			Subjects: subjects,
+		}
+	}
+
+	// The deployment starts on the legacy path: TLS with the certificates the user provides.
+	resource := &mdb.MongoDB{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "test-subjects-immutable-", Namespace: "default"},
+		Spec: mdb.MongoDbSpec{
+			DbCommonSpec: mdb.DbCommonSpec{
+				Version:      "7.0.0",
+				ResourceType: mdb.ReplicaSet,
+				ConnectionSpec: mdb.ConnectionSpec{
+					Credentials: "my-credentials",
+				},
+				Security: &mdb.Security{TLSConfig: &mdb.TLSConfig{Enabled: true, CA: "my-ca"}},
+			},
+		},
+	}
+	require.NoError(t, k8sClient.Create(ctx, resource))
+
+	// update applies the change to the stored resource, the way a user editing the spec would.
+	update := func(mutate func(*mdb.Security)) error {
+		require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(resource), resource))
+		mutate(resource.Spec.Security)
+		return k8sClient.Update(ctx, resource)
+	}
+
+	t.Run("setting the subjects when the managedCertificate block is added is accepted", func(t *testing.T) {
+		require.NoError(t, update(func(security *mdb.Security) {
+			security.TLSConfig = nil
+			security.ManagedCertificate = managedCertificate(subjects("cluster.local"))
+		}))
+	})
+
+	t.Run("changing the subjects is rejected", func(t *testing.T) {
+		err := update(func(security *mdb.Security) {
+			security.ManagedCertificate = managedCertificate(subjects("other.local"))
+		})
+		require.Error(t, err)
+		assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+		assert.Contains(t, err.Error(), "security.managedCertificate.subjects field is immutable it cannot change once the managedCertificate block is in place.")
+	})
+
+	t.Run("setting the same subjects again is accepted", func(t *testing.T) {
+		require.NoError(t, update(func(security *mdb.Security) {
+			security.ManagedCertificate = managedCertificate(subjects("cluster.local"))
+		}))
+	})
+
+	t.Run("dropping the subjects while the block stays is rejected", func(t *testing.T) {
+		err := update(func(security *mdb.Security) {
+			security.ManagedCertificate = managedCertificate(nil)
+		})
+		require.Error(t, err)
+		assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+		assert.Contains(t, err.Error(), "security.managedCertificate.subjects field is immutable it cannot change once the managedCertificate block is in place.")
+	})
+
+	t.Run("adding the subjects to a block that was added without them is rejected", func(t *testing.T) {
+		// The operator computed the subjects from its defaults when the block was added, so setting
+		// them now is a change to the certificates in use, not a migration.
+		withoutSubjects := &mdb.MongoDB{
+			ObjectMeta: metav1.ObjectMeta{GenerateName: "test-subjects-added-later-", Namespace: "default"},
+			Spec:       *resource.Spec.DeepCopy(),
+		}
+		withoutSubjects.Spec.Security.ManagedCertificate = managedCertificate(nil)
+		require.NoError(t, k8sClient.Create(ctx, withoutSubjects))
+
+		require.NoError(t, k8sClient.Get(ctx, client.ObjectKeyFromObject(withoutSubjects), withoutSubjects))
+		withoutSubjects.Spec.Security.ManagedCertificate = managedCertificate(subjects("cluster.local"))
+		err := k8sClient.Update(ctx, withoutSubjects)
+		require.Error(t, err)
+		assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+		assert.Contains(t, err.Error(), "security.managedCertificate.subjects field is immutable it cannot change once the managedCertificate block is in place.")
+	})
+
+	t.Run("removing the whole managedCertificate block is accepted", func(t *testing.T) {
+		require.NoError(t, update(func(security *mdb.Security) {
+			security.ManagedCertificate = nil
+			security.TLSConfig = &mdb.TLSConfig{Enabled: true, CA: "my-ca"}
+		}))
+	})
 }

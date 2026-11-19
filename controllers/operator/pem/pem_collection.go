@@ -26,12 +26,18 @@ func (p Collection) GetHash() (string, error) {
 		// this should never happen
 		return "", xerrors.Errorf("could not marshal PEM files to JSON: %w", err)
 	}
-	hashBytes := sha256.Sum256(jsonBytes)
+	return HashBytes(jsonBytes), nil
+}
+
+// HashBytes returns the sha256 of data encoded as base32 without padding. This is the scheme
+// used to name hash-keyed PEM files, so the result is always a valid file name.
+func HashBytes(data []byte) string {
+	hashBytes := sha256.Sum256(data)
 
 	// base32 encoding without padding (i.e. no '=' character) is used as this
 	// guarantees a strictly alphanumeric output. Since the result is a hash, and
 	// thus needs not be reversed, removing the padding is not an issue.
-	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:]), nil
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
 // NewCollection creates a new Pem Collection with an initialized empty map.

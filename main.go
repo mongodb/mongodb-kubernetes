@@ -55,6 +55,7 @@ import (
 	mcoConstruct "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/controllers/construct" //nolint:depguard
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/ommetrics"
 	"github.com/mongodb/mongodb-kubernetes/pkg/pprof"
 	"github.com/mongodb/mongodb-kubernetes/pkg/telemetry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -87,6 +88,9 @@ var (
 
 	// Default CRDs to watch (if not specified on the command line)
 	crds crdsToWatch
+
+	// omMetricsMultiplexer is nil when initialization failed.
+	omMetricsMultiplexer operator.OMMetricsMultiplexer
 )
 
 func init() {
@@ -230,6 +234,32 @@ func run() error {
 	}
 	log.Info("Registering Components.")
 
+	omMetricsCfg := ommetrics.NewConfig()
+	omMetricsCfg.Resource = map[string]string{
+		"mongodb.opsmanager.service.type":    "mck-operator",
+		"mongodb.opsmanager.service.name":    "mongodb-kubernetes-operator",
+		"mongodb.opsmanager.service.version": util.OperatorVersion,
+		"mongodb.opsmanager.host.name":       env.ReadOrDefault("HOSTNAME", ""),
+		"mongodb.opsmanager.host.id":         env.ReadOrDefault("POD_UID", ""),
+		"k8s.namespace.name":                 currentNamespace,
+	}
+	multiplexer, err := ommetrics.New(omMetricsCfg)
+	if err != nil {
+		log.Errorf("Unable to initialize Ops Manager metrics multiplexer: %s", err)
+	} else {
+		omMetricsMultiplexer = multiplexer
+		defer func() {
+			// ctx is already cancelled by the signal at this point; detach so the final export can run.
+			shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			_ = multiplexer.Shutdown(shutdownCtx)
+		}()
+		if err := mgr.Add(ommetrics.NewStalePruner(multiplexer, time.Hour, util.TWENTY_FOUR_HOURS+(1*time.Hour))); err != nil {
+			log.Errorf("Unable to add Ops Manager metrics stale pruner: %s", err)
+		}
+		log.Info("Ops Manager metrics multiplexer enabled")
+	}
+
 	// The migration dry-run Job runs the connectivity-validator binary from the operator image.
 	if imageUrls[util.OperatorImageEnv] == "" {
 		podClient, err := client.New(cfg, client.Options{})
@@ -319,6 +349,7 @@ func run() error {
 			defaultImageType,
 			memberClusterObjectsMap,
 			backupEnableDelay,
+			omMetricsMultiplexer,
 		); err != nil {
 			return err
 		}
@@ -334,7 +365,7 @@ func run() error {
 		}
 	}
 	if slices.Contains(crds, mongoDBMultiClusterCRDPlural) {
-		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, memberClusterObjectsMap); err != nil {
+		if err := setupMongoDBMultiClusterCRD(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, memberClusterObjectsMap, omMetricsMultiplexer); err != nil {
 			return err
 		}
 	}
@@ -444,6 +475,7 @@ func setupMongoDBCRD(
 	defaultImageType architectures.ImageType,
 	memberClusterObjectsMap map[string]runtime_cluster.Cluster,
 	backupEnableDelay time.Duration,
+	omMetrics operator.OMMetricsMultiplexer,
 ) error {
 	if err := operator.AddStandaloneController(
 		ctx,
@@ -457,6 +489,7 @@ func setupMongoDBCRD(
 		agentDebugImage,
 		defaultArchitecture,
 		defaultImageType,
+		omMetrics,
 	); err != nil {
 		return err
 	}
@@ -472,6 +505,7 @@ func setupMongoDBCRD(
 		agentDebugImage,
 		defaultArchitecture,
 		defaultImageType,
+		omMetrics,
 	); err != nil {
 		return err
 	}
@@ -489,6 +523,7 @@ func setupMongoDBCRD(
 		defaultImageType,
 		memberClusterObjectsMap,
 		backupEnableDelay,
+		omMetrics,
 	); err != nil {
 		return err
 	}
@@ -510,9 +545,9 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 	return operator.AddMongoDBUserController(ctx, mgr, memberClusterObjectsMap, backupEnableDelay)
 }
 
-func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterObjectsMap map[string]runtime_cluster.Cluster) error {
+func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterObjectsMap map[string]runtime_cluster.Cluster, omMetrics operator.OMMetricsMultiplexer) error {
 	requiredHealthyStreak := env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak)
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, requiredHealthyStreak, memberClusterObjectsMap); err != nil {
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, requiredHealthyStreak, memberClusterObjectsMap, omMetrics); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).

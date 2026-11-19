@@ -134,6 +134,15 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
 }
 
+func TestMultiReplicaSetReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs.SetUID(types.UID("multi-replica-set-uid"))
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconcilerWithConnectionFactory(ctx, nil, "", "", mrs, architectures.NonStatic, monitoringMappingConnectionFactory())
+
+	runMultiReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, mrs, mrs.GetResourceName())
+}
+
 func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
 	databaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_1_0_0", util.NonStaticDatabaseEnterpriseImage)
 	initDatabaseRelatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_2_0_0", util.InitDatabaseImageUrlEnv)
@@ -487,6 +496,41 @@ func TestMultiClusterConfigMapAndSecretWatched(t *testing.T) {
 	}
 
 	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
+}
+
+// TestMultiClusterManagedCertificateCARefsWatched checks that the CA inputs of the operator-managed
+// certificates are registered with the multi-cluster resource as their dependent, for both ConfigMap
+// and Secret sources, so that editing one re-triggers reconciliation.
+func TestMultiClusterManagedCertificateCARefsWatched(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetSecurity(&mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
+			Server: &mdb.CertificateConfig{
+				AdditionalTrustedCAs: []mdb.CARef{
+					{Name: "extra-ca", Kind: "ConfigMap", Key: "ca.crt"},
+					{Name: "extra-ca-secret", Kind: "Secret", Key: "ca.crt"},
+				},
+			},
+		}}).
+		Build()
+
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	// the first reconcile creates the Certificates, then cert-manager issues them
+	_, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	issueManagedCertificates(ctx, t, kubeClient, mrs.Namespace)
+	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+
+	dependent := kube.ObjectKey(mrs.Namespace, mrs.Name)
+	watched := reconciler.resourceWatcher.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca")}], dependent)
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca-secret")}], dependent)
+	// a Secret source is not watched as a ConfigMap, and the other way around
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca")})
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca-secret")})
 }
 
 func TestServiceCreation_WithExternalName(t *testing.T) {
@@ -1022,7 +1066,7 @@ func TestMultiReplicaSetRace(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, certs.CertManagerReadiness{})
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil, certs.CertManagerReadiness{})
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
 }
@@ -2322,13 +2366,19 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 	return bytes.Equal(spec1Bytes, spec2Bytes), nil
 }
 
-func defaultMultiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
-	multiReplicaSetController, client, clusterMap, omConnectionFactory := multiReplicaSetReconciler(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, m, arch)
+func defaultMultiReplicaSetReconcilerWithConnectionFactory(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, m)
+	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
+	multiReplicaSetController := newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil, certs.CertManagerReadiness{Ready: true})
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
 	})
 
-	return multiReplicaSetController, client, clusterMap, omConnectionFactory
+	return multiReplicaSetController, kubeClient, memberClusterMap, omConnectionFactory
+}
+
+func defaultMultiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
+	return defaultMultiReplicaSetReconcilerWithConnectionFactory(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, m, arch, om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection))
 }
 
 func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []string {
@@ -2349,12 +2399,6 @@ func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []str
 		}
 	}
 	return expectedHostnames
-}
-
-func multiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
-	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(m)
-	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, certs.CertManagerReadiness{}), kubeClient, memberClusterMap, omConnectionFactory
 }
 
 func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {

@@ -34,6 +34,16 @@ spec:
       jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - description: Next automatic renewal of the operator-managed server certificates.
+      jsonPath: .status.certificateRenewals.server.renewalTime
+      name: ServerCertRenewal
+      priority: 1
+      type: string
+    - description: Next automatic renewal of the operator-managed client certificates.
+      jsonPath: .status.certificateRenewals.client.renewalTime
+      name: ClientCertRenewal
+      priority: 1
+      type: string
     name: v1
     schema:
       openAPIV3Schema:
@@ -1510,6 +1520,12 @@ spec:
                 - message: spec.role must be 'AppDB' when set
                   rule: self == '' || self == 'AppDB'
               security:
+                description: |-
+                  security.managedCertificate.subjects is immutable once the managedCertificate block is in place:
+                  mongod recognises the members of a deployment by the subject of their certificates, and the
+                  operator replaces the certificates one pod at a time, so a change leaves members carrying the old
+                  subject and members carrying the new one in the same deployment, and they stop recognising each
+                  other.
                 properties:
                   authentication:
                     description: |-
@@ -2159,6 +2175,12 @@ spec:
                     the CA bundle.'
                   rule: '!(has(self.tls) && has(self.tls.ca) && self.tls.ca.size()
                     > 0 && has(self.managedCertificate))'
+                - message: security.managedCertificate.subjects field is immutable
+                    it cannot change once the managedCertificate block is in place.
+                  rule: '!has(oldSelf.managedCertificate) || !has(self.managedCertificate)
+                    || (has(self.managedCertificate.subjects) == has(oldSelf.managedCertificate.subjects)
+                    && (!has(self.managedCertificate.subjects) || self.managedCertificate.subjects
+                    == oldSelf.managedCertificate.subjects))'
               service:
                 description: |-
                   DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.
@@ -3211,6 +3233,52 @@ spec:
                     type: string
                 required:
                 - statusName
+                type: object
+              certificateRenewals:
+                description: |-
+                  CertificateRenewals reports the next automatic renewal of the operator-managed leaf certificates,
+                  per category. Set only with spec.security.managedCertificate.
+                properties:
+                  client:
+                    description: Client is the soonest upcoming renewal among the
+                      client-category (clientAuth) leaf certificates.
+                    properties:
+                      name:
+                        description: Name of the soonest-renewing Certificate in this
+                          category.
+                        type: string
+                      notAfter:
+                        description: NotAfter is that certificate's expiry.
+                        format: date-time
+                        type: string
+                      renewalTime:
+                        description: RenewalTime is when cert-manager renews it, which
+                          is when the members roll onto the new certificate.
+                        format: date-time
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  server:
+                    description: Server is the soonest upcoming renewal among the
+                      server-category (serverAuth) leaf certificates.
+                    properties:
+                      name:
+                        description: Name of the soonest-renewing Certificate in this
+                          category.
+                        type: string
+                      notAfter:
+                        description: NotAfter is that certificate's expiry.
+                        format: date-time
+                        type: string
+                      renewalTime:
+                        description: RenewalTime is when cert-manager renews it, which
+                          is when the members roll onto the new certificate.
+                        format: date-time
+                        type: string
+                    required:
+                    - name
+                    type: object
                 type: object
               conditions:
                 items:

@@ -275,7 +275,7 @@ parameters:
 
   - key: mdb_custom_agent_url
     value: ""
-    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path."
+    description: "Full URL to a custom agent tarball. When set (via Evergreen expansion from mms-automation downstream_expansions.set), agent and init-database image builds use this URL instead of the production S3 path. Agent builds also tag the image with the version in the filename, because the operator derives the Agent image tag from that filename."
 
   - key: om_download_url
     value: ""
@@ -417,7 +417,7 @@ github_checks_aliases:
 # "[new]" → release-publish pipeline, otherwise → deprecated-release.
 # The decider creates an Evergreen patch via the matching alias.
 git_tag_aliases:
-  - git_tag: "^(\\d+\\.)?(\\d+\\.)?(\\d+)$"
+  - git_tag: "^1\\.\\d+\\.\\d+$" # Bump with major releases
     variant_tags: [ "release-decider" ]
     task: ".*"
 
@@ -854,18 +854,12 @@ task_groups:
     <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
     tasks:
       # e2e_kube_only_task_group
-      - e2e_crd_validation
       - e2e_replica_set_config_map
       - e2e_replica_set_exposed_externally
       - e2e_replica_set_pv
       - e2e_replica_set_pv_multiple
-      - e2e_replica_set_schema_validation
-      - e2e_replica_set_statefulset_status
       - e2e_sharded_cluster_pv
       - e2e_sharded_cluster_recovery
-      - e2e_sharded_cluster_schema_validation
-      - e2e_sharded_cluster_statefulset_status
-      - e2e_users_schema_validation
       - e2e_replica_set_tls_default
       - e2e_replica_set_tls_override
       - e2e_replica_set_ignore_unknown_users
@@ -873,9 +867,7 @@ task_groups:
       - e2e_all_mongodb_resources_parallel
       - e2e_multiple_cluster_failures
       - e2e_replica_set_custom_podspec
-      - e2e_replica_set_custom_sa
       - e2e_replica_set_report_pending_pods
-      - e2e_replica_set_recovery
       - e2e_replica_set_upgrade_downgrade
       - e2e_replica_set_agent_flags_and_readinessProbe
       - e2e_sharded_cluster
@@ -964,9 +956,6 @@ task_groups:
       - e2e_sharded_cluster_scram_sha_and_x509
       - e2e_sharded_cluster_x509_to_scram_transition
       - e2e_sharded_cluster_internal_cluster_transition
-      # e2e_webhook_validation_task_group
-      - e2e_mongodb_validation_webhook
-      - e2e_mongodb_roles_validation_webhook
       - e2e_vault_setup
       - e2e_vault_setup_tls
       # this test will either migrate from static to non-static or the other way around
@@ -1118,6 +1107,16 @@ task_groups:
       - e2e_search_enterprise_metrics_forwarder_sharded
       - e2e_search_external_metrics_forwarder_sharded
 
+  # Verifies the operator's OTLP exporter forwards MCK deployment mappings to Ops Manager (>= 8.0.27).
+  - name: e2e_om_kind_deployment_mappings_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task, *teardown_group]
+    tasks:
+      - e2e_om_deployment_mappings_replica_set
+      - e2e_om_deployment_mappings_sharded_cluster
+      - e2e_om_deployment_mappings_switch_project_replica_set
+      - e2e_om_deployment_mappings_switch_project_sharded_cluster
+
   # this task group contains just a one task, which is smoke testing whether the operator
   # works correctly when we run it without installing webhook cluster roles
   - name: e2e_mdb_kind_no_webhook_roles_cloudqa_task_group
@@ -1132,7 +1131,6 @@ task_groups:
     max_hosts: 2
     <<: [ *setup_group, *setup_and_teardown_task_cloudqa, *teardown_group ]
     tasks:
-      - e2e_crd_validation
       - e2e_replica_set_scram_sha_256_user_connectivity
       - e2e_sharded_cluster_scram_sha_256_user_connectivity
       - e2e_replica_set_pv
@@ -1170,8 +1168,11 @@ task_groups:
       - e2e_replica_set_tls_managedcert_external_domain
       - e2e_replica_set_tls_managedcert_withhold_client_cert
       - e2e_sharded_cluster_tls_managedcert
+      - e2e_replica_set_tls_managedcert_cleanup_on_delete
+      - e2e_sharded_cluster_tls_managedcert_cleanup_on_delete
       - e2e_managed_certificate_prerequisites
       - e2e_replica_set_tls_managedcert_legacy_migration
+      - e2e_replica_set_tls_managedcert_legacy_migration_new_ca
       - e2e_sharded_cluster_tls_managedcert_legacy_migration
 
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
@@ -1228,6 +1229,8 @@ task_groups:
       - e2e_multi_cluster_scram
       - e2e_multi_cluster_tls_with_x509
       - e2e_managed_certificate_multi_cluster_rs
+      - e2e_managed_certificate_multi_cluster_rs_cleanup_on_delete
+      - e2e_managed_certificate_multi_cluster_rs_horizons
       - e2e_managed_certificate_multi_cluster_rs_legacy_migration
       - e2e_managed_certificate_multi_cluster_sharded
       - e2e_managed_certificate_multi_cluster_rs_prerequisites
@@ -1250,7 +1253,6 @@ task_groups:
       - e2e_multi_cluster_disaster_recovery
       - e2e_multi_cluster_multi_disaster_recovery
       - e2e_multi_cluster_recover_network_partition
-      - e2e_multi_cluster_validation
       - e2e_multi_cluster_agent_flags
       - e2e_multi_cluster_replica_set_ignore_unknown_users
       - e2e_multi_cluster_pvc_resize
@@ -1276,7 +1278,6 @@ task_groups:
       - e2e_sharded_cluster_scale_shards_name_overrides
       - e2e_sharded_cluster_shard_overrides
       - e2e_sharded_cluster_secret
-      - e2e_sharded_cluster_statefulset_status
       - e2e_sharded_cluster_upgrade_downgrade
       - e2e_configure_tls_and_x509_simultaneously_sc
       - e2e_sharded_cluster_tls_require_custom_ca
@@ -1320,8 +1321,6 @@ task_groups:
     <<: [ *setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group ]
     tasks:
       # Dedicated AppDB Multi-Cluster tests
-      - e2e_multi_cluster_appdb_validation
-      - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
       - e2e_om_external_multi_cluster_appdb_fresh
       - e2e_om_external_multi_cluster_appdb_forward
@@ -1346,7 +1345,6 @@ task_groups:
       - e2e_om_ops_manager_backup_liveness_probe
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_secure_config
-      - e2e_om_appdb_validation
       - e2e_om_appdb_scram
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
@@ -1382,8 +1380,6 @@ task_groups:
     <<: [ *setup_group_multi_cluster, *setup_and_teardown_task, *teardown_group ]
     tasks:
       # Dedicated AppDB Multi-Cluster tests
-      - e2e_multi_cluster_appdb_validation
-      - e2e_multi_cluster_om_validation
       - e2e_multi_cluster_appdb
       - e2e_multi_cluster_appdb_cleanup
       - e2e_multi_cluster_appdb_s3_based_backup_restore
@@ -1400,7 +1396,6 @@ task_groups:
       - e2e_om_ops_manager_backup_liveness_probe
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_secure_config
-      - e2e_om_appdb_validation
       - e2e_om_appdb_scram
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
@@ -1475,7 +1470,6 @@ task_groups:
       - e2e_om_appdb_multi_change
       - e2e_om_appdb_scale_up_down
       - e2e_om_appdb_upgrade
-      - e2e_om_appdb_validation
       - e2e_om_appdb_scram
       - e2e_om_external_appdb_forward
       - e2e_om_external_appdb_fresh
@@ -1501,8 +1495,12 @@ task_groups:
       - e2e_om_ops_manager_https_enabled_hybrid
       - e2e_om_ops_manager_https_enabled_internet_mode
       - e2e_om_ops_manager_https_enabled_prefix
+      - e2e_om_ops_manager_managedcert
+      - e2e_om_ops_manager_managedcert_om_issuer
+      - e2e_om_ops_manager_managedcert_appdb_issuer
+      - e2e_om_ops_manager_managedcert_both_issuers
+      - e2e_om_ops_manager_managedcert_rotation
       - e2e_om_ops_manager_scale
-      - e2e_om_validation_webhook
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple
@@ -1521,7 +1519,6 @@ task_groups:
       - e2e_om_appdb_multi_change
       - e2e_om_appdb_scale_up_down
       - e2e_om_appdb_upgrade
-      - e2e_om_appdb_validation
       - e2e_om_appdb_scram
       - e2e_om_external_appdb_forward
       - e2e_om_external_appdb_fresh
@@ -1539,7 +1536,11 @@ task_groups:
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_scale
-      - e2e_om_validation_webhook
+      - e2e_om_ops_manager_managedcert
+      - e2e_om_ops_manager_managedcert_om_issuer
+      - e2e_om_ops_manager_managedcert_appdb_issuer
+      - e2e_om_ops_manager_managedcert_both_issuers
+      - e2e_om_ops_manager_managedcert_rotation
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple
@@ -1579,6 +1580,8 @@ task_groups:
       - e2e_om_remotemode
       - e2e_om_ops_manager_backup_restore
       - e2e_om_ops_manager_queryable_backup
+      - e2e_om_ops_manager_queryable_backup_managedcert
+      - e2e_om_ops_manager_queryable_backup_managedcert_issuer
       - e2e_om_ops_manager_backup
 
   # TODO (CLOUDP-346008): Remove this task group once the issue with queryable backup task is resolved in OM8
@@ -1995,6 +1998,7 @@ buildvariants:
     tasks:
       - name: e2e_om_kind_search_task_group
       - name: e2e_om_kind_search_large_task_group
+      - name: e2e_om_kind_deployment_mappings_task_group
 
   - name: e2e_static_om80_kind_ubi_large
     display_name: e2e_static_om80_kind_ubi_large
@@ -2005,6 +2009,7 @@ buildvariants:
     tasks:
       - name: e2e_om_kind_search_task_group
       - name: e2e_om_kind_search_large_task_group
+      - name: e2e_om_kind_deployment_mappings_task_group
 
   - name: e2e_operator_race_ubi_with_telemetry
     display_name: e2e_operator_race_ubi_with_telemetry

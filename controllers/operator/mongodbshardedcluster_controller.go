@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"path"
 	"slices"
 	"strings"
 	"time"
@@ -71,7 +70,6 @@ import (
 	pkgMigration "github.com/mongodb/mongodb-kubernetes/pkg/migration"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
-	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -105,9 +103,9 @@ type ReconcileMongoDbShardedCluster struct {
 	certManagerReadiness certs.CertManagerReadiness
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, omMetrics OMMetricsMultiplexer, certManagerReadiness certs.CertManagerReadiness) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
-		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient, omMetrics),
 		omConnectionFactory:       omFunc,
 		memberClustersMap:         memberClusterMap,
 		forceEnterprise:           forceEnterprise,
@@ -888,6 +886,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
+	r.ReleaseOtelExporter(sc.Status.Link, log)
 	if sc.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
@@ -944,7 +943,6 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
-
 	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
@@ -1013,6 +1011,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err := connection.EnsureTargetAutomationConfigSeeded(ctx, conn, sc.Status.ProjectId, projectConfig, credsConfig, r.omConnectionFactory, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
+	r.commonController.EnsureOtelExporterForDeployment(conn, agentAPIKey, sc.Status.Link, sc, log)
 
 	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, log)
 	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported || workflowStatus.Phase() == mdbstatus.PhaseConnectivityValidation {
@@ -1089,6 +1088,14 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	connStringHostnames = append(connStringHostnames, extHostnames...)
 	if err := connectionstringsecret.PublishForMongoDB(ctx, r.commonController.client, sc, connStringHostnames); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(xerrors.Errorf("failed to publish connection string secret: %w", err)), log)
+	}
+
+	// The members are now running with the widened trust bundle (doShardedClusterProcessing
+	// published it and waited for the agents), so a leaf can safely move to a rotated self-signed CA.
+	if sc.GetSecurity().IsManagedCertificateEnabled() {
+		if err := certs.ReissueLeavesOnRotatedSelfSignedCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log); err != nil {
+			log.Warnf("Failed to re-issue certificates after a self-signed CA rotation: %s", err)
+		}
 	}
 
 	log.Infof("Finished reconciliation for Sharded Cluster! %s", completionMessage(conn.BaseURL(), conn.GroupID()))
@@ -1238,6 +1245,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
+	r.commonController.watchUserClientCertificateSecrets(ctx, sc, log)
 
 	reconcileResult := checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval, log)
 	if !reconcileResult.IsOK() {
@@ -1272,7 +1280,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 			return workflow.Failed(xerrors.New(r.certManagerReadiness.UnavailableMessage()))
 		}
 
-		status, certsCondition := certs.EnsureCertificatesAndCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log)
+		status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log)
 		sc.SetStatusCondition(certsCondition)
 		if !status.IsOK() {
 			return status
@@ -1282,10 +1290,14 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		// cluster, so they have to be copied over for the pods to trust the deployment's CAs.
 		if sc.Spec.IsMultiCluster() {
 			replicateStatus := certs.ReplicateManagedCABundlesToMemberClusters(
-				ctx, r.commonController.client, sc.Namespace, r.managedCABundleNames(), r.managedCABundleTargets(), sc.GetOwnerLabels(), log)
+				ctx, r.commonController.client, sc.Namespace, r.managedCABundleNames(), r.managedCABundleTargets(), certs.ManagedCertificateOwnerLabels(sc), log)
 			if !replicateStatus.IsOK() {
 				return replicateStatus
 			}
+		}
+
+		if status := r.commonController.removeFulfilledPruneAnnotation(ctx, sc, pruneApplied); !status.IsOK() {
+			return status
 		}
 	}
 
@@ -1308,7 +1320,10 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return workflowStatus
 	}
 
-	caFilePath := sc.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
+	caFilePath, clusterCAFilePath, err := databaseCAFilePaths(ctx, r.commonController.client, sc.Spec.GetSecurity(), sc.Name, sc.Namespace)
+	if err != nil {
+		return workflow.Failed(err)
+	}
 
 	if workflowStatus := controlledfeature.EnsureFeatureControls(ctx, *sc, conn, conn.OpsManagerVersion(), log); !workflowStatus.IsOK() {
 		return workflowStatus
@@ -1333,6 +1348,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		podEnvVars:           podEnvVars,
 		currentAgentAuthMode: currentAgentAuthMode,
 		caFilePath:           caFilePath,
+		clusterCAFilePath:    clusterCAFilePath,
 		agentCertPath:        agentCertPath,
 		agentCertHash:        agentCertHash,
 		prometheusCertHash:   prometheusCertHash,
@@ -1542,6 +1558,11 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		// Refuse a migration that would change the subjects MongoDB uses to identify the deployment. All
 		// components carry the same membership subject, so checking one of them is enough.
 		if status := certs.VerifyMigrationSubjects(ctx, r.commonController.client, s, lastSpec.GetSecurity(), s.ConfigRsName(), log); !status.IsOK() {
+			return status
+		}
+		// Refuse a migration that would leave the CA the deployment trusts today out of the trust
+		// bundle, which would make its members reject each other while they restart.
+		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.commonController.client, s, lastSpec.GetSecurity(), log); !status.IsOK() {
 			return status
 		}
 		if err := r.seedManagedPEMSecretsFromLegacy(ctx, s, lastSpec.GetSecurity(), log); err != nil {
@@ -1849,7 +1870,12 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 	sc := obj.(*mdbv1.MongoDB)
 
 	var errs error
+
 	if err := r.cleanOpsManagerState(ctx, sc, log); err != nil {
+		errs = stdErrors.Join(errs, err)
+	}
+
+	if err := r.commonController.deleteManagedCertificateObjects(ctx, sc, log); err != nil {
 		errs = stdErrors.Join(errs, err)
 	}
 
@@ -1861,6 +1887,11 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 			clusterName := item.Name
 			if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
 				errs = stdErrors.Join(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+			}
+			// After the StatefulSets are gone, because it removes the secrets their pods mount: the -pem
+			// secrets and the copies of the CA bundles, which carry no owner reference in a member cluster.
+			if err := deleteManagedCertificateObjectsInCluster(ctx, clusterClient, clusterName, sc, log); err != nil {
+				errs = stdErrors.Join(errs, err)
 			}
 		}
 	}
@@ -1967,13 +1998,13 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	}
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration, omMetrics OMMetricsMultiplexer) error {
 	// Create a new controller
 	// Make sure cert-manager is installed and the operator has the RBAC the managed-certificate
 	// feature needs. It is checked once here, at startup, and the reconcile path fails with a clear
 	// message when it is false.
 	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, certManagerReadiness)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, omMetrics, certManagerReadiness)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {
@@ -2218,6 +2249,7 @@ type deploymentOptions struct {
 	podEnvVars           *env.PodEnvVars
 	currentAgentAuthMode string
 	caFilePath           string
+	clusterCAFilePath    string
 	agentCertPath        string
 	agentCertHash        string
 
@@ -2445,7 +2477,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 			}
 
 			d.ConfigureMonitoringAndBackup(log, sc.Spec.GetSecurity().IsTLSEnabled(), opts.caFilePath)
-			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath)
+			d.ConfigureTLS(sc.Spec.GetSecurity(), opts.caFilePath, opts.clusterCAFilePath)
 
 			d.SetDownloadBase(sc.Spec.GetDownloadBase())
 

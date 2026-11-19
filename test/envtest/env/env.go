@@ -16,19 +16,28 @@ package env
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
+	admissionv1 "k8s.io/api/admissionregistration/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	crwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/webhook"
 )
 
 // TestEnv is a running envtest control plane together with the means to talk to it.
@@ -57,17 +66,16 @@ func WithCRDs(crdFileNames ...string) Option {
 	}
 }
 
-// WithWebhooks installs the given webhook configuration files from
-// config/webhooks (e.g. "webhooks.yaml"). envtest rewrites their service
-// references to point at the local webhook server the package's tests start.
-func WithWebhooks(webhookFileNames ...string) Option {
+// WithOperatorWebhooks installs the ValidatingWebhookConfiguration the operator registers at
+// startup. envtest rewrites its service references to point at the local webhook server
+// the test starts with StartWebhookServer.
+func WithOperatorWebhooks() Option {
 	return func(e *envtest.Environment) {
+		// The CA bundle is replaced by the one of the local webhook server.
+		config := webhook.GetWebhookConfig(types.NamespacedName{Name: "operator-webhook", Namespace: "default"}, nil)
 		e.WebhookInstallOptions = envtest.WebhookInstallOptions{
-			Paths:            make([]string, 0, len(webhookFileNames)),
-			LocalServingHost: "127.0.0.1",
-		}
-		for _, name := range webhookFileNames {
-			e.WebhookInstallOptions.Paths = append(e.WebhookInstallOptions.Paths, filepath.Join(repoRoot(), "config", "webhooks", name))
+			ValidatingWebhooks: []*admissionv1.ValidatingWebhookConfiguration{&config},
+			LocalServingHost:   "127.0.0.1",
 		}
 	}
 }
@@ -108,6 +116,57 @@ func Shared(t *testing.T) *TestEnv {
 	t.Helper()
 	require.NotNil(t, shared, "no shared envtest environment; call env.RunShared from the package's TestMain")
 	return shared
+}
+
+// StartWebhookServer serves the validating webhooks that register adds to a manager, on
+// the port envtest reserved through WithOperatorWebhooks. The server stops when the test ends:
+// while it runs, it rejects the invalid objects the other tests of the package create.
+func (e *TestEnv) StartWebhookServer(t *testing.T, register func(ctrl.Manager) error) {
+	t.Helper()
+
+	options := e.Environment.WebhookInstallOptions
+	require.NotZero(t, options.LocalServingPort, "add env.WithOperatorWebhooks to the package's TestMain")
+	mgr, err := ctrl.NewManager(e.Config, ctrl.Options{
+		Scheme: e.Client.Scheme(),
+		WebhookServer: crwebhook.NewServer(crwebhook.Options{
+			Host:    options.LocalServingHost,
+			Port:    options.LocalServingPort,
+			CertDir: options.LocalServingCertDir,
+		}),
+		Metrics:                metricsserver.Options{BindAddress: "0"},
+		HealthProbeBindAddress: "0",
+	})
+	require.NoError(t, err)
+	require.NoError(t, register(mgr))
+
+	ctx := t.Context()
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		if err := mgr.Start(ctx); err != nil && ctx.Err() == nil {
+			t.Errorf("webhook manager failed: %v", err)
+		}
+	}()
+	// Wait for the server to release the port, the next test starts its own on it.
+	t.Cleanup(func() { <-stopped })
+
+	address := net.JoinHostPort(options.LocalServingHost, strconv.Itoa(options.LocalServingPort))
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", address, time.Second)
+		if err != nil {
+			return false
+		}
+		_ = conn.Close()
+		return true
+	}, 30*time.Second, 100*time.Millisecond, "webhook server did not become reachable")
+}
+
+// RequireDeniedByWebhook asserts that the named webhook denied the request with the message.
+// The webhook configuration ignores unreachable webhooks, so a denial is the proof that the
+// webhook was reached: pair every rejected object with an accepted one.
+func RequireDeniedByWebhook(t *testing.T, err error, webhookName, message string) {
+	t.Helper()
+	require.EqualError(t, err, fmt.Sprintf("admission webhook %q denied the request: %s", webhookName, message))
 }
 
 // start boots the control plane and builds the client; RunShared stops it
