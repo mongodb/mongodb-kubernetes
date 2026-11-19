@@ -6,12 +6,6 @@ import (
 	"strings"
 )
 
-const binaryNumactl = "numactl"
-
-// numaPolicyAuto is the NUMA policy the Agent sends for every start request. It selects the same numactl behavior
-// as the Agent's direct-process path.
-const numaPolicyAuto = "auto"
-
 // reservedArg reports whether arg is a flag that the proxy owns. The proxy gives mongod its config file, and a
 // forking mongod leaves the proxy's control, so the agent must not set either itself. Both the separate form
 // ("--config path") and the "=" form ("--config=path") are reserved.
@@ -29,7 +23,6 @@ type launchSpec struct {
 	binary     string
 	args       []string
 	env        []string
-	numactl    bool
 	disableTHP bool
 }
 
@@ -66,7 +59,7 @@ func (r StartRequest) validate(baseEnv []string) (launchSpec, error) {
 		env = append(env, "SET_THP_DISABLED=yes")
 	}
 
-	return launchSpec{binary: binary, args: args, env: env, numactl: o.NumaPolicy == numaPolicyAuto, disableTHP: o.DisableTHP}, nil
+	return launchSpec{binary: binary, args: args, env: env, disableTHP: o.DisableTHP}, nil
 }
 
 func (r StopRequest) validate() error {
