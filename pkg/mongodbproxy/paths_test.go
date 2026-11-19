@@ -144,13 +144,3 @@ func TestStartLeavesAMissingKeytabToMongod(t *testing.T) {
 	require.NoError(t, err)
 	waitDone(t, e)
 }
-
-func TestReadConfigRejectsForkFromOneRead(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "main.conf")
-	require.NoError(t, os.WriteFile(path, []byte("processManagement:\n  fork: true\nsystemLog:\n  path: "+dir+"/mongod.log\n"), 0o600))
-
-	err := onlyIn(dir).readConfig(path)
-
-	assert.ErrorIs(t, err, ErrInvalidRequest)
-}

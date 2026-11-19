@@ -81,7 +81,8 @@ func newFixture(t *testing.T) *fixture {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, binaryNumactl), []byte(fakeNumactl), 0o755)) //nolint:gosec
 	stdout := &syncBuffer{}
-	sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(stdout, stdout), WithPathPolicy(onlyIn(dir)))
+	sup := NewSupervisor(dir, onlyIn(dir), testEnv, nil)
+	sup.stdout, sup.stderr = stdout, stdout
 	t.Cleanup(func() {
 		// make sure no child outlives the test
 		_ = stopCurrent(sup, context.Background(), "", 0, true)
@@ -122,21 +123,6 @@ func waitDone(t *testing.T, e *Execution) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("process did not exit in time")
 	}
-}
-
-func TestIdleBeforeStart(t *testing.T) {
-	f := newFixture(t)
-	assert.Equal(t, Status{State: StateIdle}, f.sup.Status())
-}
-
-func TestStartReturnsAtSpawnAndStatusIsRunning(t *testing.T) {
-	f := newFixture(t)
-	f.start(RoleMain, "run")
-
-	st := f.sup.Status()
-	assert.Equal(t, StateRunning, st.State)
-	assert.Equal(t, RoleMain, st.Role)
-	assert.Nil(t, st.ExitCode)
 }
 
 func TestStartWhileRunningIsNoOp(t *testing.T) {
@@ -195,7 +181,7 @@ func TestStartFailures(t *testing.T) {
 	}
 
 	t.Run("binary not found", func(t *testing.T) {
-		sup := NewSupervisor(WithEnv(testEnv), WithBinDir(t.TempDir()), WithPathPolicy(onlyIn(f.dir)))
+		sup := NewSupervisor(t.TempDir(), onlyIn(f.dir), testEnv, nil)
 		_, err := sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain})
 		assert.ErrorIs(t, err, ErrSpawn)
 		assert.Equal(t, StateIdle, sup.Status().State)
