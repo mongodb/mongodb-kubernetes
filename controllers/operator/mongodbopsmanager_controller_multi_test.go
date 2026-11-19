@@ -154,14 +154,15 @@ func TestOpsManagerManagedMultiClusterTrustCopies(t *testing.T) {
 	helper := newManagedCertificateTestHelper(t, r, manager)
 
 	for _, tc := range []struct {
-		name string
-		key  string
-		copy func() error
+		name           string
+		key            string
+		copy           func() error
+		writtenByAppDB bool
 	}{
 		{name: "managed-om-managed-om-ca-bundle", key: "mms-ca.crt", copy: func() error {
 			return r.replicateTLSCAInMemberClusters(ctx, helper)
 		}},
-		{name: "managed-om-db-managed-server-ca-bundle", key: "ca-pem", copy: func() error {
+		{name: "managed-om-db-managed-server-ca-bundle", key: "ca-pem", writtenByAppDB: true, copy: func() error {
 			return r.replicateAppDBTLSCAInMemberClusters(ctx, helper, &AppDBConfig{CAConfigMapName: "managed-om-db-managed-server-ca-bundle"})
 		}},
 	} {
@@ -176,12 +177,48 @@ func TestOpsManagerManagedMultiClusterTrustCopies(t *testing.T) {
 			assert.Equal(t, source.OwnerReferences, retained.OwnerReferences)
 			assert.Equal(t, source.ResourceVersion, retained.ResourceVersion, "replication must not rewrite the shared central source")
 			remote := &corev1.ConfigMap{}
-			require.NoError(t, r.memberClustersMap["west"].Get(ctx, kube.ObjectKey(manager.Namespace, tc.name), remote))
+			err = r.memberClustersMap["west"].Get(ctx, kube.ObjectKey(manager.Namespace, tc.name), remote)
+			if tc.writtenByAppDB {
+				assert.True(t, apiErrors.IsNotFound(err), "the AppDB reconciler replicates the managed AppDB bundle; Ops Manager must not write it")
+				return
+			}
+			require.NoError(t, err)
 			assert.Equal(t, source.Data, remote.Data)
 			assert.Equal(t, manager.GetOwnerLabels(), remote.Labels)
 			assert.Empty(t, remote.OwnerReferences)
 		})
 	}
+}
+
+// TestOpsManagerLeavesManagedAppDBCABundleToTheAppDB checks that Ops Manager does not touch the
+// AppDB-owned managed CA bundle in a member cluster, where the database keeps it current during a
+// rotation and removes it on deletion.
+func TestOpsManagerLeavesManagedAppDBCABundleToTheAppDB(t *testing.T) {
+	ctx := t.Context()
+	manager, central, r := newMultiClusterManagedAppDB(t)
+	r.memberClustersMap["east"] = central
+	helper := newManagedCertificateTestHelper(t, r, manager)
+
+	const bundleName = "managed-om-db-managed-server-ca-bundle"
+	require.NoError(t, central.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: bundleName, Namespace: manager.Namespace, UID: types.UID("central-bundle")},
+		Data:       map[string]string{"ca-pem": "current"},
+	}))
+	appDBOwned := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: bundleName, Namespace: manager.Namespace,
+			Labels: map[string]string{util.ManagedCertificateOwnerUIDLabel: "appdb-uid", util.OperatorLabelName: util.OperatorLabelValue},
+		},
+		Data: map[string]string{"ca-pem": "stale"},
+	}
+	require.NoError(t, r.memberClustersMap["west"].Create(ctx, appDBOwned))
+
+	require.NoError(t, r.replicateAppDBTLSCAInMemberClusters(ctx, helper, &AppDBConfig{CAConfigMapName: bundleName}))
+
+	persisted := &corev1.ConfigMap{}
+	require.NoError(t, r.memberClustersMap["west"].Get(ctx, kube.ObjectKey(manager.Namespace, bundleName), persisted))
+	assert.Equal(t, appDBOwned.ObjectMeta, persisted.ObjectMeta)
+	assert.Equal(t, appDBOwned.Data, persisted.Data, "the database owns this bundle; Ops Manager must not revert a CA rotation")
 }
 
 func omStsName(name string, clusterIdx int) string {

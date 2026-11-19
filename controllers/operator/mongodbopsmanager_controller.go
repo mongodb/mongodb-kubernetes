@@ -1819,6 +1819,13 @@ func (r *OpsManagerReconciler) replicateAppDBTLSCAInMemberClusters(ctx context.C
 		return nil
 	}
 
+	// With operator-managed certificates the AppDB reconciler publishes the bundle and replicates it
+	// to the member clusters. Copying it here too would give every member object two writers that can
+	// race on a rotation.
+	if opsManager := reconcileHelper.opsManager; opsManager.Spec.AppDB != nil && opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() {
+		return nil
+	}
+
 	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, appDBConfig.CAConfigMapName)
 }
 
