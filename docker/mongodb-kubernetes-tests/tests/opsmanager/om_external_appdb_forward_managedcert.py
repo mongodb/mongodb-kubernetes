@@ -18,7 +18,9 @@ from tests.opsmanager.om_external_appdb_test_helpers import (
     managed_appdb_graph,
     managed_appdb_security,
     meta_om,
+    wait_for_managed_appdb_graph_owner,
     wait_for_managed_appdb_measurements,
+    without_managed_certificate_owner_uid,
 )
 
 
@@ -75,11 +77,18 @@ class ForwardManagedAppDBTests:
 
     def test_handover_preserves_graph_credentials_and_data(self, scenario: ManagedAppDBScenario, tmp_path: Path):
         scenario.database.load()
+        # The Certificate specs are rewritten with the database's owner markers synchronously; wait for
+        # cert-manager to copy them onto the issued Secrets before snapshotting the graph.
+        wait_for_managed_appdb_graph_owner(scenario.namespace, scenario.database.name, scenario.database)
         graph = managed_appdb_graph(scenario.namespace, scenario.database.name)
         assert set(graph) == set(scenario.graph)
         for key, before in scenario.graph.items():
             assert graph[key]["uid"] == before["uid"], key
-            assert graph[key]["spec"] == before["spec"], key
+            # The owner UID label is an ownership marker, so it is the one part of the spec that has
+            # to change: assert_managed_appdb_graph_owner below pins it to the database's UID.
+            assert without_managed_certificate_owner_uid(graph[key]["spec"]) == without_managed_certificate_owner_uid(
+                before["spec"]
+            ), key
             assert graph[key]["data"] == before["data"], key
         assert_managed_appdb_graph_owner(graph, scenario.database)
         assert scenario.primary.read_appdb_connection_url() == scenario.uri

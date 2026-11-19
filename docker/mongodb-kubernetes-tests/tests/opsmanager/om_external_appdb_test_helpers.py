@@ -1,3 +1,4 @@
+import copy
 import socket
 import ssl
 import time
@@ -41,6 +42,10 @@ APPDB_CERT_PREFIX = "appdb"
 # "ca-issuer" is backed by a static CA certificate without a keyUsage extension, which strict X.509
 # verification rejects (error 92) for leaves it signs.
 MANAGED_APPDB_CUSTOMER_CA = "managed-appdb-customer"
+
+# The label the operator stamps on everything operator-managed certificates create. The cleanup on
+# deletion finds the objects by it, so it has to name the owner of the graph.
+MANAGED_CERTIFICATE_OWNER_UID_LABEL = "mongodb.com/v1.managedCertificateOwnerUID"
 
 
 def appdb_tls_security(ca_configmap: str, cert_prefix: str = APPDB_CERT_PREFIX) -> dict:
@@ -313,6 +318,7 @@ def managed_appdb_graph(namespace: str, db_name: str) -> dict:
         f"{obj['kind']}/{obj['metadata']['name']}": {
             "uid": obj["metadata"]["uid"],
             "owners": obj["metadata"].get("ownerReferences") or [],
+            "labels": obj["metadata"].get("labels") or {},
             "spec": obj.get("spec"),
             "type": obj.get("type"),
             "data": obj.get("data", {}),
@@ -321,11 +327,40 @@ def managed_appdb_graph(namespace: str, db_name: str) -> dict:
     }
 
 
+def managed_certificate_owner_uid(spec: Optional[dict]) -> Optional[str]:
+    """The owner UID label the operator asks cert-manager to put on the Secrets of a Certificate."""
+    if not spec:
+        return None
+    secret_template = spec.get("secretTemplate") or {}
+    return (secret_template.get("labels") or {}).get(MANAGED_CERTIFICATE_OWNER_UID_LABEL)
+
+
+def without_managed_certificate_owner_uid(spec: Optional[dict]) -> Optional[dict]:
+    """The Certificate spec without the owner UID label, so specs can be compared across a handover."""
+    if not spec:
+        return spec
+    trimmed = copy.deepcopy(spec)
+    secret_template = trimmed.get("secretTemplate") or {}
+    labels = secret_template.get("labels")
+    if labels is not None:
+        labels.pop(MANAGED_CERTIFICATE_OWNER_UID_LABEL, None)
+    return trimmed
+
+
 def assert_managed_appdb_graph_owner(graph: dict, owner):
     """Asserts every managed object is owned by the expected AppDB CR or Primary OM."""
     kind, name, uid = owner.kind, owner.name, owner["metadata"]["uid"]
     certificate_uids = {entry["uid"] for key, entry in graph.items() if key.startswith("Certificate/")}
     for key, entry in graph.items():
+        # The cleanup on deletion selects by this label, so it has to follow the same owner as the
+        # owner references. It is set on the Certificate spec (cert-manager copies it onto the issued
+        # secret) and directly on the secrets the operator writes itself.
+        if key.startswith("Certificate/"):
+            assert managed_certificate_owner_uid(entry["spec"]) == uid, f"{key} must carry the owner's UID label"
+        label = (entry.get("labels") or {}).get(MANAGED_CERTIFICATE_OWNER_UID_LABEL)
+        if label is not None:
+            assert label == uid, f"{key} has the wrong owner UID label"
+
         owners = entry["owners"]
         # Derived PEMs and cert-manager TLS secret outputs follow the existing unowned convention.
         if key.startswith("Secret/") and not owners and (key.endswith("-pem") or entry["type"] == "kubernetes.io/tls"):
@@ -335,6 +370,25 @@ def assert_managed_appdb_graph_owner(graph: dict, owner):
                 continue
         assert len(owners) == 1, f"{key} has unexpected owner references"
         assert owners[0]["kind"] == kind and owners[0]["name"] == name and owners[0]["uid"] == uid, key
+
+
+def wait_for_managed_appdb_graph_owner(namespace: str, db_name: str, owner, timeout: int = 300) -> None:
+    """Waits until cert-manager has propagated the handover's owner markers, then asserts them.
+
+    The operator rewrites the Certificate specs synchronously, but cert-manager copies their
+    secretTemplate labels onto the already-issued Secrets asynchronously. Right after the handover the
+    issued Secrets can therefore still carry the previous owner's label for a moment.
+    """
+    deadline = time.time() + timeout
+    while True:
+        graph = managed_appdb_graph(namespace, db_name)
+        try:
+            assert_managed_appdb_graph_owner(graph, owner)
+            return
+        except AssertionError as exc:
+            if time.time() >= deadline:
+                raise AssertionError(f"managed AppDB graph ownership did not settle: {exc}") from exc
+        time.sleep(5)
 
 
 def assert_managed_appdb_chain(scenario: ManagedAppDBScenario):
