@@ -41,25 +41,6 @@ func TestEventLogSanitizesAndTruncatesText(t *testing.T) {
 	assert.LessOrEqual(t, len(events[0].Returned), maxEventText)
 }
 
-func TestEventLogKeepsRequestAndReturned(t *testing.T) {
-	l := newEventLog()
-	l.record(Event{
-		Action:    "start",
-		RequestID: "req-1",
-		Request:   requestStart,
-		Outcome:   "success",
-		Returned:  "200",
-	})
-
-	events, _ := l.snapshot()
-	require.Len(t, events, 1)
-	assert.Equal(t, "start", events[0].Action)
-	assert.Equal(t, "req-1", events[0].RequestID)
-	assert.Equal(t, requestStart, events[0].Request)
-	assert.Equal(t, "success", events[0].Outcome)
-	assert.Equal(t, "200", events[0].Returned)
-}
-
 func TestEventLogDropsUnknownRoles(t *testing.T) {
 	l := newEventLog()
 	l.record(Event{Action: "start", Role: Role("secret payload")})

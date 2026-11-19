@@ -49,7 +49,7 @@ func getStatus(t *testing.T, srv *httptest.Server) Status {
 
 func TestAPIStartGetStop(t *testing.T) {
 	f, srv := newServer(t)
-	assert.Equal(t, StateIdle, getStatus(t, srv).State)
+	assert.Equal(t, Status{State: StateIdle}, getStatus(t, srv))
 
 	var st Status
 	cfg := f.config("main", "run")
@@ -57,7 +57,10 @@ func TestAPIStartGetStop(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, StateRunning, st.State)
 	f.waitReady(cfg)
-	assert.Equal(t, StateRunning, getStatus(t, srv).State)
+	running := getStatus(t, srv)
+	assert.Equal(t, StateRunning, running.State)
+	assert.Equal(t, RoleMain, running.Role)
+	assert.Nil(t, running.ExitCode)
 
 	id := st.ExecutionID
 	require.NotEmpty(t, id)

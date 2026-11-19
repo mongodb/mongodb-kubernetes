@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,12 +18,9 @@ import (
 func observedFixture(t *testing.T) (*fixture, *observer.ObservedLogs) {
 	t.Helper()
 	core, logs := observer.New(zap.DebugLevel)
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, BinaryMongod), []byte(fakeMongod), 0o755)) //nolint:gosec
-	stdout := &syncBuffer{}
-	sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(stdout, stdout), WithLogger(zap.New(core).Sugar()), WithPathPolicy(onlyIn(dir)))
-	t.Cleanup(func() { _ = stopCurrent(sup, context.Background(), "", 0, true) })
-	return &fixture{t: t, sup: sup, dir: dir, stdout: stdout}, logs
+	f := newFixture(t)
+	f.sup.log = zap.New(core).Sugar()
+	return f, logs
 }
 
 func messages(logs *observer.ObservedLogs) []string {
