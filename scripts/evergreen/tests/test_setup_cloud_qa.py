@@ -2,11 +2,13 @@
 
 The periodic teardown runs against a real Cloud QA org; these tests pin the load-shaping behaviour: a project that
 is already gone is not retried, only transient failures are retried (resending only the PUTs that failed, with
-exponential backoff), repeated failures and an exhausted time budget stop the run, and listing errors fail loudly.
+exponential backoff), repeated failures and an exhausted time budget stop the run, listing errors fail loudly, and
+the problems of a run end in a failing exit code.
 The tests that send requests go through requests.Session.request, the one seam of all requests calls.
 """
 
 import json
+import sys
 from types import SimpleNamespace
 from unittest.mock import Mock, call
 
@@ -28,6 +30,10 @@ MONOTONIC_OFFSET = 123_456.0  # so that mixing time() and monotonic() fails the 
 MINUTE = 60
 BUDGET = 90 * MINUTE
 REQUEST_TIMEOUT = (5, 60)
+PROJECTS_STOPPED = "stopped after 5 consecutive failures, {} projects were not attempted"
+PROJECTS_FAILED = "{} projects could not be removed, not counting conflicts"
+KEYS_STOPPED = "stopped after 5 consecutive failures, {} keys were not attempted"
+KEYS_FAILED = "{} keys could not be removed"
 
 
 def response(status_code: int, body: str = "", url: str = FAKE_BASE_URL) -> requests.Response:
@@ -330,7 +336,7 @@ def fake_projects(count: int) -> list:
     return [{"id": f"id-{i}", "name": f"a-1-{i}"} for i in range(count)]
 
 
-def run_clean_unused_projects(monkeypatch, clock, statuses: list, listing_seconds=0, removal_seconds=0) -> list:
+def run_clean_unused_projects(monkeypatch, clock, statuses: list, listing_seconds=0, removal_seconds=0) -> tuple:
     listed = fake_projects(len(statuses))
     outcomes = iter(statuses)
     removed = []
@@ -347,39 +353,84 @@ def run_clean_unused_projects(monkeypatch, clock, statuses: list, listing_second
     monkeypatch.setattr(qa, "get_projects_older_than", fake_listing)
     monkeypatch.setattr(qa, "remove_group_by_id", fake_remove)
 
-    qa.clean_unused_projects(FAKE_ORG_ID, clock.monotonic() + BUDGET)
+    problems = qa.clean_unused_projects(FAKE_ORG_ID, clock.monotonic() + BUDGET)
 
-    return removed
+    return removed, problems
 
 
 @pytest.mark.parametrize(
-    "statuses,expected_attempted,expected_stop,expected_output",
+    "statuses,expected_attempted,expected_output,expected_problems",
     [
-        pytest.param([202, 404, 409], 3, False, ["Removed 1", "Already gone 1", "Kept 1 projects:"], id="mixed"),
-        pytest.param([404, 404, 202, 202, 202], 5, False, ["Removed 3", "Already gone 2", "Kept 0 projects:"], id="ok"),
+        pytest.param([202, 404, 409], 3, ["Removed 1", "Already gone 1", "Kept 1 projects:"], [], id="mixed"),
+        pytest.param([404, 404, 202, 202, 202], 5, ["Removed 3", "Already gone 2", "Kept 0 projects:"], [], id="ok"),
         # failures that point at Cloud QA or at the credentials stop the run
-        pytest.param([500] * 7, 5, True, ["Kept 5 projects:"], id="seven-500s-stop-after-five"),
-        pytest.param([500] * 5, 5, True, ["Kept 5 projects:"], id="the-last-five-fail"),
-        pytest.param([502, 503, 504, 500, 599, 500], 5, True, [], id="other-server-errors"),
-        pytest.param([429] * 7, 5, True, [], id="seven-429s-stop-after-five"),
-        pytest.param([401] * 7, 5, True, [], id="seven-401s-stop-after-five"),
-        pytest.param([403] * 7, 5, True, [], id="seven-403s-stop-after-five"),
-        pytest.param([500] * 4 + [202] + [500] * 4, 9, False, ["Removed 1", "Kept 8 projects:"], id="202-resets"),
-        pytest.param([500] * 4 + [404] + [500] * 4, 9, False, ["Already gone 1", "Kept 8 projects:"], id="404-resets"),
-        # a conflict is a problem of the project itself: it neither counts nor resets
-        pytest.param([500] * 4 + [409] + [500] * 3, 6, True, ["Kept 6 projects:"], id="409-does-not-reset"),
-        pytest.param([409] * 8, 8, False, ["Kept 8 projects:"], id="409-does-not-count"),
+        pytest.param(
+            [500] * 7,
+            5,
+            ["Kept 5 projects:"],
+            [PROJECTS_STOPPED.format(2), PROJECTS_FAILED.format(5)],
+            id="seven-500s-stop-after-five",
+        ),
+        pytest.param(
+            [500] * 5,
+            5,
+            ["Kept 5 projects:"],
+            [PROJECTS_STOPPED.format(0), PROJECTS_FAILED.format(5)],
+            id="the-last-five-fail",
+        ),
+        pytest.param(
+            [502, 503, 504, 500, 599, 500],
+            5,
+            [],
+            [PROJECTS_STOPPED.format(1), PROJECTS_FAILED.format(5)],
+            id="other-server-errors",
+        ),
+        pytest.param(
+            [429] * 7, 5, [], [PROJECTS_STOPPED.format(2), PROJECTS_FAILED.format(5)], id="seven-429s-stop-after-five"
+        ),
+        pytest.param(
+            [401] * 7, 5, [], [PROJECTS_STOPPED.format(2), PROJECTS_FAILED.format(5)], id="seven-401s-stop-after-five"
+        ),
+        pytest.param(
+            [403] * 7, 5, [], [PROJECTS_STOPPED.format(2), PROJECTS_FAILED.format(5)], id="seven-403s-stop-after-five"
+        ),
+        pytest.param(
+            [500] * 4 + [202] + [500] * 4,
+            9,
+            ["Removed 1", "Kept 8 projects:"],
+            [PROJECTS_FAILED.format(8)],
+            id="202-resets",
+        ),
+        pytest.param(
+            [500] * 4 + [404] + [500] * 4,
+            9,
+            ["Already gone 1", "Kept 8 projects:"],
+            [PROJECTS_FAILED.format(8)],
+            id="404-resets",
+        ),
+        # a conflict is a problem of the project itself: it neither counts nor resets, and it is not reported
+        pytest.param(
+            [500] * 4 + [409] + [500] * 3,
+            6,
+            ["Kept 6 projects:"],
+            [PROJECTS_STOPPED.format(2), PROJECTS_FAILED.format(5)],
+            id="409-does-not-reset",
+        ),
+        pytest.param([409] * 8, 8, ["Kept 8 projects:"], [], id="409-does-not-count"),
     ],
 )
 def test_clean_unused_projects(
-    monkeypatch, clock, capsys, statuses, expected_attempted, expected_stop, expected_output
+    monkeypatch, clock, capsys, statuses, expected_attempted, expected_output, expected_problems
 ):
-    removed = run_clean_unused_projects(monkeypatch, clock, statuses)
+    removed, problems = run_clean_unused_projects(monkeypatch, clock, statuses)
 
     output = capsys.readouterr().out
+    assert problems == expected_problems
     assert removed == [f"id-{i}" for i in range(expected_attempted)]
     assert f"Not attempted {len(statuses) - expected_attempted} projects." in output
-    assert ("Stopping: 5 consecutive failures" in output) == expected_stop
+    assert ("Stopping after 5 consecutive failures" in output) == any(
+        p.startswith("stopped") for p in expected_problems
+    )
     for line in expected_output:
         assert line in output
 
@@ -399,18 +450,25 @@ def test_clean_unused_projects(
 def test_clean_unused_projects_time_budget(
     monkeypatch, clock, capsys, listing_seconds, removal_seconds, expected_attempted
 ):
-    removed = run_clean_unused_projects(monkeypatch, clock, [202] * 10, listing_seconds, removal_seconds)
+    listed = 10
+    removed, problems = run_clean_unused_projects(monkeypatch, clock, [202] * listed, listing_seconds, removal_seconds)
 
     output = capsys.readouterr().out
+    not_attempted = listed - expected_attempted
+    assert problems == (
+        [f"stopped because the time budget is exhausted, {not_attempted} projects were not attempted"]
+        if not_attempted
+        else []
+    )
     assert removed == [f"id-{i}" for i in range(expected_attempted)]
-    assert f"Not attempted {10 - expected_attempted} projects." in output
-    assert output.count("Stopping: the time budget is exhausted") == (1 if expected_attempted < 10 else 0)
+    assert f"Not attempted {not_attempted} projects." in output
+    assert output.count("Stopping because the time budget is exhausted") == bool(not_attempted)
 
 
 def test_clean_unused_projects_shuffles_the_projects(monkeypatch, clock):
     monkeypatch.setattr(qa.random, "shuffle", lambda items: items.reverse())
 
-    removed = run_clean_unused_projects(monkeypatch, clock, [202] * 3)
+    removed, _ = run_clean_unused_projects(monkeypatch, clock, [202] * 3)
 
     assert removed == ["id-2", "id-1", "id-0"]
 
@@ -425,9 +483,10 @@ def test_clean_unused_projects_lists_the_old_projects_and_summarizes(monkeypatch
     monkeypatch.setattr(qa, "get_projects_older_than", fake_listing)
     monkeypatch.setattr(qa, "remove_group_by_id", lambda group_id: response(409))
 
-    qa.clean_unused_projects(FAKE_ORG_ID, clock.monotonic() + BUDGET)
+    problems = qa.clean_unused_projects(FAKE_ORG_ID, clock.monotonic() + BUDGET)
 
     output = capsys.readouterr().out
+    assert problems == []
     assert listing_calls == [((FAKE_ORG_ID,), {"minutes_interval": 140})]
     assert "Ignored 2 projects because they are too new." in output
     assert "\ta-1-0\tid-0\n" in output
@@ -440,14 +499,15 @@ def test_clean_unused_keys_keeps_the_keys_in_use_and_continues_after_a_failure(m
         {"id": "evg", "publicKey": "a", "desc": "EVG_KEY"},
         {"id": "not-delete", "publicKey": "b", "desc": "NOT_DELETE_1"},
         {"id": "old-1", "publicKey": "c", "desc": "1"},
-        {"id": "failing", "publicKey": "d", "desc": "2"},
+        {"id": "failing-1", "publicKey": "d", "desc": "2"},
         {"id": "old-2", "publicKey": "e", "desc": "3"},
+        {"id": "failing-2", "publicKey": "f", "desc": "4"},
     ]
     listing_calls = []
     deleted = []
 
     def fake_delete(org_id, key_id):
-        if key_id == "failing":
+        if key_id.startswith("failing"):
             raise Exception("boom")
         deleted.append((org_id, key_id))
 
@@ -456,19 +516,20 @@ def test_clean_unused_keys_keeps_the_keys_in_use_and_continues_after_a_failure(m
     )
     monkeypatch.setattr(qa, "delete_api_key", fake_delete)
 
-    qa.clean_unused_keys(FAKE_ORG_ID, clock.monotonic() + BUDGET)
+    problems = qa.clean_unused_keys(FAKE_ORG_ID, clock.monotonic() + BUDGET)
 
     output = capsys.readouterr().out
+    assert problems == [KEYS_FAILED.format(2)]
     assert listing_calls == [((FAKE_ORG_ID,), {"minutes_interval": 140})]
     assert deleted == [(FAKE_ORG_ID, "old-1"), (FAKE_ORG_ID, "old-2")]
     assert "Got an exception trying to remove the key boom" in output
     assert "Ignored 1 keys because they are too new." in output
     assert "Removed 2 keys." in output
     assert "Not attempted 0 keys." in output
-    assert "Kept 4:" in output
+    assert "Kept 5:" in output
 
 
-def run_clean_unused_keys(monkeypatch, clock, outcomes: str, deadline_in=BUDGET, removal_seconds=0) -> list:
+def run_clean_unused_keys(monkeypatch, clock, outcomes: str, deadline_in=BUDGET, removal_seconds=0) -> tuple:
     """The outcome of each key: o = removed, f = the removal fails, k = the key in use is kept."""
     keys = [
         {"id": f"key-{i}", "publicKey": "user" if o == "k" else f"public-{i}", "desc": "1"}
@@ -485,30 +546,42 @@ def run_clean_unused_keys(monkeypatch, clock, outcomes: str, deadline_in=BUDGET,
     monkeypatch.setattr(qa, "get_keys_older_than", lambda *args, **kwargs: (keys, []))
     monkeypatch.setattr(qa, "delete_api_key", fake_delete)
 
-    qa.clean_unused_keys(FAKE_ORG_ID, clock.monotonic() + deadline_in)
+    problems = qa.clean_unused_keys(FAKE_ORG_ID, clock.monotonic() + deadline_in)
 
-    return attempted
+    return attempted, problems
 
 
 @pytest.mark.parametrize(
-    "outcomes,expected_attempted,expected_not_attempted,expected_stop",
+    "outcomes,expected_attempted,expected_not_attempted,expected_problems",
     [
-        pytest.param("o" * 8, 8, 0, False, id="all-removed"),
-        pytest.param("f" * 7, 5, 2, True, id="seven-failures-stop-after-five"),
-        pytest.param("f" * 5, 5, 0, True, id="the-last-five-fail"),
-        pytest.param("ffffoffff", 9, 0, False, id="a-removal-resets"),
-        pytest.param("ffffkfff", 5, 2, True, id="the-key-in-use-neither-counts-nor-resets"),
+        pytest.param("o" * 8, 8, 0, [], id="all-removed"),
+        pytest.param("okk", 1, 0, [], id="kept-keys-are-not-problems"),
+        pytest.param(
+            "f" * 7, 5, 2, [KEYS_STOPPED.format(2), KEYS_FAILED.format(5)], id="seven-failures-stop-after-five"
+        ),
+        pytest.param("f" * 5, 5, 0, [KEYS_STOPPED.format(0), KEYS_FAILED.format(5)], id="the-last-five-fail"),
+        pytest.param("ffffoffff", 9, 0, [KEYS_FAILED.format(8)], id="a-removal-resets"),
+        pytest.param(
+            "ffffkfff",
+            5,
+            2,
+            [KEYS_STOPPED.format(2), KEYS_FAILED.format(5)],
+            id="the-key-in-use-neither-counts-nor-resets",
+        ),
     ],
 )
 def test_clean_unused_keys_stops_after_consecutive_failures(
-    monkeypatch, clock, capsys, outcomes, expected_attempted, expected_not_attempted, expected_stop
+    monkeypatch, clock, capsys, outcomes, expected_attempted, expected_not_attempted, expected_problems
 ):
-    attempted = run_clean_unused_keys(monkeypatch, clock, outcomes)
+    attempted, problems = run_clean_unused_keys(monkeypatch, clock, outcomes)
 
     output = capsys.readouterr().out
+    assert problems == expected_problems
     assert len(attempted) == expected_attempted
     assert f"Not attempted {expected_not_attempted} keys." in output
-    assert ("Stopping: 5 consecutive failures" in output) == expected_stop
+    assert ("Stopping after 5 consecutive failures" in output) == any(
+        p.startswith("stopped") for p in expected_problems
+    )
 
 
 @pytest.mark.parametrize(
@@ -522,17 +595,25 @@ def test_clean_unused_keys_stops_after_consecutive_failures(
     ],
 )
 def test_clean_unused_keys_time_budget(monkeypatch, clock, capsys, deadline_in, removal_seconds, expected_attempted):
-    attempted = run_clean_unused_keys(monkeypatch, clock, "oooo", deadline_in, removal_seconds)
+    listed = 4
+    attempted, problems = run_clean_unused_keys(monkeypatch, clock, "o" * listed, deadline_in, removal_seconds)
 
     output = capsys.readouterr().out
+    not_attempted = listed - expected_attempted
+    assert problems == (
+        [f"stopped because the time budget is exhausted, {not_attempted} keys were not attempted"]
+        if not_attempted
+        else []
+    )
     assert attempted == [f"key-{i}" for i in range(expected_attempted)]
-    assert f"Not attempted {4 - expected_attempted} keys." in output
-    assert output.count("Stopping: the time budget is exhausted") == (1 if expected_attempted < 4 else 0)
+    assert f"Not attempted {not_attempted} keys." in output
+    assert output.count("Stopping because the time budget is exhausted") == bool(not_attempted)
 
 
 def test_unconfigure_all_cleans_keys_even_when_the_project_cleanup_fails(monkeypatch, clock):
     cleanups = Mock()
     cleanups.projects.side_effect = Exception("listing failed")
+    cleanups.keys.return_value = []
     monkeypatch.setattr(qa, "read_env_file", Mock(side_effect=FileNotFoundError))
     monkeypatch.setattr(qa, "read_namespace_from_file", Mock(side_effect=FileNotFoundError))
     monkeypatch.setattr(qa, "clean_unused_projects", cleanups.projects)
@@ -541,22 +622,22 @@ def test_unconfigure_all_cleans_keys_even_when_the_project_cleanup_fails(monkeyp
     with pytest.raises(Exception, match="listing failed"):
         qa.unconfigure_all()
 
-    assert cleanups.mock_calls == [
-        call.projects(FAKE_ORG_ID, clock.monotonic() + BUDGET),
-        call.keys(FAKE_ORG_ID, clock.monotonic() + BUDGET),
-    ]
+    deadline = clock.monotonic() + BUDGET
+    assert cleanups.mock_calls == [call.projects(FAKE_ORG_ID, deadline), call.keys(FAKE_ORG_ID, deadline)]
 
 
 def test_unconfigure_all_cleans_projects_and_keys_when_removing_its_own_key_fails(monkeypatch, clock):
     calls = Mock()
+    calls.own_key.side_effect = Exception("boom")
+    calls.projects.return_value = []
+    calls.keys.return_value = []
     monkeypatch.setattr(qa, "read_env_file", lambda: {"OM_KEY_ID": "own-key"})
     monkeypatch.setattr(qa, "read_namespace_from_file", Mock(side_effect=FileNotFoundError))
     monkeypatch.setattr(qa, "delete_api_key", calls.own_key)
-    calls.own_key.side_effect = Exception("boom")
     monkeypatch.setattr(qa, "clean_unused_projects", calls.projects)
     monkeypatch.setattr(qa, "clean_unused_keys", calls.keys)
 
-    qa.unconfigure_all()
+    assert qa.unconfigure_all() == []
 
     deadline = clock.monotonic() + BUDGET
     assert calls.mock_calls == [
@@ -570,13 +651,15 @@ def test_unconfigure_all_cleans_projects_and_keys_when_removing_its_own_key_fail
 def test_unconfigure_all_removes_the_namespace_group_and_still_cleans(monkeypatch, clock, removal_error):
     calls = Mock()
     calls.group.side_effect = removal_error
+    calls.projects.return_value = []
+    calls.keys.return_value = []
     monkeypatch.setattr(qa, "read_env_file", Mock(side_effect=FileNotFoundError))
     monkeypatch.setattr(qa, "read_namespace_from_file", lambda: "a-1-x")
     monkeypatch.setattr(qa, "remove_group_by_name", calls.group)
     monkeypatch.setattr(qa, "clean_unused_projects", calls.projects)
     monkeypatch.setattr(qa, "clean_unused_keys", calls.keys)
 
-    qa.unconfigure_all()
+    assert qa.unconfigure_all() == []
 
     deadline = clock.monotonic() + BUDGET
     assert calls.mock_calls == [
@@ -584,6 +667,123 @@ def test_unconfigure_all_removes_the_namespace_group_and_still_cleans(monkeypatc
         call.projects(FAKE_ORG_ID, deadline),
         call.keys(FAKE_ORG_ID, deadline),
     ]
+
+
+def test_unconfigure_all_returns_the_problems_of_the_projects_and_of_the_keys(monkeypatch, clock):
+    monkeypatch.setattr(qa, "read_env_file", Mock(side_effect=FileNotFoundError))
+    monkeypatch.setattr(qa, "read_namespace_from_file", Mock(side_effect=FileNotFoundError))
+    monkeypatch.setattr(qa, "clean_unused_projects", Mock(return_value=["projects problem"]))
+    monkeypatch.setattr(qa, "clean_unused_keys", Mock(return_value=["keys problem"]))
+
+    assert qa.unconfigure_all() == ["projects problem", "keys problem"]
+
+
+@pytest.fixture
+def argv(monkeypatch):
+    """Sets the command of main() and the environment it requires."""
+
+    def set_command(command: str):
+        monkeypatch.setattr(sys, "argv", ["setup_cloud_qa.py", command])
+        monkeypatch.setenv(qa.ENV_FILE, "env-file")
+        monkeypatch.setenv(qa.NAMESPACE_FILE, "namespace-file")
+        monkeypatch.setenv(qa.OPS_MANAGER_VERSION, "cloud_qa")
+
+    return set_command
+
+
+FOREVER = float("inf")
+BOOM = Mock(side_effect=Exception("boom"))
+
+
+@pytest.mark.parametrize(
+    "stubbed,send",
+    [
+        pytest.param(
+            {"get_projects_older_than": BOOM},
+            lambda: qa.clean_unused_projects(FAKE_ORG_ID, FOREVER),
+            id="clean_unused_projects",
+        ),
+        pytest.param(
+            {"get_keys_older_than": BOOM}, lambda: qa.clean_unused_keys(FAKE_ORG_ID, FOREVER), id="clean_unused_keys"
+        ),
+        pytest.param(
+            {"clean_unused_projects": Mock(return_value=[]), "clean_unused_keys": BOOM},
+            qa.unconfigure_all,
+            id="unconfigure_all",
+        ),
+        pytest.param({"unconfigure_all": BOOM}, qa.main, id="main"),
+    ],
+)
+def test_a_failed_listing_is_not_swallowed(monkeypatch, clock, argv, stubbed, send):
+    argv("delete_all")
+    monkeypatch.setattr(qa, "read_env_file", Mock(side_effect=FileNotFoundError))
+    monkeypatch.setattr(qa, "read_namespace_from_file", Mock(side_effect=FileNotFoundError))
+    for name, stub in stubbed.items():
+        monkeypatch.setattr(qa, name, stub)
+
+    with pytest.raises(Exception, match="boom"):
+        send()
+
+
+@pytest.mark.parametrize(
+    "problems_per_org,expected_exit,expected_report",
+    [
+        pytest.param([[]], 0, "", id="no-problems"),
+        pytest.param([["a problem"]], 1, "Cloud QA cleanup problems:\n  a problem\n", id="a-problem"),
+        pytest.param(
+            [["first"], [], ["second", "third"]],
+            1,
+            "Cloud QA cleanup problems:\n  first\n  second\n  third\n",
+            id="problems-of-every-org-are-reported-once-after-all-orgs-are-cleaned",
+        ),
+    ],
+)
+def test_main_delete_all_fails_when_the_cleanup_reports_problems(
+    monkeypatch, capsys, argv, problems_per_org, expected_exit, expected_report
+):
+    argv("delete_all")
+    orgs = [(f"org-{i}", f"user-{i}", f"key-{i}") for i in range(len(problems_per_org))]
+    seen = []
+
+    def fake_unconfigure_all():
+        seen.append((qa.ORG_ID, qa.USER_OWNER, qa.APIKEY_OWNER))
+        return problems_per_org[len(seen) - 1]
+
+    # main() assigns these globals: monkeypatch restores them
+    for name in ("ORG_ID", "USER_OWNER", "APIKEY_OWNER"):
+        monkeypatch.setattr(qa, name, "unset")
+    monkeypatch.setattr(qa, "ORG_IDS", [org for org, _, _ in orgs])
+    monkeypatch.setattr(qa, "USER_OWNERS", [user for _, user, _ in orgs])
+    monkeypatch.setattr(qa, "APIKEY_OWNERS", [key for _, _, key in orgs])
+    monkeypatch.setattr(qa, "unconfigure_all", fake_unconfigure_all)
+
+    assert qa.main() == expected_exit
+
+    output = capsys.readouterr().out
+    assert seen == orgs
+    assert output.count("Cloud QA cleanup problems:") == bool(expected_report)
+    assert output.endswith(expected_report)
+
+
+@pytest.mark.parametrize(
+    "command,expected_called,expected_exit",
+    [
+        pytest.param("create", "configure", 0, id="create"),
+        pytest.param("delete", "unconfigure_from_used_project", 0, id="delete"),
+        pytest.param("unknown", None, 1, id="unknown-command"),
+    ],
+)
+def test_main_runs_the_command(monkeypatch, argv, command, expected_called, expected_exit):
+    argv(command)
+    commands = {name: Mock() for name in ("configure", "unconfigure_from_used_project")}
+    for name, stub in commands.items():
+        monkeypatch.setattr(qa, name, stub)
+
+    assert qa.main() == expected_exit
+
+    assert [name for name, stub in commands.items() if stub.call_count] == (
+        [expected_called] if expected_called else []
+    )
 
 
 @pytest.mark.parametrize(
