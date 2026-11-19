@@ -2218,6 +2218,132 @@ func TestOpsManagerManagedQueryableConsumers(t *testing.T) {
 	}
 }
 
+func TestOpsManagerQueryableReplicationPreservesSourceAndRolloutHash(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		managed bool
+		pem     string
+	}{
+		{name: "managed", managed: true, pem: "leaf\nkey\nCA\n"},
+		{name: "managed without final newline", managed: true, pem: "leaf\nkey\nCA"},
+		{name: "BYO", pem: "leaf\nkey\nCA\n"},
+		{name: "BYO without final newline", pem: "leaf\nkey\nCA"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			manager := newManagedCertificateTestOM()
+			manager.Spec.Security = nil
+			manager.Spec.Topology = mdbv1.ClusterTopologyMultiCluster
+			if tt.managed {
+				manager.Spec.Backup.ManagedCertificate = &omv1.ManagedCertificate{}
+			} else {
+				manager.Spec.Backup.QueryableBackupSecretRef = omv1.SecretRef{Name: "byo-queryable"}
+			}
+			source := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: manager.QueryableBackupTLSSecretName(), Namespace: manager.Namespace,
+					UID: types.UID("source-pem"), OwnerReferences: kube.BaseOwnerReference(manager),
+					Labels: map[string]string{"retain": "source-label"}, Annotations: map[string]string{"retain": "source-annotation"},
+				},
+				Type: corev1.SecretTypeOpaque,
+				Data: map[string][]byte{"queryable.pem": []byte(tt.pem)},
+			}
+			central := newManagedCertificateKubeClient(t, manager, source)
+			remote := newManagedCertificateKubeClient(t)
+			centralMember := multicluster.MemberCluster{Name: "shared-central", Index: 0, Healthy: true, Active: true, Client: central, SecretClient: secrets.SecretClient{KubeClient: central}}
+			helper := &OpsManagerReconcilerHelper{
+				opsManager: manager,
+				memberClusters: []multicluster.MemberCluster{
+					centralMember,
+					{Name: "remote", Index: 1, Healthy: true, Active: true, Client: remote, SecretClient: secrets.SecretClient{KubeClient: remote}},
+				},
+			}
+			r := newManagedCertificateTestReconciler(ctx, central)
+			key := kube.ObjectKey(manager.Namespace, source.Name)
+			var previousCopy corev1.Secret
+			var previousHash string
+			for _, material := range []string{tt.pem, "renewed\nkey\nCA\n"} {
+				source.Data["queryable.pem"] = []byte(material)
+				if previousCopy.Name != "" {
+					require.NoError(t, central.UpdateSecret(ctx, *source))
+				}
+				persistedSource, err := central.GetSecret(ctx, key)
+				require.NoError(t, err)
+				before, err := operatorConstruct.OpsManagerStatefulSet(ctx, r.SecretClient, manager, centralMember, zap.S())
+				require.NoError(t, err)
+				if tt.managed && previousHash != "" {
+					assert.NotEqual(t, previousHash, before.Spec.Template.Annotations["queryableBackupPemHash"], "renewal must change the rollout hash")
+				}
+				for attempt := 0; attempt < 2; attempt++ {
+					require.NoError(t, r.replicateQueryableBackupTLSSecretInMemberClusters(ctx, helper))
+					afterSource, err := central.GetSecret(ctx, key)
+					require.NoError(t, err)
+					assert.Equal(t, persistedSource, afterSource, "replication must leave source bytes, metadata and resource version untouched")
+					copied, err := remote.GetSecret(ctx, key)
+					require.NoError(t, err)
+					assert.Equal(t, source.Data, copied.Data, "members must receive the exact PEM bytes")
+					assert.Empty(t, copied.OwnerReferences, "a member copy must not reference a central owner")
+					if attempt > 0 {
+						assert.Equal(t, previousCopy, copied, "unchanged replication must not rewrite the member Secret")
+					}
+					after, err := operatorConstruct.OpsManagerStatefulSet(ctx, r.SecretClient, manager, centralMember, zap.S())
+					require.NoError(t, err)
+					assert.Equal(t, before.Spec.Template.Annotations, after.Spec.Template.Annotations, "replication must not trigger a rollout")
+					previousCopy = copied
+				}
+				previousHash = before.Spec.Template.Annotations["queryableBackupPemHash"]
+				*source = persistedSource
+			}
+		})
+	}
+}
+
+func TestOpsManagerQueryableReplicationDoesNotRevertConcurrentRenewal(t *testing.T) {
+	ctx := t.Context()
+	manager := newManagedCertificateTestOM()
+	manager.Spec.Topology = mdbv1.ClusterTopologyMultiCluster
+	manager.Spec.Backup.ManagedCertificate = &omv1.ManagedCertificate{}
+	key := kube.ObjectKey(manager.Namespace, manager.QueryableBackupTLSSecretName())
+	source := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace, UID: types.UID("source-pem"), OwnerReferences: kube.BaseOwnerReference(manager)},
+		Data:       map[string][]byte{"queryable.pem": []byte("original\n")},
+	}
+	rotated := false
+	var renewedSource *corev1.Secret
+	central := newManagedCertificateKubeClientWithInterceptor(t, interceptor.Funcs{
+		Get: func(ctx context.Context, inner client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if err := inner.Get(ctx, key, obj, opts...); err != nil {
+				return err
+			}
+			if s, ok := obj.(*corev1.Secret); ok && s.Name == source.Name && !rotated {
+				rotated = true
+				renewedSource = s.DeepCopy()
+				renewedSource.Data["queryable.pem"] = []byte("renewed\n")
+				require.NoError(t, inner.Update(ctx, renewedSource))
+			}
+			return nil
+		},
+	}, source)
+	remote := newManagedCertificateKubeClient(t)
+	r := newManagedCertificateTestReconciler(ctx, central)
+	helper := &OpsManagerReconcilerHelper{
+		opsManager: manager,
+		memberClusters: []multicluster.MemberCluster{
+			{Name: "shared-central", Client: central, SecretClient: secrets.SecretClient{KubeClient: central}, Healthy: true},
+			{Name: "remote", Client: remote, SecretClient: secrets.SecretClient{KubeClient: remote}, Healthy: true},
+		},
+	}
+	for _, want := range []string{"original\n", "renewed\n"} {
+		require.NoError(t, r.replicateQueryableBackupTLSSecretInMemberClusters(ctx, helper))
+		persistedSource, err := central.GetSecret(ctx, key)
+		require.NoError(t, err)
+		assert.Equal(t, *renewedSource, persistedSource, "replication must never revert a concurrently renewed source")
+		copied, err := remote.GetSecret(ctx, key)
+		require.NoError(t, err)
+		assert.Equal(t, []byte(want), copied.Data["queryable.pem"])
+	}
+}
+
 func TestOpsManagerQueryableBYODisabledCompatibility(t *testing.T) {
 	ctx := t.Context()
 	om := newManagedCertificateTestOM()

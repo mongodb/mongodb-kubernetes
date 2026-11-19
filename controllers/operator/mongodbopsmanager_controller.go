@@ -1740,7 +1740,13 @@ func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Conte
 	if r.VaultClient != nil {
 		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
 	}
-	secretMap, err := r.ReadSecret(ctx, objectKey, opsManagerSecretPath)
+	var source corev1.Secret
+	var err error
+	if vault.IsVaultSecretBackend() {
+		source.Data, err = r.ReadBinarySecret(ctx, objectKey, opsManagerSecretPath)
+	} else {
+		source, err = r.client.GetSecret(ctx, objectKey)
+	}
 	if err != nil {
 		return xerrors.Errorf("failed to read secret %s: %w", secretName, err)
 	}
@@ -1749,10 +1755,16 @@ func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Conte
 		SetName(objectKey.Name).
 		SetNamespace(objectKey.Namespace).
 		SetLabels(map[string]string{}).
-		SetStringMapToData(secretMap).
+		SetByteData(source.Data).
 		Build()
 
 	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
+		// Never write a member copy back onto the source, including during certificate renewal.
+		if source.UID != "" {
+			if existing, err := memberCluster.Client.GetSecret(ctx, objectKey); err == nil && existing.UID == source.UID {
+				continue
+			}
+		}
 		if err := memberCluster.SecretClient.PutSecretIfChanged(ctx, newSecret, opsManagerSecretPath); err != nil {
 			return xerrors.Errorf("error replicating secret %v to cluster %s: %w", objectKey, memberCluster.Name, err)
 		}

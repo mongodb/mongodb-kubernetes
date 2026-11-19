@@ -1,4 +1,6 @@
+import hashlib
 import json
+from base64 import b32encode
 from pathlib import Path
 
 import kubernetes.client
@@ -43,7 +45,7 @@ from tests.opsmanager.managedcert_helper import (
     wait_for_certificates_ready,
     wait_for_om_https_trusted_by_bundle,
 )
-from tests.tls.managedcert_helper import member_cert_issuance
+from tests.tls.managedcert_helper import bundle_fingerprints, member_cert_issuance
 
 OM_NAME = "om-managedcert-mc"
 OWNER_LABEL = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
@@ -76,6 +78,7 @@ def ops_manager(
     custom_appdb_version: str,
     s3_bucket_oplog: str,
     s3_bucket_blockstore: str,
+    issuer_ca_plus: str,
 ) -> MongoDBOpsManager:
     multi_cluster_operator.wait_for_operator_ready()
     clusters = get_member_cluster_names()[:2]
@@ -88,11 +91,29 @@ def ops_manager(
     resource["spec"]["clusterSpecList"] = cluster_spec_list(
         clusters, [1, 1], backup_configs=[{"members": 1}, {"members": 1}]
     )
-    resource["spec"]["security"] = {"managedCertificate": {}}
+    resource["spec"]["security"] = {
+        "managedCertificate": {
+            "additionalTrustedCAs": [{"name": issuer_ca_plus, "kind": "ConfigMap", "key": CA_BUNDLE_KEY}]
+        }
+    }
     resource["spec"]["backup"] = {
         "enabled": True,
         "managedCertificate": {},
         "headDB": {"storage": "500M"},
+        "statefulSet": {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "mongodb-backup-daemon",
+                                "resources": {"requests": {"memory": "10G"}, "limits": {"memory": "10G"}},
+                            }
+                        ]
+                    }
+                }
+            }
+        },
     }
     configure_appdb_backup_mongodb_ops_manager(resource, s3_bucket_blockstore, s3_bucket_oplog)
     resource.allow_mdb_rc_versions()
@@ -222,6 +243,14 @@ def _assert_member_delivery(ops_manager: MongoDBOpsManager):
     names = ManagedCertificateNames.for_ops_manager(ops_manager)
     appdb_ca = read_configmap(namespace, names.app_db_ca_bundle_config_map, api_client=central)[APP_DB_CA_BUNDLE_KEY]
     om_ca = read_configmap(namespace, names.om_ca_bundle_config_map, api_client=central)[CA_BUNDLE_KEY]
+    additional_ca_ref = ops_manager["spec"]["security"]["managedCertificate"]["additionalTrustedCAs"][0]
+    additional_ca = read_configmap(namespace, additional_ca_ref["name"], api_client=central)[additional_ca_ref["key"]]
+    additional_fingerprints = set(bundle_fingerprints(additional_ca))
+    om_fingerprints = set(bundle_fingerprints(om_ca))
+    assert additional_fingerprints
+    assert (
+        additional_fingerprints <= om_fingerprints
+    ), "additional trusted certificates are missing from the OM CA bundle"
     leaf = read_secret(namespace, names.app_db_leaf_certificate, api_client=central)["tls.crt"]
     _assert_signed_by(leaf, appdb_ca, "the AppDB server certificate")
     assert not cert_signed_by_bundle(leaf, om_ca)
@@ -273,9 +302,15 @@ def _assert_backup_delivery(ops_manager: MongoDBOpsManager):
     issued = read_secret(namespace, f"{prefix}-cert", api_client=central)
     derived = read_secret(namespace, f"{prefix}-pem", api_client=central)["queryable.pem"]
     ca = read_configmap(namespace, f"{prefix}-ca-bundle", api_client=central)[CA_BUNDLE_KEY]
+    _assert_owned_by_ops_manager(
+        kubernetes.client.CoreV1Api(central).read_namespaced_secret(f"{prefix}-pem", namespace),
+        ops_manager["metadata"]["uid"],
+        "the central queryable-backup PEM Secret",
+    )
+    pem_hash = b32encode(hashlib.sha256(derived.encode()).digest()).decode().rstrip("=")
     assert issued["tls.crt"] in derived
     assert issued["tls.key"] in derived
-    assert ca.rstrip("\n") in derived
+    assert ca in derived
     _assert_signed_by(issued["tls.crt"], ca, "the queryable-backup certificate")
     _assert_issued_ekus(issued["tls.crt"], {ExtendedKeyUsageOID.SERVER_AUTH}, "the queryable-backup certificate")
     assert ExtendedKeyUsageOID.CLIENT_AUTH not in _issued_ekus(issued["tls.crt"])
@@ -291,8 +326,10 @@ def _assert_backup_delivery(ops_manager: MongoDBOpsManager):
         cluster = get_member_cluster_api_client(cluster_name)
         daemon_name = f"{ops_manager.name}-{index}-backup-daemon"
         assert f"{daemon_name}-0.{daemon_name}-svc.{namespace}.svc.{domain}" in sans
-        assert read_secret(namespace, f"{prefix}-pem", api_client=cluster)["queryable.pem"] == derived
+        member_pem = read_secret(namespace, f"{prefix}-pem", api_client=cluster)["queryable.pem"]
+        assert member_pem == derived
         for sts in (ops_manager.read_statefulset(cluster_name), ops_manager.read_backup_statefulset(cluster_name)):
+            assert sts.spec.template.metadata.annotations["queryableBackupPemHash"] == pem_hash
             volumes = {volume.name: volume for volume in sts.spec.template.spec.volumes}
             assert volumes["queryable-pem"].secret.secret_name == f"{prefix}-pem"
             assert volumes["appdb-ca-certificate"].config_map.name == (
@@ -340,6 +377,41 @@ class TestMultiClusterManagedOpsManager:
                 f"{daemon_name}-0.{daemon_name}-svc.{ops_manager.namespace}.svc.{domain}", "/head/"
             )
 
+    def test_scale_and_reorder(self, ops_manager: MongoDBOpsManager, tmp_path: Path):
+        names = ManagedCertificateNames.for_ops_manager(ops_manager)
+        appdb_ca = _write_appdb_ca(ops_manager.namespace, tmp_path / "appdb-ca.pem", names.app_db_name)
+        before_revision, _ = member_cert_issuance(names.app_db_name, ops_manager.namespace)
+        indexed_before = {
+            spec["clusterName"]: index for index, spec in ops_manager.get_appdb_indexed_cluster_spec_items()
+        }
+        ops_manager.load()
+        specs = ops_manager["spec"]["applicationDatabase"]["clusterSpecList"]
+        specs[0]["members"], specs[1]["members"] = 3, 2
+        ops_manager.update()
+        _wait_for_convergence(ops_manager)
+        up_revision, up_leaf = member_cert_issuance(names.app_db_name, ops_manager.namespace)
+        assert up_revision == before_revision + 1, "one shared update must cover both clusters' scale targets"
+        _assert_appdb_sans(ops_manager, up_leaf)
+        _assert_member_delivery(ops_manager)
+        _assert_backup_delivery(ops_manager)
+        _assert_appdb_tls_scram(ops_manager, appdb_ca)
+
+        ops_manager.load()
+        specs = ops_manager["spec"]["applicationDatabase"]["clusterSpecList"]
+        specs[0]["members"], specs[1]["members"] = 2, 1
+        specs.reverse()
+        ops_manager.update()
+        _wait_for_convergence(ops_manager)
+        down_revision, down_leaf = member_cert_issuance(names.app_db_name, ops_manager.namespace)
+        assert down_revision == up_revision
+        assert down_leaf == up_leaf, "scale-down must not shrink or reissue the certificate"
+        assert {
+            spec["clusterName"]: index for index, spec in ops_manager.get_appdb_indexed_cluster_spec_items()
+        } == indexed_before
+        _assert_member_delivery(ops_manager)
+        _assert_backup_delivery(ops_manager)
+        _assert_appdb_tls_scram(ops_manager, appdb_ca)
+
     def test_queryable_backup(
         self,
         ops_manager: MongoDBOpsManager,
@@ -376,38 +448,3 @@ class TestMultiClusterManagedOpsManager:
                 replica_set_name=backed_up_mongodb.name,
             )
         assert BACKUP_DOCUMENT in records
-
-    def test_scale_and_reorder(self, ops_manager: MongoDBOpsManager, tmp_path: Path):
-        names = ManagedCertificateNames.for_ops_manager(ops_manager)
-        appdb_ca = _write_appdb_ca(ops_manager.namespace, tmp_path / "appdb-ca.pem", names.app_db_name)
-        before_revision, _ = member_cert_issuance(names.app_db_name, ops_manager.namespace)
-        indexed_before = {
-            spec["clusterName"]: index for index, spec in ops_manager.get_appdb_indexed_cluster_spec_items()
-        }
-        ops_manager.load()
-        specs = ops_manager["spec"]["applicationDatabase"]["clusterSpecList"]
-        specs[0]["members"], specs[1]["members"] = 3, 2
-        ops_manager.update()
-        _wait_for_convergence(ops_manager)
-        up_revision, up_leaf = member_cert_issuance(names.app_db_name, ops_manager.namespace)
-        assert up_revision == before_revision + 1, "one shared update must cover both clusters' scale targets"
-        _assert_appdb_sans(ops_manager, up_leaf)
-        _assert_member_delivery(ops_manager)
-        _assert_backup_delivery(ops_manager)
-        _assert_appdb_tls_scram(ops_manager, appdb_ca)
-
-        ops_manager.load()
-        specs = ops_manager["spec"]["applicationDatabase"]["clusterSpecList"]
-        specs[0]["members"], specs[1]["members"] = 2, 1
-        specs.reverse()
-        ops_manager.update()
-        _wait_for_convergence(ops_manager)
-        down_revision, down_leaf = member_cert_issuance(names.app_db_name, ops_manager.namespace)
-        assert down_revision == up_revision
-        assert down_leaf == up_leaf, "scale-down must not shrink or reissue the certificate"
-        assert {
-            spec["clusterName"]: index for index, spec in ops_manager.get_appdb_indexed_cluster_spec_items()
-        } == indexed_before
-        _assert_member_delivery(ops_manager)
-        _assert_backup_delivery(ops_manager)
-        _assert_appdb_tls_scram(ops_manager, appdb_ca)
