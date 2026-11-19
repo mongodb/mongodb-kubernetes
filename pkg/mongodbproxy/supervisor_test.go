@@ -36,13 +36,6 @@ touch "$2.ready"
 while true; do sleep 0.1; done
 `
 
-// fakeNumactl announces itself, drops "--interleave=all" and runs the rest of the command line.
-const fakeNumactl = `#!/bin/sh
-echo "numactl $1"
-shift
-exec "$@"
-`
-
 // syncBuffer is a bytes.Buffer safe for concurrent use by exec's copy goroutines.
 type syncBuffer struct {
 	mu  sync.Mutex
@@ -79,7 +72,6 @@ func newFixture(t *testing.T) *fixture {
 	for _, name := range []string{BinaryMongod, BinaryMongos} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(fakeMongod), 0o755)) //nolint:gosec
 	}
-	require.NoError(t, os.WriteFile(filepath.Join(dir, binaryNumactl), []byte(fakeNumactl), 0o755)) //nolint:gosec
 	stdout := &syncBuffer{}
 	sup := NewSupervisor(dir, onlyIn(dir), testEnv, nil)
 	sup.stdout, sup.stderr = stdout, stdout
@@ -240,31 +232,6 @@ func TestArgsArePassedToTheChild(t *testing.T) {
 	require.NoError(t, err)
 	waitDone(t, e)
 	assert.Contains(t, f.sup.Status().Output, "ARGS: -f "+cfg+" "+strings.Join(args, " "))
-}
-
-func TestNumaPolicyAutoRunsUnderNumactl(t *testing.T) {
-	f := newFixture(t)
-	cfg := f.config("main", "args")
-	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaPolicy: numaPolicyAuto}})
-	require.NoError(t, err)
-	waitDone(t, e)
-	out := f.sup.Status().Output
-	assert.Contains(t, out, "numactl --interleave=all")
-	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
-}
-
-func TestNumaPolicyAutoWithoutNumactlStartsWithoutIt(t *testing.T) {
-	f := newFixture(t)
-	require.NoError(t, os.Remove(filepath.Join(f.dir, binaryNumactl)))
-	cfg := f.config("main", "args")
-
-	e, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{NumaPolicy: numaPolicyAuto}})
-
-	require.NoError(t, err)
-	waitDone(t, e)
-	out := f.sup.Status().Output
-	assert.NotContains(t, out, "numactl")
-	assert.Contains(t, out, "ARGS: -f "+cfg, "mongod must still receive its own arguments")
 }
 
 func TestConfigWithForkIsRejected(t *testing.T) {

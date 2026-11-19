@@ -175,21 +175,9 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		return nil, fmt.Errorf("%w: %w", ErrSpawn, err)
 	}
 
-	name, args := path, spec.args
-	if spec.numactl {
-		// Interleaving is a tuning that the server image may not ship the tool for, and a database that does not
-		// start is worse than one that starts without it.
-		if numactl, err := s.resolve(binaryNumactl); err != nil {
-			s.log.Warnw("numactl is not available, starting without it", "error", err)
-		} else {
-			name, args = numactl, append([]string{"--interleave=all", path}, spec.args...)
-		}
-	}
-
 	output := &tailBuffer{limit: maxOutputBytes}
-	// The program is mongod/mongos (optionally behind numactl). The arguments are the config path plus the
-	// agent's own args, which validate() screened for the flags that the proxy owns. Nothing reaches a shell.
-	cmd := exec.Command(name, args...) //nolint:gosec
+	// Launch mongod/mongos directly with the config path and validated Agent args. Nothing reaches a shell.
+	cmd := exec.Command(path, spec.args...) //nolint:gosec
 	cmd.Env = spec.env
 	cmd.Stdout = io.MultiWriter(s.stdout, output)
 	cmd.Stderr = io.MultiWriter(s.stderr, output)
