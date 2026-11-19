@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"path"
@@ -10,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hashicorp/go-multierror"
 	"github.com/stretchr/objx"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -120,9 +120,10 @@ type ReconcileAppDbReplicaSet struct {
 	initDatabaseVersion string
 
 	defaultArchitecture architectures.DefaultArchitecture
+	defaultImageType    architectures.ImageType
 }
 
-func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]client.Client, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
+func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseVersion string, opsManager *omv1.MongoDBOpsManager, commonController *ReconcileCommonController, omConnectionFactory om.ConnectionFactory, globalMemberClustersMap map[string]client.Client, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
 	helper, err := NewAppDBReconcilerHelper(ctx, opsManager, commonController, globalMemberClustersMap, log)
 	if err != nil {
 		return nil, err
@@ -135,6 +136,7 @@ func NewAppDBReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrl
 		imageUrls:                 imageUrls,
 		initDatabaseVersion:       initDatabaseVersion,
 		defaultArchitecture:       defaultArchitecture,
+		defaultImageType:          defaultImageType,
 	}, nil
 }
 
@@ -856,6 +858,11 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	log.Infow("ReplicaSet.Spec", "spec", rs)
 	log.Infow("ReplicaSet.Status", "status", opsManager.Status.AppDbStatus)
 
+	if warning := architectures.ContainerImageTypeAnnotationWarning(opsManager.GetAnnotations()); warning != "" {
+		log.Warn(warning)
+		opsManager.AddAppDBWarningIfNotExists(status.Warning(warning))
+	}
+
 	// Ops Manager must own the AppDB StatefulSet before touching anything: a StatefulSet
 	// still owned by a MongoDB CR (reverse migration) is asked to be released and waited for.
 	appDBStatefulsetOwnershipStatus := r.ensureAppDBStatefulSetOwnership(ctx, opsManager, log)
@@ -933,7 +940,7 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 
 	appdbOpts := construct.AppDBStatefulSetOptions{
 		InitAppDBImage: images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseVersion),
-		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture),
+		MongodbImage:   images.GetOfficialImage(r.imageUrls, opsManager.Spec.AppDB.Version, opsManager.GetAnnotations(), r.defaultArchitecture, r.defaultImageType),
 		CustomAgentURL: r.customAgentURL,
 	}
 	if architectures.IsRunningStaticArchitecture(opsManager.Annotations, r.defaultArchitecture) {
@@ -1334,7 +1341,7 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
 			err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(om.Namespace, secretName), secretHash, data, nil, certs.AppDB)
 			if err != nil {
-				errs = multierror.Append(errs, xerrors.Errorf("can't create concatenated PEM certificate in cluster %s: %w", memberCluster.Name, err))
+				errs = errors.Join(errs, xerrors.Errorf("can't create concatenated PEM certificate in cluster %s: %w", memberCluster.Name, err))
 				continue
 			}
 		}
@@ -1845,7 +1852,14 @@ func configureMonitoring(ac *automationconfig.AutomationConfig, log *zap.Sugared
 }
 
 // registerAppDBHostsWithProject uses the Hosts API to add each process in the AppDB to the project
-func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(ctx context.Context, hostnames []string, conn om.Connection, opsManagerPassword string, log *zap.SugaredLogger) error {
+func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(
+	ctx context.Context,
+	appDbSecurity *mdbv1.Security,
+	hostnames []string,
+	conn om.Connection,
+	opsManagerPassword string,
+	log *zap.SugaredLogger,
+) error {
 	getHostsResult, err := conn.GetHosts(ctx)
 	if err != nil {
 		return xerrors.Errorf("error fetching existing hosts: %w", err)
@@ -1863,6 +1877,7 @@ func (r *ReconcileAppDbReplicaSet) registerAppDBHostsWithProject(ctx context.Con
 			Password:          opsManagerPassword,
 			Hostname:          hostname,
 			AuthMechanismName: "MONGODB_CR",
+			SSLEnabled:        appDbSecurity.IsTLSEnabled(),
 		}
 
 		if currentHost, ok := hostMap[hostname]; ok {
@@ -2085,8 +2100,10 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 			"visible from Ops/Cloud Manager UI. %s", err)
 	}
 
+	appDbSecurity := opsManager.Spec.AppDB.GetSecurity()
+
 	if err := conn.ReadUpdateDeployment(ctx, func(d om.Deployment) error {
-		d.ConfigureTLS(opsManager.Spec.AppDB.GetSecurity(), appDBCAFilePath)
+		d.ConfigureTLS(appDbSecurity, appDBCAFilePath)
 		return nil
 	}, log); err != nil {
 		log.Errorf("Could not set TLS configuration in Ops/Cloud Manager for the Application Database. "+
@@ -2096,7 +2113,7 @@ func (r *ReconcileAppDbReplicaSet) tryConfigureMonitoringInOpsManager(ctx contex
 
 	hostnames := r.generateProcessHostnames(opsManager)
 
-	if err := r.registerAppDBHostsWithProject(ctx, hostnames, conn, opsManagerUserPassword, log); err != nil {
+	if err := r.registerAppDBHostsWithProject(ctx, appDbSecurity, hostnames, conn, opsManagerUserPassword, log); err != nil {
 		return existingPodVars, xerrors.Errorf("error registering hosts with project: %w", err)
 	}
 
@@ -2131,7 +2148,7 @@ func (r *ReconcileAppDbReplicaSet) ensureProjectIDConfigMap(ctx context.Context,
 	var errs error
 	for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
 		if err := r.ensureProjectIDConfigMapForCluster(ctx, opsManager, projectID, memberCluster.Client); err != nil {
-			errs = multierror.Append(errs, xerrors.Errorf("error creating ConfigMap in cluster %s: %w", memberCluster.Name, err))
+			errs = errors.Join(errs, xerrors.Errorf("error creating ConfigMap in cluster %s: %w", memberCluster.Name, err))
 			continue
 		}
 	}

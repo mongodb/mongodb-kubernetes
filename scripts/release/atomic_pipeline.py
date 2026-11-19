@@ -38,6 +38,24 @@ def extract_tools_version_from_release(release: Dict) -> str:
     return tools_version
 
 
+def agent_version_from_custom_url(custom_agent_url: str) -> str:
+    """Return the Agent version encoded in a custom Agent tarball filename.
+
+    The operator derives the Agent image tag from the same filename
+    (agentVersionFromURL in controllers/operator/common_controller.go). The
+    image built from the tarball must carry that tag, or every pod that uses
+    the custom URL stays in ImagePullBackOff.
+    """
+    filename = custom_agent_url.rsplit("/", 1)[-1]
+    if not filename.startswith("mongodb-mms-automation-agent-") or not filename.endswith(".tar.gz"):
+        raise ValueError(f"Cannot derive the Agent version from the custom Agent URL filename: {filename}")
+    rest = filename.removeprefix("mongodb-mms-automation-agent-").removesuffix(".tar.gz")
+    if "." not in rest:
+        raise ValueError(f"Cannot derive the Agent version from the custom Agent URL filename: {filename}")
+    # The last dot segment is the platform suffix (rhel8_x86_64), as in the operator.
+    return rest.rsplit(".", 1)[0]
+
+
 def build_image(
     build_configuration: ImageBuildConfiguration,
     build_args: Dict[str, str] = None,
@@ -222,9 +240,7 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
 def build_om_image(build_configuration: ImageBuildConfiguration):
     om_version = build_configuration.version
 
-    om_download_url = os.environ.get("om_download_url", "")
-    if om_download_url == "":
-        om_download_url = find_om_url(om_version)
+    om_download_url = build_configuration.om_download_url or find_om_url(om_version)
 
     args = {
         "version": om_version,
@@ -295,6 +311,13 @@ def build_agent(build_configuration: ImageBuildConfiguration):
     else:
         raise ValueError("No agent selection provided - this should be caught by pipeline.py validation")
 
+    if build_configuration.custom_agent_url:
+        tools_version = build_configuration.agent_tools_version or extract_tools_version_from_release(
+            load_release_file()
+        )
+        agent_versions_to_build = [(agent_version_from_custom_url(build_configuration.custom_agent_url), tools_version)]
+        logger.info(f"building only the custom Agent from {build_configuration.custom_agent_url}")
+
     if not agent_versions_to_build:
         logger.warning("No agent versions found to build")
         return
@@ -348,6 +371,10 @@ def build_agent_pipeline(
 
     custom_agent_url = build_configuration_copy.custom_agent_url or ""
     if custom_agent_url:
+        # TODO(KUBE-530): a patch build keeps the base commit in build_number, so
+        # two custom tarballs can share a version tag. Force the rebuild until a
+        # custom build gets a unique version and skip-if-exists is safe again.
+        build_configuration_copy.skip_if_exists = False
         # Custom agent URLs are single-arch (x86_64); multi-arch not supported.
         agent_base_url, agent_filename = custom_agent_url.rsplit("/", 1)
         platform_build_args = {}

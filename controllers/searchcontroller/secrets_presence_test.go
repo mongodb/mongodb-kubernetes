@@ -92,6 +92,46 @@ func TestCheckSecretsPresence_MissingSecret(t *testing.T) {
 	assert.Equal(t, []string{"search-sync-password"}, got[0].Missing)
 }
 
+// newSearchWithOIDCSource returns a search resource authenticating to its source with
+// OIDC, with the passwordSecretRef cleared (mutually exclusive with OIDC on the wire).
+func newSearchWithOIDCSource(name, namespace string) *searchv1.MongoDBSearch {
+	s := newSearchWithExternalSource(name, namespace)
+	s.Spec.Source.PasswordSecretRef = nil
+	s.Spec.Source.OIDC = &searchv1.OIDCAuth{
+		TokenEndpoint:     "https://idp.example.com/token",
+		ClientID:          "mongot-client",
+		ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+		IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+	}
+	return s
+}
+
+// TestCheckSecretsPresence_OIDCExpectsClientSecretNotPassword verifies that under OIDC
+// auth the client secret is the expected cluster-invariant secret and the (defaulted)
+// SCRAM password secret is not.
+func TestCheckSecretsPresence_OIDCExpectsClientSecretNotPassword(t *testing.T) {
+	search := newSearchWithOIDCSource("s", "ns")
+
+	t.Run("client secret present → no gaps (password secret absent but not expected)", func(t *testing.T) {
+		central := newClientWithSecrets(t, newSecretObj("oidc-client-secret", "ns"))
+		east := newClientWithSecrets(t, newSecretObj("oidc-client-secret", "ns"))
+		members := map[string]kubernetesClient.Client{"east": east}
+
+		got := CheckSecretsPresence(context.Background(), search, central, members)
+
+		assert.Empty(t, got, "only the OIDC client secret is expected under OIDC auth")
+	})
+
+	t.Run("client secret missing → reported", func(t *testing.T) {
+		central := newClientWithSecrets(t)
+
+		got := CheckSecretsPresence(context.Background(), search, central, nil)
+
+		assert.Len(t, got, 1)
+		assert.Equal(t, []string{"oidc-client-secret"}, got[0].Missing)
+	})
+}
+
 func mcShardedTLSSearch(t *testing.T, name, ns string, shardNames ...string) *searchv1.MongoDBSearch {
 	t.Helper()
 	shards := make([]searchv1.ExternalShardConfig, 0, len(shardNames))
@@ -304,6 +344,20 @@ func TestExpectedSecretNamesForCluster_Table(t *testing.T) {
 				return s
 			},
 			wantKeys: []string{"search-sync-password", "x509-client"},
+		},
+		{
+			name: "oidc auth",
+			build: func() *searchv1.MongoDBSearch {
+				s := newSearchWithExternalSource("s", "ns")
+				s.Spec.Source.OIDC = &searchv1.OIDCAuth{
+					TokenEndpoint:     "https://idp.example.com/token",
+					ClientID:          "mongot-client",
+					ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+					IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+				}
+				return s
+			},
+			wantKeys: []string{"oidc-client-secret"},
 		},
 		{
 			name: "external CA",

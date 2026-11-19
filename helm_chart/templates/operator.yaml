@@ -86,6 +86,10 @@ spec:
               value: {{ .Values.operator.env }}
             - name: MDB_DEFAULT_ARCHITECTURE
               value: {{ .Values.operator.mdbDefaultArchitecture }}
+            {{- if .Values.operator.mdbDefaultImageType }}
+            - name: MDB_DEFAULT_IMAGE_TYPE
+              value: {{ .Values.operator.mdbDefaultImageType }}
+            {{- end }}
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
@@ -234,6 +238,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: MCK_INSTALLER
               valueFrom:
                 fieldRef:

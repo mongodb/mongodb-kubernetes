@@ -211,3 +211,39 @@ func TestCreateMongodProcessesWithLimitMulti_HostnamesGenerated(t *testing.T) {
 	assert.Len(t, processes, 1)
 	assert.NotEmpty(t, processes[0].HostName())
 }
+
+func TestIsResourceProcess(t *testing.T) {
+	tests := []struct {
+		name          string
+		resourceName  string
+		namespace     string
+		processName   string
+		expectedMatch bool
+	}{
+		{name: "legacy pod 0", resourceName: "rs", namespace: "ns", processName: "rs-0", expectedMatch: true},
+		{name: "legacy pod 12", resourceName: "rs", namespace: "ns", processName: "rs-12", expectedMatch: true},
+		{name: "prefixed pod", resourceName: "rs", namespace: "ns", processName: "k8s/ns/rs-0", expectedMatch: true},
+		{name: "process named like the resource", resourceName: "rs", namespace: "ns", processName: "rs", expectedMatch: true},
+		{name: "prefixed process named like the resource", resourceName: "rs", namespace: "ns", processName: "k8s/ns/rs", expectedMatch: true},
+		{name: "no pod index after dash", resourceName: "rs", namespace: "ns", processName: "rs-"},
+		{name: "prefixed no pod index after dash", resourceName: "rs", namespace: "ns", processName: "k8s/ns/rs-"},
+		{name: "other resource", resourceName: "rs", namespace: "ns", processName: "other-0"},
+		{name: "resource name prefix", resourceName: "rs", namespace: "ns", processName: "rsx-0"},
+		{name: "resource name suffix", resourceName: "rs", namespace: "ns", processName: "xrs-0"},
+		{name: "other namespace", resourceName: "rs", namespace: "ns", processName: "k8s/other/rs-0"},
+		{name: "empty process name", resourceName: "rs", namespace: "ns", processName: ""},
+		{name: "multi-cluster pod", resourceName: "mrs", namespace: "ns", processName: "mrs-1-0", expectedMatch: true},
+		{name: "prefixed multi-cluster pod", resourceName: "mrs", namespace: "ns", processName: "k8s/ns/mrs-1-2", expectedMatch: true},
+		{name: "mongos pod", resourceName: "sc", namespace: "ns", processName: "sc-mongos-0", expectedMatch: true},
+		{name: "prefixed config srv pod", resourceName: "sc", namespace: "ns", processName: "k8s/ns/sc-config-1", expectedMatch: true},
+		{name: "multi-cluster shard pod", resourceName: "sc", namespace: "ns", processName: "sc-0-1", expectedMatch: true},
+		{name: "prefixed multi-cluster shard pod", resourceName: "sc", namespace: "ns", processName: "k8s/ns/sc-0-1-0", expectedMatch: true},
+		{name: "regex metacharacters in the resource name", resourceName: "my.rs", namespace: "ns", processName: "myXrs-0"},
+		{name: "metacharacter resource name matches literally", resourceName: "my.rs", namespace: "ns", processName: "my.rs-0", expectedMatch: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedMatch, IsResourceProcess(tt.processName, tt.resourceName, tt.namespace))
+		})
+	}
+}
