@@ -52,6 +52,7 @@ from tests.opsmanager.license_e2e_helpers import (
     reset_license_e2e_state,
     reset_license_state_after_class,
     revoke_at_ea,
+    revoke_stale_ci_licenses,
     rotate_identity_and_recompute,
     same_release_receipt,
     set_annotation_and_wait_cleared,

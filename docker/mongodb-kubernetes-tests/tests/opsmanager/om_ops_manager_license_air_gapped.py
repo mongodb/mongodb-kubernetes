@@ -20,6 +20,7 @@ from tests.opsmanager.license_e2e_helpers import (
     mint_run_license,
     om_holder_id,
     reset_license_state_after_class,
+    revoke_stale_ci_licenses,
     set_license_install_spec,
     set_release_receipts_spec,
     tampered_receipt,

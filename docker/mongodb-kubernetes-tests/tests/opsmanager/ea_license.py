@@ -81,7 +81,7 @@ def mint_license(
                     "entitlements": [{"entitlement_type": entitlement} for entitlement in DEFAULT_ENTITLEMENTS],
                 }
             ],
-            "metadata": {"source": "mck-ci"},
+            "metadata": {"source": principal_id},
         },
     }
     session = get_retriable_https_session(tls_verify=True, status_forcelist=TRANSIENT_STATUSES, allowed_methods=None)
@@ -132,17 +132,44 @@ def submit_release_receipt(credentials: GsaCredentials, receipt: ReleaseReceipt)
     )
 
 
-def read_artifact_inventory(credentials: GsaCredentials, principal_id: str) -> Dict[str, Dict]:
-    """This principal's artifacts in the EA inventory, keyed by artifact id."""
+def read_artifact(credentials: GsaCredentials, artifact_id: str) -> Dict:
+    """The artifact's row in the EA inventory, or {} when EA has none."""
     session = get_retriable_https_session(tls_verify=True, status_forcelist=TRANSIENT_STATUSES, allowed_methods=None)
     response = session.get(
         f"{EA_CONTROL_PLANE_URL}/api/private/enterpriseAdvanced/tessera/artifacts",
-        params={"principal_id": principal_id, "limit": 100},
+        params={"artifact_id": artifact_id},
         headers={"Authorization": f"Bearer {fetch_token(credentials)}"},
         timeout=30,
     )
     response.raise_for_status()
-    return {row["artifact_id"]: row for row in response.json()["artifacts"]}
+    return next((row for row in response.json()["artifacts"] if row["artifact_id"] == artifact_id), {})
+
+
+def list_artifacts(credentials: GsaCredentials, principal_id: str, issued_after: datetime) -> List[Dict]:
+    """The principal's artifacts issued after the given time, each once. EA lists newest first, so paging
+    stops at the first older row."""
+    session = get_retriable_https_session(tls_verify=True, status_forcelist=TRANSIENT_STATUSES, allowed_methods=None)
+    rows: Dict[str, Dict] = {}
+    skip = 0
+    page_size = 500
+    while True:
+        response = session.get(
+            f"{EA_CONTROL_PLANE_URL}/api/private/enterpriseAdvanced/tessera/artifacts",
+            params={"principal_id": principal_id, "skip": skip, "limit": page_size},
+            headers={"Authorization": f"Bearer {fetch_token(credentials)}"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        page = response.json()["artifacts"]
+        skip += len(page)
+        recent = [row for row in page if parse_iso(row["issued_at"]) > issued_after]
+        rows.update((row["artifact_id"], row) for row in recent)
+        if len(page) < page_size or len(recent) < len(page):
+            return list(rows.values())
+
+
+def parse_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def holder_state(row: Dict, holder_id: str) -> str:

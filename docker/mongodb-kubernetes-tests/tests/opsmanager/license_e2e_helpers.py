@@ -4,7 +4,6 @@ import base64
 import json
 import re
 import time
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -24,8 +23,10 @@ from tests.opsmanager.ea_license import (
     ReleaseReceipt,
     artifact_id_of,
     holder_state,
+    list_artifacts,
     mint_license,
-    read_artifact_inventory,
+    parse_iso,
+    read_artifact,
     revoke_license,
 )
 from tests.opsmanager.withMonitoredAppDB.conftest import enable_multi_cluster_deployment
@@ -49,13 +50,16 @@ LICENSE_SECRET_KEY = "license"
 RECEIPT_SECRET_KEY = "release-receipt"
 RECEIPT_SECRET_SUFFIX = "-release-receipt"
 
-# Unique per run, so inventory reads only see this run's licenses.
-RUN_PRINCIPAL_ID = f"mck-ci-{uuid.uuid4()}"
+CI_PRINCIPAL_ID = "mck-ci-e2e"
 
 ISSUED_STATUS = "ISSUED"
 ACTIVE_STATUS = "ACTIVE"
 RELEASED_STATUS = "RELEASED"
 REVOKED_STATUS = "REVOKED"
+FINAL_EA_STATUSES = {RELEASED_STATUS, REVOKED_STATUS}
+
+STALE_LICENSE_AGE = timedelta(days=1)
+STALE_LICENSE_LOOKBACK = timedelta(days=7)
 
 # The license conditions the operator writes on the Ops Manager resource.
 LICENSE_ACTIVE_CONDITION = "LicenseActive"
@@ -81,6 +85,27 @@ def hide_failure_values(request):
     option.showlocals, option.tbstyle = False, "short"
     yield
     option.showlocals, option.tbstyle = saved
+
+
+@fixture(scope="module", autouse=True)
+def revoke_stale_ci_licenses(namespace: str):
+    """Revokes the licenses crashed runs left at EA. Best effort, a failure only logs a warning."""
+    try:
+        credentials = gsa_credentials(namespace)
+        now = datetime.now(timezone.utc)
+        stale = [
+            row["artifact_id"]
+            for row in list_artifacts(credentials, CI_PRINCIPAL_ID, issued_after=now - STALE_LICENSE_LOOKBACK)
+            if row["status"] not in FINAL_EA_STATUSES and parse_iso(row["issued_at"]) <= now - STALE_LICENSE_AGE
+        ]
+    except Exception as e:
+        logger.warning(f"Could not list stale licenses: {e}")
+        return
+    for artifact_id in stale:
+        try:
+            revoke_license(credentials, artifact_id, f"{CI_PRINCIPAL_ID} stale license sweep")
+        except Exception as e:
+            logger.warning(f"Could not revoke stale license {artifact_id}: {e}")
 
 
 def build_license_ops_manager(
@@ -133,7 +158,7 @@ def _mint(ops_manager: MongoDBOpsManager, **kwargs) -> tuple[str, str]:
     """Mints a license for this run, bound to this Ops Manager."""
     return mint_license(
         gsa_credentials(ops_manager.namespace),
-        principal_id=RUN_PRINCIPAL_ID,
+        principal_id=CI_PRINCIPAL_ID,
         holder_ids=[om_holder_id(ops_manager)],
         **kwargs,
     )
@@ -152,7 +177,7 @@ def mint_run_license(
 
 
 def ea_artifact_row(ops_manager: MongoDBOpsManager, artifact_id: str) -> dict:
-    return read_artifact_inventory(gsa_credentials(ops_manager.namespace), RUN_PRINCIPAL_ID).get(artifact_id) or {}
+    return read_artifact(gsa_credentials(ops_manager.namespace), artifact_id)
 
 
 # CR status
@@ -428,7 +453,7 @@ def trigger_cron(ops_manager: MongoDBOpsManager, cron_name: str) -> None:
 
 def revoke_at_ea(ops_manager: MongoDBOpsManager, artifact_id: str) -> str:
     """Revokes the artifact at EA and returns the status EA answers with."""
-    return revoke_license(gsa_credentials(ops_manager.namespace), artifact_id, "mck-ci revoke")["status"]
+    return revoke_license(gsa_credentials(ops_manager.namespace), artifact_id, f"{CI_PRINCIPAL_ID} revoke")["status"]
 
 
 def wait_with_cron(ops_manager: MongoDBOpsManager, cron_name: str, condition) -> None:
@@ -714,7 +739,7 @@ def wait_for_ea_artifact_state(ops_manager: MongoDBOpsManager, artifact_id: str,
     holder_id = om_holder_id(ops_manager)
 
     def holder_is() -> bool:
-        row = read_artifact_inventory(credentials, RUN_PRINCIPAL_ID).get(artifact_id)
+        row = read_artifact(credentials, artifact_id)
         state = holder_state(row, holder_id) if row else "absent"
         logger.info(f"EA reports holder {holder_id} on license {artifact_id} as {state}, waiting for {expected}")
         return state == expected
