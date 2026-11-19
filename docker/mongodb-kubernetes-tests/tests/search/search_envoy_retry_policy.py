@@ -12,11 +12,9 @@ that mongot's load shedding uses to decide when a rejection is the final attempt
 
 from __future__ import annotations
 
-import json
 import time
 
 import pytest
-from kubetester.kubetester import run_periodically
 from kubetester.mongodb_search import MongoDBSearch
 from pytest import fixture
 from tests import test_logger
@@ -35,6 +33,11 @@ from tests.common.search.bootstrap_test_mixins import (
 )
 from tests.common.search.connectivity import SearchConnectivityTool, delete_pods
 from tests.common.search.rs_search_helper import rs_search_tester
+from tests.common.search.sharded_search_helper import (
+    lds_chain_routes,
+    route_request_headers,
+    wait_for_envoy_mounted_lds,
+)
 from tests.conftest import get_namespace
 
 logger = test_logger.get_test_logger(__name__)
@@ -171,86 +174,31 @@ class TestEnvoyRetryPolicy:
 class TestEnvoyMaxAttemptCountHeader:
     """Envoy sends x-envoy-max-attempt-count = 1 + numRetries on every mongot route."""
 
-    @fixture(scope="module")
-    def search_tools_pod(self, namespace: str, custom_mdb_version: str) -> mongodb_tools_pod.ToolsPod:
-        return get_tools_pod(namespace, custom_mdb_version)
-
-    def test_header_follows_num_retries(self, namespace: str, search_tools_pod: mongodb_tools_pod.ToolsPod):
+    def test_header_follows_num_retries(self, namespace: str):
         num_retries = 3
         expected = str(num_retries + 1)
-        envoy_pod_ips = _get_envoy_pod_ips(namespace, MDBS_NAME)
-        lds_updates_before = {ip: _get_lds_update_success(search_tools_pod, ip) for ip in envoy_pod_ips}
 
         mdbs = MongoDBSearch(name=MDBS_NAME, namespace=namespace).load()
-        managed = mdbs["spec"]["clusters"][0]["loadBalancer"]["managed"]
-        managed.setdefault("retryPolicy", {})["numRetries"] = num_retries
+        mdbs["spec"]["clusters"][0]["loadBalancer"]["managed"].setdefault("retryPolicy", {})["numRetries"] = num_retries
         mdbs.update()
 
-        def header_loaded():
-            values = _max_attempt_header_values(namespace, MDBS_NAME)
-            if not values:
-                return False, "no mongot routes in lds.json yet"
-            if any(v != expected for v in values):
-                return False, f"lds.json {MAX_ATTEMPT_COUNT_HEADER} values {values}, want all {expected!r}"
-            # The LB ConfigMap reaches the envoy pod through the kubelet volume sync (up to ~1 min),
-            # then envoy hot-reloads lds.json from disk and bumps listener_manager.lds.update_success.
-            for ip, before in lds_updates_before.items():
-                if _get_lds_update_success(search_tools_pod, ip) <= before:
-                    return False, f"envoy {ip} has not reloaded lds.json yet"
-            return True, f"all {len(envoy_pod_ips)} envoy pods loaded {MAX_ATTEMPT_COUNT_HEADER}={expected}"
+        def header_set(lds: str) -> tuple[bool, str]:
+            values = [route_request_headers(r).get(MAX_ATTEMPT_COUNT_HEADER) for _, r in lds_chain_routes(lds)]
+            return bool(values) and all(v == expected for v in values), f"{MAX_ATTEMPT_COUNT_HEADER} values {values}"
 
-        run_periodically(header_loaded, timeout=300, sleep_time=5, msg=f"envoy to send {MAX_ATTEMPT_COUNT_HEADER}")
+        wait_for_envoy_mounted_lds(namespace, MDBS_NAME, header_set, msg=f"{MAX_ATTEMPT_COUNT_HEADER}={expected}")
 
 
 def _get_envoy_pod_ip(namespace: str, search_name: str) -> str:
     """Return the pod IP of the first envoy pod."""
-    return _get_envoy_pod_ips(namespace, search_name)[0]
-
-
-def _get_envoy_pod_ips(namespace: str, search_name: str) -> list[str]:
-    """Return the pod IPs of all envoy pods."""
     from kubetester.kubetester import KubernetesTester
 
     deployment_name = search_resource_names.lb_deployment_name(search_name)
     pods = KubernetesTester.read_pod_labels(namespace, label_selector=f"app={deployment_name}")
     assert pods.items, f"no envoy pods found with label app={deployment_name}"
-    return [p.status.pod_ip for p in pods.items]
-
-
-def _max_attempt_header_values(namespace: str, search_name: str) -> list[str]:
-    """Return the x-envoy-max-attempt-count value of every route in the LB ConfigMap's lds.json.
-
-    Envoy's admin API only allows /ready, /stats, /drain_listeners and /logging, so
-    config_dump is not reachable; lds.json is the exact file envoy loads.
-    A route without the header contributes "<missing>" so the caller fails on it.
-    """
-    from kubetester.kubetester import KubernetesTester
-
-    cm = KubernetesTester.read_configmap(namespace, search_resource_names.lb_configmap_name(search_name))
-    lds = json.loads(cm["lds.json"])
-    routes = [
-        route
-        for listener in lds.get("resources", [])
-        for chain in listener.get("filter_chains", [])
-        for f in chain["filters"]
-        if f["name"] == "envoy.filters.network.http_connection_manager"
-        for vh in f["typed_config"]["route_config"]["virtual_hosts"]
-        for route in vh["routes"]
-    ]
-    values = []
-    for route in routes:
-        headers = {h["header"]["key"]: h["header"].get("value") for h in route.get("request_headers_to_add", [])}
-        values.append(headers.get(MAX_ATTEMPT_COUNT_HEADER, "<missing>"))
-    return values
-
-
-def _get_lds_update_success(tools_pod: mongodb_tools_pod.ToolsPod, envoy_pod_ip: str) -> int:
-    """Return envoy's listener_manager.lds.update_success counter."""
-    output = tools_pod.run_command(["wget", "-qO-", f"http://{envoy_pod_ip}:9901/stats?filter=lds.update_success"])
-    for line in output.splitlines():
-        if line.startswith("listener_manager.lds.update_success:"):
-            return int(line.split(":")[1].strip())
-    return 0
+    pod = pods.items[0]
+    logger.info(f"Envoy pod: {pod.metadata.name} (IP: {pod.status.pod_ip})")
+    return pod.status.pod_ip
 
 
 def _list_mongot_pods(namespace: str):

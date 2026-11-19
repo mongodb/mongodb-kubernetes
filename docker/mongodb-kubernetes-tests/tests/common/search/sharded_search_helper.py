@@ -1,6 +1,6 @@
 import json
 import threading
-from typing import Callable
+from typing import Callable, Iterator
 
 import pymongo.errors
 import yaml
@@ -513,25 +513,32 @@ def shard_route_from_lds(namespace: str, mdbs_resource_name: str, shard_name: st
     latched shard routes to its own ``mongot_<shard>_cluster`` without it. Every route
     also carries ``x-envoy-max-attempt-count``."""
     sni = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name)
-    lds = json.loads(
-        KubernetesTester.read_configmap(namespace, search_resource_names.lb_configmap_name(mdbs_resource_name))[
-            "lds.json"
-        ]
-    )
-    for listener in lds.get("resources", []):
+    lds = KubernetesTester.read_configmap(namespace, search_resource_names.lb_configmap_name(mdbs_resource_name))[
+        "lds.json"
+    ]
+    for chain, route in lds_chain_routes(lds):
+        server_names = chain.get("filter_chain_match", {}).get("server_names", [])
+        if any(s.startswith(f"{sni}.") for s in server_names):
+            return route["route"]["cluster"], route_request_headers(route)
+    raise AssertionError(f"no filter chain for shard {shard_name} (SNI {sni}) in lds.json")
+
+
+def lds_chain_routes(lds_json: str) -> Iterator[tuple[dict, dict]]:
+    """Yield ``(filter_chain, route)`` for every route of every filter chain in an Envoy lds.json."""
+    for listener in json.loads(lds_json).get("resources", []):
         for chain in listener.get("filter_chains", []):
-            server_names = chain.get("filter_chain_match", {}).get("server_names", [])
-            if not any(s.startswith(f"{sni}.") for s in server_names):
-                continue
             hcm = next(
                 f["typed_config"]
                 for f in chain["filters"]
                 if f["name"] == "envoy.filters.network.http_connection_manager"
             )
-            route = hcm["route_config"]["virtual_hosts"][0]["routes"][0]
-            headers = {h["header"]["key"]: h["header"]["value"] for h in route.get("request_headers_to_add", [])}
-            return route["route"]["cluster"], headers
-    raise AssertionError(f"no filter chain for shard {shard_name} (SNI {sni}) in lds.json")
+            for vh in hcm["route_config"]["virtual_hosts"]:
+                for route in vh["routes"]:
+                    yield chain, route
+
+
+def route_request_headers(route: dict) -> dict[str, str]:
+    return {h["header"]["key"]: h["header"]["value"] for h in route.get("request_headers_to_add", [])}
 
 
 def wait_for_envoy_loaded_shard_chain(
@@ -546,9 +553,27 @@ def wait_for_envoy_loaded_shard_chain(
     trustworthy "this proxy can serve the shard's SNI" signal — gate data
     movement onto a freshly added shard on it."""
     sni = search_resource_names.shard_proxy_service_name(mdbs_resource_name, shard_name)
+    wait_for_envoy_mounted_lds(
+        namespace,
+        mdbs_resource_name,
+        lambda lds: (sni in lds, f"no chain for SNI {sni}"),
+        msg=f"the {shard_name} filter chain",
+        timeout=timeout,
+    )
+
+
+def wait_for_envoy_mounted_lds(
+    namespace: str,
+    mdbs_resource_name: str,
+    check: Callable[[str], tuple[bool, str]],
+    msg: str,
+    timeout: int = 300,
+) -> None:
+    """Block until ``check(lds_json)`` passes for the lds.json mounted in every Envoy pod
+    (see wait_for_envoy_loaded_shard_chain for why the mounted file is the signal)."""
     dep_name = search_resource_names.lb_deployment_name(mdbs_resource_name)
 
-    def chain_mounted():
+    def all_mounted():
         pods = list_matching_pods(namespace, name_prefix=f"{dep_name}-")
         if not pods:
             return False, f"no envoy pods with prefix {dep_name}-"
@@ -559,13 +584,12 @@ def wait_for_envoy_loaded_shard_chain(
                 )
             except Exception as e:
                 return False, f"{pod.metadata.name}: exec failed: {e}"
-            if sni not in content:
-                return False, f"{pod.metadata.name}: mounted lds.json has no chain for SNI {sni}"
-        return True, f"all {len(pods)} envoy pods mounted the {shard_name} chain"
+            ok, reason = check(content)
+            if not ok:
+                return False, f"{pod.metadata.name}: mounted lds.json: {reason}"
+        return True, f"all {len(pods)} envoy pods mounted {msg}"
 
-    run_periodically(
-        chain_mounted, timeout=timeout, sleep_time=5, msg=f"envoy pods to mount the {shard_name} filter chain"
-    )
+    run_periodically(all_mounted, timeout=timeout, sleep_time=5, msg=f"envoy pods to mount {msg}")
 
 
 def verify_text_search_query(search_tester: SearchTester):
