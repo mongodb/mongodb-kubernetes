@@ -358,6 +358,10 @@ patch_aliases:
 
 # Triggered whenever the GitHub PR is created
 github_pr_aliases:
+  - variant_tags: [ "static" ]
+    task: ".*"
+    required_labels:
+      - "evergreen:e2e-static"
   - variant_tags: [ "static_light" ]
     task: ".*"
     required_labels:
