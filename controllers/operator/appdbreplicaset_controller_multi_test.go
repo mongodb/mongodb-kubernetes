@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strconv"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
@@ -92,6 +94,8 @@ func TestAppDBManagedCertificatesMultiClusterDelivery(t *testing.T) {
 	assert.Equal(t, append(append([]byte{}, crt...), key...), firstPEM.Data[firstHash])
 
 	crt, key = issue()
+	source, err = central.GetSecret(ctx, kube.ObjectKey(manager.Namespace, leaf.Spec.SecretName))
+	require.NoError(t, err)
 	source.Data["tls.crt"], source.Data["tls.key"] = crt, key
 	require.NoError(t, central.Update(ctx, &source))
 	require.True(t, reconciler.ensureTLSSecretAndCreatePEMIfNeeded(ctx, manager, zap.S()).IsOK())
@@ -142,7 +146,10 @@ func TestAppDBManagedCertificatesMultiClusterDelivery(t *testing.T) {
 		assert.Equal(t, "/var/lib/mongodb-automation/secrets/certs/"+renewedHash, process.Args26.Get("net.tls.certificateKeyFile").String())
 	}
 	require.NotNil(t, ac.TLSConfig)
-	assert.Equal(t, "/var/lib/mongodb-automation/secrets/ca/ca-pem", ac.TLSConfig.CAFilePath)
+	bundleHash := bundleAfter.Data[util.LatestHashSecretKey]
+	require.NotEmpty(t, bundleHash)
+	assert.Equal(t, path.Join(util.ConfigMapVolumeCAMountPath, bundleHash), ac.TLSConfig.CAFilePath,
+		"the AppDB CA file must follow the published bundle hash so a widened or rotated bundle takes effect")
 	assert.Contains(t, ac.Auth.DeploymentAuthMechanisms, "SCRAM-SHA-256")
 	assert.Empty(t, listManagedCertificateObjects(t, ctx, kubernetesClient.NewClient(returning)))
 }
@@ -2368,4 +2375,46 @@ func TestReconcileAppDBBlockNonEmptyClusterSpecItemRemovalIntegration(t *testing
 			require.Equal(t, tc.wantMessage, opsManager.Status.AppDbStatus.Message)
 		})
 	}
+}
+
+// TestManagedAppDBCABundleHashMultiCluster checks that a multi-cluster managed AppDB reports the
+// published CA bundle hash, and that the internal and the referenced (external) reconcilers read the
+// same bundle because the reference carries the internal AppDB's name.
+func TestManagedAppDBCABundleHashMultiCluster(t *testing.T) {
+	ctx := t.Context()
+	manager, central, r := newMultiClusterManagedAppDB(t)
+	bundleName := certs.ManagedServerCABundleConfigMapName(manager.Spec.AppDB.Name())
+	require.NoError(t, central.CreateConfigMap(ctx, configmap.Builder().
+		SetName(bundleName).
+		SetNamespace(manager.Namespace).
+		SetData(map[string]string{util.LatestHashSecretKey: "bundle-hash"}).
+		Build()))
+
+	internal, err := newAppDbMultiReconciler(ctx, central, manager, r.memberClustersMap, zap.S(), nil)
+	require.NoError(t, err)
+	internalHash, err := internal.managedAppDBCABundleHash(ctx, manager)
+	require.NoError(t, err)
+	assert.Equal(t, "bundle-hash", internalHash)
+
+	caFilePath, err := internal.appDBCAFilePath(ctx, manager)
+	require.NoError(t, err)
+	assert.Equal(t, path.Join(util.ConfigMapVolumeCAMountPath, "bundle-hash"), caFilePath,
+		"the AppDB must read the bundle through its hash-keyed file so a rotation takes effect")
+
+	externalDB := validExternalAppDBMongoDBMultiClusterWithTLS(false, "")
+	externalDB.Name = manager.Spec.AppDB.Name()
+	externalDB.Namespace = manager.Namespace
+	externalDB.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+	require.NoError(t, central.Create(ctx, externalDB))
+	externalOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: externalDB.Name,
+		Kind: omv1.ExternalAppDBRefKindMongoDBMultiCluster,
+	})
+	externalOm.Namespace = manager.Namespace
+	external := r.createNewExternalAppDBReconciler(zap.S())
+	refObject, err := external.fetchExternalAppDBRefObject(ctx, externalOm.Spec.ExternalAppDBRef)
+	require.NoError(t, err)
+	externalHash, err := external.managedAppDBCABundleHash(ctx, externalOm, refObject)
+	require.NoError(t, err)
+	assert.Equal(t, internalHash, externalHash, "both reconcilers must report the same hash for the same AppDB")
 }

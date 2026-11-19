@@ -1468,8 +1468,8 @@ func (r *ReconcileAppDbReplicaSet) getExistingAutomationConfig(ctx context.Conte
 // appDBCAFilePath returns the CA file path configured for AppDB mongod and its monitoring agent.
 // With operator-managed certificates the trust bundle is published under its content hash: mongod
 // reads CAFile only at startup and the agent restarts it when the automation config changes, so
-// pointing at the hash-keyed file makes a widened or rotated bundle take effect. Non-managed and
-// multi-cluster AppDBs keep the fixed ca-pem path.
+// pointing at the hash-keyed file makes a widened or rotated bundle take effect. Non-managed AppDBs
+// keep the fixed ca-pem path.
 func (r *ReconcileAppDbReplicaSet) appDBCAFilePath(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
 	caHash, err := r.managedAppDBCABundleHash(ctx, opsManager)
 	if err != nil || caHash == "" {
@@ -1480,9 +1480,9 @@ func (r *ReconcileAppDbReplicaSet) appDBCAFilePath(ctx context.Context, opsManag
 }
 
 // managedAppDBCABundleHash returns the hash of the published operator-managed AppDB CA bundle, or
-// "" when the AppDB does not use operator-managed certificates (non-managed or multi-cluster AppDB).
+// "" when the AppDB does not use operator-managed certificates.
 func (r *ReconcileAppDbReplicaSet) managedAppDBCABundleHash(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
-	if !opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() || opsManager.Spec.AppDB.IsMultiCluster() {
+	if !opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() {
 		return "", nil
 	}
 
