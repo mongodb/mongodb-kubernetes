@@ -166,6 +166,29 @@ func TestAppDbStatefulSet_MonitoringTrustsOpsManagerCA(t *testing.T) {
 		"agent container must mount the Ops Manager CA the -httpsCAFile flag points at")
 }
 
+// TestAppDbStatefulSet_RollsOnOpsManagerCABundleChange checks that the operator-managed Ops Manager
+// CA bundle hash rolls the AppDB pods. The agent loads -httpsCAFile only at startup, so it must
+// restart on a widened bundle before Ops Manager serves its leaf on the new CA.
+func TestAppDbStatefulSet_RollsOnOpsManagerCABundleChange(t *testing.T) {
+	t.Setenv(util.OpsManagerMonitorAppDB, "true")
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	build := func(podVars *env.PodEnvVars, hash string) appsv1.StatefulSet {
+		sts, err := AppDbStatefulSet(*om, podVars, AppDBStatefulSetOptions{OpsManagerCABundleHash: hash}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		require.NoError(t, err)
+		return sts
+	}
+	withCA := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key", SSLProjectConfig: env.SSLProjectConfig{SSLMMSCAConfigMap: "om-ca"}}
+
+	assert.Equal(t, "hash-one", build(withCA, "hash-one").Spec.Template.Annotations[OpsManagerCABundleHashAnnotation])
+	assert.Equal(t, "hash-two", build(withCA, "hash-two").Spec.Template.Annotations[OpsManagerCABundleHashAnnotation])
+	assert.NotContains(t, build(withCA, "").Spec.Template.Annotations, OpsManagerCABundleHashAnnotation)
+
+	withoutCA := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key"}
+	assert.NotContains(t, build(withoutCA, "hash-one").Spec.Template.Annotations, OpsManagerCABundleHashAnnotation,
+		"an agent that does not mount the Ops Manager CA must not roll on it")
+}
+
 func TestAppDbStatefulSet_NoOpsManagerCAFlagWithoutCA(t *testing.T) {
 	t.Setenv(util.OpsManagerMonitorAppDB, "true")
 	om := omv1.NewOpsManagerBuilderDefault().Build()

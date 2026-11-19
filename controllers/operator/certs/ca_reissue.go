@@ -76,14 +76,18 @@ func ReissueLeavesOnRotatedSelfSignedCA(
 	return nil
 }
 
-// currentCATrustedByBundle reports whether the trust bundle the members run with holds the current
-// self-signed CA of a category. The caller runs after a successful reconcile, so the members run with
-// the latest bundle of the ConfigMap. The CA can still rotate after that reconcile published the
-// bundle. A leaf moved to the new CA at that point is signed by a CA the members do not trust yet.
-// The next reconcile widens the bundle and rolls the members onto it, and the agents restart the
-// members with the new bundle and the new leaf at the same time. A restarted secondary then presents
-// a certificate that the primary rejects, the primary cannot step down, and the roll never completes.
+// currentCATrustedByBundle reports whether the current self-signed CA of a category (the root that
+// is in the category's CA secret right now) is one of the CAs in the latest bundle of the CA bundle
+// ConfigMap bundleName. A CA bundle is the set of CAs that members and clients trust, so a true
+// result means that whoever runs with that bundle accepts leaves signed by the current CA.
 // It returns false when the CA or the bundle does not exist yet.
+//
+// The caller runs after a successful reconcile, so the members run with the latest bundle of the
+// ConfigMap. The CA can still rotate after that reconcile published the bundle. A leaf moved to the
+// new CA at that point is signed by a CA the members do not trust yet. The next reconcile widens the
+// bundle and rolls the members onto it, and the agents restart the members with the new bundle and
+// the new leaf at the same time. A restarted secondary then presents a certificate that the primary
+// rejects, the primary cannot step down, and the roll never completes.
 func currentCATrustedByBundle(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, cat certCategory, bundleName string) (bool, error) {
 	currentPEM, status := readSelfSignedCACert(ctx, c, res, cat)
 	if !status.IsOK() {
@@ -161,6 +165,46 @@ func categoryIssuedLeaves(ctx context.Context, c kubernetesClient.Client, res Ce
 		return nil, err
 	}
 	return append(leaves, userLeaves...), nil
+}
+
+// categoryLeafNeedsReissue reports whether any leaf of the passed self-signed category (`cat`) is
+// not signed by the root currently in the category's CA secret. It returns false when the root
+// cannot be read yet because cert-manager is still writing it.
+func categoryLeafNeedsReissue(
+	ctx context.Context,
+	c kubernetesClient.Client,
+	res CertificateOwner,
+	cat certCategory,
+	allOpts []Options,
+	log *zap.SugaredLogger,
+) (bool, error) {
+	currentPEM, status := readSelfSignedCACert(ctx, c, res, cat)
+	if !status.IsOK() {
+		log.Debugf("Skipping the re-issue check for the %s category of %s: %s", cat, res.GetName(), status.Message())
+		return false, nil
+	}
+
+	currentCAs, err := parseCACerts(currentPEM)
+	if err != nil {
+		return false, fmt.Errorf("could not parse the current self-signed %s CA of %s: %w", cat, res.GetName(), err)
+	}
+	issuers := parseIssuers(currentCAs)
+
+	leafSecrets := categoryLeafSecrets(res, cat, allOpts)
+	for _, secretName := range leafSecrets {
+		leaf, err := readLeafCertificate(ctx, c, res.GetNamespace(), secretName)
+		if err != nil {
+			// The secret may not exist yet while the certificate is being issued.
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return false, err
+		}
+		if !signedByAny(leaf, issuers) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // reissueLeafIfSignedByPreviousCA sets Issuing=True on one leaf Certificate unless its secret is

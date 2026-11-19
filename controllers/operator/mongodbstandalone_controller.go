@@ -461,6 +461,10 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 		errs = stdErrors.Join(errs, xerrors.Errorf("failed to clear project authentication settings. Continuing with cleanup: %w", err))
 	}
 
+	if err := r.deleteManagedCertificateObjects(ctx, s, log); err != nil {
+		errs = stdErrors.Join(errs, err)
+	}
+
 	r.resourceWatcher.RemoveDependentWatchedResources(s.ObjectKey())
 
 	log.Infow("Clear feature control for group: %s", "groupID", conn.GroupID())

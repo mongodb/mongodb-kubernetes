@@ -1520,6 +1520,12 @@ spec:
                 - message: spec.role must be 'AppDB' when set
                   rule: self == '' || self == 'AppDB'
               security:
+                description: |-
+                  security.managedCertificate.subjects is immutable once the managedCertificate block is in place:
+                  mongod recognises the members of a deployment by the subject of their certificates, and the
+                  operator replaces the certificates one pod at a time, so a change leaves members carrying the old
+                  subject and members carrying the new one in the same deployment, and they stop recognising each
+                  other.
                 properties:
                   authentication:
                     description: |-
@@ -2169,6 +2175,12 @@ spec:
                     the CA bundle.'
                   rule: '!(has(self.tls) && has(self.tls.ca) && self.tls.ca.size()
                     > 0 && has(self.managedCertificate))'
+                - message: security.managedCertificate.subjects field is immutable
+                    it cannot change once the managedCertificate block is in place.
+                  rule: '!has(oldSelf.managedCertificate) || !has(self.managedCertificate)
+                    || (has(self.managedCertificate.subjects) == has(oldSelf.managedCertificate.subjects)
+                    && (!has(self.managedCertificate.subjects) || self.managedCertificate.subjects
+                    == oldSelf.managedCertificate.subjects))'
               service:
                 description: |-
                   DEPRECATED please use `spec.statefulSet.spec.serviceName` to provide a custom service name.

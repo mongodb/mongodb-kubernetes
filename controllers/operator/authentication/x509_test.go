@@ -118,6 +118,58 @@ func TestX509_IsAgentAuthenticationConfigured_DetectsClientCertificateModeChange
 	}
 }
 
+func TestX509_IsAgentAuthenticationConfigured_DetectsCAFilePathChange(t *testing.T) {
+	tests := map[string]struct {
+		desiredCAFilePath  string
+		removeAgentSSL     bool
+		expectedConfigured bool
+	}{
+		"Same CA file path": {
+			desiredCAFilePath:  "/mongodb-automation/tls/ca/hash-1",
+			expectedConfigured: true,
+		},
+		"Different CA file path": {
+			desiredCAFilePath:  "/mongodb-automation/tls/ca/hash-2",
+			expectedConfigured: false,
+		},
+		"No desired CA file path": {
+			desiredCAFilePath:  "",
+			expectedConfigured: true,
+		},
+		"No agent SSL settings": {
+			desiredCAFilePath:  "/mongodb-automation/tls/ca/hash-2",
+			removeAgentSSL:     true,
+			expectedConfigured: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			kubeClient, _ := mock.NewDefaultFakeClient()
+			conn := om.NewMockedOmConnection(om.NewDeployment())
+
+			opts := Options{
+				AgentMechanism: "X509",
+				CAFilePath:     "/mongodb-automation/tls/ca/hash-1",
+				UserOptions: UserOptions{
+					AutomationSubject: validSubject("automation"),
+				},
+				MongoDBResource: types.NamespacedName{Namespace: "test", Name: "test"},
+			}
+			require.NoError(t, mongoDBX509Mechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S()))
+
+			ac, err := conn.ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			if tc.removeAgentSSL {
+				ac.AgentSSL = nil
+			}
+
+			opts.CAFilePath = tc.desiredCAFilePath
+			assert.Equal(t, tc.expectedConfigured, mongoDBX509Mechanism.IsAgentAuthenticationConfigured(ac, opts))
+		})
+	}
+}
+
 func TestX509_DeploymentConfigured(t *testing.T) {
 	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())

@@ -1168,8 +1168,11 @@ task_groups:
       - e2e_replica_set_tls_managedcert_external_domain
       - e2e_replica_set_tls_managedcert_withhold_client_cert
       - e2e_sharded_cluster_tls_managedcert
+      - e2e_replica_set_tls_managedcert_cleanup_on_delete
+      - e2e_sharded_cluster_tls_managedcert_cleanup_on_delete
       - e2e_managed_certificate_prerequisites
       - e2e_replica_set_tls_managedcert_legacy_migration
+      - e2e_replica_set_tls_managedcert_legacy_migration_new_ca
       - e2e_sharded_cluster_tls_managedcert_legacy_migration
 
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
@@ -1226,6 +1229,8 @@ task_groups:
       - e2e_multi_cluster_scram
       - e2e_multi_cluster_tls_with_x509
       - e2e_managed_certificate_multi_cluster_rs
+      - e2e_managed_certificate_multi_cluster_rs_cleanup_on_delete
+      - e2e_managed_certificate_multi_cluster_rs_horizons
       - e2e_managed_certificate_multi_cluster_rs_legacy_migration
       - e2e_managed_certificate_multi_cluster_sharded
       - e2e_managed_certificate_multi_cluster_rs_prerequisites
@@ -1494,6 +1499,7 @@ task_groups:
       - e2e_om_ops_manager_managedcert_om_issuer
       - e2e_om_ops_manager_managedcert_appdb_issuer
       - e2e_om_ops_manager_managedcert_both_issuers
+      - e2e_om_ops_manager_managedcert_rotation
       - e2e_om_ops_manager_scale
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
@@ -1534,6 +1540,7 @@ task_groups:
       - e2e_om_ops_manager_managedcert_om_issuer
       - e2e_om_ops_manager_managedcert_appdb_issuer
       - e2e_om_ops_manager_managedcert_both_issuers
+      - e2e_om_ops_manager_managedcert_rotation
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple

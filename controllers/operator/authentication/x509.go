@@ -132,6 +132,13 @@ func (x *connectionX509) IsAgentAuthenticationConfigured(ac *om.AutomationConfig
 		return false
 	}
 
+	// The agents trust the CA at this path. It changes when the deployment's CA changes, for example
+	// when the operator names the CA file after a hash of its contents, so the agents have to be
+	// pointed at the new file, or they look for one that is no longer mounted.
+	if opts.CAFilePath != "" && ac.AgentSSL != nil && ac.AgentSSL.CAFilePath != opts.CAFilePath {
+		return false
+	}
+
 	// An empty ClientCertificates can never be written to the automation config (omitempty + merge keeps the old
 	// value), so treat it as "not managed" to avoid re-enabling agent authentication on every reconcile.
 	if opts.ClientCertificates != "" && ac.AgentSSL != nil && ac.AgentSSL.ClientCertificateMode != opts.ClientCertificates {

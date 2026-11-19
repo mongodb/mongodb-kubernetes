@@ -1290,7 +1290,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		// cluster, so they have to be copied over for the pods to trust the deployment's CAs.
 		if sc.Spec.IsMultiCluster() {
 			replicateStatus := certs.ReplicateManagedCABundlesToMemberClusters(
-				ctx, r.commonController.client, sc.Namespace, r.managedCABundleNames(), r.managedCABundleTargets(), sc.GetOwnerLabels(), log)
+				ctx, r.commonController.client, sc.Namespace, r.managedCABundleNames(), r.managedCABundleTargets(), certs.ManagedCertificateOwnerLabels(sc), log)
 			if !replicateStatus.IsOK() {
 				return replicateStatus
 			}
@@ -1558,6 +1558,11 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		// Refuse a migration that would change the subjects MongoDB uses to identify the deployment. All
 		// components carry the same membership subject, so checking one of them is enough.
 		if status := certs.VerifyMigrationSubjects(ctx, r.commonController.client, s, lastSpec.GetSecurity(), s.ConfigRsName(), log); !status.IsOK() {
+			return status
+		}
+		// Refuse a migration that would leave the CA the deployment trusts today out of the trust
+		// bundle, which would make its members reject each other while they restart.
+		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.commonController.client, s, lastSpec.GetSecurity(), log); !status.IsOK() {
 			return status
 		}
 		if err := r.seedManagedPEMSecretsFromLegacy(ctx, s, lastSpec.GetSecurity(), log); err != nil {
@@ -1865,7 +1870,12 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 	sc := obj.(*mdbv1.MongoDB)
 
 	var errs error
+
 	if err := r.cleanOpsManagerState(ctx, sc, log); err != nil {
+		errs = stdErrors.Join(errs, err)
+	}
+
+	if err := r.commonController.deleteManagedCertificateObjects(ctx, sc, log); err != nil {
 		errs = stdErrors.Join(errs, err)
 	}
 
@@ -1877,6 +1887,11 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 			clusterName := item.Name
 			if err := r.commonController.deleteClusterResources(ctx, clusterClient, clusterName, sc, log); err != nil {
 				errs = stdErrors.Join(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
+			}
+			// After the StatefulSets are gone, because it removes the secrets their pods mount: the -pem
+			// secrets and the copies of the CA bundles, which carry no owner reference in a member cluster.
+			if err := deleteManagedCertificateObjectsInCluster(ctx, clusterClient, clusterName, sc, log); err != nil {
+				errs = stdErrors.Join(errs, err)
 			}
 		}
 	}

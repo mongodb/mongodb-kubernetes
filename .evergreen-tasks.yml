@@ -489,6 +489,11 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_replica_set_tls_managedcert_legacy_migration_new_ca
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
   - name: e2e_sharded_cluster_tls_managedcert_legacy_migration
     tags: [ "patch-run" ]
     commands:
@@ -520,6 +525,16 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_replica_set_tls_managedcert_withhold_client_cert
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_replica_set_tls_managedcert_cleanup_on_delete
+    tags: [ "patch-run" ]
+    commands:
+      - func: "e2e_test"
+
+  - name: e2e_sharded_cluster_tls_managedcert_cleanup_on_delete
     tags: [ "patch-run" ]
     commands:
       - func: "e2e_test"
@@ -1010,6 +1025,11 @@ tasks:
     commands:
       - func: e2e_test
 
+  - name: e2e_om_ops_manager_managedcert_rotation
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
   - name: e2e_om_jvm_params
     tags: [ "patch-run" ]
     commands:
@@ -1176,6 +1196,16 @@ tasks:
       - func: e2e_test
 
   - name: e2e_managed_certificate_multi_cluster_rs
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_managed_certificate_multi_cluster_rs_cleanup_on_delete
+    tags: [ "patch-run" ]
+    commands:
+      - func: e2e_test
+
+  - name: e2e_managed_certificate_multi_cluster_rs_horizons
     tags: [ "patch-run" ]
     commands:
       - func: e2e_test

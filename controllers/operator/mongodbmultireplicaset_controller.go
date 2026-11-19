@@ -758,6 +758,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		if status := certs.VerifyMigrationSubjects(ctx, r.client, mrs, lastSpec.GetSecurity(), mrs.Name, log); !status.IsOK() {
 			return status
 		}
+		// Refuse a migration that would leave the CA the deployment trusts today out of the trust
+		// bundle, which would make its members reject each other while they restart.
+		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.client, mrs, lastSpec.GetSecurity(), log); !status.IsOK() {
+			return status
+		}
 	}
 
 	var workflowStatus workflow.Status = workflow.OK()
@@ -1756,24 +1761,19 @@ func (r *ReconcileMongoDbMultiReplicaSet) replicateManagedCABundlesInMemberClust
 		mrs.Namespace,
 		managedCABundleConfigMapNames(mrs),
 		targets,
-		mrs.GetOwnerLabels(),
+		certs.ManagedCertificateOwnerLabels(mrs),
 		log,
 	)
 }
 
-// deleteManagedCABundlesInMemberClusters removes the operator-owned CA bundle ConfigMaps from every
-// member cluster. They are copied without an owner reference (the owning resource lives in another
-// cluster), so Kubernetes garbage collection does not remove them and we delete them explicitly.
-func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedCABundlesInMemberClusters(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
+// deleteManagedCertificateObjectsInMemberClusters removes what operator-managed certificates created
+// in every member cluster: the -pem secrets the pods mount and the copies of the CA bundles. They have
+// no owner reference, because the resource lives in another cluster, so they are removed by label.
+func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedCertificateObjectsInMemberClusters(ctx context.Context, mrs mdbmultiv1.MongoDBMultiCluster, log *zap.SugaredLogger) error {
 	var errs error
-	for _, name := range managedCABundleConfigMapNames(&mrs) {
-		for clusterName, memberClient := range r.memberClusterClientsMap {
-			cm := corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: mrs.Namespace}}
-			if err := memberClient.Delete(ctx, &cm); err != nil && !apiErrors.IsNotFound(err) {
-				errs = errors.Join(errs, xerrors.Errorf("failed deleting managed CA ConfigMap %s in cluster %s: %w", name, clusterName, err))
-			} else {
-				log.Debugf("Deleted managed CA ConfigMap %s/%s in cluster %s", mrs.Namespace, name, clusterName)
-			}
+	for clusterName, memberClient := range r.memberClusterClientsMap {
+		if err := deleteManagedCertificateObjectsInCluster(ctx, memberClient, clusterName, &mrs, log); err != nil {
+			errs = errors.Join(errs, err)
 		}
 	}
 	return errs
@@ -1790,7 +1790,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 			errs = errors.Join(errs, err)
 		}
 
-		if err := r.deleteManagedCABundlesInMemberClusters(ctx, mrs, log); err != nil {
+		if err := r.deleteManagedCertificateObjects(ctx, &mrs, log); err != nil {
 			errs = errors.Join(errs, err)
 		}
 
@@ -1805,6 +1805,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) deleteManagedResources(ctx context.Con
 					errs = errors.Join(errs, xerrors.Errorf("failed deleting dependant resources in cluster %s: %w", clusterName, err))
 				}
 			}
+		}
+
+		// After the StatefulSets are gone, because it removes the secrets their pods mount.
+		if err := r.deleteManagedCertificateObjectsInMemberClusters(ctx, mrs, log); err != nil {
+			errs = errors.Join(errs, err)
 		}
 	}
 

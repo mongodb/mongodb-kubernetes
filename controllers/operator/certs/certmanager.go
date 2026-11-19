@@ -91,6 +91,56 @@ func certificateOwnerReferences(res CertificateOwner) []metav1.OwnerReference {
 	return kube.BaseOwnerReference(res)
 }
 
+// Prune targets of a MongoDBOpsManager: the values the mongodb.com/prune-previous-ca annotation
+// accepts on it. Each one names one of the three parts of the resource that have their own
+// operator-managed certificates and CA: the Ops Manager application server, its AppDB and the
+// queryable backup daemon. They are unrelated to the components of a sharded cluster (mongos,
+// config servers and shards), which share one CA per certificate category and are pruned by
+// category ("server" or "client") instead.
+const (
+	OpsManagerPruneTargetOM     = "om"
+	OpsManagerPruneTargetAppDB  = "appdb"
+	OpsManagerPruneTargetBackup = "backup"
+)
+
+var opsManagerPruneTargets = []string{OpsManagerPruneTargetOM, OpsManagerPruneTargetAppDB, OpsManagerPruneTargetBackup}
+
+// pruneTargetOwner is implemented by the certificate owners of the Ops Manager parts (see
+// OpsManagerPruneTargetOM): their prune annotation selects Ops Manager prune targets instead of
+// certificate categories.
+type pruneTargetOwner interface {
+	pruneTarget() string
+}
+
+// ownerPruneTarget returns the Ops Manager prune target of an owner, or "" when it prunes by
+// category.
+func ownerPruneTarget(res CertificateOwner) string {
+	if o, ok := res.(pruneTargetOwner); ok {
+		return o.pruneTarget()
+	}
+	return ""
+}
+
+// PruneRequestedTargets returns the Ops Manager prune targets a prune annotation selects: every
+// target for "true", otherwise the recognised entries of the comma-separated list. Unknown
+// entries are ignored.
+func PruneRequestedTargets(value string) []string {
+	for token := range strings.SplitSeq(value, ",") {
+		if strings.TrimSpace(token) == "true" {
+			return slices.Clone(opsManagerPruneTargets)
+		}
+	}
+
+	var requested []string
+	for token := range strings.SplitSeq(value, ",") {
+		token = strings.TrimSpace(token)
+		if slices.Contains(opsManagerPruneTargets, token) && !slices.Contains(requested, token) {
+			requested = append(requested, token)
+		}
+	}
+	return requested
+}
+
 var memberServerCertUsages = []certmanagerv1.KeyUsage{
 	certmanagerv1.UsageDigitalSignature,
 	certmanagerv1.UsageKeyEncipherment,
@@ -343,6 +393,17 @@ func ensureCertificatesReady(
 		return nil, status, condition
 	}
 
+	// The secrets cert-manager writes carry no owner of their own, so give them one: without it they
+	// outlive the resource, and the next resource with the same name gets the old certificate back,
+	// because cert-manager compares a Certificate with its secret by name only.
+	names := make([]string, 0, len(writtenCertificates))
+	for _, cert := range writtenCertificates {
+		names = append(names, cert.name)
+	}
+	if status := ensureIssuedSecretsAreOwned(ctx, c, res, names); !status.IsOK() {
+		return nil, status, IssuanceFailedCondition(status.Message())
+	}
+
 	// every issued certificate must have the key usages it was requested with
 	if status := verifyKeyUsagesInIssuedCert(ctx, c, res, required); !status.IsOK() {
 		return nil, status, IssuanceFailedCondition(status.Message())
@@ -377,14 +438,20 @@ func certificatesReadyMessage(message string) string {
 }
 
 // previousCASentence tells the user that a category still retains its previous CA, how to prune it
-// and, when a prune was requested, why it did not happen. Empty when nothing is retained.
-func previousCASentence(cat certCategory, retained, refused bool) string {
+// and, when a prune was requested, why it did not happen. Empty when nothing is retained. The owners
+// of the Ops Manager parts are pruned by Ops Manager prune target, so the suggested annotation value
+// is the target.
+func previousCASentence(res CertificateOwner, cat certCategory, retained, refused bool) string {
 	if !retained {
 		return ""
 	}
+	target := string(cat)
+	if pruneTarget := ownerPruneTarget(res); pruneTarget != "" {
+		target = pruneTarget
+	}
 	sentence := fmt.Sprintf(
 		"Previous %s CA retained in the trust bundle; annotate the resource with %s=%s (or true) once all members and clients use the new CA.",
-		cat, util.PrunePreviousCAAnnotation, cat)
+		cat, util.PrunePreviousCAAnnotation, target)
 	if refused {
 		sentence += fmt.Sprintf(" The previous %s CA was not pruned: issued certificates are still signed by it.", cat)
 	}
@@ -676,12 +743,13 @@ func certSpec(
 	usages []certmanagerv1.KeyUsage,
 ) certmanagerv1.CertificateSpec {
 	spec := certmanagerv1.CertificateSpec{
-		SecretName: secretName,
-		DNSNames:   dnsNames,
-		CommonName: commonName,
-		Subject:    subject,
-		Usages:     usages,
-		IssuerRef:  signerIssuerRef(res, cat),
+		SecretName:     secretName,
+		DNSNames:       dnsNames,
+		CommonName:     commonName,
+		Subject:        subject,
+		Usages:         usages,
+		IssuerRef:      signerIssuerRef(res, cat),
+		SecretTemplate: &certmanagerv1.CertificateSecretTemplate{Labels: ManagedCertificateOwnerLabels(res)},
 	}
 	if cfg := certCategoryConfig(res, cat); cfg != nil {
 		spec.Duration = cfg.Duration
@@ -853,8 +921,18 @@ func multiClusterMemberSANs(ctx context.Context, c kubernetesClient.Client, res 
 	resolved, perClusterCount := resolveMultiClusterMembersToCover(opts.MultiClusterMembers, covered)
 
 	var dnsNames []string
+	// The members are created cluster by cluster, and pod by pod inside a cluster. Their horizon
+	// hostnames are assigned in that same order, so the list is walked the same way. A member that is
+	// being removed can still be covered by the certificate but has no horizon left to read.
+	memberIndex := 0
 	for _, m := range resolved {
 		dnsNames = append(dnsNames, memberClusterDNSNames(opts, m.ClusterNum, m.Members, m.ExternalDomain)...)
+		for pod := 0; pod < m.Members; pod++ {
+			if memberIndex < len(opts.horizons) {
+				dnsNames = append(dnsNames, horizonHostnames(opts.horizons[memberIndex])...)
+			}
+			memberIndex++
+		}
 	}
 
 	encoded, err := json.Marshal(perClusterCount)
@@ -949,6 +1027,9 @@ func ensureSelfSignedCA(ctx context.Context, c kubernetesClient.Client, res Cert
 			PrivateKey: &certmanagerv1.CertificatePrivateKey{
 				RotationPolicy: certmanagerv1.RotationPolicyAlways,
 			},
+			// cert-manager puts these labels on the secret it issues, so the operator's cleanup on
+			// deletion finds it by label, like the other secrets of the resource.
+			SecretTemplate: &certmanagerv1.CertificateSecretTemplate{Labels: ManagedCertificateOwnerLabels(res)},
 		},
 	}
 	generation, status := ensureCertificate(ctx, c, res, caCert)
@@ -1042,7 +1123,7 @@ func ensureCAConfigMapsFromIssuedSecret(
 			return "", false, workflow.Failed(err)
 		}
 		refused := pruneRequested(res, cat) && previousRetained
-		if sentence := previousCASentence(cat, previousRetained, refused); sentence != "" {
+		if sentence := previousCASentence(res, cat, previousRetained, refused); sentence != "" {
 			details = append(details, sentence)
 		}
 		// a refused category still retains its previous CA, so the annotation stays for a retry
@@ -1275,6 +1356,49 @@ func readCertOrgUnits(ctx context.Context, c kubernetesClient.Client, res Certif
 		return nil, nil, workflow.Pending("Waiting for cert-manager to write the certificate secret %s", secretName)
 	}
 	return cert.Subject.Organization, cert.Subject.OrganizationalUnit, workflow.OK()
+}
+
+// ensureIssuedSecretsAreOwned gives every secret cert-manager wrote for this resource an owner
+// reference to the Certificate that issued it. cert-manager writes those secrets without an owner
+// reference, so without one they would outlive the resource. The Certificate is owned by the
+// resource, so deleting the resource deletes the Certificate, and that deletes the secret.
+func ensureIssuedSecretsAreOwned(ctx context.Context, c kubernetesClient.Client, res CertificateOwner, names []string) workflow.Status {
+	for _, name := range names {
+		cert := &certmanagerv1.Certificate{}
+		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: res.GetNamespace()}, cert); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to read the Certificate %s: %w", name, err))
+		}
+
+		s := corev1.Secret{}
+		if err := c.Get(ctx, types.NamespacedName{Name: cert.Spec.SecretName, Namespace: res.GetNamespace()}, &s); err != nil {
+			if apiErrors.IsNotFound(err) {
+				// The certificate is ready but the secret is not there yet, which the next reconcile sees.
+				continue
+			}
+			return workflow.Failed(err)
+		}
+
+		// if the cert-managed is installed with `--enable-certificate-owner-ref` flag the cert secret
+		// would already have the certificate as owner. So check if the certificate is already present
+		// in ownerRefs of secret.
+		if slices.ContainsFunc(s.OwnerReferences, func(ref metav1.OwnerReference) bool { return ref.UID == cert.GetUID() }) {
+			continue
+		}
+		s.OwnerReferences = append(s.OwnerReferences, certificateOwnerRef(cert))
+		if err := c.Update(ctx, &s); err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to set the owner of the secret %s: %w", s.GetName(), err))
+		}
+	}
+	return workflow.OK()
+}
+
+func certificateOwnerRef(cert *certmanagerv1.Certificate) metav1.OwnerReference {
+	return metav1.OwnerReference{
+		APIVersion: certmanagerv1.SchemeGroupVersion.String(),
+		Kind:       "Certificate",
+		Name:       cert.GetName(),
+		UID:        cert.GetUID(),
+	}
 }
 
 // readIssuedCertificate reads the leaf certificate cert-manager wrote into a TLS secret. found is

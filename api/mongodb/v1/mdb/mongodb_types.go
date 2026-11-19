@@ -952,6 +952,12 @@ type SharedConnectionSpec struct {
 // +kubebuilder:validation:XValidation:rule="!(has(self.roles) && has(self.roleRefs)) || !(self.roles.size() > 0 && self.roleRefs.size() > 0)",message="At most one of roles or roleRefs can be non-empty"
 // +kubebuilder:validation:XValidation:rule="!(has(self.certsSecretPrefix) && self.certsSecretPrefix.size() > 0 && has(self.managedCertificate))",message="security.certsSecretPrefix and security.managedCertificate are mutually exclusive"
 // +kubebuilder:validation:XValidation:rule="!(has(self.tls) && has(self.tls.ca) && self.tls.ca.size() > 0 && has(self.managedCertificate))",message="security.tls.ca and security.managedCertificate are mutually exclusive: with operator-managed certificates the operator supplies the CA bundle."
+// security.managedCertificate.subjects is immutable once the managedCertificate block is in place:
+// mongod recognises the members of a deployment by the subject of their certificates, and the
+// operator replaces the certificates one pod at a time, so a change leaves members carrying the old
+// subject and members carrying the new one in the same deployment, and they stop recognising each
+// other.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.managedCertificate) || !has(self.managedCertificate) || (has(self.managedCertificate.subjects) == has(oldSelf.managedCertificate.subjects) && (!has(self.managedCertificate.subjects) || self.managedCertificate.subjects == oldSelf.managedCertificate.subjects))",message="security.managedCertificate.subjects field is immutable it cannot change once the managedCertificate block is in place."
 type Security struct {
 	TLSConfig      *TLSConfig      `json:"tls,omitempty"`
 	Authentication *Authentication `json:"authentication,omitempty"`

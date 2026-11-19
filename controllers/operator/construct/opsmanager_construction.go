@@ -41,6 +41,14 @@ import (
 const (
 	appLabelKey             = "app"
 	podAntiAffinityLabelKey = "pod-anti-affinity"
+
+	// AppDBCABundleHashAnnotation is the pod template annotation holding the operator-managed AppDB
+	// CA bundle hash on the Ops Manager and backup daemon StatefulSets.
+	AppDBCABundleHashAnnotation = "appDBCABundleHash"
+
+	// queryableBackupPemHashAnnotation is the pod template annotation that holds the hash of an
+	// operator-managed queryable.pem.
+	queryableBackupPemHashAnnotation = "queryableBackupPemHash"
 )
 
 // OpsManagerStatefulSetOptions contains all the different values that are variable between
@@ -53,6 +61,7 @@ type OpsManagerStatefulSetOptions struct {
 	AppDBTlsCAConfigMapName      string
 	AppDBConnectionSecretName    string
 	AppDBConnectionStringHash    string
+	AppDBCABundleHash            string
 	EnvVars                      []corev1.EnvVar
 	InitOpsManagerImage          string
 	OpsManagerImage              string
@@ -64,6 +73,7 @@ type OpsManagerStatefulSetOptions struct {
 	ServicePort                  int
 	Scheme                       corev1.URIScheme
 	QueryableBackupPemSecretName string
+	QueryableBackupPemHash       string
 	StatefulSetSpecOverride      *appsv1.StatefulSetSpec
 	VaultConfig                  vault.VaultConfiguration
 	Labels                       map[string]string
@@ -91,6 +101,15 @@ type KmipConfiguration struct {
 func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {
 		opts.AppDBConnectionStringHash = hash
+	}
+}
+
+// WithAppDBCABundleHash annotates the pods with the operator-managed AppDB CA bundle hash. Ops
+// Manager and the backup daemon load the AppDB CA only at startup, so a changed bundle (a CA
+// rotation widening it, or a prune) must restart them before the AppDB serves a leaf on the new CA.
+func WithAppDBCABundleHash(hash string) func(opts *OpsManagerStatefulSetOptions) {
+	return func(opts *OpsManagerStatefulSetOptions) {
+		opts.AppDBCABundleHash = hash
 	}
 }
 
@@ -232,7 +251,7 @@ func (opts *OpsManagerStatefulSetOptions) updateHTTPSCertSecret(ctx context.Cont
 	certHash := enterprisepem.ReadHashFromSecret(ctx, centralClusterSecretClient, opts.Namespace, opts.HTTPSCertSecretName, opsManagerSecretPath, log)
 
 	// The operator concatenates the two fields of the secret into a PEM secret
-	err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), certHash, data, ownerReferences, certs.OpsManager)
+	err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(opts.Namespace, opts.HTTPSCertSecretName), certHash, data, ownerReferences, nil, certs.OpsManager)
 	if err != nil {
 		return err
 	}
@@ -279,15 +298,24 @@ func OpsManagerStatefulSet(ctx context.Context, centralClusterSecretClient secre
 
 // setQueryableBackupPEM records the Secret that supplies queryable.pem to both StatefulSets
 // and verifies it carries the mounted key.
+//
+// Ops Manager loads queryable.pem into its queryable proxy only at startup, while it signs the
+// snapshot query client certificates with the key it reads from the mounted file. An
+// operator-managed queryable.pem is hashed into the pod template, so a renewed leaf or a rotated
+// CA bundle rolls the pods instead of leaving the proxy on a stale certificate.
 func setQueryableBackupPEM(ctx context.Context, secretClient secrets.SecretClient, opsManager *omv1.MongoDBOpsManager, opts *OpsManagerStatefulSetOptions) error {
 	if !opsManager.IsQueryableBackupTLSConfigured() {
 		return nil
 	}
 	secretName := opsManager.QueryableBackupTLSSecretName()
-	if _, err := secret.ReadKey(ctx, secretClient, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName)); err != nil {
+	queryablePEM, err := secret.ReadKey(ctx, secretClient, "queryable.pem", kube.ObjectKey(opsManager.Namespace, secretName))
+	if err != nil {
 		return xerrors.Errorf("error reading queryable.pem key from secret %s/%s: %w", opsManager.Namespace, secretName, err)
 	}
 	opts.QueryableBackupPemSecretName = secretName
+	if opsManager.IsBackupManagedCertificateEnabled() {
+		opts.QueryableBackupPemHash = enterprisepem.HashBytes([]byte(queryablePEM))
+	}
 	return nil
 }
 
@@ -439,9 +467,22 @@ func backupAndOpsManagerSharedConfiguration(opts OpsManagerStatefulSetOptions) s
 		})
 	}
 
-	podtemplateAnnotation := podtemplatespec.WithAnnotations(map[string]string{
+	podAnnotations := map[string]string{
 		"connectionStringHash": opts.AppDBConnectionStringHash,
-	})
+	}
+	if opts.AppDBCABundleHash != "" {
+		podAnnotations[AppDBCABundleHashAnnotation] = opts.AppDBCABundleHash
+	}
+	podtemplateAnnotation := podtemplatespec.WithAnnotations(podAnnotations)
+
+	if opts.QueryableBackupPemHash != "" {
+		podtemplateAnnotation = podtemplatespec.Apply(
+			podtemplateAnnotation,
+			podtemplatespec.WithAnnotations(map[string]string{
+				queryableBackupPemHashAnnotation: opts.QueryableBackupPemHash,
+			}),
+		)
+	}
 
 	if vault.IsVaultSecretBackend() {
 		podtemplateAnnotation = podtemplatespec.Apply(
