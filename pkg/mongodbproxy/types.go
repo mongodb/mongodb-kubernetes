@@ -66,12 +66,10 @@ type Other struct {
 	// Env is "KEY=value" entries that extend the environment of the proxy.
 	Env []string `json:"env,omitempty"`
 
-	// DisableTHP disables transparent huge pages for the child (prctl PR_SET_THP_DISABLE, Linux only)
-	// and sets SET_THP_DISABLED=yes.
+	// DisableTHP opts pre-8.0 MongoDB out of transparent huge pages using an inherited Linux prctl
+	// and sets SET_THP_DISABLED=yes. Unlike NUMA interleaving, this needs no tool in the database
+	// image or extra privileges. The default containerd pod profile blocks set_mempolicy.
 	DisableTHP bool `json:"disableTHP,omitempty"`
-	// NumaPolicy is the Agent's NUMA policy. "auto" runs the child under "numactl --interleave=all" when numactl
-	// is available, matching the Agent's direct-process path. The Agent sends "auto" for every start request.
-	NumaPolicy string `json:"numaPolicy,omitempty"`
 }
 
 // StartRequest is the body of POST /v1/process/start.
