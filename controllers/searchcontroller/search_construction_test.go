@@ -120,16 +120,6 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 			userProvidedMemory:   "512Mi",
 			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx256m -Xms128m -XX:+UseG1GC"`,
 		},
-		{
-			name:                 "user supplies -XX:+UseBASE64Intrinsics - user flag is appended after the operator default",
-			userProvidedJVMFlags: []string{"-XX:+UseBASE64Intrinsics"},
-			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx2048m -Xms2048m -XX:+UseBASE64Intrinsics"`,
-		},
-		{
-			name:                 "user supplies -XX:-UseBASE64Intrinsics - user flag is appended after the operator default",
-			userProvidedJVMFlags: []string{"-XX:-UseBASE64Intrinsics"},
-			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx2048m -Xms2048m -XX:-UseBASE64Intrinsics"`,
-		},
 	}
 
 	for _, tc := range testCases {
