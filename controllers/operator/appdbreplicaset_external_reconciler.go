@@ -93,13 +93,13 @@ func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, o
 }
 
 // managedAppDBCABundleHash returns the hash of the published operator-managed AppDB CA bundle, or
-// "" when the referenced AppDB does not use operator-managed certificates or is multi-cluster.
+// "" when the referenced AppDB does not use operator-managed certificates.
 // Ops Manager and the backup daemon load the AppDB CA only at startup and are annotated with this
 // hash (see construct.WithAppDBCABundleHash), so a bundle change restarts them. Computing it for a
 // referenced AppDB too keeps the annotation stable across a handover from an internal AppDB, which
 // would otherwise roll Ops Manager and lose the restarts a later CA rotation requires.
 func (e *ReconcileExternalAppDBReplicaSet) managedAppDBCABundleHash(ctx context.Context, opsManager *omv1.MongoDBOpsManager, refObject externalAppDB) (string, error) {
-	if !refObject.isManagedCertificateEnabled() || refObject.isMultiCluster() {
+	if !refObject.isManagedCertificateEnabled() {
 		return "", nil
 	}
 

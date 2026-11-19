@@ -971,7 +971,7 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 						Build()))
 				}
 				// A managed-certificate database publishes its CA bundle while reconciling.
-				if tt.managedCertificate != nil && v.kind == omv1.ExternalAppDBRefKindMongoDB {
+				if tt.managedCertificate != nil {
 					require.NoError(t, reconciler.client.CreateConfigMap(ctx, configmap.Builder().
 						SetName(certs.ManagedServerCABundleConfigMapName("test-om-db")).
 						SetNamespace(testOm.Namespace).
@@ -1006,11 +1006,11 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 	}
 }
 
-// TestGetAppDBConfig_ExternalManagedCABundleHash checks that a referenced single-cluster AppDB with
-// operator-managed certificates reports the published CA bundle hash. Ops Manager and the backup
-// daemon annotate their Pods with this hash so a CA rotation restarts them, and reporting it for a
-// referenced AppDB keeps the annotation (and so the Pod template) stable when an internal AppDB is
-// handed over to the database.
+// TestGetAppDBConfig_ExternalManagedCABundleHash checks that a referenced AppDB with operator-managed
+// certificates reports the published CA bundle hash. Ops Manager and the backup daemon annotate
+// their Pods with this hash so a CA rotation restarts them, and reporting it for a referenced AppDB
+// keeps the annotation (and so the Pod template) stable when an internal AppDB is handed over to the
+// database. Single-cluster and multi-cluster AppDBs share the same bundle name, so both report it.
 func TestGetAppDBConfig_ExternalManagedCABundleHash(t *testing.T) {
 	tests := []struct {
 		name                  string
@@ -1029,10 +1029,10 @@ func TestGetAppDBConfig_ExternalManagedCABundleHash(t *testing.T) {
 			expectedErrorContains: "AppDB CA bundle hash",
 		},
 		{
-			name:                 "multi-cluster managed AppDB keeps the fixed ca-pem path",
+			name:                 "multi-cluster managed AppDB reports the published bundle hash",
 			multiCluster:         true,
 			publishBundle:        true,
-			expectedCABundleHash: "",
+			expectedCABundleHash: "bundle-hash-one",
 		},
 	}
 
@@ -1208,12 +1208,8 @@ func TestExternalAppDBManagedCA(t *testing.T) {
 				assert.Contains(t, cfg.ConnectionString, "ssl=true")
 				assert.Equal(t, "test-om-db-managed-server-ca-bundle", cfg.CAConfigMapName)
 				// Ops Manager and the backup daemon restart when the AppDB CA bundle changes. A
-				// referenced single-cluster AppDB reports the hash so a handover does not drop it;
-				// a multi-cluster one keeps the fixed ca-pem path and has no hash.
-				expectedCABundleHash := ""
-				if kind == omv1.ExternalAppDBRefKindMongoDB {
-					expectedCABundleHash = "bundle-hash"
-				}
+				// referenced AppDB reports the hash so a handover does not drop it.
+				expectedCABundleHash := "bundle-hash"
 				assert.Equal(t, expectedCABundleHash, cfg.CABundleHash)
 				helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, memberClients, zap.S())
 				require.NoError(t, err)
