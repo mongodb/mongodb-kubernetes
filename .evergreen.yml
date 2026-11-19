@@ -320,7 +320,7 @@ patch_aliases:
     variant_tags: [ "static" ]
     task: ".*"
   - alias: "static_light"
-    description: "Run the light static set selected by evergreen:static_light"
+    description: "Run the light static set selected by evergreen:static-light"
     variant_tags: [ "static_light" ]
     task: ".*"
   - alias: "non_static"
@@ -361,7 +361,7 @@ github_pr_aliases:
   - variant_tags: [ "static_light" ]
     task: ".*"
     required_labels:
-      - "evergreen:static_light"
+      - "evergreen:static-light"
   - variant_tags: [ "non_static" ]
     task: ".*"
     required_labels:
