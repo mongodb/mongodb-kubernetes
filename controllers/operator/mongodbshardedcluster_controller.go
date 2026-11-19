@@ -1562,7 +1562,12 @@ func (r *ShardedClusterReconcileHelper) ensureSSLCertificates(ctx context.Contex
 		}
 		// Refuse a migration that would leave the CA the deployment trusts today out of the trust
 		// bundle, which would make its members reject each other while they restart.
-		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.commonController.client, s, lastSpec.GetSecurity(), log); !status.IsOK() {
+		// Each component has its own certificates, so all of them are checked.
+		components := []string{s.MongosRsName(), s.ConfigRsName()}
+		for i := 0; i < s.Spec.ShardCount; i++ {
+			components = append(components, s.ShardName(i))
+		}
+		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.commonController.client, s, lastSpec.GetSecurity(), components, log); !status.IsOK() {
 			return status
 		}
 		if err := r.seedManagedPEMSecretsFromLegacy(ctx, s, lastSpec.GetSecurity(), log); err != nil {
