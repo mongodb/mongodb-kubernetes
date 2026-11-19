@@ -103,6 +103,14 @@ def test_advanced_mongot_configs_rendered(namespace: str, mdbs: MongoDBSearch):
     assert config["advancedConfigs"] == ADVANCED_MONGOT_CONFIGS, "block must be rendered verbatim under its key"
     assert config["storage"]["dataPath"], "operator-rendered settings must be unaffected"
 
+    sts = client.AppsV1Api().read_namespaced_stateful_set(
+        search_resource_names.mongot_statefulset_name(mdbs.name), namespace
+    )
+    mongot = next(c for c in sts.spec.template.spec.containers if c.name == "mongot")
+    assert (
+        '--jvm-flags "-XX:-UseBASE64Intrinsics ' in mongot.args[-1]
+    ), "mongot must start with the Base64 intrinsics disabled"
+
 
 @mark.e2e_search_community_basic
 def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
