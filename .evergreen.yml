@@ -320,7 +320,7 @@ patch_aliases:
     variant_tags: [ "static" ]
     task: ".*"
   - alias: "static_light"
-    description: "Run the light static set selected by evergreen:e2e-static"
+    description: "Run the light static set selected by evergreen:static_light"
     variant_tags: [ "static_light" ]
     task: ".*"
   - alias: "non_static"
