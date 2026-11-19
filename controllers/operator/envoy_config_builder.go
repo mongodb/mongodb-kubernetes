@@ -2,7 +2,6 @@ package operator
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"time"
 
@@ -49,6 +48,8 @@ const (
 	envoyMaxAttemptCountHeader = "x-envoy-max-attempt-count"
 
 	defaultEnvoyNumRetries = uint32(2)
+
+	envoyClusterMaxRequests = uint32(1024)
 )
 
 // buildBootstrapJSON returns the static Envoy bootstrap config JSON.
@@ -213,14 +214,15 @@ func socketAddress(addr string, port uint32) *corev3.Address {
 // buildRetryPolicy constructs the Envoy retry policy from user config (or defaults).
 // Retries always target a different host than the one that failed.
 func buildRetryPolicy(rp *searchv1.EnvoyRetryPolicy) *routev3.RetryPolicy {
-	numRetries := resolveNumRetries(rp)
+	numRetries := defaultEnvoyNumRetries
 	perTryTimeout := 60 * time.Second
 
-	if rp != nil {
-		if rp.PerTryTimeout != nil {
-			if d, err := time.ParseDuration(*rp.PerTryTimeout); err == nil {
-				perTryTimeout = d
-			}
+	if rp != nil && rp.NumRetries != nil {
+		numRetries = *rp.NumRetries
+	}
+	if rp != nil && rp.PerTryTimeout != nil {
+		if d, err := time.ParseDuration(*rp.PerTryTimeout); err == nil {
+			perTryTimeout = d
 		}
 	}
 
@@ -242,12 +244,11 @@ func buildRetryPolicy(rp *searchv1.EnvoyRetryPolicy) *routev3.RetryPolicy {
 	}
 }
 
-// resolveNumRetries returns the configured number of Envoy retries, or the default.
-func resolveNumRetries(rp *searchv1.EnvoyRetryPolicy) uint32 {
-	if rp != nil && rp.NumRetries != nil {
-		return *rp.NumRetries
+func overwriteHeader(key, value string) *corev3.HeaderValueOption {
+	return &corev3.HeaderValueOption{
+		Header:       &corev3.HeaderValue{Key: key, Value: value},
+		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 	}
-	return defaultEnvoyNumRetries
 }
 
 // buildFilterChain builds a filter chain for one route.
@@ -269,6 +270,7 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *s
 		return nil, err
 	}
 
+	retryPolicy := buildRetryPolicy(rp)
 	envoyRoute := &routev3.Route{
 		Match: &routev3.RouteMatch{
 			PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/"},
@@ -278,31 +280,18 @@ func buildFilterChain(route envoyRoute, tlsEnabled bool, caKeyName string, rp *s
 			Route: &routev3.RouteAction{
 				ClusterSpecifier: &routev3.RouteAction_Cluster{Cluster: clusterName},
 				Timeout:          durationpb.New(300 * time.Second),
-				RetryPolicy:      buildRetryPolicy(rp),
+				RetryPolicy:      retryPolicy,
 			},
 		},
-	}
-
-	envoyRoute.RequestHeadersToAdd = []*corev3.HeaderValueOption{
-		{
-			Header: &corev3.HeaderValue{
-				Key:   envoyMaxAttemptCountHeader,
-				Value: strconv.FormatUint(uint64(resolveNumRetries(rp))+1, 10),
-			},
-			AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+		RequestHeadersToAdd: []*corev3.HeaderValueOption{
+			overwriteHeader(envoyMaxAttemptCountHeader, strconv.FormatUint(uint64(retryPolicy.GetNumRetries().GetValue())+1, 10)),
 		},
 	}
 
 	// Inject the gRPC binary metadata header for fallback routes so mongot
 	// returns empty results instead of failing.
 	if route.RoutedFromAnotherShard {
-		envoyRoute.RequestHeadersToAdd = append(envoyRoute.RequestHeadersToAdd, &corev3.HeaderValueOption{
-			Header: &corev3.HeaderValue{
-				Key:   searchEnvoyMetadataHeader,
-				Value: searchEnvoyMetadataRoutedValue,
-			},
-			AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
-		})
+		envoyRoute.RequestHeadersToAdd = append(envoyRoute.RequestHeadersToAdd, overwriteHeader(searchEnvoyMetadataHeader, searchEnvoyMetadataRoutedValue))
 	}
 
 	hcm := &hcmv3.HttpConnectionManager{
@@ -439,10 +428,10 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 					Priority:           corev3.RoutingPriority_DEFAULT,
 					MaxConnections:     wrapperspb.UInt32(1024),
 					MaxPendingRequests: wrapperspb.UInt32(1024),
-					MaxRequests:        wrapperspb.UInt32(1024),
-					// Unbounded (unset defaults to 3): retries stay capped per request by numRetries, so mongot
-					// always sees the final attempt and returns the terminal overload error.
-					MaxRetries: wrapperspb.UInt32(math.MaxUint32),
+					MaxRequests:        wrapperspb.UInt32(envoyClusterMaxRequests),
+					// Retries count toward MaxRequests, so this removes the separate cap (unset defaults to 3).
+					// Under load a lower cap skips retries and mongot never sees the final attempt.
+					MaxRetries: wrapperspb.UInt32(envoyClusterMaxRequests),
 				},
 			},
 		},
