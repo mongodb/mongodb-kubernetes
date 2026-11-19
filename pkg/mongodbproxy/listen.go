@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -16,10 +17,6 @@ const (
 
 	// sun_path holds 108 bytes on Linux and 104 on macOS, including the terminating NUL.
 	maxSocketPathLength = 103
-
-	// socketMode lets only the owner of the socket connect. The kernel checks it in connect(), before any
-	// request reaches the proxy.
-	socketMode os.FileMode = 0o600
 
 	// socketUmask is the umask under which the socket is created, so that it never exists with wider
 	// permissions, not even for a moment.
@@ -46,20 +43,11 @@ func listenUnix(path string) (net.Listener, error) {
 		return nil, err
 	}
 
-	var (
-		l   net.Listener
-		err error
-	)
-	withUmask(socketUmask, func() { l, err = net.Listen("unix", path) })
-	if err != nil {
-		return nil, err
-	}
-	// The umask above already did it. This makes the mode independent of it and fails loudly if it cannot be set.
-	if err := os.Chmod(path, socketMode); err != nil {
-		_ = l.Close()
-		return nil, fmt.Errorf("setting the mode of the socket %q: %w", path, err)
-	}
-	return l, nil
+	// The mask is process-wide. Set it only during the startup bind.
+	oldMask := syscall.Umask(socketUmask)
+	l, err := net.Listen("unix", path)
+	syscall.Umask(oldMask)
+	return l, err
 }
 
 func validateSocketPath(path string) error {

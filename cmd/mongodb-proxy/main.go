@@ -68,12 +68,7 @@ func run(log *zap.SugaredLogger, listen, binDir string, paths mongodbproxy.PathP
 	// Serve closes the listener, which also removes the socket file. This covers the early returns before it.
 	defer func() { _ = listener.Close() }()
 
-	var opts []mongodbproxy.Option
-	if binDir != "" {
-		opts = append(opts, mongodbproxy.WithBinDir(binDir))
-	}
-	opts = append(opts, mongodbproxy.WithEnv(os.Environ()), mongodbproxy.WithLogger(log), mongodbproxy.WithPathPolicy(paths))
-	sup := mongodbproxy.NewSupervisor(opts...)
+	sup := mongodbproxy.NewSupervisor(binDir, paths, os.Environ(), log)
 
 	srv := &http.Server{
 		Handler:           mongodbproxy.NewHandler(sup, log),

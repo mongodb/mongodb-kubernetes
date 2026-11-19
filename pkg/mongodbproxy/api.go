@@ -64,11 +64,6 @@ func (h *handler) request(w http.ResponseWriter, r *http.Request) *requestLog {
 	return &requestLog{ResponseWriter: w, started: time.Now(), requestID: id, status: http.StatusOK}
 }
 
-func (r *requestLog) WriteHeader(status int) {
-	r.status = status
-	r.ResponseWriter.WriteHeader(status)
-}
-
 // logToken keeps an identity that a caller supplied out of the log when it is not a safe token.
 func logToken(id string) string {
 	if id == "" || logIDPattern.MatchString(id) {
@@ -86,6 +81,20 @@ func (r *requestLog) fields() []any {
 		"request_id", logToken(r.requestID),
 		"role", role, "http_status", r.status, "error_class", r.errorClass,
 		"duration_ms", float64(time.Since(r.started).Microseconds()) / 1000,
+	}
+}
+
+func (r *requestLog) event(action, request string, role Role) Event {
+	return Event{
+		Action:     action,
+		RequestID:  r.requestID,
+		Request:    request,
+		Role:       role,
+		PID:        r.pid,
+		Outcome:    requestOutcome(r.status),
+		Returned:   returned(r.status, r.errorClass),
+		ErrorClass: r.errorClass,
+		DurationMs: float64(time.Since(r.started).Microseconds()) / 1000,
 	}
 }
 
@@ -135,17 +144,7 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 	// The deferred line also covers a request that fails before the process is spawned.
 	defer func() {
 		h.log.Infow("start requested", append(call.fields(), "waitForExit", req.WaitForExit)...)
-		h.s.recordEvent(Event{
-			Action:     "start",
-			RequestID:  call.requestID,
-			Request:    requestStart,
-			Role:       req.Role,
-			PID:        call.pid,
-			Outcome:    requestOutcome(call.status),
-			Returned:   returned(call.status, call.errorClass),
-			ErrorClass: call.errorClass,
-			DurationMs: float64(time.Since(call.started).Microseconds()) / 1000,
-		})
+		h.s.recordEvent(call.event("start", requestStart, req.Role))
 	}()
 	if err := decode(call, r, &req); err != nil {
 		h.fail(call, err)
@@ -179,17 +178,7 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		fields := append(call.fields(), "timeout", timeout.String(), "force", req.Force)
 		h.log.Infow("stop requested", fields...)
-		h.s.recordEvent(Event{
-			Action:     "stop",
-			RequestID:  call.requestID,
-			Request:    requestStop,
-			Role:       req.Role,
-			PID:        call.pid,
-			Outcome:    requestOutcome(call.status),
-			Returned:   returned(call.status, call.errorClass),
-			ErrorClass: call.errorClass,
-			DurationMs: float64(time.Since(call.started).Microseconds()) / 1000,
-		})
+		h.s.recordEvent(call.event("stop", requestStop, req.Role))
 	}()
 	if err := decode(call, r, &req); err != nil {
 		h.fail(call, err)

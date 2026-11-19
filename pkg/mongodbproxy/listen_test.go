@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,8 +27,12 @@ func socketDir(t *testing.T) string {
 
 func TestListenUnixCreatesASocketOnlyTheOwnerCanUse(t *testing.T) {
 	path := filepath.Join(socketDir(t), "proxy.sock")
+	const incomingMask = 0o777
+	oldMask := syscall.Umask(incomingMask)
+	defer syscall.Umask(oldMask)
 
 	l, err := Listen(UnixScheme + path)
+	assert.Equal(t, incomingMask, syscall.Umask(incomingMask))
 	require.NoError(t, err)
 	defer func() { _ = l.Close() }()
 

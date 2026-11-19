@@ -1,6 +1,7 @@
 package mongodbproxy
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +19,8 @@ func TestDisableTHPIsInheritedByChild(t *testing.T) {
 	require.NoError(t, os.WriteFile(cfg, []byte("x"), 0o600))
 
 	for _, disable := range []bool{true, false} {
-		sup := NewSupervisor(WithEnv(testEnv), WithBinDir(dir), WithOutput(&syncBuffer{}, &syncBuffer{}), WithPathPolicy(onlyIn(dir)))
+		sup := NewSupervisor(dir, onlyIn(dir), testEnv, nil)
+		sup.stdout, sup.stderr = io.Discard, io.Discard
 		e, err := sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{DisableTHP: disable}})
 		require.NoError(t, err)
 		waitDone(t, e)

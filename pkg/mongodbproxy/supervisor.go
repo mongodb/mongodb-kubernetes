@@ -40,41 +40,15 @@ type Supervisor struct {
 	events      *eventLog
 }
 
-type Option func(*Supervisor)
-
-// WithBinDir resolves mongod/mongos from dir instead of PATH.
-func WithBinDir(dir string) Option {
-	return func(s *Supervisor) { s.binDir = dir }
-}
-
-// WithOutput sets where the child's stdout and stderr are forwarded to.
-func WithOutput(stdout, stderr io.Writer) Option {
-	return func(s *Supervisor) { s.stdout, s.stderr = stdout, stderr }
-}
-
-// WithEnv sets the environment that the child starts with, as os.Environ returns it. Without it the child has an
-// empty one.
-func WithEnv(env []string) Option {
-	return func(s *Supervisor) { s.baseEnv = env }
-}
-
-// WithPathPolicy sets the directories that the paths of a request have to be in. Without it DefaultPathPolicy applies.
-func WithPathPolicy(p PathPolicy) Option {
-	return func(s *Supervisor) { s.paths = p }
-}
-
-// WithLogger sets the logger of the supervisor. Without it nothing is logged.
-func WithLogger(log *zap.SugaredLogger) Option {
-	return func(s *Supervisor) { s.log = log }
-}
-
-// NewSupervisor creates a Supervisor that forwards the child's output to the proxy's stdout/stderr.
-func NewSupervisor(opts ...Option) *Supervisor {
-	s := &Supervisor{stdout: os.Stdout, stderr: os.Stderr, log: zap.NewNop().Sugar(), paths: DefaultPathPolicy(), events: newEventLog()}
-	for _, o := range opts {
-		o(s)
+// NewSupervisor forwards child output to stdout and stderr. An empty binDir uses PATH.
+func NewSupervisor(binDir string, paths PathPolicy, env []string, log *zap.SugaredLogger) *Supervisor {
+	if log == nil {
+		log = zap.NewNop().Sugar()
 	}
-	return s
+	return &Supervisor{
+		binDir: binDir, stdout: os.Stdout, stderr: os.Stderr, log: log,
+		baseEnv: env, paths: paths, events: newEventLog(),
+	}
 }
 
 // Execution is one launched child.
@@ -82,7 +56,6 @@ type Execution struct {
 	id         string
 	role       Role
 	configPath string
-	requestID  string
 	pid        int
 	launchEnv  LaunchEnvironment
 	cmd        *exec.Cmd
@@ -234,7 +207,6 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		id:         uuid.NewString(),
 		role:       req.Role,
 		configPath: req.ConfigPath,
-		requestID:  req.RequestID,
 		pid:        cmd.Process.Pid,
 		startedAt:  time.Now().UTC(),
 		launchEnv: LaunchEnvironment{
@@ -249,7 +221,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	s.log.Infow("process started", "role", e.role, "configPath", e.configPath, "pid", e.pid)
 	s.recordEvent(Event{
 		Action:    "child_started",
-		RequestID: e.requestID,
+		RequestID: req.RequestID,
 		Request:   requestStart,
 		Role:      e.role,
 		PID:       e.pid,
