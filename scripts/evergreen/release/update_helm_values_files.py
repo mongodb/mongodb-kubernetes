@@ -12,16 +12,16 @@ import json
 import sys
 from typing import List
 
-from agent_matrix import get_supported_version_for_image
 from git import Repo
-from helm_files_handler import (
+
+from scripts.evergreen.release.agent_matrix import get_supported_version_for_image
+from scripts.evergreen.release.helm_files_handler import (
     get_value_in_yaml_file,
     set_value_in_yaml_file,
     update_all_helm_values_files,
     update_community_agent_image_in_file,
     update_community_agent_image_in_go_file,
 )
-
 from scripts.release.constants import DEFAULT_RELEASE_INITIAL_VERSION, DEFAULT_REPOSITORY_PATH
 from scripts.release.version import find_previous_version
 
