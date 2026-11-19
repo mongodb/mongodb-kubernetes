@@ -760,7 +760,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		}
 		// Refuse a migration that would leave the CA the deployment trusts today out of the trust
 		// bundle, which would make its members reject each other while they restart.
-		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.client, mrs, lastSpec.GetSecurity(), log); !status.IsOK() {
+		if status := certs.VerifyMigrationTrustsLegacyCA(ctx, r.client, mrs, lastSpec.GetSecurity(), []string{mrs.Name}, log); !status.IsOK() {
 			return status
 		}
 	}
