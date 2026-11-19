@@ -278,8 +278,7 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 const disableBase64IntrinsicsFlag = "-XX:-UseBASE64Intrinsics"
 
 // jvmFlags builds the --jvm-flags argument from the per-cluster user-provided
-// JVMFlags slice plus the operator defaults: the Base64 intrinsics mitigation and
-// a heap-size pair derived from memory requests.
+// JVMFlags slice plus a default heap-size pair derived from memory requests.
 func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements) string {
 	flags := []string{disableBase64IntrinsicsFlag}
 
