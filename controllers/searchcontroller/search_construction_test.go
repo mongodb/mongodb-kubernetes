@@ -50,6 +50,11 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xms1g"`,
 		},
 		{
+			name:                 "user provides both -Xmx and -Xms - jvm heap flags are derived from that",
+			userProvidedJVMFlags: []string{"-Xmx2g", "-Xms512m"},
+			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx2g -Xms512m"`,
+		},
+		{
 			name:                 "user provides non-heap flags only - jvm heap flags are derived from default memory req",
 			userProvidedJVMFlags: []string{"-XX:+UseG1GC"},
 			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx2048m -Xms2048m -XX:+UseG1GC"`,
@@ -61,6 +66,11 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 		},
 		// Custom memory, no user JVM flags
 		{
+			name:               "4Gi memory - half is 2048m",
+			userProvidedMemory: "4Gi",
+			expectedJVMFlags:   `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx2048m -Xms2048m"`,
+		},
+		{
 			name:               "4G memory - half is 1907m",
 			userProvidedMemory: "4G",
 			expectedJVMFlags:   `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx1907m -Xms1907m"`,
@@ -71,6 +81,11 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 			expectedJVMFlags:   `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx256m -Xms256m"`,
 		},
 		{
+			name:               "8Gi memory - half is 4096m",
+			userProvidedMemory: "8Gi",
+			expectedJVMFlags:   `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx4096m -Xms4096m"`,
+		},
+		{
 			name:               "60Gi memory - half is exactly the 30GB cap",
 			userProvidedMemory: "60Gi",
 			expectedJVMFlags:   `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx30720m -Xms30720m"`,
@@ -79,6 +94,31 @@ func TestCreateSearchStatefulSetFunc_JVMFlags(t *testing.T) {
 			name:               "128Gi memory - auto heap capped at 30GB",
 			userProvidedMemory: "128Gi",
 			expectedJVMFlags:   `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx30720m -Xms30720m"`,
+		},
+		{
+			name:                 "128Gi memory with user heap flags above the cap - not capped",
+			userProvidedJVMFlags: []string{"-Xmx64g", "-Xms64g"},
+			userProvidedMemory:   "128Gi",
+			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx64g -Xms64g"`,
+		},
+		// Custom memory + user JVM flags combined
+		{
+			name:                 "8Gi memory with non-heap user flags - auto heap from custom memory",
+			userProvidedJVMFlags: []string{"-XX:+UseG1GC"},
+			userProvidedMemory:   "8Gi",
+			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx4096m -Xms4096m -XX:+UseG1GC"`,
+		},
+		{
+			name:                 "8Gi memory with user heap flags - auto heap suppressed",
+			userProvidedJVMFlags: []string{"-Xmx2g"},
+			userProvidedMemory:   "8Gi",
+			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx2g"`,
+		},
+		{
+			name:                 "512Mi memory with user heap and non-heap flags - auto heap suppressed",
+			userProvidedJVMFlags: []string{"-Xmx256m", "-Xms128m", "-XX:+UseG1GC"},
+			userProvidedMemory:   "512Mi",
+			expectedJVMFlags:     `--jvm-flags "-XX:-UseBASE64Intrinsics -Xmx256m -Xms128m -XX:+UseG1GC"`,
 		},
 	}
 
