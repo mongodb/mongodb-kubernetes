@@ -255,17 +255,15 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
 
 def build_om_image(build_configuration: ImageBuildConfiguration):
     if os.environ.get("OM_DEV_BUILD", "") != "":
-        # One dev image per release line, tagged <major>.0.0-dev-<OPERATOR_VERSION>, the evergreen id of the run,
-        # for example 9.0.0-dev-<version_id>. The tag has to be a valid semver version for spec.version.
-        for major in os.environ["OM_DEV_RELEASE_LINES"].split():
-            tag = f"{major}.0.0-{build_configuration.version}"
-            om_download_url = find_om_dev_url(major)
-            dev_configuration = copy(build_configuration)
-            dev_configuration.version = tag
-            build_image(
-                build_configuration=dev_configuration,
-                build_args={"version": tag, "om_download_url": om_download_url},
-            )
+        # Tagged <major>.0.0-dev-<OPERATOR_VERSION>, a valid semver version for spec.version.
+        major = os.environ["OM_DEV_RELEASE_LINE"]
+        tag = f"{major}.0.0-{build_configuration.version}"
+        dev_configuration = copy(build_configuration)
+        dev_configuration.version = tag
+        build_image(
+            build_configuration=dev_configuration,
+            build_args={"version": tag, "om_download_url": find_om_dev_url(major)},
+        )
         return
 
     om_download_url = build_configuration.om_download_url or find_om_url(build_configuration.version)
