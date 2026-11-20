@@ -5,6 +5,9 @@ transparently retried on a healthy mongot via the `previous_hosts` retry predica
 Verification is two-pronged:
   1. All search queries succeed (no user-visible errors)
   2. Envoy upstream_rq_retry stat increments (retries actually happened)
+
+Also proves Envoy sends mongot the `x-envoy-max-attempt-count` header (1 + numRetries)
+that mongot's load shedding uses to decide when a rejection is the final attempt.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from kubetester.mongodb_search import MongoDBSearch
 from pytest import fixture
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
@@ -29,6 +33,11 @@ from tests.common.search.bootstrap_test_mixins import (
 )
 from tests.common.search.connectivity import SearchConnectivityTool, delete_pods
 from tests.common.search.rs_search_helper import rs_search_tester
+from tests.common.search.sharded_search_helper import (
+    lds_chain_routes,
+    route_request_headers,
+    wait_for_envoy_mounted_lds,
+)
 from tests.conftest import get_namespace
 
 logger = test_logger.get_test_logger(__name__)
@@ -43,6 +52,7 @@ SEARCH = SearchDeploymentConfig(mongot_replicas=2)
 MDBS_NAME = MDB.mdb_resource_name
 MONGOT_STS = search_resource_names.mongot_statefulset_name_for_cluster(MDBS_NAME)
 MONGOT_SELECTOR = f"app={search_resource_names.mongot_service_name_for_cluster(MDBS_NAME)}"
+MAX_ATTEMPT_COUNT_HEADER = "x-envoy-max-attempt-count"
 
 
 def _user_tool(namespace: str) -> SearchConnectivityTool:
@@ -159,6 +169,24 @@ class TestEnvoyRetryPolicy:
         # Wait for the killed pod to come back before test teardown
         _wait_for_mongot_ready(namespace, expected_count=2)
         logger.info("Mongot pod recovered — test complete")
+
+
+class TestEnvoyMaxAttemptCountHeader:
+    """Envoy sends x-envoy-max-attempt-count = 1 + numRetries on every mongot route."""
+
+    def test_header_follows_num_retries(self, namespace: str):
+        num_retries = 3
+        expected = str(num_retries + 1)
+
+        mdbs = MongoDBSearch(name=MDBS_NAME, namespace=namespace).load()
+        mdbs["spec"]["clusters"][0]["loadBalancer"]["managed"].setdefault("retryPolicy", {})["numRetries"] = num_retries
+        mdbs.update()
+
+        def header_set(lds: str) -> tuple[bool, str]:
+            values = [route_request_headers(r).get(MAX_ATTEMPT_COUNT_HEADER) for _, r in lds_chain_routes(lds)]
+            return bool(values) and all(v == expected for v in values), f"{MAX_ATTEMPT_COUNT_HEADER} values {values}"
+
+        wait_for_envoy_mounted_lds(namespace, MDBS_NAME, header_set, msg=f"{MAX_ATTEMPT_COUNT_HEADER}={expected}")
 
 
 def _get_envoy_pod_ip(namespace: str, search_name: str) -> str:
