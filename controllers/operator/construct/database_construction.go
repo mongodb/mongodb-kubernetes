@@ -966,10 +966,7 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		// The proxy replaces the marker command: it starts mongod/mongos only when the agent asks for it.
 		mongodContainerModifications = append(mongodContainerModifications,
 			container.WithCommand([]string{mongodbProxyBinaryPath}),
-			container.WithArgs([]string{
-				"-listen", MongodbProxyAddress,
-				"-config-dir", strings.Join(mongodbProxyConfigDirs(opts), ","),
-			}),
+			container.WithArgs([]string{"-listen", MongodbProxyAddress}),
 			container.WithVolumeMounts([]corev1.VolumeMount{
 				readOnlyMount(mongodbProxyVolumeName, mongodbProxyMountPath),
 				mongodbProxySocketMount(),
