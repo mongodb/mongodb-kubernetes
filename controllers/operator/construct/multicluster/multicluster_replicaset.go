@@ -104,5 +104,7 @@ func MultiClusterStatefulSet(
 		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}
 
+	construct.ApplyManagedCABundleHashAnnotations(&dbSts, stsOptions.ManagedServerCABundleHash, stsOptions.ManagedClientCABundleHash)
+
 	return dbSts
 }

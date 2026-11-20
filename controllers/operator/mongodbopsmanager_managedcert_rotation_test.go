@@ -30,6 +30,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	certspkg "github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -416,22 +417,28 @@ func TestReissueManagedCertificatesOnRotatedCA_AppDB(t *testing.T) {
 	newRoot := newRotationTestCA(t, "new-appdb-root")
 	propagated := time.Now().Add(-10 * time.Minute)
 
-	t.Run("reissues the AppDB leaf once the bundle has propagated", func(t *testing.T) {
+	t.Run("does not reissue before the AppDB StatefulSet exists", func(t *testing.T) {
 		om := utRotationTestOM(true, false, false)
 		c := newRotationTestClient(t, append([]client.Object{om}, utAppDBStaleLeafObjects(t, om, oldRoot, newRoot, propagated)...)...)
 
 		wait := utRotationTestReconciler(t, c).reissueManagedCertificatesOnRotatedCA(t.Context(), om, zap.S())
-		assert.Zero(t, wait)
-		utAssertReissued(t, c, om.Namespace, certspkg.AppDBManagedCertConfig(om).CertSecretName)
+		assert.Positive(t, wait)
+		utAssertNotReissued(t, c, om.Namespace, certspkg.AppDBManagedCertConfig(om).CertSecretName)
 	})
 
 	t.Run("reissues the AppDB leaf when the StatefulSet is owned by this Ops Manager", func(t *testing.T) {
 		om := utRotationTestOM(true, false, false)
-		sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
-			Name:      om.Spec.AppDB.Name(),
-			Namespace: om.Namespace,
-			Labels:    map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: om.Name},
-		}}
+		bundleHash := utBundleData(oldRoot, newRoot)[util.LatestHashSecretKey]
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      om.Spec.AppDB.Name(),
+				Namespace: om.Namespace,
+				Labels:    map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: om.Name},
+			},
+			Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+				operatorConstruct.ManagedServerCABundleHashAnnotation: bundleHash,
+			}}}},
+		}
 		c := newRotationTestClient(t, append([]client.Object{om, sts}, utAppDBStaleLeafObjects(t, om, oldRoot, newRoot, propagated)...)...)
 
 		wait := utRotationTestReconciler(t, c).reissueManagedCertificatesOnRotatedCA(t.Context(), om, zap.S())
@@ -462,6 +469,12 @@ func TestReissueManagedCertificatesOnRotatedCA_AppDB(t *testing.T) {
 				cm.Data = utBundleData(oldRoot)
 			}
 		}
+		objects = append(objects, &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: om.AppDBName(), Namespace: om.Namespace, Labels: map[string]string{util.MongoDBOpsManagerResourceOwnerLabel: om.Name}},
+			Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+				operatorConstruct.ManagedServerCABundleHashAnnotation: utBundleData(oldRoot)[util.LatestHashSecretKey],
+			}}}},
+		})
 		c := newRotationTestClient(t, append([]client.Object{om}, objects...)...)
 
 		wait := utRotationTestReconciler(t, c).reissueManagedCertificatesOnRotatedCA(t.Context(), om, zap.S())

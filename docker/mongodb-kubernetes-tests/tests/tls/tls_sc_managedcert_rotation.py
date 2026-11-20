@@ -7,7 +7,7 @@ certificate, but there is one trust bundle per category for the whole resource.
 
 The module first renews a shard and the mongos certificate on the same CA, then rotates the server CA and the
 client CA one after the other: each rotation must widen the one shared bundle, move every component onto it
-and re-issue every leaf of that category on the new root, without recreating a pod or losing the application.
+and re-issue every leaf of that category on the new root, recreating the members onto the bundle before the leaf moves.
 Pruning both retained CAs at the end narrows the bundles to the new roots.
 """
 
@@ -39,6 +39,9 @@ from tests.multicluster.managedcert_rotation_mc_helper import (
     wait_for_prune_annotation_removed,
 )
 from tests.opsmanager.managedcert_helper import (
+    MANAGED_CLIENT_CA_BUNDLE_HASH_ANNOTATION,
+    MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION,
+    assert_pods_replaced,
     begin_ca_rotation,
     bundle_fingerprints,
     pod_uids,
@@ -46,7 +49,9 @@ from tests.opsmanager.managedcert_helper import (
     wait_for_bundle_rotation,
     wait_for_ca_rotated,
     wait_for_leaf_reissued_on_new_ca,
+    wait_for_statefulset_pod_annotation,
 )
+from tests.opsmanager.managedcert_rotation_edge_helper import certificate_not_before
 from tests.tls.managedcert_helper import (
     assert_automation_config_names_files,
     assert_reachable_with_client_certificate,
@@ -81,6 +86,8 @@ CONNECTIVITY_ATTEMPTS = 5
 LEAF_REISSUE_TIMEOUT = 20 * 60
 AUTOMATION_CONFIG_TIMEOUT = 10 * 60
 RUNNING_TIMEOUT = 15 * 60
+# One budget for the config servers, shards and mongos to roll onto a changed CA bundle.
+CA_POD_ROLLOUT_TIMEOUT = 30 * 60
 
 # A leaf renewal must finish rolling out before a CA rotation starts, which the status alone does not show.
 RENEWAL_ROLLOUT_TIMEOUT = 15 * 60
@@ -98,7 +105,6 @@ def sc(namespace: str, custom_mdb_version: str) -> MongoDB:
     # x509 for the agents and the internal cluster authentication, so both categories have leaves.
     resource = MongoDB.from_yaml(load_fixture("test-tls-sc-managedcert.yaml"), name=MDB_RESOURCE, namespace=namespace)
     resource.set_version(custom_mdb_version)
-    resource["spec"]["persistent"] = False
     resource["spec"]["security"]["managedCertificate"] = {}
     try_load(resource)
     return resource
@@ -125,8 +131,19 @@ def _pods(namespace: str) -> dict[str, str]:
 
 def _remaining(deadline: float) -> int:
     remaining = math.ceil(deadline - time.monotonic())
-    assert remaining > 0, "timed out waiting for all leaves to be reissued"
+    assert remaining > 0, "rotation phase exceeded its deadline"
     return remaining
+
+
+def _wait_for_ca_pod_rollout(namespace: str, annotations: dict[str, str]):
+    deadline = time.monotonic() + CA_POD_ROLLOUT_TIMEOUT
+    # Follow the controller's rollout order so a timeout identifies the component still rolling.
+    components = [*COMPONENTS[1:], COMPONENTS[0]]
+    return max(
+        wait_for_statefulset_pod_annotation(namespace, component, annotation, expected, timeout=_remaining(deadline))
+        for component in components
+        for annotation, expected in annotations.items()
+    )
 
 
 def _wait_for_rollout(sc: MongoDB, ca_hashes: tuple[str, str] | None = None) -> dict:
@@ -308,6 +325,9 @@ def test_server_ca_rotation_widens_the_shared_bundle(
     ), "a server CA rotation must not change the client bundle"
 
     wait_for_automation_config_ca_files(sc, widened["latest_hash"], client_bundle_before["latest_hash"])
+    rotation[SERVER]["last_pod_created"] = _wait_for_ca_pod_rollout(
+        namespace, {MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION: widened["latest_hash"]}
+    )
     _assert_reachable(sc, app_user, namespace)
 
 
@@ -333,6 +353,9 @@ def test_every_component_server_leaf_reissued_on_the_new_ca(
             timeout=_remaining(deadline),
         )
         assert not cert_signed_by_bundle(new_leaf, state["old_ca"]), f"{leaf} must not be signed by the old CA"
+        assert (
+            certificate_not_before(new_leaf) >= state["last_pod_created"]
+        ), f"{leaf} moved before the server trust rollout"
         assert read_certificate_status(namespace, leaf).get("revision", 0) > state["revisions"][leaf]
 
     assert (
@@ -345,7 +368,7 @@ def test_every_component_server_leaf_reissued_on_the_new_ca(
     ac = _wait_for_rollout(sc, (state["widened"]["latest_hash"], rotation["initial_client_hash"]))
     _check_served_leaves(sc, app_user, ac)
     sc.assert_reaches_phase(Phase.Running, timeout=RUNNING_TIMEOUT)
-    assert _pods(namespace) == rotation["pods"], "a CA rotation must not recreate the pods"
+    assert_pods_replaced(namespace, f"{MDB_RESOURCE}-", rotation["pods"], "sharded cluster")
     assert (
         len(bundle_snapshot(namespace, MDB_RESOURCE, SERVER)["certificates"]) == 2
     ), "the previous server CA is kept until it is pruned"
@@ -358,6 +381,7 @@ def test_client_ca_rotation_widens_the_shared_bundle(
 ):
     """Rotating the client CA widens the one client bundle, which every component's clusterCAFile names."""
     server_bundle_before = bundle_snapshot(namespace, MDB_RESOURCE, SERVER)
+    rotation["pods_before_client"] = _pods(namespace)
 
     widened = _rotate_ca(namespace, CLIENT, app_user, rotation)
 
@@ -367,6 +391,9 @@ def test_client_ca_rotation_widens_the_shared_bundle(
     ), "a client CA rotation must not change the server bundle"
 
     wait_for_automation_config_ca_files(sc, server_bundle_before["latest_hash"], widened["latest_hash"])
+    rotation[CLIENT]["last_pod_created"] = _wait_for_ca_pod_rollout(
+        namespace, {MANAGED_CLIENT_CA_BUNDLE_HASH_ANNOTATION: widened["latest_hash"]}
+    )
     _assert_reachable(sc, app_user, namespace)
 
 
@@ -387,6 +414,9 @@ def test_every_client_leaf_reissued_on_the_new_ca(sc: MongoDB, app_user: MongoDB
             timeout=_remaining(deadline),
         )
         assert not cert_signed_by_bundle(new_leaf, state["old_ca"]), f"{leaf} must not be signed by the old CA"
+        assert (
+            certificate_not_before(new_leaf) >= state["last_pod_created"]
+        ), f"{leaf} moved before the client trust rollout"
         assert read_certificate_status(namespace, leaf).get("revision", 0) > state["revisions"][leaf]
 
     user_secret, _ = user_certificate(app_user, namespace)
@@ -401,7 +431,7 @@ def test_every_client_leaf_reissued_on_the_new_ca(sc: MongoDB, app_user: MongoDB
 
     _wait_for_rollout(sc, (rotation[SERVER]["widened"]["latest_hash"], state["widened"]["latest_hash"]))
     sc.assert_reaches_phase(Phase.Running, timeout=RUNNING_TIMEOUT)
-    assert _pods(namespace) == rotation["pods"], "a CA rotation must not recreate the pods"
+    assert_pods_replaced(namespace, f"{MDB_RESOURCE}-", rotation["pods_before_client"], "sharded cluster")
     assert (
         len(bundle_snapshot(namespace, MDB_RESOURCE, CLIENT)["certificates"]) == 2
     ), "the previous client CA is kept until it is pruned"
@@ -411,6 +441,7 @@ def test_every_client_leaf_reissued_on_the_new_ca(sc: MongoDB, app_user: MongoDB
 @pytest.mark.e2e_sharded_cluster_tls_managedcert_rotation
 def test_prune_both_previous_cas(sc: MongoDB, app_user: MongoDBUser, namespace: str, rotation: dict):
     """Pruning both categories narrows each bundle to its new CA, and the operator removes the annotation."""
+    pods_before_prune = _pods(namespace)
     request_prune_previous_ca(sc, "true")
     wait_for_prune_annotation_removed(sc)
 
@@ -423,7 +454,14 @@ def test_prune_both_previous_cas(sc: MongoDB, app_user: MongoDBUser, namespace: 
         assert set(pruned[category]["certificates"]) == set(bundle_fingerprints(new_ca))
 
     wait_for_automation_config_ca_files(sc, pruned[SERVER]["latest_hash"], pruned[CLIENT]["latest_hash"])
+    _wait_for_ca_pod_rollout(
+        namespace,
+        {
+            MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION: pruned[SERVER]["latest_hash"],
+            MANAGED_CLIENT_CA_BUNDLE_HASH_ANNOTATION: pruned[CLIENT]["latest_hash"],
+        },
+    )
     _wait_for_rollout(sc, (pruned[SERVER]["latest_hash"], pruned[CLIENT]["latest_hash"]))
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
-    assert _pods(namespace) == rotation["pods"], "pruning must not recreate the pods"
+    assert_pods_replaced(namespace, f"{MDB_RESOURCE}-", pods_before_prune, "sharded cluster")
     _assert_reachable(sc, app_user, namespace)

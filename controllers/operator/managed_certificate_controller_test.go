@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"path"
 	"strings"
@@ -16,10 +17,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/meta"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,14 +31,19 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
+	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // issueLeafSignedByCA returns a leaf certificate signed by the given CA certificate and key. The leaf
@@ -146,6 +154,279 @@ func TestDatabaseCAFilePaths(t *testing.T) {
 	})
 }
 
+func TestManagedCARolloutOrdering(t *testing.T) {
+	for _, tt := range []struct {
+		name                    string
+		publishFirst, caChanged bool
+		stopAt                  string
+		want                    []string
+	}{
+		{"normal reconcile", false, false, "", []string{"pods", "converge"}},
+		{"scale-down order", true, false, "", []string{"converge", "pods"}},
+		{"rotate trust", true, true, "", []string{"publish", "pods", "converge"}},
+		{"publish failed", true, true, "publish", []string{"publish"}},
+		{"roll incomplete", true, true, "pods", []string{"publish", "pods"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var steps []string
+			run := func(step string) workflow.Status {
+				steps = append(steps, step)
+				if tt.stopAt == step {
+					return workflow.Pending("waiting for %s", step)
+				}
+				return workflow.OK()
+			}
+			status := reconcileDatabaseRollout(tt.publishFirst, tt.caChanged, func(wait bool) workflow.Status {
+				if wait {
+					return run("converge")
+				}
+				return run("publish")
+			}, func() workflow.Status { return run("pods") })
+			assert.Equal(t, tt.want, steps)
+			assert.Equal(t, tt.stopAt == "", status.IsOK())
+		})
+	}
+}
+
+func TestManagedCABundlePodsRolled(t *testing.T) {
+	ctx := t.Context()
+	const (
+		namespace = mock.TestNamespace
+		stsName   = "rs"
+	)
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	rolled, err := managedCABundlePodsRolled(ctx, kubeClient, namespace, stsName, "new-server", "new-client")
+	require.NoError(t, err)
+	assert.False(t, rolled, "a missing StatefulSet does not confirm rollout")
+
+	replicas := int32(2)
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: stsName, Namespace: namespace},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas:       &replicas,
+			UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType},
+			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+				operatorConstruct.ManagedServerCABundleHashAnnotation: "new-server",
+				operatorConstruct.ManagedClientCABundleHashAnnotation: "new-client",
+			}}},
+		},
+	}
+	require.NoError(t, kubeClient.Create(ctx, sts))
+
+	pod := func(ordinal int, serverHash, clientHash string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name:        fmt.Sprintf("%s-%d", stsName, ordinal),
+			Namespace:   namespace,
+			Annotations: map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: serverHash, operatorConstruct.ManagedClientCABundleHashAnnotation: clientHash},
+		}, Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}
+	}
+
+	require.NoError(t, kubeClient.Create(ctx, pod(0, "new-server", "new-client")))
+	rolled, err = managedCABundlePodsRolled(ctx, kubeClient, namespace, stsName, "new-server", "new-client")
+	require.NoError(t, err)
+	assert.False(t, rolled, "a missing pod must keep the re-issue deferred")
+
+	require.NoError(t, kubeClient.Create(ctx, pod(1, "old-server", "old-client")))
+	rolled, err = managedCABundlePodsRolled(ctx, kubeClient, namespace, stsName, "new-server", "new-client")
+	require.NoError(t, err)
+	assert.False(t, rolled, "a pod still on the previous bundle, as on OnDelete, must keep the re-issue deferred")
+
+	require.NoError(t, kubeClient.Update(ctx, pod(1, "new-server", "new-client")))
+	rolled, err = managedCABundlePodsRolled(ctx, kubeClient, namespace, stsName, "new-server", "new-client")
+	require.NoError(t, err)
+	assert.True(t, rolled)
+}
+
+func TestPublishAutomationConfigFirstOnManagedCABundleChange(t *testing.T) {
+	ctx := t.Context()
+	rs := DefaultReplicaSetBuilder().Build()
+	rs.Name = "rs"
+	rs.Namespace = mock.TestNamespace
+	rs.Spec.Security = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
+	kubeClient, _ := mock.NewDefaultFakeClient()
+
+	replicas := int32(1)
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: rs.Name, Namespace: rs.Namespace},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: &replicas,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: "old-server"}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: util.DatabaseContainerName}}},
+			},
+		},
+	}
+	require.NoError(t, kubeClient.Create(ctx, sts))
+
+	opts := operatorConstruct.DatabaseStatefulSetOptions{
+		Name:                      rs.Name,
+		Replicas:                  1,
+		PodVars:                   &env.PodEnvVars{},
+		ManagedServerCABundleHash: "new-server",
+	}
+	config := func(mdb mdbv1.MongoDB) operatorConstruct.DatabaseStatefulSetOptions { return opts }
+	assert.True(t, publishAutomationConfigFirst(ctx, kubeClient, *rs, nil, config, architectures.NonStatic, zap.S()),
+		"a managed CA bundle change must publish the automation config before replacing the pods")
+
+	opts.ManagedServerCABundleHash = "old-server"
+	assert.False(t, publishAutomationConfigFirst(ctx, kubeClient, *rs, nil, config, architectures.NonStatic, zap.S()),
+		"an unchanged managed CA bundle must keep the normal order")
+}
+
+func TestShardedAnyStatefulSetNeedsToPublishStateUsesMemberClusterSTS(t *testing.T) {
+	ctx := t.Context()
+	sc := test.DefaultClusterBuilder().Build()
+	sc.Spec.Security = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
+
+	member, _ := mock.NewDefaultFakeClient(sc)
+	const stsName = "sc-0"
+	replicas := int32(1)
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: stsName, Namespace: sc.Namespace},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: &replicas,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: "old-server"}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: util.DatabaseContainerName}}},
+			},
+		},
+	}
+	require.NoError(t, member.Create(ctx, sts))
+
+	opts := operatorConstruct.DatabaseStatefulSetOptions{
+		Name:                      stsName,
+		Replicas:                  1,
+		PodVars:                   &env.PodEnvVars{},
+		ManagedServerCABundleHash: "new-server",
+	}
+	configs := []shardedStatefulSetConfig{{
+		client:  member,
+		options: func(mdb mdbv1.MongoDB) operatorConstruct.DatabaseStatefulSetOptions { return opts },
+	}}
+	order, err := anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, nil, configs, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.True(t, order.managedCABundleChange, "the member-cluster StatefulSet must be checked, not the central cluster")
+	assert.True(t, order.publishFirst)
+
+	// The central client has no such StatefulSet. Checking only it would miss the change.
+	opts.ManagedServerCABundleHash = "old-server"
+	order, err = anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, nil, configs, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.False(t, order.managedCABundleChange)
+	assert.False(t, order.publishFirst)
+}
+
+func TestShardedManagedCABundleRolloutGateIncludesEveryDeclaredCluster(t *testing.T) {
+	ctx := t.Context()
+	sc := test.DefaultClusterBuilder().SetName("sc").Build()
+	sc.Spec.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	require.NoError(t, kubeClient.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: certs.ManagedServerCABundleConfigMapName(sc.Name), Namespace: sc.Namespace},
+		Data:       map[string]string{util.LatestHashSecretKey: "new-server"},
+	}))
+
+	member := multicluster.GetLegacyCentralMemberCluster(1, 0, kubeClient, secrets.SecretClient{KubeClient: kubeClient})
+	helper := &ShardedClusterReconcileHelper{
+		commonController:           &ReconcileCommonController{client: kubeClient},
+		sc:                         sc,
+		desiredShardsConfiguration: map[int]*mdbv1.ShardedClusterComponentSpec{0: {}},
+		shardsMemberClustersMap:    map[int][]multicluster.MemberCluster{0: {member}},
+		configSrvMemberClusters:    []multicluster.MemberCluster{member},
+		mongosMemberClusters:       []multicluster.MemberCluster{member},
+	}
+
+	replicas := int32(1)
+	for _, name := range []string{sc.ShardName(0), sc.ConfigRsName(), sc.MongosRsName()} {
+		require.NoError(t, kubeClient.Create(ctx, &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: sc.Namespace},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas:       &replicas,
+				UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType},
+				Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					operatorConstruct.ManagedServerCABundleHashAnnotation: "new-server",
+				}}},
+			},
+		}))
+		require.NoError(t, kubeClient.Create(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name:        fmt.Sprintf("%s-0", name),
+			Namespace:   sc.Namespace,
+			Annotations: map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: "new-server"},
+		}, Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}))
+	}
+
+	rolled, err := helper.managedCABundleRolloutComplete(ctx, sc, zap.S())
+	require.NoError(t, err)
+	assert.True(t, rolled)
+
+	// A declared member cluster the operator cannot reach must keep the re-issue deferred.
+	helper.mongosMemberClusters = []multicluster.MemberCluster{{Name: "unreachable", Replicas: 1, Index: 1, Legacy: false, Client: nil}}
+	rolled, err = helper.managedCABundleRolloutComplete(ctx, sc, zap.S())
+	require.NoError(t, err)
+	assert.False(t, rolled, "a still-declared unreachable member cluster must not be skipped")
+}
+
+func TestManagedDatabaseCABundleHashes(t *testing.T) {
+	ctx := context.Background()
+	const name = "mdb"
+	kubeClient, _ := mock.NewDefaultFakeClient()
+
+	require.NoError(t, kubeClient.CreateConfigMap(ctx, configmap.Builder().
+		SetName(certs.ManagedServerCABundleConfigMapName(name)).SetNamespace(mock.TestNamespace).
+		SetData(map[string]string{util.LatestHashSecretKey: "SERVERHASH", "SERVERHASH": "bundle"}).Build()))
+	require.NoError(t, kubeClient.CreateConfigMap(ctx, configmap.Builder().
+		SetName(certs.ManagedClientCABundleConfigMapName(name)).SetNamespace(mock.TestNamespace).
+		SetData(map[string]string{util.LatestHashSecretKey: "CLIENTHASH", "CLIENTHASH": "bundle"}).Build()))
+
+	x509 := &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{mdbv1.AuthMode(util.X509)}}
+	tests := []struct {
+		name       string
+		security   *mdbv1.Security
+		resource   string
+		wantServer string
+		wantClient string
+		wantErr    bool
+	}{
+		{
+			name:     "unmanaged TLS has no managed bundle",
+			security: &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}},
+		},
+		{
+			name:       "managed without client certificates returns only the server bundle",
+			security:   &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}},
+			wantServer: "SERVERHASH",
+		},
+		{
+			name:       "managed with client certificates returns both bundles",
+			security:   &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}, Authentication: x509},
+			wantServer: "SERVERHASH",
+			wantClient: "CLIENTHASH",
+		},
+		{
+			name:     "managed fails when the bundles are not published",
+			security: &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}},
+			resource: "other",
+			wantErr:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resource := tt.resource
+			if resource == "" {
+				resource = name
+			}
+			server, client, err := managedDatabaseCABundleHashes(ctx, kubeClient, tt.security, resource, mock.TestNamespace)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantServer, server)
+			assert.Equal(t, tt.wantClient, client)
+		})
+	}
+}
+
 // TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash checks that the automation config
 // CA paths are the hash-named bundle files, that a CA rotation retains the old CA next to the new
 // one, and that the prune annotation then drops it.
@@ -183,6 +464,11 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 		require.NoError(t, err)
 		return cm.Data[cm.Data[util.LatestHashSecretKey]]
 	}
+	stsPodAnnotations := func() map[string]string {
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts))
+		return sts.Spec.Template.Annotations
+	}
 
 	tlsConfig := reconcileAndReadTLS()
 	hashesServer, hashesClient, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, rs.Name, rs.Namespace, true)
@@ -191,6 +477,9 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 	require.NotEmpty(t, hashesClient)
 	assert.Equal(t, util.TLSCaMountPath+"/"+hashesServer, tlsConfig["CAFilePath"])
 	assert.Equal(t, util.TLSClusterCaMountPath+"/"+hashesClient, tlsConfig["clusterCAFilePath"])
+	podAnnotations := stsPodAnnotations()
+	assert.Equal(t, hashesServer, podAnnotations[operatorConstruct.ManagedServerCABundleHashAnnotation])
+	assert.Equal(t, hashesClient, podAnnotations[operatorConstruct.ManagedClientCABundleHashAnnotation])
 
 	// the issuer's CA is rotated: the old CA is retained next to the new one, and the CA path moves
 	newCA, newCAKey := createMockCertAndKeyBytes()
@@ -206,6 +495,11 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 	assert.Equal(t, hashesClient, newHashesClient)
 	assert.Equal(t, util.TLSCaMountPath+"/"+newHashesServer, tlsConfig["CAFilePath"])
 	assert.Equal(t, util.TLSClusterCaMountPath+"/"+hashesClient, tlsConfig["clusterCAFilePath"])
+	podAnnotations = stsPodAnnotations()
+	assert.Equal(t, newHashesServer, podAnnotations[operatorConstruct.ManagedServerCABundleHashAnnotation],
+		"a widened server bundle must roll the members")
+	assert.Equal(t, hashesClient, podAnnotations[operatorConstruct.ManagedClientCABundleHashAnnotation],
+		"a server-only rotation must not roll the members for the client bundle")
 	rotatedBundle := serverBundle()
 	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(oldCA)), "the previous CA is retained after the rotation")
 	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(newCA)), "the new CA is published")
@@ -245,6 +539,8 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 	require.NoError(t, err)
 	assert.NotEqual(t, newHashesServer, prunedHashesServer)
 	assert.Equal(t, util.TLSCaMountPath+"/"+prunedHashesServer, tlsConfig["CAFilePath"])
+	assert.Equal(t, prunedHashesServer, stsPodAnnotations()[operatorConstruct.ManagedServerCABundleHashAnnotation],
+		"a pruned bundle must roll the members")
 	prunedBundle := serverBundle()
 	assert.NotContains(t, prunedBundle, strings.TrimSpace(string(oldCA)), "the previous CA is pruned")
 	assert.Contains(t, prunedBundle, strings.TrimSpace(string(newCA)))
@@ -276,6 +572,18 @@ func TestShardedClusterManagedCertificate_CAFilePathIsBundleHash(t *testing.T) {
 	hashesServer, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, sc.Name, sc.Namespace, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, hashesServer)
+	componentNames := []string{sc.Name + "-mongos", sc.Name + "-config", sc.Name + "-0", sc.Name + "-1"}
+	assertComponentAnnotations := func(serverHash string) {
+		for _, name := range componentNames {
+			sts := &appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, name), sts))
+			assert.Equal(t, serverHash, sts.Spec.Template.Annotations[operatorConstruct.ManagedServerCABundleHashAnnotation],
+				"%s must roll on the shared server CA bundle", name)
+			assert.NotContains(t, sts.Spec.Template.Annotations, operatorConstruct.ManagedClientCABundleHashAnnotation,
+				"%s must not roll on a client bundle it does not mount", name)
+		}
+	}
+	assertComponentAnnotations(hashesServer)
 	tlsConfig := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
 	assert.Equal(t, util.TLSCaMountPath+"/"+hashesServer, tlsConfig["CAFilePath"])
 	assert.NotContains(t, tlsConfig, "clusterCAFilePath")
@@ -300,6 +608,10 @@ func TestShardedClusterManagedCertificate_CAFilePathIsBundleHash(t *testing.T) {
 	rotatedBundle := serverCM.Data[serverCM.Data[util.LatestHashSecretKey]]
 	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(oldCA)))
 	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(newCA)))
+	rotatedHashes, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, sc.Name, sc.Namespace, false)
+	require.NoError(t, err)
+	assert.NotEqual(t, hashesServer, rotatedHashes)
+	assertComponentAnnotations(rotatedHashes)
 
 	// asking to prune removes the previous CA and the annotation
 	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
@@ -319,6 +631,10 @@ func TestShardedClusterManagedCertificate_CAFilePathIsBundleHash(t *testing.T) {
 	prunedBundle := serverCM.Data[serverCM.Data[util.LatestHashSecretKey]]
 	assert.NotContains(t, prunedBundle, strings.TrimSpace(string(oldCA)), "the previous CA is pruned")
 	assert.Contains(t, prunedBundle, strings.TrimSpace(string(newCA)))
+	prunedHashes, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, sc.Name, sc.Namespace, false)
+	require.NoError(t, err)
+	assert.NotEqual(t, rotatedHashes, prunedHashes)
+	assertComponentAnnotations(prunedHashes)
 }
 
 // TestMultiReplicaSetManagedCertificate_CAFilePathIsBundleHash checks that the published automation
@@ -350,6 +666,17 @@ func TestMultiReplicaSetManagedCertificate_CAFilePathIsBundleHash(t *testing.T) 
 	central, err := kubeClient.GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, certs.ManagedServerCABundleConfigMapName(mrs.Name)))
 	require.NoError(t, err)
 	assert.NotEmpty(t, central.Data[hashesServer])
+	assertMemberStatefulSetAnnotations := func(serverHash string) {
+		for _, clusterName := range clusters {
+			memberClient := memberClients[clusterName]
+			name := mrs.MultiStatefulsetName(mrs.ClusterNum(clusterName))
+			sts, err := kubernetesClient.NewClient(memberClient).GetStatefulSet(ctx, kube.ObjectKey(mrs.Namespace, name))
+			require.NoError(t, err, clusterName)
+			assert.Equal(t, serverHash, sts.Spec.Template.Annotations[operatorConstruct.ManagedServerCABundleHashAnnotation],
+				"%s must roll the members in %s on the replicated bundle", name, clusterName)
+		}
+	}
+	assertMemberStatefulSetAnnotations(hashesServer)
 	for clusterName, memberClient := range memberClients {
 		member, err := kubernetesClient.NewClient(memberClient).GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, certs.ManagedServerCABundleConfigMapName(mrs.Name)))
 		require.NoError(t, err, clusterName)
@@ -371,6 +698,10 @@ func TestMultiReplicaSetManagedCertificate_CAFilePathIsBundleHash(t *testing.T) 
 	require.NoError(t, err)
 	rotatedBundle := central.Data[central.Data[util.LatestHashSecretKey]]
 	assert.Contains(t, rotatedBundle, strings.TrimSpace(string(oldCA)))
+	rotatedHashes, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, mrs.Name, mrs.Namespace, false)
+	require.NoError(t, err)
+	assert.NotEqual(t, hashesServer, rotatedHashes)
+	assertMemberStatefulSetAnnotations(rotatedHashes)
 
 	// asking to prune removes the previous CA everywhere and the annotation
 	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(mrs), mrs))
@@ -390,6 +721,10 @@ func TestMultiReplicaSetManagedCertificate_CAFilePathIsBundleHash(t *testing.T) 
 	prunedBundle := central.Data[central.Data[util.LatestHashSecretKey]]
 	assert.NotContains(t, prunedBundle, strings.TrimSpace(string(oldCA)), "the previous CA is pruned")
 	assert.Contains(t, prunedBundle, strings.TrimSpace(string(newCA)))
+	prunedHashes, _, err := certs.ReadManagedCABundleHashes(ctx, kubeClient, mrs.Name, mrs.Namespace, false)
+	require.NoError(t, err)
+	assert.NotEqual(t, rotatedHashes, prunedHashes)
+	assertMemberStatefulSetAnnotations(prunedHashes)
 	for clusterName, memberClient := range memberClients {
 		member, err := kubernetesClient.NewClient(memberClient).GetConfigMap(ctx, kube.ObjectKey(mrs.Namespace, certs.ManagedServerCABundleConfigMapName(mrs.Name)))
 		require.NoError(t, err, clusterName)

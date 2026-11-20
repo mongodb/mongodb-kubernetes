@@ -5,8 +5,8 @@ changes. The rotation is the customer's procedure, and this module walks through
 
 1. The issuer's CA key pair is replaced, keeping the Issuer. Nothing changes in the deployment: the
    operator reads the CA from the issued certificates, which are not re-issued.
-2. The new CA is trusted through additionalTrustedCAs: both bundles widen and the members roll onto
-   them without being recreated.
+2. The new CA is trusted through additionalTrustedCAs: both bundles widen and the members are
+   recreated on them before any certificate moves.
 3. The certificates are renewed by hand, one group at a time. A prune requested while any of them, the
    application user's certificate included, is still signed by the old CA is refused and kept; once the
    last one moved the prune completes and the application user still connects.
@@ -24,7 +24,13 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
 from kubetester.phase import Phase
-from tests.opsmanager.managedcert_helper import customer_ca_bundle, pod_uids
+from tests.opsmanager.managedcert_helper import (
+    MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION,
+    assert_pods_replaced,
+    customer_ca_bundle,
+    pod_uids,
+    wait_for_statefulset_pod_annotation,
+)
 from tests.tls.managedcert_ca_rotation_helper import (
     CLIENT,
     SERVER,
@@ -92,12 +98,14 @@ def operator(cert_manager: str, namespace: str) -> Operator:
 def mdb(namespace: str, issuer: str, custom_mdb_version: str) -> MongoDB:
     # The customer issuer signs both categories, so every certificate, the user's included, comes from
     # the CA the test rotates.
-    return managed_cert_replica_set(
+    resource = managed_cert_replica_set(
         MDB_RESOURCE,
         namespace,
         custom_mdb_version,
         {"server": copy.deepcopy(CA_ISSUER_REF), "client": copy.deepcopy(CA_ISSUER_REF)},
     )
+    resource["spec"]["persistent"] = True
+    return resource
 
 
 @pytest.fixture(scope="module")
@@ -140,7 +148,11 @@ def _assert_connected(mdb: MongoDB, app_user: MongoDBUser, namespace: str, conne
 def _assert_pods_kept(namespace: str, before: dict):
     after = pod_uids(namespace, POD_PREFIX)
     for pod, uid in before.items():
-        assert after.get(pod) == uid, f"{pod} must not be recreated by a CA change"
+        assert after.get(pod) == uid, f"{pod} must not be recreated when the trust bundle does not change"
+
+
+def _assert_pods_replaced(namespace: str, before: dict):
+    assert_pods_replaced(namespace, POD_PREFIX, before, "replica set")
 
 
 def _ca_ref(name: str) -> dict:
@@ -248,7 +260,10 @@ def test_trusting_the_new_ca_widens_both_bundles(
 
     assert _revisions(namespace) == revisions, "widening the trust must not re-issue any certificate"
     assert _leaves(namespace) == leaves
-    _assert_pods_kept(namespace, uids)
+    wait_for_statefulset_pod_annotation(
+        namespace, MDB_RESOURCE, MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION, server["latest_hash"]
+    )
+    _assert_pods_replaced(namespace, uids)
     _assert_connected(mdb, app_user, namespace, connectivity)
 
 
@@ -356,7 +371,7 @@ def test_prune_completes_once_the_user_certificate_moved(
 
     for secret, leaf in _leaves(namespace).items():
         assert cert_signed_by_bundle(leaf, new_ca), f"{secret} must be signed by the new CA"
-    _assert_pods_kept(namespace, uids)
+    _assert_pods_replaced(namespace, uids)
     _assert_connected(mdb, app_user, namespace, connectivity)
 
 
@@ -384,6 +399,11 @@ def test_editing_an_additional_trusted_ca_rolls_the_members(
 
     added = wait_for_bundle(namespace, MDB_RESOURCE, SERVER, [new_ca, first_extra], changed_from=before["latest_hash"])
     wait_for_ca_file_paths(mdb, added["latest_hash"], client_hash, timeout=ROLL_TIMEOUT)
+    wait_for_statefulset_pod_annotation(
+        namespace, MDB_RESOURCE, MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION, added["latest_hash"]
+    )
+    _assert_pods_replaced(namespace, uids)
+    uids = pod_uids(namespace, POD_PREFIX)
     mdb.assert_reaches_phase(Phase.Running, timeout=ROLL_TIMEOUT)
 
     second_extra, _ = generate_ca("e2e-extra-trusted-ca-2")
@@ -401,9 +421,10 @@ def test_editing_an_additional_trusted_ca_rolls_the_members(
     wait_for_ca_file_paths(mdb, edited["latest_hash"], client_hash, timeout=ROLL_TIMEOUT)
     wait_for_certificates_ready_message(mdb, previous_ca_retained(SERVER))
     mdb.assert_reaches_phase(Phase.Running, timeout=ROLL_TIMEOUT)
-    _assert_pods_kept(namespace, uids)
+    _assert_pods_replaced(namespace, uids)
     _assert_connected(mdb, app_user, namespace, connectivity)
 
+    uids_before_prune = pod_uids(namespace, POD_PREFIX)
     set_prune_annotation(mdb, SERVER)
     wait_for_prune_annotation_removed(mdb)
     pruned = wait_for_bundle(
@@ -411,5 +432,5 @@ def test_editing_an_additional_trusted_ca_rolls_the_members(
     )
     wait_for_ca_file_paths(mdb, pruned["latest_hash"], client_hash, timeout=ROLL_TIMEOUT)
     mdb.assert_reaches_phase(Phase.Running, timeout=ROLL_TIMEOUT)
-    _assert_pods_kept(namespace, uids)
+    _assert_pods_replaced(namespace, uids_before_prune)
     _assert_connected(mdb, app_user, namespace, connectivity)

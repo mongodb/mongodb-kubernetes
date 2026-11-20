@@ -3,8 +3,8 @@
 Agents and members authenticate with x509, so both certificate categories are in use: the server CA signs
 the member certificate, the client CA signs the clusterfile and agent certificates and the x509
 certificate of the application user. After a CA rotation the operator widens the category's trust bundle
-with the new CA, keeps the previous one, rolls the members onto the new bundle without recreating the
-pods, then re-issues every leaf still signed by the previous root. The previous CA is only dropped on
+with the new CA, keeps the previous one, rolls the members onto the new bundle, then re-issues every leaf
+still signed by the previous root. The previous CA is only dropped on
 request (the prune annotation) and never while a certificate signed by it is still in use.
 
 The application user connects in the background for the whole module, so a rotation or a prune that
@@ -22,10 +22,14 @@ from kubetester.phase import Phase
 from tests import test_logger
 from tests.conftest import local_operator
 from tests.opsmanager.managedcert_helper import (
+    MANAGED_CLIENT_CA_BUNDLE_HASH_ANNOTATION,
+    MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION,
+    assert_pods_replaced,
     begin_ca_rotation,
     pod_uids,
     wait_for_ca_rotated,
     wait_for_leaf_reissued_on_new_ca,
+    wait_for_statefulset_pod_annotation,
 )
 from tests.tls.managedcert_ca_rotation_helper import (
     CLIENT,
@@ -106,7 +110,9 @@ def operator(cert_manager: str, namespace: str) -> Operator:
 def mdb(namespace: str, issuer: str, custom_mdb_version: str) -> MongoDB:
     # No issuer for either category: the operator self-signs both the server and the client CAs, so it
     # owns their rotation and re-issues the leaves itself.
-    return managed_cert_replica_set(MDB_RESOURCE, namespace, custom_mdb_version, {})
+    resource = managed_cert_replica_set(MDB_RESOURCE, namespace, custom_mdb_version, {})
+    resource["spec"]["persistent"] = True
+    return resource
 
 
 @pytest.fixture(scope="module")
@@ -132,10 +138,8 @@ def _assert_connected(mdb: MongoDB, app_user: MongoDBUser, namespace: str, conne
     connectivity.assert_no_outage(MAX_OUTAGE_SECONDS)
 
 
-def _assert_pods_kept(namespace: str, before: dict):
-    after = pod_uids(namespace, POD_PREFIX)
-    for pod, uid in before.items():
-        assert after.get(pod) == uid, f"{pod} must not be recreated by a CA rotation"
+def _assert_pods_replaced(namespace: str, before: dict):
+    assert_pods_replaced(namespace, POD_PREFIX, before, "replica set")
 
 
 def _current_ca(namespace: str, category: str) -> str:
@@ -249,6 +253,12 @@ def test_server_ca_rotation(
     assert len(widened["certificates"]) == 2, "the widened bundle holds the previous and the new CA"
     assert widened["previous_hash"] == before["latest_hash"], "the previous bundle stays for members not rolled yet"
     wait_for_ca_file_paths(mdb, widened["latest_hash"], client_before["latest_hash"])
+    wait_for_statefulset_pod_annotation(
+        namespace, MDB_RESOURCE, MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION, widened["latest_hash"]
+    )
+    wait_for_statefulset_pod_annotation(
+        namespace, MDB_RESOURCE, MANAGED_CLIENT_CA_BUNDLE_HASH_ANNOTATION, client_before["latest_hash"]
+    )
     wait_for_certificates_ready_message(mdb, previous_ca_retained(SERVER))
 
     _wait_for_member_on(mdb, namespace, leaf_before, pem_before, new_ca, [old_ca])
@@ -260,7 +270,7 @@ def test_server_ca_rotation(
     for secret, crt in client_leaves_before.items():
         assert read_leaf(namespace, secret) == crt, f"a server CA rotation must not re-issue {secret}"
 
-    _assert_pods_kept(namespace, uids)
+    _assert_pods_replaced(namespace, uids)
     _assert_connected(mdb, app_user, namespace, connectivity)
     rotation["server_cas"] = [old_ca, new_ca]
 
@@ -305,7 +315,7 @@ def test_second_server_ca_rotation_with_manual_leaf_renewal(
     _wait_for_member_on(mdb, namespace, leaf_before, pem_before, new_ca, retained)
     wait_for_certificates_ready_condition(mdb, "True", "AllCertificatesReady", timeout=ROLL_TIMEOUT)
 
-    _assert_pods_kept(namespace, uids)
+    _assert_pods_replaced(namespace, uids)
     _assert_connected(mdb, app_user, namespace, connectivity)
     rotation["server_cas"] = retained + [new_ca]
 
@@ -326,12 +336,15 @@ def test_prune_server_drops_every_previous_server_ca(
     pruned = wait_for_bundle(namespace, MDB_RESOURCE, SERVER, [newest], changed_from=before["latest_hash"])
     assert len(pruned["certificates"]) == 1
     wait_for_ca_file_paths(mdb, pruned["latest_hash"], client_before["latest_hash"])
+    wait_for_statefulset_pod_annotation(
+        namespace, MDB_RESOURCE, MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION, pruned["latest_hash"]
+    )
     wait_for_certificates_ready_message(mdb, previous_ca_retained(SERVER), present=False)
     assert read_bundle(namespace, MDB_RESOURCE, CLIENT)["latest_hash"] == client_before["latest_hash"]
     assert signed_by(namespace, _member(), newest)
 
     mdb.assert_reaches_phase(Phase.Running, timeout=ROLL_TIMEOUT)
-    _assert_pods_kept(namespace, uids)
+    _assert_pods_replaced(namespace, uids)
     _assert_connected(mdb, app_user, namespace, connectivity)
     rotation["server_cas"] = [newest]
 
@@ -375,7 +388,7 @@ def test_operator_restart_between_bundle_publication_and_reissue(
     _wait_for_member_on(mdb, namespace, leaf_before, pem_before, new_ca, [old_ca])
     wait_for_certificates_ready_message(mdb, previous_ca_retained(SERVER))
 
-    _assert_pods_kept(namespace, uids)
+    _assert_pods_replaced(namespace, uids)
     _assert_connected(mdb, app_user, namespace, connectivity)
     rotation["server_cas"] = retained + [new_ca]
 
@@ -424,7 +437,7 @@ def test_scale_up_during_a_rotation(
     assert read_bundle(namespace, MDB_RESOURCE, SERVER)["certificates"] == widened["certificates"]
     after = pod_uids(namespace, POD_PREFIX)
     assert len(after) == 5
-    _assert_pods_kept(namespace, uids)
+    _assert_pods_replaced(namespace, uids)
     _assert_connected(mdb, app_user, namespace, connectivity)
     rotation["server_cas"] = retained + [new_ca]
 
@@ -538,7 +551,7 @@ def test_client_ca_rotation_prunes_only_after_every_client_certificate_moved(
     wait_for_certificates_ready_message(mdb, previous_ca_retained(CLIENT), present=False)
     mdb.assert_reaches_phase(Phase.Running, timeout=ROLL_TIMEOUT)
 
-    _assert_pods_kept(namespace, uids)
+    _assert_pods_replaced(namespace, uids)
     _assert_connected(mdb, app_user, namespace, connectivity)
 
 
