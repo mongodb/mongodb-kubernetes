@@ -19,6 +19,7 @@ import (
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 
 	helmchart "github.com/mongodb/mongodb-kubernetes/helm_chart"
+	"github.com/mongodb/mongodb-kubernetes/pkg/resourcenames"
 )
 
 const diskChartDir = "../../../helm_chart"
@@ -211,6 +212,7 @@ func TestRender(t *testing.T) {
 			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
+				{Kind: "ConfigMap", Name: resourcenames.MemberClusterIdentityConfigMapName, Namespace: memberNs},
 			}, operatorResources(n, "Role", memberNs)...), telemetryResources(n)...), workloadResources(n, memberNs)...),
 		},
 		{
@@ -225,6 +227,7 @@ func TestRender(t *testing.T) {
 			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
+				{Kind: "ConfigMap", Name: resourcenames.MemberClusterIdentityConfigMapName, Namespace: memberNs},
 			}, operatorResources(n, "Role", "ns1", memberNs)...), telemetryResources(n)...), workloadResources(n, "ns1")...),
 		},
 		{
@@ -235,6 +238,7 @@ func TestRender(t *testing.T) {
 			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
+				{Kind: "ConfigMap", Name: resourcenames.MemberClusterIdentityConfigMapName, Namespace: memberNs},
 			}, operatorResources(n, "Role", "ns1", "ns2", memberNs)...), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
 		},
 		{
@@ -246,6 +250,7 @@ func TestRender(t *testing.T) {
 			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
+				{Kind: "ConfigMap", Name: resourcenames.MemberClusterIdentityConfigMapName, Namespace: memberNs},
 			}, operatorResources(n, "ClusterRole", "")...), telemetryResources(n)...), workloadResources(n, memberNs)...),
 		},
 		{
@@ -257,6 +262,7 @@ func TestRender(t *testing.T) {
 			want: append(append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
+				{Kind: "ConfigMap", Name: resourcenames.MemberClusterIdentityConfigMapName, Namespace: memberNs},
 			}, operatorResources(n, "ClusterRole", "")...), telemetryResources(n)...), workloadResources(n, "ns1", "ns2")...),
 		},
 		{
@@ -267,6 +273,7 @@ func TestRender(t *testing.T) {
 			want: append(append([]resourceID{
 				{Kind: "ServiceAccount", Name: n.operatorSA, Namespace: memberNs},
 				{Kind: "Secret", Name: n.operatorToken, Namespace: memberNs},
+				{Kind: "ConfigMap", Name: resourcenames.MemberClusterIdentityConfigMapName, Namespace: memberNs},
 			}, operatorResources(n, "Role", memberNs)...), workloadResources(n, memberNs)...),
 		},
 	}
@@ -429,6 +436,31 @@ func TestRender_ImagePullSecrets(t *testing.T) {
 	assert.Equal(t, len(workloadSAs), sawWorkloadSA, "expected to see all workload ServiceAccounts")
 }
 
+func TestRender_IdentityConfigMap(t *testing.T) {
+	const memberNs = "mongodb"
+
+	for _, logicalName := range []string{"test-cluster", "my_cluster_1"} {
+		t.Run(logicalName, func(t *testing.T) {
+			out, err := Render(logicalName, memberNs, []string{memberNs}, false, true, "")
+			require.NoError(t, err, "render failed")
+
+			var identity *unstructured.Unstructured
+			for _, r := range parseResources(t, out) {
+				if r.GetKind() == "ConfigMap" && r.GetName() == resourcenames.MemberClusterIdentityConfigMapName {
+					identity = r
+				}
+			}
+			require.NotNil(t, identity, "rendered resources missing the identity ConfigMap")
+			assert.Equal(t, memberNs, identity.GetNamespace(), "identity ConfigMap namespace")
+
+			clusterName, found, err := unstructured.NestedString(identity.Object, "data", resourcenames.MemberClusterIdentityClusterNameKey)
+			require.NoError(t, err, "reading data.%s", resourcenames.MemberClusterIdentityClusterNameKey)
+			require.True(t, found, "identity ConfigMap missing data.%s", resourcenames.MemberClusterIdentityClusterNameKey)
+			assert.Equal(t, logicalName, clusterName, "data.%s must carry the logical name", resourcenames.MemberClusterIdentityClusterNameKey)
+		})
+	}
+}
+
 // TestEmbeddedChartMatchesDisk is the drift guard: every file the plugin embeds must
 // match the on-disk chart byte-for-byte, and every chart file we intend to embed
 // (templates/, crds/, Chart.yaml, values.yaml) must actually be embedded. This is
@@ -484,6 +516,7 @@ func TestHelmTemplateParity(t *testing.T) {
 	helmTemplate := func(showOnly string) string {
 		cmd := exec.Command(helmBin, "template", diskChartDir,
 			"--set", "memberCluster.enabled=true",
+			"--set", "memberCluster.name=test-cluster",
 			"--set", "memberCluster.clusterScoped=false",
 			"--set", "memberCluster.workloadNamespaces[0]=mongodb",
 			"--set", "operator.namespace=mongodb",
@@ -513,6 +546,12 @@ func TestHelmTemplateParity(t *testing.T) {
 				names.operatorToken:           true,
 				names.roleMulticluster:        true,
 				names.roleMulticlusterBinding: true,
+			},
+		},
+		{
+			template: "templates/member-cluster-identity.yaml",
+			names: map[string]bool{
+				resourcenames.MemberClusterIdentityConfigMapName: true,
 			},
 		},
 		{

@@ -25,6 +25,9 @@ import (
 //     holding the rules the operator needs only because of multi-cluster operation
 //     (deletecollection cleanup; the serviceaccounts get self-read for the parked
 //     rbac-version validation was removed with that scaffolding).
+//   - member-cluster-identity.yaml: the mck-member-cluster ConfigMap carrying the
+//     logical name of the member cluster this render is for (data.clusterName) — the
+//     operator's identity for the cluster it runs on.
 //   - operator-roles-base.yaml: dual-mode; in member mode it renders
 //     mck-member-role-base — the operator's shared workload-management
 //     rules (including PVC resize), identical to the base installation's role, from a
@@ -41,6 +44,7 @@ import (
 // to every member cluster.
 var memberTemplates = []string{
 	"member-cluster-rbac.yaml",
+	"member-cluster-identity.yaml",
 	"operator-roles-base.yaml",
 	"database-roles.yaml",
 	"operator-roles-telemetry.yaml",
@@ -69,9 +73,9 @@ func Render(memberClusterName, namespace string, workloadNamespaces []string, op
 	}
 
 	values := map[string]any{
-		// TODO(m1kola): KUBE-647: Pass the memberClusterName to the memberCluster values.
 		"memberCluster": map[string]any{
 			"enabled":            true,
+			"name":               memberClusterName,
 			"clusterScoped":      operatorClusterScoped,
 			"workloadNamespaces": workloadNamespaces,
 		},

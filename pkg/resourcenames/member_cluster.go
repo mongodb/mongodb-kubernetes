@@ -16,6 +16,16 @@ const (
 	// member-cluster RBAC resources on every member cluster; individual resources append a
 	// suffix (-sa, -token, -role-base, -role-multicluster, ...).
 	memberClusterResourceName = "mck-member"
+
+	// MemberClusterIdentityConfigMapName is the name of the ConfigMap rendered onto each
+	// member cluster carrying the logical name of that cluster — the operator's
+	// identity for the cluster it runs on.
+	MemberClusterIdentityConfigMapName = "mck-member-cluster"
+
+	// MemberClusterIdentityClusterNameKey is the data key in the
+	// MemberClusterIdentityConfigMapName ConfigMap holding the member cluster's logical
+	// name.
+	MemberClusterIdentityClusterNameKey = "clusterName"
 )
 
 // MemberClusterTokenSecretName returns the name of the long-lived ServiceAccount token Secret on the

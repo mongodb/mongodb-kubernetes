@@ -21,8 +21,8 @@ kubectl mongodb cluster generate-resources \
 ```
 
 For users who cannot run the plugin, the [rbac](./resources/rbac) directory contains the checked-in output of that command:
-- [namespace_scoped_member_cluster.yaml](./resources/rbac/namespace_scoped_member_cluster.yaml) — Role/RoleBinding for a member cluster watching a single namespace (the default).
-- [cluster_scoped_member_cluster.yaml](./resources/rbac/cluster_scoped_member_cluster.yaml) — ClusterRole/ClusterRoleBinding for a member cluster when the operator is installed cluster-wide (`--operator-cluster-scoped`).
+- [namespace_scoped_member_cluster.yaml](./resources/rbac/namespace_scoped_member_cluster.yaml) — Member-cluster resources for a member cluster watching a single namespace (the default).
+- [cluster_scoped_member_cluster.yaml](./resources/rbac/cluster_scoped_member_cluster.yaml) — Member-cluster resources for a member cluster when the operator is installed cluster-wide (`--operator-cluster-scoped`).
 
 Adjust the namespaces for your clusters and apply (or commit) the file on each member cluster — the resource names are unified (`mck-member-*`), so the same file works on every member cluster.
 
