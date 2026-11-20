@@ -1220,6 +1220,8 @@ task_groups:
       - e2e_operator_upgrade_search
       - e2e_sharded_cluster_operator_upgrade_v1_27_to_mck
       - e2e_operator_proxy
+      - e2e_replica_set_mongodb_proxy
+      - e2e_om_appdb_mongodb_proxy
       - e2e_operator_partial_crd
       - e2e_operator_clusterwide
       - e2e_operator_multi_namespaces
@@ -2505,6 +2507,8 @@ buildvariants:
   - name: init_tests_with_olm
     display_name: init_tests_with_olm
     depends_on:
+      - name: build_mongodb_proxy_image
+        variant: init_test_run
       - name: build_operator_ubi
         variant: init_test_run
       - name: build_init_database_image_ubi

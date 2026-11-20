@@ -13,11 +13,11 @@ import (
 const deprecatedImageAppdbUbiName = "mongodb-enterprise-appdb-database-ubi"
 
 func TestReplaceImageTagOrDigestToTag(t *testing.T) {
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent:1234-567", "9876-54321"))
-	assert.Equal(t, "docker.io/mongodb/mongodb-enterprise-server:9876-54321", replaceImageTagOrDigestToTag("docker.io/mongodb/mongodb-enterprise-server:1234-567", "9876-54321"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a", "9876-54321"))
-	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-database:some-tag", replaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-kubernetes-database:45678", "some-tag"))
-	assert.Equal(t, "quay.io:3000/mongodb/mongodb-enterprise-database:some-tag", replaceImageTagOrDigestToTag("quay.io:3000/mongodb/mongodb-enterprise-database:45678", "some-tag"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", ReplaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent:1234-567", "9876-54321"))
+	assert.Equal(t, "docker.io/mongodb/mongodb-enterprise-server:9876-54321", ReplaceImageTagOrDigestToTag("docker.io/mongodb/mongodb-enterprise-server:1234-567", "9876-54321"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-agent:9876-54321", ReplaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-agent@sha256:6a82abae27c1ba1133f3eefaad71ea318f8fa87cc57fe9355d6b5b817ff97f1a", "9876-54321"))
+	assert.Equal(t, "quay.io/mongodb/mongodb-kubernetes-database:some-tag", ReplaceImageTagOrDigestToTag("quay.io/mongodb/mongodb-kubernetes-database:45678", "some-tag"))
+	assert.Equal(t, "quay.io:3000/mongodb/mongodb-enterprise-database:some-tag", ReplaceImageTagOrDigestToTag("quay.io:3000/mongodb/mongodb-enterprise-database:45678", "some-tag"))
 }
 
 func TestContainerImage(t *testing.T) {

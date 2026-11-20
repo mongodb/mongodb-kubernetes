@@ -137,6 +137,13 @@ func WithMongodbImage(image string) func(*construct.DatabaseStatefulSetOptions) 
 	}
 }
 
+// WithMongodbProxyImage sets the MongodbProxyImage field.
+func WithMongodbProxyImage(image string) func(*construct.DatabaseStatefulSetOptions) {
+	return func(opts *construct.DatabaseStatefulSetOptions) {
+		opts.MongodbProxyImage = image
+	}
+}
+
 // WithAgentImage sets the AgentImage field.
 func WithAgentImage(image string) func(*construct.DatabaseStatefulSetOptions) {
 	return func(opts *construct.DatabaseStatefulSetOptions) {
