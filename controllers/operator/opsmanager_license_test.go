@@ -361,7 +361,7 @@ func TestEnsureOpsManagerLicense_InstallConflictReportsNotManaged(t *testing.T) 
 
 	conflict := http.StatusConflict
 	admin := &api.MockedOmAdmin{
-		LicenseReadState:  viewWithLicenses("LICENSED", artifactView("art-ui")),
+		LicenseReadState:  new(viewWithLicenses("LICENSED", artifactView("art-ui"))),
 		LicenseInstallErr: &apierror.Error{Status: &conflict, ErrorCode: "ARTIFACT_OUTDATED", Detail: "artifact is not newer than the installed one"},
 	}
 
@@ -388,7 +388,7 @@ func TestEnsureOpsManagerLicense_InstallConflictWhenOMHoldsNothing(t *testing.T)
 	// released ones included.
 	conflict := http.StatusConflict
 	admin := &api.MockedOmAdmin{
-		LicenseReadState:  viewWithLicenses("LICENSED", releasedArtifactView("art-1")),
+		LicenseReadState:  new(viewWithLicenses("LICENSED", releasedArtifactView("art-1"))),
 		LicenseInstallErr: &apierror.Error{Status: &conflict, ErrorCode: "ARTIFACT_OUTDATED"},
 	}
 
@@ -488,8 +488,8 @@ func TestEnsureOpsManagerLicense_RecomputePublishesReturnedState(t *testing.T) {
 	r := newOmLicenseReconciler(t, testOm)
 	setLicenseRecomputeAnnotation(t, context.Background(), r.client, testOm, "true")
 	admin := &api.MockedOmAdmin{
-		LicenseReadState:       licensedView("LICENSED"),
-		LicenseRecomputedState: licensedView("ENFORCED"),
+		LicenseReadState:       new(licensedView("LICENSED")),
+		LicenseRecomputedState: new(licensedView("ENFORCED")),
 	}
 
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
@@ -711,7 +711,7 @@ func TestEnsureOpsManagerLicense_RenewalWritesReceiptOfReplacedArtifact(t *testi
 	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
 	r := newOmLicenseReconciler(t, testOm, &licenseSecret, &oldLicense)
 	admin := &api.MockedOmAdmin{
-		LicenseReadState: viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseReadState: new(viewWithLicenses("LICENSED", artifactView("art-1"))),
 		LicenseState: viewWithLicenses("LICENSED",
 			artifactView("art-2"),
 			artifactView("art-1"),
@@ -778,7 +778,7 @@ func TestEnsureOpsManagerLicense_RenewalWithoutReceiptSkipsRelease(t *testing.T)
 	licenseSecret := licenseSecretFor(testOm, "om-license", "license", newArtifact)
 	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
 	admin := &api.MockedOmAdmin{
-		LicenseReadState: viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseReadState: new(viewWithLicenses("LICENSED", artifactView("art-1"))),
 		LicenseState:     viewWithLicenses("LICENSED", artifactView("art-2")),
 	}
 
@@ -798,10 +798,10 @@ func TestEnsureOpsManagerLicense_InstallDoesNotReleaseUnlistedLicense(t *testing
 	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-old"))
 	r := newOmLicenseReconciler(t, testOm, &licenseSecret, &oldLicense)
 	admin := &api.MockedOmAdmin{
-		LicenseReadState: viewWithLicenses("LICENSED",
+		LicenseReadState: new(viewWithLicenses("LICENSED",
 			artifactView("art-ea"),
 			releasedArtifactView("art-old"),
-		),
+		)),
 		LicenseState: viewWithLicenses("LICENSED",
 			artifactView("art-1"),
 			releasedArtifactView("art-old"),
@@ -980,7 +980,7 @@ func TestEnsureOpsManagerLicense_AutoReceiptsWriteRenewalReceipt(t *testing.T) {
 	licenseSecret := licenseSecretFor(testOm, "om-license", "license", newArtifact)
 	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
 	admin := &api.MockedOmAdmin{
-		LicenseReadState: viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseReadState: new(viewWithLicenses("LICENSED", artifactView("art-1"))),
 		LicenseState: viewWithLicenses("LICENSED",
 			artifactView("art-2"),
 			artifactView("art-1"),
@@ -1004,7 +1004,7 @@ func TestEnsureOpsManagerLicense_AutoReceiptsOffByDefault(t *testing.T) {
 	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
 	r := newOmLicenseReconciler(t, testOm, &licenseSecret)
 	admin := &api.MockedOmAdmin{
-		LicenseReadState: viewWithLicenses("LICENSED", artifactView("art-1")),
+		LicenseReadState: new(viewWithLicenses("LICENSED", artifactView("art-1"))),
 		LicenseState:     viewWithLicenses("LICENSED", artifactView("art-2")),
 		LicenseReceipt:   `{"artifactId":"art-1"}`,
 	}
