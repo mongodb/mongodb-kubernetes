@@ -11,7 +11,8 @@ const (
 	ConditionLicenseManaged = "LicenseManaged"
 )
 
-// Reasons of LicenseReady. StateUnknown has status Unknown.
+// Reasons of LicenseReady. LicenseStateUnknown is used while Ops Manager has not reported a
+// license state, or reports one the operator does not recognize.
 const (
 	ReasonLicenseReady        = "LicenseReady"
 	ReasonLicenseNotReady     = "LicenseNotReady"
