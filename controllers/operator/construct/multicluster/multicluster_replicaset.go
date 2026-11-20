@@ -32,6 +32,7 @@ func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.Dat
 			HostNameOverrideConfigmapName: mdbm.GetHostNameOverrideConfigmapName(),
 			StatefulSetSpecOverride:       &stsSpec,
 			StsType:                       construct.MultiReplicaSet,
+			DownloadBase:                  mdbm.Spec.GetDownloadBase(),
 			Annotations:                   handler.MultiClusterStatefulSetAnnotations(mdbm.Name),
 		}
 		for _, opt := range additionalOpts {
@@ -79,7 +80,10 @@ func PodLabel(mdbmName string) map[string]string {
 }
 
 func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
-	stsOptions := stsOptFunc(mdbm)
+	return MultiClusterStatefulSetFromOptions(mdbm, stsOptFunc(mdbm))
+}
+
+func MultiClusterStatefulSetFromOptions(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptions construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
 	dbSts := construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
 
 	if len(stsOptions.Annotations) > 0 {
@@ -98,5 +102,6 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc fun
 		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}
 
+	construct.ApplyAgentSettings(&dbSts, stsOptions)
 	return dbSts
 }

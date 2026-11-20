@@ -155,13 +155,13 @@ func (r *ReplicaSetReconcilerHelper) readState() (*replicaSetDeploymentState, er
 }
 
 // getVaultAnnotations gets vault secret version annotations to write to the CR.
-func (r *ReplicaSetReconcilerHelper) getVaultAnnotations() map[string]string {
+func (r *ReplicaSetReconcilerHelper) getVaultAnnotations(projectID string) map[string]string {
 	if !vault.IsVaultSecretBackend() {
 		return nil
 	}
 
 	vaultMap := make(map[string]string)
-	secrets := r.resource.GetSecretsMountedIntoDBPod()
+	secrets := r.resource.GetSecretsMountedIntoDBPod(projectID)
 
 	for _, s := range secrets {
 		path := fmt.Sprintf("%s/%s/%s", r.reconciler.VaultClient.DatabaseSecretMetadataPath(),
@@ -246,6 +246,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	reconciler.SetupCommonWatchers(rs, nil, nil, rs.Name)
+	reconciler.resourceWatcher.AddWatchedResourceIfNotAdded(mdbv1.AgentAPIKeySecretName(conn.GroupID()), rs.Namespace, watch.Secret, rs.ObjectKey())
 
 	reconcileResult := checkIfHasExcessProcesses(ctx, conn, rs.GetReplicaSetName(), rs.Spec.GetExternalMemberProcessNames(), log)
 	if !reconcileResult.IsOK() {
@@ -377,7 +378,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
-	publishAutomationConfigFirst := publishAutomationConfigFirst(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts), reconciler.defaultArchitecture, log)
+	publishAutomationConfigFirst := publishAutomationConfigFirst(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)(*rs), reconciler.defaultArchitecture, log)
 	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
 		func() workflow.Status {
 			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
@@ -409,7 +410,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not get resource annotations: %w", err)))
 	}
 
-	maps.Copy(annotationsToAdd, r.getVaultAnnotations())
+	maps.Copy(annotationsToAdd, r.getVaultAnnotations(conn.GroupID()))
 
 	roleAnnotation, _, err := r.reconciler.getRoleAnnotation(ctx, r.resource.Spec.DbCommonSpec, r.reconciler.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(r.resource))
 	if err != nil {
@@ -578,8 +579,11 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	}
 
 	// Build the replica set config
-	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
-	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
+	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)(*rs)
+	if err := create.SetAgentCredential(ctx, reconciler.SecretClient, rs.Namespace, &rsConfig); err != nil {
+		return create.AgentCredentialStatus(err, "failed to prepare StatefulSet")
+	}
+	sts := construct.DatabaseStatefulSetFromOptions(*rs, rsConfig, log)
 
 	// Handle PVC resize if needed
 	if workflowStatus := r.handlePVCResize(ctx, &sts); !workflowStatus.IsOK() {
@@ -587,7 +591,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	}
 
 	// Create or update the StatefulSet in Kubernetes
-	mutatedSts, err := create.DatabaseInKubernetes(ctx, reconciler.client, *rs, sts, rsConfig, log)
+	mutatedSts, err := create.DatabaseInKubernetes(ctx, reconciler.client, reconciler.SecretClient, *rs, sts, rsConfig, log)
 	if err != nil {
 		return workflow.Failed(xerrors.Errorf("failed to create/update (Kubernetes reconciliation phase): %w", err))
 	}

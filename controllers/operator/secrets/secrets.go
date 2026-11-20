@@ -28,6 +28,19 @@ type SecretClient struct {
 	KubeClient  kubernetesClient.KubernetesSecretClient
 }
 
+// WithVaultClient returns a client that keeps this client's Kubernetes access but reads Vault
+// secrets through vaultClient. Member cluster clients carry no Vault client because Vault is not
+// supported for multi-cluster databases. Single-cluster sharded clusters and AppDBs still read
+// the agent credential from Vault, so they compose the member cluster's Kubernetes client with
+// the operator's Vault client.
+func (r SecretClient) WithVaultClient(vaultClient *vault.VaultClient) SecretClient {
+	if r.VaultClient != nil {
+		return r
+	}
+	r.VaultClient = vaultClient
+	return r
+}
+
 func namespacedNameToVaultPath(nsName types.NamespacedName, basePath string) string {
 	return fmt.Sprintf("%s/%s/%s", basePath, nsName.Namespace, nsName.Name)
 }
