@@ -87,7 +87,7 @@ func Test_tlsVolumeSource_CAFilePath(t *testing.T) {
 }
 
 func Test_buildDatabaseInitContainer(t *testing.T) {
-	modification := buildDatabaseInitContainer("quay.io/mongodb/mongodb-kubernetes-init-database:latest")
+	modification := buildDatabaseInitContainer("quay.io/mongodb/mongodb-kubernetes-init-database:latest", []corev1.VolumeMount{databaseScriptsVolumeMount(false)})
 	container := &corev1.Container{}
 	modification(container)
 	expectedVolumeMounts := []corev1.VolumeMount{{
