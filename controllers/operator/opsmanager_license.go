@@ -162,6 +162,10 @@ func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow
 	}
 
 	if st := h.reconcileReleaseReceipts(ctx, receipts, releasedID); !st.IsOK() {
+		// Keep the released license recorded so the receipt is retried.
+		if h.releaseDue() {
+			h.installedSecretRef = h.lastInstallSecretRef
+		}
 		return st
 	}
 
