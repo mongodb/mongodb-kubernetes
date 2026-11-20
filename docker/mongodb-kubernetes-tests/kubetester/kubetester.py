@@ -511,7 +511,6 @@ class KubernetesTester(object):
         KubernetesTester.create_custom_resource_from_object(
             namespace,
             resource,
-            exception_reason=section.get("exception", None),
             patch=section.get("patch", None),
         )
 
@@ -523,7 +522,6 @@ class KubernetesTester(object):
             name, kind = KubernetesTester.create_custom_resource_from_object(
                 namespace,
                 res,
-                exception_reason=section.get("exception", None),
                 patch=section.get("patch", None),
             )
 
@@ -541,8 +539,8 @@ class KubernetesTester(object):
         return KubernetesTester.create_custom_resource_from_object(namespace, resource)
 
     @staticmethod
-    def create_mongodb_from_object(namespace, resource, exception_reason=None, patch=None):
-        name, kind = KubernetesTester.create_custom_resource_from_object(namespace, resource, exception_reason, patch)
+    def create_mongodb_from_object(namespace, resource, patch=None):
+        name, kind = KubernetesTester.create_custom_resource_from_object(namespace, resource, patch)
         KubernetesTester.namespace = namespace
         KubernetesTester.name = name
         KubernetesTester.kind = kind
@@ -551,7 +549,6 @@ class KubernetesTester(object):
     def create_custom_resource_from_object(
         namespace,
         resource,
-        exception_reason=None,
         patch=None,
         api_client: Optional[client.ApiClient] = None,
     ):
@@ -571,7 +568,6 @@ class KubernetesTester(object):
 
         print("Creating resource {} {} {}".format(kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""))
 
-        # TODO move "wait for exception" logic to a generic function and reuse for create/update/delete
         try:
             KubernetesTester.clients("customv1", api_client=api_client).create_namespaced_custom_object(
                 group, version, namespace, plural(kind), resource
@@ -582,36 +578,8 @@ class KubernetesTester(object):
                     group, version, namespace, plural(kind), name, resource
                 )
             else:
-                if isinstance(e.body, str):
-                    # In Kubernetes v1.16+ the result body is a json string that needs to be parsed, according to
-                    # whatever exception_reason was passed.
-                    try:
-                        body_json = json.loads(e.body)
-                    except json.decoder.JSONDecodeError:
-                        # The API did not return a JSON string
-                        pass
-                    else:
-                        reason = validation_reason_from_exception(exception_reason)
-
-                        if reason is not None:
-                            field = exception_reason.split()[0]
-                            for cause in body_json["details"]["causes"]:
-                                if cause["reason"] == reason and cause["field"] == field:
-                                    return None, None
-
-                if exception_reason:
-                    assert e.reason == exception_reason or exception_reason in e.body, "Real exception is: {}".format(e)
-                    print(
-                        '"{}" exception raised while creating the resource - this is expected!'.format(exception_reason)
-                    )
-                    return None, None
-
                 print("Failed to create a resource ({}): \n {}".format(e, resource))
                 raise
-
-        else:
-            if exception_reason:
-                raise AssertionError("Expected ApiException, but create operation succeeded!")
 
         print("Created resource {} {} {}".format(kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""))
         return name, kind
@@ -1684,18 +1652,6 @@ def get_pods(podname_format, qty=3):
 
 def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
     return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
-
-
-def validation_reason_from_exception(exception_msg):
-    reasons = [
-        ("in body is required", "FieldValueRequired"),
-        ("in body should be one of", "FieldValueNotSupported"),
-        ("in body must be of type", "FieldValueInvalid"),
-    ]
-
-    for reason in reasons:
-        if reason[0] in exception_msg:
-            return reason[1]
 
 
 def create_testing_namespace(
