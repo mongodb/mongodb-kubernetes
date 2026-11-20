@@ -436,7 +436,7 @@ def issuer_ca_plus(issuer_ca_filepath: str, namespace: str) -> Iterator[str]:
     data = {"ca-pem": ca + plus_ca, "mms-ca.crt": ca + plus_ca}
 
     name = "issuer-plus-ca"
-    create_or_update_configmap(namespace, name, data)
+    create_or_update_configmap(namespace, name, data, api_client=get_central_cluster_client())
     yield name
 
 

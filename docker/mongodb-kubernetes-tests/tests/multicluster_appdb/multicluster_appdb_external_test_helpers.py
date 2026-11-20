@@ -57,26 +57,23 @@ def multi_cluster_appdb_role_resource(
 
 
 def configure_appdb_role_mongodb_multi(
-    mdb: MongoDBMulti, meta_om: MongoDBOpsManager, namespace: str, appdb_ca_configmap: str
+    mdb: MongoDBMulti, meta_om: MongoDBOpsManager, namespace: str, appdb_ca_configmap: Optional[str] = None
 ) -> MongoDBMulti:
     project_name = f"{mdb.name}-project"
     config_map_name = f"{mdb.name}-config"
     base_url = meta_om.om_status().get_url()
     assert base_url is not None, "OpsManager URL must not be None"
 
+    project_config = {
+        "baseUrl": base_url,
+        "projectName": project_name,
+        "orgId": "",
+    }
     # The AppDB pods are TLS-enabled, so the OM connection config must advertise the CA their agents
     # should trust when reaching Ops Manager, mirroring the working multi-cluster AppDB tests.
-    create_or_update_configmap(
-        meta_om.namespace,
-        config_map_name,
-        {
-            "baseUrl": base_url,
-            "projectName": project_name,
-            "sslMMSCAConfigMap": appdb_ca_configmap,
-            "orgId": "",
-        },
-        None,
-    )
+    if appdb_ca_configmap:
+        project_config["sslMMSCAConfigMap"] = appdb_ca_configmap
+    create_or_update_configmap(meta_om.namespace, config_map_name, project_config, None)
 
     mdb["spec"]["opsManager"]["configMapRef"]["name"] = config_map_name
     mdb["spec"]["credentials"] = meta_om.api_key_secret(namespace)
