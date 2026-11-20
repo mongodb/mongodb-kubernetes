@@ -31,7 +31,11 @@ from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
 from tests.common.search.connectivity import protected_search_input_uids
-from tests.conftest import get_multi_cluster_operator
+from tests.conftest import (
+    generate_and_apply_member_registration,
+    generate_and_apply_member_resources,
+    get_multi_cluster_operator,
+)
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -100,7 +104,6 @@ def _install_simulated_operator(
         helm_args.pop(k, None)
 
     helm_args["operator.name"] = SIMULATED_OPERATOR_NAME
-    helm_args["operator.clusterIdentity.clusterName"] = mcc.cluster_name
 
     # upgrade(multi_cluster=True) = `helm upgrade --install`, and skips the
     # webhook wait because the test pod's cluster != central cluster, so it can't
@@ -114,9 +117,13 @@ def _install_simulated_operator(
     # Restrict this operator to mongodbsearch only via OperatorConfig (the watch set is no longer a
     # Helm value). This triggers a graceful restart so the operator reloads and watches search only.
     operator.apply_operator_config_and_wait(multi_cluster=True, extra_spec={"watchedResources": ["mongodbsearch"]})
+
+    generate_and_apply_member_resources([mcc.cluster_name], namespace)
+    generate_and_apply_member_registration([mcc.cluster_name], namespace, central_cluster=mcc.cluster_name)
     logger.info(
         f"installed simulated-MC operator in {mcc.cluster_name} "
-        f"(identity={mcc.cluster_name}, name={SIMULATED_OPERATOR_NAME}, watches=mongodbsearch only)"
+        f"(identity={mcc.cluster_name} via mck-member-cluster ConfigMap, "
+        f"name={SIMULATED_OPERATOR_NAME}, watches=mongodbsearch only)"
     )
     return operator
 
