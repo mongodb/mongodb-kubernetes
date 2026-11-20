@@ -92,10 +92,7 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		socketMount := corev1.VolumeMount{Name: "mongodb-proxy-socket", MountPath: "/var/run/mongodb-proxy"}
 
 		mongod := containerByName(t, sts, util.DatabaseContainerName)
-		assert.Equal(t, []string{
-			"-listen", "unix:///var/run/mongodb-proxy/proxy.sock",
-			"-config-dir", "/data,/journal,/mongodb-automation,/tmp,/var/lib/mongodb-mms-automation,/var/log/mongodb-mms-automation",
-		}, mongod.Args)
+		assert.Equal(t, []string{"-listen", "unix:///var/run/mongodb-proxy/proxy.sock"}, mongod.Args)
 		assert.Contains(t, mongod.VolumeMounts, socketMount)
 		assert.Contains(t, containerByName(t, sts, util.AgentContainerName).VolumeMounts, socketMount)
 
@@ -225,51 +222,4 @@ func TestStaticArchitectureWithoutTheProxyKeepsTheSharedProcessNamespace(t *test
 	}
 	_, found := volumeByName(sts, "mongodb-init-database")
 	assert.True(t, found)
-}
-
-func TestMongodbProxyConfigDirs(t *testing.T) {
-	t.Run("every writable mount of the database pod is accepted", func(t *testing.T) {
-		mdb := mdbv1.NewReplicaSetBuilder().Build()
-		opts := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.StaticGA))(*mdb)
-
-		assert.Equal(t, []string{
-			"/data",
-			"/journal",
-			"/mongodb-automation",
-			"/tmp",
-			"/var/lib/mongodb-mms-automation",
-			"/var/log/mongodb-mms-automation",
-		}, mongodbProxyConfigDirs(opts))
-	})
-
-	t.Run("a custom download base moves the directory with the mount", func(t *testing.T) {
-		mdb := mdbv1.NewReplicaSetBuilder().Build()
-		mdb.Spec.DownloadBase = "/custom/download/base"
-		opts := ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.StaticGA))(*mdb)
-
-		dirs := mongodbProxyConfigDirs(opts)
-		assert.Contains(t, dirs, "/custom/download/base")
-		assert.NotContains(t, dirs, util.DefaultPvcMmsMountPath)
-	})
-
-	t.Run("secret, config map, image and read-only mounts are not accepted", func(t *testing.T) {
-		volumes := []corev1.Volume{
-			{Name: "empty", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-			{Name: "claim", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "claim"}}},
-			{Name: "secret", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "secret"}}},
-			{Name: "configmap", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{}}},
-			{Name: "image", VolumeSource: corev1.VolumeSource{Image: &corev1.ImageVolumeSource{Reference: "image"}}},
-		}
-		mounts := []corev1.VolumeMount{
-			{Name: "empty", MountPath: "/empty"},
-			{Name: "claim", MountPath: "/claim"},
-			{Name: "secret", MountPath: "/secret"},
-			{Name: "configmap", MountPath: "/configmap"},
-			{Name: "image", MountPath: "/image"},
-			{Name: "empty", MountPath: "/readonly", ReadOnly: true},
-			{Name: "empty", MountPath: "/empty"},
-		}
-
-		assert.Equal(t, []string{"/claim", "/empty"}, writableMountPaths(volumes, mounts))
-	})
 }
