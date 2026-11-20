@@ -81,9 +81,12 @@ func (h *licenseEnvHarness) createOM(mutate func(*omv1.MongoDBOpsManager)) *omv1
 	if mutate != nil {
 		mutate(om)
 	}
-	// The deprecated monitoringAgent is not a pointer, so it is always sent and its required
-	// startupOptions cannot be null.
-	om.Spec.AppDB.MonitoringAgent.StartupParameters = mdbv1.StartupParameters{}
+	// The CRD requires startupOptions whenever monitoringAgent is sent, and the typed client always sends it.
+	om.Spec.AppDB = &omv1.AppDBSpec{
+		Version:         om.Spec.AppDB.Version,
+		Members:         om.Spec.AppDB.Members,
+		MonitoringAgent: mdbv1.MonitoringAgentConfig{StartupParameters: mdbv1.StartupParameters{}},
+	}
 	require.NoError(h.t, h.client.Create(h.ctx, om))
 	h.t.Cleanup(func() { _ = h.client.Delete(h.ctx, om) })
 	return om
