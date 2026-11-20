@@ -139,7 +139,7 @@ config:
             - delete_key(body, "object") where IsMap(body) and IsMap(body["object"])
     # The k8sobjects receiver emits one log record per watch event, with the body
     # {type: ADDED|MODIFIED|DELETED, object: <MongoDB CR>}. Keep a fixed set of
-    # status fields as attributes, then drop the object. Honeycomb stores nested
+    # timeline fields as attributes, then drop the object. Honeycomb stores nested
     # body keys as columns, and the CR spec and status maps carry arbitrary keys
     # (shard names, setParameter names), so the object must not reach the dataset.
     transform/mongodb_cr:
@@ -185,10 +185,10 @@ config:
       endpoint: ${env:ENDPOINT}
       headers:
         "x-honeycomb-dataset": "k8s-metrics"
+    # No dataset header: records go to the environment's default dataset, the
+    # same as the daemonset exporter. The ingest key cannot create datasets.
     otlp/k8s-events:
       endpoint: ${env:ENDPOINT}
-      headers:
-        "x-honeycomb-dataset": "k8s-events"
 
   service:
     pipelines:
