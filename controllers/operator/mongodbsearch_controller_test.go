@@ -737,10 +737,6 @@ func TestMongoDBSearchReconcile_MissingSecret_Requeues(t *testing.T) {
 	require.True(t, res.RequeueAfter > 0, "must requeue when a customer-replicated secret is missing")
 }
 
-// One table covers every Secret the search controller must watch so auth-material rotation
-// triggers a reconcile: rows differ only in the source kind and the search's auth mode. The
-// expected map is the exact watch set for the reconcile, so an unexpected extra registration
-// fails the test.
 func TestMongoDBSearchReconcile_RegistersSourceAuthSecretWatches(t *testing.T) {
 	ctx := context.Background()
 	operatorConfig := searchcontroller.OperatorSearchConfig{
@@ -793,23 +789,6 @@ func TestMongoDBSearchReconcile_RegistersSourceAuthSecretWatches(t *testing.T) {
 					secretWatch(s.TLSSecretNamespacedName().Name):                                                                  {searchNN},
 					secretWatch(s.TLSOperatorSecretNamespacedName().Name):                                                          {searchNN},
 					secretWatch(s.SourceUserPasswordSecretRef().Name):                                                              {searchNN},
-				}
-			},
-		},
-		{
-			name: "scram source password with explicit ref",
-			mutate: func(s *searchv1.MongoDBSearch) {
-				s.Spec.Source.Username = new("search-user")
-				s.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
-			},
-			objects: func(s *searchv1.MongoDBSearch) []client.Object {
-				mdbc := newMongoDBCommunity("mdb", mock.TestNamespace)
-				return []client.Object{mdbc, keyfileSecret(mdbc), passwordSecret("source-user-password")}
-			},
-			expected: func(s *searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName {
-				return map[watch.Object][]types.NamespacedName{
-					{ResourceType: "MongoDBCommunity", Resource: types.NamespacedName{Name: "mdb", Namespace: mock.TestNamespace}}: {searchNN},
-					secretWatch("source-user-password"): {searchNN},
 				}
 			},
 		},
@@ -868,11 +847,48 @@ func TestMongoDBSearchReconcile_RegistersSourceAuthSecretWatches(t *testing.T) {
 			expected: func(s *searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName {
 				return map[watch.Object][]types.NamespacedName{
 					{ResourceType: watch.MongoDB, Resource: types.NamespacedName{Name: "mdb", Namespace: mock.TestNamespace}}: {searchNN},
-					// The source's TLS config registers its CA ConfigMap unconditionally; a source
-					// with no custom CA (like this fixture) yields an empty-name watch entry.
-					{ResourceType: watch.ConfigMap, Resource: types.NamespacedName{Namespace: mock.TestNamespace}}: {searchNN},
+					{ResourceType: watch.ConfigMap, Resource: types.NamespacedName{Namespace: mock.TestNamespace}}:            {searchNN},
 					secretWatch("source-user-password"): {searchNN},
 					secretWatch("scram-client-cert"):    {searchNN},
+				}
+			},
+		},
+		{
+			name: "oidc client secret and idp CA configmap",
+			mutate: func(s *searchv1.MongoDBSearch) {
+				// 1.78.0 is the first mongot release that understands the oidc sync-source block.
+				s.Spec.Version = "1.78.0"
+				s.Spec.Source.OIDC = &searchv1.OIDCAuth{
+					TokenEndpoint:     "https://idp.example.com/token",
+					ClientID:          "mongot-client",
+					ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
+					IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
+				}
+			},
+			objects: func(s *searchv1.MongoDBSearch) []client.Object {
+				mdb := newEnterpriseSearchSourceDB("mdb", mock.TestNamespace, "SCRAM", "OIDC")
+				mdb.Spec.Security.Authentication.OIDCProviderConfigs = []mdbv1.OIDCProviderConfig{{ConfigurationName: "test-provider"}}
+				return []client.Object{
+					mdb,
+					&corev1.Secret{
+						ObjectMeta: metav1.ObjectMeta{Name: "oidc-client-secret", Namespace: mock.TestNamespace},
+						Data:       map[string][]byte{"clientSecret": []byte("client-secret")},
+					},
+					&corev1.ConfigMap{
+						ObjectMeta: metav1.ObjectMeta{Name: "oidc-idp-ca", Namespace: mock.TestNamespace},
+						Data:       map[string]string{"ca-pem": "ca-data"},
+					},
+					// OIDC replaces password auth, so the default-named password secret is not used
+					// and must not be watched even when it exists.
+					passwordSecret(s.SourceUserPasswordSecretRef().Name),
+				}
+			},
+			expected: func(s *searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName {
+				return map[watch.Object][]types.NamespacedName{
+					{ResourceType: watch.MongoDB, Resource: types.NamespacedName{Name: "mdb", Namespace: mock.TestNamespace}}: {searchNN},
+					{ResourceType: watch.ConfigMap, Resource: types.NamespacedName{Namespace: mock.TestNamespace}}:            {searchNN},
+					secretWatch("oidc-client-secret"): {searchNN},
+					{ResourceType: watch.ConfigMap, Resource: types.NamespacedName{Name: "oidc-idp-ca", Namespace: mock.TestNamespace}}: {searchNN},
 				}
 			},
 		},
@@ -947,55 +963,6 @@ func TestMongoDBSearchReconcile_FailsX509SearchWhenSourceLacksX509Mode(t *testin
 	reconciler := newMongoDBSearchReconciler(c, operatorConfig, map[string]client.Client{}, "")
 
 	checkSearchReconcileFailed(ctx, t, reconciler, c, search, "X509 search authentication requires an X509 auth mode")
-}
-
-func TestMongoDBSearchReconcile_RegistersOIDCClientSecretWatch(t *testing.T) {
-	ctx := context.Background()
-	search := newMongoDBSearch("search", mock.TestNamespace, "mdb")
-	search.Spec.Source.OIDC = &searchv1.OIDCAuth{
-		TokenEndpoint:     "https://idp.example.com/token",
-		ClientID:          "mongot-client",
-		ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
-		IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
-	}
-
-	// The source must be an enterprise MongoDB with OIDC enabled so the reconcile
-	// passes the OIDC-aware source validation; it may still fail further down —
-	// the OIDC client-secret watch is registered before the helper reconcile.
-	mdb := &mdbv1.MongoDB{
-		ObjectMeta: metav1.ObjectMeta{Name: "mdb", Namespace: mock.TestNamespace},
-		Spec: mdbv1.MongoDbSpec{
-			DbCommonSpec: mdbv1.DbCommonSpec{
-				Version:      "8.2.0",
-				ResourceType: mdbv1.ReplicaSet,
-				Security: &mdbv1.Security{
-					Authentication: &mdbv1.Authentication{
-						Enabled: true,
-						Modes:   []mdbv1.AuthMode{"SCRAM", "OIDC"},
-						OIDCProviderConfigs: []mdbv1.OIDCProviderConfig{
-							{ConfigurationName: "test-provider"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	c := mock.NewEmptyFakeClientBuilder().
-		WithObjects(search, mdb).
-		Build()
-	reconciler := newMongoDBSearchReconciler(c, searchcontroller.OperatorSearchConfig{}, map[string]client.Client{}, "")
-
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: search.Name, Namespace: search.Namespace},
-	})
-	require.NoError(t, err)
-
-	// Rotating the user-provided OIDC client secret must trigger a reconcile of
-	// the search resource so oidcClientSecretContentHash rolls the mongot pods.
-	oidcClientSecret := types.NamespacedName{Name: "oidc-client-secret", Namespace: search.Namespace}
-	watched := reconciler.watch.GetWatchedResources()
-	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: oidcClientSecret}], search.NamespacedName())
 }
 
 // TestMemberMongoDBSearchResourceWatches_RoutesUnlabeledReferencedRotation pins the member-cluster
