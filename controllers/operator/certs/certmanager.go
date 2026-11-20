@@ -792,21 +792,6 @@ func agentSubject(res CertificateOwner) (*certmanagerv1.X509Subject, string) {
 	return mergeSubject(override, def, res.GetName()+"-agent")
 }
 
-// serverSubject is the optional subject for server certs that carry no identity (for example
-// the Ops Manager app server and queryable backup daemon certificates). Default is SAN-only
-// (nil subject); a user override (subjects.server) supplies a DN to satisfy a server issuer's
-// policy.
-func serverSubject(res CertificateOwner) (*certmanagerv1.X509Subject, string) {
-	var override *mdbv1.X509Subject
-	if s := userConfiguredSubjects(res); s != nil {
-		override = s.Server
-	}
-	if override == nil {
-		return nil, ""
-	}
-	return mergeSubject(override, &certmanagerv1.X509Subject{}, "")
-}
-
 // mergeSubject applies a user override onto the operator default per field. We merge the user
 // configured subject with operator defaults to handle the fact that customer might conifgure
 // just some attributes of subject and not all (or mandatory ones).
