@@ -10,11 +10,6 @@ source scripts/funcs/operator_deployment
 source scripts/funcs/multicluster
 source scripts/funcs/kubernetes
 
-if [[ "$(uname)" == "Linux" ]]; then
-  export PATH=/opt/golang/go1.26/bin:${PATH}
-  export GOROOT=/opt/golang/go1.26
-fi
-
 on_exit() {
   # shellcheck disable=SC2181
   error_code=$?
@@ -90,11 +85,19 @@ test -f "docker/mongodb-kubernetes-tests/.test_identifiers" && rm "docker/mongod
 # when DEPLOY_OPERATOR=true, but they're required even for local operator runs).
 # Add Helm ownership metadata so that when Helm runs (in this script or in pytest)
 # it can adopt these resources instead of failing with "invalid ownership metadata".
+# The release must be the one that Helm installs later: the e2e fixtures name it
+# mongodb-kubernetes-operator for a single-cluster run and mongodb-kubernetes-operator-multi-cluster
+# for a multi-cluster one (MULTI_CLUSTER_OPERATOR_NAME in tests/constants.py).
+operator_release="mongodb-kubernetes-operator"
+# shellcheck disable=SC2154
+if [[ "${KUBE_ENVIRONMENT_NAME}" == "multi" ]]; then
+  operator_release="${operator_release}-multi-cluster"
+fi
 for sa in mongodb-kubernetes-database-pods mongodb-kubernetes-appdb; do
   kubectl create serviceaccount "${sa}" -n "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
   kubectl label serviceaccount "${sa}" -n "${NAMESPACE}" "app.kubernetes.io/managed-by=Helm" --overwrite
   kubectl annotate serviceaccount "${sa}" -n "${NAMESPACE}" \
-    "meta.helm.sh/release-name=mongodb-kubernetes-operator" \
+    "meta.helm.sh/release-name=${operator_release}" \
     "meta.helm.sh/release-namespace=${NAMESPACE}" \
     --overwrite
 done

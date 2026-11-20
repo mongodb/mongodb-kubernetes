@@ -92,8 +92,16 @@ else
 fi
 export KUBECONFIG
 
+# The Evergreen hosts install Go here; a Linux container or laptop may not.
 if [[ "$(uname)" == "Linux" ]]; then
-  export GOROOT=/opt/golang/go1.26
+  go_root_dir=/opt/golang/go1.26
+  if [[ -d ${go_root_dir} ]]; then
+    export GOROOT=${go_root_dir}
+    if [[ ! ${PATH} =~ .*${GOROOT}/bin.* ]]; then
+      export PATH=${GOROOT}/bin:${PATH}
+    fi
+  fi
+  unset go_root_dir
 fi
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"

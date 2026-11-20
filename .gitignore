@@ -14,6 +14,7 @@ docker/mongodb-kubernetes-database/content/mongodb-mms-automation-agent-version.
 docker/mongodb-kubernetes-database/content/readinessprobe
 docker/mongodb-enterprise-ops-manager/scripts/mmsconfiguration
 docker/mongodb-kubernetes-tests/public
+docker/mongodb-kubernetes-tests/kubectl-mongodb
 
 my-*
 .vscode
