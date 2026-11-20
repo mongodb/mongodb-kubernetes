@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -1613,6 +1614,110 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 	return exists
 }
 
+// managedCABundleHashChanged reports whether the desired managed CA bundle hashes differ from the
+// annotations on the current pod template. A managed deployment always has a server hash; comparing
+// only when there is a desired hash keeps unmanaged TLS deployments out of this ordering.
+func managedCABundleHashChanged(sts appsv1.StatefulSet, serverHash, clientHash string) bool {
+	if serverHash == "" && clientHash == "" {
+		return false
+	}
+	annotations := sts.Spec.Template.Annotations
+	return annotations[construct.ManagedServerCABundleHashAnnotation] != serverHash ||
+		annotations[construct.ManagedClientCABundleHashAnnotation] != clientHash
+}
+
+// Old agents may never converge on a changed CA. Publish its path, roll the pods, then wait for the replacement agents.
+func reconcileDatabaseRollout(publishFirst, managedCAChanged bool, publish func(bool) workflow.Status, roll func() workflow.Status) workflow.Status {
+	if managedCAChanged {
+		if status := publish(false); !status.IsOK() {
+			return status
+		}
+		publishFirst = false
+	}
+	return workflow.RunInGivenOrder(publishFirst, func() workflow.Status { return publish(true) }, roll)
+}
+
+// managedCABundleHashChangeRequiresAutomationConfigFirst reports whether the StatefulSet rendered
+// by configFunc needs its automation config published before its pod template is replaced because
+// the effective managed CA bundle changed. It returns false when the StatefulSet does not exist.
+func managedCABundleHashChangeRequiresAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, opts construct.DatabaseStatefulSetOptions) (bool, error) {
+	if opts.ManagedServerCABundleHash == "" && opts.ManagedClientCABundleHash == "" {
+		return false, nil
+	}
+	currentSts, err := getter.GetStatefulSet(ctx, kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName()))
+	if apiErrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return managedCABundleHashChanged(currentSts, opts.ManagedServerCABundleHash, opts.ManagedClientCABundleHash), nil
+}
+
+// managedCABundlePodsRolled reports whether every pod of the StatefulSet already carries the desired
+// managed CA bundle hashes. A running member keeps the TLS client/trust state it built with the
+// bundle it loaded, so a pod that has not been replaced still has the previous bundle. This is the
+// gate that keeps a leaf re-issue from running ahead of a rollout, including on OnDelete
+// StatefulSets and on member clusters that are currently unreachable.
+func managedCABundlePodsRolled(ctx context.Context, getter kubernetesClient.Client, namespace, stsName, serverHash, clientHash string) (bool, error) {
+	if serverHash == "" && clientHash == "" {
+		return true, nil
+	}
+
+	sts, err := getter.GetStatefulSet(ctx, kube.ObjectKey(namespace, stsName))
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if managedCABundleHashChanged(sts, serverHash, clientHash) {
+		// The StatefulSet itself has not been updated yet. This covers a declared member cluster
+		// the reconcile skipped, even when its API server is still reachable.
+		return false, nil
+	}
+
+	// RollingUpdate StatefulSets are normally covered by the StatefulSet status checks in the
+	// reconcile. Check the status here too: a declared member cluster the reconcile skipped must not
+	// release the leaf re-issue while its pods are still being replaced.
+	if sts.Spec.UpdateStrategy.Type != appsv1.OnDeleteStatefulSetStrategyType {
+		replicas := int32(0)
+		if sts.Spec.Replicas != nil {
+			replicas = *sts.Spec.Replicas
+		}
+		if sts.Status.ObservedGeneration != sts.Generation ||
+			sts.Status.UpdatedReplicas != replicas ||
+			sts.Status.ReadyReplicas != replicas {
+			return false, nil
+		}
+		return true, nil
+	}
+
+	replicas := 0
+	if sts.Spec.Replicas != nil {
+		replicas = int(*sts.Spec.Replicas)
+	}
+	for i := 0; i < replicas; i++ {
+		pod, err := getter.GetPod(ctx, kube.ObjectKey(namespace, fmt.Sprintf("%s-%d", stsName, i)))
+		if err != nil {
+			if apiErrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		if pod.DeletionTimestamp != nil || pod.Annotations[construct.ManagedServerCABundleHashAnnotation] != serverHash {
+			return false, nil
+		}
+		if pod.Annotations[construct.ManagedClientCABundleHashAnnotation] != clientHash || !slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
+			return c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue
+		}) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // publishAutomationConfigFirst will check if the Published State of the StatefulSet backed MongoDB Deployments
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
@@ -1676,6 +1781,11 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		}
 	}
 
+	if managedCABundleHashChanged(currentSts, opts.ManagedServerCABundleHash, opts.ManagedClientCABundleHash) {
+		log.Debug("Managed CA bundle changed. automationConfig needs to be updated before the StatefulSet")
+		return true
+	}
+
 	return false
 }
 
@@ -1715,27 +1825,43 @@ type PrometheusConfiguration struct {
 	prometheusCertHash string
 }
 
+// managedDatabaseCABundleHashes returns the hashes of the operator-managed CA bundles the database
+// agents mount: the server bundle always, the client bundle only when the deployment mounts it.
+// Both are empty when managed certificates are off.
+func managedDatabaseCABundleHashes(ctx context.Context, getter configmap.Getter, security *mdbv1.Security, resourceName, namespace string) (string, string, error) {
+	if !security.IsManagedCertificateEnabled() {
+		return "", "", nil
+	}
+
+	serverCAHash, clientCAHash, err := certs.ReadManagedCABundleHashes(ctx, getter, resourceName, namespace, security.RequiresX509ClientCerts())
+	if err != nil {
+		return "", "", xerrors.Errorf("failed to read the operator-managed CA bundle hashes: %w", err)
+	}
+	return serverCAHash, clientCAHash, nil
+}
+
 // databaseCAFilePaths returns the CA file paths for the automation config: the server CA
 // (net.tls.CAFile) and the client CA (net.tls.clusterCAFile, empty unless the managed
 // deployment has clientAuth certs).
 func databaseCAFilePaths(ctx context.Context, getter configmap.Getter, security *mdbv1.Security, resourceName, namespace string) (string, string, error) {
-	if !security.IsManagedCertificateEnabled() {
-		return security.GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey)), "", nil
-	}
-
-	hasClientCerts := security.RequiresX509ClientCerts()
-	serverCAHash, clientCAHash, err := certs.ReadManagedCABundleHashes(ctx, getter, resourceName, namespace, hasClientCerts)
+	serverCAHash, clientCAHash, err := managedDatabaseCABundleHashes(ctx, getter, security, resourceName, namespace)
 	if err != nil {
-		return "", "", xerrors.Errorf("failed to read the operator-managed CA bundle hashes: %w", err)
+		return "", "", err
 	}
 
-	caFilePath := path.Join(util.TLSCaMountPath, serverCAHash)
+	caFilePath, clusterCAFilePath := databaseCAPathsForHashes(security, serverCAHash, clientCAHash)
+	return caFilePath, clusterCAFilePath, nil
+}
+
+func databaseCAPathsForHashes(security *mdbv1.Security, serverCAHash, clientCAHash string) (string, string) {
+	if !security.IsManagedCertificateEnabled() {
+		return security.GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey)), ""
+	}
 	clusterCAFilePath := ""
-	if hasClientCerts {
+	if clientCAHash != "" {
 		clusterCAFilePath = path.Join(util.TLSClusterCaMountPath, clientCAHash)
 	}
-
-	return caFilePath, clusterCAFilePath, nil
+	return path.Join(util.TLSCaMountPath, serverCAHash), clusterCAFilePath
 }
 
 func getReplicaSetProcessIdsFromReplicaSets(replicaSetName string, deployment om.Deployment) map[string]int {

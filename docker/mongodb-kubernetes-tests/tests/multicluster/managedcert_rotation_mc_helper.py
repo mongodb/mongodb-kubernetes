@@ -19,7 +19,7 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.multicluster_client import MultiClusterClient
 from tests.multicluster.conftest import create_service_entries_objects
-from tests.opsmanager.managedcert_helper import ca_bundle_snapshot
+from tests.opsmanager.managedcert_helper import MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION, ca_bundle_snapshot
 from tests.tls.managedcert_helper import (
     PRUNE_PREVIOUS_CA_ANNOTATION,
     assert_automation_config_names_files,
@@ -113,6 +113,42 @@ def pod_uids_in_clusters(
         }
         for cluster_client in member_cluster_clients
     }
+
+
+def wait_for_pods_replaced_in_clusters(
+    namespace: str,
+    name_prefix: str,
+    previous: Dict[str, Dict[str, str]],
+    member_cluster_clients: List[MultiClusterClient],
+    server_hash: str,
+    description: str = "database",
+    timeout: int = 1800,
+) -> None:
+    """Each original pod must exist under a new UID in its original member cluster."""
+    assert server_hash and member_cluster_clients and all(previous.get(c.cluster_name) for c in member_cluster_clients)
+
+    def replaced() -> tuple[bool, str]:
+        for cluster in member_cluster_clients:
+            pods = {
+                p.metadata.name: p
+                for p in list_matching_pods(namespace, name_prefix=name_prefix, api_client=cluster.api_client)
+            }
+            for name, uid in previous[cluster.cluster_name].items():
+                pod = pods.get(name)
+                if not pod or pod.metadata.uid == uid or pod.metadata.deletion_timestamp:
+                    return False, f"{cluster.cluster_name}/{name}: waiting for replacement"
+                if (pod.metadata.annotations or {}).get(MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION) != server_hash:
+                    return False, f"{cluster.cluster_name}/{name}: waiting for bundle {server_hash}"
+                if not any(c.type == "Ready" and c.status == "True" for c in pod.status.conditions or []):
+                    return False, f"{cluster.cluster_name}/{name}: replacement is not Ready"
+        return True, ""
+
+    run_periodically(
+        replaced,
+        timeout=timeout,
+        sleep_time=10,
+        msg=f"the {description} pods to be recreated on the new CA bundle in every member cluster",
+    )
 
 
 def pem_latest_hashes_in_clusters(

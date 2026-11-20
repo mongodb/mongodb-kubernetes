@@ -178,8 +178,7 @@ def wait_for_ca_file_paths(
 ) -> dict:
     """Waits until the automation config names the given bundle hashes as the CA files.
 
-    The operator names the CA file after the bundle hash, so a new bundle moves the path and the
-    agents restart the members onto it, one at a time and without recreating the pods.
+    The operator names the CA file after the bundle hash, so a new bundle moves the path.
     """
     expected = {}
     if server_hash is not None:

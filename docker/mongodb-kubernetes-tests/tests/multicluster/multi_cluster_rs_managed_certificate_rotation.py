@@ -3,8 +3,8 @@
 The operator issues the certificates and publishes the trust bundles in its own cluster and copies the bundles
 and the -pem secrets into every member cluster, where the pods mount them. A rotation is only safe when every
 member cluster gets the widened bundle, with the previous CA retained, before any leaf moves to the new root, and
-when a prune reaches every member cluster too. The members must roll onto the new files in every cluster
-without their pods being recreated.
+when a prune reaches every member cluster too. The members are recreated on the widened bundle before
+any leaf moves, in every cluster.
 
 The last part rotates the server CA while the operator cannot reach one member cluster. The Istio
 ServiceEntries that the disaster recovery tests use cut the operator off from that cluster's API server, so the
@@ -55,6 +55,7 @@ from tests.multicluster.managedcert_rotation_mc_helper import (
     wait_for_failed_cluster,
     wait_for_leaf_signed_by,
     wait_for_pem_secret_rolled_in_clusters,
+    wait_for_pods_replaced_in_clusters,
     wait_for_prune_annotation_removed,
 )
 from tests.opsmanager.managedcert_helper import (
@@ -115,7 +116,7 @@ def mongodb_multi(
 ) -> MongoDBMulti:
     resource = MongoDBMulti.from_yaml(yaml_fixture("mongodb-multi.yaml"), MDB_RESOURCE, namespace)
     resource.set_version(custom_mdb_version)
-    resource["spec"]["persistent"] = False
+    resource["spec"]["persistent"] = True
     resource["spec"]["clusterSpecList"] = cluster_spec_list(member_cluster_names, list(MEMBER_CLUSTER_MEMBERS))
     resource["spec"]["security"] = {
         "tls": {"enabled": True},
@@ -205,7 +206,7 @@ def _assert_widened_bundle_replicated(namespace: str, state: dict, member_cluste
 def _assert_rotation_completed(
     mongodb_multi: MongoDBMulti, namespace: str, state: dict, member_cluster_clients: List[MultiClusterClient]
 ):
-    """The server leaf is on the new root in every member cluster, and the members rolled in place."""
+    """Every member cluster has the new server leaf and replacement pods."""
     leaf = wait_for_leaf_signed_by(namespace, MEMBER_LEAF, state["leaf"], state["new_ca"])
     assert not cert_signed_by_bundle(leaf, state["old_ca"]), "the re-issued server leaf must not use the old CA"
     wait_for_pem_secret_rolled_in_clusters(
@@ -220,9 +221,14 @@ def _assert_rotation_completed(
     wait_for_automation_config_ca_files(mongodb_multi, state["widened"]["latest_hash"])
     _wait_for_automation_config_to_name_current_files(namespace, member_cluster_clients)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
-    assert (
-        _pods(namespace, member_cluster_clients) == state["pods"]
-    ), "a CA rotation must not recreate the pods in any member cluster"
+    wait_for_pods_replaced_in_clusters(
+        namespace,
+        f"{MDB_RESOURCE}-",
+        state["pods"],
+        member_cluster_clients,
+        state["widened"]["latest_hash"],
+        "replica set",
+    )
     # The previous CA stays trusted everywhere until it is pruned.
     _assert_widened_bundle_replicated(namespace, state, member_cluster_clients)
 
@@ -231,6 +237,7 @@ def _prune_server_ca(
     mongodb_multi: MongoDBMulti, namespace: str, state: dict, member_cluster_clients: List[MultiClusterClient]
 ):
     """Prunes the retained server CA and checks the narrowed bundle reaches every member cluster."""
+    pods_before_prune = _pods(namespace, member_cluster_clients)
     request_prune_previous_ca(mongodb_multi, SERVER)
     wait_for_prune_annotation_removed(mongodb_multi)
 
@@ -246,7 +253,9 @@ def _prune_server_ca(
 
     wait_for_automation_config_ca_files(mongodb_multi, pruned["latest_hash"])
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1800)
-    assert _pods(namespace, member_cluster_clients) == state["pods"], "pruning must not recreate the pods"
+    wait_for_pods_replaced_in_clusters(
+        namespace, f"{MDB_RESOURCE}-", pods_before_prune, member_cluster_clients, pruned["latest_hash"], "replica set"
+    )
 
 
 @mark.e2e_managed_certificate_multi_cluster_rs_rotation
@@ -372,8 +381,7 @@ def test_cut_the_operator_off_from_one_member_cluster(
     unreachable_cluster: MultiClusterClient,
     rotation: dict,
 ):
-    # Recorded while every cluster is still reachable, so the end of the scenario can check that no pod in any
-    # cluster, the unreachable one included, was recreated.
+    # Include the unreachable cluster in the post-recovery replacement check.
     rotation["pods_before_partition"] = _pods(namespace, member_cluster_clients)
 
     healthy = [c.cluster_name for c in member_cluster_clients if c.cluster_name != unreachable_cluster.cluster_name]
@@ -402,6 +410,9 @@ def test_server_ca_rotation_while_a_member_cluster_is_unreachable(
 
     healthy = [c for c in member_cluster_clients if c.cluster_name != unreachable_cluster.cluster_name]
     _assert_widened_bundle_replicated(namespace, state, healthy)
+    assert (
+        read_secret(namespace, MEMBER_LEAF)["tls.crt"] == state["leaf"]
+    ), "a disconnected member still needs the old leaf"
 
     assert (
         read_bundle_data(namespace, bundle_name, unreachable_cluster.api_client) == stale

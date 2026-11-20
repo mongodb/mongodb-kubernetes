@@ -61,6 +61,10 @@ OM_CONTAINER = "mongodb-ops-manager"
 # although SCRAM needs no client certificates.
 UNUSED_APP_DB_CLIENT_WARNING = "spec.managedCertificate.client is set even though the deployment doesn't use x509"
 
+# Pod template annotations naming the managed CA bundle hash a database agent started with.
+MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION = "managedServerCABundleHash"
+MANAGED_CLIENT_CA_BUNDLE_HASH_ANNOTATION = "managedClientCABundleHash"
+
 # The customer CA root Certificate fields customer_ca_issuer configures and the checks re-verify.
 CUSTOMER_CA_USAGES = ["digital signature", "cert sign", "crl sign"]
 
@@ -980,6 +984,49 @@ def _parse_rfc3339(value: str) -> datetime:
 def pod_uids(namespace: str, name_prefix: str) -> dict[str, str]:
     """Pod names keyed by UID for the given prefix, used to detect pod recreation."""
     return {pod.metadata.name: pod.metadata.uid for pod in list_matching_pods(namespace, name_prefix=name_prefix)}
+
+
+def wait_for_statefulset_pod_annotation(
+    namespace: str, statefulset_name: str, annotation: str, expected: str, timeout: int = 900
+) -> datetime:
+    """Check every running pod, not just the desired template of a rollout in progress."""
+    created = []
+
+    def rolled() -> tuple[bool, str]:
+        sts = kubernetes.client.AppsV1Api().read_namespaced_stateful_set(statefulset_name, namespace)
+        replicas = sts.spec.replicas
+        if not replicas or (sts.spec.template.metadata.annotations or {}).get(annotation) != expected:
+            return False, f"waiting for {statefulset_name} template {annotation}={expected}"
+        pods = {p.metadata.name: p for p in list_matching_pods(namespace, name_prefix=f"{statefulset_name}-")}
+        for i in range(replicas):
+            name = f"{statefulset_name}-{i}"
+            p = pods.get(name)
+            if not p or p.metadata.deletion_timestamp or (p.metadata.annotations or {}).get(annotation) != expected:
+                return False, f"waiting for {name} with {annotation}={expected}"
+            if not any(c.type == "Ready" and c.status == "True" for c in p.status.conditions or []):
+                return False, f"{name} is not Ready"
+        created.extend(pods[f"{statefulset_name}-{i}"].metadata.creation_timestamp for i in range(replicas))
+        return True, ""
+
+    run_periodically(
+        rolled,
+        timeout=timeout,
+        sleep_time=5,
+        msg=f"{statefulset_name} pod template {annotation}={expected}",
+    )
+    return max(created)
+
+
+def assert_pods_replaced(namespace: str, name_prefix: str, before: dict[str, str], description: str = "database"):
+    """Every original ordinal must still exist (also when scaling up) and have a new UID."""
+    assert before, f"no {description} pods recorded before rotation"
+
+    def replaced() -> tuple[bool, str]:
+        after = pod_uids(namespace, name_prefix)
+        pending = [name for name, uid in before.items() if not after.get(name) or after[name] == uid]
+        return not pending, f"{description} pods missing or not yet replaced: {pending}"
+
+    run_periodically(replaced, timeout=900, sleep_time=5, msg=f"{description} pods to be replaced")
 
 
 def ca_bundle_snapshot(namespace: str, name: str, key: str) -> dict:

@@ -356,11 +356,18 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, rs.Spec.GetSecurity())
 
+	managedServerCABundleHash, managedClientCABundleHash, err := managedDatabaseCABundleHashes(ctx, reconciler.client, rs.Spec.GetSecurity(), rs.Name, rs.Namespace)
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(err))
+	}
+
 	deploymentOpts := deploymentOptionsRS{
-		prometheusCertHash:   prometheusCertHash,
-		agentCertPath:        agentCertPath,
-		agentCertHash:        agentCertHash,
-		currentAgentAuthMode: currentAgentAuthMode,
+		prometheusCertHash:        prometheusCertHash,
+		agentCertPath:             agentCertPath,
+		agentCertHash:             agentCertHash,
+		currentAgentAuthMode:      currentAgentAuthMode,
+		managedServerCABundleHash: managedServerCABundleHash,
+		managedClientCABundleHash: managedClientCABundleHash,
 	}
 
 	// 3. Search Overrides
@@ -377,9 +384,17 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	// Recovery is skipped when a migration dry-run is active.
 	isDryRun := rs.IsMigrationDryRun()
-	if !isDryRun && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
+	stsOptions := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
+	managedCABundleChange := false
+	if !isDryRun && managedServerCABundleHash != "" {
+		managedCABundleChange, err = managedCABundleHashChangeRequiresAutomationConfigFirst(ctx, reconciler.client, *rs, stsOptions(*rs))
+		if err != nil {
+			return r.updateStatus(ctx, workflow.Failed(err))
+		}
+	}
+	if !isDryRun && !managedCABundleChange && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -411,19 +426,20 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
-	publishAutomationConfigFirst := publishAutomationConfigFirst(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts), reconciler.defaultArchitecture, log)
-	status := workflow.RunInGivenOrder(publishAutomationConfigFirst,
-		func() workflow.Status {
-			return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
-		},
-		func() workflow.Status {
-			st := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
-			if !st.IsOK() {
-				r.reconciler.logAgentErrors(ctx, rs, conn, log)
-			}
+	publishAutomationConfigFirst := managedCABundleChange || publishAutomationConfigFirst(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, stsOptions, reconciler.defaultArchitecture, log)
 
-			return st
-		})
+	updateAutomationConfig := func(waitForReadyState bool) workflow.Status {
+		return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false, waitForReadyState).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
+	}
+	reconcileStatefulSet := func() workflow.Status {
+		st := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
+		if !st.IsOK() {
+			r.reconciler.logAgentErrors(ctx, rs, conn, log)
+		}
+		return st
+	}
+
+	status := reconcileDatabaseRollout(publishAutomationConfigFirst, managedCABundleChange, updateAutomationConfig, reconcileStatefulSet)
 
 	if !status.IsOK() {
 		return r.updateStatus(ctx, status)
@@ -463,7 +479,16 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// The members are now running with the widened trust bundle (the reconcile above published it
-	// and waited for the agents), so a leaf can safely move to a rotated self-signed CA.
+	// and waited for the agents), so a leaf can safely move to a rotated self-signed CA. The pod
+	// annotation gate also covers OnDelete StatefulSets: the operator must not re-issue while any
+	// member still runs with the previous bundle.
+	managedCABundleRolled, err := managedCABundlePodsRolled(ctx, reconciler.client, rs.Namespace, rs.Name, deploymentOpts.managedServerCABundleHash, deploymentOpts.managedClientCABundleHash)
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to check the managed CA bundle rollout: %w", err)))
+	}
+	if !managedCABundleRolled {
+		return r.updateStatus(ctx, workflow.Pending("Waiting for every member to roll onto the managed CA bundle before re-issuing its certificate"))
+	}
 	if err := certs.ReissueLeavesOnRotatedSelfSignedCA(ctx, reconciler.client, rs, []certs.Options{rsCertsConfig}, log); err != nil {
 		log.Warnf("Failed to re-issue certificates after a self-signed CA rotation: %s", err)
 	}
@@ -511,6 +536,10 @@ type deploymentOptionsRS struct {
 	agentCertHash        string
 	prometheusCertHash   string
 	currentAgentAuthMode string
+	// managedServerCABundleHash and managedClientCABundleHash are the hashes of the managed CA
+	// bundles the members mount, empty when managed certificates are off.
+	managedServerCABundleHash string
+	managedClientCABundleHash string
 	// externalAgentVersion is set during OM reconcile when len(spec.GetExternalMembers()) > 0.
 	externalAgentVersion string
 }
@@ -722,6 +751,8 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 		AgentCertHash(deploymentOptions.agentCertHash),
 		InternalClusterHash(internalClusterCertHash),
 		PrometheusTLSCertHash(deploymentOptions.prometheusCertHash),
+		ManagedServerCABundleHash(deploymentOptions.managedServerCABundleHash),
+		ManagedClientCABundleHash(deploymentOptions.managedClientCABundleHash),
 		WithVaultConfig(vaultConfig),
 		WithLabels(rs.Labels),
 		WithStsLabels(rs.GetOwnerLabels()),
@@ -862,7 +893,7 @@ func AddReplicaSetController(
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool, waitForReadyState bool) workflow.Status {
 	rs := r.resource
 	log := r.log
 	reconciler := r.reconciler
@@ -871,15 +902,13 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	// - if scaling down, let's observe only members that will remain after scale-down operation
 	// - if scaling up, observe only current members, because new ones might not exist yet
 	replicasTarget := scale.ReplicasThisReconciliation(rs)
-	err := agents.WaitForRsAgentsToRegisterByResource(ctx, rs, util_int.Min(membersNumberBefore, replicasTarget), conn, log)
-	if err != nil && !isRecovering {
-		return workflow.Failed(err)
+	if waitForReadyState {
+		if err := agents.WaitForRsAgentsToRegisterByResource(ctx, rs, util_int.Min(membersNumberBefore, replicasTarget), conn, log); err != nil && !isRecovering {
+			return workflow.Failed(err)
+		}
 	}
 
-	caFilePath, clusterCAFilePath, err := databaseCAFilePaths(ctx, reconciler.client, rs.Spec.GetSecurity(), rs.Name, rs.Namespace)
-	if err != nil {
-		return workflow.Failed(err)
-	}
+	caFilePath, clusterCAFilePath := databaseCAPathsForHashes(rs.Spec.GetSecurity(), deploymentOptions.managedServerCABundleHash, deploymentOptions.managedClientCABundleHash)
 
 	existingDeployment, err := conn.ReadDeployment(ctx)
 	if err != nil {
@@ -939,8 +968,10 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 		}
 	}
 
-	if err := om.WaitForReadyState(ctx, conn, processNames, isRecovering, log); err != nil {
-		return workflow.Failed(err)
+	if waitForReadyState {
+		if err := om.WaitForReadyState(ctx, conn, processNames, isRecovering, log); err != nil {
+			return workflow.Failed(err)
+		}
 	}
 
 	reconcileResult, _ := ReconcileLogRotateSetting(ctx, conn, rs.Spec.Agent, log)
