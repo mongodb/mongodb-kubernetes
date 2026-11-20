@@ -881,7 +881,7 @@ func TestNewMongoDBSearchEnvoyReconciler_NilMembersMap(t *testing.T) {
 	require.NotNil(t, r)
 	wl := r.buildClusterWorkList(&searchv1.MongoDBSearch{
 		Spec: searchv1.MongoDBSearchSpec{Clusters: []searchv1.ClusterSpec{{Name: "any-cluster"}}},
-	}, memberClusterClients(r.memberClustersProvider.Entries()))
+	}, memberClusterClients(r.memberClustersProvider.Entries()), "")
 	require.Len(t, wl, 1)
 	assert.Nil(t, wl[0].Client,
 		"a named cluster with no registered member client must keep the nil-Client sentinel, never the central client")
@@ -897,7 +897,7 @@ func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 
 	// Single-cluster: Client must be the central client.
 	singleSearch := &searchv1.MongoDBSearch{}
-	wl := r.buildClusterWorkList(singleSearch, memberClusterClients(r.memberClustersProvider.Entries()))
+	wl := r.buildClusterWorkList(singleSearch, memberClusterClients(r.memberClustersProvider.Entries()), "")
 	require.Len(t, wl, 1)
 	assert.Equal(t, r.kubeClient, wl[0].Client, "single-cluster path must use central client")
 
@@ -911,7 +911,7 @@ func TestBuildClusterWorkList_ClientPopulation(t *testing.T) {
 			},
 		},
 	}
-	wl = r.buildClusterWorkList(mcSearch, memberClusterClients(r.memberClustersProvider.Entries()))
+	wl = r.buildClusterWorkList(mcSearch, memberClusterClients(r.memberClustersProvider.Entries()), "")
 	require.Len(t, wl, 2)
 	assert.Equal(t, memberClusterClients(r.memberClustersProvider.Entries())["a"], wl[0].Client, "known member must use member client")
 	assert.Nil(t, wl[1].Client, "unregistered member must carry the nil-Client sentinel, not the central client")
@@ -989,7 +989,7 @@ func TestEnsureConfigMap_WritesToCorrectMemberCluster(t *testing.T) {
 
 	search := &searchv1.MongoDBSearch{ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns"}}
 	// cluster "a" is at index 0 in the mapping.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), r.operatorClusterName), zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), ""), zap.S()))
 
 	// Member A has the ConfigMap named with index 0.
 	cmA := &corev1.ConfigMap{}
@@ -1022,7 +1022,7 @@ func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "mdb-search", Namespace: "ns", UID: "abc"},
 	}
 	// cluster "a" is at index 0.
-	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), r.operatorClusterName), zap.S()))
+	require.NoError(t, r.ensureConfigMap(context.Background(), search, `{"bootstrap":1}`, `{"cds":1}`, `{"lds":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), ""), zap.S()))
 
 	cm := &corev1.ConfigMap{}
 	require.NoError(t, memberA.Get(context.Background(),
@@ -1037,7 +1037,7 @@ func TestEnsureConfigMap_MultiCluster_NoOwnerRef(t *testing.T) {
 func TestBuildClusterWorkList_SingleClusterDegenerate(t *testing.T) {
 	r := newMongoDBSearchEnvoyReconciler(fake.NewClientBuilder().Build(), "envoy:latest", corev1.PullAlways, multicluster.NewProvider(), "")
 	search := &searchv1.MongoDBSearch{}
-	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()))
+	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()), "")
 	require.Len(t, wl, 1)
 	assert.Equal(t, "", wl[0].ClusterName)
 	assert.Equal(t, 0, wl[0].ClusterIndex)
@@ -1049,7 +1049,7 @@ func TestBuildClusterWorkList_EmptySpecClusters_TreatedAsSingle(t *testing.T) {
 		"a": fake.NewClientBuilder().Build(),
 	}), "")
 	search := &searchv1.MongoDBSearch{}
-	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()))
+	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()), "")
 	require.Len(t, wl, 1)
 	assert.Equal(t, "", wl[0].ClusterName)
 	assert.Equal(t, 0, wl[0].ClusterIndex)
@@ -1069,7 +1069,7 @@ func TestBuildClusterWorkList_MultiCluster_OneItemPerSpecEntry(t *testing.T) {
 			},
 		},
 	}
-	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()))
+	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()), "")
 	require.Len(t, wl, 2)
 	assert.Equal(t, "a", wl[0].ClusterName)
 	assert.Equal(t, 0, wl[0].ClusterIndex)
@@ -1087,7 +1087,7 @@ func TestBuildClusterWorkList_UnpinnedEntry_IndexZero(t *testing.T) {
 			Clusters: []searchv1.ClusterSpec{{Name: "a"}},
 		},
 	}
-	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()))
+	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()), "")
 	require.Len(t, wl, 1)
 	assert.Equal(t, "a", wl[0].ClusterName)
 	assert.Equal(t, 0, wl[0].ClusterIndex, "unpinned entry resolves to index 0")
@@ -1172,7 +1172,7 @@ func TestReconcileForCluster_RendersInMemberCluster(t *testing.T) {
 	}
 
 	// cluster "a" is at index 0 in the mapping.
-	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, newClusterWorkItem(search, "a", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), r.operatorClusterName), nil, zap.S())
+	st := r.reconcileForCluster(context.Background(), search, nil, false, nil, newClusterWorkItem(search, "a", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), ""), nil, zap.S())
 	require.True(t, st.IsOK(), "expected OK, got %s: %s", st.Phase(), searchcontroller.MessageFromStatus(st))
 
 	// Member cluster has Deployment + ConfigMap; central does not.
@@ -1225,7 +1225,7 @@ func TestEnsureDeployment_Replicas(t *testing.T) {
 	} {
 		search.Spec.Clusters[0].LoadBalancer.Managed.Replicas = tc.lbReplicas
 		// cluster "a" is at index 0.
-		require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), r.operatorClusterName), search.GetManagedLBForCluster("a"), nil, zap.S()))
+		require.NoError(t, r.ensureDeployment(context.Background(), search, `{"x":1}`, newClusterWorkItem(search, "a", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), ""), search.GetManagedLBForCluster("a"), nil, zap.S()))
 
 		dep := &appsv1.Deployment{}
 		require.NoError(t, memberA.Get(context.Background(),
@@ -1882,7 +1882,7 @@ func TestReconcile_RoutingReadyFromState_DrivesFallbackRoutes(t *testing.T) {
 	// sh-0 switched routing-ready; sh-1 never ready → fallback.
 	seedSearchStateCM(t, ctx, central, "mdb-search", "ns", []string{"sh-0"})
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, multicluster.NewProvider(), "cluster-a")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, selfRegisteredMemberProvider("cluster-a", central), "cluster-a")
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
 
@@ -1970,7 +1970,7 @@ func TestBuildClusterWorkList_OperatorPerCluster_UsesProjectedIndex(t *testing.T
 			},
 		},
 	}
-	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()))
+	wl := r.buildClusterWorkList(search, memberClusterClients(r.memberClustersProvider.Entries()), "kind-e2e-cluster-2")
 	require.Len(t, wl, 1)
 	assert.Equal(t, "kind-e2e-cluster-2", wl[0].ClusterName)
 	assert.Equal(t, 1, wl[0].ClusterIndex, "operator-per-cluster with unified CR must honour the projected clusterIndex, not 0")
@@ -2108,7 +2108,7 @@ func TestEnvoyReconcile_LBCleanup_DeletesAtPinnedIndex(t *testing.T) {
 				Name: search.LoadBalancerConfigMapNameForCluster(3), Namespace: "ns", Labels: maps.Clone(labels),
 			}}))
 
-			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, multicluster.NewProvider(), "cluster-a")
+			r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, selfRegisteredMemberProvider("cluster-a", central), "cluster-a")
 			otherSearch := types.NamespacedName{Name: "other-search", Namespace: search.Namespace}
 			for _, owner := range []types.NamespacedName{search.NamespacedName(), otherSearch} {
 				r.watch.AddWatchedResourceIfNotAdded(dependency.Name, dependency.Namespace, watch.Secret, owner)
@@ -2177,8 +2177,9 @@ func TestEnvoyReconcile_OperatorPerCluster_Match_RendersAtPinnedIndex(t *testing
 	search.Spec.Security.TLS = &searchv1.TLS{CertsSecretPrefix: "certs"}
 	search.Spec.Source.ExternalMongoDBSource.TLS = &searchv1.ExternalMongodTLS{CA: &corev1.LocalObjectReference{Name: "source-ca"}}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
-	// members map empty: operator-per-cluster with unified CR falls back to kubeClient (= central).
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, multicluster.NewProvider(), "cluster-b")
+	// Simulated multi-cluster: the single registered member is this cluster itself
+	// (cluster-b), so its work item stays local and falls back to kubeClient (= central).
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, selfRegisteredMemberProvider("cluster-b", central), "cluster-b")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
@@ -2240,7 +2241,7 @@ func TestEnvoyReconcile_OperatorPerCluster_MissingClusterIndex_Invalid(t *testin
 	search := newMCEnvoySearch("mdb-search", "ns", "", searchv1.ClusterSpec{Name: "cluster-a"})
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, multicluster.NewProvider(), "cluster-a")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, selfRegisteredMemberProvider("cluster-a", central), "cluster-a")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err, "workflow.Invalid returns nil error; assert via status.loadBalancer")
@@ -2324,7 +2325,7 @@ func TestEnvoyReconcile_ValidationFailure_NoLBConfigured_NoLBStatusWrite(t *test
 	}
 	central := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&searchv1.MongoDBSearch{}).WithObjects(search).Build()
 
-	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, multicluster.NewProvider(), "cluster-a")
+	r := newMongoDBSearchEnvoyReconciler(central, "envoy:latest", corev1.PullAlways, selfRegisteredMemberProvider("cluster-a", central), "cluster-a")
 
 	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "mdb-search", Namespace: "ns"}})
 	require.NoError(t, err)
@@ -2482,7 +2483,7 @@ func TestEnsureDeployment_PreservesRolloutRestartAnnotation(t *testing.T) {
 	depName := types.NamespacedName{Name: search.LoadBalancerDeploymentNameForCluster(0), Namespace: "ns"}
 
 	// First apply: operator creates the Deployment with its config-hash annotation.
-	require.NoError(t, r.ensureDeployment(ctx, search, `{"bootstrap":1}`, newClusterWorkItem(search, "", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), r.operatorClusterName), managedLB, nil, zap.S()))
+	require.NoError(t, r.ensureDeployment(ctx, search, `{"bootstrap":1}`, newClusterWorkItem(search, "", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), ""), managedLB, nil, zap.S()))
 
 	dep := &appsv1.Deployment{}
 	require.NoError(t, central.Get(ctx, depName, dep))
@@ -2496,7 +2497,7 @@ func TestEnsureDeployment_PreservesRolloutRestartAnnotation(t *testing.T) {
 	require.NoError(t, central.Update(ctx, dep))
 
 	// Re-apply (as any reconcile triggered during the rollout would).
-	require.NoError(t, r.ensureDeployment(ctx, search, `{ "bootstrap": 1 }`, newClusterWorkItem(search, "", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), r.operatorClusterName), managedLB, nil, zap.S()))
+	require.NoError(t, r.ensureDeployment(ctx, search, `{ "bootstrap": 1 }`, newClusterWorkItem(search, "", 0, r.kubeClient, memberClusterClients(r.memberClustersProvider.Entries()), ""), managedLB, nil, zap.S()))
 
 	require.NoError(t, central.Get(ctx, depName, dep))
 	assert.Equal(t, "2026-07-14T13:53:28Z", dep.Spec.Template.Annotations[restartedAtKey],
