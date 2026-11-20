@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -52,9 +53,16 @@ func SetupTracingFromParent(ctx context.Context, traceIDHex, parentIDHex, endpoi
 	Logger.Debugf("Created span context with TraceID: %s, SpanID: %s, Remote: %t",
 		spanCtx.TraceID().String(), spanCtx.SpanID().String(), spanCtx.IsRemote())
 
+	exporterOption := otlptracegrpc.WithEndpoint(endpoint)
+	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
+		// WithEndpointURL honors the http(s) scheme. WithEndpoint keeps a bare
+		// host:port or gRPC target, such as dns:///collector:4317, unchanged.
+		exporterOption = otlptracegrpc.WithEndpointURL(endpoint)
+	}
+
 	exporter, err := otlptracegrpc.New(
 		context.Background(),
-		otlptracegrpc.WithEndpoint(endpoint),
+		exporterOption,
 	)
 	if err != nil {
 		Logger.Warnf("Failed to create OTLP exporter: %v", err)

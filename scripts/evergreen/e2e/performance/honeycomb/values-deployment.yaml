@@ -46,6 +46,18 @@ resources:
     cpu: 200m
     memory: 256Mi
 
+# Rules that the chart appends to the ClusterRole it creates for the presets below.
+clusterRole:
+  rules:
+    # Required by the k8sobjects/mongodb-cr receiver below.
+    - apiGroups:
+        - mongodb.com
+      resources:
+        - mongodb
+      verbs:
+        - list
+        - watch
+
 presets:
   # enables the k8sclusterreceiver and adds it to the metrics pipelines
   clusterMetrics:
@@ -57,10 +69,21 @@ presets:
 config:
   receivers:
     k8s_cluster:
-      collection_interval: 180s
+      collection_interval: 600s
       metrics:
         k8s.pod.status_reason:
           enabled: true
+    # The MongoDB CR status keeps only the current phase, message, and
+    # lastTransition. Watching the CR turns every status write into a log record,
+    # so the phase sequence of one CR is recoverable after the run.
+    # namespaces keeps the volume to the test namespace.
+    k8sobjects/mongodb-cr:
+      objects:
+        - name: mongodb
+          group: mongodb.com
+          mode: watch
+          namespaces:
+            - ${env:NAMESPACE}
     jaeger: null
     zipkin: null
     prometheus:
@@ -109,6 +132,34 @@ config:
             - set(severity_text, attributes["type"]) where attributes["type"] == "Normal" or attributes["type"] == "Warning"
             - set(severity_number, SEVERITY_NUMBER_INFO) where attributes["type"] == "Normal"
             - set(severity_number, SEVERITY_NUMBER_WARN) where attributes["type"] == "Warning"
+
+            # The receiver puts the whole Event in the body. Honeycomb stores
+            # nested body keys as columns, so drop the object once the statements
+            # above read the fields they need.
+            - delete_key(body, "object") where IsMap(body) and IsMap(body["object"])
+    # The k8sobjects receiver emits one log record per watch event, with the body
+    # {type: ADDED|MODIFIED|DELETED, object: <MongoDB CR>}. Keep a fixed set of
+    # timeline fields as attributes, then drop the object. Honeycomb stores nested
+    # body keys as columns, and the CR spec and status maps carry arbitrary keys
+    # (shard names, setParameter names), so the object must not reach the dataset.
+    transform/mongodb_cr:
+      error_mode: ignore
+      log_statements:
+        - context: log
+          statements:
+            - set(attributes["mck.cr.watch_type"], body["type"]) where body["type"] != nil
+            - set(attributes["k8s.object.name"], body["object"]["metadata"]["name"]) where body["object"]["metadata"]["name"] != nil
+            - set(attributes["mck.cr.phase"], body["object"]["status"]["phase"]) where body["object"]["status"]["phase"] != nil
+            - set(attributes["mck.cr.message"], body["object"]["status"]["message"]) where body["object"]["status"]["message"] != nil
+            - set(attributes["mck.cr.last_transition"], body["object"]["status"]["lastTransition"]) where body["object"]["status"]["lastTransition"] != nil
+            - delete_key(body, "object") where IsMap(body) and IsMap(body["object"])
+    # Normal events are most of the event volume. The transitions that matter
+    # for e2e debugging arrive as Warning events.
+    filter/events:
+      error_mode: ignore
+      logs:
+        log_record:
+          - 'attributes["type"] == "Normal"'
     resource/k8s:
       attributes:
         - key: k8s.cluster.name
@@ -134,10 +185,10 @@ config:
       endpoint: ${env:ENDPOINT}
       headers:
         "x-honeycomb-dataset": "k8s-metrics"
+    # No dataset header: records go to the environment's default dataset, the
+    # same as the daemonset exporter. The ingest key cannot create datasets.
     otlp/k8s-events:
       endpoint: ${env:ENDPOINT}
-      headers:
-        "x-honeycomb-dataset": "k8s-events"
 
   service:
     pipelines:
@@ -147,7 +198,13 @@ config:
         receivers: [ prometheus ]
         exporters: [ otlp/k8s-metrics ]
       logs:
-        processors: [ resource/k8s, memory_limiter, transform/events, batch ]
+        processors: [ resource/k8s, memory_limiter, transform/events, filter/events, batch ]
+        exporters: [ otlp/k8s-events ]
+      # CR events skip transform/events, which copies the whole object into
+      # attributes and would add the full CR spec.
+      logs/mongodb-cr:
+        processors: [ memory_limiter, resource/k8s, transform/mongodb_cr, batch ]
+        receivers: [ k8sobjects/mongodb-cr ]
         exporters: [ otlp/k8s-events ]
 
 ports:

@@ -44,6 +44,12 @@ kubectl create secret generic version-id --from-literal=version-id="${version_id
 kubectl create secret generic task-id --from-literal=task-id="${task_id}" --namespace=honeycomb --dry-run=client -o yaml | kubectl apply -f -
 kubectl create secret generic task-name --from-literal=task-name="${task_name}" --namespace=honeycomb --dry-run=client -o yaml | kubectl apply -f -
 
+# The k8sobjects receiver fails to start when the watched CRD is absent, and the
+# test suite applies the CRDs only after this script runs. Apply the MongoDB CRD
+# first. kubectl apply is idempotent, and the guard leaves an existing CRD
+# untouched on shared clusters.
+kubectl get crd mongodb.mongodb.com >/dev/null 2>&1 || kubectl apply -f helm_chart/crds/mongodb.com_mongodb.yaml
+
 # The otel-collector charts create cluster-scoped ClusterRoles tied to the honeycomb namespace.
 # With max_hosts>1, two tasks may run concurrently and race to install the same releases.
 # || true prevents a concurrent install by another task from failing this task — the collector
