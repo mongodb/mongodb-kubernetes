@@ -1983,32 +1983,73 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
 }
 
-// An x509 search pointing at a source without an X509 auth mode must not
-// be wired into the mongod config: mongod disables the MONGODB-X509
-// mechanism without the mode, so the deployment would fail at runtime.
-func TestApplySearchOverrides_SkipsX509SearchWhenSourceLacksX509Mode(t *testing.T) {
-	ctx := context.Background()
+// A search's own auth mode must be paired with a matching auth mode on the source: mongod
+// disables the mechanism without it, so the deployment would only fail at runtime.
+func TestApplySearchOverrides_GatesOnSourceAuthMode(t *testing.T) {
+	x509Source := &searchv1.MongoDBSource{
+		MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"},
+		X509:               &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}},
+	}
+	scramSource := &searchv1.MongoDBSource{
+		MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"},
+		Username:           new("search-user"),
+		PasswordSecretRef:  &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"},
+	}
 
-	x509Search := &searchv1.MongoDBSearch{
-		ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
-		Spec: searchv1.MongoDBSearchSpec{
-			Clusters: []searchv1.ClusterSpec{{}},
-			Source: &searchv1.MongoDBSource{
-				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"},
-				X509:               &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}},
-			},
+	testCases := []struct {
+		name        string
+		source      *searchv1.MongoDBSource
+		authModes   []mdbv1.AuthMode
+		wantApplied bool
+	}{
+		{
+			name:        "X509 search with SCRAM modes",
+			source:      x509Source,
+			authModes:   []mdbv1.AuthMode{"SCRAM"},
+			wantApplied: false,
+		},
+		{
+			name:        "X509 search with X509 mode",
+			source:      x509Source,
+			authModes:   []mdbv1.AuthMode{"X509"},
+			wantApplied: true,
+		},
+		{
+			name:        "SCRAM search with X509 mode",
+			source:      scramSource,
+			authModes:   []mdbv1.AuthMode{"X509"},
+			wantApplied: false,
 		},
 	}
-	c := mock.NewEmptyFakeClientBuilder().WithObjects(x509Search).Build()
 
-	rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").SetAuthModes([]mdbv1.AuthMode{"SCRAM"}).Build()
-	reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c, nil)}
-	helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
 
-	applied, err := helper.applySearchOverrides(ctx)
-	require.NoError(t, err)
-	assert.False(t, applied, "x509 search must not be wired into a source without an X509 auth mode")
-	assert.Empty(t, maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "setParameter", "mongotHost"))
+			search := &searchv1.MongoDBSearch{
+				ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
+				Spec: searchv1.MongoDBSearchSpec{
+					Clusters: []searchv1.ClusterSpec{{}},
+					Source:   tc.source,
+				},
+			}
+			c := mock.NewEmptyFakeClientBuilder().WithObjects(search).Build()
+
+			rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").SetAuthModes(tc.authModes).Build()
+			reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c, nil)}
+			helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
+
+			applied, err := helper.applySearchOverrides(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantApplied, applied)
+			mongotHost := maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "setParameter", "mongotHost")
+			if tc.wantApplied {
+				assert.NotEmpty(t, mongotHost, "search overrides must set setParameter.mongotHost")
+			} else {
+				assert.Empty(t, mongotHost, "search overrides must leave setParameter.mongotHost unset")
+			}
+		})
+	}
 }
 
 func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
