@@ -1043,7 +1043,7 @@ func (r *OpsManagerReconciler) watchLicenseSecrets(opsManager *omv1.MongoDBOpsMa
 	if spec.LicenseProvided() {
 		watchSecret(spec.SecretRef.Name)
 	}
-	for _, entry := range spec.ReleaseReceipts {
+	for _, entry := range spec.ReleasedLicenses {
 		watchSecret(entry.SecretRef.Name)
 	}
 }

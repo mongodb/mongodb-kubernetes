@@ -1178,7 +1178,7 @@ func (om *MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
 		if license.LicenseProvided() {
 			secretNames = append(secretNames, license.SecretRef.Name)
 		}
-		for _, entry := range license.ReleaseReceipts {
+		for _, entry := range license.ReleasedLicenses {
 			secretNames = append(secretNames, entry.SecretRef.Name)
 		}
 	}

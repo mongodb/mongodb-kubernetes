@@ -270,7 +270,7 @@ func TestLicenseE2E_InstallReleaseThenReceipt(t *testing.T) {
 	receiptName := testLicenseArtifactID + "-release-receipt"
 	h.createSecret(receiptName, "note", "declared in git", nil)
 	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
-		om.Spec.License.ReleaseReceipts = []omv1.LicenseReleaseReceipt{releaseReceipt(om.Name + "-license")}
+		om.Spec.License.ReleasedLicenses = []omv1.ReleasedLicense{releasedLicense(om.Name + "-license")}
 	})
 	h.reconcileExpectOK(om.Name)
 	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
@@ -299,7 +299,7 @@ func TestLicenseE2E_ReleaseWithReceiptInOneStep(t *testing.T) {
 	receiptName := testLicenseArtifactID + "-release-receipt"
 	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
 		om.Spec.License = &omv1.MongoDBOpsManagerLicense{
-			ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt(om.Name + "-license")},
+			ReleasedLicenses: []omv1.ReleasedLicense{releasedLicense(om.Name + "-license")},
 		}
 	})
 	got := h.reconcileExpectOK(om.Name)
@@ -536,7 +536,7 @@ func TestLicenseE2E_ReceiptSecretIsCreated(t *testing.T) {
 	h.createSecret(oldLicense, util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-1"), om)
 	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
 		om.Spec.License = &omv1.MongoDBOpsManagerLicense{
-			ReleaseReceipts: []omv1.LicenseReleaseReceipt{releaseReceipt(oldLicense)},
+			ReleasedLicenses: []omv1.ReleasedLicense{releasedLicense(oldLicense)},
 		}
 	})
 
@@ -557,7 +557,7 @@ func TestLicenseE2E_ReceiptEntryNamesArtifactByOldLicenseSecret(t *testing.T) {
 	h.createSecret(oldLicense, util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-old"), om)
 	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
 		om.Spec.License = &omv1.MongoDBOpsManagerLicense{
-			ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
+			ReleasedLicenses: []omv1.ReleasedLicense{{
 				SecretRef: omv1.SecretRef{Name: oldLicense},
 			}},
 		}

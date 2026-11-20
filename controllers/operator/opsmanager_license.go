@@ -115,7 +115,7 @@ func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow
 		}
 	}
 
-	receipts, st := h.resolveReleaseReceipts(ctx)
+	receipts, st := h.resolveReleasedLicenses(ctx)
 	if !st.IsOK() {
 		return st
 	}
@@ -165,7 +165,7 @@ func (h *LicenseReconcilerHelper) syncLicenseFinalizer(ctx context.Context, want
 
 // releaseOnDeletion releases the license the operator installed, dropping the finalizer only on success.
 func (h *LicenseReconcilerHelper) releaseOnDeletion(ctx context.Context) workflow.Status {
-	receipts, st := h.resolveReleaseReceipts(ctx)
+	receipts, st := h.resolveReleasedLicenses(ctx)
 	if !st.IsOK() {
 		return st
 	}
@@ -287,7 +287,7 @@ func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, 
 		return "", "", licenseFailed(err)
 	}
 	if slices.Contains(receipts, artifactID) {
-		err := xerrors.Errorf("license artifact %s in secretRef is also listed in releaseReceipts", artifactID)
+		err := xerrors.Errorf("license artifact %s in secretRef is also listed in releasedLicenses", artifactID)
 		return "", "", licenseFailed(err)
 	}
 
@@ -353,8 +353,8 @@ func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (
 	return artifactID, workflow.OK()
 }
 
-func (h *LicenseReconcilerHelper) resolveReleaseReceipts(ctx context.Context) ([]string, workflow.Status) {
-	entries := h.opsManager.Spec.License.GetReleaseReceipts()
+func (h *LicenseReconcilerHelper) resolveReleasedLicenses(ctx context.Context) ([]string, workflow.Status) {
+	entries := h.opsManager.Spec.License.GetReleasedLicenses()
 	receipts := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		artifactID, st := h.receiptArtifactID(ctx, entry)
@@ -362,14 +362,14 @@ func (h *LicenseReconcilerHelper) resolveReleaseReceipts(ctx context.Context) ([
 			return nil, st
 		}
 		if slices.Contains(receipts, artifactID) {
-			return nil, licenseFailed(xerrors.Errorf("releaseReceipts entries resolve to the same artifact id %s", artifactID))
+			return nil, licenseFailed(xerrors.Errorf("releasedLicenses entries resolve to the same artifact id %s", artifactID))
 		}
 		receipts = append(receipts, artifactID)
 	}
 	return receipts, workflow.OK()
 }
 
-func (h *LicenseReconcilerHelper) receiptArtifactID(ctx context.Context, entry omv1.LicenseReleaseReceipt) (string, workflow.Status) {
+func (h *LicenseReconcilerHelper) receiptArtifactID(ctx context.Context, entry omv1.ReleasedLicense) (string, workflow.Status) {
 	_, artifactID, _, err := h.readLicenseArtifact(ctx, entry.SecretRef.Name)
 	if err != nil {
 		return "", licenseFailed(err)
@@ -417,7 +417,7 @@ func achievedLicense(license *omv1.MongoDBOpsManagerLicense, installedSecretRef 
 		return nil
 	}
 
-	// Keep the rest of the license block, such as releaseReceipts, as the spec has it.
+	// Keep the rest of the license block, such as releasedLicenses, as the spec has it.
 	achieved := omv1.MongoDBOpsManagerLicense{}
 	if license != nil {
 		achieved = *license
