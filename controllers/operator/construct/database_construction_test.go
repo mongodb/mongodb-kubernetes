@@ -19,6 +19,7 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -862,8 +863,8 @@ func TestShardedOptionsResolveExternalAccessPerTier(t *testing.T) {
 
 		require.NotNil(t, opts.ExternalAccessConfiguration)
 		assert.Equal(t, "config.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
-		assert.Equal(t, sc.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName,
-			"a tier with an external domain must mount the hostname-override ConfigMap")
+		assert.Equal(t, "$(POD_NAME).config.example.com", opts.AgentHostnameOverride,
+			"a tier with an external domain must advertise its external hostname")
 	})
 
 	t.Run("config servers get nothing from the top-level field in single-cluster", func(t *testing.T) {
@@ -874,7 +875,7 @@ func TestShardedOptionsResolveExternalAccessPerTier(t *testing.T) {
 		opts := ConfigServerOptions(sc.Spec.ConfigSrvSpec, multicluster.LegacyCentralClusterName)(sc)
 
 		assert.Nil(t, opts.ExternalAccessConfiguration)
-		assert.Empty(t, opts.HostNameOverrideConfigmapName)
+		assert.Empty(t, opts.AgentHostnameOverride)
 	})
 
 	t.Run("mongos still honours the top-level field in single-cluster", func(t *testing.T) {
@@ -886,7 +887,7 @@ func TestShardedOptionsResolveExternalAccessPerTier(t *testing.T) {
 
 		require.NotNil(t, opts.ExternalAccessConfiguration)
 		assert.Equal(t, "top.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
-		assert.Equal(t, sc.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName)
+		assert.Equal(t, "$(POD_NAME).top.example.com", opts.AgentHostnameOverride)
 	})
 
 	t.Run("shards get nothing when nothing is configured", func(t *testing.T) {
@@ -895,7 +896,7 @@ func TestShardedOptionsResolveExternalAccessPerTier(t *testing.T) {
 		opts := ShardOptions(0, sc.Spec.ShardSpec, multicluster.LegacyCentralClusterName)(sc)
 
 		assert.Nil(t, opts.ExternalAccessConfiguration)
-		assert.Empty(t, opts.HostNameOverrideConfigmapName)
+		assert.Empty(t, opts.AgentHostnameOverride)
 	})
 }
 
@@ -908,9 +909,58 @@ func TestReplicaSetOptionsCarryTopLevelExternalAccess(t *testing.T) {
 
 	require.NotNil(t, opts.ExternalAccessConfiguration)
 	assert.Equal(t, "rs.example.com", *opts.ExternalAccessConfiguration.ExternalDomain)
-	// An external domain means processes advertise their external hostname, which only works with the
-	// hostname override ConfigMap mounted into the pods.
-	assert.Equal(t, rs.GetHostNameOverrideConfigmapName(), opts.HostNameOverrideConfigmapName)
+	// An external domain means processes advertise their external hostname.
+	assert.Equal(t, "$(POD_NAME).rs.example.com", opts.AgentHostnameOverride)
+}
+
+// The generated hostnames must stay equal to what the operator registers in the automation config,
+// so they are pinned to the pkg/dns functions that build those.
+func TestAgentHostnameOverrideMatchesDNS(t *testing.T) {
+	const (
+		namespace = "ns"
+		podNum    = 1
+	)
+	expand := func(hostname, podName string) string { return strings.ReplaceAll(hostname, "$(POD_NAME)", podName) }
+	domain := "example.com"
+
+	for _, clusterDomain := range []string{"", "custom.local", ".custom.local"} {
+		t.Run("multi-cluster service "+clusterDomain, func(t *testing.T) {
+			podName := dns.GetMultiPodName("my-rs", 0, podNum)
+			assert.Equal(t, dns.GetMultiServiceFQDN("my-rs", namespace, 0, podNum, clusterDomain),
+				expand(AgentHostnameOverride(nil, true, namespace, clusterDomain), podName))
+		})
+	}
+	t.Run("multi-cluster external domain", func(t *testing.T) {
+		podName := dns.GetMultiPodName("my-rs", 0, podNum)
+		assert.Equal(t, dns.GetMultiClusterPodServiceFQDN("my-rs", namespace, 0, &domain, podNum, ""),
+			expand(AgentHostnameOverride(&domain, true, namespace, ""), podName))
+	})
+	t.Run("single cluster external domain", func(t *testing.T) {
+		podName := dns.GetPodName("my-rs", podNum)
+		assert.Equal(t, dns.GetPodFQDN(podName, "", namespace, "", &domain),
+			expand(AgentHostnameOverride(&domain, false, namespace, ""), podName))
+	})
+}
+
+func TestAgentHostnameOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		externalDomain *string
+		multiCluster   bool
+		clusterDomain  string
+		expected       string
+	}{
+		{name: "single cluster keeps the pod hostname"},
+		{name: "single cluster empty external domain", externalDomain: new("")},
+		{name: "single cluster external domain", externalDomain: new("example.com"), expected: "$(POD_NAME).example.com"},
+		{name: "multi-cluster default domain", multiCluster: true, expected: "$(POD_NAME)-svc.ns.svc.cluster.local"},
+		{name: "multi-cluster custom domain", multiCluster: true, clusterDomain: ".custom.local", expected: "$(POD_NAME)-svc.ns.svc.custom.local"},
+		{name: "multi-cluster external domain", externalDomain: new("example.com"), multiCluster: true, expected: "$(POD_NAME).example.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, AgentHostnameOverride(tc.externalDomain, tc.multiCluster, "ns", tc.clusterDomain))
+		})
+	}
 }
 
 func TestReplicaSetStatefulSetStripsOwnerLabels(t *testing.T) {
