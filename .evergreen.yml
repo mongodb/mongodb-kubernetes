@@ -411,6 +411,10 @@ github_pr_aliases:
     task: ".*"
     required_labels:
       - "evergreen:race"
+  - variant_tags: [ "e2e_test_suite !static !om7 !om9 !race !cloudqa" ]
+    task_tags: [ "e2e_search_images" ]
+    required_labels:
+      - "evergreen:e2e-search-images"
   # Variants that always run on PRs, regardless of labels
   - variant_tags: [ "auto_bump", "unit_tests", "ocp_version_drift" ]
     task: ".*"

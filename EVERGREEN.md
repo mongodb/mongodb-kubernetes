@@ -163,6 +163,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
 | `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
+| `evergreen:e2e-search-images` | `e2e_test_suite !static !om7 !om9 !race !cloudqa` | 8 Envoy/OTel Search tasks tagged `e2e_search_images`; added automatically to the Search image bump PR |
 
 Task counts are rounded PR patch sizes: the tasks selected by the label, their dependencies and the always-on checks.
 They change as tasks are added or removed.
