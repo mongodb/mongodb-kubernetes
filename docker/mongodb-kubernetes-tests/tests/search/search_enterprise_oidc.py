@@ -118,15 +118,16 @@ def _client_credentials_claims() -> dict:
     if not 200 <= response.status_code < 300:
         fail(
             f"Client-credentials token request to {token_endpoint} failed with HTTP "
-            f"{response.status_code}: {response.text}. The Cognito app-client/token-endpoint "
-            "setup for this test is broken.",
+            f"{response.status_code}: {response.text}. The {oidc.get_oidc_provider()} "
+            "app-client/token-endpoint setup for this test is broken.",
             pytrace=False,
         )
     access_token = response.json().get("access_token")
     if not access_token:
         fail(
             f"Token endpoint {token_endpoint} returned no access_token: {response.text}. "
-            "The Cognito app-client/token-endpoint setup for this test is broken.",
+            f"The {oidc.get_oidc_provider()} app-client/token-endpoint setup for this test "
+            "is broken.",
             pytrace=False,
         )
     return _decode_jwt_payload(access_token)
@@ -140,16 +141,23 @@ def _cc_token_audience() -> str:
     if isinstance(audience, list):
         if len(audience) != 1:
             fail(
-                f"The Cognito client-credentials token has a multi-valued aud {audience}; "
-                "mongod accepts exactly one audience.",
+                f"The {oidc.get_oidc_provider()} client-credentials token has a multi-valued "
+                f"aud {audience}; mongod accepts exactly one audience.",
                 pytrace=False,
             )
         audience = audience[0]
     if not audience:
+        # Only Cognito needs a pool-side mechanism to mint aud: Auth0 emits it when the
+        # request carries audience, which _client_credentials_claims already sends.
+        hint = ""
+        if oidc.get_oidc_provider() == "cognito":
+            hint = (
+                " The Cognito pool needs a V3_0 pre-token-generation Lambda that adds aud "
+                "(the app client id) to access tokens for this test to work."
+            )
         fail(
-            "The Cognito client-credentials token carries no aud claim; mongod validates "
-            "audience against aud only. The Cognito pool needs a V3_0 pre-token-generation "
-            "Lambda that adds aud (the app client id) to access tokens for this test to work.",
+            f"The {oidc.get_oidc_provider()} client-credentials token carries no aud claim; "
+            f"mongod validates audience against aud only.{hint}",
             pytrace=False,
         )
     return audience
@@ -157,13 +165,16 @@ def _cc_token_audience() -> str:
 
 @fixture(scope="session")
 def cc_claims() -> dict:
-    """The client-credentials token's claims, fetched once per session. A Cognito outage
+    """The client-credentials token's claims, fetched once per session. A provider outage
     surfaces here with a clear message instead of as a fixture error on the first test
     to request mdb."""
     try:
         return _client_credentials_claims()
     except requests.RequestException as e:
-        fail(f"Could not fetch a client-credentials token from Cognito: {e}", pytrace=False)
+        fail(
+            f"Could not fetch a client-credentials token from {oidc.get_oidc_provider()}: {e}",
+            pytrace=False,
+        )
 
 
 def _cc_token_subject() -> str:
@@ -171,8 +182,8 @@ def _cc_token_subject() -> str:
     subject = _client_credentials_claims().get("sub")
     if not subject:
         fail(
-            "The Cognito client-credentials token carries no sub claim; cannot derive the "
-            "$external OIDC username for mongot.",
+            f"The {oidc.get_oidc_provider()} client-credentials token carries no sub claim; "
+            "cannot derive the $external OIDC username for mongot.",
             pytrace=False,
         )
     return subject
