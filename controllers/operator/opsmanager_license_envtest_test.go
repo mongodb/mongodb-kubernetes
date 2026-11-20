@@ -275,6 +275,7 @@ func TestLicenseE2E_ReleaseWithReceiptInOneStep(t *testing.T) {
 	receipt := &corev1.Secret{}
 	require.NoError(t, h.client.Get(h.ctx, client.ObjectKey{Namespace: h.namespace, Name: receiptName}, receipt))
 	assert.Contains(t, receipt.Data, util.DefaultOpsManagerReleaseReceiptKey)
+	assertNotOwnedByOperator(t, *receipt)
 }
 
 func TestLicenseE2E_ReleaseWithoutReceipt(t *testing.T) {
@@ -355,6 +356,9 @@ func TestLicenseE2E_RecomputeFailureClearsAnnotation(t *testing.T) {
 
 	got := h.loadOM(om.Name)
 	assert.Empty(t, got.Annotations[util.LicenseRecomputeAnnotation])
+	managed := operatorManagedLicenseCondition(t, got)
+	assert.Equal(t, metav1.ConditionFalse, managed.Status)
+	assert.Equal(t, status.ReasonLicenseNotManaged, managed.Reason)
 }
 
 func TestLicenseE2E_InstallFails(t *testing.T) {
@@ -746,6 +750,9 @@ func TestLicenseE2E_AutoReleaseOnSecretRefRemoval(t *testing.T) {
 	got := h.reconcileExpectOK(om.Name)
 	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
 	assert.Contains(t, licenseActiveCondition(t, got).Message, "no license")
+	managed := operatorManagedLicenseCondition(t, got)
+	assert.Equal(t, status.ReasonLicenseNotProvided, managed.Reason)
+	assert.Equal(t, ".spec.license.secretRef is not set, so the operator doesn't manage the license.", managed.Message)
 }
 
 func TestLicenseE2E_FailedSwapKeepsTheInstalledLicenseOwned(t *testing.T) {
