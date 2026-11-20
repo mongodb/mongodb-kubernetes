@@ -173,7 +173,15 @@ func CreateOrUpdateIfNeeded(ctx context.Context, getUpdateCreator GetUpdateCreat
 	oldSecret, err := getUpdateCreator.GetSecret(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			return getUpdateCreator.CreateSecret(ctx, secret)
+			if createErr := getUpdateCreator.CreateSecret(ctx, secret); createErr != nil {
+				if !apiErrors.IsAlreadyExists(createErr) {
+					return createErr
+				}
+				// we are here, would mean that the earlier get failed (resource is not available) but there are chances
+				// that the cache was not caught up. if createErr says already exists, update the secret.
+				return updateExistingSecret(ctx, getUpdateCreator, secret)
+			}
+			return nil
 		}
 		return err
 	}
@@ -184,6 +192,17 @@ func CreateOrUpdateIfNeeded(ctx context.Context, getUpdateCreator GetUpdateCreat
 	}
 
 	// They are different so we need to update it
+	return getUpdateCreator.UpdateSecret(ctx, secret)
+}
+
+// updateExistingSecret updates the secret with the data of the one given, keeping the version of the
+// secret that is stored, which an update requires.
+func updateExistingSecret(ctx context.Context, getUpdateCreator GetUpdateCreator, secret corev1.Secret) error {
+	existing, err := getUpdateCreator.GetSecret(ctx, types.NamespacedName{Name: secret.Name, Namespace: secret.Namespace})
+	if err != nil {
+		return err
+	}
+	secret.ResourceVersion = existing.ResourceVersion
 	return getUpdateCreator.UpdateSecret(ctx, secret)
 }
 

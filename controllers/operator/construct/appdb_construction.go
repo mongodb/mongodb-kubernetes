@@ -3,6 +3,7 @@ package construct
 import (
 	"fmt"
 	"os"
+	"path"
 	"strconv"
 
 	"go.uber.org/zap"
@@ -39,6 +40,10 @@ const (
 	headlessAgentEnv             = "HEADLESS_AGENT"
 	clusterDomainEnv             = "CLUSTER_DOMAIN"
 	monitoringAgentContainerName = "mongodb-agent-monitoring"
+
+	// OpsManagerCABundleHashAnnotation is the AppDB pod template annotation holding the hash of the
+	// operator-managed Ops Manager CA bundle the agent trusts through -httpsCAFile.
+	OpsManagerCABundleHashAnnotation = "opsManagerCABundleHash"
 )
 
 type AppDBStatefulSetOptions struct {
@@ -51,6 +56,11 @@ type AppDBStatefulSetOptions struct {
 
 	PrometheusTLSCertHash string
 	CustomAgentURL        string
+
+	// OpsManagerCABundleHash is the hash of the operator-managed Ops Manager CA bundle. The agent
+	// loads -httpsCAFile only at startup, so a changed bundle (a CA rotation widening it, or a
+	// prune) must restart the AppDB pods before Ops Manager serves a leaf on the new CA.
+	OpsManagerCABundleHash string
 }
 
 // getContainerIndexByName returns the index of a container with the given name in a slice of containers.
@@ -205,6 +215,10 @@ func getTLSVolumesAndVolumeMounts(appDb om.AppDBSpec, podVars *env.PodEnvVars, l
 }
 
 func CAConfigMapName(appDb om.AppDBSpec, log *zap.SugaredLogger) string {
+	if appDb.GetSecurity().IsManagedCertificateEnabled() {
+		return appDb.GetCAConfigMapName()
+	}
+
 	caName := fmt.Sprintf("%s-ca", appDb.Name())
 
 	tlsConfig := appDb.GetTLSConfig()
@@ -394,6 +408,18 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		automationAgentCommand[idx] += " -mmsGroupId=" + podVars.ProjectID + " -mmsApiKey=${AGENT_API_KEY}"
 	}
 
+	// Trust the Ops Manager CA for the monitoring connection to Ops Manager. The agent hands
+	// this to its monitoring module; without it the module only trusts the system root CAs.
+	opsManagerCABundleAnnotation := podtemplatespec.NOOP()
+	if ShouldMountSSLMMSCAConfigMap(podVars) {
+		automationAgentCommand[idx] += " -httpsCAFile=" + path.Join(caCertMountPath, util.CaCertMMS)
+		if opts.OpsManagerCABundleHash != "" {
+			opsManagerCABundleAnnotation = podtemplatespec.WithAnnotations(map[string]string{
+				OpsManagerCABundleHashAnnotation: opts.OpsManagerCABundleHash,
+			})
+		}
+	}
+
 	automationAgentCommand[idx] += overrideLocalHostFlag(appDb, externalDomain)
 
 	acVersionConfigMapVolume := statefulset.CreateVolumeFromConfigMap("automation-config-goal-version", opsManager.Spec.AppDB.AutomationConfigConfigMapName())
@@ -507,6 +533,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 					container.WithEnvs(appdbContainerEnv(*appDb, opts.CustomAgentURL)...),
 				),
 				vaultModification(*appDb, podVars, opts),
+				opsManagerCABundleAnnotation,
 				appDbPodSpec(opts.InitAppDBImage, opsManager, defaultArchitecture),
 				tlsVolumes(*appDb, podVars, log),
 			),

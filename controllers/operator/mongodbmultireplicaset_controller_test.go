@@ -33,6 +33,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -525,6 +526,41 @@ func TestMultiClusterConfigMapAndSecretWatched(t *testing.T) {
 	}
 
 	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
+}
+
+// TestMultiClusterManagedCertificateCARefsWatched checks that the CA inputs of the operator-managed
+// certificates are registered with the multi-cluster resource as their dependent, for both ConfigMap
+// and Secret sources, so that editing one re-triggers reconciliation.
+func TestMultiClusterManagedCertificateCARefsWatched(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetSecurity(&mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{
+			Server: &mdb.CertificateConfig{
+				AdditionalTrustedCAs: []mdb.CARef{
+					{Name: "extra-ca", Kind: "ConfigMap", Key: "ca.crt"},
+					{Name: "extra-ca-secret", Kind: "Secret", Key: "ca.crt"},
+				},
+			},
+		}}).
+		Build()
+
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	// the first reconcile creates the Certificates, then cert-manager issues them
+	_, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	issueManagedCertificates(ctx, t, kubeClient, mrs.Namespace)
+	_, err = reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+
+	dependent := kube.ObjectKey(mrs.Namespace, mrs.Name)
+	watched := reconciler.resourceWatcher.GetWatchedResources()
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca")}], dependent)
+	assert.Contains(t, watched[watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca-secret")}], dependent)
+	// a Secret source is not watched as a ConfigMap, and the other way around
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.Secret, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca")})
+	assert.NotContains(t, watched, watch.Object{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mrs.Namespace, "extra-ca-secret")})
 }
 
 func TestServiceCreation_WithExternalName(t *testing.T) {
@@ -1060,7 +1096,7 @@ func TestMultiReplicaSetRace(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil, certs.CertManagerReadiness{})
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
 }
@@ -2363,7 +2399,7 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 func defaultMultiReplicaSetReconcilerWithConnectionFactory(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, m)
 	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	multiReplicaSetController := newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil)
+	multiReplicaSetController := newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil, certs.CertManagerReadiness{Ready: true})
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
 	})
@@ -2432,4 +2468,71 @@ func getFakeMultiClusterMapWithoutInterceptor(clusters []string) map[string]clie
 		clientMap[e] = memberCluster.GetClient()
 	}
 	return clientMap
+}
+
+// TestManagedMemberSANs covers how many members the shared member certificate covers per cluster.
+func TestManagedMemberSANs(t *testing.T) {
+	spec := func(items ...mdb.ClusterSpecItem) mdb.ClusterSpecList { return mdb.ClusterSpecList(items) }
+
+	tests := []struct {
+		name      string
+		effective mdb.ClusterSpecList
+		desired   mdb.ClusterSpecList
+		expected  []int
+	}{
+		{
+			name:      "scale-up covers the target number so the cert is issued once",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 2}, mdb.ClusterSpecItem{ClusterName: "c3", Members: 3}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 5}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 6}, mdb.ClusterSpecItem{ClusterName: "c3", Members: 3}),
+			expected:  []int{5, 6, 3},
+		},
+		{
+			name:      "steady state is unchanged",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 3}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 3}),
+			expected:  []int{3, 3},
+		},
+		{
+			name:      "scale-down keeps the members that exist",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 3}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 1}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 1}, mdb.ClusterSpecItem{ClusterName: "c2", Members: 1}),
+			expected:  []int{3, 1},
+		},
+		{
+			name:      "cluster being removed keeps its effective members",
+			effective: spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 2}, mdb.ClusterSpecItem{ClusterName: "gone", Members: 0}),
+			desired:   spec(mdb.ClusterSpecItem{ClusterName: "c1", Members: 2}),
+			expected:  []int{2, 0},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+			mrs.Spec.ClusterSpecList = tc.desired
+
+			sans := memberClustersForManagedCert(mrs, tc.effective)
+			got := make([]int, 0, len(sans))
+			for _, s := range sans {
+				got = append(got, s.Members)
+			}
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+
+	t.Run("the external domain is taken per member cluster", func(t *testing.T) {
+		extA, extC := "ext-cluster-a.example.com", "ext-cluster-c.example.com"
+		mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+		mrs.Spec.ClusterSpecList = mdb.ClusterSpecList{
+			{ClusterName: "c1", Members: 2, ExternalAccessConfiguration: &mdb.ExternalAccessConfiguration{ExternalDomain: &extA}},
+			{ClusterName: "c2", Members: 2},
+			{ClusterName: "c3", Members: 2, ExternalAccessConfiguration: &mdb.ExternalAccessConfiguration{ExternalDomain: &extC}},
+		}
+
+		sans := memberClustersForManagedCert(mrs, mrs.Spec.ClusterSpecList)
+		require.Len(t, sans, 3)
+		assert.Equal(t, &extA, sans[0].ExternalDomain)
+		assert.Nil(t, sans[1].ExternalDomain)
+		assert.Equal(t, &extC, sans[2].ExternalDomain)
+	})
 }

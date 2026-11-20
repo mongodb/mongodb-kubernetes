@@ -1,0 +1,539 @@
+"""Shared helpers for the operator-managed certificate (security.managedCertificate) replica set tests.
+
+Each test file deploys the same replica set with a different managedCertificate block (which
+category, if any, uses a user configured issuer), so the resource setup and the common checks
+live here and the test files only keep what is specific to their scenario.
+"""
+
+import hashlib
+import re
+import ssl
+import tempfile
+from datetime import datetime, timezone
+from typing import Any, List, Optional
+
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+from kubernetes import client
+from kubernetes.client import ApiClient, CustomObjectsApi
+from kubernetes.client.rest import ApiException
+from kubetester import read_configmap, read_secret, try_load
+from kubetester.certs import Certificate, Issuer
+from kubetester.crypto import cert_signed_by_bundle
+from kubetester.kubetester import KubernetesTester
+from kubetester.kubetester import fixture as load_fixture
+from kubetester.mongodb import MongoDB
+from kubetester.mongodb_multi import MongoDBMulti
+from kubetester.mongodb_user import MongoDBUser
+from kubetester.mongotester import with_x509
+from kubetester.operator import Operator
+from kubetester.phase import Phase
+from tests.conftest import get_default_operator, get_operator_installation_config
+
+# The user configured issuer the `issuer` fixture creates. It is a CA-type Issuer, so it writes its
+# CA into each issued secret's ca.crt.
+CA_ISSUER_REF = {"issuerRef": {"name": "ca-issuer", "kind": "Issuer"}}
+
+
+# APP_USER is the MongoDBUser an application connects as, with an operator-issued client certificate.
+APP_USER = "app-user"
+
+
+def client_certificate_user(mdb: MongoDB, namespace: str) -> MongoDBUser:
+    """Creates a MongoDBUser with spec.clientCertificate and waits until it is registered.
+
+    The operator issues its x509 client certificate and registers it under the certificate subject,
+    so no username or password is given.
+    """
+    user = MongoDBUser(name=APP_USER, namespace=namespace)
+    user["spec"] = {
+        "db": "$external",
+        "mongodbResourceRef": {"name": mdb.name},
+        # assert_connectivity writes to the admin database, which readWriteAnyDatabase does not cover.
+        "roles": [{"db": "admin", "name": "readWrite"}],
+        "clientCertificate": {},
+    }
+    try_load(user)
+    user.update()
+    user.assert_reaches_phase(Phase.Updated, timeout=300)
+    return user
+
+
+def assert_reachable_with_client_certificate(
+    mdb: MongoDB, user: MongoDBUser, namespace: str, service_names: Optional[List[str]] = None
+):
+    """Connects as the user with its operator-issued certificate, the way an application would.
+
+    The user's status names the two things an application needs: the Secret with its certificate and
+    key, and the ConfigMap with the CA that verifies the server. mongod requires a client certificate
+    because x509 is the only authentication mode, and checks it against the client CA.
+
+    service_names is only needed for a multi-cluster sharded deployment, which has no single mongos
+    service: the caller passes the service of each mongos pod.
+    """
+    user.load()
+    cert_status = user["status"]["clientCertificate"]
+    cert = read_secret(namespace, cert_status["secretName"])
+    # Applications read the fixed ca-pem key the user status documents, not the hash-named copy mongod uses.
+    server_ca = read_configmap(namespace, cert_status["serverCAConfigMapName"])["ca-pem"]
+
+    with (
+        tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as cert_file,
+        tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False) as ca_file,
+    ):
+        # Drivers take the certificate and key as one PEM file.
+        cert_file.write(cert["tls.crt"] + cert["tls.key"])
+        ca_file.write(server_ca)
+
+    mdb.tester(use_ssl=True, ca_path=ca_file.name, service_names=service_names).assert_connectivity(
+        opts=[with_x509(cert_file.name, ca_file.name)]
+    )
+
+
+def managed_certificate_operator(namespace: str) -> Operator:
+    """Installs the operator with operator-managed certificates enabled.
+
+    The chart grants the operator the cert-manager RBAC from this same value, and the operator reads
+    it to know whether it may use cert-manager at all. The operator works that out once, at startup,
+    so the value has to be set when it is installed, and cert-manager has to be installed before it:
+    the test modules that use this install the operator from a fixture that depends on cert_manager.
+    """
+    operator_installation_config = get_operator_installation_config(namespace)
+    operator_installation_config["security.managedCertificate.enabled"] = "true"
+    return get_default_operator(namespace, operator_installation_config)
+
+
+def managed_cert_replica_set(name: str, namespace: str, mdb_version: str, managed_certificate: dict) -> MongoDB:
+    """A TLS replica set with X509 member and internal auth, using operator-managed certificates."""
+    resource = MongoDB.from_yaml(load_fixture("test-x509-all-options-rs.yaml"), name=name, namespace=namespace)
+    resource.set_version(mdb_version)
+    resource["spec"]["security"]["managedCertificate"] = managed_certificate
+    try_load(resource)
+    return resource
+
+
+def leaf_secret_names(name: str) -> tuple[str, str, str]:
+    """The member (server), clusterfile and agent certificate secrets the operator creates."""
+    return f"{name}-managed-cert", f"{name}-managed-clusterfile", f"{name}-managed-agent-certs"
+
+
+def certificate_extended_key_usages(cert_pem: str) -> set:
+    """The extended key usages of a PEM certificate."""
+    certificate = x509.load_pem_x509_certificate(cert_pem.encode())
+    extension = certificate.extensions.get_extension_for_class(x509.ExtendedKeyUsage)
+    return set(extension.value)
+
+
+def assert_member_certificate_client_usage(name: str, namespace: str, *, client_auth: bool):
+    """Checks the client usage on the member certificate.
+
+    The members present the member certificate when they connect to each other only when there is no
+    clusterfile and the mongod configuration does not withhold it, so only then does the certificate
+    have to carry the client usage.
+    """
+    usages = certificate_extended_key_usages(read_secret(namespace, f"{name}-managed-cert")["tls.crt"])
+    assert (
+        x509.oid.ExtendedKeyUsageOID.SERVER_AUTH in usages
+    ), "the member certificate has to be usable as a server certificate"
+    if client_auth:
+        assert (
+            x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH in usages
+        ), "the members present the member certificate to each other, so it has to carry the client usage"
+    else:
+        assert (
+            x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH not in usages
+        ), "the members withhold the member certificate, so the operator must not request the client usage"
+
+
+def leaf_secret_names_for(name: str, components: List[str]) -> List[str]:
+    """The leaf certificate secrets of a resource: for every component a member certificate and a
+    clusterfile certificate, plus the agent certificate. A test compares these between two deployments
+    to show the second one was issued new certificates instead of adopting the secrets of the first."""
+    leaves = [f"{component}-managed-{kind}" for component in components for kind in ("cert", "clusterfile")]
+    return leaves + [f"{name}-managed-agent-certs"]
+
+
+def _managed_cert_names(name: str, components: List[str]) -> dict[str, List[str]]:
+    """The names of everything operator-managed certificates create for a resource, by kind.
+
+    components are the names the member and clusterfile certificates are issued for: the resource
+    itself for a replica set; the mongos, the config server and each shard for a sharded cluster. The
+    agent certificate, the CAs, the issuers and the CA bundles are one per resource. A Certificate and
+    the secret cert-manager issues it into have the same name.
+    """
+    leaves = leaf_secret_names_for(name, components)
+    certificates = leaves + [f"{name}-server-ca", f"{name}-client-ca"]
+    return {
+        "certificates": certificates,
+        # For each category, a self-signed issuer signs the CA, and a CA issuer signs the leaves with it.
+        "issuers": [
+            f"{name}-{category}-{kind}" for category in ("server", "client") for kind in ("selfsigned", "ca-issuer")
+        ],
+        "issued_secrets": certificates,
+        "pem_secrets": [f"{leaf}-pem" for leaf in leaves],
+        "ca_bundles": [f"{name}-managed-server-ca-bundle", f"{name}-managed-client-ca-bundle"],
+    }
+
+
+def _objects(certificates=(), issuers=(), secrets=(), configmaps=()) -> List[tuple[str, str]]:
+    return (
+        [("certificate", n) for n in certificates]
+        + [("issuer", n) for n in issuers]
+        + [("secret", n) for n in secrets]
+        + [("configmap", n) for n in configmaps]
+    )
+
+
+def managed_cert_objects(name: str, components: List[str]) -> List[tuple[str, str]]:
+    """The kind and name of everything operator-managed certificates create for a single-cluster
+    resource. All of it is in the operator's cluster."""
+    names = _managed_cert_names(name, components)
+    return _objects(
+        certificates=names["certificates"],
+        issuers=names["issuers"],
+        secrets=names["issued_secrets"] + names["pem_secrets"],
+        configmaps=names["ca_bundles"],
+    )
+
+
+def managed_cert_multi_cluster_objects(
+    name: str, components: List[str]
+) -> tuple[List[tuple[str, str]], List[tuple[str, str]]]:
+    """The kind and name of everything operator-managed certificates create for a multi-cluster
+    resource: what is in the operator's cluster, and what is in each member cluster.
+
+    cert-manager runs in the operator's cluster, so the Certificates, the issuers and the secrets it
+    issues are there, with the CA bundles. The pods run in the member clusters, so the -pem secrets
+    they mount are written there, and the CA bundles are copied there.
+    """
+    names = _managed_cert_names(name, components)
+    operator_cluster = _objects(
+        certificates=names["certificates"],
+        issuers=names["issuers"],
+        secrets=names["issued_secrets"],
+        configmaps=names["ca_bundles"],
+    )
+    member_cluster = _objects(secrets=names["pem_secrets"], configmaps=names["ca_bundles"])
+    return operator_cluster, member_cluster
+
+
+def is_gone(kind: str, name: str, namespace: str, api_client: Optional[ApiClient] = None) -> bool:
+    """True when that object is not there any more, in the cluster api_client talks to (the default
+    cluster when it is not given)."""
+    custom_objects = {
+        "mongodb": MongoDB,
+        "mongodbmulticluster": MongoDBMulti,
+        "certificate": Certificate,
+        "issuer": Issuer,
+    }
+    try:
+        if kind in custom_objects:
+            obj = custom_objects[kind](name=name, namespace=namespace)
+            if api_client is not None:
+                obj.api = CustomObjectsApi(api_client)
+            obj.load()
+        elif kind == "configmap":
+            read_configmap(namespace, name, api_client=api_client)
+        else:
+            read_secret(namespace, name, api_client=api_client)
+        return False
+    except ApiException as e:
+        if e.status != 404:
+            raise
+        return True
+
+
+def assert_all_exist(objects: List[tuple[str, str]], namespace: str, api_client: Optional[ApiClient] = None):
+    """Fails unless every object is there. The deletion checks count an object that is not found as
+    deleted, so a wrong name in the list would pass them; checking first rules that out."""
+    missing = [f"{kind} {name}" for kind, name in objects if is_gone(kind, name, namespace, api_client)]
+    assert not missing, f"the feature did not create: {missing}"
+
+
+def assert_leaf_secrets_created(name: str, namespace: str):
+    """Every leaf certificate is issued into a kubernetes.io/tls secret, with no user created secret."""
+    for secret_name in leaf_secret_names(name):
+        secret = read_secret(namespace, secret_name)
+        assert "tls.crt" in secret, f"{secret_name} missing tls.crt"
+        assert "tls.key" in secret, f"{secret_name} missing tls.key"
+
+
+def latest_ca_bundle(bundle_configmap: dict) -> str:
+    """Returns the current CA bundle from a managed CA bundle ConfigMap's data.
+
+    The bundle is stored under its content hash (the file name in the pod, and what the automation
+    config points at), and the `latestHash` key names the current one.
+    """
+    latest_hash = bundle_configmap.get("latestHash", "")
+    assert latest_hash != "", "latestHash missing/empty"
+    return bundle_configmap.get(latest_hash, "").strip()
+
+
+def read_ca_bundles(name: str, namespace: str) -> tuple[str, str]:
+    """Returns the server and client CA bundles the operator writes for the pods to trust.
+
+    <name>-managed-server-ca-bundle is configured as net.tls.CAFile, and
+    <name>-managed-client-ca-bundle as net.tls.clusterCAFile. In both the bundle is stored under
+    its content hash, and the `latestHash` key says which one is current. Both must exist and be
+    non-empty.
+    """
+    server_ca = latest_ca_bundle(read_configmap(namespace, f"{name}-managed-server-ca-bundle"))
+    client_ca = latest_ca_bundle(read_configmap(namespace, f"{name}-managed-client-ca-bundle"))
+    assert server_ca != "", "latest server CA bundle missing/empty"
+    assert client_ca != "", "latest client CA bundle missing/empty"
+    return server_ca, client_ca
+
+
+# The annotation that asks the operator to drop the previous CA it retains in the CA bundles after a CA
+# rotation. "true" prunes both categories, "server" or "client" only that one. The operator does not
+# remove the annotation from the resource.
+PRUNE_PREVIOUS_CA_ANNOTATION = "mongodb.com/prune-previous-ca"
+
+
+def bundle_fingerprints(bundle: str) -> List[str]:
+    """The SHA-256 fingerprints (hex of the DER) of the certificates currently in a PEM bundle."""
+    pems = re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", bundle, re.DOTALL)
+    return [hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).hexdigest() for pem in pems]
+
+
+def bundle_contains(bundle: str, ca_pem: str) -> bool:
+    """Whether the bundle trusts every certificate of ca_pem.
+
+    The certificates are compared one at a time, by fingerprint, because the same certificates can be
+    listed in a different order in the bundle than in the ConfigMap they came from.
+    """
+    expected = set(bundle_fingerprints(ca_pem))
+    assert expected, "the CA to look for is not a PEM certificate"
+    return expected.issubset(set(bundle_fingerprints(bundle)))
+
+
+def assert_previous_ca_retained(resource: MongoDB, category: str, previous_ca: str):
+    """The category's published CA bundle still trusts previous_ca (PEM) after a rotation."""
+    bundle = latest_ca_bundle(read_configmap(resource.namespace, f"{resource.name}-managed-{category}-ca-bundle"))
+    assert bundle_contains(bundle, previous_ca), f"the {category} CA bundle must still contain the previous CA"
+
+
+def assert_previous_ca_pruned(resource: MongoDB, category: str, previous_ca: str):
+    """The category's published CA bundle no longer trusts previous_ca (PEM)."""
+    bundle = latest_ca_bundle(read_configmap(resource.namespace, f"{resource.name}-managed-{category}-ca-bundle"))
+    assert not bundle_contains(
+        bundle, previous_ca
+    ), f"the {category} CA bundle must not contain the previous CA anymore"
+
+
+def request_prune_previous_ca(resource: MongoDB, value: str = "true"):
+    """Annotates the resource so that the operator prunes the retained previous CA(s)."""
+    resource.load()
+    resource["metadata"].setdefault("annotations", {})[PRUNE_PREVIOUS_CA_ANNOTATION] = value
+    resource.update()
+
+
+def assert_self_signed_ca_created(name: str, namespace: str, category: str):
+    """The operator provisioned its own root CA for a category ("server" or "client") with no issuer."""
+    secret_name = f"{name}-{category}-ca"
+    assert "tls.crt" in read_secret(namespace, secret_name), f"{secret_name} missing tls.crt"
+
+
+def assert_leaf_certs_signed_by_its_category_ca(name: str, namespace: str, server_ca: str, client_ca: str):
+    """Each leaf cert is signed by its own category's CA and not by the other one.
+
+    The member cert is a server cert, so it is signed by the server CA. The clusterfile and agent
+    certs are client certs, so they are signed by the client CA. This checks the signatures, not
+    just that the secrets exist.
+    """
+    member_name, clusterfile_name, agent_name = leaf_secret_names(name)
+    member_crt = read_secret(namespace, member_name)["tls.crt"]
+    clusterfile_crt = read_secret(namespace, clusterfile_name)["tls.crt"]
+    agent_crt = read_secret(namespace, agent_name)["tls.crt"]
+
+    assert cert_signed_by_bundle(member_crt, server_ca), "member (server) cert must be signed by the server CA"
+    assert not cert_signed_by_bundle(member_crt, client_ca), "member cert must not be signed by the client CA"
+    assert cert_signed_by_bundle(clusterfile_crt, client_ca), "clusterfile cert must be signed by the client CA"
+    assert cert_signed_by_bundle(agent_crt, client_ca), "agent cert must be signed by the client CA"
+    assert not cert_signed_by_bundle(clusterfile_crt, server_ca), "clusterfile cert must not be signed by the server CA"
+
+
+def read_certificate_renewals(resource: MongoDB) -> Optional[dict]:
+    """Returns status.certificateRenewals, or None when the operator has not set it.
+
+    The operator reports, per category, the leaf certificate that cert-manager renews soonest and
+    when: renewalTime is when the members roll onto the new certificate.
+    """
+    resource.load()
+    if "status" not in resource:
+        return None
+    return resource["status"].get("certificateRenewals")
+
+
+def member_cert_issuance(name: str, namespace: str) -> tuple[int, str]:
+    """Returns how many times the member cert has been issued, and its current content.
+
+    cert-manager adds one to the Certificate's status.revision every time it issues the cert, so the
+    revision counts issuances exactly. The content is returned too, as a second check that the cert
+    did not change.
+    """
+    member_name = leaf_secret_names(name)[0]
+    certificate = Certificate(name=member_name, namespace=namespace).load()
+    revision = certificate["status"].get("revision", 0) if "status" in certificate else 0
+    return revision, read_secret(namespace, member_name)["tls.crt"]
+
+
+def scale_and_wait_for_running(mdb: MongoDB, members: int, timeout: int = 900):
+    mdb["spec"]["members"] = members
+    mdb.update()
+    mdb.assert_reaches_phase(Phase.Running, timeout=timeout)
+
+
+def scale_and_assert_member_cert_issuance(mdb: MongoDB, name: str, namespace: str, members: int, *, reissued: bool):
+    """Scales the replica set, then checks how many times the member cert was issued.
+
+    reissued=True is for a scale up past the largest size reached so far: the operator adds members one
+    at a time, but the cert covers the target from the first step, so it is issued exactly once for the
+    whole scale up, not once per member.
+
+    reissued=False is for a scale down, or a scale up that stays within the largest size reached so far:
+    the operator never shrinks the member cert SANs, so the cert already covers every member and must not
+    be issued again. cert-manager's revision is unchanged and the content is byte-for-byte the same.
+    """
+    revision_before, cert_before = member_cert_issuance(name, namespace)
+
+    scale_and_wait_for_running(mdb, members)
+
+    revision_after, cert_after = member_cert_issuance(name, namespace)
+    if reissued:
+        assert revision_after == revision_before + 1, "member cert must be issued once for the whole scale up"
+        assert cert_after != cert_before, "member cert must be reissued to cover the new members"
+    else:
+        assert revision_after == revision_before, "member cert must not be reissued"
+        assert cert_after == cert_before, "member cert must not change"
+
+
+# Turns off the operator's automatic recovery. Tests of the legacy to managedCertificate migration
+# need it off: recovery writes every automation config change at once after 20 minutes, which would
+# hide a migration that deadlocks. The helm command runs in a shell, so the & that separates the
+# variables in customEnvVars is escaped.
+RECOVERY_OFF_ENV_VAR = "\\&MDB_AUTOMATIC_RECOVERY_ENABLE=false"
+
+# The subject attributes a certificate can carry, mapped from the field name the API uses for it to
+# the X.509 OID that carries it.
+_SUBJECT_ATTRIBUTES = {
+    "commonName": NameOID.COMMON_NAME,
+    "organizations": NameOID.ORGANIZATION_NAME,
+    "organizationalUnits": NameOID.ORGANIZATIONAL_UNIT_NAME,
+    "countries": NameOID.COUNTRY_NAME,
+    "provinces": NameOID.STATE_OR_PROVINCE_NAME,
+    "localities": NameOID.LOCALITY_NAME,
+}
+
+
+def subject_from_certificate(namespace: str, secret_name: str, api_client=None) -> dict:
+    """The subject of the certificate a secret holds, in the shape managedCertificate.subjects expects.
+
+    It reads the certificate the legacy deployment actually uses, so the migration keeps the subject
+    that is in use, instead of repeating what the test used to create it.
+    """
+    certificate = read_secret(namespace, secret_name, api_client=api_client)["tls.crt"]
+    subject = x509.load_pem_x509_certificate(certificate.encode()).subject
+
+    # Only the attributes the certificate carries, so the operator keeps its defaults for the rest.
+    # commonName is a single value in the API, the other attributes are lists.
+    attributes: dict[str, Any] = {}
+    for api_field, oid in _SUBJECT_ATTRIBUTES.items():
+        values = [attribute.value for attribute in subject.get_attributes_for_oid(oid)]
+        if values:
+            attributes[api_field] = values[0] if api_field == "commonName" else values
+    return attributes
+
+
+def migration_managed_certificate(membership: dict, agent: dict) -> dict:
+    """The managedCertificate block a legacy deployment migrates to, without a CA change.
+
+    Both categories are signed by the issuer that signed the legacy certificates (ca-issuer), and the
+    subjects are the ones the legacy certificates carry, so the members keep trusting each other and
+    recognising each other as peers while the pods restart one at a time.
+    """
+    return {
+        "server": CA_ISSUER_REF,
+        "client": CA_ISSUER_REF,
+        "subjects": {"membership": membership, "agent": agent},
+    }
+
+
+def assert_automation_config_names_files(agent_hash: str, member_hashes: dict, clusterfile_hashes: dict):
+    """The automation config has to name exactly the certificate files the pods have.
+
+    The file names are the hashes in each -pem secret's latestHash key. member_hashes and
+    clusterfile_hashes map a process name prefix (the StatefulSet the process runs in) to the hash of
+    that StatefulSet's -pem secret, because a sharded cluster has one secret per component.
+    """
+    ac = KubernetesTester.get_automation_config()
+    assert ac["tls"]["autoPEMKeyFilePath"].endswith(agent_hash), ac["tls"]["autoPEMKeyFilePath"]
+    for process in ac["processes"]:
+        name = process["name"]
+        tls = process["args2_6"]["net"]["tls"]
+        prefix = _longest_matching_prefix(name, member_hashes)
+        assert tls["certificateKeyFile"].endswith(member_hashes[prefix]), f"{name}: {tls['certificateKeyFile']}"
+        if "clusterFile" in tls:
+            assert tls["clusterFile"].endswith(clusterfile_hashes[prefix]), f"{name}: {tls['clusterFile']}"
+
+
+def _longest_matching_prefix(process_name: str, by_prefix: dict) -> str:
+    # Process names look like <statefulset>-<index>, sometimes after a k8s/<namespace>/ prefix, and
+    # one StatefulSet name can be a prefix of another, so the longest match is the right one.
+    pod_name = process_name.split("/")[-1]
+    matches = [prefix for prefix in by_prefix if pod_name.startswith(prefix + "-")]
+    assert matches, f"no certificate secret matches process {process_name}: {sorted(by_prefix)}"
+    return max(matches, key=len)
+
+
+# cert-manager Certificate resources, as the status subresource patch needs to name them.
+_CERTIFICATE_GROUP = "cert-manager.io"
+_CERTIFICATE_VERSION = "v1"
+_CERTIFICATE_PLURAL = "certificates"
+
+
+def read_certificate_status(namespace: str, certificate_name: str) -> dict:
+    """The cert-manager Certificate's status, or an empty dict before its first reconciliation."""
+    certificate = Certificate(name=certificate_name, namespace=namespace).load()
+    return certificate["status"] if "status" in certificate else {}
+
+
+def pem_secret_hashes(namespace: str, secret_name: str) -> tuple[str, str]:
+    """The current and previous certificate hashes in an operator-managed -pem secret.
+
+    The hash names the file the pods mount and the automation config points at, so a change means
+    the operator has started using a new certificate. previousHash is empty until the first rotation.
+    """
+    secret = read_secret(namespace, secret_name)
+    return secret.get("latestHash", ""), secret.get("previousHash", "")
+
+
+def trigger_certificate_renewal(namespace: str, certificate_name: str, api_client=None):
+    """Asks cert-manager to reissue now, the way `cmctl renew` does.
+
+    Setting the Issuing condition on the status is the documented manual renewal trigger. The other
+    conditions are kept, so the Certificate keeps reporting its current health while it reissues.
+    """
+    certificate = Certificate(name=certificate_name, namespace=namespace).load()
+    status = certificate["status"] if "status" in certificate else {}
+    conditions = [condition for condition in status.get("conditions", []) if condition.get("type") != "Issuing"]
+    issuing = {
+        "type": "Issuing",
+        "status": "True",
+        "reason": "ManuallyTriggered",
+        "message": "Certificate re-issuance manually triggered by the e2e test",
+        "lastTransitionTime": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    generation = certificate["metadata"].get("generation")
+    if generation is not None:
+        issuing["observedGeneration"] = generation
+    conditions.append(issuing)
+
+    client.CustomObjectsApi(api_client=api_client).patch_namespaced_custom_object_status(
+        _CERTIFICATE_GROUP,
+        _CERTIFICATE_VERSION,
+        namespace,
+        _CERTIFICATE_PLURAL,
+        certificate_name,
+        body={"status": {"conditions": conditions}},
+    )

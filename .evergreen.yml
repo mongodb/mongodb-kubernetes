@@ -1213,6 +1213,27 @@ task_groups:
     tasks:
       - e2e_replica_set
 
+  # e2e_managed_certs_task_group holds all operator-managed-certificate (cert-manager) e2e
+  # tests. Runs against CloudQA (no OM install); the `issuer` fixture installs cert-manager.
+  - name: e2e_managed_certs_task_group
+    max_hosts: -1
+    <<: [*setup_group, *setup_and_teardown_task_cloudqa]
+    tasks:
+      - e2e_replica_set_tls_managedcert_client
+      - e2e_replica_set_tls_managedcert
+      - e2e_replica_set_tls_managedcert_server
+      - e2e_replica_set_tls_managedcert_both_configured
+      - e2e_replica_set_tls_managedcert_internal_auth_keyfile
+      - e2e_replica_set_tls_managedcert_external_domain
+      - e2e_replica_set_tls_managedcert_withhold_client_cert
+      - e2e_sharded_cluster_tls_managedcert
+      - e2e_replica_set_tls_managedcert_cleanup_on_delete
+      - e2e_sharded_cluster_tls_managedcert_cleanup_on_delete
+      - e2e_managed_certificate_prerequisites
+      - e2e_replica_set_tls_managedcert_legacy_migration
+      - e2e_replica_set_tls_managedcert_legacy_migration_new_ca
+      - e2e_sharded_cluster_tls_managedcert_legacy_migration
+
   # e2e_operator_task_group includes the tests for the specific Operator configuration/behavior. They may deal with
   # cluster-wide resources so should be run in isolated K8s clusters only (Kind or Minikube).
   - name: e2e_operator_task_group
@@ -1273,6 +1294,12 @@ task_groups:
       - e2e_multi_cluster_specific_namespaces
       - e2e_multi_cluster_scram
       - e2e_multi_cluster_tls_with_x509
+      - e2e_managed_certificate_multi_cluster_rs
+      - e2e_managed_certificate_multi_cluster_rs_cleanup_on_delete
+      - e2e_managed_certificate_multi_cluster_rs_horizons
+      - e2e_managed_certificate_multi_cluster_rs_legacy_migration
+      - e2e_managed_certificate_multi_cluster_sharded
+      - e2e_managed_certificate_multi_cluster_rs_prerequisites
       - e2e_multi_cluster_tls_no_mesh
       - e2e_multi_cluster_enable_tls
       - e2e_multi_cluster_clusterwide
@@ -1361,8 +1388,10 @@ task_groups:
     tasks:
       # Dedicated AppDB Multi-Cluster tests
       - e2e_multi_cluster_appdb
+      - e2e_om_managed_certificates_multicluster
       - e2e_om_external_multi_cluster_appdb_fresh
       - e2e_om_external_multi_cluster_appdb_forward
+      - e2e_om_external_multi_cluster_appdb_forward_managedcert
       - e2e_om_external_multi_cluster_appdb_backup_and_restore
       - e2e_multi_cluster_appdb_cleanup
       - e2e_multi_cluster_appdb_s3_based_backup_restore
@@ -1420,6 +1449,7 @@ task_groups:
     tasks:
       # Dedicated AppDB Multi-Cluster tests
       - e2e_multi_cluster_appdb
+      - e2e_om_managed_certificates_multicluster
       - e2e_multi_cluster_appdb_cleanup
       - e2e_multi_cluster_appdb_s3_based_backup_restore
       - e2e_multi_cluster_appdb_disaster_recovery
@@ -1511,7 +1541,9 @@ task_groups:
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_scram
       - e2e_om_external_appdb_forward
+      - e2e_om_external_appdb_forward_managedcert
       - e2e_om_external_appdb_fresh
+      - e2e_om_external_appdb_fresh_managedcert
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
       - e2e_om_migration
@@ -1534,6 +1566,11 @@ task_groups:
       - e2e_om_ops_manager_https_enabled_hybrid
       - e2e_om_ops_manager_https_enabled_internet_mode
       - e2e_om_ops_manager_https_enabled_prefix
+      - e2e_om_ops_manager_managedcert
+      - e2e_om_ops_manager_managedcert_om_issuer
+      - e2e_om_ops_manager_managedcert_appdb_issuer
+      - e2e_om_ops_manager_managedcert_both_issuers
+      - e2e_om_ops_manager_managedcert_rotation
       - e2e_om_ops_manager_scale
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
@@ -1555,7 +1592,9 @@ task_groups:
       - e2e_om_appdb_upgrade
       - e2e_om_appdb_scram
       - e2e_om_external_appdb_forward
+      - e2e_om_external_appdb_forward_managedcert
       - e2e_om_external_appdb_fresh
+      - e2e_om_external_appdb_fresh_managedcert
       - e2e_om_external_connectivity
       - e2e_om_jvm_params
       - e2e_om_weak_password
@@ -1570,6 +1609,11 @@ task_groups:
       - e2e_om_ops_manager_backup_kmip
       - e2e_om_ops_manager_pod_spec
       - e2e_om_ops_manager_scale
+      - e2e_om_ops_manager_managedcert
+      - e2e_om_ops_manager_managedcert_om_issuer
+      - e2e_om_ops_manager_managedcert_appdb_issuer
+      - e2e_om_ops_manager_managedcert_both_issuers
+      - e2e_om_ops_manager_managedcert_rotation
       - e2e_om_ops_manager_secure_config
       - e2e_om_update_before_reconciliation
       - e2e_om_multiple
@@ -1609,6 +1653,8 @@ task_groups:
       - e2e_om_remotemode
       - e2e_om_ops_manager_backup_restore
       - e2e_om_ops_manager_queryable_backup
+      - e2e_om_ops_manager_queryable_backup_managedcert
+      - e2e_om_ops_manager_queryable_backup_managedcert_issuer
       - e2e_om_ops_manager_backup
 
   # TODO (CLOUDP-346008): Remove this task group once the issue with queryable backup task is resolved in OM8
@@ -1738,6 +1784,15 @@ buildvariants:
       - ubuntu2404-large
     tasks:
       - name: e2e_custom_domain_task_group
+
+  - name: e2e_managed_certs_mdb_kind_ubi_cloudqa
+    display_name: e2e_managed_certs_mdb_kind_ubi_cloudqa
+    tags: [ "pr_patch_e2e", "staging", "e2e_test_suite", "cloudqa", "cloudqa_non_static" ]
+    <<: [*production_code_paths, *base_no_om_image_dependency]
+    run_on:
+      - ubuntu2404-medium
+    tasks:
+      - name: e2e_managed_certs_task_group
 
   - name: e2e_static_mdb_kind_ubi_cloudqa
     batchtime: 60

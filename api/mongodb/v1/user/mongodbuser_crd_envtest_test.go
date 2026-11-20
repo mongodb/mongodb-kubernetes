@@ -60,9 +60,11 @@ func TestMongoDBUserCRDSchemaValidation(t *testing.T) {
 			name: "valid user is accepted",
 		},
 		{
+			// username is required unless spec.clientCertificate is set, so it is rejected by a CEL
+			// rule rather than by a required field.
 			name:          "missing username is rejected",
 			mutate:        func(spec map[string]any) { delete(spec, "username") },
-			errorContains: "spec.username: Required value",
+			errorContains: "spec.username is required unless spec.clientCertificate is set",
 		},
 		{
 			name:          "missing db is rejected",

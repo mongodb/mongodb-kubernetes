@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"maps"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,10 +23,14 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
+	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -35,6 +41,87 @@ type appDBStatefulSetState struct {
 	ownerReferences []metav1.OwnerReference
 	annotations     map[string]string
 	labels          map[string]string
+}
+
+func managedForwardFixture(t *testing.T) (*omv1.MongoDBOpsManager, *mdbv1.MongoDB, *OpsManagerReconciler, *appsv1.StatefulSet) {
+	t.Helper()
+	ctx := t.Context()
+	om := newAppDBManagedCertificateTestOM()
+	om.Spec.AppDB.Security.ManagedCertificate.Server = &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "handover-customer", Kind: "Issuer"}}
+	c := newManagedCertificateKubeClient(t, om)
+	r := newManagedCertificateTestReconciler(ctx, c)
+	r.certManagerReadiness = certs.CertManagerReadiness{Ready: true}
+	_, _, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+	require.NoError(t, err)
+	markAllManagedCertificatesReady(t, ctx, c)
+	createSecretsForManagedCertificates(t, ctx, c)
+	issueAppDBManagedCertificate(t, ctx, c, om)
+	_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
+	require.NoError(t, err)
+	require.False(t, blocked)
+	appdb, err := newAppDbReconciler(ctx, c, om, nil, zap.S())
+	require.NoError(t, err)
+	_, hash := deliverAppDBManagedPEM(t, ctx, c, appdb, om)
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	sts, err := operatorConstruct.AppDbStatefulSet(*om, nil, operatorConstruct.AppDBStatefulSetOptions{CertHash: hash}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	sts.Spec.Replicas = new(int32(3))
+	sts.Labels = om.GetOwnerLabels()
+	sts.OwnerReferences = kube.BaseOwnerReference(om)
+	require.NoError(t, c.Create(ctx, &sts))
+	current := &omv1.MongoDBOpsManager{}
+	require.NoError(t, c.Get(ctx, kube.ObjectKeyFromApiObject(om), current))
+	om.ResourceVersion = current.ResourceVersion
+	target := DefaultReplicaSetBuilder().SetName(om.AppDBName()).SetRole(mdbv1.RoleAppDB).SetMembers(3).Build()
+	target.Namespace = om.Namespace
+	target.UID = types.UID("handover-target-uid")
+	target.Spec.Security = om.Spec.AppDB.Security.DeepCopy()
+	target.Spec.Version = om.Spec.AppDB.Version
+	target.Spec.FeatureCompatibilityVersion = om.Spec.AppDB.FeatureCompatibilityVersion
+	withExternalAppDBRef(om, &omv1.ExternalAppDBRef{Name: target.Name, Kind: "MongoDB"})
+	require.NoError(t, c.Update(ctx, om))
+	require.NoError(t, c.Create(ctx, target))
+	return om, target, r, &sts
+}
+
+// TestManagedAppDBForwardMigrationOrdering verifies the source release is the ordinary
+// StatefulSet detach. It must leave the shared certificate graph owned by the source for the
+// target's normal certificate reconcile.
+func TestManagedAppDBForwardMigrationOrdering(t *testing.T) {
+	om, target, r, sts := managedForwardFixture(t)
+	e := r.createNewExternalAppDBReconciler(zap.S())
+	ref, err := e.getExternalAppDBReference(t.Context(), om)
+	require.NoError(t, err)
+	status := e.ensureAppDBStatefulSetOwnership(t.Context(), om, ref)
+	require.True(t, status.IsOK(), statusMessage(status))
+	released := &appsv1.StatefulSet{}
+	require.NoError(t, r.client.Get(t.Context(), client.ObjectKeyFromObject(sts), released))
+	require.Equal(t, trueString, released.Annotations[util.AppDBMigrationReadyAnnotation])
+	require.Empty(t, released.OwnerReferences)
+	leaf := getManagedCertificateObject(t, t.Context(), r.client, target.Name+"-managed-cert")
+	assert.Equal(t, om.UID, leaf.OwnerReferences[0].UID, "the ordinary source release must not re-own the certificate graph")
+}
+
+// TestManagedAppDBForwardMigrationTargetGateReclaims verifies the target ownership gate keeps
+// its ordinary reclaim behavior and does not adopt certificates itself. The target's normal
+// EnsureCertificatesAndCA is what re-owns the graph, later in the same reconcile.
+func TestManagedAppDBForwardMigrationTargetGateReclaims(t *testing.T) {
+	om, target, r, sts := managedForwardFixture(t)
+	e := r.createNewExternalAppDBReconciler(zap.S())
+	ref, err := e.getExternalAppDBReference(t.Context(), om)
+	require.NoError(t, err)
+	require.True(t, e.ensureAppDBStatefulSetOwnership(t.Context(), om, ref).IsOK())
+	om.Spec.AppDB = nil
+	require.NoError(t, r.client.Update(t.Context(), om))
+	rs := &ReconcileMongoDbReplicaSet{ReconcileCommonController: r.ReconcileCommonController}
+	helper := &ReplicaSetReconcilerHelper{resource: target, reconciler: rs, log: zap.S()}
+	require.True(t, helper.ensureAppDBStatefulSetOwnership(t.Context(), target).IsOK())
+	leaf := getManagedCertificateObject(t, t.Context(), r.client, target.Name+"-managed-cert")
+	assert.Equal(t, om.UID, leaf.OwnerReferences[0].UID, "the ownership gate must not adopt certificates")
+	persisted := &appsv1.StatefulSet{}
+	require.NoError(t, r.client.Get(t.Context(), client.ObjectKeyFromObject(sts), persisted))
+	require.NotEmpty(t, persisted.OwnerReferences)
+	assert.Equal(t, target.UID, persisted.OwnerReferences[0].UID)
 }
 
 func newAppDBStatefulSetStatefulSet(name string, state appDBStatefulSetState) *appsv1.StatefulSet {
@@ -808,6 +895,7 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 		name                    string
 		tlsEnabled              bool
 		caConfigMapName         string
+		managedCertificate      *mdbv1.ManagedCertificate
 		createPasswordSecret    bool
 		expectedIsTLSEnabled    bool
 		expectedCAConfigMapName string
@@ -826,6 +914,24 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 			expectedCAConfigMapName: "app-db-issuer-ca",
 		},
 		{
+			name:                    "managed certificates without legacy TLS config use the generated server bundle",
+			managedCertificate:      &mdbv1.ManagedCertificate{},
+			createPasswordSecret:    true,
+			expectedIsTLSEnabled:    true,
+			expectedCAConfigMapName: "test-om-db-managed-server-ca-bundle",
+		},
+		{
+			name: "customer issuer CA input still resolves to the generated server bundle",
+			managedCertificate: &mdbv1.ManagedCertificate{Server: &mdbv1.CertificateConfig{
+				IssuerRef:            &mdbv1.IssuerRef{Name: "appdb-issuer", Kind: "Issuer"},
+				CA:                   &mdbv1.CARef{Name: "issuer-ca", Key: "ca.pem"},
+				AdditionalTrustedCAs: []mdbv1.CARef{{Name: "additional-ca", Key: "ca.pem"}},
+			}},
+			createPasswordSecret:    true,
+			expectedIsTLSEnabled:    true,
+			expectedCAConfigMapName: "test-om-db-managed-server-ca-bundle",
+		},
+		{
 			name:                  "without password secret returns an error",
 			createPasswordSecret:  false,
 			expectedErrorContains: "failed to read shared password secret",
@@ -836,6 +942,16 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(v.kind+"/"+tt.name, func(t *testing.T) {
 				externalAppDB := v.build(tt.tlsEnabled, tt.caConfigMapName)
+				if tt.managedCertificate != nil {
+					switch db := externalAppDB.(type) {
+					case *mdbv1.MongoDB:
+						db.Spec.Security.TLSConfig = nil
+						db.Spec.Security.ManagedCertificate = tt.managedCertificate.DeepCopy()
+					case *mdbmulti.MongoDBMultiCluster:
+						db.Spec.Security.TLSConfig = nil
+						db.Spec.Security.ManagedCertificate = tt.managedCertificate.DeepCopy()
+					}
+				}
 				connectionStringBuilder, ok := externalAppDB.(connectionstring.ConnectionStringBuilder)
 				require.True(t, ok, "referenced external app DB must build connection strings")
 
@@ -852,6 +968,14 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 						SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
 						SetNamespace(testOm.Namespace).
 						SetField(util.OpsManagerPasswordKey, password).
+						Build()))
+				}
+				// A managed-certificate database publishes its CA bundle while reconciling.
+				if tt.managedCertificate != nil {
+					require.NoError(t, reconciler.client.CreateConfigMap(ctx, configmap.Builder().
+						SetName(certs.ManagedServerCABundleConfigMapName("test-om-db")).
+						SetNamespace(testOm.Namespace).
+						SetData(map[string]string{util.LatestHashSecretKey: "managed-bundle-hash"}).
 						Build()))
 				}
 
@@ -877,6 +1001,255 @@ func TestGetAppDBConfig_ExternalAppDB(t *testing.T) {
 				result := corev1.Secret{}
 				require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.AppDBMongoConnectionStringSecretName()), &result))
 				assert.Contains(t, string(result.Data[util.AppDbConnectionStringKey]), util.OpsManagerMongoDBUserName)
+			})
+		}
+	}
+}
+
+// TestGetAppDBConfig_ExternalManagedCABundleHash checks that a referenced AppDB with operator-managed
+// certificates reports the published CA bundle hash. Ops Manager and the backup daemon annotate
+// their Pods with this hash so a CA rotation restarts them, and reporting it for a referenced AppDB
+// keeps the annotation (and so the Pod template) stable when an internal AppDB is handed over to the
+// database. Single-cluster and multi-cluster AppDBs share the same bundle name, so both report it.
+func TestGetAppDBConfig_ExternalManagedCABundleHash(t *testing.T) {
+	tests := []struct {
+		name                  string
+		multiCluster          bool
+		publishBundle         bool
+		expectedCABundleHash  string
+		expectedErrorContains string
+	}{
+		{
+			name:                 "single-cluster managed AppDB reports the published bundle hash",
+			publishBundle:        true,
+			expectedCABundleHash: "bundle-hash-one",
+		},
+		{
+			name:                  "a missing managed bundle fails so the reconcile retries",
+			expectedErrorContains: "AppDB CA bundle hash",
+		},
+		{
+			name:                 "multi-cluster managed AppDB reports the published bundle hash",
+			multiCluster:         true,
+			publishBundle:        true,
+			expectedCABundleHash: "bundle-hash-one",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			kind := omv1.ExternalAppDBRefKindMongoDB
+			var externalAppDB client.Object
+			if tt.multiCluster {
+				kind = omv1.ExternalAppDBRefKindMongoDBMultiCluster
+				db := validExternalAppDBMongoDBMultiClusterWithTLS(false, "")
+				db.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+				externalAppDB = db
+			} else {
+				db := validExternalAppDBMongoDBWithTLS(false, "")
+				db.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+				externalAppDB = db
+			}
+
+			testOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+				Name: "test-om-db",
+				Kind: kind,
+			})
+
+			reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+			require.NoError(t, reconciler.client.Create(ctx, externalAppDB))
+			require.NoError(t, reconciler.client.CreateSecret(ctx, secret.Builder().
+				SetName(omv1.OpsManagerUserPasswordSecretName("test-om-db")).
+				SetNamespace(testOm.Namespace).
+				SetField(util.OpsManagerPasswordKey, "test-password").
+				Build()))
+			if tt.publishBundle {
+				require.NoError(t, reconciler.client.CreateConfigMap(ctx, configmap.Builder().
+					SetName(certs.ManagedServerCABundleConfigMapName("test-om-db")).
+					SetNamespace(testOm.Namespace).
+					SetData(map[string]string{util.LatestHashSecretKey: tt.expectedCABundleHash}).
+					Build()))
+			}
+
+			cfg, err := reconciler.createNewExternalAppDBReconciler(zap.S()).GetAppDBConfig(ctx, testOm, zap.S())
+			if tt.expectedErrorContains != "" {
+				require.ErrorContains(t, err, tt.expectedErrorContains)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedCABundleHash, cfg.CABundleHash)
+		})
+	}
+}
+
+// TestGetAppDBConfig_HandoverKeepsOpsManagerPodTemplate checks that switching an Ops Manager from
+// its internal AppDB to an external reference to the same database produces the same AppDB
+// connection string and CA bundle hash. The operator annotates the Ops Manager and backup daemon
+// Pod templates with both (connectionStringHash and appDBCABundleHash), so any difference rolls
+// them during the handover.
+func TestGetAppDBConfig_HandoverKeepsOpsManagerPodTemplate(t *testing.T) {
+	ctx := t.Context()
+	security := &mdbv1.Security{
+		ManagedCertificate: &mdbv1.ManagedCertificate{},
+		Authentication:     &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{util.SCRAM}},
+	}
+
+	internalOm := DefaultOpsManagerBuilder().Build()
+	internalOm.Spec.AppDB.Security = security
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(internalOm)
+	internalReconciler, err := newAppDbReconciler(ctx, kubeClient, internalOm, omConnectionFactory.GetConnectionFunc, zap.S())
+	require.NoError(t, err)
+	require.NoError(t, createOpsManagerUserPasswordSecret(ctx, kubeClient, internalOm, "shared-password"))
+	require.NoError(t, kubeClient.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      certs.ManagedServerCABundleConfigMapName(internalOm.Spec.AppDB.Name()),
+			Namespace: internalOm.Namespace,
+		},
+		Data: map[string]string{util.LatestHashSecretKey: "bundle-hash"},
+	}))
+	internalConfig, err := internalReconciler.GetAppDBConfig(ctx, internalOm, zap.S())
+	require.NoError(t, err)
+
+	externalDatabase := validExternalAppDBMongoDB()
+	externalDatabase.Spec.Security = security
+	externalOm := withExternalAppDBRef(DefaultOpsManagerBuilder().Build(), &omv1.ExternalAppDBRef{
+		Name: externalDatabase.Name,
+		Kind: omv1.ExternalAppDBRefKindMongoDB,
+	})
+	externalReconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", externalOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	require.NoError(t, externalReconciler.client.Create(ctx, externalDatabase))
+	require.NoError(t, externalReconciler.client.CreateSecret(ctx, secret.Builder().
+		SetName(omv1.OpsManagerUserPasswordSecretName(externalDatabase.Name)).
+		SetNamespace(externalOm.Namespace).
+		SetField(util.OpsManagerPasswordKey, "shared-password").
+		Build()))
+	require.NoError(t, externalReconciler.client.CreateConfigMap(ctx, configmap.Builder().
+		SetName(certs.ManagedServerCABundleConfigMapName(externalDatabase.Name)).
+		SetNamespace(externalOm.Namespace).
+		SetData(map[string]string{util.LatestHashSecretKey: "bundle-hash"}).
+		Build()))
+	externalConfig, err := externalReconciler.createNewExternalAppDBReconciler(zap.S()).GetAppDBConfig(ctx, externalOm, zap.S())
+	require.NoError(t, err)
+
+	assert.Equal(t, hashConnectionString(internalConfig.ConnectionString), hashConnectionString(externalConfig.ConnectionString))
+	assert.Equal(t, internalConfig.CABundleHash, externalConfig.CABundleHash)
+}
+
+func TestExternalAppDBManagedCA(t *testing.T) {
+	for _, kind := range []string{omv1.ExternalAppDBRefKindMongoDB, omv1.ExternalAppDBRefKindMongoDBMultiCluster} {
+		for _, topology := range []string{mdbv1.ClusterTopologySingleCluster, mdbv1.ClusterTopologyMultiCluster} {
+			t.Run(kind+"/"+topology, func(t *testing.T) {
+				ctx := t.Context()
+				builder := DefaultOpsManagerBuilder().SetOpsManagerTopology(topology)
+				factory := om.NewDefaultCachedOMConnectionFactory()
+				var memberClients map[string]client.Client
+				if topology == mdbv1.ClusterTopologyMultiCluster {
+					builder.SetOpsManagerClusterSpecList([]omv1.ClusterSpecOMItem{
+						{ClusterName: "om-cluster-1", Members: 1, Backup: &omv1.MongoDBOpsManagerBackupClusterSpecItem{Members: 1}},
+						{ClusterName: "om-cluster-2", Members: 1, Backup: &omv1.MongoDBOpsManagerBackupClusterSpecItem{Members: 1}},
+						{ClusterName: "om-cluster-3", Members: 1, Backup: &omv1.MongoDBOpsManagerBackupClusterSpecItem{Members: 1}},
+					})
+					memberClients = getFakeMultiClusterMapWithClusters([]string{"om-cluster-1", "om-cluster-2", "om-cluster-3"}, factory)
+				}
+				testOm := withExternalAppDBRef(builder.Build(), &omv1.ExternalAppDBRef{Name: "test-om-db", Kind: kind})
+				testOm.Spec.AppDB = nil
+				testOm.Spec.Security = &omv1.MongoDBOpsManagerSecurity{TLS: omv1.MongoDBOpsManagerTLS{CA: "om-https-ca"}}
+				testOm.Spec.Backup.Enabled = true
+				testOm.Spec.Backup.Members = 1
+				reconciler, central, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, memberClients, factory, architectures.NonStatic)
+
+				security := &mdbv1.Security{
+					ManagedCertificate: &mdbv1.ManagedCertificate{},
+					Authentication:     &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{util.SCRAM}},
+				}
+				var external client.Object
+				var ownerLabels map[string]string
+				switch kind {
+				case omv1.ExternalAppDBRefKindMongoDB:
+					db := validExternalAppDBMongoDB()
+					db.Spec.Security = security
+					external = db
+					ownerLabels = db.GetOwnerLabels()
+				case omv1.ExternalAppDBRefKindMongoDBMultiCluster:
+					db := validExternalAppDBMongoDBMultiCluster()
+					db.Spec.Security = security
+					external = db
+					ownerLabels = db.GetOwnerLabels()
+				}
+				external.SetUID(types.UID("external-appdb-uid"))
+				require.NoError(t, central.Create(ctx, external))
+				ca, _ := managedOMTestCA(t)
+				bundle := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-om-db-managed-server-ca-bundle", Namespace: testOm.Namespace, UID: types.UID("bundle-uid"),
+						Labels:          ownerLabels,
+						OwnerReferences: []metav1.OwnerReference{{APIVersion: "mongodb.com/v1", Kind: kind, Name: "test-om-db", UID: external.GetUID(), Controller: new(true)}},
+					},
+					Data: map[string]string{"ca-pem": string(ca), util.LatestHashSecretKey: "bundle-hash"},
+				}
+				require.NoError(t, central.Create(ctx, bundle))
+				if topology == mdbv1.ClusterTopologyMultiCluster {
+					memberClients["om-cluster-1"] = central
+					sharedBundle := bundle.DeepCopy()
+					sharedBundle.ResourceVersion = ""
+					sharedBundle.UID = ""
+					sharedBundle.OwnerReferences = nil
+					sharedBundle.Annotations = map[string]string{"appdb-managed": "true"}
+					require.NoError(t, memberClients["om-cluster-2"].Create(ctx, sharedBundle))
+				}
+				leaf := &certmanagerv1.Certificate{ObjectMeta: metav1.ObjectMeta{Name: "test-om-db-managed-cert", Namespace: testOm.Namespace, OwnerReferences: bundle.OwnerReferences}}
+				require.NoError(t, central.Create(ctx, leaf))
+				require.NoError(t, central.CreateSecret(ctx, secret.Builder().SetName("test-om-db-om-password").SetNamespace(testOm.Namespace).SetField(util.OpsManagerPasswordKey, "test-password").Build()))
+
+				cfg, err := reconciler.createNewExternalAppDBReconciler(zap.S()).GetAppDBConfig(ctx, testOm, zap.S())
+				require.NoError(t, err)
+				assert.True(t, cfg.IsTLSEnabled)
+				assert.Contains(t, cfg.ConnectionString, "ssl=true")
+				assert.Equal(t, "test-om-db-managed-server-ca-bundle", cfg.CAConfigMapName)
+				// Ops Manager and the backup daemon restart when the AppDB CA bundle changes. A
+				// referenced AppDB reports the hash so a handover does not drop it.
+				expectedCABundleHash := "bundle-hash"
+				assert.Equal(t, expectedCABundleHash, cfg.CABundleHash)
+				helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, memberClients, zap.S())
+				require.NoError(t, err)
+				require.NoError(t, reconciler.replicateAppDBTLSCAInMemberClusters(ctx, helper, cfg))
+				for _, member := range helper.getHealthyMemberClusters() {
+					omSts, err := reconciler.createOpsManagerStatefulsetInMemberCluster(ctx, helper, cfg, member, "init-image", "om-image", zap.S())
+					require.NoError(t, err)
+					backupSts, err := reconciler.createBackupDaemonStatefulset(ctx, helper, cfg, member, "init-image", "om-image", zap.S())
+					require.NoError(t, err)
+					for _, sts := range []*appsv1.StatefulSet{omSts, backupSts} {
+						assert.True(t, slices.ContainsFunc(sts.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool {
+							return v.Name == "appdb-ca-certificate" && v.ConfigMap != nil && v.ConfigMap.Name == "test-om-db-managed-server-ca-bundle"
+						}))
+						assert.Contains(t, sts.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "appdb-ca-certificate", MountPath: util.AppDBMmsCaFileDirInContainer})
+						assert.Equal(t, expectedCABundleHash, sts.Spec.Template.Annotations[operatorConstruct.AppDBCABundleHashAnnotation], "the AppDB CA bundle hash must restart Ops Manager on a CA rotation")
+					}
+					copied, err := member.Client.GetConfigMap(ctx, kube.ObjectKey(testOm.Namespace, "test-om-db-managed-server-ca-bundle"))
+					require.NoError(t, err)
+					assert.Equal(t, bundle.Data, copied.Data)
+					if copied.UID == bundle.UID {
+						assert.Equal(t, ownerLabels, copied.Labels, "OM must not overwrite the central source owned by the external database")
+						assert.Equal(t, bundle.OwnerReferences, copied.OwnerReferences)
+					} else {
+						assert.Equal(t, testOm.GetOwnerLabels(), copied.Labels, "new OM-only copies retain OM's cleanup labels")
+						assert.Empty(t, copied.OwnerReferences, "owner references must not cross cluster boundaries")
+					}
+				}
+				assert.Equal(t, "true", testOm.Spec.Configuration[util.MmsMongoSSL])
+				assert.Equal(t, omv1.GetAppDBCaPemPath(), testOm.Spec.Configuration[util.MmsMongoCA])
+				assert.Equal(t, "om-https-ca", testOm.GetOpsManagerCA())
+				assert.True(t, reconciler.ensureAppDBCertAndCA(ctx, testOm, zap.S()).status.IsOK())
+				certificates := &certmanagerv1.CertificateList{}
+				require.NoError(t, central.List(ctx, certificates, client.InNamespace(testOm.Namespace)))
+				require.Len(t, certificates.Items, 1, "OM must not issue external AppDB certificates")
+				assert.Equal(t, leaf.OwnerReferences, certificates.Items[0].OwnerReferences)
+				persisted, err := central.GetConfigMap(ctx, kube.ObjectKey(testOm.Namespace, bundle.Name))
+				require.NoError(t, err)
+				assert.Equal(t, bundle.Data, persisted.Data)
+				assert.Equal(t, bundle.OwnerReferences, persisted.OwnerReferences)
+				assert.Equal(t, ownerLabels, persisted.Labels)
 			})
 		}
 	}

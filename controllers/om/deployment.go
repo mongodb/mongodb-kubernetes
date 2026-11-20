@@ -74,7 +74,7 @@ func NewDeployment() Deployment {
 
 // ConfigureTLS configures the deployment's TLS settings from the security
 // specification provided by the user in the mongodb resource.
-func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
+func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath, clusterCAFilePath string) {
 	if !security.IsTLSEnabled() {
 		d["tls"] = map[string]any{"clientCertificateMode": string(automationconfig.ClientCertificateModeOptional)}
 		return
@@ -89,6 +89,10 @@ func (d Deployment) ConfigureTLS(security *mdbv1.Security, caFilePath string) {
 	// sslConfig["AutoPEMKeyFilePath"] = util.PEMKeyFilePathInContainer
 
 	tlsConfig["CAFilePath"] = caFilePath
+
+	if clusterCAFilePath != "" {
+		tlsConfig["clusterCAFilePath"] = clusterCAFilePath
+	}
 }
 
 // MergeStandalone merges "operator" standalone ('standaloneMongo') to "OM" deployment ('d'). If we found the process
