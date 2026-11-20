@@ -1350,12 +1350,12 @@ func (r *OpsManagerReconciler) opsManagerCA(ctx context.Context, opsManager *omv
 		log.Info("Custom CA was not provided, will use host root CA")
 		return nil, nil
 	}
-	//nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(opsManager.Namespace, opsManagerCA))
 	if err != nil {
 		return nil, err
 	}
-	return new(cm.Data["mms-ca.crt"]), nil
+	ca := cm.Data["mms-ca.crt"]
+	return &ca, nil
 }
 
 // prepareOpsManager ensures the admin user is created and the admin public key exists. It returns the instance of
