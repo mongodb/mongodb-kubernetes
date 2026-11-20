@@ -2385,7 +2385,7 @@ func TestReplicaSetBuildStatefulSetOptionsCarriesOwnerLabels(t *testing.T) {
 	require.NoError(t, err)
 
 	helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
-	opts := helper.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptionsRS{})(*mdb)
+	opts := helper.buildStatefulSetOptions(conn, projectConfig, deploymentOptionsRS{})(*mdb)
 
 	assert.Equal(t, mdb.GetOwnerLabels(), opts.StsLabels, "buildStatefulSetOptions must carry the CR's owner labels in StsLabels")
 }

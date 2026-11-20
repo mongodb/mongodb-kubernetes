@@ -326,8 +326,41 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if reconciler.VaultClient != nil {
 		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
 	}
+	currentAgentAuthMode, err := conn.GetAgentAuthMode(ctx)
+	if err != nil {
+		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)))
+	}
+	security := rs.GetSecurity()
+	agentCertSecretName := security.AgentClientCertificateSecretName(rs.Name)
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
 	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
+	agentCertHash, defaultAgentCertPath := reconciler.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
+	if security.IsManagedCertificateEnabled() && !rs.IsMigrationDryRun() {
+		// A prune can coincide with cert-manager renewing the clusterfile. The authentication
+		// reconcile publishes its path and waits for agents before the StatefulSet reconcile.
+		if status := r.ensureReplicaSetPEMs(ctx, currentAgentAuthMode); !status.IsOK() {
+			return r.updateStatus(ctx, status)
+		}
+		files := map[string]string{rsCertsConfig.CertSecretName: tlsCertHash}
+		if security.Authentication != nil && security.Authentication.Enabled {
+			if security.GetInternalClusterAuthenticationMode() == util.X509 {
+				files[rsCertsConfig.InternalClusterSecretName] = internalClusterCertHash
+			}
+			if security.ShouldUseX509(currentAgentAuthMode) || security.ShouldUseClientCertificates() {
+				files[agentCertSecretName] = agentCertHash
+			}
+		}
+		for name, hash := range files {
+			key := kube.ObjectKey(rs.Namespace, name+certs.OperatorGeneratedCertSuffix)
+			data, err := reconciler.SecretClient.ReadBinarySecret(ctx, key, databaseSecretPath)
+			if err != nil && !errors.IsNotFound(err) {
+				return r.updateStatus(ctx, workflow.Failed(err))
+			}
+			if hash == "" || string(data[util.LatestHashSecretKey]) != hash || len(data[hash]) == 0 {
+				return r.updateStatus(ctx, workflow.Pending("Waiting for managed PEM Secret %s to contain the current certificate", key))
+			}
+		}
+	}
 
 	tlsCertPath := ""
 	internalClusterCertPath := ""
@@ -338,17 +371,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		tlsCertPath = fmt.Sprintf("%s/%s", util.TLSCertMountPath, tlsCertHash)
 	}
 
-	agentCertSecretName := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
-	agentCertHash, defaultAgentCertPath := reconciler.agentCertHashAndPath(ctx, log, rs.Namespace, agentCertSecretName, databaseSecretPath)
-
 	prometheusCertHash, err := certs.EnsureTLSCertsForPrometheus(ctx, reconciler.SecretClient, rs.GetNamespace(), rs.GetPrometheus(), certs.Database, log)
 	if err != nil {
 		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("could not generate certificates for Prometheus: %w", err)))
-	}
-
-	currentAgentAuthMode, err := conn.GetAgentAuthMode(ctx)
-	if err != nil {
-		return r.updateStatus(ctx, workflow.Failed(xerrors.Errorf("failed to get agent auth mode: %w", err)))
 	}
 
 	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, rs.Spec.GetSecurity())
@@ -359,6 +384,8 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	deploymentOpts := deploymentOptionsRS{
+		tlsCertHash:               tlsCertHash,
+		internalClusterCertHash:   internalClusterCertHash,
 		prometheusCertHash:        prometheusCertHash,
 		agentCertPath:             agentCertPath,
 		agentCertHash:             agentCertHash,
@@ -381,7 +408,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	// Recovery is skipped when a migration dry-run is active.
 	isDryRun := rs.IsMigrationDryRun()
-	stsOptions := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
+	stsOptions := r.buildStatefulSetOptions(conn, projectConfig, deploymentOpts)
 	managedCABundleChange := false
 	if !isDryRun && managedServerCABundleHash != "" {
 		managedCABundleChange, err = managedCABundleHashChangeRequiresAutomationConfigFirst(ctx, reconciler.client, *rs, stsOptions(*rs))
@@ -529,10 +556,12 @@ func newReplicaSetReconciler(
 }
 
 type deploymentOptionsRS struct {
-	agentCertPath        string
-	agentCertHash        string
-	prometheusCertHash   string
-	currentAgentAuthMode string
+	tlsCertHash             string
+	internalClusterCertHash string
+	agentCertPath           string
+	agentCertHash           string
+	prometheusCertHash      string
+	currentAgentAuthMode    string
 	// managedServerCABundleHash and managedClientCABundleHash are the hashes of the managed CA
 	// bundles the members mount, empty when managed certificates are off.
 	managedServerCABundleHash string
@@ -646,7 +675,7 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
 }
 
-func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) ensureReplicaSetPEMs(ctx context.Context, currentAgentAuthMode string) workflow.Status {
 	rs := r.resource
 	reconciler := r.reconciler
 	log := r.log
@@ -669,18 +698,26 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 	}
 
 	certConfigurator := certs.ReplicaSetX509CertConfigurator{MongoDB: rs, SecretClient: reconciler.SecretClient}
-	status := reconciler.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, deploymentOptions.currentAgentAuthMode, log)
+	status := reconciler.ensureX509SecretAndCheckTLSType(ctx, certConfigurator, currentAgentAuthMode, log)
 	if !status.IsOK() {
 		return status
 	}
 
-	status = certs.EnsureSSLCertsForStatefulSet(ctx, reconciler.SecretClient, reconciler.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
-	if !status.IsOK() {
-		return status
+	return certs.EnsureSSLCertsForStatefulSet(ctx, reconciler.SecretClient, reconciler.SecretClient, *rs.Spec.Security, certs.ReplicaSetConfig(*rs), log)
+}
+
+func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) workflow.Status {
+	rs := r.resource
+	reconciler := r.reconciler
+	log := r.log
+	if !rs.GetSecurity().IsManagedCertificateEnabled() {
+		if status := r.ensureReplicaSetPEMs(ctx, deploymentOptions.currentAgentAuthMode); !status.IsOK() {
+			return status
+		}
 	}
 
 	// Build the replica set config
-	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)
+	rsConfig := r.buildStatefulSetOptions(conn, projectConfig, deploymentOptions)
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
 
 	// Handle PVC resize if needed
@@ -719,22 +756,14 @@ func (r *ReplicaSetReconcilerHelper) handlePVCResize(ctx context.Context, sts *a
 }
 
 // buildStatefulSetOptions creates the options needed for constructing the StatefulSet
-func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
+func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(conn om.Connection, projectConfig mdbv1.ProjectConfig, deploymentOptions deploymentOptionsRS) func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions {
 	rs := r.resource
 	reconciler := r.reconciler
-	log := r.log
-
-	rsCertsConfig := certs.ReplicaSetConfig(*rs)
 
 	var vaultConfig vault.VaultConfiguration
-	var databaseSecretPath string
 	if reconciler.VaultClient != nil {
 		vaultConfig = reconciler.VaultClient.VaultConfig
-		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
 	}
-
-	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
-	internalClusterCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.InternalClusterSecretName, databaseSecretPath, log)
 
 	var externalAgentVersion string
 	if len(rs.Spec.GetExternalMembers()) > 0 {
@@ -744,9 +773,9 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
 		CurrentAgentAuthMechanism(deploymentOptions.currentAgentAuthMode),
-		CertificateHash(tlsCertHash),
+		CertificateHash(deploymentOptions.tlsCertHash),
 		AgentCertHash(deploymentOptions.agentCertHash),
-		InternalClusterHash(internalClusterCertHash),
+		InternalClusterHash(deploymentOptions.internalClusterCertHash),
 		PrometheusTLSCertHash(deploymentOptions.prometheusCertHash),
 		ManagedServerCABundleHash(deploymentOptions.managedServerCABundleHash),
 		ManagedClientCABundleHash(deploymentOptions.managedClientCABundleHash),
@@ -1010,7 +1039,7 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 // in this function (e.g. building StatefulSet options, agent certificate, or RunConnectivityJob
 // returning Err) use workflow.Failed and requeue after 10s (failedStatus default).
 func (r *ReplicaSetReconcilerHelper) runConnectivityValidationDryRun(ctx context.Context, conn om.Connection, projectConfig mdbv1.ProjectConfig, externalMemberProcessNames []mdbv1.ExternalMember, rs *mdbv1.MongoDB, deploymentOpts deploymentOptionsRS, operatorImage string, log *zap.SugaredLogger) (reconcile.Result, error) {
-	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOpts)
+	rsConfig := r.buildStatefulSetOptions(conn, projectConfig, deploymentOpts)
 	sts := construct.DatabaseStatefulSet(*rs, rsConfig, log)
 	replicaSetName := rs.Spec.ReplicaSetNameOverride
 	if replicaSetName == "" {

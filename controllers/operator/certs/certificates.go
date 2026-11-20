@@ -310,7 +310,7 @@ func VerifyAndEnsureCertificatesForStatefulSet(ctx context.Context, secretReadCl
 		return err
 	}
 
-	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretReadClient, opts.Namespace, secretName, databaseSecretPath, log)
+	secretHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(secretData), log)
 	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, kube.ObjectKey(opts.Namespace, secretName), secretHash, data, opts.OwnerReference, opts.OwnerLabels, Database)
 }
 
@@ -435,10 +435,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
 	var secretData map[string][]byte
 	var s corev1.Secret
 	var err error
-	var databaseSecretPath string
-
 	if vault.IsVaultSecretBackend() {
-		databaseSecretPath = secretReadClient.VaultClient.DatabaseSecretPath()
 		secretData, err = secretReadClient.VaultClient.ReadSecretBytes(fmt.Sprintf("%s/%s/%s", secretReadClient.VaultClient.DatabaseSecretPath(), secret.Namespace, secret.Name))
 		if err != nil {
 			return err
@@ -460,7 +457,7 @@ func VerifyAndEnsureClientCertificatesForAgentsAndTLSType(
 		return err
 	}
 
-	secretHash := enterprisepem.ReadHashFromSecret(ctx, secretReadClient, secret.Namespace, secret.Name, databaseSecretPath, log)
+	secretHash := enterprisepem.ReadHashFromData(secrets.DataToStringData(secretData), log)
 	return CreateOrUpdatePEMSecretWithPreviousCert(ctx, secretWriteClient, secret, secretHash, data, ownerReferences, ownerLabels, Database)
 }
 
