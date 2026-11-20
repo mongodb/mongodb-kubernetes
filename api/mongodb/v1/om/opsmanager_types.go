@@ -1306,9 +1306,9 @@ func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
 }
 
 func (om *MongoDBOpsManager) LicenseRotateIdentityDue() bool {
-	return om.Annotations[util.LicenseRotateIdentityAnnotation] == annotationTrue
+	return om.Annotations[util.LicenseRotateIdentityAnnotation] == "true"
 }
 
 func (om *MongoDBOpsManager) LicenseRecomputeDue() bool {
-	return om.Annotations[util.LicenseRecomputeAnnotation] == annotationTrue
+	return om.Annotations[util.LicenseRecomputeAnnotation] == "true"
 }
