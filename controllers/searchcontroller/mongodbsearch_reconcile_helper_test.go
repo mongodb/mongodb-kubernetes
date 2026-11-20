@@ -3798,6 +3798,66 @@ func TestReferencedResourceContentHash(t *testing.T) {
 	}
 }
 
+// TestCRLContentHash covers the config-hash fold for the CRL file: mongot reads crlFile into its
+// trust store only at startup, so the fold is what makes a CRL rotation roll the mongot pods.
+func TestCRLContentHash(t *testing.T) {
+	searchWithCRL := func() *searchv1.MongoDBSearch {
+		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.CRLFile = "crl.pem"
+		})
+	}
+	caTLSConfig := &TLSSourceConfig{CAFileName: "ca-pem", CAVolume: statefulset.CreateVolumeFromConfigMap("ca", "source-ca")}
+	caConfigMap := func(data map[string]string) *corev1.ConfigMap {
+		return &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "source-ca", Namespace: "test-ns"},
+			Data:       data,
+		}
+	}
+	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, tlsConfig *TLSSourceConfig, objects ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
+		t.Helper()
+		objs := append([]client.Object{search}, objects...)
+		fakeClient := newTestFakeClient(objs...)
+		dbSource := &mockShardedSource{tlsConfig: tlsConfig}
+		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil), fakeClient
+	}
+
+	t.Run("empty when no CRL configured", func(t *testing.T) {
+		helper, kubeClient := newHelper(t, newTestMongoDBSearch("test-search", "test-ns"), caTLSConfig)
+
+		hash, err := helper.crlContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.Empty(t, hash)
+	})
+
+	t.Run("empty when the source has no TLS", func(t *testing.T) {
+		helper, kubeClient := newHelper(t, searchWithCRL(), nil)
+
+		hash, err := helper.crlContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.Empty(t, hash)
+	})
+
+	t.Run("non-empty and changes with content", func(t *testing.T) {
+		hashFor := func(content string) string {
+			helper, kubeClient := newHelper(t, searchWithCRL(), caTLSConfig, caConfigMap(map[string]string{"crl.pem": content}))
+			hash, err := helper.crlContentHash(t.Context(), kubeClient)
+			require.NoError(t, err)
+			require.NotEmpty(t, hash)
+			return hash
+		}
+
+		assert.NotEqual(t, hashFor("content-1"), hashFor("content-2"), "different content must yield a different hash")
+	})
+
+	t.Run("errors when the CRL key is absent", func(t *testing.T) {
+		helper, kubeClient := newHelper(t, searchWithCRL(), caTLSConfig, caConfigMap(map[string]string{"ca-pem": "ca"}))
+
+		_, err := helper.crlContentHash(t.Context(), kubeClient)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reading the CRL file from the source CA ConfigMap")
+	})
+}
+
 func TestValidateOIDCSource(t *testing.T) {
 	newEnterpriseMongoDB := func(providerConfigs []mdbv1.OIDCProviderConfig, authModes ...mdbv1.AuthMode) *mdbv1.MongoDB {
 		return &mdbv1.MongoDB{

@@ -832,6 +832,16 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		configHash = hashBytes([]byte(configHash + oidcIdpCaHash))
 	}
 
+	// Include the CRL file in the config hash: mongot reads crlFile into its trust store only at
+	// startup, so rotating the CRL must roll the mongot pods to re-read it.
+	crlHash, err := r.crlContentHash(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	if crlHash != "" {
+		configHash = hashBytes([]byte(configHash + crlHash))
+	}
+
 	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
 		map[string]string{
 			"mongotConfigHash": configHash,
@@ -2181,12 +2191,12 @@ func (r *MongoDBSearchReconcileHelper) crlFilePath() *string {
 	return new(tls.CAMountPath + crlFile)
 }
 
-// validateCRLFileExists rejects a CRL key that is absent from the object providing
-// the source CA: mongot would otherwise fail at startup on the missing file.
-func (r *MongoDBSearchReconcileHelper) validateCRLFileExists(ctx context.Context, kubeClient kubernetesClient.Client, tlsSourceConfig *TLSSourceConfig) error {
+// crlFileContent returns the configured CRL file's content from the object that provides the
+// source CA, or "" when no CRL is configured.
+func (r *MongoDBSearchReconcileHelper) crlFileContent(ctx context.Context, kubeClient kubernetesClient.Client, tlsSourceConfig *TLSSourceConfig) (string, error) {
 	crlFile := r.mdbSearch.SourceCRLFile()
 	if crlFile == "" {
-		return nil
+		return "", nil
 	}
 
 	objectKey := types.NamespacedName{Namespace: r.mdbSearch.Namespace}
@@ -2194,16 +2204,20 @@ func (r *MongoDBSearchReconcileHelper) validateCRLFileExists(ctx context.Context
 	switch {
 	case caVolume.ConfigMap != nil:
 		objectKey.Name = caVolume.ConfigMap.Name
-		if _, err := configmap.ReadKey(ctx, kubeClient, crlFile, objectKey); err != nil {
-			return xerrors.Errorf("reading the CRL file from the source CA ConfigMap: %w", err)
+		content, err := configmap.ReadKey(ctx, kubeClient, crlFile, objectKey)
+		if err != nil {
+			return "", xerrors.Errorf("reading the CRL file from the source CA ConfigMap: %w", err)
 		}
+		return content, nil
 	case caVolume.Secret != nil:
 		objectKey.Name = caVolume.Secret.SecretName
-		if _, err := secret.ReadKey(ctx, kubeClient, crlFile, objectKey); err != nil {
-			return xerrors.Errorf("reading the CRL file from the source CA Secret: %w", err)
+		content, err := secret.ReadKey(ctx, kubeClient, crlFile, objectKey)
+		if err != nil {
+			return "", xerrors.Errorf("reading the CRL file from the source CA Secret: %w", err)
 		}
+		return content, nil
 	}
-	return nil
+	return "", nil
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
@@ -2217,7 +2231,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		return mongot.NOOP(), removeScramClientVolumes, nil
 	}
 
-	if err := r.validateCRLFileExists(ctx, kubeClient, sourceTLSConfig); err != nil {
+	if _, err := r.crlFileContent(ctx, kubeClient, sourceTLSConfig); err != nil {
 		return nil, nil, err
 	}
 
@@ -2421,6 +2435,24 @@ func (r *MongoDBSearchReconcileHelper) oidcIdpCaContentHash(ctx context.Context,
 		return "", xerrors.Errorf("reading OIDC IdP CA configMap %s: %w", nn.Name, err)
 	}
 	return hashBytes([]byte(nn.Name + ":" + configMap.Data[OIDCIdPCAConfigMapKey])), nil
+}
+
+// crlContentHash returns a hash of the configured CRL file's content, or "" when no CRL is
+// configured. mongot reads crlFile into its trust store only at startup, so a rotated CRL has
+// to roll the mongot pods to take effect.
+func (r *MongoDBSearchReconcileHelper) crlContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
+	sourceTLSConfig := r.db.TLSConfig()
+	if sourceTLSConfig == nil {
+		return "", nil
+	}
+	content, err := r.crlFileContent(ctx, kubeClient, sourceTLSConfig)
+	if err != nil {
+		return "", err
+	}
+	if content == "" {
+		return "", nil
+	}
+	return hashBytes([]byte(r.mdbSearch.SourceCRLFile() + ":" + content)), nil
 }
 
 // baseMongotConfig sets up the common mongot configuration fields shared by all deployment types:

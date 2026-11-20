@@ -1,6 +1,5 @@
 import tempfile
 
-from kubernetes import client as k8s_client
 from kubetester import create_or_update_configmap, get_pod_when_ready, read_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs, generate_cert
 from kubetester.kubetester import KubernetesTester
@@ -274,7 +273,8 @@ def test_malformed_crl_fails_mongot_startup(namespace: str, mdbs: MongoDBSearch,
 
 @mark.e2e_search_enterprise_crl
 def test_valid_crl_recovers_mongot(namespace: str, mdbs: MongoDBSearch, crl_ca_configmap: str):
-    # Rotate the mounted CRL to a valid one revoking nothing; mongot picks it up and becomes ready.
+    # Rotate the mounted CRL to a valid one revoking nothing; the operator rolls the mongot pod,
+    # which reads the CRL at startup and becomes ready.
     rotate_crl(namespace, crl_ca_configmap, create_crl(ca_cert_path(), ca_key_path(), []))
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
@@ -335,11 +335,15 @@ def test_search_assert_search_query(sample_movies_helper: movies_search_helper.S
 def test_revoked_client_cert_is_rejected(
     namespace: str, mdbs: MongoDBSearch, crl_ca_configmap: str, client_certs: dict[str, dict]
 ):
+    pod_before = mongot_pod_uid(namespace, mdbs)
+
     crl_pem = create_crl(ca_cert_path(), ca_key_path(), [client_certs[CLIENT_A_SECRET_NAME]["serial"]])
     rotate_crl(namespace, crl_ca_configmap, crl_pem)
 
+    wait_for_mongot_pod_replaced(namespace, mdbs, pod_before)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+
     host = mongot_grpc_host(mdbs, namespace)
-    wait_for_mounted_crl(namespace, mongot_pod_name(mdbs), crl_pem)
     assert_handshake_eventually(
         host, client_certs[CLIENT_A_SECRET_NAME], should_succeed=False, expected_error="revoked"
     )
@@ -348,42 +352,41 @@ def test_revoked_client_cert_is_rejected(
 
 
 @mark.e2e_search_enterprise_crl
-def test_crl_reload_without_restart(
+def test_crl_rotation_rolls_mongot_and_applies(
     namespace: str, mdbs: MongoDBSearch, crl_ca_configmap: str, client_certs: dict[str, dict]
 ):
-    pod_before = mongot_pod_identity(namespace, mdbs)
+    pod_before = mongot_pod_uid(namespace, mdbs)
 
-    # Rotate the CRL to revoke client-B instead; mongot reloads it without a restart.
+    # Rotate the CRL to revoke client-B instead; mongot reads it only at startup, so the operator
+    # rolls the pod for the new CRL to take effect.
     crl_pem = create_crl(ca_cert_path(), ca_key_path(), [client_certs[CLIENT_B_SECRET_NAME]["serial"]])
     rotate_crl(namespace, crl_ca_configmap, crl_pem)
 
+    wait_for_mongot_pod_replaced(namespace, mdbs, pod_before)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=600)
+
     host = mongot_grpc_host(mdbs, namespace)
-    wait_for_mounted_crl(namespace, mongot_pod_name(mdbs), crl_pem)
     assert_handshake_eventually(host, client_certs[CLIENT_A_SECRET_NAME], should_succeed=True)
     assert_handshake_eventually(
         host, client_certs[CLIENT_B_SECRET_NAME], should_succeed=False, expected_error="revoked"
     )
-
-    pod_after = mongot_pod_identity(namespace, mdbs)
-    assert pod_after == pod_before, f"mongot pod was replaced: {pod_before} -> {pod_after}"
-    logger.info(f"CRL reloaded without restarting mongot pod {pod_before[0]}")
+    logger.info("CRL rotation rolled the mongot pod; client-B now revoked")
 
 
 @mark.e2e_search_enterprise_crl
-def test_malformed_crl_rotation_keeps_last_good_crl(
-    namespace: str, mdbs: MongoDBSearch, crl_ca_configmap: str, client_certs: dict[str, dict]
-):
-    # Rotating in a malformed CRL must be ignored: the last good CRL (revoking client-B) stays enforced.
-    malformed_crl = create_invalid_crl()
-    rotate_crl(namespace, crl_ca_configmap, malformed_crl)
+def test_malformed_crl_rotation_fails_mongot_startup(namespace: str, mdbs: MongoDBSearch, crl_ca_configmap: str):
+    # Rotating in a malformed CRL rolls the pod, and mongot fails startup reading it (fail closed).
+    # This must stay the last CRL test in the file: it leaves the deployment broken.
+    pod_before = mongot_pod_uid(namespace, mdbs)
 
-    host = mongot_grpc_host(mdbs, namespace)
-    wait_for_mounted_crl(namespace, mongot_pod_name(mdbs), malformed_crl)
-    assert_handshake_eventually(host, client_certs[CLIENT_A_SECRET_NAME], should_succeed=True)
-    assert_handshake_eventually(
-        host, client_certs[CLIENT_B_SECRET_NAME], should_succeed=False, expected_error="revoked"
-    )
-    logger.info("malformed CRL rotation ignored; last good CRL still enforced")
+    rotate_crl(namespace, crl_ca_configmap, create_invalid_crl())
+
+    wait_for_mongot_pod_replaced(namespace, mdbs, pod_before)
+
+    pod_name = mongot_pod_name(mdbs)
+    pod = get_pod_when_ready(namespace, f"statefulset.kubernetes.io/pod-name={pod_name}", default_retry=10)
+    assert pod is None, f"mongot pod {pod_name} became Ready despite a malformed CRL"
+    logger.info("malformed CRL rotation failed mongot startup, as expected")
 
 
 def ca_cert_path() -> str:
@@ -402,10 +405,25 @@ def mongot_grpc_host(mdbs: MongoDBSearch, namespace: str) -> str:
     return f"{search_resource_names.mongot_service_name(mdbs.name)}.{namespace}.svc.cluster.local"
 
 
-def mongot_pod_identity(namespace: str, mdbs: MongoDBSearch) -> tuple[str, str]:
-    """The (name, uid) of the mongot pod; the uid changes if the pod is replaced."""
-    pod = k8s_client.CoreV1Api().read_namespaced_pod(mongot_pod_name(mdbs), namespace)
-    return pod.metadata.name, pod.metadata.uid
+def mongot_pod_uid(namespace: str, mdbs: MongoDBSearch) -> str:
+    """The uid of the mongot pod. A CRL rotation replaces the pod, so the uid is the signal."""
+    pods = KubernetesTester.read_pod_labels(
+        namespace, label_selector=f"statefulset.kubernetes.io/pod-name={mongot_pod_name(mdbs)}"
+    )
+    assert pods.items, f"no mongot pod found for {mongot_pod_name(mdbs)}"
+    return pods.items[0].metadata.uid
+
+
+def wait_for_mongot_pod_replaced(namespace: str, mdbs: MongoDBSearch, previous_uid: str, timeout: int = 600) -> None:
+    """Waits until the mongot pod is a different pod, which is how the CRL rotation takes effect."""
+
+    def check() -> tuple:
+        uid = mongot_pod_uid(namespace, mdbs)
+        if uid is not None and uid != previous_uid:
+            return True, f"mongot pod replaced ({previous_uid} -> {uid})"
+        return False, "waiting for the mongot pod to be replaced"
+
+    run_periodically(check, timeout=timeout, sleep_time=5, msg="mongot pod replacement")
 
 
 def rotate_crl(namespace: str, configmap_name: str, crl_pem: str) -> None:
@@ -415,22 +433,10 @@ def rotate_crl(namespace: str, configmap_name: str, crl_pem: str) -> None:
     create_or_update_configmap(namespace, configmap_name, data)
 
 
-def wait_for_mounted_crl(namespace: str, pod_name: str, expected_pem: str, timeout: int = 120) -> None:
-    """Waits until the CRL mounted in the mongot pod equals expected_pem (ConfigMap propagation is async)."""
-
-    def check() -> tuple:
-        content = KubernetesTester.run_command_in_pod_container(
-            pod_name, namespace, ["cat", CRL_MOUNT_PATH], container=MONGOT_CONTAINER
-        )
-        return content.strip() == expected_pem.strip(), "mounted CRL content"
-
-    run_periodically(check, timeout=timeout, sleep_time=5, msg=f"CRL mounted in {pod_name} to update")
-
-
 def assert_handshake_eventually(
     host: str, cert: dict, should_succeed: bool, expected_error: str | None = None, timeout: int = 120
 ) -> None:
-    """Retries the TLS handshake until it matches should_succeed (mongot reloads the CRL async)."""
+    """Retries the TLS handshake until it matches should_succeed."""
 
     def check() -> tuple:
         try:
