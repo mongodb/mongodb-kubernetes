@@ -1819,7 +1819,7 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 	}
 
 	configMapNSName := types.NamespacedName{Name: configMapName, Namespace: namespace}
-	caConfigMapData, err := configmap.ReadData(ctx, r.client, configMapNSName)
+	source, err := r.client.GetConfigMap(ctx, configMapNSName)
 	if err != nil {
 		return xerrors.Errorf("failed to read config map %+v from central cluster: %w", configMapNSName, err)
 	}
@@ -1828,10 +1828,28 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 		SetLabels(reconcileHelper.opsManager.GetOwnerLabels()).
 		SetName(configMapNSName.Name).
 		SetNamespace(configMapNSName.Namespace).
-		SetData(caConfigMapData).
+		SetData(source.Data).
 		Build()
 
 	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
+		existing, err := memberCluster.Client.GetConfigMap(ctx, configMapNSName)
+		if err != nil && !apiErrors.IsNotFound(err) {
+			return xerrors.Errorf("failed to read config map %+v in cluster %s: %w", configMapNSName, memberCluster.Name, err)
+		}
+		if err == nil {
+			// The central cluster can also be a member, so this copy may be the source itself. Don't overwrite
+			// it: an external AppDB's managed CA bundle is owned by the database, and the write would drop its
+			// owner reference or revert a CA rotation.
+			if source.UID != "" && existing.UID == source.UID {
+				continue
+			}
+			// An external multi-cluster AppDB publishes its managed CA bundle into the member clusters too.
+			// That copy belongs to the database, which keeps it current and removes it on deletion; writing
+			// it here would replace its labels and make the two controllers fight over the same object.
+			if existing.Labels[util.ManagedCertificateOwnerUIDLabel] != "" {
+				continue
+			}
+		}
 		if err := configmap.CreateOrUpdate(ctx, memberCluster.Client, caConfigMap); err != nil && !apiErrors.IsAlreadyExists(err) {
 			return xerrors.Errorf("failed to create or update config map %+v in cluster %s: %w", configMapNSName, memberCluster.Name, err)
 		}

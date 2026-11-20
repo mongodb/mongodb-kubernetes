@@ -66,6 +66,49 @@ class WaitForConditions:
 class Certificate(CertificateType, WaitForConditions):
     Reason = "Ready"
 
+    def request_renewal(self) -> int:
+        """Requests a leaf renewal by setting the cert-manager Issuing status condition.
+
+        Mirrors `cmctl renew`: cert-manager picks the condition up and reissues the leaf.
+        Returns the pre-renewal status.revision so callers can wait for it to advance.
+        """
+        for attempt in range(5):
+            self.load()
+            if self["spec"].get("isCA", False):
+                raise ValueError("Only leaf certificates may be renewed by this helper")
+            conditions = self["status"].get("conditions", [])
+            if not any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions):
+                raise ValueError("Certificate must be Ready before requesting renewal")
+            if any(c.get("type") == "Issuing" and c.get("status") == "True" for c in conditions):
+                raise ValueError("Certificate issuance is already in progress")
+            revision = self["status"]["revision"]
+            issuing = {
+                "type": "Issuing",
+                "status": "True",
+                "reason": "ManuallyTriggered",
+                "message": "Leaf renewal requested by the E2E test",
+                "observedGeneration": self["metadata"]["generation"],
+                "lastTransitionTime": datetime.now(timezone.utc).isoformat(),
+            }
+            body = {
+                "metadata": {"resourceVersion": self["metadata"]["resourceVersion"]},
+                "status": {"conditions": [dict(c) for c in conditions if c.get("type") != "Issuing"] + [issuing]},
+            }
+            try:
+                self.api.patch_namespaced_custom_object_status(
+                    group=self.group,
+                    version=self.version,
+                    plural=self.plural,
+                    name=self.name,
+                    namespace=self.namespace,
+                    body=body,
+                )
+                return revision
+            except ApiException as exc:
+                if exc.status != 409 or attempt == 4:
+                    raise
+        raise RuntimeError("Certificate renewal request exhausted retries")
+
 
 IssuerType = CustomObject.define("Issuer", kind="Issuer", plural="issuers", group="cert-manager.io", version="v1")
 ClusterIssuerType = CustomObject.define(

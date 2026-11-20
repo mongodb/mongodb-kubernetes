@@ -16,6 +16,7 @@ import (
 	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -25,9 +26,8 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
-// ReconcileExternalAppDBReplicaSet implements AppDBReconciler for OpsManager resources using
-// spec.externalApplicationDatabaseRef. It never reads opsManager.Spec.AppDB — all AppDB
-// state comes from the referenced MongoDB CR instead.
+// ReconcileExternalAppDBReplicaSet handles referenced AppDB lifecycle and managed ownership
+// handover. Runtime connection and trust settings come from the referenced CR.
 type ReconcileExternalAppDBReplicaSet struct {
 	*ReconcileCommonController
 	memberClustersMap map[string]client.Client
@@ -79,11 +79,36 @@ func (e *ReconcileExternalAppDBReplicaSet) GetAppDBConfig(ctx context.Context, o
 
 	connectionString := refObject.BuildConnectionString(util.OpsManagerMongoDBUserName, password, "", connectionstring.SchemeMongoDB, map[string]string{"authMechanism": "SCRAM-SHA-256"})
 
+	caBundleHash, err := e.managedAppDBCABundleHash(ctx, opsManager, refObject)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AppDBConfig{
 		IsTLSEnabled:     refObject.isTLSEnabled(),
 		CAConfigMapName:  refObject.getCAConfigMapName(),
 		ConnectionString: connectionString,
+		CABundleHash:     caBundleHash,
 	}, nil
+}
+
+// managedAppDBCABundleHash returns the hash of the published operator-managed AppDB CA bundle, or
+// "" when the referenced AppDB does not use operator-managed certificates or is multi-cluster.
+// Ops Manager and the backup daemon load the AppDB CA only at startup and are annotated with this
+// hash (see construct.WithAppDBCABundleHash), so a bundle change restarts them. Computing it for a
+// referenced AppDB too keeps the annotation stable across a handover from an internal AppDB, which
+// would otherwise roll Ops Manager and lose the restarts a later CA rotation requires.
+func (e *ReconcileExternalAppDBReplicaSet) managedAppDBCABundleHash(ctx context.Context, opsManager *omv1.MongoDBOpsManager, refObject externalAppDB) (string, error) {
+	if !refObject.isManagedCertificateEnabled() || refObject.isMultiCluster() {
+		return "", nil
+	}
+
+	hash, _, err := certs.ReadManagedCABundleHashes(ctx, e.client, opsManager.Spec.ExternalAppDBRef.Name, opsManager.Namespace, false)
+	if err != nil {
+		return "", xerrors.Errorf("failed to read the operator-managed AppDB CA bundle hash: %w", err)
+	}
+
+	return hash, nil
 }
 
 // getExternalAppDBReference retrieves the opsManager's spec.externalApplicationDatabaseRef resource
@@ -253,6 +278,7 @@ func requestAppDBForwardMigration(ctx context.Context, c client.Client, sts *app
 type externalAppDBRefObject struct {
 	connectionstring.ConnectionStringBuilder
 	mdbv1.DbCommonSpec
+	resourceName   string
 	clusterList    []appDBClusterItem
 	isMulticluster bool
 }
@@ -260,16 +286,17 @@ type externalAppDBRefObject struct {
 // getCAConfigMapName returns the name of the ConfigMap holding the CA certificate that OpsManager
 // should trust when connecting to the external AppDB over TLS ("" if TLS is off).
 func (o *externalAppDBRefObject) getCAConfigMapName() string {
-	security := o.GetSecurity()
-	if security.TLSConfig != nil {
-		return security.TLSConfig.CA
-	}
-	return ""
+	return specCAConfigMapName(o.resourceName, o.GetSecurity())
 }
 
 // isTLSEnabled reports whether the referenced CR has TLS enabled.
 func (o *externalAppDBRefObject) isTLSEnabled() bool {
 	return o.IsSecurityTLSConfigEnabled()
+}
+
+// isManagedCertificateEnabled reports whether the referenced CR uses operator-managed certificates.
+func (o *externalAppDBRefObject) isManagedCertificateEnabled() bool {
+	return o.GetSecurity().IsManagedCertificateEnabled()
 }
 
 func (o *externalAppDBRefObject) getClusterList() []appDBClusterItem {
@@ -285,6 +312,7 @@ type externalAppDB interface {
 	GetRole() string
 	getCAConfigMapName() string
 	isTLSEnabled() bool
+	isManagedCertificateEnabled() bool
 	getClusterList() []appDBClusterItem
 	isMultiCluster() bool
 }
@@ -304,6 +332,7 @@ func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx conte
 		return &externalAppDBRefObject{
 			ConnectionStringBuilder: mongodb,
 			DbCommonSpec:            mongodb.Spec.DbCommonSpec,
+			resourceName:            mongodb.Name,
 			clusterList:             []appDBClusterItem{{clusterName: multicluster.LegacyCentralClusterName, client: e.client, stsName: ref.Name}},
 			isMulticluster:          false,
 		}, nil
@@ -328,6 +357,7 @@ func (e *ReconcileExternalAppDBReplicaSet) fetchExternalAppDBRefObject(ctx conte
 		return &externalAppDBRefObject{
 			ConnectionStringBuilder: mdbm,
 			DbCommonSpec:            mdbm.Spec.DbCommonSpec,
+			resourceName:            mdbm.Name,
 			clusterList:             clusterList,
 			isMulticluster:          true,
 		}, nil
