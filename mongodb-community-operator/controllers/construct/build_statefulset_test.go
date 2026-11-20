@@ -81,6 +81,27 @@ func TestMongod_Container(t *testing.T) {
 	t.Run("Resource requirements are correct", func(t *testing.T) {
 		assert.Equal(t, resourcerequirements.Defaults(), c.Resources)
 	})
+
+	t.Run("Startup and liveness probes check the mongod port", func(t *testing.T) {
+		if assert.NotNil(t, c.StartupProbe) && assert.NotNil(t, c.StartupProbe.TCPSocket) {
+			assert.Equal(t, 27017, c.StartupProbe.TCPSocket.Port.IntValue())
+			assert.Equal(t, int32(60), c.StartupProbe.FailureThreshold)
+		}
+		if assert.NotNil(t, c.LivenessProbe) && assert.NotNil(t, c.LivenessProbe.TCPSocket) {
+			assert.Equal(t, 27017, c.LivenessProbe.TCPSocket.Port.IntValue())
+			assert.Equal(t, int32(30), c.LivenessProbe.PeriodSeconds)
+			assert.Equal(t, int32(10), c.LivenessProbe.FailureThreshold)
+		}
+		assert.Nil(t, c.ReadinessProbe)
+	})
+
+	t.Run("Probes follow a custom port", func(t *testing.T) {
+		config := v1.NewMongodConfiguration()
+		config = config.SetDBPort(40333)
+		c := container.New(mongodbContainer(mongodbImageMock, []corev1.VolumeMount{}, config, false))
+		assert.Equal(t, 40333, c.StartupProbe.TCPSocket.Port.IntValue())
+		assert.Equal(t, 40333, c.LivenessProbe.TCPSocket.Port.IntValue())
+	})
 }
 
 func TestMongoDBAgentCommand(t *testing.T) {
