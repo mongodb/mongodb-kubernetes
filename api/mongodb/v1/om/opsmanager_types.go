@@ -1174,6 +1174,10 @@ func (om *MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
 		}
 	}
 
+	if om.Spec.License.LicenseProvided() {
+		secretNames = append(secretNames, om.Spec.License.SecretRef.Name)
+	}
+
 	return secretNames
 }
 
@@ -1294,4 +1298,14 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 
 func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
 	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
+}
+
+func (om *MongoDBOpsManager) LicenseRotateIdentityDue() bool {
+	due, _ := strconv.ParseBool(om.Annotations[util.LicenseRotateIdentityAnnotation])
+	return due
+}
+
+func (om *MongoDBOpsManager) LicenseRecomputeDue() bool {
+	due, _ := strconv.ParseBool(om.Annotations[util.LicenseRecomputeAnnotation])
+	return due
 }
