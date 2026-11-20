@@ -10,15 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
@@ -83,17 +81,10 @@ func (h *licenseEnvHarness) createOM(mutate func(*omv1.MongoDBOpsManager)) *omv1
 	if mutate != nil {
 		mutate(om)
 	}
-	// Create it without spec.applicationDatabase.monitoringAgent like a user manifest, so the operator
-	// writes back an object the CRD validates the same way as in a real cluster.
-	content, err := runtime.DefaultUnstructuredConverter.ToUnstructured(om)
-	require.NoError(h.t, err)
-	unstructured.RemoveNestedField(content, "spec", "applicationDatabase", "monitoringAgent")
-	gvk, err := apiutil.GVKForObject(om, h.client.Scheme())
-	require.NoError(h.t, err)
-	obj := &unstructured.Unstructured{Object: content}
-	obj.SetGroupVersionKind(gvk)
-	require.NoError(h.t, h.client.Create(h.ctx, obj))
-	require.NoError(h.t, runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, om))
+	// The deprecated monitoringAgent is not a pointer, so it is always sent and its required
+	// startupOptions cannot be null.
+	om.Spec.AppDB.MonitoringAgent.StartupParameters = mdbv1.StartupParameters{}
+	require.NoError(h.t, h.client.Create(h.ctx, om))
 	h.t.Cleanup(func() { _ = h.client.Delete(h.ctx, om) })
 	return om
 }
