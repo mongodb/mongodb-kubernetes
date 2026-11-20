@@ -47,8 +47,6 @@ const (
 	// to decide between RESOURCE_EXHAUSTED (Envoy retries) and the terminal 489 overload error.
 	envoyMaxAttemptCountHeader = "x-envoy-max-attempt-count"
 
-	defaultEnvoyNumRetries = uint32(2)
-
 	envoyClusterMaxRequests = uint32(1024)
 )
 
@@ -214,15 +212,17 @@ func socketAddress(addr string, port uint32) *corev3.Address {
 // buildRetryPolicy constructs the Envoy retry policy from user config (or defaults).
 // Retries always target a different host than the one that failed.
 func buildRetryPolicy(rp *searchv1.EnvoyRetryPolicy) *routev3.RetryPolicy {
-	numRetries := defaultEnvoyNumRetries
+	numRetries := uint32(2)
 	perTryTimeout := 60 * time.Second
 
-	if rp != nil && rp.NumRetries != nil {
-		numRetries = *rp.NumRetries
-	}
-	if rp != nil && rp.PerTryTimeout != nil {
-		if d, err := time.ParseDuration(*rp.PerTryTimeout); err == nil {
-			perTryTimeout = d
+	if rp != nil {
+		if rp.NumRetries != nil {
+			numRetries = *rp.NumRetries
+		}
+		if rp.PerTryTimeout != nil {
+			if d, err := time.ParseDuration(*rp.PerTryTimeout); err == nil {
+				perTryTimeout = d
+			}
 		}
 	}
 
