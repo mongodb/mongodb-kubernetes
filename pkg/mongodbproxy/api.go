@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,14 +24,12 @@ type errorResponse struct {
 }
 
 // GET  /v1/process
-// GET  /v1/events
 // POST /v1/process/start
 // POST /v1/process/stop
 func NewHandler(s *Supervisor, log *zap.SugaredLogger) http.Handler {
 	h := &handler{s: s, log: log}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/process", h.get)
-	mux.HandleFunc("GET /v1/events", h.getEvents)
 	mux.HandleFunc("POST /v1/process/start", h.start)
 	mux.HandleFunc("POST /v1/process/stop", h.stop)
 	return mux
@@ -50,7 +47,6 @@ type requestLog struct {
 	started    time.Time
 	requestID  string
 	role       Role
-	pid        int
 	status     int
 	errorClass string
 }
@@ -84,44 +80,6 @@ func (r *requestLog) fields() []any {
 	}
 }
 
-func (r *requestLog) event(action, request string, role Role) Event {
-	return Event{
-		Action:     action,
-		RequestID:  r.requestID,
-		Request:    request,
-		Role:       role,
-		PID:        r.pid,
-		Outcome:    requestOutcome(r.status),
-		Returned:   returned(r.status, r.errorClass),
-		ErrorClass: r.errorClass,
-		DurationMs: float64(time.Since(r.started).Microseconds()) / 1000,
-	}
-}
-
-// requestOutcome maps the HTTP response to the outcome of the event.
-func requestOutcome(status int) string {
-	switch {
-	case status == http.StatusOK:
-		return "success"
-	case status == http.StatusRequestTimeout:
-		return "canceled"
-	case status == http.StatusGatewayTimeout:
-		return "timeout"
-	case status >= http.StatusInternalServerError:
-		return "failed"
-	default:
-		return "rejected"
-	}
-}
-
-// returned is the HTTP result that the caller received.
-func returned(status int, errorClass string) string {
-	if errorClass == "" {
-		return strconv.Itoa(status)
-	}
-	return fmt.Sprintf("%d %s", status, errorClass)
-}
-
 func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	call := h.request(w, r)
 	status := h.s.Status()
@@ -130,34 +88,23 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	h.log.Debugw("status requested", append(call.fields(), "state", status.State)...)
 }
 
-// getEvents returns the bounded in-memory event history, newest first.
-func (h *handler) getEvents(w http.ResponseWriter, r *http.Request) {
-	call := h.request(w, r)
-	events, dropped := h.s.eventSnapshot()
-	writeJSON(call, http.StatusOK, eventsResponse{Events: events, Dropped: dropped, Capacity: maxEvents})
-	h.log.Debugw("events requested", call.fields()...)
-}
-
 func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 	call := h.request(w, r)
 	var req StartRequest
 	// The deferred line also covers a request that fails before the process is spawned.
 	defer func() {
 		h.log.Infow("start requested", append(call.fields(), "waitForExit", req.WaitForExit)...)
-		h.s.recordEvent(call.event("start", requestStart, req.Role))
 	}()
 	if err := decode(call, r, &req); err != nil {
 		h.fail(call, err)
 		return
 	}
 	call.role = req.Role
-	req.RequestID = call.requestID
 	e, err := h.s.Start(req)
 	if err != nil {
 		h.fail(call, err)
 		return
 	}
-	call.pid = e.pid
 
 	if req.WaitForExit {
 		// If the client goes away we stop waiting but leave the child alone.
@@ -178,7 +125,6 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		fields := append(call.fields(), "timeout", timeout.String(), "force", req.Force)
 		h.log.Infow("stop requested", fields...)
-		h.s.recordEvent(call.event("stop", requestStop, req.Role))
 	}()
 	if err := decode(call, r, &req); err != nil {
 		h.fail(call, err)
@@ -191,9 +137,6 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 	}
 	timeout = time.Duration(req.TimeoutSeconds * float64(time.Second))
 	e, err := h.s.stopExecution(r.Context(), req.ExecutionID, req.Role, timeout, req.Force)
-	if e != nil {
-		call.pid = e.pid
-	}
 	if err != nil {
 		h.fail(call, err)
 		return
