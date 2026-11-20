@@ -159,11 +159,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	cmd.Stderr = io.MultiWriter(s.stderr, output)
 	cmd.WaitDelay = waitDelay
 
-	start := cmd.Start
-	if spec.disableTHP {
-		start = func() error { return startWithTHPDisabled(cmd) }
-	}
-	if err := start(); err != nil {
+	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSpawn, err)
 	}
 

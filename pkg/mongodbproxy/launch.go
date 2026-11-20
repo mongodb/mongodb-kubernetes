@@ -20,10 +20,9 @@ func reservedArg(arg string) bool {
 
 // launchSpec is a validated StartRequest turned into what exec needs.
 type launchSpec struct {
-	binary     string
-	args       []string
-	env        []string
-	disableTHP bool
+	binary string
+	args   []string
+	env    []string
 }
 
 // validate checks the request and turns it into a launch spec. baseEnv is the environment the child starts with,
@@ -56,11 +55,8 @@ func (r StartRequest) validate(baseEnv []string) (launchSpec, error) {
 	args := append([]string{"-f", r.ConfigPath}, o.Args...)
 	env := append(append([]string(nil), baseEnv...), o.Env...)
 	env = append(env, "MONGODB_CONFIG_OVERRIDE_NOFORK=1")
-	if o.DisableTHP {
-		env = append(env, "SET_THP_DISABLED=yes")
-	}
 
-	return launchSpec{binary: binary, args: args, env: env, disableTHP: o.DisableTHP}, nil
+	return launchSpec{binary: binary, args: args, env: env}, nil
 }
 
 // envValue returns the last value for key, matching exec's treatment of duplicate keys.
