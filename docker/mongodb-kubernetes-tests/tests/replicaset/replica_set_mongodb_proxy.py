@@ -34,6 +34,7 @@ from kubetester.mongodb_proxy import (
     proxy_image,
     proxy_log,
     query_proxy,
+    query_proxy_path,
     read_processes,
     restart_counts,
     run_operator_in_cluster,
@@ -72,7 +73,7 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
     # The Ops Manager project keeps the authentication of an earlier run (also of one that failed half way), and a
     # new resource then starts with it. Asking for no authentication makes the operator switch it off.
     resource["spec"]["security"] = {"authentication": {"enabled": False}}
-    # The proxy only exists in the static-ga architecture, whatever the default of the test run is.
+    # The proxy is part of static-ga, whatever the default of the test run is.
     resource["metadata"].setdefault("annotations", {})["mongodb.com/v1.architecture"] = "static-ga"
     try_load(resource)
     return resource
@@ -165,6 +166,32 @@ def test_proxy_reports_the_running_database(replica_set: MongoDB, namespace: str
 
         assert status["state"] == "running", status
         assert status["role"] == "main", status
+
+
+@mark.e2e_replica_set_mongodb_proxy
+def test_proxy_reports_events_and_timestamps(replica_set: MongoDB, namespace: str):
+    pod = f"{replica_set.name}-0"
+    status = query_proxy(pod, namespace)
+    assert status["state"] == "running", status
+    assert status.get("startedAt"), status
+    assert status.get("uptimeSeconds", 0) > 0, status
+
+    body = query_proxy_path(pod, namespace, "/v1/events")
+    assert body["capacity"] == 256, body
+    assert body["dropped"] == 0, body
+    names = [event["action"] for event in body["events"]]
+    assert "child_started" in names, body
+    child_started = next(event for event in body["events"] if event["action"] == "child_started")
+    assert child_started["role"] == "main", child_started
+    assert child_started["pid"] > 0, child_started
+
+    start_events = [event for event in body["events"] if event["action"] == "start"]
+    assert start_events, body
+    start_request = start_events[0]
+    assert start_request["request"] == "POST /v1/process/start", start_request
+    assert start_request["outcome"] == "success", start_request
+    assert start_request["returned"] == "200", start_request
+    assert start_request["requestId"], start_request
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -294,6 +321,12 @@ def test_agent_restarts_mongod_through_the_proxy_on_a_config_change(replica_set:
         assert len(proxy_events(pod, namespace, "process started")) >= 2, pod
         assert not proxy_events(pod, namespace, "sending SIGKILL"), pod
 
+        status = query_proxy(pod, namespace)
+        last_exit = status.get("lastExit")
+        assert last_exit is not None, status
+        assert last_exit["exitCode"] == 0 and not last_exit.get("signal"), last_exit
+        assert last_exit.get("exitedAt"), last_exit
+
 
 @mark.e2e_replica_set_mongodb_proxy
 def test_agent_starts_mongod_again_after_it_was_killed(replica_set: MongoDB, namespace: str):
@@ -313,6 +346,8 @@ def test_agent_starts_mongod_again_after_it_was_killed(replica_set: MongoDB, nam
 
     # The proxy saw the crash and the agent's new start request.
     assert any(e.get("signal") == "killed" for e in proxy_events(pod, namespace, "process exited"))
+    last_exit = query_proxy(pod, namespace).get("lastExit")
+    assert last_exit is not None and last_exit.get("signal") == "killed", last_exit
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -408,6 +443,22 @@ def test_agent_container_restart_does_not_restart_mongod(replica_set: MongoDB, n
 
 
 MEMBER_CONFIG = "/data/automation-mongod.conf"
+
+
+def restart_agent_container(pod: str, namespace: str):
+    before = restart_counts(pod, namespace)[AGENT_CONTAINER]
+    KubernetesTester.run_command_in_pod_container(
+        pod, namespace, ["bash", "-c", "kill -TERM 1"], container=AGENT_CONTAINER
+    )
+
+    def restarted_and_ready() -> bool:
+        current = KubernetesTester.clients("corev1").read_namespaced_pod(pod, namespace)
+        return any(
+            c.name == AGENT_CONTAINER and c.restart_count > before and c.ready
+            for c in current.status.container_statuses
+        )
+
+    wait_until("the agent container to restart and become ready", restarted_and_ready, timeout_seconds=180)
 
 
 @mark.e2e_replica_set_mongodb_proxy

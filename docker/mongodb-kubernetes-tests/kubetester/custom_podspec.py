@@ -21,14 +21,26 @@ def assert_stateful_set_podspec(
     )
     if containers_spec is None:
         containers_spec = []
-    for i, expected_spec in enumerate(containers_spec):
-        spec = pod_template_spec.containers[i].to_dict()
+    for expected_spec in containers_spec:
+        matches = [container for container in pod_template_spec.containers if container.name == expected_spec["name"]]
+        assert len(matches) == 1, f"Expected one container named {expected_spec['name']}"
+        spec = matches[0].to_dict()
         # compare only the expected keys
         for k in expected_spec:
             if k == "volume_mounts":
-                assert_volume_mounts_are_equal(expected_spec[k], spec[k])
+                assert_expected_volume_mounts_are_present(expected_spec[k], spec[k])
             else:
                 assert expected_spec[k] == spec[k]
+
+
+def assert_expected_volume_mounts_are_present(expected: List[dict], actual: List[dict]) -> None:
+    """Asserts that every expected mount is present in the actual list.
+
+    The operator adds mounts of its own. In static-ga the database container also mounts the proxy image and the proxy
+    socket, so the two lists are not equal and their order is not fixed.
+    """
+    for mount in expected:
+        assert mount in actual, f"Missing volume mount {mount} in {actual}"
 
 
 def assert_volume_mounts_are_equal(volume_mounts_1, volume_mounts_2):
