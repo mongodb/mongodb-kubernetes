@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
@@ -36,6 +38,19 @@ type MockedOmAdmin struct {
 	fileSystemStoreConfigs map[string]backup.DataStoreConfig
 	apiKeys                []Key
 	agentVersion           string
+	LicenseState           LicenseView
+	LicenseReadState       *LicenseView
+	LicenseRecomputedState *LicenseView
+	InstalledLicense       json.RawMessage
+	ReleasedIDs            []string
+	LicenseReceipt         string
+	IdentityRotationErr    error
+	LicenseIdentity        IdentityView
+	LicenseReadErr         error
+	LicenseInstallErr      error
+	LicenseRecomputeErr    error
+	LicenseReceiptErr      error
+	LicenseIdentityErr     error
 }
 
 func (a *MockedOmAdmin) UpdateDaemonConfig(ctx context.Context, config backup.DaemonConfig) error {
@@ -226,7 +241,7 @@ func (a *MockedOmAdmin) DeleteBlockStoreConfig(ctx context.Context, id string) e
 }
 
 func (a *MockedOmAdmin) ReadFileSystemStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error) {
-	allConfigs := make([]backup.DataStoreConfig, len(a.blockStoreConfigs))
+	allConfigs := make([]backup.DataStoreConfig, 0, len(a.fileSystemStoreConfigs))
 	for _, v := range a.fileSystemStoreConfigs {
 		allConfigs = append(allConfigs, v)
 	}
@@ -256,4 +271,96 @@ func (a *MockedOmAdmin) UpdateAgentVersion(version string) {
 
 func (a *MockedOmAdmin) ReadAgentVersion() (string, error) {
 	return a.agentVersion, nil
+}
+
+func (a *MockedOmAdmin) ReadLicenseState(_ context.Context) (LicenseView, error) {
+	if a.LicenseReadErr != nil {
+		return LicenseView{}, a.LicenseReadErr
+	}
+	if a.LicenseReadState != nil {
+		return copyLicenseView(*a.LicenseReadState), nil
+	}
+	return copyLicenseView(a.LicenseState), nil
+}
+
+func (a *MockedOmAdmin) InstallLicense(_ context.Context, rawArtifact json.RawMessage) (LicenseView, error) {
+	if a.LicenseInstallErr != nil {
+		return LicenseView{}, a.LicenseInstallErr
+	}
+	a.InstalledLicense = rawArtifact
+	if artifactID, err := ArtifactIDFromRaw(string(rawArtifact)); err == nil {
+		state := copyLicenseView(a.LicenseState)
+		if _, listed := state.Artifact(artifactID); !listed {
+			state.Licenses = append(state.Licenses, LicenseArtifactView{ArtifactID: artifactID, Usable: true, Status: "ACTIVE"})
+		}
+		for i := range state.Licenses {
+			if state.Licenses[i].ArtifactID != artifactID {
+				markReleased(&state.Licenses[i])
+			}
+		}
+		a.LicenseState = state
+	}
+	// After a PUT, reads see the state OM returned for it.
+	a.LicenseReadState = nil
+	return copyLicenseView(a.LicenseState), nil
+}
+
+func (a *MockedOmAdmin) RecomputeLicense(ctx context.Context) (LicenseView, error) {
+	if a.LicenseRecomputeErr != nil {
+		return LicenseView{}, a.LicenseRecomputeErr
+	}
+	if a.LicenseRecomputedState != nil {
+		a.LicenseReadState = a.LicenseRecomputedState
+	}
+	return a.ReadLicenseState(ctx)
+}
+
+func (a *MockedOmAdmin) ReleaseLicense(_ context.Context, artifactID string) (LicenseView, error) {
+	state := copyLicenseView(a.LicenseState)
+	if _, listed := state.Artifact(artifactID); !listed {
+		notFound := 404
+		return LicenseView{}, &apierror.Error{Status: &notFound, Detail: fmt.Sprintf("Ops Manager does not hold license %s", artifactID)}
+	}
+	a.ReleasedIDs = append(a.ReleasedIDs, artifactID)
+	for i := range state.Licenses {
+		if state.Licenses[i].ArtifactID == artifactID {
+			markReleased(&state.Licenses[i])
+		}
+	}
+	a.LicenseState = state
+	a.LicenseReadState = nil
+	return copyLicenseView(state), nil
+}
+
+func markReleased(license *LicenseArtifactView) {
+	license.Status = LicenseArtifactReleased
+	license.Usable = false
+	license.TermEnd = ""
+}
+
+// copyLicenseView copies the licenses, so a test keeps its own view when the mock changes the state.
+func copyLicenseView(view LicenseView) LicenseView {
+	view.Licenses = slices.Clone(view.Licenses)
+	return view
+}
+
+func (a *MockedOmAdmin) ReadLicenseReceipt(_ context.Context, artifactID string) (string, error) {
+	if a.LicenseReceiptErr != nil {
+		return "", a.LicenseReceiptErr
+	}
+	if a.LicenseReceipt == "" {
+		return `{"artifactId":"` + artifactID + `"}`, nil
+	}
+	return a.LicenseReceipt, nil
+}
+
+func (a *MockedOmAdmin) ReadLicenseIdentity(_ context.Context) (IdentityView, error) {
+	if a.LicenseIdentityErr != nil {
+		return IdentityView{}, a.LicenseIdentityErr
+	}
+	return a.LicenseIdentity, nil
+}
+
+func (a *MockedOmAdmin) RotateLicenseIdentity(_ context.Context) error {
+	return a.IdentityRotationErr
 }
