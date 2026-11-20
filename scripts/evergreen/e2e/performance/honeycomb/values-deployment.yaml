@@ -136,7 +136,7 @@ config:
             # The receiver puts the whole Event in the body. Honeycomb stores
             # nested body keys as columns, so drop the object once the statements
             # above read the fields they need.
-            - delete_key(body, "object") where IsMap(body) and body["object"] != nil
+            - delete_key(body, "object") where IsMap(body) and IsMap(body["object"])
     # The k8sobjects receiver emits one log record per watch event, with the body
     # {type: ADDED|MODIFIED|DELETED, object: <MongoDB CR>}. Keep a fixed set of
     # status fields as attributes. The CR spec is not copied, because it is large
