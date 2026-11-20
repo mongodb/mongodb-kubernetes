@@ -1,0 +1,33 @@
+suite: WATCH_NAMESPACE matches the watch namespaces
+templates:
+  - operator.yaml
+tests:
+  - it: single namespace -> the operator watches the namespace it runs in
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WATCH_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+
+  - it: multiple namespaces -> the comma separated list is passed through
+    set:
+      operator.watchNamespace: "ns1,ns2"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WATCH_NAMESPACE
+            value: "ns1,ns2"
+
+  - it: all namespaces -> the value is *
+    set:
+      operator.watchNamespace: "*"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: WATCH_NAMESPACE
+            value: "*"
