@@ -73,8 +73,8 @@ def _managed_as(ops_manager: MongoDBOpsManager, generation: int, installed: Opti
     if installed is None:
         return True
     if installed == "":
-        return condition["reason"] == "LicenseNotProvided"
-    return condition["reason"] == "OperatorManagedLicense" and installed in condition["message"]
+        return condition["reason"] == "NotProvided"
+    return condition["reason"] == "Managed" and installed in condition["message"]
 
 
 def _managed_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optional[dict]:
@@ -86,8 +86,8 @@ def _managed_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optio
     condition = om_condition(ops_manager, OPERATOR_MANAGED_LICENSE_CONDITION)
     if condition is None or condition["observedGeneration"] < generation:
         return None
-    if condition["reason"] == "LicenseNotManaged":
-        pytest.fail(f"OperatorManagedLicense is LicenseNotManaged: {condition['message']}")
+    if condition["reason"] in ("Rejected", "Failed"):
+        pytest.fail(f"OperatorManagedLicense is {condition['reason']}: {condition['message']}")
     return condition
 
 
@@ -104,13 +104,13 @@ def expected_active_condition(om_view: dict, holder_id: str) -> tuple[str, str, 
         license = f"license {held['artifactId']}"
         if held.get("termEnd"):
             license += f", valid until {held['termEnd']}"
-    status, reason = "False", "LicenseNotReady"
+    status, reason = "False", "Inactive"
     state_message = f"License state is {effective_state}."
     if effective_state == "LICENSED":
-        status, reason = "True", "LicenseActive"
+        status, reason = "True", "Active"
     if effective_state == "":
-        reason, state_message = "LicenseStateUnknown", "Ops Manager has not reported a license state yet."
-    if reason == "LicenseStateUnknown":
+        reason, state_message = "Unknown", "Ops Manager has not reported a license state yet."
+    if reason == "Unknown":
         status = "Unknown"
     message = f"{state_message} Ops Manager holds {license}."
     if holder_id:
