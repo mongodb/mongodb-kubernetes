@@ -64,7 +64,7 @@ STALE_LICENSE_LOOKBACK = timedelta(days=7)
 # The license conditions the operator writes on the Ops Manager resource.
 LICENSE_ACTIVE_CONDITION = "LicenseActive"
 OPERATOR_MANAGED_LICENSE_CONDITION = "OperatorManagedLicense"
-LICENSE_STATE_REASONS = {"GRACE": "LicenseNotReady", "UNLICENSED": "LicenseNotReady", "EXPIRED": "LicenseNotReady"}
+LICENSE_STATE_REASONS = {"GRACE": "Inactive", "UNLICENSED": "Inactive", "EXPIRED": "Inactive"}
 
 # The finalizer the operator holds while it may have a license installed in Ops Manager.
 LICENSE_FINALIZER = "mongodb.com/v1.opsManagerLicenseRemovalFinalizer"
@@ -205,7 +205,7 @@ def installed_artifact_id(ops_manager: MongoDBOpsManager) -> str:
     """The license from secretRef that OperatorManagedLicense reports the operator manages, empty otherwise."""
     ops_manager.load()
     condition = om_condition(ops_manager, OPERATOR_MANAGED_LICENSE_CONDITION)
-    if condition is None or condition["reason"] != "OperatorManagedLicense":
+    if condition is None or condition["reason"] != "Managed":
         return ""
     match = re.search(r"^License (\S+) from \.spec\.license\.secretRef is managed", condition["message"])
     return match.group(1) if match else ""
@@ -230,8 +230,8 @@ def _managed_as(ops_manager: MongoDBOpsManager, generation: int, installed: Opti
     if installed is None:
         return True
     if installed == "":
-        return condition["reason"] == "LicenseNotProvided"
-    return condition["reason"] == "OperatorManagedLicense" and installed in condition["message"]
+        return condition["reason"] == "NotProvided"
+    return condition["reason"] == "Managed" and installed in condition["message"]
 
 
 def _managed_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optional[dict]:
@@ -243,8 +243,8 @@ def _managed_condition(ops_manager: MongoDBOpsManager, generation: int) -> Optio
     condition = om_condition(ops_manager, OPERATOR_MANAGED_LICENSE_CONDITION)
     if condition is None or condition["observedGeneration"] < generation:
         return None
-    if condition["reason"] == "LicenseNotManaged":
-        pytest.fail(f"OperatorManagedLicense is LicenseNotManaged: {condition['message']}")
+    if condition["reason"] in ("Rejected", "Failed"):
+        pytest.fail(f"OperatorManagedLicense is {condition['reason']}: {condition['message']}")
     return condition
 
 
@@ -280,13 +280,13 @@ def expected_active_condition(om_view: dict, holder_id: str) -> tuple[str, str, 
         license = f"license {held['artifactId']}"
         if held.get("termEnd"):
             license += f", valid until {held['termEnd']}"
-    status, reason = "False", LICENSE_STATE_REASONS.get(effective_state, "LicenseStateUnknown")
+    status, reason = "False", LICENSE_STATE_REASONS.get(effective_state, "Unknown")
     state_message = f"License state is {effective_state}."
     if effective_state == "LICENSED":
-        status, reason = "True", "LicenseActive"
+        status, reason = "True", "Active"
     if effective_state == "":
-        reason, state_message = "LicenseStateUnknown", "Ops Manager has not reported a license state yet."
-    if reason == "LicenseStateUnknown":
+        reason, state_message = "Unknown", "Ops Manager has not reported a license state yet."
+    if reason == "Unknown":
         status = "Unknown"
     message = f"{state_message} Ops Manager holds {license}."
     if holder_id:
@@ -310,7 +310,7 @@ def assert_license_installed(ops_manager: MongoDBOpsManager, artifact_id: str) -
     assert installed_artifact_id(ops_manager) == artifact_id
     active = license_active_condition(ops_manager)
     assert active["status"] == "True", active["message"]
-    assert active["reason"] == "LicenseActive", active["message"]
+    assert active["reason"] == "Active", active["message"]
 
 
 def assert_om_license_unchanged(before: dict, after: dict) -> None:
@@ -623,7 +623,7 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
         condition = om_condition(ops_manager, OPERATOR_MANAGED_LICENSE_CONDITION)
         if condition is None or condition["observedGeneration"] < generation:
             return False
-        if condition["reason"] != "LicenseNotManaged":
+        if condition["reason"] != "Failed":
             pytest.fail(
                 f"OperatorManagedLicense settled as {condition['reason']} before the release failure was seen: {condition['message']}"
             )
@@ -631,13 +631,13 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
         return True
 
     ops_manager.wait_for(release_failed, timeout=DEFAULT_TIMEOUT)
-    assert failure["reason"] == "LicenseNotManaged", failure["message"]
+    assert failure["reason"] == "Failed", failure["message"]
     assert "cannot release the license Ops Manager holds" in failure["message"], failure["message"]
 
     # The retry of the failed reconcile records the spec without secretRef and reports it not provided.
     def not_provided(_: MongoDBOpsManager) -> bool:
         condition = om_condition(ops_manager, OPERATOR_MANAGED_LICENSE_CONDITION)
-        return condition is not None and condition["reason"] == "LicenseNotProvided"
+        return condition is not None and condition["reason"] == "NotProvided"
 
     ops_manager.wait_for(not_provided, timeout=DEFAULT_TIMEOUT)
     wait_for_cr_license_sync(ops_manager, installed="")
