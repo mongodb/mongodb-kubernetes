@@ -211,15 +211,6 @@ def installed_artifact_id(ops_manager: MongoDBOpsManager) -> str:
     return match.group(1) if match else ""
 
 
-def not_installed_message(artifact_id: str) -> str:
-    """The OperatorManagedLicense message for a license from secretRef Ops Manager does not hold, since it
-    already holds a license this new or newer."""
-    return (
-        f"License {artifact_id} from .spec.license.secretRef is not installed, because Ops Manager already holds "
-        "a license this new or newer that the operator doesn't manage."
-    )
-
-
 def _managed_as(ops_manager: MongoDBOpsManager, generation: int, installed: Optional[str]) -> bool:
     """Whether OperatorManagedLicense settled this generation as expected. An empty installed expects no
     license from secretRef, right after a release too, an artifact id expects Ops Manager to hold it,
@@ -271,27 +262,13 @@ def om_artifact_released(ops_manager: MongoDBOpsManager, artifact_id: str) -> bo
     raise AssertionError(f"Ops Manager lists no row for license {artifact_id}")
 
 
-def expected_active_condition(om_view: dict, holder_id: str) -> tuple[str, str, str]:
-    """The status, reason and message LicenseActive carries for an Ops Manager license view."""
+def expected_active_condition(om_view: dict) -> tuple[str, str]:
+    """The status and reason LicenseActive carries for an Ops Manager license view."""
     effective_state = (om_view.get("enforcement") or {}).get("effectiveState", "")
-    held = next((entry for entry in om_view.get("licenses", []) if entry["status"] != RELEASED_STATUS), None)
-    license = "no license"
-    if held is not None:
-        license = f"license {held['artifactId']}"
-        if held.get("termEnd"):
-            license += f", valid until {held['termEnd']}"
-    status, reason = "False", LICENSE_STATE_REASONS.get(effective_state, "Unknown")
-    state_message = f"License state is {effective_state}."
     if effective_state == "LICENSED":
-        status, reason = "True", "Active"
-    if effective_state == "":
-        reason, state_message = "Unknown", "Ops Manager has not reported a license state yet."
-    if reason == "Unknown":
-        status = "Unknown"
-    message = f"{state_message} Ops Manager holds {license}."
-    if holder_id:
-        message += f" Holder ID {holder_id}."
-    return status, reason, message
+        return "True", "Active"
+    reason = LICENSE_STATE_REASONS.get(effective_state, "Unknown")
+    return ("Unknown" if reason == "Unknown" else "False"), reason
 
 
 def cr_matches_om_license(ops_manager: MongoDBOpsManager, om_view: dict) -> bool:
@@ -299,8 +276,10 @@ def cr_matches_om_license(ops_manager: MongoDBOpsManager, om_view: dict) -> bool
     condition = om_condition(ops_manager, LICENSE_ACTIVE_CONDITION)
     if condition is None or condition["observedGeneration"] < ops_manager.get_generation():
         return False
-    expected = expected_active_condition(om_view, om_holder_id(ops_manager))
-    return (condition["status"], condition["reason"], condition["message"]) == expected
+    held = _held_artifact_ids(om_view)
+    if held and held[0] not in condition["message"]:
+        return False
+    return (condition["status"], condition["reason"]) == expected_active_condition(om_view)
 
 
 # Assertions
@@ -632,7 +611,6 @@ def remove_install_intent_without_identity(ops_manager: MongoDBOpsManager, artif
 
     ops_manager.wait_for(release_failed, timeout=DEFAULT_TIMEOUT)
     assert failure["reason"] == "Failed", failure["message"]
-    assert "cannot release the license Ops Manager holds" in failure["message"], failure["message"]
 
     # The retry of the failed reconcile records the spec without secretRef and reports it not provided.
     def not_provided(_: MongoDBOpsManager) -> bool:

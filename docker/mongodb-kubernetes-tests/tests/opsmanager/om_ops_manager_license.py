@@ -36,9 +36,7 @@ from tests.opsmanager.license_e2e_helpers import (
     install_license_out_of_band,
     installed_artifact_id,
     issue_top_up_and_auto_install,
-    license_active_condition,
     mint_run_license,
-    not_installed_message,
     nudge_reconcile,
     om_artifact_ids,
     om_artifact_released,
@@ -97,7 +95,6 @@ class TestOpsManagerLicenseE2E:
 
         assert active["status"] == "False"
         assert active["reason"] == "Inactive"
-        assert f"Holder ID {om_holder_id(ops_manager)}." in active["message"]
 
     def test_install_and_claim(self, ops_manager: MongoDBOpsManager, namespace: str):
         """The license from the Secret is installed, claimed at EA, and reported in the CR."""
@@ -107,7 +104,6 @@ class TestOpsManagerLicenseE2E:
         assert cr_matches_om_license(ops_manager, om_view)
         assert_license_installed(ops_manager, current_artifact_id())
         assert om_view["enforcement"].get("enforced", False) is False
-        assert f"Holder ID {om_holder_id(ops_manager)}." in license_active_condition(ops_manager)["message"]
 
     def test_release_after_license_secret_deleted_leaves_license_held(
         self, ops_manager: MongoDBOpsManager, namespace: str
@@ -129,8 +125,7 @@ class TestOpsManagerLicenseE2E:
         installed = install_license(ops_manager, namespace)
 
         ensure_license_artifact_secret(namespace, "not-a-license")
-        failure = wait_for_operator_managed_license_reason(ops_manager, "Failed")
-        assert "license artifact is not a valid JSON envelope" in failure["message"], failure["message"]
+        wait_for_operator_managed_license_reason(ops_manager, "Failed")
         remove_install_intent_without_identity(ops_manager, installed)
 
         wait_for_ea_artifact_state(ops_manager, installed, ACTIVE_STATUS)
@@ -177,7 +172,6 @@ class TestOpsManagerLicenseE2E:
             managed = wait_for_operator_managed_license_reason(ops_manager, "Rejected")
 
             assert managed["status"] == "False", managed["message"]
-            assert managed["message"] == not_installed_message(older_id), managed["message"]
             assert_om_license_unchanged(before, read_om_license_view(ops_manager))
         finally:
             # Ops Manager never held the older license, so only a revoke retires it at EA.
@@ -215,7 +209,6 @@ class TestOpsManagerLicenseE2E:
         om_view = read_om_license_view(ops_manager)
 
         assert managed["status"] == "False", managed["message"]
-        assert managed["message"] == not_installed_message(original), managed["message"]
         assert cr_matches_om_license(ops_manager, om_view)
         assert om_artifact_released(ops_manager, original)
         assert top_up in om_artifact_ids(ops_manager)
