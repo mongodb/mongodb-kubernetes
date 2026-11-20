@@ -480,8 +480,8 @@ def test_client_ca_rotation_prunes_only_after_every_client_certificate_moved(
     """A client CA rotation moves the clusterfile, agent and user certificates before the old CA goes.
 
     The prune is requested while the cert-manager controller is stopped, right after the widened bundle
-    is published, so no certificate can have moved yet: the operator must refuse it, keep the
-    annotation and mark every client certificate for re-issue. Once cert-manager runs again the
+    is published, while at least one leaf still needs the old CA: the operator must refuse it,
+    keep the annotation and mark the remaining leaves for re-issue. Once cert-manager runs again the
     certificates move, and the old client CA may only leave the bundle once none of them, the
     application user's included, is signed by it.
     """
@@ -495,39 +495,28 @@ def test_client_ca_rotation_prunes_only_after_every_client_certificate_moved(
 
     old_ca = begin_ca_rotation(namespace, self_signed_ca_name(MDB_RESOURCE, CLIENT))
     new_ca = wait_for_ca_rotated(namespace, self_signed_ca_name(MDB_RESOURCE, CLIENT), old_ca)
-    widened = wait_for_bundle(
-        namespace,
-        MDB_RESOURCE,
-        CLIENT,
-        [old_ca, new_ca],
-        changed_from=before["latest_hash"],
-        published_after=before["published_at"],
-    )
-    assert widened["previous_hash"] == before["latest_hash"]
-
-    refusal_checked = False
     with cert_manager_controller_paused():
+        widened = wait_for_bundle(
+            namespace,
+            MDB_RESOURCE,
+            CLIENT,
+            [old_ca, new_ca],
+            changed_from=before["latest_hash"],
+            published_after=before["published_at"],
+        )
+        assert widened["previous_hash"] == before["latest_hash"]
         wait_for_ca_file_paths(mdb, server_before["latest_hash"], widened["latest_hash"])
         on_old_ca = [secret for secret in secrets if signed_by(namespace, secret, old_ca)]
-        if on_old_ca != secrets:
-            # Only possible when the members rolled faster than the controller was stopped.
-            logger.warning(f"{set(secrets) - set(on_old_ca)} moved before the prune request, skipping the refusal")
-        else:
-            set_prune_annotation(mdb, CLIENT)
-            # The reconcile that published the widened bundle waits for the members to roll before the
-            # one triggered by the annotation can run.
-            wait_for_certificates_ready_message(mdb, previous_ca_not_pruned(CLIENT), timeout=ROLL_TIMEOUT)
-            assert prune_annotation(mdb) == CLIENT, "a refused prune keeps the annotation for a retry"
-            assert bundle_contains(namespace, MDB_RESOURCE, CLIENT, old_ca), "a refused prune must keep the old CA"
-
-            # After the members rolled onto the widened bundle the operator asks cert-manager to
-            # re-issue every client certificate, the user's included. Nothing is issued while the
-            # controller is stopped, so the request stays visible.
-            for certificate in (clusterfile, agent, USER_CERTIFICATE):
-                wait_for_issuing_reason(namespace, certificate, MANAGED_CA_ROTATED_REASON, timeout=ROLL_TIMEOUT)
-            assert prune_annotation(mdb) == CLIENT
-            assert bundle_contains(namespace, MDB_RESOURCE, CLIENT, old_ca)
-            refusal_checked = True
+        assert on_old_ca, "missed the early-prune window: every client leaf already moved"
+        set_prune_annotation(mdb, CLIENT)
+        wait_for_certificates_ready_message(mdb, previous_ca_not_pruned(CLIENT), timeout=ROLL_TIMEOUT)
+        assert prune_annotation(mdb) == CLIENT, "a refused prune keeps the annotation for a retry"
+        assert bundle_contains(namespace, MDB_RESOURCE, CLIENT, old_ca), "a refused prune must keep the old CA"
+        for secret in on_old_ca:
+            certificate = USER_CERTIFICATE if secret == USER_CERT_SECRET else secret
+            wait_for_issuing_reason(namespace, certificate, MANAGED_CA_ROTATED_REASON, timeout=ROLL_TIMEOUT)
+        assert prune_annotation(mdb) == CLIENT
+        assert bundle_contains(namespace, MDB_RESOURCE, CLIENT, old_ca)
 
     def never_pruned_ahead():
         assert_not_pruned_ahead_of_leaves(namespace, MDB_RESOURCE, CLIENT, old_ca, secrets)
@@ -540,8 +529,6 @@ def test_client_ca_rotation_prunes_only_after_every_client_certificate_moved(
     assert not signed_by(namespace, USER_CERT_SECRET, old_ca), "the user certificate must leave the old client CA"
     wait_for_automation_config_to_use_leaf_secrets(mdb, namespace, timeout=ROLL_TIMEOUT)
 
-    if not refusal_checked:
-        set_prune_annotation(mdb, CLIENT)
     # The user certificate is owned by the MongoDBUser, so its re-issue does not wake the MongoDB
     # reconcile that retries the prune: allow one extra reconcile if nothing else triggers it.
     wait_for_prune_annotation_removed(mdb, timeout=ROLL_TIMEOUT)

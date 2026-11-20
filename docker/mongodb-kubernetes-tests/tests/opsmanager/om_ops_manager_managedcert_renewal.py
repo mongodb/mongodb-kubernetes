@@ -51,6 +51,7 @@ from tests.opsmanager.managedcert_helper import (
     wait_for_certificates_ready,
     wait_for_om_https_trusted_by_bundle,
 )
+from tests.opsmanager.managedcert_rotation_edge_helper import now_utc, wait_for_appdb_agents_reach_om
 from tests.tls.managedcert_helper import (
     trigger_certificate_renewal,
     wait_for_certificate_issuance_after,
@@ -183,7 +184,7 @@ class TestOpsManagerManagedCertificateRenewal:
         # Ops Manager answers these API calls from the AppDB, and the monitoring agents of the
         # restarted members keep sending data.
         ops_manager.assert_appdb_monitoring_group_was_created()
-        ops_manager.assert_monitoring_data_exists()
+        wait_for_appdb_agents_reach_om(ops_manager, now_utc())
 
     def test_om_leaf_renewal_with_same_ca(
         self, ops_manager: MongoDBOpsManager, namespace: str, names: ManagedCertificateNames
@@ -249,4 +250,4 @@ class TestOpsManagerManagedCertificateRenewal:
     def test_monitoring_after_om_renewal(self, ops_manager: MongoDBOpsManager):
         """The AppDB agents reach the rolled Ops Manager through the unchanged bundle."""
         ops_manager.assert_appdb_monitoring_group_was_created()
-        ops_manager.assert_monitoring_data_exists()
+        wait_for_appdb_agents_reach_om(ops_manager, now_utc())

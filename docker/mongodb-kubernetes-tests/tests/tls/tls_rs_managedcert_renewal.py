@@ -40,6 +40,7 @@ from tests.tls.managedcert_helper import (
     wait_for_certificate_renewals,
     wait_for_certificate_spec_fields,
     wait_for_certificates_ready_condition,
+    wait_for_served_member_leaves,
 )
 
 MDB_RESOURCE = "test-tls-rs-managedcert-renewal"
@@ -247,6 +248,11 @@ def test_automatic_renewal(mdb: MongoDB, app_user: MongoDBUser, namespace: str):
 
     # The agent drives the roll: the pods keep their identity while their processes pick up the new
     # certificate files. A pod recreation would show up as a changed UID and restart the deployment.
+    endpoints = {}
+    for address in mdb.build_list_of_hosts():
+        host, port = address.rsplit(":", 1)
+        endpoints[host, int(port)] = member_crt_auto
+    wait_for_served_member_leaves(app_user, endpoints, timeout=600)
     assert _pod_uids(mdb) == pod_uids_before, "a certificate renewal must not recreate the pods"
     _assert_reachable(mdb, app_user, namespace)
 

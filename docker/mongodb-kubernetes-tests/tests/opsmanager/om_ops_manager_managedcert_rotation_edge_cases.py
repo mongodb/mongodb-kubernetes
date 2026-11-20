@@ -15,7 +15,7 @@ trusts the published Ops Manager CA bundle (sslMMSCAConfigMap). It then walks th
    previous CA is pruned, and a spec change still reconciles.
 3. An operator restart during the propagation window keeps the published-at clock, and the leaf
    is not re-issued before the propagation delay has passed.
-4. cert-manager renewing the Ops Manager leaf on its own during the window converges.
+4. A cert-manager renewal of the Ops Manager leaf during the propagation window converges.
 5. Prune annotation values that name no Ops Manager component are kept and prune nothing, and
    requests with nothing to prune, or for a disabled component, are removed promptly.
 6. Editing a ConfigMap referenced by additionalTrustedCAs republishes the AppDB bundle without
@@ -440,7 +440,7 @@ class TestOpsManagerManagedCertificateRotationEdgeCases:
     def test_cert_manager_renews_om_leaf_during_window(
         self, ops_manager: MongoDBOpsManager, replica_set: MongoDB, namespace: str, rotation: dict
     ):
-        """A renewal that cert-manager starts on its own before the delay still converges once the AppDB
+        """A forced cert-manager renewal before the propagation deadline converges once the AppDB
         pods are rolled and the downstream pods are restarted on the widened bundle."""
         names = ManagedCertificateNames.for_ops_manager(ops_manager)
         appdb_pods = appdb_pod_states(ops_manager)
@@ -450,14 +450,14 @@ class TestOpsManagerManagedCertificateRotationEdgeCases:
         old_ca = begin_ca_rotation(namespace, names.om_ca_certificate)
         new_ca = wait_for_ca_rotated(namespace, names.om_ca_certificate, old_ca)
         rotation["om_old_ca"], rotation["om_new_ca"] = old_ca, new_ca
-        trigger_certificate_renewal(namespace, names.om_leaf_certificate)
-
         widened = wait_for_bundle_rotation(
             namespace, names.om_ca_bundle_config_map, CA_BUNDLE_KEY, bundle["latest_hash"], bundle["published_at"]
         )
         _assert_bundle_holds(widened, old_ca, new_ca)
 
-        wait_for_leaf_reissued_on_new_ca(
+        deadline = parse_time(widened["published_at"]) + MANAGED_CA_PROPAGATION_DELAY
+        trigger_certificate_renewal(namespace, names.om_leaf_certificate)
+        leaf, _ = wait_for_leaf_reissued_on_new_ca(
             namespace,
             names.om_leaf_certificate,
             names.om_pem_secret,
@@ -466,6 +466,9 @@ class TestOpsManagerManagedCertificateRotationEdgeCases:
             new_ca,
             timeout=1800,
         )
+        assert (
+            certificate_not_before(leaf) < deadline
+        ), f"new-CA issuance missed the propagation window ending {deadline}"
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1800)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1800)
 
