@@ -6,7 +6,8 @@ This script queries the Evergreen API to find failed tasks in a build version
 and sends a Slack notification to #k8s-enterprise-builds with failure details
 and author information.
 
-The script runs after all other tasks complete via Evergreen's depends_on mechanism.
+Evergreen dependencies determine when the notifier starts. The script reports
+available results and lists unfinished variants as skipped in the report.
 It only runs on commit builds (not patches) - see .evergreen.yml for details.
 
 Environment variables required:
@@ -41,21 +42,14 @@ from evergreen.version import BuildVariantStatus, Version
 from scripts.evergreen.notify_flaky_tests import FlakyTask, get_flaky_tasks
 from scripts.python.evergreen_api import get_evergreen_api
 
-# Terminal statuses that indicate a patch/version has completed
-COMPLETED_STATUSES = {"succeeded", "failed"}
-
-# Tasks to exclude when checking for build completion (notification/reporting tasks)
-# These tasks run at the end and shouldn't block success notifications
+# Tasks to exclude from the report. They do not describe the build result
+# this notification reports.
 NOTIFICATION_TASKS = [
     "notify_master_build_status",
     "notify_flaky_tests_weekly",
+    "mckci_release_promote",
+    "build_test_image_ibm_z",
 ]
-
-# How long to wait for the version to reach a terminal state before proceeding
-# with whatever data is available (seconds). Prevents premature notifications
-# when the elapsed-build-activator fires the task early.
-VERSION_POLL_TIMEOUT = 600
-VERSION_POLL_INTERVAL = 30
 
 # Global counter for API calls
 _api_call_count = 0
@@ -121,11 +115,6 @@ class VersionInfo:
         """Get author_id from version (not exposed as property in evergreen.Version)."""
         return self.version.json.get("author_id", "")
 
-    @property
-    def is_completed(self) -> bool:
-        """Check if version has reached a terminal state."""
-        return self.version.status in COMPLETED_STATUSES
-
 
 def get_version_info(api: EvergreenApi, version_id: str) -> VersionInfo:
     """Fetch version information from Evergreen API."""
@@ -133,33 +122,6 @@ def get_version_info(api: EvergreenApi, version_id: str) -> VersionInfo:
     _api_call_count += 1
     version = api.version_by_id(version_id)
     return VersionInfo(version=version)
-
-
-def wait_for_version_completion(api: EvergreenApi, version_id: str) -> VersionInfo:
-    """Poll the version until it reaches a terminal state or timeout.
-
-    The elapsed-build-activator can fire this task before the build finishes.
-    This loop ensures we report the final status, not an intermediate one.
-    """
-    deadline = time.time() + VERSION_POLL_TIMEOUT
-    while True:
-        version_info = get_version_info(api, version_id)
-        if version_info.is_completed:
-            return version_info
-        remaining = deadline - time.time()
-        if remaining <= 0:
-            print(
-                f"Version still '{version_info.status}' after {VERSION_POLL_TIMEOUT}s — "
-                f"proceeding with current data",
-                file=sys.stderr,
-            )
-            return version_info
-        print(
-            f"Version status is '{version_info.status}', waiting {VERSION_POLL_INTERVAL}s "
-            f"for completion ({remaining:.0f}s remaining)...",
-            file=sys.stderr,
-        )
-        time.sleep(VERSION_POLL_INTERVAL)
 
 
 def get_build_tasks(api: EvergreenApi, build_variant_status: BuildVariantStatus) -> list[TaskInfo]:
@@ -182,7 +144,7 @@ def get_task_summary(
     Args:
         api: Evergreen API client
         version_id: Version ID to query
-        exclude_tasks: List of task display names to exclude from results (e.g., notification tasks)
+        exclude_tasks: List of task display names to exclude from results (e.g., end-of-build tasks)
     Returns: (failed_tasks, running_tasks, retried_tasks, total_tasks)
     """
     exclude_tasks = exclude_tasks or []
@@ -304,6 +266,7 @@ def format_slack_message(
     prev_failed: set[tuple[str, str]] | None = None,
     retried_tasks: list[TaskInfo] | None = None,
     total_tasks: int | None = None,
+    skipped_tasks: list[TaskInfo] | None = None,
 ) -> dict[str, object]:
     """Format a Slack message for build status.
 
@@ -314,10 +277,12 @@ def format_slack_message(
         prev_failed: Optional set of (task_name, variant) that also failed on the previous master
         retried_tasks: Tasks that ran more than once, reported on passing builds
         total_tasks: Total task count, used as the denominator for the retry count
+        skipped_tasks: Tasks without a completed result at report time
     """
     flaky_map = flaky_map or {}
     prev_failed = prev_failed or set()
     retried_tasks = retried_tasks or []
+    skipped_tasks = skipped_tasks or []
     evergreen_version_url = f"https://spruce.mongodb.com/version/{version_info.version_id}"
     is_failure = bool(failed_tasks)
     num_failures = len(failed_tasks) if failed_tasks else 0
@@ -325,7 +290,7 @@ def format_slack_message(
     num_retried = len(retried_tasks)
     retry_names = _retry_task_names(retried_tasks)
     retry_summary = ""
-    if not is_failure and total_tasks:
+    if not is_failure and not skipped_tasks and total_tasks:
         if num_retried:
             retry_summary = f"{num_retried} of {total_tasks} task runs restarted before this pass"
             if len(retry_names) != num_retried:
@@ -340,15 +305,14 @@ def format_slack_message(
     branch = getattr(version_info, "branch", None) or "master"
     branch_label = "Master" if branch == "master" else branch
 
+    run_prefix = f"Run #{run_number}: " if run_number else ""
     if is_failure:
         header_text = f"🔴 {branch_label} Build Failures"
         button_style = "danger"
-        run_prefix = f"Run #{run_number}: " if run_number else ""
         summary_text = f"{run_prefix}{branch_label} build failed: {num_failures} tasks failed for commit {version_info.revision[:8]} by {version_info.author}"
     else:
         header_text = f"✅ {branch_label} Build Passed"
         button_style = None
-        run_prefix = f"Run #{run_number}: " if run_number else ""
         summary_text = (
             f"{run_prefix}{branch_label} build passed for commit {version_info.revision[:8]} by {version_info.author}"
         )
@@ -387,6 +351,21 @@ def format_slack_message(
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": retry_text},
+            }
+        )
+
+    if skipped_tasks:
+        skipped_variants = sorted({task.build_variant for task in skipped_tasks})
+        skipped_lines = [f"• {variant}" for variant in skipped_variants[:5]]
+        if len(skipped_variants) > 5:
+            skipped_lines.append(f"_and {len(skipped_variants) - 5} more_")
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Skipped in this report:*\n" + "\n".join(skipped_lines),
+                },
             }
         )
 
@@ -559,22 +538,16 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Wait for the version to reach a terminal state before reporting.
-    # The elapsed-build-activator can fire this task prematurely.
     try:
-        version_info = wait_for_version_completion(api, version_id)
+        # ponytail: Evergreen gates startup with depends_on. Late results stay in Evergreen.
+        version_info = get_version_info(api, version_id)
+        failed_tasks, running_tasks, retried_tasks, total_tasks = get_task_summary(api, version_id, NOTIFICATION_TASKS)
     except Exception as e:
-        print(f"Error fetching version info: {e}", file=sys.stderr)
+        print(f"Error fetching version results: {e}", file=sys.stderr)
         sys.exit(1)
 
     print(f"Commit: {version_info.revision[:8]} by {version_info.author}", file=sys.stderr)
-    print(f"Final status: {version_info.status}", file=sys.stderr)
-
-    try:
-        failed_tasks, running_tasks, retried_tasks, total_tasks = get_task_summary(api, version_id, NOTIFICATION_TASKS)
-    except Exception as e:
-        print(f"Error fetching tasks: {e}", file=sys.stderr)
-        sys.exit(1)
+    print(f"Status at report time: {version_info.status}", file=sys.stderr)
 
     # Look up flakiness when there are failures (best-effort, non-fatal).
     flaky_map: dict[tuple[str, str], FlakyTask] = {}
@@ -616,13 +589,20 @@ def main() -> None:
         prev_failed,
         retried_tasks,
         total_tasks,
+        running_tasks,
     )
 
     if use_slack_dry_run:
         print(json.dumps({"message": message}, indent=2))
     else:
-        print_stdout_report(version_info, failed_tasks, running_tasks, flaky_map, retried_tasks)
-        should_notify = bool(failed_tasks) or (not running_tasks and notify_on_success)
+        print_stdout_report(
+            version_info,
+            failed_tasks,
+            running_tasks,
+            flaky_map,
+            retried_tasks,
+        )
+        should_notify = bool(failed_tasks) or notify_on_success
         if should_notify and slack_webhook_url:
             send_slack_notification(slack_webhook_url, message)
 

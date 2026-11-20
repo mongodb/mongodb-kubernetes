@@ -602,3 +602,136 @@ func TestOpsManagerCELValidation_ExternalRefKindEnum(t *testing.T) {
 		})
 	}
 }
+
+func TestOpsManagerCELValidation_ReleasedLicenses(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	tests := []struct {
+		name          string
+		license       *omv1.MongoDBOpsManagerLicense
+		errorContains string
+	}{
+		{
+			name: "releasedLicenses entry with a secretRef name is accepted",
+			license: &omv1.MongoDBOpsManagerLicense{
+				ReleasedLicenses: []omv1.ReleasedLicense{{
+					SecretRef: omv1.SecretRef{Name: "old-license"},
+				}},
+			},
+		},
+		{
+			name: "entry with an empty secretRef name is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				ReleasedLicenses: []omv1.ReleasedLicense{{SecretRef: omv1.SecretRef{}}},
+			},
+			errorContains: "spec.license.releasedLicenses[].secretRef.name must not be empty",
+		},
+		{
+			name: "install secretRef with an empty name is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				SecretRef: &omv1.SecretRef{},
+			},
+			errorContains: "spec.license.secretRef.name must not be empty",
+		},
+		{
+			name: "same secretRef listed twice is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				ReleasedLicenses: []omv1.ReleasedLicense{
+					{SecretRef: omv1.SecretRef{Name: "old-license"}},
+					{SecretRef: omv1.SecretRef{Name: "old-license"}},
+				},
+			},
+			errorContains: "releasedLicenses secretRef names must be unique",
+		},
+		{
+			name: "install secretRef also listed in releasedLicenses is rejected",
+			license: &omv1.MongoDBOpsManagerLicense{
+				SecretRef: &omv1.SecretRef{Name: "om-license"},
+				ReleasedLicenses: []omv1.ReleasedLicense{
+					{SecretRef: omv1.SecretRef{Name: "om-license"}},
+				},
+			},
+			errorContains: "secretRef must not also be listed in releasedLicenses",
+		},
+		{
+			name: "distinct Secrets are accepted",
+			license: &omv1.MongoDBOpsManagerLicense{
+				SecretRef: &omv1.SecretRef{Name: "om-license"},
+				ReleasedLicenses: []omv1.ReleasedLicense{
+					{SecretRef: omv1.SecretRef{Name: "old-license-1"}},
+					{SecretRef: omv1.SecretRef{Name: "old-license-2"}},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := newOpsManager(t, func(om *omv1.MongoDBOpsManager) {
+				om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: "test-om-db", Kind: "MongoDB"}
+				om.Spec.License = tc.license
+			})
+			err := k8sClient.Create(ctx, om)
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				_ = k8sClient.Delete(ctx, om)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
+
+func TestOpsManagerCELValidation_LicenseReleaseReceiptsPolicy(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := env.Shared(t).Client
+
+	tests := []struct {
+		name          string
+		policy        omv1.ReleaseReceiptsPolicy
+		errorContains string
+	}{
+		{
+			name:          "OnDemand is rejected",
+			policy:        "OnDemand",
+			errorContains: `Unsupported value: "OnDemand": supported values: "OnlyListed", "Automatic"`,
+		},
+		{
+			name:   "Automatic is accepted",
+			policy: omv1.ReleaseReceiptsAutomatic,
+		},
+		{
+			name:   "OnlyListed is accepted",
+			policy: omv1.ReleaseReceiptsOnlyListed,
+		},
+		{
+			name: "an unset policy is accepted",
+		},
+		{
+			name:          "an unknown policy is rejected",
+			policy:        "Sometimes",
+			errorContains: `Unsupported value: "Sometimes": supported values: "OnlyListed", "Automatic"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			om := newOpsManager(t, func(om *omv1.MongoDBOpsManager) {
+				om.Spec.ExternalAppDBRef = &omv1.ExternalAppDBRef{Name: "test-om-db", Kind: "MongoDB"}
+				om.Spec.License = &omv1.MongoDBOpsManagerLicense{ReleaseReceiptsPolicy: tc.policy}
+			})
+			err := k8sClient.Create(ctx, om)
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				_ = k8sClient.Delete(ctx, om)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, apierrors.IsInvalid(err), "expected an Invalid error, got: %v", err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}

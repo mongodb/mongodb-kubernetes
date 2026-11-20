@@ -1341,6 +1341,10 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
             except (KeyError, TypeError):
                 return None
 
+        def get_warnings(self) -> List[str]:
+            self.ops_manager.load()
+            return self._status().get("backup", {}).get("warnings", [])
+
         def get_observed_generation(self) -> Optional[int]:
             try:
                 return self._status()["backup"]["observedGeneration"]

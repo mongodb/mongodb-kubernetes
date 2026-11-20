@@ -274,10 +274,13 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
+// disableBase64IntrinsicsFlag mitigates CVE-2026-114938.
+const disableBase64IntrinsicsFlag = "-XX:-UseBASE64Intrinsics"
+
 // jvmFlags builds the --jvm-flags argument from the per-cluster user-provided
 // JVMFlags slice plus a default heap-size pair derived from memory requests.
 func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements) string {
-	flags := []string{}
+	flags := []string{disableBase64IntrinsicsFlag}
 
 	var heapConfigured bool
 	for _, jvmFlag := range userJVMFlags {

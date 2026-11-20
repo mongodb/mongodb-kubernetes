@@ -953,6 +953,19 @@ tasks:
     commands:
       - func: "e2e_test"
 
+  - name: e2e_om_ops_manager_license
+    tags: [ "patch-run" ]
+    commands:
+      - func: assume_ea_license_secret_role
+      - func: fetch_gsa_credentials
+      - func: "e2e_test"
+  - name: e2e_om_ops_manager_license_air_gapped
+    tags: [ "patch-run" ]
+    commands:
+      - func: assume_ea_license_secret_role
+      - func: fetch_gsa_credentials
+      - func: "e2e_test"
+
   - name: e2e_om_ops_manager_upgrade
     tags: [ "patch-run", "e2e_light", "e2e_medium" ]
     commands:
@@ -1604,7 +1617,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_search_images" ]
     commands:
       - func: "e2e_test"
 
@@ -1614,7 +1627,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_search_images" ]
     commands:
       - func: "e2e_test"
 
@@ -1644,7 +1657,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_cds_hot_reload
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_search_images" ]
     commands:
       - func: "e2e_test"
 
@@ -1689,7 +1702,7 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_mc_sharded_om_lifecycle
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_search_images" ]
     commands:
       - func: "e2e_test"
 
@@ -1748,17 +1761,17 @@ tasks:
       - func: "e2e_test"
 
   - name: e2e_search_envoy_retry_policy
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_search_images" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_search_enterprise_metrics_forwarder_replicaset
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_search_images" ]
     commands:
       - func: "e2e_test"
 
   - name: e2e_search_enterprise_metrics_forwarder_sharded
-    tags: [ "patch-run" ]
+    tags: [ "patch-run", "e2e_search_images" ]
     commands:
       - func: "e2e_test"
 
