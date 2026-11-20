@@ -236,14 +236,21 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 			withPendingPhase(10))
 	}
 
-	if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
-		return status.Update(ctx, r.client.Status(), &mdb, statusOptions().
-			withMessage(Error, fmt.Sprintf("Error updating connection string secrets: %s", err)).
-			withFailedPhase())
+	// With zero members there is no host to put in a connection string. The connection string
+	// secrets and the status URI keep the last hosts, so clients get a working URI again as soon
+	// as the replica set is scaled back up.
+	mongoURI := mdb.Status.MongoURI
+	if mdb.Spec.Members > 0 {
+		if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
+			return status.Update(ctx, r.client.Status(), &mdb, statusOptions().
+				withMessage(Error, fmt.Sprintf("Error updating connection string secrets: %s", err)).
+				withFailedPhase())
+		}
+		mongoURI = mdb.MongoURI() // nolint:forbidigo
 	}
 
 	res, err := status.Update(ctx, r.client.Status(), &mdb, statusOptions().
-		withMongoURI(mdb.MongoURI()). // nolint:forbidigo
+		withMongoURI(mongoURI).
 		withMongoDBMembers(mdb.AutomationConfigMembersThisReconciliation()).
 		withStatefulSetReplicas(mdb.StatefulSetReplicasThisReconciliation()).
 		withStatefulSetArbiters(mdb.StatefulSetArbitersThisReconciliation()).

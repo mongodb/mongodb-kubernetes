@@ -1191,6 +1191,83 @@ func TestReplicaSet_IsScaledUp_OneMember_AtATime_WhenItAlreadyExists(t *testing.
 	assert.Equal(t, 5, mdb.Status.CurrentMongoDBMembers)
 }
 
+func TestReplicaSet_IsScaledDownToZeroMembers_AndBackUp(t *testing.T) {
+	ctx := context.Background()
+	mdb := newScramReplicaSet(mdbv1.MongoDBUser{
+		Name: "my-user",
+		PasswordSecretRef: v1.SecretKeyReference{
+			Name: "my-user-password-secret",
+		},
+		ScramCredentialsSecretName: "my-user-scram-credentials",
+		ConnectionStringSecretName: "my-user-connection-string",
+	})
+	mdb.Spec.Members = 1
+	mdb.UID = "mdb-uid"
+
+	mgr := client.NewManager(ctx, &mdb)
+	require.NoError(t, createUserPasswordSecret(ctx, mgr.Client, mdb, "my-user-password-secret", "pass"))
+	r := NewReconciler(mgr, "fake-mongodbRepoUrl", "fake-mongodbImage", "ubi8", AgentImage, "fake-versionUpgradeHookImage", "fake-readinessProbeImage")
+	request := reconcile.Request{NamespacedName: mdb.NamespacedName()}
+
+	res, err := r.Reconcile(ctx, request)
+	assertReconciliationSuccessful(t, res, err)
+
+	require.NoError(t, mgr.GetClient().Get(ctx, mdb.NamespacedName(), &mdb))
+	require.Equal(t, 1, mdb.Status.CurrentMongoDBMembers)
+	mongoURI := mdb.Status.MongoURI
+	require.Contains(t, mongoURI, "my-rs-0.")
+
+	connectionStringSecretName := types.NamespacedName{Name: "my-user-connection-string", Namespace: mdb.Namespace}
+	connectionStringSecret, err := mgr.Client.GetSecret(ctx, connectionStringSecretName)
+	require.NoError(t, err)
+	connectionString := string(connectionStringSecret.Data["connectionString.standard"])
+	require.Contains(t, connectionString, "my-rs-0.")
+
+	// scale the members from one to zero
+	mdb.Spec.Members = 0
+	require.NoError(t, mgr.GetClient().Update(ctx, &mdb))
+	makeStatefulSetReady(ctx, t, mgr.GetClient(), mdb)
+
+	res, err = r.Reconcile(ctx, request)
+	assertReconciliationSuccessful(t, res, err)
+
+	require.NoError(t, mgr.GetClient().Get(ctx, mdb.NamespacedName(), &mdb))
+	assert.Equal(t, mdbv1.Running, mdb.Status.Phase)
+	assert.Equal(t, 0, mdb.Status.CurrentMongoDBMembers)
+	assert.Equal(t, 0, mdb.Status.CurrentStatefulSetReplicas)
+	assert.Equal(t, mongoURI, mdb.Status.MongoURI, "the status must keep the last URI while there is no member")
+
+	sts, err := mgr.Client.GetStatefulSet(ctx, mdb.NamespacedName())
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), *sts.Spec.Replicas)
+
+	connectionStringSecret, err = mgr.Client.GetSecret(ctx, connectionStringSecretName)
+	require.NoError(t, err)
+	assert.Equal(t, connectionString, string(connectionStringSecret.Data["connectionString.standard"]), "the connection string must keep the last hosts while there is no member")
+
+	// scale the members back from zero to one
+	mdb.Spec.Members = 1
+	require.NoError(t, mgr.GetClient().Update(ctx, &mdb))
+
+	res, err = r.Reconcile(ctx, request)
+	assert.NoError(t, err)
+	assert.True(t, res.RequeueAfter > 0, "the reconciliation must wait for the StatefulSet to be ready")
+
+	makeStatefulSetReady(ctx, t, mgr.GetClient(), mdb)
+	res, err = r.Reconcile(ctx, request)
+	assertReconciliationSuccessful(t, res, err)
+
+	require.NoError(t, mgr.GetClient().Get(ctx, mdb.NamespacedName(), &mdb))
+	assert.Equal(t, mdbv1.Running, mdb.Status.Phase)
+	assert.Equal(t, 1, mdb.Status.CurrentMongoDBMembers)
+	assert.Equal(t, 1, mdb.Status.CurrentStatefulSetReplicas)
+	assert.Equal(t, mongoURI, mdb.Status.MongoURI)
+
+	sts, err = mgr.Client.GetStatefulSet(ctx, mdb.NamespacedName())
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), *sts.Spec.Replicas)
+}
+
 func TestIgnoreUnknownUsers(t *testing.T) {
 	ctx := context.Background()
 	t.Run("Ignore Unkown Users set to true", func(t *testing.T) {

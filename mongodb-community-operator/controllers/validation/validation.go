@@ -145,6 +145,11 @@ func validateArbiterSpec(mdb mdbv1.MongoDBCommunity) error {
 	if mdb.Spec.Arbiters < 0 {
 		return fmt.Errorf("number of arbiters must be greater or equal than 0")
 	}
+	// Zero members and zero arbiters scales the replica set down to no Pods while keeping
+	// the resource, its volumes and its secrets, for example to stop it outside working hours.
+	if mdb.Spec.Members == 0 && mdb.Spec.Arbiters == 0 {
+		return nil
+	}
 	if mdb.Spec.Arbiters >= mdb.Spec.Members {
 		return fmt.Errorf("number of arbiters specified (%v) is greater or equal than the number of members in the replicaset (%v). At least one member must not be an arbiter", mdb.Spec.Arbiters, mdb.Spec.Members)
 	}
