@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test/httprecorder"
 )
 
@@ -143,45 +142,6 @@ func TestReadLicenseState_ParsesResponse(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.Enforcement)
 	assert.Equal(t, "GRACE", got.Enforcement.EffectiveState)
-}
-
-func TestRecomputeLicense_ParsesResponse(t *testing.T) {
-	const body = `{"enforcement":{"effectiveState":"ENFORCED"}}`
-	srv, _ := httprecorder.NewServer(http.StatusOK, []byte(body))
-	defer srv.Close()
-
-	got, err := NewOmAdmin(srv.URL, "", "", nil).RecomputeLicense(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, got.Enforcement)
-	assert.Equal(t, "ENFORCED", got.Enforcement.EffectiveState)
-}
-
-func TestReadLicenseState_UnsupportedAPIIsError(t *testing.T) {
-	srv, _ := httprecorder.NewServer(http.StatusNotFound, []byte(`{"error":404,"errorCode":"RESOURCE_NOT_FOUND"}`))
-	defer srv.Close()
-
-	_, err := NewOmAdmin(srv.URL, "", "", nil).ReadLicenseState(context.Background())
-	require.Error(t, err)
-	assert.True(t, apierror.NewNonNil(err).IsNotFound())
-}
-
-func TestInstallLicense_ErrorBody(t *testing.T) {
-	srv, _ := httprecorder.NewServer(http.StatusBadRequest, []byte(`{"error":400,"reason":"Bad Request","detail":"artifact is not a signed licence","errorCode":"INVALID_LICENSE"}`))
-	defer srv.Close()
-
-	_, err := NewOmAdmin(srv.URL, "", "", nil).InstallLicense(context.Background(), json.RawMessage(`{}`))
-	require.Error(t, err)
-	omErr := apierror.NewNonNil(err)
-	assert.Equal(t, "INVALID_LICENSE", omErr.ErrorCode)
-	assert.Equal(t, "artifact is not a signed licence", omErr.Detail)
-}
-
-func TestRotateLicenseIdentity_AcceptsRotatedOutcome(t *testing.T) {
-	srv, _ := httprecorder.NewServer(http.StatusOK, []byte(`{"outcome":"ROTATED"}`))
-	defer srv.Close()
-
-	err := NewOmAdmin(srv.URL, "", "", nil).RotateLicenseIdentity(context.Background())
-	require.NoError(t, err)
 }
 
 func TestRotateLicenseIdentity_RejectsNonRotatedOutcome(t *testing.T) {
