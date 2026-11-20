@@ -198,7 +198,7 @@ type MongoDBOpsManagerLicense struct {
 	ReleaseReceiptsPolicy ReleaseReceiptsPolicy `json:"releaseReceiptsPolicy,omitempty"`
 
 	// ReleasedLicenses lists the Secrets of released licenses to write a receipt for,
-	// into a Secret named <artifactId>-release-receipt. Listing a license never releases it.
+	// into a Secret named <licenseSecret>-<artifactId>-release-receipt. Listing a license never releases it.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16

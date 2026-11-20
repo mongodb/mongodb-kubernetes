@@ -1848,7 +1848,7 @@ spec:
                   releasedLicenses:
                     description: |-
                       ReleasedLicenses lists the Secrets of released licenses to write a receipt for,
-                      into a Secret named <artifactId>-release-receipt. Listing a license never releases it.
+                      into a Secret named <licenseSecret>-<artifactId>-release-receipt. Listing a license never releases it.
                     items:
                       properties:
                         secretRef:
