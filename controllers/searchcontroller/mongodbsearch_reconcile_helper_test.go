@@ -3029,6 +3029,181 @@ func TestEnsureEgressTlsConfig_LabelsGeneratedScramClientSecret(t *testing.T) {
 	assert.Equal(t, mongotComponent, operatorSecret.Labels[componentLabelKey])
 }
 
+// assertCRLFile compares a rendered crlFile pointer against the expected mounted path.
+func assertCRLFile(t *testing.T, got, want *string) {
+	t.Helper()
+	if want == nil {
+		assert.Nil(t, got)
+		return
+	}
+	require.NotNil(t, got)
+	assert.Equal(t, *want, *got)
+}
+
+// TestEnsureEgressTlsConfig_CRLFile pins the CRL wiring into every TLS block mongot
+// reads, and that those crlFile fields stay nil when no CRL is configured.
+func TestEnsureEgressTlsConfig_CRLFile(t *testing.T) {
+	const crlKey = "crl.pem"
+
+	for _, tc := range []struct {
+		name      string
+		crlFile   string
+		x509      bool
+		caData    map[string]string
+		expectCRL bool
+	}{
+		{
+			name:      "CRL configured and present in the CA ConfigMap",
+			crlFile:   crlKey,
+			caData:    map[string]string{"ca-pem": "ca", crlKey: "crl-body"},
+			expectCRL: true,
+		},
+		{
+			name:      "CRL configured with x509 auth",
+			crlFile:   crlKey,
+			x509:      true,
+			caData:    map[string]string{"ca-pem": "ca", crlKey: "crl-body"},
+			expectCRL: true,
+		},
+		{
+			name:   "CRL not configured",
+			caData: map[string]string{"ca-pem": "ca"},
+		},
+		{
+			name:   "CRL not configured with x509 auth",
+			x509:   true,
+			caData: map[string]string{"ca-pem": "ca"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source.CRLFile = tc.crlFile
+				if tc.x509 {
+					s.Spec.Source.X509 = &searchv1.X509Auth{
+						ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+					}
+				}
+			})
+
+			objects := []client.Object{
+				search,
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: "source-ca", Namespace: "test-ns"},
+					Data:       tc.caData,
+				},
+			}
+			if tc.x509 {
+				objects = append(objects, &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: "test-ns"},
+					Data:       map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")},
+				})
+			}
+			fakeClient := newTestFakeClient(objects...)
+			dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{
+				CAFileName: "ca-pem",
+				CAVolume:   statefulset.CreateVolumeFromConfigMap("ca", "source-ca"),
+			}}
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+
+			egressMod, _, err := helper.ensureEgressTlsConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
+			require.NoError(t, err)
+
+			// Mirror the reconcile order: egress TLS (SCRAM) runs before x509, and the gRPC
+			// server TLS block is only toggled to mTLS when it is already in TLS mode.
+			config := &mongot.Config{
+				SyncSource: mongot.ConfigSyncSource{
+					ReplicaSet: mongot.ConfigReplicaSet{
+						ScramAuth: &mongot.ConfigScramAuth{Username: "search-sync-source", PasswordFile: TempSourceUserPasswordPath},
+					},
+					Router: &mongot.ConfigRouter{
+						HostAndPort: []string{"mongos-svc:27017"},
+						ScramAuth:   &mongot.ConfigScramAuth{Username: "search-sync-source", PasswordFile: TempSourceUserPasswordPath},
+					},
+				},
+				Server: mongot.ConfigServer{
+					Grpc: &mongot.ConfigGrpc{
+						Address: ":27028",
+						TLS:     &mongot.ConfigGrpcTLS{Mode: mongot.ConfigTLSModeTLS},
+					},
+				},
+			}
+			egressMod(config)
+			if tc.x509 {
+				x509Mod, _, err := helper.ensureX509ClientCertConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
+				require.NoError(t, err)
+				x509Mod(config)
+			}
+
+			var wantCRL *string
+			if tc.expectCRL {
+				wantCRL = new(tls.CAMountPath + crlKey)
+			}
+
+			require.NotNil(t, config.Server.Grpc.TLS)
+			assert.Equal(t, mongot.ConfigTLSModeMTLS, config.Server.Grpc.TLS.Mode)
+			assertCRLFile(t, config.Server.Grpc.TLS.CRLFile, wantCRL)
+
+			if tc.x509 {
+				// x509 replaces the SCRAM blocks, so the CRL moves onto the x509 blocks.
+				assert.Nil(t, config.SyncSource.ReplicaSet.ScramAuth)
+				assert.Nil(t, config.SyncSource.Router.ScramAuth)
+				require.NotNil(t, config.SyncSource.ReplicaSet.X509)
+				assertCRLFile(t, config.SyncSource.ReplicaSet.X509.CRLFile, wantCRL)
+				require.NotNil(t, config.SyncSource.Router.X509)
+				assertCRLFile(t, config.SyncSource.Router.X509.CRLFile, wantCRL)
+			} else {
+				require.NotNil(t, config.SyncSource.ReplicaSet.ScramAuth.TLS)
+				assertCRLFile(t, config.SyncSource.ReplicaSet.ScramAuth.TLS.CRLFile, wantCRL)
+				require.NotNil(t, config.SyncSource.Router.ScramAuth.TLS)
+				assertCRLFile(t, config.SyncSource.Router.ScramAuth.TLS.CRLFile, wantCRL)
+			}
+		})
+	}
+}
+
+// TestEnsureEgressTlsConfig_CRLErrors pins the two failure modes: the CRL key is absent
+// from the CA object, or the source has no TLS to mount a CA from.
+func TestEnsureEgressTlsConfig_CRLErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		tlsConfig     *TLSSourceConfig
+		caData        map[string]string
+		errorContains string
+	}{
+		{
+			name:          "CRL key absent from the CA ConfigMap",
+			tlsConfig:     &TLSSourceConfig{CAFileName: "ca-pem", CAVolume: statefulset.CreateVolumeFromConfigMap("ca", "source-ca")},
+			caData:        map[string]string{"ca-pem": "ca"},
+			errorContains: "reading the CRL file from the source CA ConfigMap",
+		},
+		{
+			name:          "source has no TLS",
+			tlsConfig:     nil,
+			errorContains: "spec.source.crlFile requires TLS with a CA on the source MongoDB",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+				s.Spec.Source.CRLFile = "crl.pem"
+			})
+
+			objects := []client.Object{search}
+			if tc.caData != nil {
+				objects = append(objects, &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: "source-ca", Namespace: "test-ns"},
+					Data:       tc.caData,
+				})
+			}
+			fakeClient := newTestFakeClient(objects...)
+			helper := NewMongoDBSearchReconcileHelper(fakeClient, search, &mockShardedSource{tlsConfig: tc.tlsConfig}, newTestOperatorSearchConfig(), nil, "", nil)
+
+			_, _, err := helper.ensureEgressTlsConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+		})
+	}
+}
+
 func TestEnsureX509ClientCertConfig_KeyPassword(t *testing.T) {
 	search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
 		s.Spec.Source.X509 = &searchv1.X509Auth{
@@ -3621,6 +3796,66 @@ func TestReferencedResourceContentHash(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestCRLContentHash covers the config-hash fold for the CRL file: mongot reads crlFile into its
+// trust store only at startup, so the fold is what makes a CRL rotation roll the mongot pods.
+func TestCRLContentHash(t *testing.T) {
+	searchWithCRL := func() *searchv1.MongoDBSearch {
+		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.CRLFile = "crl.pem"
+		})
+	}
+	caTLSConfig := &TLSSourceConfig{CAFileName: "ca-pem", CAVolume: statefulset.CreateVolumeFromConfigMap("ca", "source-ca")}
+	caConfigMap := func(data map[string]string) *corev1.ConfigMap {
+		return &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "source-ca", Namespace: "test-ns"},
+			Data:       data,
+		}
+	}
+	newHelper := func(t *testing.T, search *searchv1.MongoDBSearch, tlsConfig *TLSSourceConfig, objects ...client.Object) (*MongoDBSearchReconcileHelper, kubernetesClient.Client) {
+		t.Helper()
+		objs := append([]client.Object{search}, objects...)
+		fakeClient := newTestFakeClient(objs...)
+		dbSource := &mockShardedSource{tlsConfig: tlsConfig}
+		return NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil), fakeClient
+	}
+
+	t.Run("empty when no CRL configured", func(t *testing.T) {
+		helper, kubeClient := newHelper(t, newTestMongoDBSearch("test-search", "test-ns"), caTLSConfig)
+
+		hash, err := helper.crlContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.Empty(t, hash)
+	})
+
+	t.Run("empty when the source has no TLS", func(t *testing.T) {
+		helper, kubeClient := newHelper(t, searchWithCRL(), nil)
+
+		hash, err := helper.crlContentHash(t.Context(), kubeClient)
+		require.NoError(t, err)
+		assert.Empty(t, hash)
+	})
+
+	t.Run("non-empty and changes with content", func(t *testing.T) {
+		hashFor := func(content string) string {
+			helper, kubeClient := newHelper(t, searchWithCRL(), caTLSConfig, caConfigMap(map[string]string{"crl.pem": content}))
+			hash, err := helper.crlContentHash(t.Context(), kubeClient)
+			require.NoError(t, err)
+			require.NotEmpty(t, hash)
+			return hash
+		}
+
+		assert.NotEqual(t, hashFor("content-1"), hashFor("content-2"), "different content must yield a different hash")
+	})
+
+	t.Run("errors when the CRL key is absent", func(t *testing.T) {
+		helper, kubeClient := newHelper(t, searchWithCRL(), caTLSConfig, caConfigMap(map[string]string{"ca-pem": "ca"}))
+
+		_, err := helper.crlContentHash(t.Context(), kubeClient)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "reading the CRL file from the source CA ConfigMap")
+	})
 }
 
 func TestValidateOIDCSource(t *testing.T) {

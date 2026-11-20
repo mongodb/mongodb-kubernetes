@@ -78,10 +78,12 @@ type ScramAuthTLS struct {
 	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
 	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
 	CertificateAuthorityFile          *string `json:"caFile,omitempty"`
+	CRLFile                           *string `json:"crlFile,omitempty"`
 }
 
 type ConfigX509 struct {
 	CertificateAuthorityFile          *string `json:"caFile,omitempty"`
+	CRLFile                           *string `json:"crlFile,omitempty"`
 	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
 	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
 }
@@ -155,6 +157,7 @@ type ConfigGrpcTLS struct {
 	CertificateKeyFile             *string       `json:"certificateKeyFile,omitempty"`
 	CertificateKeyFilePasswordFile *string       `json:"certificateKeyFilePasswordFile,omitempty"`
 	CertificateAuthorityFile       *string       `json:"caFile,omitempty"`
+	CRLFile                        *string       `json:"crlFile,omitempty"`
 }
 
 type ConfigMetrics struct {
