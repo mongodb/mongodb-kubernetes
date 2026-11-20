@@ -47,6 +47,7 @@ from tests.opsmanager.managedcert_helper import (
     wait_for_om_https_trusted_by_bundle,
     wait_for_prune_annotation_removed,
 )
+from tests.opsmanager.managedcert_rotation_edge_helper import now_utc, wait_for_appdb_agents_reach_om
 from tests.tls.managedcert_helper import pem_secret_hashes, read_certificate_status
 
 OM_NAME = "om-managed-cert-rotation"
@@ -194,7 +195,7 @@ class TestOpsManagerManagedCertificateRotation:
 
         # OM monitoring of the AppDB must still work.
         ops_manager.assert_appdb_monitoring_group_was_created()
-        ops_manager.assert_monitoring_data_exists()
+        wait_for_appdb_agents_reach_om(ops_manager, now_utc())
 
         # The bundle must still hold both CAs (not yet pruned).
         snapshot = ca_bundle_snapshot(namespace, names.app_db_ca_bundle_config_map, APP_DB_CA_BUNDLE_KEY)

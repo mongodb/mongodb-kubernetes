@@ -38,6 +38,7 @@ from tests.tls.managedcert_helper import (
     bundle_fingerprints,
     managed_certificate_operator,
     member_cert_issuance,
+    pem_matches_leaf,
     pem_secret_hashes,
     read_certificate_status,
     trigger_certificate_renewal,
@@ -1131,10 +1132,11 @@ def wait_for_leaf_reissued_on_new_ca(
 
     def reissued() -> bool:
         leaf = read_secret(namespace, certificate_name).get("tls.crt", "")
-        latest_hash, _ = pem_secret_hashes(namespace, pem_secret_name)
+        pem = read_secret(namespace, pem_secret_name)
+        latest_hash = pem.get("latestHash", "")
         if not leaf.strip() or leaf == previous_leaf:
             return False
-        if not latest_hash or latest_hash == previous_pem_hash:
+        if not latest_hash or latest_hash == previous_pem_hash or not pem_matches_leaf(pem.get(latest_hash, ""), leaf):
             return False
         if not cert_signed_by_bundle(leaf, new_ca_pem):
             return False
