@@ -132,6 +132,11 @@ config:
             - set(severity_text, attributes["type"]) where attributes["type"] == "Normal" or attributes["type"] == "Warning"
             - set(severity_number, SEVERITY_NUMBER_INFO) where attributes["type"] == "Normal"
             - set(severity_number, SEVERITY_NUMBER_WARN) where attributes["type"] == "Warning"
+
+            # The receiver puts the whole Event in the body. Honeycomb stores
+            # nested body keys as columns, so drop the object once the statements
+            # above read the fields they need.
+            - delete_key(body, "object") where IsMap(body) and body["object"] != nil
     # The k8sobjects receiver emits one log record per watch event, with the body
     # {type: ADDED|MODIFIED|DELETED, object: <MongoDB CR>}. Keep a fixed set of
     # status fields as attributes. The CR spec is not copied, because it is large
@@ -146,6 +151,12 @@ config:
             - set(attributes["mck.cr.phase"], body["object"]["status"]["phase"]) where body["object"]["status"]["phase"] != nil
             - set(attributes["mck.cr.message"], body["object"]["status"]["message"]) where body["object"]["status"]["message"] != nil
             - set(attributes["mck.cr.last_transition"], body["object"]["status"]["lastTransition"]) where body["object"]["status"]["lastTransition"] != nil
+
+            # Honeycomb stores map keys as columns. Bound the annotation keys to
+            # the operator's own state annotations. Vault annotations are keyed by
+            # secret name, which is random per run, so they would add a column per
+            # run.
+            - keep_keys(body["object"]["metadata"]["annotations"], ["mongodb.com/v1.architecture", "mongodb.com/v1.lastConfiguredRoles", "mongodb.com/v1.lastSuccessfulConfiguration", "mongodb.com/v1.lastAchievedRsMemberIds", "mongodb.com/v1.lastAppliedMongoDBVersion", "mongodb.com/v1.lastMongodAdditionalConfigServerOptionsConfiguration", "mongodb.com/v1.lastMongodAdditionalMongosOptionsConfiguration", "mongodb.com/v1.lastMongodAdditionalShardOptionsConfiguration", "mongodb.com/migrate-tool-version", "mongodb.com/migration-dry-run"]) where IsMap(body["object"]["metadata"]["annotations"])
     resource/k8s:
       attributes:
         - key: k8s.cluster.name
