@@ -40,6 +40,12 @@ from tests.common.search.movies_search_helper import (
     EmbeddedMoviesSearchHelper,
     SampleMoviesSearchHelper,
 )
+from tests.common.search.search_deployment_helper import (
+    RESIZE_INITIAL_STORAGE,
+    RESIZE_STORAGE_CLASS,
+    SearchPVCResize,
+    run_search_pvc_resize,
+)
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import create_issuer_ca, per_cluster_search_tester
 from tests.conftest import get_issuer_ca_filepath
@@ -51,6 +57,7 @@ from tests.multicluster_search.conftest import (
     ENVOY_PROXY_PORT,
     MDBS_TLS_CERT_PREFIX,
     MONGOT_USER_NAME,
+    SIMULATED_OPERATOR_NAME,
     SOURCE_CERT_PREFIX,
     USER_NAME,
     USER_PASSWORD,
@@ -180,11 +187,13 @@ def per_cluster_mdbs_search(
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_install_central_mc_operator(central_mc_operator: Operator):
     central_mc_operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_install_simulated_operators_per_member(
     namespace: str,
     central_mc_operator: Operator,
@@ -197,6 +206,7 @@ def test_install_simulated_operators_per_member(
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_install_source_tls_certificates(
     multi_cluster_issuer: str,
     mdb: MongoDBMulti,
@@ -214,12 +224,14 @@ def test_install_source_tls_certificates(
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_mongodb_running(mdb: MongoDBMulti):
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=1500)
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_create_users(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -231,6 +243,7 @@ def test_create_users(
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_deploy_lb_certificates(
     namespace: str,
     multi_cluster_issuer: str,
@@ -272,6 +285,7 @@ def test_deploy_lb_certificates(
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_create_search_tls_certificate(
     namespace: str,
     multi_cluster_issuer: str,
@@ -299,6 +313,7 @@ def test_create_search_tls_certificate(
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_replicate_tls_to_members(
     namespace: str,
     central_cluster_client: kubernetes.client.ApiClient,
@@ -317,9 +332,18 @@ def test_replicate_tls_to_members(
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_search_running_per_cluster(
     per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+    request,
 ):
+    if "e2e_search_pvc_resize_workaround_simulated_mc" in request.config.option.markexpr:
+        for _, search in per_cluster_mdbs_search:
+            search["spec"]["clusters"] = deepcopy(list(reversed(search["spec"]["clusters"])))
+            for cluster in search["spec"]["clusters"]:
+                cluster["persistence"] = {
+                    "single": {"storage": RESIZE_INITIAL_STORAGE, "storageClass": RESIZE_STORAGE_CLASS}
+                }
     apply_search_crs_and_assert_running(per_cluster_mdbs_search)
 
 
@@ -404,6 +428,7 @@ def _expected_mongot_host_by_idx(
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_patch_per_cluster_mongot_host(
     namespace: str,
     mdb: MongoDBMulti,
@@ -433,6 +458,7 @@ def test_patch_per_cluster_mongot_host(
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_per_cluster_mongot_host_observed(
     namespace: str,
     mdb: MongoDBMulti,
@@ -462,6 +488,7 @@ def _source_rs_search_tester(mdb: MongoDBMulti, username: str, password: str) ->
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
     """mongorestore sample_mflix into the source RS once; both clusters' mongots sync from it."""
     tester = _source_rs_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD)
@@ -473,12 +500,46 @@ def test_restore_sample_database(mdb: MongoDBMulti, tools_pod):
 
 
 @mark.e2e_search_simulated_mc_rs
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
 def test_create_search_index(mdb: MongoDBMulti):
     """Create the $search index ONCE on the source RS; mongot replication propagates it to every per-cluster mongot."""
     tester = _source_rs_search_tester(mdb, USER_NAME, USER_PASSWORD)
     movies = SampleMoviesSearchHelper(search_tester=tester)
     movies.create_search_index()
     tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=SEARCH_INDEX_READY_TIMEOUT)
+
+
+@mark.e2e_search_pvc_resize_workaround_simulated_mc
+def test_manual_resize_stops_and_resumes_member_operators(
+    mdb: MongoDBMulti,
+    per_cluster_mdbs_search: List[Tuple[MultiClusterClient, MongoDBSearch]],
+    central_mc_operator: Operator,
+):
+    assert len(per_cluster_mdbs_search) == 2
+    assert any(_idx(mcc) != 0 for mcc, _ in per_cluster_mdbs_search)
+    central_apps = kubernetes.client.AppsV1Api(central_mc_operator.api_client)
+    central_before = central_apps.read_namespaced_deployment(central_mc_operator.name, mdb.namespace)
+    units = []
+    for mcc, search in per_cluster_mdbs_search:
+        assert search["spec"]["clusters"][0]["index"] != 0
+        host = f"{mdb.name}-{_idx(mcc)}-0-svc.{mdb.namespace}.svc.cluster.local:27017"
+        units.append(
+            SearchPVCResize(
+                search,
+                _idx(mcc),
+                mcc.api_client,
+                SampleMoviesSearchHelper(per_cluster_search_tester(host, USER_NAME, USER_PASSWORD)),
+            )
+        )
+    run_search_pvc_resize(
+        units,
+        [(mcc.api_client, SIMULATED_OPERATOR_NAME) for mcc, _ in per_cluster_mdbs_search],
+        SampleMoviesSearchHelper(_source_rs_search_tester(mdb, USER_NAME, USER_PASSWORD)),
+    )
+    central_after = central_apps.read_namespaced_deployment(central_mc_operator.name, mdb.namespace)
+    assert central_after.metadata.uid == central_before.metadata.uid
+    assert central_after.spec.replicas == central_before.spec.replicas
+    assert_cross_cluster_isolation(mdb.namespace, per_cluster_mdbs_search, MDBS_RESOURCE_NAME)
 
 
 @mark.e2e_search_simulated_mc_rs

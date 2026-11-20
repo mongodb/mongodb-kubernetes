@@ -13,13 +13,20 @@ from kubetester.mongodb import MongoDB
 from kubetester.mongodb_search import MongoDBSearch
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.omtester import skip_if_cloud_manager
+from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import movies_search_helper, search_resource_names
 from tests.common.search.movies_search_helper import EmbeddedMoviesSearchHelper, SampleMoviesSearchHelper
-from tests.common.search.search_deployment_helper import SearchDeploymentHelper
+from tests.common.search.search_deployment_helper import (
+    RESIZE_INITIAL_STORAGE,
+    RESIZE_STORAGE_CLASS,
+    SearchDeploymentHelper,
+    SearchPVCResize,
+    run_search_pvc_resize,
+)
 from tests.common.search.search_tester import SearchTester
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator, get_issuer_ca_filepath
@@ -50,6 +57,11 @@ CONFIG_SERVER_COUNT = 1
 
 MDBS_TLS_CERT_PREFIX = "certs"
 CA_CONFIGMAP_NAME = f"{MDB_RESOURCE_NAME}-ca"
+
+
+@fixture(scope="module")
+def search_operator(namespace: str, operator_installation_config: dict[str, str]) -> Operator:
+    return get_default_operator(namespace, operator_installation_config=operator_installation_config)
 
 
 @fixture(scope="module")
@@ -97,12 +109,13 @@ def mongot_user(helper: SearchDeploymentHelper, mdbs: MongoDBSearch) -> MongoDBU
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
-def test_install_operator(namespace: str, operator_installation_config: dict[str, str]):
-    operator = get_default_operator(namespace, operator_installation_config=operator_installation_config)
-    operator.wait_for_operator_ready()
+@mark.e2e_search_pvc_resize_workaround_sharded
+def test_install_operator(search_operator: Operator):
+    search_operator.wait_for_operator_ready()
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 @skip_if_cloud_manager
 def test_create_ops_manager(namespace: str):
     ops_manager = get_ops_manager(namespace)
@@ -113,17 +126,20 @@ def test_create_ops_manager(namespace: str):
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_install_tls_certificates(helper: SearchDeploymentHelper, mdb: MongoDB, issuer: str):
     helper.install_sharded_tls_certificates()
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_create_sharded_cluster(mdb: MongoDB):
     mdb.update()
     mdb.assert_reaches_phase(Phase.Running, timeout=900)
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_create_users(
     helper: SearchDeploymentHelper,
     admin_user: MongoDBUser,
@@ -142,6 +158,7 @@ def test_create_users(
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_create_search_tls_certificate(namespace: str, issuer: str):
     """Create per-shard TLS certificates for MongoDBSearch resource."""
     create_per_shard_search_tls_certs(
@@ -156,19 +173,35 @@ def test_create_search_tls_certificate(namespace: str, issuer: str):
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
-def test_create_search_resource(mdbs: MongoDBSearch):
+@mark.e2e_search_pvc_resize_workaround_sharded
+def test_create_search_resource(mdbs: MongoDBSearch, request):
     """Test MongoDBSearch resource deployment with external sharded source config."""
+    if "e2e_search_pvc_resize_workaround_sharded" in request.config.option.markexpr:
+        # Shard 0 is sized by its shardOverrides persistence and shard 1 by its volumeClaimTemplates
+        # override; the cluster persistence stays at the initial size to prove both take precedence.
+        persistence = {"single": {"storage": RESIZE_INITIAL_STORAGE, "storageClass": RESIZE_STORAGE_CLASS}}
+        data_claim = {
+            "metadata": {"name": "data"},
+            "spec": {"resources": {"requests": {"storage": RESIZE_INITIAL_STORAGE}}},
+        }
+        mdbs["spec"]["clusters"][0]["persistence"] = persistence
+        mdbs["spec"]["clusters"][0]["shardOverrides"] = [
+            {"shardNames": [f"{MDB_RESOURCE_NAME}-0"], "persistence": persistence},
+            {"shardNames": [f"{MDB_RESOURCE_NAME}-1"], "statefulSet": {"spec": {"volumeClaimTemplates": [data_claim]}}},
+        ]
     mdbs.update()
     mdbs.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_wait_for_sharded_cluster_ready(mdb: MongoDB):
     """Wait for sharded cluster to be ready after Search deployment."""
     mdb.assert_reaches_phase(Phase.Running, timeout=300)
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_wait_for_agents_ready(mdb: MongoDB):
     """Wait for automation agents to be ready."""
     mdb.get_om_tester().wait_agents_ready()
@@ -178,6 +211,7 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 # TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
 # to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
     verify_sharded_mongod_parameters(
         namespace,
@@ -191,11 +225,13 @@ def test_wait_for_mongod_parameters(namespace: str, mdb: MongoDB, mdbs: MongoDBS
 # TODO: We don't really need this, it can be removed if we have a way to figure out a logical time
 # to wait for to get the mongod/mongos config properly generated.
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_verify_mongos_search_config(namespace: str, mdb: MongoDB):
     verify_mongos_search_config(namespace, MDB_RESOURCE_NAME)
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_search_deploy_tools_pod(tools_pod: mongodb_tools_pod.ToolsPod):
     # The tools_pod fixture handles deployment and waiting for readiness
     logger.info(f"Tools pod {tools_pod.pod_name} is ready")
@@ -212,6 +248,7 @@ def sample_movies_helper(mdb: MongoDB, namespace: str) -> movies_search_helper.S
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_search_restore_sample_database(
     mdb: MongoDB, sample_movies_helper: movies_search_helper.SampleMoviesSearchHelper
 ):
@@ -220,6 +257,7 @@ def test_search_restore_sample_database(
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_search_shard_collections(mdb: MongoDB):
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{ADMIN_USER_NAME}", ADMIN_USER_PASSWORD, use_ssl=True)
     search_tester.shard_and_distribute_collection("sample_mflix", "movies")
@@ -246,6 +284,7 @@ def test_verify_documents_count_in_shards(mdb: MongoDB):
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
+@mark.e2e_search_pvc_resize_workaround_sharded
 def test_search_create_search_index(mdb: MongoDB):
     search_tester = get_search_tester(mdb, f"{MDB_RESOURCE_NAME}-{USER_NAME}", USER_PASSWORD, use_ssl=True)
     search_tester.create_search_index("sample_mflix", "movies")
@@ -256,6 +295,33 @@ def test_search_create_search_index(mdb: MongoDB):
     emb_helper.create_vector_search_index()
     emb_helper.wait_for_vector_search_index()
     logger.info("Vector search index is ready on embedded_movies")
+
+
+@mark.e2e_search_pvc_resize_workaround_sharded
+def test_manual_resize_stops_and_resumes_operator(
+    mdbs: MongoDBSearch, search_operator: Operator, sample_movies_helper: SampleMoviesSearchHelper
+):
+    assert search_operator.name is not None
+
+    def shard_override(spec: dict, shard_name: str) -> dict:
+        return next(o for o in spec["clusters"][0]["shardOverrides"] if o["shardNames"] == [shard_name])
+
+    def override_persistence(spec: dict) -> dict:
+        return shard_override(spec, f"{MDB_RESOURCE_NAME}-0")["persistence"]["single"]
+
+    def override_data_claim(spec: dict) -> dict:
+        claims = shard_override(spec, f"{MDB_RESOURCE_NAME}-1")["statefulSet"]["spec"]["volumeClaimTemplates"]
+        return next(c for c in claims if c["metadata"]["name"] == "data")["spec"]["resources"]["requests"]
+
+    units = [
+        SearchPVCResize(mdbs, 0, search_operator.api_client, sample_movies_helper, f"{MDB_RESOURCE_NAME}-{i}", storage)
+        for i, storage in enumerate([override_persistence, override_data_claim])
+    ]
+    assert [unit.name for unit in units] == [
+        f"{mdbs.name}-search-0-{MDB_RESOURCE_NAME}-{i}" for i in range(SHARD_COUNT)
+    ]
+    run_search_pvc_resize(units, [(search_operator.api_client, search_operator.name)], sample_movies_helper)
+    assert mdbs["spec"]["clusters"][0]["persistence"]["single"]["storage"] == RESIZE_INITIAL_STORAGE
 
 
 @mark.e2e_search_sharded_external_mongodb_single_mongot
