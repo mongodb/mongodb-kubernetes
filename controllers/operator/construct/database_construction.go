@@ -20,7 +20,6 @@ import (
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
-	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/persistentvolumeclaim"
@@ -807,10 +806,12 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 	return podtemplatespec.Apply(sharedModifications, modifications)
 }
 
-// staticGAAgentVersion is the agent build that supports --mongodProxyAddress. The
-// released agent does not support static-ga yet, so static-ga uses this version
-// until it does. The image repository comes from AGENT_IMAGE.
-const staticGAAgentVersion = "110.0.0.9428-2"
+func agentImageForArchitecture(image string, staticGA bool) string {
+	if staticGA {
+		return "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent:nammn-agent-process-maintainer"
+	}
+	return image
+}
 
 // buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for a static architecture.
 func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource, architecture architectures.DefaultArchitecture) podtemplatespec.Modification {
@@ -830,14 +831,9 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		agentFlags = staticGAAgentFlags(opts.AgentConfig.StartupParameters)
 	}
 
-	agentImage := opts.AgentImage
-	if architecture == architectures.StaticGA && opts.CustomAgentURL == "" && opts.AgentImage != "" {
-		agentImage = images.ReplaceImageTagOrDigestToTag(opts.AgentImage, staticGAAgentVersion)
-	}
-
 	agentContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerName),
-		container.WithImage(agentImage),
+		container.WithImage(agentImageForArchitecture(opts.AgentImage, architecture == architectures.StaticGA)),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
