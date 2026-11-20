@@ -182,7 +182,7 @@ users:
 	return file
 }
 
-func TestNoManagedCertificateX509InternalClusterTransition(t *testing.T) {
+func TestDenyManagedCertificateX509InternalClusterTransition(t *testing.T) {
 	security := func(internalCluster string, managed bool) *mdbv1.Security {
 		s := &mdbv1.Security{Authentication: &mdbv1.Authentication{InternalCluster: internalCluster}}
 		if managed {

@@ -403,7 +403,7 @@ func TestMongoDB_NoSimultaneousTLSDisablingAndScaling(t *testing.T) {
 	}
 }
 
-func TestMongoDB_NoManagedCertificateX509InternalClusterTransition(t *testing.T) {
+func TestMongoDB_DenyManagedCertificateX509InternalClusterTransition(t *testing.T) {
 	security := func(internalCluster string, managed bool) *Security {
 		s := &Security{Authentication: &Authentication{InternalCluster: internalCluster}}
 		if managed {
