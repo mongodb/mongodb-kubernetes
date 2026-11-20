@@ -202,7 +202,7 @@ type MongoDBOpsManagerLicense struct {
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size() == 1)",message="releaseReceipts must not list the same secretRef twice"
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size() == 1)",message="releaseReceipts secretRef names must be unique"
 	ReleaseReceipts []LicenseReleaseReceipt `json:"releaseReceipts,omitempty"`
 }
 

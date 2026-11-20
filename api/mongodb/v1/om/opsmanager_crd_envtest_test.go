@@ -487,7 +487,7 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 					{SecretRef: omv1.SecretRef{Name: "old-license"}},
 				},
 			},
-			errorContains: "releaseReceipts must not list the same secretRef twice",
+			errorContains: "releaseReceipts secretRef names must be unique",
 		},
 		{
 			name: "install secretRef also listed in releaseReceipts is rejected",

@@ -1862,7 +1862,7 @@ spec:
                     type: array
                     x-kubernetes-list-type: atomic
                     x-kubernetes-validations:
-                    - message: releaseReceipts must not list the same secretRef twice
+                    - message: releaseReceipts secretRef names must be unique
                       rule: self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size()
                         == 1)
                   releaseReceiptsPolicy:
