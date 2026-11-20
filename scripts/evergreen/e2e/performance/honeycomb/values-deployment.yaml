@@ -139,8 +139,9 @@ config:
             - delete_key(body, "object") where IsMap(body) and IsMap(body["object"])
     # The k8sobjects receiver emits one log record per watch event, with the body
     # {type: ADDED|MODIFIED|DELETED, object: <MongoDB CR>}. Keep a fixed set of
-    # status fields as attributes. The CR spec is not copied, because it is large
-    # and does not change the phase timeline.
+    # status fields as attributes, then drop the object. Honeycomb stores nested
+    # body keys as columns, and the CR spec and status maps carry arbitrary keys
+    # (shard names, setParameter names), so the object must not reach the dataset.
     transform/mongodb_cr:
       error_mode: ignore
       log_statements:
@@ -151,12 +152,7 @@ config:
             - set(attributes["mck.cr.phase"], body["object"]["status"]["phase"]) where body["object"]["status"]["phase"] != nil
             - set(attributes["mck.cr.message"], body["object"]["status"]["message"]) where body["object"]["status"]["message"] != nil
             - set(attributes["mck.cr.last_transition"], body["object"]["status"]["lastTransition"]) where body["object"]["status"]["lastTransition"] != nil
-
-            # Honeycomb stores map keys as columns. Bound the annotation keys to
-            # the operator's own state annotations. Vault annotations are keyed by
-            # secret name, which is random per run, so they would add a column per
-            # run.
-            - keep_keys(body["object"]["metadata"]["annotations"], ["mongodb.com/v1.architecture", "mongodb.com/v1.lastConfiguredRoles", "mongodb.com/v1.lastSuccessfulConfiguration", "mongodb.com/v1.lastAchievedRsMemberIds", "mongodb.com/v1.lastAppliedMongoDBVersion", "mongodb.com/v1.lastMongodAdditionalConfigServerOptionsConfiguration", "mongodb.com/v1.lastMongodAdditionalMongosOptionsConfiguration", "mongodb.com/v1.lastMongodAdditionalShardOptionsConfiguration", "mongodb.com/migrate-tool-version", "mongodb.com/migration-dry-run"]) where IsMap(body["object"]["metadata"]["annotations"])
+            - delete_key(body, "object") where IsMap(body) and IsMap(body["object"])
     # Normal events are most of the event volume. The transitions that matter
     # for e2e debugging arrive as Warning events.
     filter/events:
