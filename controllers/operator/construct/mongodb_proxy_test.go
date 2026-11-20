@@ -182,7 +182,7 @@ func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 			if tc.wantProxy {
 				mongod := containerByName(t, sts, util.DatabaseContainerName)
 				agent := containerByName(t, sts, util.AgentContainerName)
-				assert.Equal(t, "example.com/mongodb-agent:nammn-agent-process-maintainer", agent.Image)
+				assert.Equal(t, "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent:nammn-agent-process-maintainer", agent.Image)
 				assert.Equal(t, []string{"/mnt/proxy/proxy"}, mongod.Command)
 				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "unix:///var/run/mongodb-proxy/proxy.sock"})
 				for _, c := range sts.Spec.Template.Spec.Containers {
