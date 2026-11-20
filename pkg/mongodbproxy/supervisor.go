@@ -30,8 +30,6 @@ type Supervisor struct {
 	log    *zap.SugaredLogger
 	// baseEnv is the environment of the child. The package does not read it: main passes the one of the proxy.
 	baseEnv []string
-	// paths are the directories that the paths of a request have to be in (see paths.go).
-	paths PathPolicy
 
 	mu          sync.Mutex
 	current     *Execution
@@ -41,13 +39,13 @@ type Supervisor struct {
 }
 
 // NewSupervisor forwards child output to stdout and stderr. An empty binDir uses PATH.
-func NewSupervisor(binDir string, paths PathPolicy, env []string, log *zap.SugaredLogger) *Supervisor {
+func NewSupervisor(binDir string, env []string, log *zap.SugaredLogger) *Supervisor {
 	if log == nil {
 		log = zap.NewNop().Sugar()
 	}
 	return &Supervisor{
 		binDir: binDir, stdout: os.Stdout, stderr: os.Stderr, log: log,
-		baseEnv: env, paths: paths, events: newEventLog(),
+		baseEnv: env, events: newEventLog(),
 	}
 }
 
@@ -148,9 +146,6 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := s.paths.checkRequest(req); err != nil {
-		return nil, err
-	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -163,11 +158,6 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 			return nil, ErrRoleConflict
 		}
 		return cur, nil
-	}
-
-	// The config file is read once, and the check for fork comes from that one read.
-	if err := s.paths.readConfig(req.ConfigPath); err != nil {
-		return nil, err
 	}
 
 	path, err := s.resolve(spec.binary)

@@ -6,13 +6,10 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -26,36 +23,19 @@ func main() {
 	listen := flag.String("listen", "unix:///var/run/mongodb-proxy/proxy.sock", "address of the process API: unix:///absolute/path.sock (mode 0600)")
 	binDir := flag.String("bin-dir", "", "directory with mongod/mongos; PATH is used when empty")
 	debug := flag.Bool("debug", false, "log the status requests too")
-	paths := mongodbproxy.DefaultPathPolicy()
-	flag.Func("config-dir", "comma-separated directories that the config file of a request has to be in", func(v string) error {
-		dirs, err := parseDirs(v)
-		if err != nil {
-			return err
-		}
-		paths.ConfigDirs = dirs
-		return nil
-	})
-	flag.Func("file-dir", "comma-separated directories that the Kerberos keytab and the LDAP CA file of a request have to be in", func(v string) error {
-		dirs, err := parseDirs(v)
-		if err != nil {
-			return err
-		}
-		paths.FileDirs = dirs
-		return nil
-	})
 	flag.Parse()
 
 	log := newLogger(*debug)
 	defer func() { _ = log.Sync() }()
 
-	if err := run(log, *listen, *binDir, paths); err != nil {
+	if err := run(log, *listen, *binDir); err != nil {
 		log.Errorw("proxy failed", "error", err)
 		_ = log.Sync()
 		os.Exit(1)
 	}
 }
 
-func run(log *zap.SugaredLogger, listen, binDir string, paths mongodbproxy.PathPolicy) error {
+func run(log *zap.SugaredLogger, listen, binDir string) error {
 	if logPath := os.Getenv("MDB_LOG_FILE_MONGODB"); logPath != "" {
 		stopTail := followLog(log, logPath)
 		defer stopTail()
@@ -68,7 +48,7 @@ func run(log *zap.SugaredLogger, listen, binDir string, paths mongodbproxy.PathP
 	// Serve closes the listener, which also removes the socket file. This covers the early returns before it.
 	defer func() { _ = listener.Close() }()
 
-	sup := mongodbproxy.NewSupervisor(binDir, paths, os.Environ(), log)
+	sup := mongodbproxy.NewSupervisor(binDir, os.Environ(), log)
 
 	srv := &http.Server{
 		Handler:           mongodbproxy.NewHandler(sup, log),
@@ -118,25 +98,6 @@ func followLog(log *zap.SugaredLogger, path string) (stop func()) {
 		_ = tail.Process.Signal(syscall.SIGTERM)
 		_ = tail.Wait()
 	}
-}
-
-// parseDirs parses a comma-separated list of absolute directories. Setting a flag replaces the default.
-func parseDirs(v string) ([]string, error) {
-	var dirs []string
-	for d := range strings.SplitSeq(v, ",") {
-		d = strings.TrimSpace(d)
-		if d == "" {
-			continue
-		}
-		if !filepath.IsAbs(d) || filepath.Clean(d) != d || d == "/" {
-			return nil, fmt.Errorf("%q must be a clean absolute path other than /", d)
-		}
-		dirs = append(dirs, d)
-	}
-	if len(dirs) == 0 {
-		return nil, errors.New("at least one directory is needed")
-	}
-	return dirs, nil
 }
 
 func newLogger(debug bool) *zap.SugaredLogger {

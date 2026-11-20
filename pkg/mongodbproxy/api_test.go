@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -175,20 +173,6 @@ func TestAPIStopDoesNotSignalReplacementExecution(t *testing.T) {
 	require.Equal(t, http.StatusConflict, code)
 	require.Equal(t, "execution_mismatch", e.Code)
 	require.False(t, second.finished())
-}
-
-func TestAPIStartRejectsAConfigWithFork(t *testing.T) {
-	f, srv := newServer(t)
-	cfg := filepath.Join(f.dir, "fork.conf")
-	require.NoError(t, os.WriteFile(cfg, []byte("processManagement:\n  fork: true\n"), 0o600))
-
-	var body errorResponse
-	code := post(t, srv.URL+"/v1/process/start", StartRequest{ConfigPath: cfg, Role: RoleMain}, &body)
-
-	assert.Equal(t, http.StatusBadRequest, code)
-	assert.Equal(t, "invalid_request", body.Code)
-	assert.Contains(t, body.Error, "processManagement.fork")
-	assert.Equal(t, StateIdle, getStatus(t, srv).State)
 }
 
 func getEvents(t *testing.T, srv *httptest.Server, query string) eventsResponse {
