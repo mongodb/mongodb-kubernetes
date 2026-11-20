@@ -47,6 +47,10 @@ func validateSpec(mdb mdbv1.MongoDBCommunity, log *zap.SugaredLogger) error {
 		return err
 	}
 
+	if err := validateAgentSettings(mdb); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -205,5 +209,19 @@ func validateStatefulSet(mdb mdbv1.MongoDBCommunity) error {
 		return fmt.Errorf("spec.statefulset.spec.replicas has to be equal to spec.members")
 	}
 
+	return nil
+}
+
+// validateAgentSettings rejects values that would add extra lines to the agent settings file.
+func validateAgentSettings(mdb mdbv1.MongoDBCommunity) error {
+	fields := map[string]string{
+		"spec.agent.logFile":  mdb.Spec.AgentConfiguration.LogFile,
+		"spec.agent.logLevel": string(mdb.Spec.AgentConfiguration.LogLevel),
+	}
+	for _, field := range []string{"spec.agent.logFile", "spec.agent.logLevel"} {
+		if strings.ContainsAny(fields[field], "\r\n\x00") {
+			return fmt.Errorf("%s must not contain a line break or NUL byte", field)
+		}
+	}
 	return nil
 }
