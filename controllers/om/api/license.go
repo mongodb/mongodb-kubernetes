@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"fmt"
+
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -102,25 +102,25 @@ func ArtifactIDFromRaw(rawArtifact string) (string, error) {
 		Payload string `json:"payload"`
 	}
 	if err := json.Unmarshal([]byte(rawArtifact), &envelope); err != nil {
-		return "", errors.New("license artifact is not a valid JSON envelope")
+		return "", xerrors.New("license artifact is not a valid JSON envelope")
 	}
 	if envelope.Payload == "" {
-		return "", errors.New("license artifact has no payload")
+		return "", xerrors.New("license artifact has no payload")
 	}
 	payload, err := base64.StdEncoding.DecodeString(envelope.Payload)
 	if err != nil {
 		if payload, err = base64.RawStdEncoding.DecodeString(envelope.Payload); err != nil {
-			return "", errors.New("license artifact payload is not base64")
+			return "", xerrors.New("license artifact payload is not base64")
 		}
 	}
 	var claims struct {
 		ArtifactID string `json:"artifact_id"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", errors.New("license artifact payload is not valid JSON")
+		return "", xerrors.New("license artifact payload is not valid JSON")
 	}
 	if claims.ArtifactID == "" {
-		return "", errors.New("license artifact claims carry no artifact_id")
+		return "", xerrors.New("license artifact claims carry no artifact_id")
 	}
 	return claims.ArtifactID, nil
 }
@@ -192,18 +192,18 @@ func (a *DefaultOmAdmin) RotateLicenseIdentity(ctx context.Context) error {
 		return err
 	}
 	if view.Outcome != "ROTATED" {
-		return fmt.Errorf("license identity rotation returned %s", view.Outcome)
+		return xerrors.Errorf("license identity rotation returned %s", view.Outcome)
 	}
 	return nil
 }
 
 func decodeLicenseState(body []byte) (LicenseView, error) {
 	if len(body) == 0 {
-		return LicenseView{}, errors.New("empty license state body")
+		return LicenseView{}, xerrors.New("empty license state body")
 	}
 	var state LicenseView
 	if err := json.Unmarshal(body, &state); err != nil {
-		return LicenseView{}, fmt.Errorf("invalid license state body: %w", err)
+		return LicenseView{}, xerrors.Errorf("invalid license state body: %w", err)
 	}
 	return state, nil
 }
