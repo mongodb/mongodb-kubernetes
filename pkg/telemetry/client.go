@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 
 	atlas "go.mongodb.org/atlas/mongodbatlas"
 
+	"github.com/mongodb/mongodb-kubernetes/internal/retry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -37,27 +37,26 @@ const (
 	defaultRetryWaitMax   = 10 * time.Second
 )
 
-// zapAdapter wraps zap.Logger to implement retryablehttp.Logger interface
+var telemetryTransport = newTelemetryTransport()
+
 type zapAdapter struct {
 	logger *zap.SugaredLogger
 }
 
-func (z *zapAdapter) Printf(format string, v ...any) {
-	z.logger.Infof(format, v...)
+func (a zapAdapter) Printf(format string, args ...interface{}) {
+	a.logger.Infof(format, args...)
 }
 
-var (
-	telemetryTransport = newTelemetryTransport()
-	defaultRetryClient = &retryablehttp.Client{
-		HTTPClient:   &http.Client{Transport: telemetryTransport},
-		RetryWaitMin: defaultRetryWaitMin,
-		RetryWaitMax: defaultRetryWaitMax,
-		RetryMax:     maxRetries,
-		CheckRetry:   retryablehttp.DefaultRetryPolicy,
-		Backoff:      retryablehttp.LinearJitterBackoff,
-		Logger:       &zapAdapter{logger: Logger},
-	}
-)
+var defaultRetryClient = func() *retry.Client {
+	client := retry.NewClient()
+	client.HTTPClient = &http.Client{Transport: telemetryTransport}
+	client.RetryMax = maxRetries
+	client.RetryWaitMin = defaultRetryWaitMin
+	client.RetryWaitMax = defaultRetryWaitMax
+	client.Backoff = retry.LinearJitterBackoff
+	client.Logger = zapAdapter{logger: Logger}
+	return client
+}()
 
 func newTelemetryTransport() *http.Transport {
 	return &http.Transport{
@@ -73,13 +72,12 @@ func newTelemetryTransport() *http.Transport {
 	}
 }
 
-func NewClient(retryClient *retryablehttp.Client) (*Client, error) {
+func NewClient(retryClient *retry.Client) (*Client, error) {
 	if retryClient == nil {
 		retryClient = defaultRetryClient
 	}
-
 	c := atlas.NewClient(
-		&http.Client{Transport: &retryablehttp.RoundTripper{Client: retryClient}},
+		&http.Client{Transport: &retry.RoundTripper{Client: retryClient}},
 	)
 
 	if urlStr := env.ReadOrDefault(BaseUrl, ""); urlStr != "" { // nolint:forbidigo

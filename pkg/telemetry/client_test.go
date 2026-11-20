@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/hashicorp/go-retryablehttp"
+	"github.com/mongodb/mongodb-kubernetes/internal/retry"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -89,11 +89,10 @@ func TestSendEventWithRetry(t *testing.T) {
 
 			server := httptest.NewServer(handler)
 			defer server.Close()
-			retryableClient := retryablehttp.NewClient()
-			retryableClient.RetryWaitMin = 0
-			retryableClient.RetryWaitMax = 0
-
-			client, err := NewClient(retryableClient)
+			retryClient := retry.NewClient()
+			retryClient.RetryWaitMin = 0
+			retryClient.RetryWaitMax = 0
+			client, err := NewClient(retryClient)
 			assert.NoError(t, err)
 			u, _ := url.Parse(server.URL + baseURLPath + "/")
 			client.atlasClient.BaseURL = u
@@ -115,3 +114,37 @@ func TestSendEventWithRetry(t *testing.T) {
 		})
 	}
 }
+
+func TestNewClientPreservesSuppliedHTTPClient(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	var transportCalls int
+	retryClient := retry.NewClient()
+	retryClient.RetryMax = 0
+	retryClient.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		transportCalls++
+		return http.DefaultTransport.RoundTrip(req)
+	})}
+	client, err := NewClient(retryClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.atlasClient.BaseURL, err = url.Parse(server.URL + baseURLPath + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := client.SendEventWithRetry(context.Background(), []Event{}); err != nil {
+		t.Fatalf("SendEventWithRetry() error = %v", err)
+	}
+	if transportCalls != 1 {
+		t.Fatalf("supplied transport calls = %d, want 1", transportCalls)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
