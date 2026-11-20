@@ -361,7 +361,7 @@ func TestLicenseE2E_RecomputeFailureClearsAnnotation(t *testing.T) {
 	assert.Empty(t, got.Annotations[util.LicenseRecomputeAnnotation])
 	managed := operatorManagedLicenseCondition(t, got)
 	assert.Equal(t, metav1.ConditionFalse, managed.Status)
-	assert.Equal(t, status.ReasonLicenseNotManaged, managed.Reason)
+	assert.Equal(t, status.ReasonLicenseFailed, managed.Reason)
 }
 
 func TestLicenseE2E_InstallFails(t *testing.T) {
@@ -837,7 +837,7 @@ func TestLicenseE2E_OutdatedSwapKeepsTheInstalledLicenseOwned(t *testing.T) {
 	})
 	st := h.reconcile(om.Name)
 	assert.True(t, st.IsOK())
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseRejected)
 
 	h.admin.LicenseInstallErr = nil
 	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {

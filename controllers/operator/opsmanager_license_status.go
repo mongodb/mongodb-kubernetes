@@ -40,7 +40,7 @@ func (h *LicenseReconcilerHelper) reportLicenseActive() {
 	if state == "" {
 		// A fresh Ops Manager reports no license state until its first recompute. The operator has
 		// not checked the license yet, so the condition is Unknown rather than False.
-		active, reason, stateMessage = metav1.ConditionUnknown, status.ReasonLicenseStateUnknown, "Ops Manager has not reported a license state yet."
+		active, reason, stateMessage = metav1.ConditionUnknown, status.ReasonLicenseUnknown, "Ops Manager has not reported a license state yet."
 	} else if state != licenseStateLicensed {
 		active, reason = licenseStateCondition(state)
 	}
@@ -60,9 +60,9 @@ func (h *LicenseReconcilerHelper) reportLicenseActive() {
 // False, since the operator cannot tell whether that state means the license is active.
 func licenseStateCondition(state string) (metav1.ConditionStatus, string) {
 	if state == licenseStateGrace || state == licenseStateUnlicensed || state == licenseStateExpired {
-		return metav1.ConditionFalse, status.ReasonLicenseNotReady
+		return metav1.ConditionFalse, status.ReasonLicenseInactive
 	}
-	return metav1.ConditionUnknown, status.ReasonLicenseStateUnknown
+	return metav1.ConditionUnknown, status.ReasonLicenseUnknown
 }
 
 // reportOperatorManagedLicense returns OperatorManagedLicense for the license in secretRef. Every install failure
@@ -76,7 +76,7 @@ func (h *LicenseReconcilerHelper) reportOperatorManagedLicense(requestedID strin
 	if h.observed.HoldsArtifact(requestedID) {
 		return operatorManagedLicense(true, status.ReasonLicenseManaged, fmt.Sprintf("License %s from .spec.license.secretRef is managed by the operator.", requestedID))
 	}
-	return operatorManagedLicense(false, status.ReasonLicenseNotManaged, fmt.Sprintf("License %s from .spec.license.secretRef is not installed, because Ops Manager already holds a license this new or newer that the operator doesn't manage.", requestedID))
+	return operatorManagedLicense(false, status.ReasonLicenseRejected, fmt.Sprintf("License %s from .spec.license.secretRef is not installed, because Ops Manager already holds a license this new or newer that the operator doesn't manage.", requestedID))
 }
 
 func operatorManagedLicense(managed bool, reason, message string) workflow.Status {
@@ -84,5 +84,5 @@ func operatorManagedLicense(managed bool, reason, message string) workflow.Statu
 }
 
 func licenseFailed(err error) workflow.Status {
-	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.OperatorManagedLicenseCondition(false, status.ReasonLicenseNotManaged, err.Error())))
+	return workflow.Failed(err).WithAdditionalOptions(status.NewLicenseStatusOptionWithCondition(status.OperatorManagedLicenseCondition(false, status.ReasonLicenseFailed, err.Error())))
 }

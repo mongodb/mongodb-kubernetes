@@ -669,7 +669,7 @@ func TestOpsManagerLicenseFailureDoesNotBlockBackupDaemon(t *testing.T) {
 	licenseCondition := meta.FindStatusCondition(testOm.Status.OpsManagerStatus.Conditions, status.ConditionOperatorManagedLicense)
 	require.NotNil(t, licenseCondition)
 	assert.Equal(t, metav1.ConditionFalse, licenseCondition.Status)
-	assert.Equal(t, status.ReasonLicenseNotManaged, licenseCondition.Reason)
+	assert.Equal(t, status.ReasonLicenseFailed, licenseCondition.Reason)
 }
 
 func TestOpsManagerReleaseWithoutTheLicenseSecretIsReportedOnce(t *testing.T) {
@@ -685,7 +685,7 @@ func TestOpsManagerReleaseWithoutTheLicenseSecretIsReportedOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 10*time.Second, result.RequeueAfter)
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
-	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseFailed)
 	lastInstallSecretRef, err := reconciler.readLicenseSecretRef(ctx, testOm)
 	require.NoError(t, err)
 	assert.Empty(t, lastInstallSecretRef)
@@ -714,7 +714,7 @@ func TestOpsManagerDeletionWithoutTheLicenseSecretWaitsForIt(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
 		assert.Contains(t, testOm.Finalizers, util.OpsManagerLicenseFinalizer)
-		assertOperatorManagedLicense(t, testOm, status.ReasonLicenseNotManaged)
+		assertOperatorManagedLicense(t, testOm, status.ReasonLicenseFailed)
 	}
 	assert.Empty(t, api.CurrMockedAdmin.ReleasedIDs)
 

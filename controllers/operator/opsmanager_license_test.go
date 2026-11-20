@@ -97,7 +97,7 @@ func TestEnsureOpsManagerLicense_IdentityReadFailure(t *testing.T) {
 
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
 }
 
 func TestEnsureOpsManagerLicense_ProvisioningModels(t *testing.T) {
@@ -225,7 +225,7 @@ func TestEnsureOpsManagerLicense_IdentityReadErrorWithoutRotationFails(t *testin
 
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
 }
 
 func TestEnsureOpsManagerLicense_WritesReadyConditionFromGet(t *testing.T) {
@@ -237,7 +237,7 @@ func TestEnsureOpsManagerLicense_WritesReadyConditionFromGet(t *testing.T) {
 	}
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
 	active := licenseActiveCondition(t, testOm)
-	assert.Equal(t, status.ReasonLicenseNotReady, active.Reason)
+	assert.Equal(t, status.ReasonLicenseInactive, active.Reason)
 	assert.Contains(t, active.Message, "License state is GRACE.")
 	assert.Contains(t, active.Message, "license art-1")
 }
@@ -250,7 +250,7 @@ func TestEnsureOpsManagerLicense_UnknownStateBeforeFirstRecompute(t *testing.T) 
 	assert.True(t, ensureLicense(r, testOm, &api.MockedOmAdmin{}).IsOK())
 	active := licenseActiveCondition(t, testOm)
 	assert.Equal(t, metav1.ConditionUnknown, active.Status)
-	assert.Equal(t, status.ReasonLicenseStateUnknown, active.Reason)
+	assert.Equal(t, status.ReasonLicenseUnknown, active.Reason)
 	assert.Contains(t, active.Message, "has not reported a license state yet")
 }
 
@@ -318,7 +318,7 @@ func TestEnsureOpsManagerLicense_ReleaseWithoutTheLicenseSecretFails(t *testing.
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
 }
 
 func TestEnsureOpsManagerLicense_ReleaseWithSecretMissingKeySkipsWhenNothingHeld(t *testing.T) {
@@ -349,10 +349,10 @@ func TestEnsureOpsManagerLicense_InstallFailed(t *testing.T) {
 	c := managedCondition(t, st.StatusOptions())
 	assert.Equal(t, status.ConditionOperatorManagedLicense, c.Type)
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
+	assert.Equal(t, status.ReasonLicenseFailed, c.Reason)
 }
 
-func TestEnsureOpsManagerLicense_InstallConflictReportsNotManaged(t *testing.T) {
+func TestEnsureOpsManagerLicense_InstallConflictReportsRejected(t *testing.T) {
 	artifact := licenseArtifactJSON("art-1")
 	testOm := DefaultOpsManagerBuilder().Build()
 	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}
@@ -373,7 +373,7 @@ func TestEnsureOpsManagerLicense_InstallConflictReportsNotManaged(t *testing.T) 
 
 	c := managedCondition(t, st.StatusOptions())
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
+	assert.Equal(t, status.ReasonLicenseRejected, c.Reason)
 	assert.Equal(t, "License art-1 from .spec.license.secretRef is not installed, because Ops Manager already holds a license this new or newer that the operator doesn't manage.", c.Message)
 }
 
@@ -396,7 +396,7 @@ func TestEnsureOpsManagerLicense_InstallConflictWhenOMHoldsNothing(t *testing.T)
 	assert.True(t, st.IsOK())
 	c := managedCondition(t, st.StatusOptions())
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
+	assert.Equal(t, status.ReasonLicenseRejected, c.Reason)
 	assert.Contains(t, c.Message, "Ops Manager already holds a license this new or newer that the operator doesn't manage")
 	assert.NotContains(t, c.Message, "It holds license")
 }
@@ -416,7 +416,7 @@ func TestEnsureOpsManagerLicense_InstallConflictWithOtherCodeFails(t *testing.T)
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
 	c := managedCondition(t, st.StatusOptions())
-	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
+	assert.Equal(t, status.ReasonLicenseFailed, c.Reason)
 	assert.Contains(t, c.Message, "SOME_OTHER_CONFLICT")
 }
 
@@ -466,7 +466,7 @@ func TestEnsureOpsManagerLicense_RotateNotRotatedFails(t *testing.T) {
 	c := managedCondition(t, st.StatusOptions())
 	assert.Equal(t, status.ConditionOperatorManagedLicense, c.Type)
 	assert.Equal(t, metav1.ConditionFalse, c.Status)
-	assert.Equal(t, status.ReasonLicenseNotManaged, c.Reason)
+	assert.Equal(t, status.ReasonLicenseFailed, c.Reason)
 }
 
 func TestEnsureOpsManagerLicense_RecomputeOnAnnotation(t *testing.T) {
@@ -839,7 +839,7 @@ func TestEnsureOpsManagerLicense_MalformedLicenseArtifactFails(t *testing.T) {
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
 	assert.Nil(t, admin.InstalledLicense)
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptEntryWithMissingSecretFails(t *testing.T) {
@@ -855,7 +855,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryWithMissingSecretFails(t *testing.T
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptEntryWithMalformedSecretFails(t *testing.T) {
@@ -872,7 +872,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryWithMalformedSecretFails(t *testing
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
 }
 
 func TestEnsureOpsManagerLicense_MissingReceiptSecretIsCreated(t *testing.T) {
@@ -910,7 +910,7 @@ func TestEnsureOpsManagerLicense_ReceiptEntryOnInstalledLicenseFails(t *testing.
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
 	assert.Nil(t, admin.InstalledLicense)
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
 }
 
 func TestEnsureOpsManagerLicense_AutoReceiptsWriteReleaseReceipt(t *testing.T) {
@@ -1097,7 +1097,7 @@ func TestEnsureOpsManagerLicense_AutoReceiptNotFoundFails(t *testing.T) {
 
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
 }
 
 func TestEnsureOpsManagerLicense_ListedReceiptNotFoundStillFails(t *testing.T) {
@@ -1110,7 +1110,7 @@ func TestEnsureOpsManagerLicense_ListedReceiptNotFoundStillFails(t *testing.T) {
 
 	st := ensureLicense(r, testOm, admin)
 	assert.False(t, st.IsOK())
-	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseNotManaged)
+	assertOperatorManagedLicenseReason(t, st.StatusOptions(), status.ReasonLicenseFailed)
 }
 
 func TestEnsureOpsManagerLicense_ReceiptCheckReadsKubernetes(t *testing.T) {
@@ -1195,10 +1195,10 @@ func TestLicenseStateReason(t *testing.T) {
 	for _, state := range []string{"GRACE", "UNLICENSED", "EXPIRED"} {
 		st, reason := licenseStateCondition(state)
 		assert.Equal(t, metav1.ConditionFalse, st)
-		assert.Equal(t, status.ReasonLicenseNotReady, reason)
+		assert.Equal(t, status.ReasonLicenseInactive, reason)
 	}
 
 	st, reason := licenseStateCondition("SOMETHING_NEW")
 	assert.Equal(t, metav1.ConditionUnknown, st)
-	assert.Equal(t, status.ReasonLicenseStateUnknown, reason)
+	assert.Equal(t, status.ReasonLicenseUnknown, reason)
 }
