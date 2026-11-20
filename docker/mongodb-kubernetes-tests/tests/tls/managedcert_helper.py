@@ -7,6 +7,7 @@ live here and the test files only keep what is specific to their scenario.
 
 import hashlib
 import re
+import socket
 import ssl
 import tempfile
 from datetime import datetime, timezone
@@ -468,22 +469,33 @@ def migration_managed_certificate(membership: dict, agent: dict) -> dict:
     }
 
 
-def assert_automation_config_names_files(agent_hash: str, member_hashes: dict, clusterfile_hashes: dict):
+def assert_automation_config_names_files(
+    agent_hash: str, member_hashes: dict, clusterfile_hashes: dict, *, ac=None, expected_names=None
+):
     """The automation config has to name exactly the certificate files the pods have.
 
     The file names are the hashes in each -pem secret's latestHash key. member_hashes and
     clusterfile_hashes map a process name prefix (the StatefulSet the process runs in) to the hash of
     that StatefulSet's -pem secret, because a sharded cluster has one secret per component.
     """
-    ac = KubernetesTester.get_automation_config()
-    assert ac["tls"]["autoPEMKeyFilePath"].endswith(agent_hash), ac["tls"]["autoPEMKeyFilePath"]
+    if ac is None:
+        ac = KubernetesTester.get_automation_config()
+    assert agent_hash and all(member_hashes.values()) and all(clusterfile_hashes.values()), "missing PEM hash"
+    assert ac["tls"]["autoPEMKeyFilePath"].endswith(f"/{agent_hash}"), ac["tls"]["autoPEMKeyFilePath"]
+    names = {p["name"].split("/")[-1] for p in ac["processes"]}
+    assert names and (expected_names is None or names == expected_names), (names, expected_names)
+    seen = set()
     for process in ac["processes"]:
         name = process["name"]
         tls = process["args2_6"]["net"]["tls"]
         prefix = _longest_matching_prefix(name, member_hashes)
-        assert tls["certificateKeyFile"].endswith(member_hashes[prefix]), f"{name}: {tls['certificateKeyFile']}"
-        if "clusterFile" in tls:
-            assert tls["clusterFile"].endswith(clusterfile_hashes[prefix]), f"{name}: {tls['clusterFile']}"
+        seen.add(prefix)
+        assert tls["certificateKeyFile"].endswith(f"/{member_hashes[prefix]}"), f"{name}: {tls['certificateKeyFile']}"
+        if prefix in clusterfile_hashes:
+            assert tls.get("clusterFile", "").endswith(
+                f"/{clusterfile_hashes[prefix]}"
+            ), f"{name}: {tls.get('clusterFile')}"
+    assert seen == member_hashes.keys(), (seen, member_hashes.keys())
 
 
 def _longest_matching_prefix(process_name: str, by_prefix: dict) -> str:
@@ -521,6 +533,48 @@ def pem_secret_hashes(namespace: str, secret_name: str) -> tuple[str, str]:
     """
     secret = read_secret(namespace, secret_name)
     return secret.get("latestHash", ""), secret.get("previousHash", "")
+
+
+def pem_matches_leaf(pem: str, leaf: str) -> bool:
+    expected = bundle_fingerprints(leaf)[:1]
+    return bool(expected) and bundle_fingerprints(pem)[:1] == expected
+
+
+def wait_for_served_member_leaves(user: MongoDBUser, endpoints: dict[tuple[str, int], str], timeout: int):
+    """Verify the leaf on each endpoint with the same mTLS credentials an application uses."""
+    assert endpoints
+    user.load()
+    status = user["status"]["clientCertificate"]
+    cert = read_secret(user.namespace, status["secretName"])
+    ca = read_configmap(user.namespace, status["serverCAConfigMapName"])["ca-pem"]
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.load_verify_locations(cadata=ca)
+    with tempfile.NamedTemporaryFile(mode="w") as f:
+        f.write(cert["tls.crt"] + cert["tls.key"])
+        f.flush()
+        ctx.load_cert_chain(f.name)
+
+    def served() -> tuple[bool, str]:
+        for (host, port), leaf in endpoints.items():
+            try:
+                with (
+                    socket.create_connection((host, port), timeout=5) as conn,
+                    ctx.wrap_socket(conn, server_hostname=host) as tls,
+                ):
+                    peer = tls.getpeercert(binary_form=True)
+                    if not peer:
+                        return False, f"{host}:{port} sent no peer certificate"
+                    observed = ssl.DER_cert_to_PEM_cert(peer)
+            except OSError as exc:
+                return False, f"{host}:{port}: {exc}"
+            if not pem_matches_leaf(observed, leaf):
+                return (
+                    False,
+                    f"{host}:{port} serves {bundle_fingerprints(observed)}, expected {bundle_fingerprints(leaf)}",
+                )
+        return True, ""
+
+    run_periodically(served, timeout=timeout, sleep_time=5, msg="members serving their issued leaf")
 
 
 def wait_for_certificate_spec_fields(
@@ -690,9 +744,16 @@ def wait_for_certificate_issuance_settled(
     state: dict[str, Optional[tuple[int, str]]] = {"last": None}
 
     def settled() -> bool:
-        revision = read_certificate_status(namespace, certificate_name).get("revision", 0)
-        latest, _ = pem_secret_hashes(namespace, pem_secret_name)
-        if not latest:
+        status = read_certificate_status(namespace, certificate_name)
+        revision = status.get("revision", 0)
+        pem = read_secret(namespace, pem_secret_name)
+        latest = pem.get("latestHash", "")
+        if (
+            not revision
+            or any(c["type"] == "Issuing" and c["status"] == "True" for c in status.get("conditions", []))
+            or not pem_matches_leaf(pem.get(latest, ""), read_secret(namespace, certificate_name)["tls.crt"])
+        ):
+            state["last"] = None
             return False
         current = (revision, latest)
         if state["last"] == current:
@@ -731,8 +792,13 @@ def wait_for_certificate_issuance_after(
         revision = read_certificate_status(namespace, certificate_name).get("revision", 0)
         if revision <= after_revision:
             return False
-        latest, previous = pem_secret_hashes(namespace, pem_secret_name)
-        if not latest or latest == previous_hash:
+        pem = read_secret(namespace, pem_secret_name)
+        latest, previous = pem.get("latestHash", ""), pem.get("previousHash", "")
+        if (
+            not latest
+            or latest == previous_hash
+            or not pem_matches_leaf(pem.get(latest, ""), read_secret(namespace, certificate_name)["tls.crt"])
+        ):
             return False
         result["revision"] = revision
         result["latest"] = latest
@@ -795,7 +861,12 @@ def assert_automation_config_uses_leaf_secrets(resource: MongoDB, namespace: str
     agent_hash, _ = pem_secret_hashes(namespace, f"{agent_name}-pem")
     member_hash, _ = pem_secret_hashes(namespace, f"{member_name}-pem")
     clusterfile_hash, _ = pem_secret_hashes(namespace, f"{clusterfile_name}-pem")
-    assert_automation_config_names_files(agent_hash, {resource.name: member_hash}, {resource.name: clusterfile_hash})
+    assert_automation_config_names_files(
+        agent_hash,
+        {resource.name: member_hash},
+        {resource.name: clusterfile_hash},
+        expected_names={f"{resource.name}-{i}" for i in range(resource.get_members())},
+    )
 
 
 def wait_for_automation_config_to_use_leaf_secrets(resource: MongoDB, namespace: str, timeout: int = 600):

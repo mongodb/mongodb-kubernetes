@@ -165,6 +165,14 @@ def _wait_for_automation_config_to_name_current_files(namespace: str, member_clu
         hash_of(AGENT_LEAF),
         {component: hash_of(f"{component}-managed-cert") for component in COMPONENTS},
         {component: hash_of(f"{component}-managed-clusterfile") for component in COMPONENTS},
+        expected_names={
+            f"{component}-{cluster}-{i}"
+            for component, counts in zip(
+                COMPONENTS, [MONGOS_MEMBERS, CONFIG_SRV_MEMBERS] + [SHARD_MEMBERS] * SHARD_COUNT, strict=True
+            )
+            for cluster, count in enumerate(counts)
+            for i in range(count)
+        },
     )
 
 
@@ -253,7 +261,7 @@ def test_every_component_server_leaf_reissued_on_the_new_ca(
         assert not cert_signed_by_bundle(new_leaf, rotation["old_ca"]), f"{leaf} must not be signed by the old CA"
         assert read_certificate_status(namespace, leaf).get("revision", 0) > rotation["revisions"][leaf]
         wait_for_pem_secret_rolled_in_clusters(
-            namespace, f"{leaf}-pem", rotation["pem_hashes"][leaf], member_cluster_clients
+            namespace, f"{leaf}-pem", rotation["pem_hashes"][leaf], member_cluster_clients, new_leaf
         )
 
     assert (

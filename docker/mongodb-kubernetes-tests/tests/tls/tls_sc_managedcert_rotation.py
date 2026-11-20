@@ -11,10 +11,14 @@ and re-issue every leaf of that category on the new root, without recreating a p
 Pruning both retained CAs at the end narrows the bundles to the new roots.
 """
 
+import math
+import time
+
 import pytest
 from kubetester import read_secret, try_load
 from kubetester.crypto import cert_signed_by_bundle
 from kubetester.kubetester import fixture as load_fixture
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_user import MongoDBUser
 from kubetester.operator import Operator
@@ -31,7 +35,6 @@ from tests.multicluster.managedcert_rotation_mc_helper import (
     leaf_certificates,
     user_certificate,
     wait_for_automation_config_ca_files,
-    wait_for_automation_config_names_files,
     wait_for_leaf_signed_by,
     wait_for_prune_annotation_removed,
 )
@@ -45,6 +48,7 @@ from tests.opsmanager.managedcert_helper import (
     wait_for_leaf_reissued_on_new_ca,
 )
 from tests.tls.managedcert_helper import (
+    assert_automation_config_names_files,
     assert_reachable_with_client_certificate,
     client_certificate_user,
     managed_certificate_operator,
@@ -54,6 +58,7 @@ from tests.tls.managedcert_helper import (
     trigger_certificate_renewal,
     wait_for_certificate_issuance_after,
     wait_for_certificate_issuance_settled,
+    wait_for_served_member_leaves,
 )
 
 MDB_RESOURCE = "sc-managedcert-rotation"
@@ -70,6 +75,15 @@ CLIENT_LEAVES = CLUSTERFILE_LEAVES + [AGENT_LEAF]
 
 # The deployment is expected to be reachable whenever connectivity is checked, so a few attempts are enough.
 CONNECTIVITY_ATTEMPTS = 5
+
+# A shared budget per reissue phase, so a stuck rotation fails in minutes instead of a fresh timeout per leaf,
+# and bounded budgets for the automation config rollout and the resource that has to catch up with it.
+LEAF_REISSUE_TIMEOUT = 20 * 60
+AUTOMATION_CONFIG_TIMEOUT = 10 * 60
+RUNNING_TIMEOUT = 15 * 60
+
+# A leaf renewal must finish rolling out before a CA rotation starts, which the status alone does not show.
+RENEWAL_ROLLOUT_TIMEOUT = 15 * 60
 
 
 @pytest.fixture(scope="module")
@@ -109,11 +123,51 @@ def _pods(namespace: str) -> dict[str, str]:
     return pod_uids(namespace, f"{MDB_RESOURCE}-")
 
 
-def _wait_for_automation_config_to_name_current_files(namespace: str):
+def _remaining(deadline: float) -> int:
+    remaining = math.ceil(deadline - time.monotonic())
+    assert remaining > 0, "timed out waiting for all leaves to be reissued"
+    return remaining
+
+
+def _wait_for_rollout(sc: MongoDB, ca_hashes: tuple[str, str] | None = None) -> dict:
+    namespace = sc.namespace
     agent_hash, _ = pem_secret_hashes(namespace, f"{AGENT_LEAF}-pem")
     member_hashes = {c: pem_secret_hashes(namespace, f"{c}-managed-cert-pem")[0] for c in COMPONENTS}
     clusterfile_hashes = {c: pem_secret_hashes(namespace, f"{c}-managed-clusterfile-pem")[0] for c in COMPONENTS}
-    wait_for_automation_config_names_files(agent_hash, member_hashes, clusterfile_hashes)
+    spec = sc["spec"]
+    counts = [spec["mongosCount"], spec["configServerCount"]] + [spec["mongodsPerShardCount"]] * spec["shardCount"]
+    expected = {f"{component}-{i}" for component, count in zip(COMPONENTS, counts, strict=True) for i in range(count)}
+    tester = sc.get_om_tester()
+    ac = {}
+
+    def published() -> tuple[bool, str]:
+        nonlocal ac
+        ac = tester.api_get_automation_config()
+        try:
+            assert_automation_config_names_files(
+                agent_hash, member_hashes, clusterfile_hashes, ac=ac, expected_names=expected
+            )
+            if ca_hashes:
+                for field, value in zip(("CAFilePath", "clusterCAFilePath"), ca_hashes, strict=True):
+                    assert ac["tls"][field].endswith(f"/{value}"), f"{field}: {ac['tls'][field]}"
+        except (AssertionError, KeyError) as exc:
+            return False, str(exc)
+        return True, ""
+
+    run_periodically(published, timeout=AUTOMATION_CONFIG_TIMEOUT, sleep_time=5, msg="publish current TLS paths")
+    names = {p["name"] for p in ac["processes"]}
+    tester.wait_for_processes_to_apply_config(ac["version"], names, timeout=RENEWAL_ROLLOUT_TIMEOUT)
+    return ac
+
+
+def _check_served_leaves(sc: MongoDB, user: MongoDBUser, ac: dict):
+    leaves = {c: read_secret(sc.namespace, f"{c}-managed-cert")["tls.crt"] for c in COMPONENTS}
+    endpoints = {
+        (p["hostname"], p["args2_6"]["net"].get("port", 27017)): leaves[p["name"].split("/")[-1].rsplit("-", 1)[0]]
+        for p in ac["processes"]
+    }
+    assert len(endpoints) == len(ac["processes"])
+    wait_for_served_member_leaves(user, endpoints, timeout=RENEWAL_ROLLOUT_TIMEOUT)
 
 
 def _current_ca(namespace: str, category: str) -> str:
@@ -224,7 +278,7 @@ def test_leaf_renewal_on_the_same_ca(sc: MongoDB, app_user: MongoDBUser, namespa
             read_certificate_status(namespace, leaf).get("revision", 0) == revision
         ), f"{leaf} must not be issued again"
 
-    _wait_for_automation_config_to_name_current_files(namespace)
+    _check_served_leaves(sc, app_user, _wait_for_rollout(sc))
     sc.assert_reaches_phase(Phase.Running, timeout=900)
 
     bundle_after = bundle_snapshot(namespace, MDB_RESOURCE, SERVER)
@@ -244,6 +298,7 @@ def test_server_ca_rotation_widens_the_shared_bundle(
     """
     rotation["pods"] = _pods(namespace)
     client_bundle_before = bundle_snapshot(namespace, MDB_RESOURCE, CLIENT)
+    rotation["initial_client_hash"] = client_bundle_before["latest_hash"]
 
     widened = _rotate_ca(namespace, SERVER, app_user, rotation)
 
@@ -266,6 +321,7 @@ def test_every_component_server_leaf_reissued_on_the_new_ca(
     are. The bundle keeps both CAs until a prune is requested.
     """
     state = rotation[SERVER]
+    deadline = time.monotonic() + LEAF_REISSUE_TIMEOUT
     for leaf in SERVER_LEAVES:
         new_leaf, _ = wait_for_leaf_reissued_on_new_ca(
             namespace,
@@ -274,6 +330,7 @@ def test_every_component_server_leaf_reissued_on_the_new_ca(
             state["leaves"][leaf],
             state["pem_hashes"][leaf],
             state["new_ca"],
+            timeout=_remaining(deadline),
         )
         assert not cert_signed_by_bundle(new_leaf, state["old_ca"]), f"{leaf} must not be signed by the old CA"
         assert read_certificate_status(namespace, leaf).get("revision", 0) > state["revisions"][leaf]
@@ -285,8 +342,9 @@ def test_every_component_server_leaf_reissued_on_the_new_ca(
         user_certificate(app_user, namespace)[1] == state["user_cert"]
     ), "the application certificate is client-signed, a server CA rotation must not re-issue it"
 
-    _wait_for_automation_config_to_name_current_files(namespace)
-    sc.assert_reaches_phase(Phase.Running, timeout=1200)
+    ac = _wait_for_rollout(sc, (state["widened"]["latest_hash"], rotation["initial_client_hash"]))
+    _check_served_leaves(sc, app_user, ac)
+    sc.assert_reaches_phase(Phase.Running, timeout=RUNNING_TIMEOUT)
     assert _pods(namespace) == rotation["pods"], "a CA rotation must not recreate the pods"
     assert (
         len(bundle_snapshot(namespace, MDB_RESOURCE, SERVER)["certificates"]) == 2
@@ -317,6 +375,7 @@ def test_every_client_leaf_reissued_on_the_new_ca(sc: MongoDB, app_user: MongoDB
     """The operator moves the clusterfile of every component, the agent and the application certificate onto
     the new client root, and the server leaves stay as they are."""
     state = rotation[CLIENT]
+    deadline = time.monotonic() + LEAF_REISSUE_TIMEOUT
     for leaf in CLIENT_LEAVES:
         new_leaf, _ = wait_for_leaf_reissued_on_new_ca(
             namespace,
@@ -325,20 +384,23 @@ def test_every_client_leaf_reissued_on_the_new_ca(sc: MongoDB, app_user: MongoDB
             state["leaves"][leaf],
             state["pem_hashes"][leaf],
             state["new_ca"],
+            timeout=_remaining(deadline),
         )
         assert not cert_signed_by_bundle(new_leaf, state["old_ca"]), f"{leaf} must not be signed by the old CA"
         assert read_certificate_status(namespace, leaf).get("revision", 0) > state["revisions"][leaf]
 
     user_secret, _ = user_certificate(app_user, namespace)
-    user_cert = wait_for_leaf_signed_by(namespace, user_secret, state["user_cert"], state["new_ca"])
+    user_cert = wait_for_leaf_signed_by(
+        namespace, user_secret, state["user_cert"], state["new_ca"], timeout=_remaining(deadline)
+    )
     assert not cert_signed_by_bundle(user_cert, state["old_ca"]), "the application certificate must move off the old CA"
 
     assert (
         leaf_certificates(namespace, SERVER_LEAVES) == state["other_leaves"]
     ), "a client CA rotation must not re-issue the server leaves"
 
-    _wait_for_automation_config_to_name_current_files(namespace)
-    sc.assert_reaches_phase(Phase.Running, timeout=1200)
+    _wait_for_rollout(sc, (rotation[SERVER]["widened"]["latest_hash"], state["widened"]["latest_hash"]))
+    sc.assert_reaches_phase(Phase.Running, timeout=RUNNING_TIMEOUT)
     assert _pods(namespace) == rotation["pods"], "a CA rotation must not recreate the pods"
     assert (
         len(bundle_snapshot(namespace, MDB_RESOURCE, CLIENT)["certificates"]) == 2
@@ -361,6 +423,7 @@ def test_prune_both_previous_cas(sc: MongoDB, app_user: MongoDBUser, namespace: 
         assert set(pruned[category]["certificates"]) == set(bundle_fingerprints(new_ca))
 
     wait_for_automation_config_ca_files(sc, pruned[SERVER]["latest_hash"], pruned[CLIENT]["latest_hash"])
+    _wait_for_rollout(sc, (pruned[SERVER]["latest_hash"], pruned[CLIENT]["latest_hash"]))
     sc.assert_reaches_phase(Phase.Running, timeout=1200)
     assert _pods(namespace) == rotation["pods"], "pruning must not recreate the pods"
     _assert_reachable(sc, app_user, namespace)

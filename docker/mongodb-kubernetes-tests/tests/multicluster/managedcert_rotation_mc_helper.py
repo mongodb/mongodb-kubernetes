@@ -23,6 +23,7 @@ from tests.opsmanager.managedcert_helper import ca_bundle_snapshot
 from tests.tls.managedcert_helper import (
     PRUNE_PREVIOUS_CA_ANNOTATION,
     assert_automation_config_names_files,
+    pem_matches_leaf,
     read_certificate_status,
     wait_for_certificate_renewals,
 )
@@ -139,6 +140,7 @@ def wait_for_pem_secret_rolled_in_clusters(
     pem_secret_name: str,
     previous_hash: str,
     member_cluster_clients: List[MultiClusterClient],
+    expected_leaf: str,
     timeout: int = 900,
 ) -> str:
     """Waits until every member cluster's -pem secret names the same new certificate, and returns its hash.
@@ -149,17 +151,22 @@ def wait_for_pem_secret_rolled_in_clusters(
     result: Dict[str, str] = {}
 
     def rolled() -> tuple[bool, str]:
-        hashes = pem_latest_hashes_in_clusters(namespace, pem_secret_name, member_cluster_clients)
+        secrets = {
+            c.cluster_name: read_secret(namespace, pem_secret_name, api_client=c.api_client)
+            for c in member_cluster_clients
+        }
+        hashes = {cluster: secret.get("latestHash", "") for cluster, secret in secrets.items()}
         values = set(hashes.values())
         if len(values) != 1:
             return False, f"{pem_secret_name} differs between member clusters: {hashes}"
         latest = values.pop()
         if not latest or latest == previous_hash:
             return False, f"{pem_secret_name} still names {previous_hash}"
-        for cluster_client in member_cluster_clients:
-            secret = read_secret(namespace, pem_secret_name, api_client=cluster_client.api_client)
+        for cluster, secret in secrets.items():
+            if not pem_matches_leaf(secret.get(latest, ""), expected_leaf):
+                return False, f"{pem_secret_name} in {cluster} lacks the issued leaf at {latest}"
             if previous_hash and previous_hash not in secret:
-                return False, f"{pem_secret_name} in {cluster_client.cluster_name} dropped the previous certificate"
+                return False, f"{pem_secret_name} in {cluster} dropped the previous certificate"
         result["hash"] = latest
         return True, ""
 
@@ -252,7 +259,12 @@ def wait_for_automation_config_ca_files(
 
 
 def wait_for_automation_config_names_files(
-    agent_hash: str, member_hashes: Dict[str, str], clusterfile_hashes: Dict[str, str], timeout: int = 900
+    agent_hash: str,
+    member_hashes: Dict[str, str],
+    clusterfile_hashes: Dict[str, str],
+    *,
+    expected_names: set[str],
+    timeout: int = 900,
 ):
     """Waits until the automation config names the current certificate files of every component.
 
@@ -260,12 +272,14 @@ def wait_for_automation_config_names_files(
     certificate, see assert_automation_config_names_files.
     """
 
-    def names_files() -> bool:
+    def names_files() -> tuple[bool, str]:
         try:
-            assert_automation_config_names_files(agent_hash, member_hashes, clusterfile_hashes)
-            return True
-        except (AssertionError, KeyError):
-            return False
+            assert_automation_config_names_files(
+                agent_hash, member_hashes, clusterfile_hashes, expected_names=expected_names
+            )
+            return True, ""
+        except (AssertionError, KeyError) as exc:
+            return False, str(exc)
 
     run_periodically(
         names_files, timeout=timeout, sleep_time=5, msg="automation config to name the current certificate files"

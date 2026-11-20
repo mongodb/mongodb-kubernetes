@@ -497,7 +497,7 @@ class ConnectivityMonitor:
         self._interval = interval
         self._server_selection_timeout_ms = server_selection_timeout_ms
         # (probe start, success, error) for every probe that reached the database
-        self._probes: list[tuple[float, bool, str]] = []
+        self._probes: list[tuple[float, Optional[bool], str]] = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="x509-connectivity-monitor", daemon=True)
@@ -515,6 +515,7 @@ class ConnectivityMonitor:
         )
 
     def start(self) -> "ConnectivityMonitor":
+        self._started = time.monotonic()
         self._thread.start()
         return self
 
@@ -524,17 +525,19 @@ class ConnectivityMonitor:
 
     def _run(self):
         while not self._stop.is_set():
-            started = time.time()
+            started = time.monotonic()
             try:
                 self._probe()
                 self._record(started, True, "")
             except PyMongoError as e:
                 self._record(started, False, str(e))
             except ApiException as e:
-                # Not reaching the Kubernetes API says nothing about the database.
-                logger.warning(f"connectivity probe could not read the user certificate: {e}")
+                # Missing credentials break the application's connection; API outages leave it unobserved.
+                self._record(started, False if e.status == 404 else None, str(e))
+            except (KeyError, OSError) as e:
+                self._record(started, False, str(e))
             except Exception as e:
-                logger.warning(f"connectivity probe could not run: {e}")
+                self._record(started, None, str(e))
             self._stop.wait(self._interval)
 
     def _probe(self):
@@ -558,7 +561,7 @@ class ConnectivityMonitor:
             os.unlink(cert_file.name)
             os.unlink(ca_file.name)
 
-    def _record(self, started: float, ok: bool, error: str):
+    def _record(self, started: float, ok: Optional[bool], error: str):
         with self._lock:
             self._probes.append((started, ok, error))
         if not ok:
@@ -572,6 +575,8 @@ class ConnectivityMonitor:
         outage_start: Optional[float] = None
         last_error = ""
         for started, ok, error in probes:
+            if ok is None:
+                continue
             if ok:
                 if outage_start is not None and started - outage_start > longest:
                     longest, longest_error = started - outage_start, last_error
@@ -579,8 +584,8 @@ class ConnectivityMonitor:
             else:
                 outage_start = started if outage_start is None else outage_start
                 last_error = error
-        if outage_start is not None and time.time() - outage_start > longest:
-            longest, longest_error = time.time() - outage_start, last_error
+        if outage_start is not None and time.monotonic() - outage_start > longest:
+            longest, longest_error = time.monotonic() - outage_start, last_error
         return longest, longest_error
 
     def assert_no_outage(self, max_outage_seconds: int):
@@ -589,6 +594,9 @@ class ConnectivityMonitor:
         with self._lock:
             succeeded = sum(1 for _, ok, _ in self._probes if ok)
             total = len(self._probes)
+            observations = [self._started, *(t for t, ok, _ in self._probes if ok is not None), time.monotonic()]
+        gap = max(b - a for a, b in zip(observations, observations[1:]))
+        assert gap <= max_outage_seconds, f"connectivity was unobserved for {gap:.0f}s"
         assert succeeded > 0, "the x509 user never connected"
         longest, error = self.longest_outage()
         logger.info(f"x509 connectivity: {succeeded}/{total} probes succeeded, longest outage {longest:.0f}s")

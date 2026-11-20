@@ -153,6 +153,11 @@ def _wait_for_automation_config_to_name_current_files(namespace: str, member_clu
         pem_latest_hash(namespace, f"{AGENT_LEAF}-pem", member_cluster_clients),
         {MDB_RESOURCE: pem_latest_hash(namespace, f"{MEMBER_LEAF}-pem", member_cluster_clients)},
         {MDB_RESOURCE: pem_latest_hash(namespace, f"{CLUSTERFILE_LEAF}-pem", member_cluster_clients)},
+        expected_names={
+            f"{MDB_RESOURCE}-{cluster}-{i}"
+            for cluster, count in enumerate(MEMBER_CLUSTER_MEMBERS)
+            for i in range(count)
+        },
     )
 
 
@@ -203,7 +208,9 @@ def _assert_rotation_completed(
     """The server leaf is on the new root in every member cluster, and the members rolled in place."""
     leaf = wait_for_leaf_signed_by(namespace, MEMBER_LEAF, state["leaf"], state["new_ca"])
     assert not cert_signed_by_bundle(leaf, state["old_ca"]), "the re-issued server leaf must not use the old CA"
-    wait_for_pem_secret_rolled_in_clusters(namespace, f"{MEMBER_LEAF}-pem", state["pem_hash"], member_cluster_clients)
+    wait_for_pem_secret_rolled_in_clusters(
+        namespace, f"{MEMBER_LEAF}-pem", state["pem_hash"], member_cluster_clients, leaf
+    )
 
     assert (
         leaf_certificates(namespace, CLIENT_LEAVES) == state["client_leaves"]
@@ -302,7 +309,7 @@ def test_leaf_renewal_on_the_same_ca(
     wait_for_certificate_revision_above(namespace, MEMBER_LEAF, revision_before)
     leaf = wait_for_leaf_signed_by(namespace, MEMBER_LEAF, leaf_before, server_ca, timeout=600)
     assert leaf != leaf_before
-    wait_for_pem_secret_rolled_in_clusters(namespace, f"{MEMBER_LEAF}-pem", hash_before, member_cluster_clients)
+    wait_for_pem_secret_rolled_in_clusters(namespace, f"{MEMBER_LEAF}-pem", hash_before, member_cluster_clients, leaf)
 
     _wait_for_automation_config_to_name_current_files(namespace, member_cluster_clients)
     mongodb_multi.assert_reaches_phase(Phase.Running, timeout=1200)

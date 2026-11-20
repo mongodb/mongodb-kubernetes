@@ -887,7 +887,7 @@ class OMTester(object):
         """
         self.om_request("put", "/versionManifest", json_object=manifest)
 
-    def api_get_automation_status(self) -> dict[str, str]:
+    def api_get_automation_status(self) -> dict:
         return self.om_request("get", f"/groups/{self.context.project_id}/automationStatus").json()
 
     def api_create_agent_api_key(self, description: str = "agent api key created by OMTester") -> str:
@@ -982,6 +982,21 @@ class OMTester(object):
 
         self.api_put_automation_config(config)
         self.wait_agents_ready()
+
+    def wait_for_processes_to_apply_config(self, version: int, names: set[str], timeout: int):
+        assert names, "no processes to check"
+
+        def applied() -> tuple[bool, str]:
+            status = self.api_get_automation_status()
+            versions = {p["name"]: p.get("lastGoalVersionAchieved") for p in status.get("processes", [])}
+            behind = {name: versions.get(name) for name in names if (versions.get(name) or -1) < version}
+            goal = status.get("goalVersion")
+            return (
+                not behind and versions.keys() == names and (goal or -1) >= version,
+                f"target={version}, goal={goal}, missing/behind={behind}, unexpected={versions.keys() - names}",
+            )
+
+        run_periodically(applied, timeout=timeout, sleep_time=5, msg=f"all processes to apply config {version}")
 
     def wait_agents_ready(self, timeout: Optional[int] = 600):
         """Waits until all the agents reached the goal automation config version."""

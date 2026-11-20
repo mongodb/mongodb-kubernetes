@@ -26,6 +26,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from pytest import fixture
 from tests.opsmanager.managedcert_backup_rotation_helper import (
+    CA_BUNDLE_PROPAGATION_DELAY,
     BackupCertificateNames,
     assert_issued_after_bundle_propagation,
     assert_snapshot_query_rejected,
@@ -33,6 +34,7 @@ from tests.opsmanager.managedcert_backup_rotation_helper import (
     leaf_issuance,
     om_pod_uids,
     other_component_bundles,
+    parse_time,
     queryable_backup_ops_manager,
     queryable_pem,
     unrelated_ca_pem,
@@ -65,7 +67,12 @@ from tests.opsmanager.om_ops_manager_queryable_backup_managedcert import (
     backed_up_mongodb,
     backing_databases,
 )
-from tests.tls.managedcert_helper import trigger_certificate_renewal
+from tests.tls.managedcert_ca_rotation_helper import (
+    MANAGED_CA_ROTATED_REASON,
+    cert_manager_controller_paused,
+    wait_for_issuing_reason,
+)
+from tests.tls.managedcert_helper import read_certificate_status, trigger_certificate_renewal
 
 
 @fixture(scope="module")
@@ -224,40 +231,32 @@ class TestQueryableBackupManagedCertificateRotation:
         rotation["old_ca"] = begin_ca_rotation(namespace, names.ca_certificate)
         rotation["new_ca"] = wait_for_ca_rotated(namespace, names.ca_certificate, rotation["old_ca"])
 
-        widened = wait_for_bundle_rotation(
-            namespace,
-            names.ca_bundle_config_map,
-            CA_BUNDLE_KEY,
-            bundle["latest_hash"],
-            bundle["published_at"],
-        )
-        rotation["widened"] = widened
-        old_fingerprints = set(bundle_fingerprints(rotation["old_ca"]))
-        new_fingerprints = set(bundle_fingerprints(rotation["new_ca"]))
-        assert len(widened["certificates"]) == 2, "the widened backup bundle must hold exactly 2 CAs"
-        assert (
-            set(widened["certificates"]) == old_fingerprints | new_fingerprints
-        ), "the widened backup bundle must hold both the old and the new CA"
-        assert widened["previous_hash"] == bundle["latest_hash"], "previousHash must name the pre-rotation bundle"
+        # A query proxy rollout and snapshot query can outlast the propagation window.
+        with cert_manager_controller_paused():
+            widened = wait_for_bundle_rotation(
+                namespace, names.ca_bundle_config_map, CA_BUNDLE_KEY, bundle["latest_hash"], bundle["published_at"]
+            )
+            rotation["widened"] = widened
+            old_fingerprints = set(bundle_fingerprints(rotation["old_ca"]))
+            new_fingerprints = set(bundle_fingerprints(rotation["new_ca"]))
+            assert len(widened["certificates"]) == 2
+            assert set(widened["certificates"]) == old_fingerprints | new_fingerprints
+            assert widened["previous_hash"] == bundle["latest_hash"]
 
-        widened_pem = wait_for_queryable_pem(namespace, names, previous_pem=rotation["pem"])
-        pem_fingerprints = set(bundle_fingerprints(widened_pem))
-        assert old_fingerprints <= pem_fingerprints, "queryable.pem must still hold the previous CA"
-        assert new_fingerprints <= pem_fingerprints, "queryable.pem must hold the new CA"
-        assert rotation["leaf"] in widened_pem, "the leaf must not be re-issued before the bundle propagated"
-        rotation["pem"] = widened_pem
+            widened_pem = wait_for_queryable_pem(namespace, names, previous_pem=rotation["pem"])
+            assert old_fingerprints | new_fingerprints <= set(bundle_fingerprints(widened_pem))
+            assert rotation["leaf"] in widened_pem
+            rotation["pem"] = widened_pem
+            assert other_component_bundles(namespace, ops_manager) == rotation["other_bundles"]
+            wait_for_component_certificates_ready_message(ops_manager, "Backup", PREVIOUS_SERVER_CA_RETAINED)
+            wait_for_om_pods_replaced(ops_manager, om_pods_before)
+            _query(ops_manager, project_name, backed_up_mongodb, rotation["old_ca"])
 
-        assert (
-            other_component_bundles(namespace, ops_manager) == rotation["other_bundles"]
-        ), "rotating the backup CA must not change the Ops Manager or AppDB bundles"
-
-        wait_for_component_certificates_ready_message(ops_manager, "Backup", PREVIOUS_SERVER_CA_RETAINED)
-
-        # The widened queryable.pem rolls the Ops Manager pods, so the query proxy loads it.
-        wait_for_om_pods_replaced(ops_manager, om_pods_before)
-
-        # The old leaf is still served, and the widened bundle still trusts it.
-        _query(ops_manager, project_name, backed_up_mongodb, backup_ca_bundle(namespace, names))
+            # Pausing issuance must not hide an operator that requested reissue too early.
+            wait_for_issuing_reason(namespace, names.leaf_certificate, MANAGED_CA_ROTATED_REASON)
+            conditions = read_certificate_status(namespace, names.leaf_certificate)["conditions"]
+            requested = next(c["lastTransitionTime"] for c in conditions if c["type"] == "Issuing")
+            assert parse_time(requested) >= parse_time(widened["published_at"]) + CA_BUNDLE_PROPAGATION_DELAY
 
     def test_backup_leaf_reissued_on_new_ca(
         self,
