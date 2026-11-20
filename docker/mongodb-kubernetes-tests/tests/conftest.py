@@ -61,7 +61,7 @@ from kubetester.awss3client import AwsS3Client
 from kubetester.helm import helm_chart_path_and_version, helm_install_from_chart, helm_repo_add
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as _fixture
-from kubetester.kubetester import running_locally
+from kubetester.kubetester import running_locally, wait_for_operator_pod_present, wait_for_operator_pod_restart
 from kubetester.multicluster_client import MultiClusterClient
 from kubetester.omtester import OMContext, OMTester
 from kubetester.operator import Operator
@@ -933,9 +933,24 @@ def _install_multi_cluster_operator(
     # Apply member-cluster RBAC and register each MemberCluster CR + credential Secret. Works the
     # same for the in-cluster and local operator, since pytest runs in the same network vantage as
     # the operator either way. If the central cluster also serves as a member, it's included in
-    # configure_member_clusters and gets the same treatment as any other member.
+    # configure_member_clusters and gets the same treatment as any other member; the identity
+    # ConfigMap created on the central cluster restarts the operator when it first appears, so
+    # wait for the restart and the webhook before returning.
     if configure_member_clusters is not None:
         assert operator_name is not None
+        restart_count = None
+        if central_cluster_name in configure_member_clusters and not local_operator():
+            # The operator restarts when the identity ConfigMap first appears, so expect a
+            # restart only when it is absent: upgrade flows configure members before installing
+            # the operator, which then boots with the ConfigMap already present.
+            try:
+                read_configmap(namespace, "mck-member-cluster", api_client=central_cluster_client)
+            except client.rest.ApiException as e:
+                if e.status != 404:
+                    raise
+                restart_count = wait_for_operator_pod_present(
+                    namespace, operator_name, api_client=central_cluster_client
+                )
         configure_multi_cluster_members(
             configure_member_clusters,
             namespace,
@@ -944,7 +959,11 @@ def _install_multi_cluster_operator(
             workload_namespaces=member_clusters_workload_namespaces,
             operator_cluster_scoped=member_clusters_operator_cluster_scoped,
         )
+        if restart_count is not None:
+            wait_for_operator_pod_restart(namespace, operator_name, restart_count, api_client=central_cluster_client)
         operator.wait_for_operator_ready()
+        if restart_count is not None:
+            operator.wait_for_operator_webhook_ready(multi_cluster=True)
 
     # If we're running locally, then immediately after installing the deployment, we scale it to zero.
     # This way operator in POD is not interfering with locally running one.
