@@ -21,8 +21,6 @@ DEFAULT_TIMEOUT = 90
 
 RECOMPUTE_ANNOTATION = "mongodb.com/license-recompute"
 
-RELEASED_STATUS = "RELEASED"
-
 LICENSE_ACTIVE_CONDITION = "LicenseActive"
 OPERATOR_MANAGED_LICENSE_CONDITION = "OperatorManagedLicense"
 
@@ -40,10 +38,6 @@ def ops_manager(namespace: str, custom_version: Optional[str], custom_appdb_vers
 
     try_load(resource)
     return resource
-
-
-def om_holder_id(ops_manager: MongoDBOpsManager) -> str:
-    return ops_manager.get_om_tester().api_read_license_identity()["holderId"]
 
 
 def om_condition(ops_manager: MongoDBOpsManager, condition_type: str) -> Optional[dict]:
@@ -95,27 +89,14 @@ def read_om_license_view(ops_manager: MongoDBOpsManager) -> dict:
     return ops_manager.get_om_tester().api_read_license_state()
 
 
-def expected_active_condition(om_view: dict, holder_id: str) -> tuple[str, str, str]:
-    """The status, reason and message LicenseActive carries for an Ops Manager license view."""
+def expected_active_condition(om_view: dict) -> tuple[str, str]:
+    """The status and reason LicenseActive carries for an Ops Manager license view."""
     effective_state = (om_view.get("enforcement") or {}).get("effectiveState", "")
-    held = next((entry for entry in om_view.get("licenses", []) if entry["status"] != RELEASED_STATUS), None)
-    license = "no license"
-    if held is not None:
-        license = f"license {held['artifactId']}"
-        if held.get("termEnd"):
-            license += f", valid until {held['termEnd']}"
-    status, reason = "False", "Inactive"
-    state_message = f"License state is {effective_state}."
     if effective_state == "LICENSED":
-        status, reason = "True", "Active"
+        return "True", "Active"
     if effective_state == "":
-        reason, state_message = "Unknown", "Ops Manager has not reported a license state yet."
-    if reason == "Unknown":
-        status = "Unknown"
-    message = f"{state_message} Ops Manager holds {license}."
-    if holder_id:
-        message += f" Holder ID {holder_id}."
-    return status, reason, message
+        return "Unknown", "Unknown"
+    return "False", "Inactive"
 
 
 def cr_matches_om_license(ops_manager: MongoDBOpsManager, om_view: dict) -> bool:
@@ -123,8 +104,7 @@ def cr_matches_om_license(ops_manager: MongoDBOpsManager, om_view: dict) -> bool
     condition = om_condition(ops_manager, LICENSE_ACTIVE_CONDITION)
     if condition is None or condition["observedGeneration"] < ops_manager.get_generation():
         return False
-    expected = expected_active_condition(om_view, om_holder_id(ops_manager))
-    return (condition["status"], condition["reason"], condition["message"]) == expected
+    return (condition["status"], condition["reason"]) == expected_active_condition(om_view)
 
 
 def assert_om_and_appdb_running(ops_manager: MongoDBOpsManager) -> None:

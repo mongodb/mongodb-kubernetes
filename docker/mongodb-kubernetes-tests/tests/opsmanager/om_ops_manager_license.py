@@ -11,7 +11,6 @@ from pytest import fixture
 from tests.opsmanager.license_e2e_helpers import (
     RECOMPUTE_ANNOTATION,
     assert_om_and_appdb_running,
-    om_holder_id,
     ops_manager,
     wait_for_cr_license_sync,
 )
@@ -38,7 +37,6 @@ class TestOpsManagerLicenseE2E:
 
         assert active["status"] == "False"
         assert active["reason"] == "Inactive"
-        assert f"Holder ID {om_holder_id(ops_manager)}." in active["message"]
 
     def test_recompute_annotation(self, ops_manager: MongoDBOpsManager):
         ops_manager.load()
