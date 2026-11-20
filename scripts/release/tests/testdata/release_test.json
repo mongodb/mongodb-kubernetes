@@ -13,7 +13,9 @@
     "minimumSupportedVersion": "4.6"
   },
   "search": {
-    "version": "0.55.0"
+    "version": "0.55.0",
+    "metricsForwarderVersion": "0.163.2",
+    "envoyVersion": "v1.37.11"
   },
   "latestOpsManagerAgentMapping": [
     {
