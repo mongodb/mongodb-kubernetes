@@ -68,7 +68,8 @@ func newFixture(t *testing.T) *fixture {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(fakeMongod), 0o755)) //nolint:gosec
 	}
 	stdout := &syncBuffer{}
-	sup := NewSupervisor(dir, testEnv, nil)
+	t.Setenv("PATH", dir)
+	sup := NewSupervisor(testEnv, nil)
 	sup.stdout, sup.stderr = stdout, stdout
 	t.Cleanup(func() {
 		// make sure no child outlives the test
@@ -166,7 +167,8 @@ func TestStartFailures(t *testing.T) {
 	}
 
 	t.Run("binary not found", func(t *testing.T) {
-		sup := NewSupervisor(t.TempDir(), testEnv, nil)
+		t.Setenv("PATH", t.TempDir())
+		sup := NewSupervisor(testEnv, nil)
 		_, err := sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain})
 		assert.ErrorIs(t, err, ErrSpawn)
 		assert.Equal(t, StateIdle, sup.Status().State)
@@ -340,13 +342,12 @@ func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
 	cfg := f.config("main", "run")
 	ldapCA := filepath.Join(f.dir, "ca.pem")
 	keytab := filepath.Join(f.dir, "krb5.keytab")
-	require.NoError(t, os.WriteFile(ldapCA, []byte("ca"), 0o600))
-	require.NoError(t, os.WriteFile(keytab, []byte("keytab"), 0o600))
+	f.sup.baseEnv = append(f.sup.baseEnv, "LDAPTLS_CACERT="+ldapCA, "KRB5_KTNAME=/unused")
 	e, err := f.sup.Start(StartRequest{
 		ConfigPath: cfg,
 		Role:       RoleMain,
 		Other: Other{
-			Env: []string{"LDAPTLS_CACERT=" + ldapCA, "KRB5_KTNAME=" + keytab},
+			Env: []string{"KRB5_KTNAME=" + keytab},
 		},
 	})
 	require.NoError(t, err)
@@ -365,20 +366,6 @@ func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
 	st = f.sup.Status()
 	assert.Nil(t, st.PID, "pid is only present while the child runs")
 	assert.Nil(t, st.LaunchEnvironment, "launch environment is only present while the child runs")
-}
-
-func TestStatusStartedAtAndLastExit(t *testing.T) {
-	f := newFixture(t)
-	e := f.start(RoleMain, "exit:3")
-	waitDone(t, e)
-
-	st := f.sup.Status()
-	assert.Equal(t, StateExited, st.State)
-	assert.NotEmpty(t, st.StartedAt)
-	require.NotNil(t, st.LastExit)
-	assert.Equal(t, 3, st.LastExit.ExitCode)
-	assert.NotEmpty(t, st.LastExit.ExitedAt)
-	assert.GreaterOrEqual(t, st.LastExit.UptimeSeconds, 0.0)
 }
 
 func TestTailBufferKeepsTheLastBytes(t *testing.T) {

@@ -21,21 +21,20 @@ import (
 
 func main() {
 	listen := flag.String("listen", "unix:///var/run/mongodb-proxy/proxy.sock", "address of the process API: unix:///absolute/path.sock (mode 0600)")
-	binDir := flag.String("bin-dir", "", "directory with mongod/mongos; PATH is used when empty")
 	debug := flag.Bool("debug", false, "log the status requests too")
 	flag.Parse()
 
 	log := newLogger(*debug)
 	defer func() { _ = log.Sync() }()
 
-	if err := run(log, *listen, *binDir); err != nil {
+	if err := run(log, *listen); err != nil {
 		log.Errorw("proxy failed", "error", err)
 		_ = log.Sync()
 		os.Exit(1)
 	}
 }
 
-func run(log *zap.SugaredLogger, listen, binDir string) error {
+func run(log *zap.SugaredLogger, listen string) error {
 	if logPath := os.Getenv("MDB_LOG_FILE_MONGODB"); logPath != "" {
 		stopTail := followLog(log, logPath)
 		defer stopTail()
@@ -48,7 +47,7 @@ func run(log *zap.SugaredLogger, listen, binDir string) error {
 	// Serve closes the listener, which also removes the socket file. This covers the early returns before it.
 	defer func() { _ = listener.Close() }()
 
-	sup := mongodbproxy.NewSupervisor(binDir, os.Environ(), log)
+	sup := mongodbproxy.NewSupervisor(os.Environ(), log)
 
 	srv := &http.Server{
 		Handler:           mongodbproxy.NewHandler(sup, log),

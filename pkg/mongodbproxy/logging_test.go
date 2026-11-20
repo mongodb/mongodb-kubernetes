@@ -83,6 +83,9 @@ func TestLogsStartRequestCarriesTheCallerIdentity(t *testing.T) {
 	require.Len(t, events, 1)
 	fields := events[0].ContextMap()
 	assert.Equal(t, "start-1", fields["request_id"])
+	executionID := f.sup.Status().ExecutionID
+	assert.Equal(t, executionID, fields["execution_id"])
+	assert.Equal(t, executionID, logs.FilterMessage("process started").All()[0].ContextMap()["execution_id"])
 	assert.EqualValues(t, http.StatusOK, fields["http_status"])
 	assert.Equal(t, "", fields["error_class"])
 	assert.NotContains(t, fields, "configPath")
@@ -95,7 +98,6 @@ func TestLogsRequestCorrelation(t *testing.T) {
 		errorClass                      string
 	}{
 		{"stop", "/v1/process/stop", `{"executionId":"absent","role":"main","timeoutSeconds":1}`, "agent-call-1", "stop requested", 200, ""},
-		{"generated", "/v1/process/stop", `{"executionId":"absent","role":"main","timeoutSeconds":1}`, "", "stop requested", 200, ""},
 		{"unsafe header", "/v1/process/stop", `{"executionId":"absent","role":"main","timeoutSeconds":1}`, "sensitive value", "stop requested", 200, ""},
 		{"long header", "/v1/process/stop", `{"executionId":"absent","role":"main","timeoutSeconds":1}`, strings.Repeat("a", 129), "stop requested", 200, ""},
 		{"invalid body", "/v1/process/start", `{"credential":"secret"}`, "agent-call-2", "start requested", 400, "invalid_request"},

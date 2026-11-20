@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -24,7 +23,6 @@ const (
 // Supervisor owns at most one mongod/mongos child. It never connects to the database
 // and keeps no state outside of memory.
 type Supervisor struct {
-	binDir string
 	stdout io.Writer
 	stderr io.Writer
 	log    *zap.SugaredLogger
@@ -34,16 +32,15 @@ type Supervisor struct {
 	mu          sync.Mutex
 	current     *Execution
 	terminating bool
-	lastExit    *ExitStatus
 }
 
-// NewSupervisor forwards child output to stdout and stderr. An empty binDir uses PATH.
-func NewSupervisor(binDir string, env []string, log *zap.SugaredLogger) *Supervisor {
+// NewSupervisor forwards child output to stdout and stderr.
+func NewSupervisor(env []string, log *zap.SugaredLogger) *Supervisor {
 	if log == nil {
 		log = zap.NewNop().Sugar()
 	}
 	return &Supervisor{
-		binDir: binDir, stdout: os.Stdout, stderr: os.Stderr, log: log,
+		stdout: os.Stdout, stderr: os.Stderr, log: log,
 		baseEnv: env,
 	}
 }
@@ -60,8 +57,9 @@ type Execution struct {
 	done       chan struct{}
 
 	startedAt time.Time
-	// exitStatus is set under Supervisor.mu before done is closed.
-	exitStatus *ExitStatus
+	// exitCode and signal are set under Supervisor.mu before done is closed.
+	exitCode int
+	signal   string
 }
 
 // Done is closed once the child has exited.
@@ -103,24 +101,16 @@ func (s *Supervisor) statusLocked(e *Execution) Status {
 		return Status{State: StateIdle}
 	}
 	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath, ExecutionID: e.id}
-	if !e.startedAt.IsZero() {
-		st.StartedAt = e.startedAt.UTC().Format(time.RFC3339Nano)
-	}
 	if e.finished() {
 		st.State = StateExited
-		st.ExitCode = &e.exitStatus.ExitCode
-		st.Signal = e.exitStatus.Signal
+		st.ExitCode = &e.exitCode
+		st.Signal = e.signal
 		st.Output = e.output.String()
-		st.LastExit = e.exitStatus
 	} else {
 		pid := e.pid
 		launchEnv := e.launchEnv
 		st.PID = &pid
 		st.LaunchEnvironment = &launchEnv
-		if !e.startedAt.IsZero() {
-			st.UptimeSeconds = time.Since(e.startedAt).Seconds()
-		}
-		st.LastExit = s.lastExit
 	}
 	return st
 }
@@ -146,14 +136,9 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		return cur, nil
 	}
 
-	path, err := s.resolve(spec.binary)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSpawn, err)
-	}
-
 	output := &tailBuffer{limit: maxOutputBytes}
 	// Launch mongod/mongos directly with the config path and validated Agent args. Nothing reaches a shell.
-	cmd := exec.Command(path, spec.args...) //nolint:gosec
+	cmd := exec.Command(spec.binary, spec.args...) //nolint:gosec
 	cmd.Env = spec.env
 	cmd.Stdout = io.MultiWriter(s.stdout, output)
 	cmd.Stderr = io.MultiWriter(s.stderr, output)
@@ -168,17 +153,17 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		role:       req.Role,
 		configPath: req.ConfigPath,
 		pid:        cmd.Process.Pid,
-		startedAt:  time.Now().UTC(),
+		startedAt:  time.Now(),
 		launchEnv: LaunchEnvironment{
-			LdapCaPath:     envValue(req.Other.Env, "LDAPTLS_CACERT"),
-			KerberosKeytab: envValue(req.Other.Env, "KRB5_KTNAME"),
+			LdapCaPath:     envValue(spec.env, "LDAPTLS_CACERT"),
+			KerberosKeytab: envValue(spec.env, "KRB5_KTNAME"),
 		},
 		cmd:    cmd,
 		output: output,
 		done:   make(chan struct{}),
 	}
 	s.current = e
-	s.log.Infow("process started", "role", e.role, "configPath", e.configPath, "pid", e.pid)
+	s.log.Infow("process started", "execution_id", e.id, "role", e.role, "configPath", e.configPath, "pid", e.pid)
 	go s.wait(e)
 	return e, nil
 }
@@ -188,33 +173,12 @@ func (s *Supervisor) wait(e *Execution) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	exitedAt := time.Now().UTC()
-	uptime := 0.0
-	if !e.startedAt.IsZero() {
-		uptime = exitedAt.Sub(e.startedAt).Seconds()
-	}
-	signal := ""
+	e.exitCode = e.cmd.ProcessState.ExitCode()
 	if ws, ok := e.cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		signal = ws.Signal().String()
+		e.signal = ws.Signal().String()
 	}
-	e.exitStatus = &ExitStatus{
-		ExitCode:      e.cmd.ProcessState.ExitCode(),
-		Signal:        signal,
-		ExitedAt:      exitedAt.Format(time.RFC3339Nano),
-		UptimeSeconds: uptime,
-	}
-	s.lastExit = e.exitStatus
-	s.log.Infow("process exited", "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitStatus.ExitCode, "signal", e.exitStatus.Signal, "uptime_s", uptime)
+	s.log.Infow("process exited", "execution_id", e.id, "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitCode, "signal", e.signal, "uptime_s", time.Since(e.startedAt).Seconds())
 	close(e.done)
-}
-
-// resolve finds a program in binDir, or on PATH when binDir is empty. exec.LookPath also checks that the file exists
-// and is executable.
-func (s *Supervisor) resolve(binary string) (string, error) {
-	if s.binDir != "" {
-		binary = filepath.Join(s.binDir, binary)
-	}
-	return exec.LookPath(binary)
 }
 
 // stopExecution stops the selected child and returns it for the response.
@@ -247,7 +211,7 @@ func (s *Supervisor) stopExecution(ctx context.Context, executionID string, role
 		return e, s.kill(ctx, e)
 	}
 
-	s.log.Infow("sending SIGTERM", "role", e.role, "pid", e.pid, "timeout", timeout.String(), "force", force)
+	s.log.Infow("sending SIGTERM", "execution_id", e.id, "role", e.role, "pid", e.pid, "timeout", timeout.String(), "force", force)
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
 		return e, fmt.Errorf("signalling the process: %w", err)
 	}
@@ -267,7 +231,7 @@ func (s *Supervisor) stopExecution(ctx context.Context, executionID string, role
 }
 
 func (s *Supervisor) kill(ctx context.Context, e *Execution) error {
-	s.log.Warnw("sending SIGKILL", "role", e.role, "pid", e.pid)
+	s.log.Warnw("sending SIGKILL", "execution_id", e.id, "role", e.role, "pid", e.pid)
 	if err := e.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("killing the process: %w", err)
 	}
@@ -291,7 +255,7 @@ func (s *Supervisor) Terminate(ctx context.Context) error {
 	if e == nil || e.finished() {
 		return nil
 	}
-	s.log.Infow("forwarding SIGTERM to the child", "role", e.role, "pid", e.pid)
+	s.log.Infow("forwarding SIGTERM to the child", "execution_id", e.id, "role", e.role, "pid", e.pid)
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("forwarding SIGTERM: %w", err)
 	}
