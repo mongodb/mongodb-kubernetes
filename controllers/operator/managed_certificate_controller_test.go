@@ -552,6 +552,75 @@ func TestReplicaSetManagedCertificate_CAFilePathFollowsBundleHash(t *testing.T) 
 	assert.NotContains(t, certsCondition.Message, "Previous server CA retained")
 }
 
+func TestReplicaSetManagedCertificate_ClientPrunePublishesPEMBeforeAgentWait(t *testing.T) {
+	ctx := t.Context()
+	rs := DefaultReplicaSetBuilder().SetMembers(1).SetSecurity(mdbv1.Security{
+		ManagedCertificate: &mdbv1.ManagedCertificate{},
+		Authentication:     &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{mdbv1.AuthMode(util.X509)}, InternalCluster: util.X509},
+	}).Build()
+	c, factory := mock.NewDefaultFakeClient(rs)
+	r := newReplicaSetReconciler(ctx, c, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, factory.GetConnectionFunc, nil, certs.CertManagerReadiness{Ready: true})
+	addKubernetesTlsResources(ctx, c, rs)
+	reconcile := func() {
+		_, err := r.Reconcile(ctx, requestFromObject(rs))
+		require.NoError(t, err)
+		require.NoError(t, c.Get(ctx, kube.ObjectKeyFromApiObject(rs), rs))
+	}
+	reconcile()
+	issueManagedCertificates(ctx, t, c, rs.Namespace)
+	clusterfile := rs.GetSecurity().InternalClusterAuthSecretName(rs.Name)
+	agent := rs.GetSecurity().AgentClientCertificateSecretName(rs.Name)
+	setRoot := func(root []byte) {
+		s, err := c.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-client-ca"))
+		require.NoError(t, err)
+		s.Data[corev1.ServiceAccountRootCAKey] = root
+		require.NoError(t, c.UpdateSecret(ctx, s))
+	}
+	issueLeaves := func(root, key []byte) {
+		for _, name := range []string{agent, clusterfile} {
+			s, err := c.GetSecret(ctx, kube.ObjectKey(rs.Namespace, name))
+			require.NoError(t, err)
+			s.Data[corev1.TLSCertKey] = issueLeafSignedByCA(t, root, key, name)
+			require.NoError(t, c.UpdateSecret(ctx, s))
+		}
+	}
+	oldRoot, oldKey := createMockCertAndKeyBytes()
+	setRoot(oldRoot)
+	issueLeaves(oldRoot, oldKey)
+	reconcile()
+	newRoot, newKey := createMockCertAndKeyBytes()
+	setRoot(newRoot)
+	reconcile()
+	rs.Annotations[util.PrunePreviousCAAnnotation] = "client"
+	require.NoError(t, c.Update(ctx, rs))
+	reconcile()
+	require.Equal(t, "client", rs.Annotations[util.PrunePreviousCAAnnotation])
+	issueLeaves(newRoot, newKey)
+
+	conn := factory.GetConnection().(*om.MockedOmConnection)
+	ready, err := conn.ReadAutomationStatus(ctx)
+	require.NoError(t, err)
+	oldPEM, err := c.GetSecret(ctx, kube.ObjectKey(rs.Namespace, clusterfile+certs.OperatorGeneratedCertSuffix))
+	require.NoError(t, err)
+	oldHash := string(oldPEM.Data[util.LatestHashSecretKey])
+	sawNewPath := false
+	conn.ReadAutomationStatusFunc = func() (*om.AutomationStatus, error) {
+		d := conn.GetDeployment()
+		file := d.GetInternalClusterFilePath(d.GetProcessNames(om.ReplicaSet{}, rs.GetReplicaSetName()))
+		if hash := path.Base(file); file != "" && hash != oldHash {
+			sawNewPath = true
+			pem, err := c.GetSecret(ctx, kube.ObjectKey(rs.Namespace, clusterfile+certs.OperatorGeneratedCertSuffix))
+			require.NoError(t, err)
+			assert.NotEmpty(t, pem.Data[hash], "agents cannot reach goal when clusterFile is absent from the mounted Secret")
+			assert.NotEmpty(t, pem.Data[oldHash], "agents still on the previous config need the old file")
+		}
+		return ready, nil
+	}
+	reconcile()
+	assert.True(t, sawNewPath)
+	assert.NotContains(t, rs.Annotations, util.PrunePreviousCAAnnotation)
+}
+
 // TestShardedClusterManagedCertificate_CAFilePathIsBundleHash checks that the published automation
 // config of a sharded cluster points at the hash-named server CA bundle.
 func TestShardedClusterManagedCertificate_CAFilePathIsBundleHash(t *testing.T) {
