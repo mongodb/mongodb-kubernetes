@@ -102,6 +102,14 @@ config:
         container.cpu.usage:
           enabled: false
   processors:
+    # The kubeletstats receiver emits every node and pod metric family by
+    # default, and each event carries all pod labels and annotations. The e2e
+    # suites read the memory utilization metrics, so drop the rest.
+    filter/kubeletstats:
+      error_mode: ignore
+      metrics:
+        metric:
+          - 'name != "k8s.pod.memory_limit_utilization" and name != "k8s.pod.memory_request_utilization"'
     resource/k8s:
       attributes:
         - key: k8s.cluster.name
@@ -132,7 +140,7 @@ config:
         processors: [ resource/k8s ]
         exporters: [otlp]
       metrics:
-        processors: [ resource/k8s ]
+        processors: [ resource/k8s, filter/kubeletstats ]
         exporters: [otlp]
       logs:
         exporters: [otlp]
