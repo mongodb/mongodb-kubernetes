@@ -2,6 +2,9 @@
 
 The proxy is PID 1 of the `mongodb` container. This image only carries the static binary at `/proxy`; it is
 mounted read-only as an OCI image volume (`/mnt/proxy/proxy`) into the container that runs the official server image.
+The MongoDB server must honor `MONGODB_CONFIG_OVERRIDE_NOFORK=1`. The proxy sets it to keep the child in the foreground.
+
+The Unix socket accepts launch requests from trusted callers. MongoDB opens and validates its own files.
 
 ### Building locally
 

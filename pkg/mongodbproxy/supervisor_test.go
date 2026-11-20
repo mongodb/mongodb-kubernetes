@@ -27,7 +27,7 @@ const fakeMongod = `#!/bin/sh
 mode=$(cat "$2")
 case "$mode" in
   exit:*) echo "exiting with ${mode#exit:}"; exit "${mode#exit:}";;
-  env) echo "KRB5_KTNAME=$KRB5_KTNAME LDAPTLS_CACERT=$LDAPTLS_CACERT GLIBC_TUNABLES=$GLIBC_TUNABLES SET_THP_DISABLED=$SET_THP_DISABLED"; exit 0;;
+  env) echo "KRB5_KTNAME=$KRB5_KTNAME LDAPTLS_CACERT=$LDAPTLS_CACERT GLIBC_TUNABLES=$GLIBC_TUNABLES SET_THP_DISABLED=$SET_THP_DISABLED MONGODB_CONFIG_OVERRIDE_NOFORK=$MONGODB_CONFIG_OVERRIDE_NOFORK"; exit 0;;
   args) echo "ARGS: $*"; exit 0;;
   run) trap 'exit 0' TERM;;
   ignoreterm) trap '' TERM;;
@@ -54,11 +54,6 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// onlyIn is the policy of a test: every kind of path has to be in dir (the temporary directory of the test).
-func onlyIn(dir string) PathPolicy {
-	return PathPolicy{ConfigDirs: []string{dir}, FileDirs: []string{dir}}
-}
-
 type fixture struct {
 	t      *testing.T
 	sup    *Supervisor
@@ -73,7 +68,7 @@ func newFixture(t *testing.T) *fixture {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(fakeMongod), 0o755)) //nolint:gosec
 	}
 	stdout := &syncBuffer{}
-	sup := NewSupervisor(dir, onlyIn(dir), testEnv, nil)
+	sup := NewSupervisor(dir, testEnv, nil)
 	sup.stdout, sup.stderr = stdout, stdout
 	t.Cleanup(func() {
 		// make sure no child outlives the test
@@ -161,8 +156,6 @@ func TestStartFailures(t *testing.T) {
 		"relative config path": {StartRequest{ConfigPath: "mongod.conf", Role: RoleMain}, ErrInvalidRequest},
 		"missing role":         {StartRequest{ConfigPath: cfg}, ErrInvalidRequest},
 		"unknown binary":       {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{Binary: "sh"}}, ErrInvalidRequest},
-		"relative keytab":      {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{Env: []string{"KRB5_KTNAME=krb5.keytab"}}}, ErrInvalidRequest},
-		"relative ldap CA":     {StartRequest{ConfigPath: cfg, Role: RoleMain, Other: Other{Env: []string{"LDAPTLS_CACERT=ca.pem"}}}, ErrInvalidRequest},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -173,7 +166,7 @@ func TestStartFailures(t *testing.T) {
 	}
 
 	t.Run("binary not found", func(t *testing.T) {
-		sup := NewSupervisor(t.TempDir(), onlyIn(f.dir), testEnv, nil)
+		sup := NewSupervisor(t.TempDir(), testEnv, nil)
 		_, err := sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain})
 		assert.ErrorIs(t, err, ErrSpawn)
 		assert.Equal(t, StateIdle, sup.Status().State)
@@ -210,6 +203,7 @@ func TestEnvIsPassedToTheChild(t *testing.T) {
 				"KRB5_KTNAME=" + filepath.Join(f.dir, "krb5.keytab"),
 				"LDAPTLS_CACERT=" + filepath.Join(f.dir, "ldap-ca.pem"),
 				"GLIBC_TUNABLES=glibc.pthread.rseq=0",
+				"MONGODB_CONFIG_OVERRIDE_NOFORK=0",
 			},
 		},
 	})
@@ -218,6 +212,7 @@ func TestEnvIsPassedToTheChild(t *testing.T) {
 	assert.Contains(t, f.sup.Status().Output,
 		"KRB5_KTNAME="+filepath.Join(f.dir, "krb5.keytab")+" LDAPTLS_CACERT="+filepath.Join(f.dir, "ldap-ca.pem")+
 			" GLIBC_TUNABLES=glibc.pthread.rseq=0 SET_THP_DISABLED=")
+	assert.Contains(t, f.sup.Status().Output, " MONGODB_CONFIG_OVERRIDE_NOFORK=1")
 }
 
 func TestArgsArePassedToTheChild(t *testing.T) {
@@ -234,46 +229,12 @@ func TestArgsArePassedToTheChild(t *testing.T) {
 	assert.Contains(t, f.sup.Status().Output, "ARGS: -f "+cfg+" "+strings.Join(args, " "))
 }
 
-func TestConfigWithForkIsRejected(t *testing.T) {
-	f := newFixture(t)
-	for name, config := range map[string]string{
-		"block":   "processManagement:\n  fork: true\n",
-		"flow":    "processManagement: {fork: true, pidFilePath: /tmp/x}\n",
-		"between": "net:\n  port: 27017\nprocessManagement:\n  fork: true\nstorage:\n  dbPath: /data\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			cfg := filepath.Join(f.dir, name+".conf")
-			require.NoError(t, os.WriteFile(cfg, []byte(config), 0o600))
-
-			_, err := f.sup.Start(StartRequest{ConfigPath: cfg, Role: RoleMain})
-
-			assert.ErrorIs(t, err, ErrInvalidRequest)
-			assert.ErrorContains(t, err, "processManagement.fork")
-			assert.Equal(t, StateIdle, f.sup.Status().State)
-		})
-	}
-}
-
-func TestConfigWithoutForkIsNotRejected(t *testing.T) {
-	f := newFixture(t)
-	for name, config := range map[string]string{
-		"fork false": "processManagement:\n  fork: false\n",
-		"no section": "net:\n  port: 27017\n",
-		"other key":  "processManagement:\n  pidFilePath: /tmp/x\n",
-		"not yaml":   "{{{ not yaml",
-	} {
-		t.Run(name, func(t *testing.T) {
-			assert.NoError(t, onlyIn(f.dir).readConfig(writeConfig(t, f.dir, config)))
-		})
-	}
-	assert.NoError(t, onlyIn(f.dir).readConfig(filepath.Join(f.dir, "missing.conf")), "a missing file is left to mongod")
-}
-
-func writeConfig(t *testing.T, dir, content string) string {
-	t.Helper()
-	path := filepath.Join(dir, "case.conf")
-	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
-	return path
+func TestEnvValue(t *testing.T) {
+	env := []string{"A=1", "B=2=3", "A=4"}
+	assert.Equal(t, "4", envValue(env, "A"), "a later entry wins for the child")
+	assert.Equal(t, "2=3", envValue(env, "B"))
+	assert.Empty(t, envValue(env, "C"))
+	assert.Empty(t, envValue([]string{"A"}, "A"))
 }
 
 func stopCurrent(s *Supervisor, ctx context.Context, role Role, timeout time.Duration, force bool) error {

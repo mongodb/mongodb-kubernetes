@@ -55,11 +55,23 @@ func (r StartRequest) validate(baseEnv []string) (launchSpec, error) {
 
 	args := append([]string{"-f", r.ConfigPath}, o.Args...)
 	env := append(append([]string(nil), baseEnv...), o.Env...)
+	env = append(env, "MONGODB_CONFIG_OVERRIDE_NOFORK=1")
 	if o.DisableTHP {
 		env = append(env, "SET_THP_DISABLED=yes")
 	}
 
 	return launchSpec{binary: binary, args: args, env: env, disableTHP: o.DisableTHP}, nil
+}
+
+// envValue returns the last value for key, matching exec's treatment of duplicate keys.
+func envValue(env []string, key string) string {
+	value := ""
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			value = v
+		}
+	}
+	return value
 }
 
 func (r StopRequest) validate() error {
