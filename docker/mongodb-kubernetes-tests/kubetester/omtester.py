@@ -902,6 +902,13 @@ class OMTester(object):
     def api_put_automation_config(self, config: dict):
         self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", json_object=config)
 
+    def api_read_license_state(self) -> Dict:
+        return self.om_request("get", "/admin/licenses").json()
+
+    def api_read_license_identity(self) -> Dict:
+        """The enrollment identity of this Ops Manager, the holder a minted license is bound to."""
+        return self.om_request("get", "/admin/artifacts/identity").json()
+
     def add_user(
         self,
         username: str,

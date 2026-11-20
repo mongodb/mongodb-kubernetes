@@ -11,6 +11,7 @@ from copy import copy
 from queue import Queue
 from typing import Dict, Optional, Tuple
 
+import boto3
 import requests
 from opentelemetry import trace
 
@@ -201,15 +202,22 @@ def find_om_in_releases(om_version: str, releases: Dict[str, str]) -> Optional[s
     return None
 
 
+OPS_MANAGER_RELEASE_ARCHIVE = (
+    "https://info-mongodb-com.s3.amazonaws.com/com-download-center/ops_manager_release_archive.json"
+)
+
+# The latest Ops Manager build of a release branch with the dev EA environment compiled in, published by the
+# PACKAGE_OPS_MANAGER_EA task of the ops-manager project. The release branches are always <major>.0.
+OPS_MANAGER_DEV_TARBALL_BUCKET = "evg-mms-testing2"
+OPS_MANAGER_DEV_TARBALL_KEY = "ea/dev/latest/v{major}.0/mongodb-mms-ea-dev.tar.gz"
+OPS_MANAGER_DEV_TARBALL_AWS_PROFILE = "om-dev-tarball"
+
+
 def get_om_releases() -> Dict[str, str]:
     """Returns a dictionary representation of the Json document holding all the OM
     releases.
     """
-    ops_manager_release_archive = (
-        "https://info-mongodb-com.s3.amazonaws.com/com-download-center/ops_manager_release_archive.json"
-    )
-
-    return requests.get(ops_manager_release_archive).json()
+    return requests.get(OPS_MANAGER_RELEASE_ARCHIVE).json()
 
 
 def find_om_url(om_version: str) -> str:
@@ -226,6 +234,16 @@ def find_om_url(om_version: str) -> str:
     return current_release
 
 
+def find_om_dev_url(major: str) -> str:
+    """Gets a download URL for the tarball of the unreleased Ops Manager build of a release branch, presigned,
+    since the bucket is private."""
+    session = boto3.Session(profile_name=OPS_MANAGER_DEV_TARBALL_AWS_PROFILE)
+    s3 = session.client("s3", region_name="us-east-1")
+    key = OPS_MANAGER_DEV_TARBALL_KEY.format(major=major)
+    params = {"Bucket": OPS_MANAGER_DEV_TARBALL_BUCKET, "Key": key}
+    return s3.generate_presigned_url("get_object", Params=params, ExpiresIn=10800)
+
+
 def build_init_om_image(build_configuration: ImageBuildConfiguration):
     args = {"version": build_configuration.version}
 
@@ -236,12 +254,22 @@ def build_init_om_image(build_configuration: ImageBuildConfiguration):
 
 
 def build_om_image(build_configuration: ImageBuildConfiguration):
-    om_version = build_configuration.version
+    if os.environ.get("OM_DEV_BUILD", "") != "":
+        # Tagged <major>.0.0-dev-<OPERATOR_VERSION>, a valid semver version for spec.version.
+        major = os.environ["OM_DEV_RELEASE_LINE"]
+        tag = f"{major}.0.0-{build_configuration.version}"
+        dev_configuration = copy(build_configuration)
+        dev_configuration.version = tag
+        build_image(
+            build_configuration=dev_configuration,
+            build_args={"version": tag, "om_download_url": find_om_dev_url(major)},
+        )
+        return
 
-    om_download_url = build_configuration.om_download_url or find_om_url(om_version)
+    om_download_url = build_configuration.om_download_url or find_om_url(build_configuration.version)
 
     args = {
-        "version": om_version,
+        "version": build_configuration.version,
         "om_download_url": om_download_url,
     }
 

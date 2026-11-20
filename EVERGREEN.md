@@ -125,6 +125,24 @@ The image is pushed to `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb
   tarball.
 - `om_version` without a URL rebuilds the image of that released OM version, for example after a Dockerfile-only change.
 
+### Unreleased Ops Manager build
+
+The `build_om_dev_images` and `e2e_om_dev_kind_ubi` variants build the Ops Manager image from an unreleased
+Ops Manager build and run the licensing tests against it on every merge to master. PR patches run them with the
+`evergreen:e2e-license` label. To run them on a branch without a PR, use the patch below. The build task builds the image for the Ops Manager
+line in `OM_DEV_RELEASE_LINE` (`scripts/dev/contexts/variables/om_dev`), from the latest build of its release branch with the dev EA environment compiled in, which the
+`PACKAGE_OPS_MANAGER_EA` task publishes to the private `evg-mms-testing2` bucket. The image is tagged
+`<major>.0.0-dev-<OPERATOR_VERSION>`, the evergreen id of the run, for example `9.0.0-dev-<version_id>` in a patch. The
+`om_dev` context exports that tag as `CUSTOM_OM_VERSION` for `single_e2e.sh`.
+
+```shell
+evergreen patch -p mongodb-kubernetes -d "Test unreleased Ops Manager" -f -y -u --path .evergreen.yml \
+  -v build_om_dev_images -v e2e_om_dev_kind_ubi
+```
+
+To test a different build, point `OPS_MANAGER_DEV_TARBALL_KEY` at the commit keyed object
+`ea/<branch>/<revision>/mongodb-mms-<version>-ea-dev.tar.gz` of that build.
+
 ## E2E Test Path Filtering on PRs
 
 Evergreen uses two levels of file-based filtering on PRs:
@@ -164,6 +182,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
 | `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
 | `evergreen:e2e-search-images` | `e2e_test_suite !static !om7 !om9 !race !cloudqa` | 8 Envoy/OTel Search tasks tagged `e2e_search_images`; added automatically to the Search image bump PR |
+| `evergreen:e2e-license`    | `ops_manager_license` | The licensing tests against an unreleased Ops Manager build (`build_om_dev_images`, `e2e_om_dev_kind_ubi`)     |
 
 Task counts are rounded PR patch sizes: the tasks selected by the label, their dependencies and the always-on checks.
 They change as tasks are added or removed.
