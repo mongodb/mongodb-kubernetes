@@ -13,6 +13,10 @@ tests:
           path: spec.template.spec.securityContext.runAsUser
           # noinspection YAMLIncompatibleTypes
           value: 2000
+      - equal:
+          path: spec.template.spec.securityContext.runAsGroup
+          # noinspection YAMLIncompatibleTypes
+          value: 2000
       - exists:
           path: spec.template.spec.securityContext.seccompProfile.type
       - equal:
