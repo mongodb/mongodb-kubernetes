@@ -142,7 +142,7 @@ def current_artifact_id() -> str:
 
 
 def current_receipt_secret_name() -> str:
-    return f"{current_artifact_id()}{RECEIPT_SECRET_SUFFIX}"
+    return f"{LICENSE_SECRET_NAME}-{current_artifact_id()}{RECEIPT_SECRET_SUFFIX}"
 
 
 def gsa_credentials(namespace: str) -> GsaCredentials:
@@ -325,6 +325,7 @@ def assert_foreign_license_kept(ops_manager: MongoDBOpsManager, artifact_id: str
     still lists the claim and no receipt was written for it."""
     assert artifact_id in om_artifact_ids(ops_manager)
     assert_secret_absent(ops_manager.namespace, f"{artifact_id}{RECEIPT_SECRET_SUFFIX}")
+    assert_secret_absent(ops_manager.namespace, f"{LICENSE_SECRET_NAME}-{artifact_id}{RECEIPT_SECRET_SUFFIX}")
     wait_for_ea_artifact_state(ops_manager, artifact_id, ACTIVE_STATUS)
 
 
