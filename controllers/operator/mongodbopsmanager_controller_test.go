@@ -3895,9 +3895,9 @@ func TestOpsManagerManagedCrossTrust(t *testing.T) {
 }
 
 // TestOpsManagerStatefulSetsRollOnAppDBCABundleChange checks that the Ops Manager and backup daemon
-// StatefulSets the reconciler writes carry the managed AppDB CA bundle hash. Both load the AppDB CA
-// only at startup, so the operator must restart them on the widened bundle before it re-issues the
-// AppDB leaf on the new CA, otherwise they lose the AppDB until their liveness probe fails.
+// StatefulSets the reconciler writes carry the managed AppDB CA bundle hash. Both hold the AppDB CA
+// in their client setup, so the operator must restart them on the widened bundle before it re-issues
+// the AppDB leaf on the new CA, otherwise they lose the AppDB until their liveness probe fails.
 func TestOpsManagerStatefulSetsRollOnAppDBCABundleChange(t *testing.T) {
 	ctx := t.Context()
 	opsManager := newAppDBManagedCertificateTestOM()

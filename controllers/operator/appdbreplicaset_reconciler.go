@@ -14,8 +14,8 @@ type AppDBConfig struct {
 	CAConfigMapName  string
 	ConnectionString string
 	// CABundleHash is the hash of the operator-managed AppDB CA bundle, empty when the AppDB does
-	// not use operator-managed certificates. Ops Manager and the backup daemon load the AppDB CA
-	// only at startup, so their pods are annotated with it to restart them when the bundle changes.
+	// not use operator-managed certificates. Ops Manager and the backup daemon hold the AppDB CA in
+	// their client setup, so their pods carry it and restart when the bundle changes.
 	CABundleHash string
 }
 

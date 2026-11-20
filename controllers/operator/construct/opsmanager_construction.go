@@ -105,7 +105,7 @@ func WithConnectionStringHash(hash string) func(opts *OpsManagerStatefulSetOptio
 }
 
 // WithAppDBCABundleHash annotates the pods with the operator-managed AppDB CA bundle hash. Ops
-// Manager and the backup daemon load the AppDB CA only at startup, so a changed bundle (a CA
+// Manager and the backup daemon hold the AppDB CA in their client setup, so a changed bundle (a CA
 // rotation widening it, or a prune) must restart them before the AppDB serves a leaf on the new CA.
 func WithAppDBCABundleHash(hash string) func(opts *OpsManagerStatefulSetOptions) {
 	return func(opts *OpsManagerStatefulSetOptions) {

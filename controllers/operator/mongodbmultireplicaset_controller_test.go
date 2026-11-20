@@ -35,6 +35,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/deployment"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
@@ -93,6 +94,64 @@ func checkMultiReconcileSuccessful(ctx context.Context, t *testing.T, reconciler
 	// fetch the last updates as the reconciliation loop can update the mdb resource.
 	err = client.Get(ctx, kube.ObjectKey(m.Namespace, m.Name), m)
 	assert.NoError(t, err)
+}
+
+func TestMultiReplicaSetManagedCABundleOrderingAndRolloutGate(t *testing.T) {
+	ctx := t.Context()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetSecurity(&mdb.Security{ManagedCertificate: &mdb.ManagedCertificate{}}).
+		Build()
+	reconciler, central, members, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+
+	require.NoError(t, central.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: certs.ManagedServerCABundleConfigMapName(mrs.Name), Namespace: mrs.Namespace},
+		Data:       map[string]string{util.LatestHashSecretKey: "new-server"},
+	}))
+
+	replicas := int32(1)
+	for _, clusterName := range clusters {
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: mrs.MultiStatefulsetName(mrs.ClusterNum(clusterName)), Namespace: mrs.Namespace},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas:       &replicas,
+				UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.OnDeleteStatefulSetStrategyType},
+				Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					operatorConstruct.ManagedServerCABundleHashAnnotation: "old-server",
+				}}},
+			},
+		}
+		require.NoError(t, members[clusterName].Create(ctx, sts))
+		require.NoError(t, members[clusterName].Create(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name:        fmt.Sprintf("%s-0", sts.Name),
+			Namespace:   mrs.Namespace,
+			Annotations: map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: "old-server"},
+		}, Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}}))
+	}
+
+	changed, err := reconciler.managedCABundleHashChangedInMemberClusters(ctx, mrs, "new-server", "")
+	require.NoError(t, err)
+	assert.True(t, changed, "a member-cluster StatefulSet with the previous bundle must force the automation config first")
+
+	rolled, err := reconciler.managedCABundleRolloutComplete(ctx, mrs)
+	require.NoError(t, err)
+	assert.False(t, rolled, "every declared member cluster must have rolled before the leaf re-issue")
+
+	for _, clusterName := range clusters {
+		stsName := mrs.MultiStatefulsetName(mrs.ClusterNum(clusterName))
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, members[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, stsName), sts))
+		sts.Spec.Template.Annotations[operatorConstruct.ManagedServerCABundleHashAnnotation] = "new-server"
+		require.NoError(t, members[clusterName].Update(ctx, sts))
+		pod := &corev1.Pod{}
+		require.NoError(t, members[clusterName].Get(ctx, kube.ObjectKey(mrs.Namespace, fmt.Sprintf("%s-0", stsName)), pod))
+		pod.Annotations[operatorConstruct.ManagedServerCABundleHashAnnotation] = "new-server"
+		require.NoError(t, members[clusterName].Update(ctx, pod))
+	}
+
+	rolled, err = reconciler.managedCABundleRolloutComplete(ctx, mrs)
+	require.NoError(t, err)
+	assert.True(t, rolled)
 }
 
 func TestChangingFCVMultiCluster(t *testing.T) {

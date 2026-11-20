@@ -25,8 +25,10 @@ from tests.opsmanager.managedcert_helper import (
     APP_DB_CA_BUNDLE_KEY,
     APP_DB_CA_DIR,
     CA_BUNDLE_KEY,
+    MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION,
     PREVIOUS_SERVER_CA_RETAINED,
     ManagedCertificateNames,
+    assert_pods_replaced,
     begin_ca_rotation,
     bundle_fingerprints,
     ca_bundle_snapshot,
@@ -46,6 +48,7 @@ from tests.opsmanager.managedcert_helper import (
     wait_for_leaf_reissued_on_new_ca,
     wait_for_om_https_trusted_by_bundle,
     wait_for_prune_annotation_removed,
+    wait_for_statefulset_pod_annotation,
 )
 from tests.opsmanager.managedcert_rotation_edge_helper import now_utc, wait_for_appdb_agents_reach_om
 from tests.tls.managedcert_helper import pem_secret_hashes, read_certificate_status
@@ -153,17 +156,21 @@ class TestOpsManagerManagedCertificateRotation:
         assert (
             automation_config["tls"]["CAFilePath"] == f"{APP_DB_CA_DIR}/{widened['latest_hash']}"
         ), "the AppDB automation config must name the new CA bundle hash"
+        wait_for_statefulset_pod_annotation(
+            namespace, names.app_db_name, MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION, widened["latest_hash"]
+        )
 
         # CertificatesReady must report that the previous server CA is retained.
         wait_for_component_certificates_ready_message(ops_manager, "AppDB", PREVIOUS_SERVER_CA_RETAINED)
 
     def test_appdb_leaf_is_reissued_on_new_ca(self, ops_manager: MongoDBOpsManager, namespace: str, rotation: dict):
-        """The operator re-issues the AppDB leaf on the new CA without recreating pods.
+        """The operator re-issues the AppDB leaf on the new CA after rolling the AppDB pods.
 
-        After the widened bundle has been published long enough the operator sets
-        Issuing=True with reason ManagedCARotated on the leaf Certificate. Once
-        cert-manager issues the new leaf the operator rolls the files into the -pem
-        secret and the agents restart mongod.
+        The widened bundle changes the AppDB pod template, so the members are recreated and start
+        with the bundle that trusts both roots. After the bundle has been published long enough the
+        operator sets Issuing=True with reason ManagedCARotated on the leaf Certificate. Once
+        cert-manager issues the new leaf the operator rolls the files into the -pem secret and the
+        agents restart mongod.
         """
         names = ManagedCertificateNames.for_ops_manager(ops_manager)
 
@@ -186,12 +193,11 @@ class TestOpsManagerManagedCertificateRotation:
         rotation["appdb_leaf"] = leaf
         rotation["appdb_pem_hash"] = pem_hash
 
-        # The AppDB pods must not have been recreated (just mongod restarted).
+        # The AppDB pods were recreated by the widened bundle, and only their mongod restarted on
+        # the re-issued leaf.
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1800)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=1800)
-        assert (
-            pod_uids(namespace, f"{names.app_db_name}-") == rotation["appdb_pod_uids"]
-        ), "the AppDB pods must not be recreated after a CA rotation"
+        assert_pods_replaced(namespace, f"{names.app_db_name}-", rotation["appdb_pod_uids"], "AppDB")
 
         # OM monitoring of the AppDB must still work.
         ops_manager.assert_appdb_monitoring_group_was_created()

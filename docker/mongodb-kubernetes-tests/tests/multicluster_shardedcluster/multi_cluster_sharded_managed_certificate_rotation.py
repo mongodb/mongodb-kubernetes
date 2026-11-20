@@ -3,7 +3,8 @@
 Every component (mongos, config server, each shard) has its own server certificate, shared by the member
 clusters that run it, but the whole resource has one server trust bundle, which the operator publishes in its
 own cluster and copies into every member cluster. Rotating the server CA must widen that one bundle in every
-member cluster, re-issue the server leaf of every component on the new root and roll the members in place;
+member cluster, re-issue the server leaf of every component on the new root and recreate the members on
+the widened bundle before the leaf moves;
 pruning the previous CA must then reach every member cluster too. The client category works the same way and
 is covered by the single-cluster sharded and the multi-cluster replica set rotation tests, so it is left out to
 keep this module short.
@@ -48,6 +49,7 @@ from tests.multicluster.managedcert_rotation_mc_helper import (
     wait_for_bundle_replicated,
     wait_for_leaf_signed_by,
     wait_for_pem_secret_rolled_in_clusters,
+    wait_for_pods_replaced_in_clusters,
     wait_for_prune_annotation_removed,
 )
 from tests.opsmanager.managedcert_helper import (
@@ -110,7 +112,6 @@ def sharded_cluster(
     )
     resource.set_version(ensure_ent_version(custom_mdb_version))
     resource["spec"]["shardCount"] = SHARD_COUNT
-    resource["spec"]["persistent"] = False
     resource["spec"]["shard"]["clusterSpecList"] = cluster_spec_list(get_member_cluster_names(), list(SHARD_MEMBERS))
     resource["spec"]["configSrv"]["clusterSpecList"] = cluster_spec_list(
         get_member_cluster_names(), list(CONFIG_SRV_MEMBERS)
@@ -255,7 +256,7 @@ def test_every_component_server_leaf_reissued_on_the_new_ca(
     sharded_cluster: MongoDB, namespace: str, member_cluster_clients: List[MultiClusterClient], rotation: dict
 ):
     """Every component's server leaf moves to the new root and reaches every member cluster; the members roll
-    in place and the client leaves stay as they are."""
+    onto the widened bundle and the client leaves stay as they are."""
     for leaf in SERVER_LEAVES:
         new_leaf = wait_for_leaf_signed_by(namespace, leaf, rotation["leaves"][leaf], rotation["new_ca"])
         assert not cert_signed_by_bundle(new_leaf, rotation["old_ca"]), f"{leaf} must not be signed by the old CA"
@@ -270,9 +271,14 @@ def test_every_component_server_leaf_reissued_on_the_new_ca(
 
     _wait_for_automation_config_to_name_current_files(namespace, member_cluster_clients)
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1800)
-    assert (
-        _pods(namespace, member_cluster_clients) == rotation["pods"]
-    ), "a CA rotation must not recreate the pods in any member cluster"
+    wait_for_pods_replaced_in_clusters(
+        namespace,
+        f"{MDB_RESOURCE}-",
+        rotation["pods"],
+        member_cluster_clients,
+        rotation["widened"]["latest_hash"],
+        "sharded cluster",
+    )
 
     # The previous CA stays trusted everywhere until it is pruned.
     replicated = wait_for_bundle_replicated(namespace, ca_bundle_name(MDB_RESOURCE, SERVER), member_cluster_clients)
@@ -290,6 +296,7 @@ def test_prune_previous_server_ca(
     sharded_cluster: MongoDB, namespace: str, member_cluster_clients: List[MultiClusterClient], rotation: dict
 ):
     """The narrowed server bundle reaches every member cluster and the operator removes the annotation."""
+    pods_before_prune = _pods(namespace, member_cluster_clients)
     request_prune_previous_ca(sharded_cluster, SERVER)
     wait_for_prune_annotation_removed(sharded_cluster)
 
@@ -305,7 +312,14 @@ def test_prune_previous_server_ca(
 
     wait_for_automation_config_ca_files(sharded_cluster, pruned["latest_hash"], rotation["client_bundle"]["latestHash"])
     sharded_cluster.assert_reaches_phase(Phase.Running, timeout=1800)
-    assert _pods(namespace, member_cluster_clients) == rotation["pods"], "pruning must not recreate the pods"
+    wait_for_pods_replaced_in_clusters(
+        namespace,
+        f"{MDB_RESOURCE}-",
+        pods_before_prune,
+        member_cluster_clients,
+        pruned["latest_hash"],
+        "sharded cluster",
+    )
     # The server leaves are all on the new root, which the narrowed bundle still trusts.
     for leaf in SERVER_LEAVES:
         assert cert_signed_by_bundle(read_secret(namespace, leaf)["tls.crt"], rotation["new_ca"])

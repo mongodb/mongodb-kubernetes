@@ -999,21 +999,30 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 	}
 	appdbOpts.OpsManagerCABundleHash = opsManagerCABundleHash
 
+	appDBCABundleHash, err := r.managedAppDBCABundleHash(ctx, opsManager)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, appDbStatusOption)
+	}
+	appdbOpts.ManagedServerCABundleHash = appDBCABundleHash
+
 	allStatefulSetsExistAndValid, err := r.allStatefulSetsExistsInValidState(ctx, opsManager, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, workflow.Failed(xerrors.Errorf("failed to check the state of all stateful sets: %w", err)), log, appDbStatusOption)
 	}
 
-	publishAutomationConfigFirst := r.publishAutomationConfigFirst(opsManager, allStatefulSetsExistAndValid, log)
+	publishAutomationConfigFirst, managedCABundleChange, err := r.publishAutomationConfigFirst(ctx, opsManager, allStatefulSetsExistAndValid, appdbOpts, log)
+	if err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, appDbStatusOption)
+	}
 
-	workflowStatus = workflow.RunInGivenOrder(publishAutomationConfigFirst,
-		func() workflow.Status {
-			return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, &podVars, allStatefulSetsExistAndValid, appdbOpts)
-		},
-		func() workflow.Status {
-			return r.deployStatefulSet(ctx, opsManager, log, podVars, appdbOpts)
-		},
-	)
+	updateAutomationConfig := func(waitForGoalState bool) workflow.Status {
+		return r.deployAutomationConfigAndWaitForAgentsReachGoalState(ctx, log, opsManager, &podVars, allStatefulSetsExistAndValid, waitForGoalState, appdbOpts)
+	}
+	reconcileStatefulSets := func() workflow.Status {
+		return r.deployStatefulSet(ctx, opsManager, log, podVars, appdbOpts)
+	}
+
+	workflowStatus = reconcileDatabaseRollout(publishAutomationConfigFirst, managedCABundleChange, updateAutomationConfig, reconcileStatefulSets)
 
 	if !workflowStatus.IsOK() {
 		return r.updateStatus(ctx, opsManager, workflowStatus, log, appDbStatusOption)
@@ -1145,13 +1154,13 @@ func (r *AppDBReconcilerHelper) getNameOfFirstMemberCluster() string {
 	return firstMemberClusterName
 }
 
-func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, allStatefulSetsExist bool, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
+func (r *ReconcileAppDbReplicaSet) deployAutomationConfigAndWaitForAgentsReachGoalState(ctx context.Context, log *zap.SugaredLogger, opsManager *omv1.MongoDBOpsManager, podVars *env.PodEnvVars, allStatefulSetsExist bool, waitForGoalState bool, appdbOpts construct.AppDBStatefulSetOptions) workflow.Status {
 	configVersion, workflowStatus := r.deployAutomationConfigOnHealthyClusters(ctx, log, opsManager, podVars, appdbOpts)
 	if !workflowStatus.IsOK() {
 		return workflowStatus
 	}
-	if !allStatefulSetsExist {
-		log.Infof("Skipping waiting for all agents to reach the goal state because not all stateful sets are created yet.")
+	if !waitForGoalState || !allStatefulSetsExist {
+		log.Infof("Skipping waiting for all agents to reach the goal state because not all stateful sets are created yet or the rollout is pending.")
 		return workflow.OK()
 	}
 	// We have to separate automation config deployment from agent goal checks.
@@ -1260,14 +1269,34 @@ func getPlaceholderReplacer(appdb omv1.AppDBSpec, memberCluster multicluster.Mem
 		mdbv1.ReplicaSet)
 }
 
-func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1.MongoDBOpsManager, allStatefulSetsExistAndValid bool, log *zap.SugaredLogger) bool {
-	// The only case when we push the StatefulSet first is when we are ensuring TLS for the already existing AppDB
-	// TODO this feels insufficient. Shouldn't we check if there is actual change in TLS settings requiring to push sts first? Now it will always publish sts first when TLS enabled
+func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(ctx context.Context, opsManager *omv1.MongoDBOpsManager, allStatefulSetsExistAndValid bool, appdbOpts construct.AppDBStatefulSetOptions, log *zap.SugaredLogger) (bool, bool, error) {
+	// Publish the automation config first when the existing pods must stop depending on state that
+	// is about to be removed, or when a managed CA bundle change must reach the agents before the
+	// pods are replaced.
 	automationConfigFirst := !allStatefulSetsExistAndValid || !opsManager.Spec.AppDB.GetSecurity().IsTLSEnabled()
+	managedCABundleChange := false
+
+	if appdbOpts.ManagedServerCABundleHash != "" {
+		appDBStatefulSet, err := r.client.GetStatefulSet(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()))
+		if err != nil && !apiErrors.IsNotFound(err) {
+			return false, false, err
+		}
+		if err == nil && managedCABundleHashChanged(appDBStatefulSet, appdbOpts.ManagedServerCABundleHash, "") {
+			log.Debug("Managed AppDB CA bundle changed. automationConfig needs to be updated before the StatefulSet")
+			automationConfigFirst = true
+			managedCABundleChange = true
+		}
+	}
 
 	if r.isChangingVersion(opsManager) {
 		log.Info("Version change in progress, the StatefulSet must be updated first")
 		automationConfigFirst = false
+		if managedCABundleChange {
+			// The version change uses OnDelete, so updating the StatefulSet does not replace pods
+			// on its own. Publishing the new CA paths first is still safe and required before the
+			// pods are recreated by the user or the rollout.
+			automationConfigFirst = true
+		}
 	}
 
 	// if we are performing a force reconfigure we should change the automation config first
@@ -1275,7 +1304,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(opsManager *omv1
 		automationConfigFirst = true
 	}
 
-	return automationConfigFirst
+	return automationConfigFirst, managedCABundleChange, nil
 }
 
 func (r *ReconcileAppDbReplicaSet) isChangingVersion(opsManager *omv1.MongoDBOpsManager) bool {
@@ -1451,8 +1480,8 @@ func (r *ReconcileAppDbReplicaSet) getExistingAutomationConfig(ctx context.Conte
 
 // appDBCAFilePath returns the CA file path configured for AppDB mongod and its monitoring agent.
 // With operator-managed certificates the trust bundle is published under its content hash: mongod
-// reads CAFile only at startup and the agent restarts it when the automation config changes, so
-// pointing at the hash-keyed file makes a widened or rotated bundle take effect. Non-managed and
+// builds its TLS context from CAFile and the agent restarts it when the automation config changes,
+// so pointing at the hash-keyed file makes a widened or rotated bundle take effect. Non-managed and
 // multi-cluster AppDBs keep the fixed ca-pem path.
 func (r *ReconcileAppDbReplicaSet) appDBCAFilePath(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
 	caHash, err := r.managedAppDBCABundleHash(ctx, opsManager)

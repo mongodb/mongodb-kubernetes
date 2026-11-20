@@ -806,7 +806,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoring(t *testing.
 	}, nil)
 
 	mockOm := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
+	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, true, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -871,7 +871,7 @@ func TestUpdateOmDeploymentShardedCluster_HostsRemovedFromMonitoringOnShardRemov
 	}, nil)
 
 	mockOm := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
-	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, zap.S()))
+	assert.Equal(t, workflow.OK(), reconcileHelper.updateOmDeploymentShardedCluster(ctx, mockOm, scScaledDown, deploymentOptions{podEnvVars: &env.PodEnvVars{ProjectID: "abcd"}}, false, true, zap.S()))
 
 	mockOm.CheckOrderOfOperations(t, reflect.ValueOf(mockOm.ReadUpdateDeployment), reflect.ValueOf(mockOm.RemoveHost))
 
@@ -977,7 +977,9 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 
 	allConfigs := reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), zap.S())
 
-	assert.False(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, clusterClient, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, architectures.NonStatic, zap.S()))
+	order, err := anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.False(t, order.publishFirst)
 
 	// attempting to set tls to false
 	require.NoError(t, clusterClient.Get(ctx, kube.ObjectKeyFromApiObject(sc), sc))
@@ -989,7 +991,9 @@ func TestShardedCluster_NeedToPublishState(t *testing.T) {
 
 	// Ops Manager state needs to be published first as we want to reach goal state before unmounting certificates
 	allConfigs = reconcilerHelper.getAllConfigs(ctx, *sc, getEmptyDeploymentOptions(), zap.S())
-	assert.True(t, anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, clusterClient, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, architectures.NonStatic, zap.S()))
+	order, err = anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, reconcilerHelper.deploymentState.LastAchievedSpec, allConfigs, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.True(t, order.publishFirst)
 }
 
 func TestShardedCustomPodSpecTemplate(t *testing.T) {

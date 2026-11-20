@@ -5,10 +5,10 @@ self-signed managed AppDB, and a small replica set managed by this Ops Manager w
 trusts the published Ops Manager CA bundle (sslMMSCAConfigMap). It then walks through:
 
 1. Trust propagation: Ops Manager loads the AppDB CA only at startup, so an AppDB CA rotation rolls
-   Ops Manager onto the widened bundle before the AppDB leaf moves to the new root, and the re-issue
-   itself then restarts nothing. The AppDB agents likewise load the Ops Manager CA (-httpsCAFile)
-   only at startup, so an Ops Manager CA rotation rolls the AppDB pods onto the widened bundle before
-   the Ops Manager leaf moves, and the re-issue does not recreate them.
+   Ops Manager and the AppDB pods onto the widened bundle before the AppDB leaf moves to the new
+   root, and the re-issue itself then restarts nothing. The AppDB agents likewise load the Ops
+   Manager CA (-httpsCAFile) only at startup, so an Ops Manager CA rotation rolls the AppDB pods
+   onto the widened bundle before the Ops Manager leaf moves, and the re-issue does not recreate them.
 2. Downstream MongoDB: the replica set's agents also load the Ops Manager CA only at startup, and the
    operator does not restart the pods of another resource, so the user restarts them once they mount
    the widened bundle. They then keep reaching Ops Manager after the leaf moves and after the
@@ -18,8 +18,8 @@ trusts the published Ops Manager CA bundle (sslMMSCAConfigMap). It then walks th
 4. A cert-manager renewal of the Ops Manager leaf during the propagation window converges.
 5. Prune annotation values that name no Ops Manager component are kept and prune nothing, and
    requests with nothing to prune, or for a disabled component, are removed promptly.
-6. Editing a ConfigMap referenced by additionalTrustedCAs republishes the AppDB bundle without
-   recreating the AppDB pods.
+6. Editing a ConfigMap referenced by additionalTrustedCAs republishes the AppDB bundle and recreates
+   the AppDB pods on it.
 """
 
 from pathlib import Path
@@ -74,6 +74,7 @@ from tests.opsmanager.managedcert_rotation_edge_helper import (
     restart_database_pods,
     wait_for_appdb_agents_reach_om,
     wait_for_appdb_mounted_om_bundle,
+    wait_for_appdb_rolled_onto_appdb_bundle,
     wait_for_appdb_rolled_onto_om_bundle,
     wait_for_bundle_trusting,
     wait_for_database_agents_reach_om,
@@ -152,7 +153,7 @@ class TestOpsManagerManagedCertificateRotationEdgeCases:
     def test_appdb_ca_rotation_rolls_ops_manager_onto_widened_bundle(
         self, ops_manager: MongoDBOpsManager, namespace: str, rotation: dict
     ):
-        """Ops Manager is restarted on the widened AppDB bundle, while the AppDB pods are kept."""
+        """Ops Manager is restarted on the widened AppDB bundle, while the AppDB pods roll onto it too."""
         names = ManagedCertificateNames.for_ops_manager(ops_manager)
         rotation["om_pods"] = om_pod_states(ops_manager)
         rotation["appdb_pods"] = appdb_pod_states(ops_manager)
@@ -181,7 +182,9 @@ class TestOpsManagerManagedCertificateRotationEdgeCases:
         widened_pem = latest_ca_bundle_pem(namespace, names.app_db_ca_bundle_config_map, APP_DB_CA_BUNDLE_KEY)
         wait_for_om_mounted_appdb_bundle(ops_manager, widened_pem)
         rotation["om_ready_since"] = om_pods_ready_since(ops_manager)
-        assert_pods_not_recreated(rotation["appdb_pods"], appdb_pod_states(ops_manager), "AppDB")
+        rotation["appdb_pods"] = wait_for_appdb_rolled_onto_appdb_bundle(
+            ops_manager, widened["latest_hash"], rotation["appdb_pods"]
+        )
 
     def test_appdb_leaf_reissued_without_restarting_ops_manager(
         self, ops_manager: MongoDBOpsManager, namespace: str, rotation: dict
@@ -237,7 +240,7 @@ class TestOpsManagerManagedCertificateRotationEdgeCases:
         wait_for_om_mounted_appdb_bundle(ops_manager, pruned_pem)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.get_om_tester().assert_healthiness()
-        assert_pods_not_recreated(rotation["appdb_pods"], appdb_pod_states(ops_manager), "AppDB")
+        wait_for_appdb_rolled_onto_appdb_bundle(ops_manager, pruned["latest_hash"], rotation["appdb_pods"])
 
     # --- 1. Trust propagation and 2. downstream MongoDB: Ops Manager CA rotation -----
 
@@ -579,7 +582,7 @@ class TestOpsManagerManagedCertificateRotationEdgeCases:
     def test_editing_additional_trusted_ca_config_map_republishes_bundle(
         self, ops_manager: MongoDBOpsManager, namespace: str, tmp_path: Path
     ):
-        """The operator watches the referenced ConfigMap and rolls the new CA in without recreating the AppDB pods."""
+        """The operator watches the referenced ConfigMap and rolls the new CA in, recreating the AppDB pods on it."""
         names = ManagedCertificateNames.for_ops_manager(ops_manager)
         appdb_pods = appdb_pod_states(ops_manager)
         om_pods = om_pod_states(ops_manager)
@@ -612,4 +615,4 @@ class TestOpsManagerManagedCertificateRotationEdgeCases:
         finally:
             tester.client.close()
 
-        assert_pods_not_recreated(appdb_pods, appdb_pod_states(ops_manager), "AppDB")
+        wait_for_appdb_rolled_onto_appdb_bundle(ops_manager, published["latest_hash"], appdb_pods)
