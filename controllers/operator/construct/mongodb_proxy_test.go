@@ -29,6 +29,8 @@ func proxyTestStatefulSet(annotations map[string]string, arch architectures.Defa
 		GetPodEnvOptions(),
 		WithDefaultArchitecture(arch),
 		func(o *DatabaseStatefulSetOptions) {
+			o.AgentImage = "example.com/mongodb-agent:release"
+			o.CustomAgentURL = "https://example.com/agent.tar.gz"
 			o.MongodbProxyImage = proxyImage
 			o.MongodbImage = testMongodbImage
 			o.InitDatabaseImage = testInitImage
@@ -180,12 +182,16 @@ func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 			if tc.wantProxy {
 				mongod := containerByName(t, sts, util.DatabaseContainerName)
 				agent := containerByName(t, sts, util.AgentContainerName)
+				assert.Equal(t, "example.com/mongodb-agent:nammn-agent-process-maintainer", agent.Image)
 				assert.Equal(t, []string{"/mnt/proxy/proxy"}, mongod.Command)
 				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "unix:///var/run/mongodb-proxy/proxy.sock"})
 				for _, c := range sts.Spec.Template.Spec.Containers {
 					assert.NotEqual(t, util.AgentContainerUtilitiesName, c.Name)
 				}
 				return
+			}
+			if tc.arch == architectures.Static || tc.annotations[architectures.ArchitectureAnnotation] == string(architectures.Static) {
+				assert.Equal(t, "example.com/mongodb-agent:release", containerByName(t, sts, util.AgentContainerName).Image)
 			}
 			for _, c := range sts.Spec.Template.Spec.Containers {
 				assert.NotEqual(t, []string{"/mnt/proxy/proxy"}, c.Command)

@@ -807,10 +807,12 @@ func buildMongoDBPodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseSt
 	return podtemplatespec.Apply(sharedModifications, modifications)
 }
 
-// staticGAAgentVersion is the agent build that supports --mongodProxyAddress. The
-// released agent does not support static-ga yet, so static-ga uses this version
-// until it does. The image repository comes from AGENT_IMAGE.
-const staticGAAgentVersion = "110.0.0.9428-2"
+func agentImageForArchitecture(image string, staticGA bool) string {
+	if staticGA && image != "" {
+		return images.ReplaceImageTagOrDigestToTag(image, "nammn-agent-process-maintainer")
+	}
+	return image
+}
 
 // buildStaticArchitecturePodTemplateSpec constructs the podTemplateSpec for a static architecture.
 func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb databaseStatefulSetSource, architecture architectures.DefaultArchitecture) podtemplatespec.Modification {
@@ -830,14 +832,9 @@ func buildStaticArchitecturePodTemplateSpec(opts DatabaseStatefulSetOptions, mdb
 		agentFlags = staticGAAgentFlags(opts.AgentConfig.StartupParameters)
 	}
 
-	agentImage := opts.AgentImage
-	if architecture == architectures.StaticGA && opts.CustomAgentURL == "" && opts.AgentImage != "" {
-		agentImage = images.ReplaceImageTagOrDigestToTag(opts.AgentImage, staticGAAgentVersion)
-	}
-
 	agentContainerModifications := []func(*corev1.Container){container.Apply(
 		container.WithName(util.AgentContainerName),
-		container.WithImage(agentImage),
+		container.WithImage(agentImageForArchitecture(opts.AgentImage, architecture == architectures.StaticGA)),
 		container.WithEnvs(databaseEnvVars(opts)...),
 		container.WithArgs([]string{}),
 		container.WithImagePullPolicy(corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv))), // nolint:forbidigo
