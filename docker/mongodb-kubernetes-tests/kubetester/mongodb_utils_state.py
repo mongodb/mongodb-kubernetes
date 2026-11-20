@@ -4,14 +4,11 @@ import re
 from typing import Optional, Tuple
 
 from kubetester.phase import Phase
-from opentelemetry import trace
 from tests import test_logger
 
-TRACER = trace.get_tracer("evergreen-agent")
 logger = test_logger.get_test_logger(__name__)
 
 
-@TRACER.start_as_current_span("in_desired_state")
 def in_desired_state(
     current_state: Optional[Phase],
     desired_state: Phase,
