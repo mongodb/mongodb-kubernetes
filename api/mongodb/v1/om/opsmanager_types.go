@@ -1291,11 +1291,8 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 	return []metav1.OwnerReference{ownerReference}
 }
 
-// annotationTrue is the annotation value that turns the behaviour the annotation asks for on.
-const annotationTrue = "true"
-
 func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
-	return om.Annotations[util.DisableReconciliationAnnotation] == annotationTrue
+	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
 }
 
 // GetLastSpec returns the last spec that has successfully been applied.
