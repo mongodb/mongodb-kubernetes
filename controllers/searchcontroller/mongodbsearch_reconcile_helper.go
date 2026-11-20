@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net"
 	"net/url"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -2218,6 +2219,21 @@ func (r *MongoDBSearchReconcileHelper) crlFileContent(ctx context.Context, kubeC
 		return content, nil
 	}
 	return "", nil
+}
+
+// MongodCRLFilePath returns the CRL path for the source MongoDB's net.tls.CRLFile,
+// or "" when no CRL is configured or the source has no TLS. Only the default CA
+// mount (a directory) exposes the CRL; a custom caFilePath is rejected.
+func MongodCRLFilePath(search *searchv1.MongoDBSearch, caFilePath string, tlsEnabled bool) (string, error) {
+	crlFile := search.SourceCRLFile()
+	if crlFile == "" || !tlsEnabled {
+		return "", nil
+	}
+	caDir := path.Dir(caFilePath)
+	if caDir != util.TLSCaMountPath {
+		return "", xerrors.Errorf("spec.source.crlFile requires the default CA mount path (%s); custom spec.security.tls.caFilePath is not supported with a CRL", util.TLSCaMountPath)
+	}
+	return path.Join(caDir, crlFile), nil
 }
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {

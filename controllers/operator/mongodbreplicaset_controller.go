@@ -960,6 +960,11 @@ func (r *ReplicaSetReconcilerHelper) ensureAppDBStatefulSetOwnership(ctx context
 
 const appDBForwardMigrationViolationFmt = "cannot change AppDB configuration during forward migration: %s"
 
+// mongodCRLFileOption is the mongod/mongos process option that points at the CRL file.
+// Ops Manager's automation-config tls object has no CRL field, so the CRL is set as a
+// process option in args2_6 instead.
+const mongodCRLFileOption = "net.tls.CRLFile"
+
 // validateAppDBForwardMigration rejects spec changes that are unsafe to apply during
 // AppDB forward migration.
 //
@@ -1303,6 +1308,15 @@ func (r *ReplicaSetReconcilerHelper) applySearchOverrides(ctx context.Context) (
 	searchClusterIndex := searchcontroller.ResolveSingleClusterIndex(search)
 	searchMongodConfig := searchcontroller.GetMongodConfigParameters(search, rs.Spec.GetClusterDomain(), searchClusterIndex)
 	rs.Spec.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
+
+	caFilePath := rs.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
+	crlPath, err := searchcontroller.MongodCRLFilePath(search, caFilePath, rs.Spec.GetSecurity().IsTLSEnabled())
+	if err != nil {
+		return false, err
+	}
+	if crlPath != "" {
+		rs.Spec.AdditionalMongodConfig.AddOption(mongodCRLFileOption, crlPath)
+	}
 
 	return true, nil
 }
