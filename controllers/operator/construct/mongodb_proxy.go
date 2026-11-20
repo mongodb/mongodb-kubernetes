@@ -1,9 +1,6 @@
 package construct
 
 import (
-	"path/filepath"
-	"slices"
-
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,9 +10,8 @@ import (
 // the `mongodb-agent` container drives them over HTTP on a Unix socket (see the agent flag -mongodProxyAddress).
 // The two containers no longer share a process namespace.
 const (
-	// MongodbProxyAddress is where the proxy listens: a Unix domain socket on a volume that only the agent and the
-	// proxy containers mount. The proxy creates it with mode 0600, so the other containers of the pod (a sidecar of
-	// the user, for example) cannot start or stop the database. The agent is told the same address.
+	// MongodbProxyAddress is a mode-0600 Unix socket mounted in the Agent and database containers by default.
+	// Authors who can override the Pod template are trusted to control the database process.
 	MongodbProxyAddress = "unix://" + mongodbProxySocketPath
 
 	mongodbProxySocketVolumeName = "mongodb-proxy-socket"
@@ -84,41 +80,4 @@ func mongodbProxySocketMount() corev1.VolumeMount {
 
 func readOnlyMount(name, path string) corev1.VolumeMount {
 	return corev1.VolumeMount{Name: name, MountPath: path, ReadOnly: true}
-}
-
-// writableMountPaths returns the mount paths that hold files the agent writes: the mounts backed by an EmptyDir or a
-// PersistentVolumeClaim. The proxy may read a config file only from these, because a Secret, a ConfigMap and an image
-// carry files that no agent wrote and that a caller must not be able to read through the proxy.
-func writableMountPaths(volumes []corev1.Volume, mounts []corev1.VolumeMount) []string {
-	writable := map[string]bool{}
-	for _, volume := range volumes {
-		if volume.EmptyDir != nil || volume.PersistentVolumeClaim != nil {
-			writable[volume.Name] = true
-		}
-	}
-
-	var dirs []string
-	for _, mount := range mounts {
-		if mount.ReadOnly || !writable[mount.Name] {
-			continue
-		}
-		dirs = append(dirs, filepath.Clean(mount.MountPath))
-	}
-
-	slices.Sort(dirs)
-	return slices.Compact(dirs)
-}
-
-// mongodbProxyConfigDirs returns every directory the proxy may read a config file from. It derives them from the
-// mounts of the database pod, so a new writable mount is covered without a change here, and a custom downloadBase
-// moves the directory with the mount. The non-persistent constructors are the source of the paths. The persistent
-// path installs claims with the same volume names and mount paths.
-func mongodbProxyConfigDirs(opts DatabaseStatefulSetOptions) []string {
-	var volumes []corev1.Volume
-	var mounts []corev1.VolumeMount
-
-	volumes, mounts = GetNonPersistentMongoDBVolumeMounts(volumes, mounts)
-	volumes, mounts = GetNonPersistentAgentVolumeMounts(volumes, mounts, opts.GetDownloadBase())
-
-	return writableMountPaths(volumes, mounts)
 }
