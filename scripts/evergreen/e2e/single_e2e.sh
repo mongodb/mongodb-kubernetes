@@ -250,7 +250,8 @@ run_tests() {
 
     # The in-cluster collector is reachable from the cluster that hosts it.
     # Each client keeps the configured endpoint when its cluster has none.
-    local_collector_endpoint="http://otel-collector-opentelemetry-collector.honeycomb.svc.cluster.local:4317"
+    # The suffix follows the cluster domain, which custom-domain variants override.
+    local_collector_endpoint="http://otel-collector-opentelemetry-collector.honeycomb.svc.${CLUSTER_DOMAIN:-cluster.local}:4317"
     if kubectl --context "${operator_context}" -n honeycomb get service otel-collector-opentelemetry-collector >/dev/null 2>&1; then
         export otel_collector_endpoint="${local_collector_endpoint}"
     fi
