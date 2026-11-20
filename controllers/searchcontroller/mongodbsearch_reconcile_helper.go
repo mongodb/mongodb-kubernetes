@@ -507,11 +507,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
-	if err := r.validateSCRAMAuthSource(); err != nil {
-		return workflow.Failed(err)
-	}
-
-	if err := r.validateOIDCSource(); err != nil {
+	if err := ValidateSearchSourceAuth(r.mdbSearch, r.db); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -811,7 +807,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		configHash = hashBytes([]byte(configHash + keyPasswordHash))
 	}
 
-	// Same fold for the SCRAM sync-source password secret (spec.source.passwordSecretRef).
+	// Include the SCRAM sync-source password so changing it restarts mongot.
 	sourcePasswordHash, err := r.scramSourcePasswordContentHash(ctx, unitClient)
 	if err != nil {
 		return nil, nil, err
@@ -1960,10 +1956,6 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		return nil, nil, xerrors.New("tls must be enabled for syncSource to enable x509 auth for search resource")
 	}
 
-	if err := ValidateX509AuthSource(r.mdbSearch, r.db); err != nil {
-		return nil, nil, err
-	}
-
 	x509Resource := &x509AuthResource{MongoDBSearch: r.mdbSearch}
 	certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, x509Resource, labels, ownerReferences)
 	if err != nil {
@@ -2405,13 +2397,10 @@ func (r *MongoDBSearchReconcileHelper) keyFilePasswordContentHash(ctx context.Co
 }
 
 // scramSourcePasswordContentHash folds the sync-source user password secret's content into
-// the config hash: the password is subPath-mounted and staged to /tmp at pod start, so a
-// rotated value only reaches mongot when the pod rolls. The accessor covers both the explicit
-// passwordSecretRef and the operator-default <name>-<user>-password secret; the default secret
-// is created by the sync user's owner and may lag the search, so a missing one folds nothing
-// while an explicit ref must exist.
+// the config hash: the password is subPath-mounted, so only a pod roll applies a rotation.
+// A missing default-named secret folds nothing; an explicit passwordSecretRef must exist.
 func (r *MongoDBSearchReconcileHelper) scramSourcePasswordContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
-	if r.mdbSearch.Spec.Source == nil || r.mdbSearch.IsX509Auth() {
+	if !r.mdbSearch.IsSCRAMAuth() {
 		return "", nil
 	}
 	ref := r.mdbSearch.SourceUserPasswordSecretRef()

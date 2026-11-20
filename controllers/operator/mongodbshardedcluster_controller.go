@@ -1207,13 +1207,6 @@ func (r *ShardedClusterReconcileHelper) lookupCorrespondingSearchResource(ctx co
 		return nil, nil
 	}
 
-	// A search whose auth mode the source cannot serve would only fail at runtime
-	// (mongod disables the MONGODB-X509 mechanism without the mode), so skip wiring it.
-	if err := searchcontroller.ValidateSearchSourceAuth(search, searchcontroller.NewShardedInternalSearchSource(sc, search)); err != nil {
-		zap.S().Warnf("MongoDBSearch %s source auth check failed: %v", search.NamespacedName(), err)
-		return nil, nil
-	}
-
 	return search, nil
 }
 
