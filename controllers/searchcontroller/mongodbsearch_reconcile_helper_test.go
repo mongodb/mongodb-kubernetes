@@ -6377,26 +6377,12 @@ func TestValidateSearchSourceAuth(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		search        func() *searchv1.MongoDBSearch
-		source        func() SearchSourceDBResource
-		errorContains string
+		name            string
+		search          func() *searchv1.MongoDBSearch
+		source          func() SearchSourceDBResource
+		errorContains   string
+		errorNotContain string
 	}{
-		{
-			name:   "SCRAM search with SCRAM source",
-			search: scramSearch,
-			source: func() SearchSourceDBResource { return enterpriseSource("SCRAM-SHA-256") },
-		},
-		{
-			name:   "SCRAM search with SCRAM among other modes",
-			search: scramSearch,
-			source: func() SearchSourceDBResource { return enterpriseSource("X509", "SCRAM-SHA-256") },
-		},
-		{
-			name:   "SCRAM search with modeless source",
-			search: scramSearch,
-			source: func() SearchSourceDBResource { return enterpriseSource() },
-		},
 		{
 			name:          "SCRAM search with x509-only source",
 			search:        scramSearch,
@@ -6415,10 +6401,10 @@ func TestValidateSearchSourceAuth(t *testing.T) {
 			errorContains: "x509 search authentication requires an X509 auth mode",
 		},
 		{
-			name:          "SCRAM search with x509-only community source",
-			search:        scramSearch,
-			source:        func() SearchSourceDBResource { return communitySource("X509") },
-			errorContains: "MongoDBSearch requires SCRAM authentication to be enabled",
+			name:          "x509 search with modeless source",
+			search:        x509Search,
+			source:        func() SearchSourceDBResource { return enterpriseSource() },
+			errorContains: "x509 search authentication requires an X509 auth mode",
 		},
 		{
 			name:          "x509 search with SCRAM-only community source",
@@ -6427,11 +6413,12 @@ func TestValidateSearchSourceAuth(t *testing.T) {
 			errorContains: "x509 search authentication requires an X509 auth mode",
 		},
 		{
-			name:   "SCRAM search with external source",
-			search: scramSearch,
-			source: func() SearchSourceDBResource {
-				return NewExternalSearchSource("test-ns", &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"host:27017"}})
-			},
+			// The SCRAM leg is exempt for OIDC, so only the OIDC leg may fail.
+			name:            "OIDC search with SCRAM-only source",
+			search:          func() *searchv1.MongoDBSearch { return newOIDCMongoDBSearch("test-search", "test-ns") },
+			source:          func() SearchSourceDBResource { return enterpriseSource("SCRAM-SHA-256") },
+			errorContains:   "OIDC sync-source authentication requires TLS to be enabled on the source MongoDB",
+			errorNotContain: "requires SCRAM authentication",
 		},
 	}
 
@@ -6444,6 +6431,9 @@ func TestValidateSearchSourceAuth(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.errorContains)
+			if tc.errorNotContain != "" {
+				assert.NotContains(t, err.Error(), tc.errorNotContain)
+			}
 		})
 	}
 }
