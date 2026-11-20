@@ -7,7 +7,25 @@ source scripts/dev/set_env_context.sh
 source scripts/funcs/kubernetes
 source scripts/funcs/printing
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "Usage: recreate_kind_clusters.sh
+
+Recreates the five kind clusters of the multi-cluster set: <WORKTREE_PREFIX>e2e-operator, e2e-cluster-1 to 3 and kind.
+$(print_worktree_prefix_help)"
+  exit 0
+fi
+
+: "${KIND_NETWORK_SUBNET:?not in the context, run make switch}" "${WORKTREE_PREFIX?not in the context, run make switch}"
+P="${WORKTREE_PREFIX}"
+
 docker_cleanup() {
+  if [[ -n "${P}" ]]; then
+    # A worktree with a prefix shares the docker daemon: delete only its own clusters, prune nothing, keep the network.
+    for name in "e2e-operator" "e2e-cluster-1" "e2e-cluster-2" "e2e-cluster-3" "kind"; do
+      kind delete cluster --name "${P}${name}"
+    done
+    return
+  fi
   echo "Deleting all kind clusters"
   kind delete clusters --all
   echo "Pruning all docker resources"
@@ -18,6 +36,7 @@ docker_cleanup() {
   fi
 }
 
+refuse_to_delete_foreign_kind_clusters
 docker_cleanup 2>&1| prepend "docker_cleanup"
 
 docker_create_kind_network
@@ -28,26 +47,29 @@ ecr_login_for_kind_node_image 2>&1 | prepend "ecr_login"
 
 # To future maintainers: whenever modifying this bit, make sure you also update coredns.yaml
 cluster_pids=()
-(scripts/dev/setup_kind_cluster.sh -n "e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "172.18.255.200-172.18.255.210" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-operator") &
+(scripts/dev/setup_kind_cluster.sh -n "${P}e2e-operator" -p "10.244.0.0/16" -s "10.96.0.0/16" -l "${KIND_METALLB_RANGE_OPERATOR}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-operator") &
 cluster_pids+=($!)
-(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16" -l "172.18.255.210-172.18.255.220" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-1") &
+(scripts/dev/setup_kind_cluster.sh -n "${P}e2e-cluster-1" -p "10.245.0.0/16" -s "10.97.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_1}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-1") &
 cluster_pids+=($!)
-(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16" -l "172.18.255.220-172.18.255.230" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-2") &
+(scripts/dev/setup_kind_cluster.sh -n "${P}e2e-cluster-2" -p "10.246.0.0/16" -s "10.98.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_2}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-2") &
 cluster_pids+=($!)
-(scripts/dev/setup_kind_cluster.sh -n "e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "172.18.255.230-172.18.255.240" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-3") &
+(scripts/dev/setup_kind_cluster.sh -n "${P}e2e-cluster-3" -p "10.247.0.0/16" -s "10.99.0.0/16" -l "${KIND_METALLB_RANGE_CLUSTER_3}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "e2e-cluster-3") &
 cluster_pids+=($!)
-(scripts/dev/setup_kind_cluster.sh -n "kind" -l "172.18.255.200-172.18.255.250" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
+(scripts/dev/setup_kind_cluster.sh -n "${P}kind" -l "${KIND_METALLB_RANGE_KIND}" -c "${CLUSTER_DOMAIN}" 2>&1 | prepend "kind") &
 cluster_pids+=($!)
 
 echo "Waiting for all kind clusters to be created"
 for pid in "${cluster_pids[@]}"; do wait "${pid}" || { echo "Cluster creation PID ${pid} failed" >&2; exit 1; }; done
 
 # we do exports sequentially as setup_kind_cluster.sh is run in parallel and we hit kube config locks
-kind export kubeconfig --name "e2e-operator"
-kind export kubeconfig --name "e2e-cluster-1"
-kind export kubeconfig --name "e2e-cluster-2"
-kind export kubeconfig --name "e2e-cluster-3"
-kind export kubeconfig --name "kind"
+# The kubeconfig of a worktree with a prefix holds only its own clusters.
+[[ -z "${P}" ]] || rm -f "${KUBECONFIG}"
+kind export kubeconfig --name "${P}e2e-operator"
+kind export kubeconfig --name "${P}e2e-cluster-1"
+kind export kubeconfig --name "${P}e2e-cluster-2"
+kind export kubeconfig --name "${P}e2e-cluster-3"
+kind export kubeconfig --name "${P}kind"
+kind_unprefix_contexts "${KUBECONFIG}"
 
 echo "Interconnecting Kind clusters"
 scripts/dev/interconnect_kind_clusters.sh -v e2e-cluster-1 e2e-cluster-2 e2e-cluster-3 e2e-operator 2>&1 | prepend "interconnect_kind_clusters"
