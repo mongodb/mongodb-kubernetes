@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
@@ -590,6 +591,82 @@ func TestDatabaseStatefulSet_StaticGAInfraRevisionEnvVar(t *testing.T) {
 				}
 				assert.Empty(t, infraRevisionEnvs, "container %q must not get %s", container.Name, util.InfraRevisionEnv)
 			}
+		})
+	}
+}
+
+func TestDatabaseStatefulSet_UpdateStrategy(t *testing.T) {
+	staticGAAnnotations := map[string]string{architectures.ArchitectureAnnotation: string(architectures.StaticGA)}
+
+	newReplicaSet := func() mdbv1.MongoDB {
+		return *mdbv1.NewReplicaSetBuilder().SetAnnotations(staticGAAnnotations).Build()
+	}
+
+	sharded := mdbv1.NewDefaultShardedClusterBuilder().SetAnnotations(staticGAAnnotations).Build()
+	// single-cluster StatefulSet construction looks up the member cluster in each tier's ClusterSpecList,
+	// which the reconciler normally populates during defaulting.
+	for _, componentSpec := range []*mdbv1.ShardedClusterComponentSpec{sharded.Spec.ConfigSrvSpec, sharded.Spec.MongosSpec, sharded.Spec.ShardSpec} {
+		componentSpec.ClusterSpecList = mdbv1.ClusterSpecList{
+			{ClusterName: multicluster.LegacyCentralClusterName, Members: 3},
+		}
+	}
+
+	// An empty expectedStrategy means the strategy is left unset, so the API server default (RollingUpdate) applies as before.
+	tests := []struct {
+		name             string
+		mdb              mdbv1.MongoDB
+		stsOptFunc       func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions
+		expectedStrategy appsv1.StatefulSetUpdateStrategyType
+	}{
+		{
+			name:             "static-ga via annotation replica set",
+			mdb:              newReplicaSet(),
+			stsOptFunc:       ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+			expectedStrategy: appsv1.OnDeleteStatefulSetStrategyType,
+		},
+		{
+			name:             "static-ga via operator default replica set",
+			mdb:              *mdbv1.NewReplicaSetBuilder().Build(),
+			stsOptFunc:       ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.StaticGA)),
+			expectedStrategy: appsv1.OnDeleteStatefulSetStrategyType,
+		},
+		{
+			name:       "static replica set",
+			mdb:        *mdbv1.NewReplicaSetBuilder().SetAnnotations(map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)}).Build(),
+			stsOptFunc: ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+		},
+		{
+			name:       "non-static replica set",
+			mdb:        *mdbv1.NewReplicaSetBuilder().Build(),
+			stsOptFunc: ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+		},
+		{
+			name:       "static-ga standalone",
+			mdb:        *mdbv1.NewStandaloneBuilder().SetAnnotations(staticGAAnnotations).Build(),
+			stsOptFunc: StandaloneOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+		},
+		{
+			name:       "static-ga config server",
+			mdb:        *sharded,
+			stsOptFunc: ConfigServerOptions(sharded.Spec.ConfigSrvSpec, multicluster.LegacyCentralClusterName, GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)),
+		},
+		{
+			name: "static-ga replica set with user RollingUpdate override",
+			mdb:  newReplicaSet(),
+			stsOptFunc: ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic), func(options *DatabaseStatefulSetOptions) {
+				options.StatefulSetSpecOverride = &appsv1.StatefulSetSpec{
+					UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: appsv1.RollingUpdateStatefulSetStrategyType},
+				}
+			}),
+			expectedStrategy: appsv1.RollingUpdateStatefulSetStrategyType,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sts := DatabaseStatefulSet(tt.mdb, tt.stsOptFunc, zap.S())
+
+			assert.Equal(t, tt.expectedStrategy, sts.Spec.UpdateStrategy.Type)
 		})
 	}
 }

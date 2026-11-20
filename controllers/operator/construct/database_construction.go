@@ -609,6 +609,12 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 	}
 	podTemplateModifications = append(podTemplateModifications, staticMods...)
 
+	// Static-ga replica sets are only ever replaced pod by pod by the operator; the zero value leaves the default.
+	var updateStrategyType appsv1.StatefulSetUpdateStrategyType
+	if architectures.IsRunningStaticGAArchitecture(mdb.GetAnnotations(), opts.DefaultArchitecture) && opts.StsType == ReplicaSet {
+		updateStrategyType = appsv1.OnDeleteStatefulSetStrategyType
+	}
+
 	return statefulset.Apply(
 		// StatefulSet metadata
 		statefulset.WithLabels(ssLabels),
@@ -618,6 +624,7 @@ func buildDatabaseStatefulSetConfigurationFunction(mdb databaseStatefulSetSource
 		statefulset.WithMatchLabels(podLabels),
 		statefulset.WithServiceName(opts.ServiceName),
 		statefulset.WithReplicas(opts.Replicas),
+		statefulset.WithUpdateStrategyType(updateStrategyType),
 		statefulset.WithOwnerReference(opts.OwnerReference),
 		volumeClaimFuncs,
 		shareProcessNs,

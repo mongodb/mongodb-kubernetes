@@ -54,6 +54,12 @@ func TestWaitUntilRegistered_EarlierParentDeadlineNotReportedAsRegistrationTimeo
 
 func TestCalculateProcessStateMap(t *testing.T) {
 	sampleTimeStamp := "2023-06-03T10:00:00Z"
+	execution := &om.ProcessExecution{
+		AutomationConfigVersion: 10,
+		Move:                    "ExternalNodeRestart",
+		Step:                    om.ExecutionStepWaitNodeReplacement,
+		ReportedAt:              mustParseDate(sampleTimeStamp),
+	}
 	testCases := []struct {
 		name            string
 		processStatuses []om.ProcessStatus
@@ -61,6 +67,33 @@ func TestCalculateProcessStateMap(t *testing.T) {
 		expectError     bool
 		expectedResult  map[string]ProcessState
 	}{
+		{
+			name: "Execution is copied from the process status",
+			agentStatuses: []om.AgentStatus{
+				{
+					Hostname: "host1",
+					TypeName: "AUTOMATION",
+					LastConf: sampleTimeStamp,
+				},
+			},
+			processStatuses: []om.ProcessStatus{
+				{
+					Hostname:                "host1",
+					Name:                    "shard",
+					LastGoalVersionAchieved: 10,
+					Execution:               execution,
+				},
+			},
+			expectedResult: map[string]ProcessState{
+				"host1": {
+					Hostname:            "host1",
+					LastAgentPing:       mustParseDate(sampleTimeStamp),
+					GoalVersionAchieved: 10,
+					ProcessName:         "shard",
+					Execution:           execution,
+				},
+			},
+		},
 		{
 			name: "Single valid agent and single valid process",
 			agentStatuses: []om.AgentStatus{
