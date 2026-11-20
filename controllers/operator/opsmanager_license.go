@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -37,21 +38,52 @@ type LicenseReconcilerHelper struct {
 	holderID             string
 }
 
-func (r *OpsManagerReconciler) newLicenseReconcilerHelper(opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (*LicenseReconcilerHelper, error) {
-	lastInstallSecretRef, err := opsManager.GetLastInstallSecretRef()
+func (r *OpsManagerReconciler) newLicenseReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (*LicenseReconcilerHelper, error) {
+	lastInstallSecretRef, err := r.readLicenseSecretRef(ctx, opsManager)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to read the license secretRef of the last achieved spec: %w", err)
+		return nil, xerrors.Errorf("failed to read the license secretRef from the deployment state: %w", err)
 	}
 	return &LicenseReconcilerHelper{reconciler: r, opsManager: opsManager, omAdmin: omAdmin, log: log, lastInstallSecretRef: lastInstallSecretRef, installedSecretRef: lastInstallSecretRef}, nil
 }
 
-// ensureOpsManagerLicense returns the license status and the secretRef the operator installed from.
-func (r *OpsManagerReconciler) ensureOpsManagerLicense(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (workflow.Status, string) {
-	helper, err := r.newLicenseReconcilerHelper(opsManager, omAdmin, log)
+// ensureOpsManagerLicense reconciles the license and saves the installed secretRef.
+func (r *OpsManagerReconciler) ensureOpsManagerLicense(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) workflow.Status {
+	helper, err := r.newLicenseReconcilerHelper(ctx, opsManager, omAdmin, log)
 	if err != nil {
-		return licenseFailed(err), ""
+		return licenseFailed(err)
 	}
-	return helper.Reconcile(ctx), helper.installedSecretRef
+	st := helper.Reconcile(ctx)
+	if helper.installedSecretRef != helper.lastInstallSecretRef {
+		if err := r.saveLicenseSecretRef(ctx, opsManager, helper.installedSecretRef, log); err != nil {
+			return licenseFailed(xerrors.Errorf("failed to save the license secretRef to the deployment state: %w", err))
+		}
+	}
+	return st
+}
+
+// readLicenseSecretRef returns the secretRef the license was last installed from.
+func (r *OpsManagerReconciler) readLicenseSecretRef(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
+	state, err := NewStateStore[OMDeploymentState](opsManager, kube.BaseOwnerReference(opsManager), r.client).ReadState(ctx)
+	if apiErrors.IsNotFound(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return state.LicenseSecretRef, nil
+}
+
+// saveLicenseSecretRef records the secretRef the license was installed from.
+func (r *OpsManagerReconciler) saveLicenseSecretRef(ctx context.Context, opsManager *omv1.MongoDBOpsManager, secretRef string, log *zap.SugaredLogger) error {
+	store := NewStateStore[OMDeploymentState](opsManager, kube.BaseOwnerReference(opsManager), r.client)
+	state, err := store.ReadState(ctx)
+	if apiErrors.IsNotFound(err) {
+		state = NewOMDeploymentState()
+	} else if err != nil {
+		return err
+	}
+	state.LicenseSecretRef = secretRef
+	return store.WriteState(ctx, state, log)
 }
 
 // reconcileLicenseDeletion releases the license the operator installed, keeping the finalizer until it succeeds.
@@ -66,7 +98,7 @@ func (r *OpsManagerReconciler) reconcileLicenseDeletion(ctx context.Context, ops
 		return r.updateStatus(ctx, opsManager, licenseFailed(xerrors.Errorf("failed to connect to Ops Manager to release the license: %w", err)), log, status.NewOMPartOption(status.OpsManager))
 	}
 
-	helper, err := r.newLicenseReconcilerHelper(opsManager, omAdmin, log)
+	helper, err := r.newLicenseReconcilerHelper(ctx, opsManager, omAdmin, log)
 	if err != nil {
 		return r.updateStatus(ctx, opsManager, licenseFailed(err), log, status.NewOMPartOption(status.OpsManager))
 	}
@@ -136,7 +168,7 @@ func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow
 	return h.reportOperatorManagedLicense(requestedID)
 }
 
-// releaseDue reports whether the install intent was removed while the last achieved spec still had one.
+// releaseDue reports whether the install intent was removed while a license is still recorded as installed.
 func (h *LicenseReconcilerHelper) releaseDue() bool {
 	return !h.opsManager.Spec.License.LicenseProvided() && h.lastInstallSecretRef != ""
 }
@@ -315,7 +347,7 @@ func (h *LicenseReconcilerHelper) installLicenseFromSecret(ctx context.Context, 
 }
 
 // releaseInstalledLicense releases the artifact the operator installed, the one named by the
-// Secret in the last achieved spec. Without it the artifact cannot be identified, and a license
+// Secret recorded in the deployment state. Without it the artifact cannot be identified, and a license
 // the operator did not install is never released.
 func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (string, workflow.Status) {
 	if h.lastInstallSecretRef == "" {
@@ -408,25 +440,4 @@ func (h *LicenseReconcilerHelper) createReleaseReceiptSecret(ctx context.Context
 
 func releaseReceiptSecretName(artifactID string) string {
 	return artifactID + "-release-receipt"
-}
-
-// achievedLicense records the secretRef the operator installed from instead of the one the spec asks for.
-func achievedLicense(license *omv1.MongoDBOpsManagerLicense, installedSecretRef string) *omv1.MongoDBOpsManagerLicense {
-	// No license block and nothing installed, so there is nothing to record.
-	if license == nil && installedSecretRef == "" {
-		return nil
-	}
-
-	// Keep the rest of the license block, such as releasedLicenses, as the spec has it.
-	achieved := omv1.MongoDBOpsManagerLicense{}
-	if license != nil {
-		achieved = *license
-	}
-
-	// Record the secretRef the license was installed from, or none when nothing is installed.
-	achieved.SecretRef = nil
-	if installedSecretRef != "" {
-		achieved.SecretRef = &omv1.SecretRef{Name: installedSecretRef}
-	}
-	return &achieved
 }

@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -117,19 +116,13 @@ func (h *licenseEnvHarness) loadOM(name string) *omv1.MongoDBOpsManager {
 	return got
 }
 
-// reconcile runs the license reconcile and mirrors what the controller does at the end of a
-// reconciliation: the LastAchievedSpec annotation is refreshed with the license the operator installed.
+// reconcile runs the license reconcile and writes its status.
 func (h *licenseEnvHarness) reconcile(name string) workflow.Status {
 	h.t.Helper()
 	om := h.loadOM(name)
-	st, installedSecretRef := h.reconciler.ensureOpsManagerLicense(h.ctx, om, h.admin, zap.NewNop().Sugar())
+	st := h.reconciler.ensureOpsManagerLicense(h.ctx, om, h.admin, zap.NewNop().Sugar())
 
 	reconciledStatus := om.Status
-	achieved, err := getAnnotationsForOpsManagerResource(om, installedSecretRef)
-	require.NoError(h.t, err)
-	om = h.loadOM(name)
-	require.NoError(h.t, annotations.SetAnnotations(h.ctx, om, achieved, h.client))
-
 	om = h.loadOM(name)
 	om.Status = reconciledStatus
 	require.NoError(h.t, h.client.Status().Update(h.ctx, om))
@@ -185,26 +178,10 @@ func (h *licenseEnvHarness) updateSecret(name, artifact string) {
 	require.NoError(h.t, h.client.Update(h.ctx, sec))
 }
 
-// seedInstalled records a prior install intent from the license Secret the last reconciliation achieved.
+// seedInstalled records a prior install from the license Secret.
 func (h *licenseEnvHarness) seedInstalled(name, licenseSecretName string) {
 	h.t.Helper()
-	om := h.loadOM(name)
-	require.NoError(h.t, annotations.SetAnnotations(h.ctx, om, map[string]string{
-		util.LastAchievedSpec: achievedSpecJSON(h.t, licenseSecretName),
-	}, h.client))
-}
-
-// achievedSpecJSON builds the LastAchievedSpec annotation value for a spec whose license came from
-// the named Secret. An empty name stands for a spec without an install intent.
-func achievedSpecJSON(t *testing.T, licenseSecretName string) string {
-	t.Helper()
-	spec := omv1.MongoDBOpsManagerSpec{}
-	if licenseSecretName != "" {
-		spec.License = &omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: licenseSecretName}}
-	}
-	raw, err := json.Marshal(spec)
-	require.NoError(t, err)
-	return string(raw)
+	require.NoError(h.t, h.reconciler.saveLicenseSecretRef(h.ctx, h.loadOM(name), licenseSecretName, zap.NewNop().Sugar()))
 }
 
 func TestLicenseE2E_InstallFromSecretRef(t *testing.T) {
@@ -413,7 +390,7 @@ func (h *licenseEnvHarness) deleteAndRelease(name string) {
 
 	om = h.loadOM(name)
 	log := zap.NewNop().Sugar()
-	helper, err := h.reconciler.newLicenseReconcilerHelper(om, h.admin, log)
+	helper, err := h.reconciler.newLicenseReconcilerHelper(h.ctx, om, h.admin, log)
 	require.NoError(h.t, err)
 	_, _ = h.reconciler.updateStatus(h.ctx, om, helper.releaseOnDeletion(h.ctx), log, status.NewOMPartOption(status.OpsManager))
 }
@@ -508,8 +485,7 @@ func TestLicenseE2E_FinalizerDropsAfterTheRelease(t *testing.T) {
 	})
 	h.reconcileExpectOK(om.Name)
 
-	// The reconcile that released still saw the install intent in the achieved spec, so the finalizer
-	// comes off on the next one.
+	// The finalizer comes off on the reconcile after the release.
 	got := h.reconcileExpectOK(om.Name)
 	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
 	assert.NotContains(t, got.Finalizers, util.OpsManagerLicenseFinalizer)

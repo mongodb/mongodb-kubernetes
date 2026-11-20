@@ -686,7 +686,7 @@ func TestOpsManagerReleaseWithoutTheLicenseSecretIsReportedOnce(t *testing.T) {
 	assert.Equal(t, 10*time.Second, result.RequeueAfter)
 	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
 	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseNotManaged)
-	lastInstallSecretRef, err := testOm.GetLastInstallSecretRef()
+	lastInstallSecretRef, err := reconciler.readLicenseSecretRef(ctx, testOm)
 	require.NoError(t, err)
 	assert.Empty(t, lastInstallSecretRef)
 
@@ -748,7 +748,7 @@ func newLicensedOpsManager(ctx context.Context, t *testing.T) (*omv1.MongoDBOpsM
 	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, kubeClient)
 	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseManaged)
 	require.Contains(t, testOm.Finalizers, util.OpsManagerLicenseFinalizer)
-	lastInstallSecretRef, err := testOm.GetLastInstallSecretRef()
+	lastInstallSecretRef, err := reconciler.readLicenseSecretRef(ctx, testOm)
 	require.NoError(t, err)
 	require.Equal(t, "om-license", lastInstallSecretRef)
 	return testOm, reconciler, kubeClient
