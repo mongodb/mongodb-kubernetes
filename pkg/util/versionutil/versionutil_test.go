@@ -17,6 +17,29 @@ func TestGetVersionString(t *testing.T) {
 		GetVersionFromOpsManagerApiHeader("gitHash=f7bdac406b7beceb1415fd32c81fc64501b6e031; versionString=31.24.55.202056729.ABCXYZ"))
 }
 
+func TestOpsManagerUsesBucketDerivedObjectLockSettings(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{version: "8.0.27", want: false},
+		{version: "8.0.28", want: true},
+		{version: "8.9.9", want: true},
+		{version: "9.0.0", want: false},
+		{version: "9.0.1", want: false},
+		{version: "9.0.2", want: true},
+		{version: "9.1.0", want: true},
+		{version: "10.0.0", want: true},
+		{version: "invalid", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			assert.Equal(t, tt.want, OpsManagerUsesBucketDerivedObjectLockSettings(tt.version))
+		})
+	}
+}
+
 func TestIsInDowngrade(t *testing.T) {
 	tests := []struct {
 		name            string

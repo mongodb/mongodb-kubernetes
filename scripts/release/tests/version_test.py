@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock, patch
 
 import pytest
 from git import Repo
@@ -124,6 +125,32 @@ def test_finds_remote_tag_not_locally_fetched(repo_with_remote):
     result = find_previous_version_tag(local)
     assert result is not None
     assert result.name == "1.0.1"
+
+
+def test_rejects_prefixed_remote_tag_before_resolving_commit(repo_with_remote):
+    local, _, _ = repo_with_remote
+    prefixed_tag = local.create_tag("test-1.2.3", message="annotated prefixed tag")
+    prefixed_tag_object_sha = local.git.rev_parse(prefixed_tag.path)
+    prefixed_tag_commit_sha = local.head.commit.hexsha
+    original_ls_remote = local.git.ls_remote("--tags", "origin")
+    ls_remote = Mock(
+        return_value=(
+            f"{original_ls_remote}\n"
+            f"{prefixed_tag_object_sha}\trefs/tags/test-1.2.3\n"
+            f"{prefixed_tag_commit_sha}\trefs/tags/test-1.2.3^{{}}"
+        )
+    )
+
+    with (
+        patch.object(local, "git", Mock(ls_remote=ls_remote)),
+        patch.object(local, "commit", wraps=local.commit) as commit_spy,
+    ):
+        result = find_previous_version_tag(local)
+
+    ls_remote.assert_called_once_with("--tags", "origin")
+    assert result is not None
+    assert result.name == "1.0.1"
+    assert prefixed_tag_commit_sha not in [call.args[0] for call in commit_spy.call_args_list]
 
 
 def test_ignores_local_only_tag(repo_with_remote):
