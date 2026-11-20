@@ -223,7 +223,8 @@ type LicenseReleaseReceipt struct {
 	SecretRef SecretRef `json:"secretRef"`
 }
 
-func (l *MongoDBOpsManagerLicense) InstallRequested() bool {
+// LicenseProvided reports whether secretRef names a license Secret.
+func (l *MongoDBOpsManagerLicense) LicenseProvided() bool {
 	return l != nil && l.SecretRef != nil && l.SecretRef.Name != ""
 }
 
@@ -1318,7 +1319,7 @@ func (om *MongoDBOpsManager) GetLastInstallSecretRef() (string, error) {
 	if err != nil || lastSpec == nil {
 		return "", err
 	}
-	if !lastSpec.License.InstallRequested() {
+	if !lastSpec.License.LicenseProvided() {
 		return "", nil
 	}
 	return lastSpec.License.SecretRef.Name, nil
