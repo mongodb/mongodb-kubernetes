@@ -448,7 +448,7 @@ func TestOpsManagerCELValidation_ExternalRefKindEnum(t *testing.T) {
 	}
 }
 
-func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
+func TestOpsManagerCELValidation_ReleasedLicenses(t *testing.T) {
 	ctx := context.Background()
 	k8sClient := env.Shared(t).Client
 
@@ -458,9 +458,9 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 		errorContains string
 	}{
 		{
-			name: "releaseReceipts entry with a secretRef name is accepted",
+			name: "releasedLicenses entry with a secretRef name is accepted",
 			license: &omv1.MongoDBOpsManagerLicense{
-				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{
+				ReleasedLicenses: []omv1.ReleasedLicense{{
 					SecretRef: omv1.SecretRef{Name: "old-license"},
 				}},
 			},
@@ -468,9 +468,9 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 		{
 			name: "entry with an empty secretRef name is rejected",
 			license: &omv1.MongoDBOpsManagerLicense{
-				ReleaseReceipts: []omv1.LicenseReleaseReceipt{{SecretRef: omv1.SecretRef{}}},
+				ReleasedLicenses: []omv1.ReleasedLicense{{SecretRef: omv1.SecretRef{}}},
 			},
-			errorContains: "spec.license.releaseReceipts[].secretRef.name must not be empty",
+			errorContains: "spec.license.releasedLicenses[].secretRef.name must not be empty",
 		},
 		{
 			name: "install secretRef with an empty name is rejected",
@@ -482,28 +482,28 @@ func TestOpsManagerCELValidation_LicenseReleaseReceipts(t *testing.T) {
 		{
 			name: "same secretRef listed twice is rejected",
 			license: &omv1.MongoDBOpsManagerLicense{
-				ReleaseReceipts: []omv1.LicenseReleaseReceipt{
+				ReleasedLicenses: []omv1.ReleasedLicense{
 					{SecretRef: omv1.SecretRef{Name: "old-license"}},
 					{SecretRef: omv1.SecretRef{Name: "old-license"}},
 				},
 			},
-			errorContains: "releaseReceipts secretRef names must be unique",
+			errorContains: "releasedLicenses secretRef names must be unique",
 		},
 		{
-			name: "install secretRef also listed in releaseReceipts is rejected",
+			name: "install secretRef also listed in releasedLicenses is rejected",
 			license: &omv1.MongoDBOpsManagerLicense{
 				SecretRef: &omv1.SecretRef{Name: "om-license"},
-				ReleaseReceipts: []omv1.LicenseReleaseReceipt{
+				ReleasedLicenses: []omv1.ReleasedLicense{
 					{SecretRef: omv1.SecretRef{Name: "om-license"}},
 				},
 			},
-			errorContains: "secretRef must not also be listed in releaseReceipts",
+			errorContains: "secretRef must not also be listed in releasedLicenses",
 		},
 		{
 			name: "distinct Secrets are accepted",
 			license: &omv1.MongoDBOpsManagerLicense{
 				SecretRef: &omv1.SecretRef{Name: "om-license"},
-				ReleaseReceipts: []omv1.LicenseReleaseReceipt{
+				ReleasedLicenses: []omv1.ReleasedLicense{
 					{SecretRef: omv1.SecretRef{Name: "old-license-1"}},
 					{SecretRef: omv1.SecretRef{Name: "old-license-2"}},
 				},

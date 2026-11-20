@@ -8824,9 +8824,19 @@ spec:
                 description: License manages the Ops Manager license and its release
                   receipts.
                 properties:
-                  releaseReceipts:
+                  releaseReceiptsPolicy:
+                    default: OnlyListed
                     description: |-
-                      ReleaseReceipts lists the Secrets of released licenses to write a receipt for,
+                      ReleaseReceiptsPolicy picks which released licenses get a receipt.
+                      OnlyListed covers the licenses in releasedLicenses.
+                      Automatic also covers every license the operator releases.
+                    enum:
+                    - OnlyListed
+                    - Automatic
+                    type: string
+                  releasedLicenses:
+                    description: |-
+                      ReleasedLicenses lists the Secrets of released licenses to write a receipt for,
                       into a Secret named <artifactId>-release-receipt. Listing a license never releases it.
                     items:
                       properties:
@@ -8844,26 +8854,16 @@ spec:
                       - secretRef
                       type: object
                       x-kubernetes-validations:
-                      - message: spec.license.releaseReceipts[].secretRef.name must
+                      - message: spec.license.releasedLicenses[].secretRef.name must
                           not be empty
                         rule: size(self.secretRef.name) > 0
                     maxItems: 16
                     type: array
                     x-kubernetes-list-type: atomic
                     x-kubernetes-validations:
-                    - message: releaseReceipts secretRef names must be unique
+                    - message: releasedLicenses secretRef names must be unique
                       rule: self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size()
                         == 1)
-                  releaseReceiptsPolicy:
-                    default: OnlyListed
-                    description: |-
-                      ReleaseReceiptsPolicy picks which released licenses get a receipt.
-                      OnlyListed covers the licenses in releaseReceipts.
-                      Automatic also covers every license the operator releases.
-                    enum:
-                    - OnlyListed
-                    - Automatic
-                    type: string
                   secretRef:
                     description: |-
                       SecretRef names the Secret that holds the signed license under the "license" key.
@@ -8877,8 +8877,8 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-validations:
-                - message: secretRef must not also be listed in releaseReceipts
-                  rule: '!has(self.secretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r,
+                - message: secretRef must not also be listed in releasedLicenses
+                  rule: '!has(self.secretRef) || !has(self.releasedLicenses) || !self.releasedLicenses.exists(r,
                     r.secretRef.name == self.secretRef.name)'
                 - message: spec.license.secretRef.name must not be empty
                   rule: '!has(self.secretRef) || size(self.secretRef.name) > 0'

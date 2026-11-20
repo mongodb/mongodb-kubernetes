@@ -182,7 +182,7 @@ type MongoDBOpsManagerSpec struct {
 }
 
 // MongoDBOpsManagerLicense configures the Enterprise Advanced license and its release receipts.
-// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || !has(self.releaseReceipts) || !self.releaseReceipts.exists(r, r.secretRef.name == self.secretRef.name)",message="secretRef must not also be listed in releaseReceipts"
+// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || !has(self.releasedLicenses) || !self.releasedLicenses.exists(r, r.secretRef.name == self.secretRef.name)",message="secretRef must not also be listed in releasedLicenses"
 // +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || size(self.secretRef.name) > 0",message="spec.license.secretRef.name must not be empty"
 type MongoDBOpsManagerLicense struct {
 	// SecretRef names the Secret that holds the signed license under the "license" key.
@@ -191,33 +191,33 @@ type MongoDBOpsManagerLicense struct {
 	SecretRef *SecretRef `json:"secretRef,omitempty"`
 
 	// ReleaseReceiptsPolicy picks which released licenses get a receipt.
-	// OnlyListed covers the licenses in releaseReceipts.
+	// OnlyListed covers the licenses in releasedLicenses.
 	// Automatic also covers every license the operator releases.
 	// +optional
 	// +kubebuilder:default=OnlyListed
 	ReleaseReceiptsPolicy ReleaseReceiptsPolicy `json:"releaseReceiptsPolicy,omitempty"`
 
-	// ReleaseReceipts lists the Secrets of released licenses to write a receipt for,
+	// ReleasedLicenses lists the Secrets of released licenses to write a receipt for,
 	// into a Secret named <artifactId>-release-receipt. Listing a license never releases it.
 	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size() == 1)",message="releaseReceipts secretRef names must be unique"
-	ReleaseReceipts []LicenseReleaseReceipt `json:"releaseReceipts,omitempty"`
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size() == 1)",message="releasedLicenses secretRef names must be unique"
+	ReleasedLicenses []ReleasedLicense `json:"releasedLicenses,omitempty"`
 }
 
 // ReleaseReceiptsPolicy picks which released licenses get a receipt.
 // +kubebuilder:validation:Enum=OnlyListed;Automatic
 type ReleaseReceiptsPolicy string
 
-// ReleaseReceiptsOnlyListed covers only the licenses listed in releaseReceipts.
+// ReleaseReceiptsOnlyListed covers only the licenses listed in releasedLicenses.
 const ReleaseReceiptsOnlyListed ReleaseReceiptsPolicy = "OnlyListed"
 
 // ReleaseReceiptsAutomatic also covers every license the operator releases.
 const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
 
-// +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="spec.license.releaseReceipts[].secretRef.name must not be empty"
-type LicenseReleaseReceipt struct {
+// +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="spec.license.releasedLicenses[].secretRef.name must not be empty"
+type ReleasedLicense struct {
 	// SecretRef names a Secret that holds the released license.
 	// +kubebuilder:validation:Required
 	SecretRef SecretRef `json:"secretRef"`
@@ -228,12 +228,12 @@ func (l *MongoDBOpsManagerLicense) LicenseProvided() bool {
 	return l != nil && l.SecretRef != nil && l.SecretRef.Name != ""
 }
 
-// GetReleaseReceipts returns the artifacts whose release receipts the operator collects.
-func (l *MongoDBOpsManagerLicense) GetReleaseReceipts() []LicenseReleaseReceipt {
+// GetReleasedLicenses returns the released licenses the operator writes a receipt for.
+func (l *MongoDBOpsManagerLicense) GetReleasedLicenses() []ReleasedLicense {
 	if l == nil {
 		return nil
 	}
-	return l.ReleaseReceipts
+	return l.ReleasedLicenses
 }
 
 // AutoReleaseReceiptsRequested reports whether ReleaseReceiptsPolicy is Automatic.
