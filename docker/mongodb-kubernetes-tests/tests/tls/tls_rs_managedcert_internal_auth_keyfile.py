@@ -1,9 +1,14 @@
-"""A TLS replica set with operator-managed certificates, where internal cluster authentication is not x509.
+"""A TLS replica set with operator-managed certificates and keyfile internal cluster auth.
 
-The replica set uses SCRAM, so the members authenticate each other with the keyfile, and the operator
-issues only the member certificate: there is no clusterfile and no agent certificate. Without a
-clusterfile, mongod also presents the member certificate when it connects to the other members, so
-that certificate is used as a client certificate too and should have dual (clientAuth, serverAuth) key usage.
+The replica set starts with SCRAM external auth and keyfile internal auth, so the operator issues only
+the member certificate: there is no clusterfile and no agent certificate. Without a clusterfile, mongod
+also presents the member certificate when it connects to the other members, so that certificate is used
+as a client certificate too and carries dual (clientAuth, serverAuth) key usage.
+
+Switching internal cluster auth to x509 is not supported while managed certificates are enabled: the
+transition goes through a mixed state where old and restarted members validate each other against
+different CAs, so the deployment never converges. The tests assert the operator rejects the switch and
+that the member certificate carries the membership subject.
 """
 
 import pytest
@@ -17,6 +22,7 @@ from tests.tls.managedcert_helper import (
     assert_member_certificate_client_usage,
     leaf_secret_names,
     managed_certificate_operator,
+    subject_from_certificate,
 )
 
 MDB_RESOURCE = "test-tls-rs-managedcert-scram"
@@ -43,6 +49,7 @@ def mdb(namespace: str, custom_mdb_version: str) -> MongoDB:
 @pytest.mark.e2e_replica_set_tls_managedcert_internal_auth_keyfile
 def test_install_operator(operator: Operator):
     operator.wait_for_operator_ready()
+    operator.wait_for_operator_webhook_ready()
 
 
 @pytest.mark.e2e_replica_set_tls_managedcert_internal_auth_keyfile
@@ -69,3 +76,33 @@ def test_member_certificate_carries_the_client_usage(namespace: str):
     # asks the issuer for the client usage as well. tls_rs_managedcert_withhold_client_cert covers the
     # deployment that sets setParameter.tlsWithholdClientCertificate, where it does not.
     assert_member_certificate_client_usage(MDB_RESOURCE, namespace, client_auth=True)
+
+
+def assert_membership_subject(namespace: str, secret_name: str):
+    """The certificate carries the operator's default membership subject O=<resource>-server, OU=<namespace>."""
+    subject = subject_from_certificate(namespace, secret_name)
+    assert subject.get("organizations") == [f"{MDB_RESOURCE}-server"], subject
+    assert subject.get("organizationalUnits") == [namespace], subject
+
+
+@pytest.mark.e2e_replica_set_tls_managedcert_internal_auth_keyfile
+def test_member_certificate_carries_the_membership_subject(namespace: str):
+    assert_membership_subject(namespace, leaf_secret_names(MDB_RESOURCE)[0])
+
+
+@pytest.mark.e2e_replica_set_tls_managedcert_internal_auth_keyfile
+def test_switching_to_x509_internal_cluster_auth_is_rejected(mdb: MongoDB):
+    mdb.load()
+    mdb["spec"]["security"]["authentication"]["internalCluster"] = "X509"
+
+    with pytest.raises(
+        ApiException,
+        match=(
+            r"Cannot change spec\.security\.authentication\.internalCluster "
+            r"when spec\.security\.managedCertificate is enabled"
+        ),
+    ):
+        mdb.update()
+
+    mdb.load()
+    assert "internalCluster" not in mdb["spec"]["security"]["authentication"]

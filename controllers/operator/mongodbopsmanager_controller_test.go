@@ -3729,7 +3729,7 @@ func TestAppDBManagedCertificateCustomerConfiguration(t *testing.T) {
 				Key:  "ca-pem",
 			}},
 		},
-		Subjects: &mdbv1.CertSubjects{Server: &mdbv1.X509Subject{Organizations: []string{"AppDB Org"}, CommonName: "appdb.example.com"}},
+		Subjects: &mdbv1.CertSubjects{Membership: &mdbv1.X509Subject{Organizations: []string{"AppDB Org"}, CommonName: "appdb.example.com"}},
 	}
 	extraCAPEM, _ := createMockCertAndKeyBytes()
 	extraCA := string(extraCAPEM)

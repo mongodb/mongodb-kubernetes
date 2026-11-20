@@ -6,6 +6,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
+	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
@@ -54,8 +55,7 @@ func newServerCertificateOwner(owner v1.ObjectOwner, cfg *omv1.ManagedCertificat
 		name:             opts.NamingBase,
 		pruneTargetValue: opts.PruneTarget,
 		security: &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{
-			Server:   &cfg.CertificateConfig,
-			Subjects: &mdbv1.CertSubjects{Server: cfg.Subject},
+			Server: &cfg.CertificateConfig,
 		}},
 		setRenewals: opts.OnRenewals,
 	}
@@ -70,6 +70,16 @@ func (o serverCertificateOwner) SetCertificateRenewals(renewals *mdbstatus.Certi
 	if o.setRenewals != nil {
 		o.setRenewals(renewals)
 	}
+}
+
+// serverSubject is the optional subject for server-only certificates (the Ops Manager app
+// server and queryable backup daemon). Default is SAN-only (nil subject); a user override
+// (spec.security.managedCertificate.subject) supplies a DN to satisfy a server issuer's policy.
+func serverSubject(override *mdbv1.X509Subject) (*certmanagerv1.X509Subject, string) {
+	if override == nil {
+		return nil, ""
+	}
+	return mergeSubject(override, &certmanagerv1.X509Subject{}, "")
 }
 
 // EnsureServerCertificateAndCA issues the serverAuth certificate for an Ops Manager
@@ -99,7 +109,7 @@ func EnsureServerCertificateAndCA(
 	}
 
 	res := newServerCertificateOwner(owner, cfg, opts)
-	subject, commonName := serverSubject(res)
+	subject, commonName := serverSubject(cfg.Subject)
 	spec := certSpec(res, categoryServer, opts.SecretName, opts.DNSNames, commonName, subject, memberServerCertUsages)
 	spec.IPAddresses = opts.IPAddresses
 

@@ -1606,9 +1606,10 @@ type CertificateConfig struct {
 // CertSubjects overrides the operator-computed X509 subjects. Any unset subject (or unset
 // field within one) falls back to an operator-computed default.
 type CertSubjects struct {
-	// Membership is the shared subject of the member cert (when internal cluster auth
-	// is x509) and the internal-cluster clusterfile cert. A single field so the two
-	// always match, mongod recognizes cluster peers by comparing subject O/OU.
+	// Membership is the shared subject of the member (server) certificate in every
+	// internal authentication mode, and of the internal-cluster clusterfile cert when
+	// internal auth is x509. A single field so the two always match, mongod recognizes
+	// cluster peers by comparing subject O/OU.
 	// +optional
 	Membership *X509Subject `json:"membership,omitempty"`
 
@@ -1618,14 +1619,6 @@ type CertSubjects struct {
 	// from the issued cert's actual subject.
 	// +optional
 	Agent *X509Subject `json:"agent,omitempty"`
-
-	// Server is the subject for serverAuth certs that carry no identity: the member
-	// cert when internal cluster auth is not x509 (no membership check is done on the
-	// subject, so the member cert is just a plain server cert). mongod verifies these
-	// certs by SAN, not subject, it exists only so a server issuer that enforces a DN
-	// policy can be satisfied.
-	// +optional
-	Server *X509Subject `json:"server,omitempty"`
 }
 
 // X509Subject is a configurable X509 Distinguished Name. All fields are optional; unset

@@ -181,3 +181,72 @@ users:
 
 	return file
 }
+
+func TestDenyManagedCertificateX509InternalClusterTransition(t *testing.T) {
+	security := func(internalCluster string, managed bool) *mdbv1.Security {
+		s := &mdbv1.Security{Authentication: &mdbv1.Authentication{InternalCluster: internalCluster}}
+		if managed {
+			s.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		}
+		return s
+	}
+
+	tests := []struct {
+		name        string
+		oldInternal string
+		newInternal string
+		oldManaged  bool
+		newManaged  bool
+		errorMsg    string
+	}{
+		{
+			name:        "keyfile to X509 with managed certificates is rejected",
+			oldInternal: "KEYFILE",
+			newInternal: "X509",
+			newManaged:  true,
+			errorMsg:    "internalCluster when spec.security.managedCertificate is enabled",
+		},
+		{
+			name:        "keyfile to X509 without managed certificates is allowed",
+			oldInternal: "KEYFILE",
+			newInternal: "X509",
+		},
+		{
+			name:        "X509 already set with managed certificates is allowed",
+			oldInternal: "X509",
+			newInternal: "X509",
+			oldManaged:  true,
+			newManaged:  true,
+		},
+		{
+			name:        "disabling X509 with managed certificates is rejected",
+			oldInternal: "X509",
+			oldManaged:  true,
+			newManaged:  true,
+			errorMsg:    "internalCluster when spec.security.managedCertificate is enabled",
+		},
+		{
+			name:        "disabling X509 together with removing managed certificates is allowed",
+			oldInternal: "X509",
+			oldManaged:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldMrs := DefaultMultiReplicaSetBuilder().SetClusterSpecList([]string{"cluster-1"}).Build()
+			oldMrs.Spec.Security = security(tt.oldInternal, tt.oldManaged)
+
+			newMrs := DefaultMultiReplicaSetBuilder().SetClusterSpecList([]string{"cluster-1"}).Build()
+			newMrs.Spec.Security = security(tt.newInternal, tt.newManaged)
+
+			_, err := validator.ValidateUpdate(ctx, oldMrs, newMrs)
+
+			if tt.errorMsg != "" {
+				assert.ErrorContains(t, err, tt.errorMsg)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

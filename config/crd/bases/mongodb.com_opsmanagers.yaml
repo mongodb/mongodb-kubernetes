@@ -1218,40 +1218,10 @@ spec:
                                 type: object
                               membership:
                                 description: |-
-                                  Membership is the shared subject of the member cert (when internal cluster auth
-                                  is x509) and the internal-cluster clusterfile cert. A single field so the two
-                                  always match, mongod recognizes cluster peers by comparing subject O/OU.
-                                properties:
-                                  commonName:
-                                    type: string
-                                  countries:
-                                    items:
-                                      type: string
-                                    type: array
-                                  localities:
-                                    items:
-                                      type: string
-                                    type: array
-                                  organizationalUnits:
-                                    items:
-                                      type: string
-                                    type: array
-                                  organizations:
-                                    items:
-                                      type: string
-                                    type: array
-                                  provinces:
-                                    items:
-                                      type: string
-                                    type: array
-                                type: object
-                              server:
-                                description: |-
-                                  Server is the subject for serverAuth certs that carry no identity: the member
-                                  cert when internal cluster auth is not x509 (no membership check is done on the
-                                  subject, so the member cert is just a plain server cert). mongod verifies these
-                                  certs by SAN, not subject, it exists only so a server issuer that enforces a DN
-                                  policy can be satisfied.
+                                  Membership is the shared subject of the member (server) certificate in every
+                                  internal authentication mode, and of the internal-cluster clusterfile cert when
+                                  internal auth is x509. A single field so the two always match, mongod recognizes
+                                  cluster peers by comparing subject O/OU.
                                 properties:
                                   commonName:
                                     type: string

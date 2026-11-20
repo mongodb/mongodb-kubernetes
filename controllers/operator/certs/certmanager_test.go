@@ -220,7 +220,7 @@ func TestComponentCertificates(t *testing.T) {
 		ClusterDomain:  "cluster.local",
 	}
 
-	t.Run("keyfile internal auth: only the member cert, serverAuth and clientAuth, SAN-only subject", func(t *testing.T) {
+	t.Run("keyfile internal auth: only the member cert, dual usages, membership subject", func(t *testing.T) {
 		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
 			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
 		})
@@ -231,7 +231,9 @@ func TestComponentCertificates(t *testing.T) {
 		assert.Equal(t, ManagedCertificateOwnerLabels(owner), got[0].spec.SecretTemplate.Labels)
 		// There is no clusterfile, so the members also present the member cert to each other.
 		assert.Equal(t, memberServerAndClientCertUsages, got[0].spec.Usages)
-		assert.Nil(t, got[0].spec.Subject, "member cert is SAN-only when internal auth is not x509")
+		require.NotNil(t, got[0].spec.Subject, "member cert must carry the membership subject without x509")
+		assert.Equal(t, []string{fmt.Sprintf("%s-server", resName)}, got[0].spec.Subject.Organizations)
+		assert.Equal(t, []string{resNamespace}, got[0].spec.Subject.OrganizationalUnits)
 	})
 
 	t.Run("keyfile internal auth with the client certificate withheld: serverAuth only", func(t *testing.T) {
@@ -272,6 +274,52 @@ func TestComponentCertificates(t *testing.T) {
 		// carry a common name instead - cert-manager rejects a Certificate with neither.
 		assert.Empty(t, got[1].spec.DNSNames, "clusterfile cert must not have per-member SANs")
 		assert.NotEmpty(t, got[1].spec.CommonName, "clusterfile cert needs a common name when it has no SANs")
+	})
+
+	t.Run("member cert subject is identical with and without x509 internal auth", func(t *testing.T) {
+		keyfileOwner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		})
+		x509Owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+			m.Spec.Security.Authentication = &mdbv1.Authentication{InternalCluster: util.X509}
+		})
+		x509Opts := baseOpts
+		x509Opts.InternalClusterSecretName = fmt.Sprintf("%s-clusterfile", resName)
+		keyfileGot := componentCertificates(ctx, fakeClient, keyfileOwner, baseOpts)
+		x509Got := componentCertificates(ctx, fakeClient, x509Owner, x509Opts)
+		require.Len(t, keyfileGot, 1)
+		require.Len(t, x509Got, 2)
+		assert.Equal(t, x509Got[0].spec.Subject, keyfileGot[0].spec.Subject,
+			"the member cert subject must not depend on the internal auth mode")
+		assert.Equal(t, x509Got[0].spec.CommonName, keyfileGot[0].spec.CommonName)
+	})
+
+	t.Run("subjects.membership override applies without x509", func(t *testing.T) {
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{
+				Subjects: &mdbv1.CertSubjects{
+					Membership: &mdbv1.X509Subject{Organizations: []string{"custom-o"}},
+				},
+			}
+		})
+		got := componentCertificates(ctx, fakeClient, owner, baseOpts)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].spec.Subject)
+		assert.Equal(t, []string{"custom-o"}, got[0].spec.Subject.Organizations)
+		assert.Equal(t, []string{resNamespace}, got[0].spec.Subject.OrganizationalUnits)
+	})
+
+	t.Run("multi-cluster member cert carries the membership subject", func(t *testing.T) {
+		opts := baseOpts
+		opts.MultiClusterMembers = []MemberCluster{{ClusterNum: 0, ClusterName: "cluster-0", Members: 3}}
+		owner := newMongoDB(resName, func(m *mdbv1.MongoDB) {
+			m.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+		})
+		got := componentCertificates(ctx, fakeClient, owner, opts)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].spec.Subject)
+		assert.Equal(t, []string{fmt.Sprintf("%s-server", resName)}, got[0].spec.Subject.Organizations)
 	})
 
 	t.Run("member cert SANs cover MembersToCover and the count is recorded in the annotation", func(t *testing.T) {

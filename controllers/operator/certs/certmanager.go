@@ -662,16 +662,11 @@ func componentCertificates(ctx context.Context, c kubernetesClient.Client, res C
 	}
 	internalX509 := sec.GetInternalClusterAuthenticationMode() == util.X509
 
-	// The subject depends on the internal cluster authentication. With x509 mongod matches a peer by
-	// the subject of its certificate, so the member certificate carries the membership subject.
-	// Otherwise nothing reads the subject, so it is set only when the user configured subjects.server.
-	var memberSub *certmanagerv1.X509Subject
-	var memberCN string
+	// The member certificate always carries the membership subject, whatever the internal
+	// authentication mode is, so enabling x509 later does not change the identity it asserts.
+	memberSub, memberCN := membershipSubject(res)
 	memberUsages := memberServerCertUsages
-	if internalX509 {
-		memberSub, memberCN = membershipSubject(res)
-	} else {
-		memberSub, memberCN = serverSubject(res)
+	if !internalX509 {
 		// Member to member connections are mutual TLS even without x509 internal authentication, and
 		// there is no clusterfile, so the member certificate is what they present to each other even as client,
 		// that's why it needs both key usages. A deployment whose mongod config withholds the
@@ -766,7 +761,8 @@ func userConfiguredSubjects(res CertificateOwner) *mdbv1.CertSubjects {
 	return nil
 }
 
-// membershipSubject is the X509 membership identity shared by the member and clusterFile certs.
+// membershipSubject is the X509 identity of the member (server) certificate in every internal
+// authentication mode, and of the internal-cluster clusterFile cert when internal auth is x509.
 func membershipSubject(res CertificateOwner) (*certmanagerv1.X509Subject, string) {
 	def := &certmanagerv1.X509Subject{
 		Organizations:       []string{res.GetName() + "-server"},
@@ -794,20 +790,6 @@ func agentSubject(res CertificateOwner) (*certmanagerv1.X509Subject, string) {
 		override = s.Agent
 	}
 	return mergeSubject(override, def, res.GetName()+"-agent")
-}
-
-// serverSubject is the optional subject for server certs that carry no identity (the
-// member cert when internal auth is NOT x509). Default is SAN-only (nil subject); a user
-// override (subjects.server) supplies a DN to satisfy a server issuer's policy.
-func serverSubject(res CertificateOwner) (*certmanagerv1.X509Subject, string) {
-	var override *mdbv1.X509Subject
-	if s := userConfiguredSubjects(res); s != nil {
-		override = s.Server
-	}
-	if override == nil {
-		return nil, ""
-	}
-	return mergeSubject(override, &certmanagerv1.X509Subject{}, "")
 }
 
 // mergeSubject applies a user override onto the operator default per field. We merge the user

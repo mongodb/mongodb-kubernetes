@@ -70,7 +70,9 @@ func TestManagedIssuanceScopeOwnership(t *testing.T) {
 	assert.Equal(t, "example-db-server-ca-issuer", appDBLeaf.Spec.IssuerRef.Name)
 	assert.Equal(t, serverAndClientUsage, appDBLeaf.Spec.Usages)
 	assert.Contains(t, appDBLeaf.Spec.Usages, certmanagerv1.UsageClientAuth)
-	assert.Nil(t, appDBLeaf.Spec.Subject, "SCRAM AppDB server certificates carry no membership subject")
+	require.NotNil(t, appDBLeaf.Spec.Subject, "the AppDB member certificate always carries the membership subject")
+	assert.Equal(t, []string{"example-db-server"}, appDBLeaf.Spec.Subject.Organizations)
+	assert.Equal(t, []string{managedTestNamespace}, appDBLeaf.Spec.Subject.OrganizationalUnits)
 	assert.Empty(t, appDBLeaf.Spec.CommonName)
 
 	for _, name := range []string{
