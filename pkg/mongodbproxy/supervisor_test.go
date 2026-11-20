@@ -27,7 +27,7 @@ const fakeMongod = `#!/bin/sh
 mode=$(cat "$2")
 case "$mode" in
   exit:*) echo "exiting with ${mode#exit:}"; exit "${mode#exit:}";;
-  env) echo "KRB5_KTNAME=$KRB5_KTNAME LDAPTLS_CACERT=$LDAPTLS_CACERT GLIBC_TUNABLES=$GLIBC_TUNABLES SET_THP_DISABLED=$SET_THP_DISABLED MONGODB_CONFIG_OVERRIDE_NOFORK=$MONGODB_CONFIG_OVERRIDE_NOFORK"; exit 0;;
+  env) echo "KRB5_KTNAME=$KRB5_KTNAME LDAPTLS_CACERT=$LDAPTLS_CACERT GLIBC_TUNABLES=$GLIBC_TUNABLES MONGODB_CONFIG_OVERRIDE_NOFORK=$MONGODB_CONFIG_OVERRIDE_NOFORK"; exit 0;;
   args) echo "ARGS: $*"; exit 0;;
   run) trap 'exit 0' TERM;;
   ignoreterm) trap '' TERM;;
@@ -211,7 +211,7 @@ func TestEnvIsPassedToTheChild(t *testing.T) {
 	waitDone(t, e)
 	assert.Contains(t, f.sup.Status().Output,
 		"KRB5_KTNAME="+filepath.Join(f.dir, "krb5.keytab")+" LDAPTLS_CACERT="+filepath.Join(f.dir, "ldap-ca.pem")+
-			" GLIBC_TUNABLES=glibc.pthread.rseq=0 SET_THP_DISABLED=")
+			" GLIBC_TUNABLES=glibc.pthread.rseq=0")
 	assert.Contains(t, f.sup.Status().Output, " MONGODB_CONFIG_OVERRIDE_NOFORK=1")
 }
 

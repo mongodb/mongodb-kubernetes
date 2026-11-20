@@ -65,11 +65,6 @@ type Other struct {
 	Args []string `json:"args,omitempty"`
 	// Env is "KEY=value" entries that extend the environment of the proxy.
 	Env []string `json:"env,omitempty"`
-
-	// DisableTHP opts pre-8.0 MongoDB out of transparent huge pages using an inherited Linux prctl
-	// and sets SET_THP_DISABLED=yes. Unlike NUMA interleaving, this needs no tool in the database
-	// image or extra privileges. The default containerd pod profile blocks set_mempolicy.
-	DisableTHP bool `json:"disableTHP,omitempty"`
 }
 
 // StartRequest is the body of POST /v1/process/start.
