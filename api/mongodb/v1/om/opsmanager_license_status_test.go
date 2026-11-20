@@ -12,14 +12,14 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
-func TestOpsManagerStatus_LicenseManagedCondition(t *testing.T) {
+func TestOpsManagerStatus_OperatorManagedLicenseCondition(t *testing.T) {
 	om := NewOpsManagerBuilderDefault().Build()
 	om.UpdateStatus(status.PhaseFailed, status.NewOMPartOption(status.OpsManager),
 		status.NewLicenseStatusOptionWithCondition(
-			status.LicenseManagedCondition(false, status.ReasonLicenseFailed, "rotation failed"),
+			status.OperatorManagedLicenseCondition(false, status.ReasonLicenseFailed, "rotation failed"),
 		))
 
-	cond := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseManaged)
+	cond := meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionOperatorManagedLicense)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
 	assert.Equal(t, status.ReasonLicenseFailed, cond.Reason)
@@ -28,10 +28,10 @@ func TestOpsManagerStatus_LicenseManagedCondition(t *testing.T) {
 
 	om.UpdateStatus(status.PhaseRunning, status.NewOMPartOption(status.OpsManager),
 		status.NewLicenseStatusOptionWithCondition(
-			status.LicenseManagedCondition(false, status.ReasonLicenseNotProvided, ""),
+			status.OperatorManagedLicenseCondition(false, status.ReasonLicenseNotProvided, ""),
 		))
 
-	cond = meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionLicenseManaged)
+	cond = meta.FindStatusCondition(om.Status.OpsManagerStatus.Conditions, status.ConditionOperatorManagedLicense)
 	require.NotNil(t, cond)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
 	assert.Equal(t, status.ReasonLicenseNotProvided, cond.Reason)
