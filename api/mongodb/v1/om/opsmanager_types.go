@@ -1295,32 +1295,3 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
 	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
 }
-
-// GetLastSpec returns the last spec that has successfully been applied.
-func (om *MongoDBOpsManager) GetLastSpec() (*MongoDBOpsManagerSpec, error) {
-	lastSpecStr := annotations.GetAnnotation(om, util.LastAchievedSpec)
-	if lastSpecStr == "" {
-		return nil, nil
-	}
-
-	lastSpec := MongoDBOpsManagerSpec{}
-	if err := json.Unmarshal([]byte(lastSpecStr), &lastSpec); err != nil {
-		return nil, err
-	}
-
-	return &lastSpec, nil
-}
-
-// GetLastInstallSecretRef returns the secretRef the last spec that has successfully been
-// applied installed from. The current spec alone cannot answer whether the install intent was
-// removed or was never there.
-func (om *MongoDBOpsManager) GetLastInstallSecretRef() (string, error) {
-	lastSpec, err := om.GetLastSpec()
-	if err != nil || lastSpec == nil {
-		return "", err
-	}
-	if !lastSpec.License.LicenseProvided() {
-		return "", nil
-	}
-	return lastSpec.License.SecretRef.Name, nil
-}
