@@ -92,14 +92,6 @@ type LaunchEnvironment struct {
 	KerberosKeytab string `json:"kerberosKeytab,omitempty"`
 }
 
-// ExitStatus describes the last child that exited.
-type ExitStatus struct {
-	ExitCode      int     `json:"exitCode"`
-	Signal        string  `json:"signal,omitempty"`
-	ExitedAt      string  `json:"exitedAt,omitempty"`
-	UptimeSeconds float64 `json:"uptimeSeconds,omitempty"`
-}
-
 // Status is the response of GET /v1/process and of start/stop.
 type Status struct {
 	State       State  `json:"state"`
@@ -112,12 +104,6 @@ type Status struct {
 	Signal string `json:"signal,omitempty"`
 	// Output is the tail of the child's stdout/stderr, available after exit.
 	Output string `json:"output,omitempty"`
-	// StartedAt is when the current or last child was launched, in RFC3339Nano.
-	StartedAt string `json:"startedAt,omitempty"`
-	// UptimeSeconds is the running time of the current child.
-	UptimeSeconds float64 `json:"uptimeSeconds,omitempty"`
-	// LastExit describes the most recent child that exited, if any.
-	LastExit *ExitStatus `json:"lastExit,omitempty"`
 	// PID and LaunchEnvironment are present together only for a running child.
 	PID               *int               `json:"pid,omitempty"`
 	LaunchEnvironment *LaunchEnvironment `json:"launchEnvironment,omitempty"`

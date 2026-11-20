@@ -15,7 +15,7 @@ import (
 
 const maxBodyBytes = 1 << 20
 
-// logIDPattern matches the request and operation identities that are safe to log and echo.
+// logIDPattern matches request IDs that are safe to log and echo.
 var logIDPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
 type errorResponse struct {
@@ -44,11 +44,12 @@ type handler struct {
 // so that a caller can correlate its request with the proxy's answer without the proxy logging request bodies.
 type requestLog struct {
 	http.ResponseWriter
-	started    time.Time
-	requestID  string
-	role       Role
-	status     int
-	errorClass string
+	started     time.Time
+	requestID   string
+	executionID string
+	role        Role
+	status      int
+	errorClass  string
 }
 
 func (h *handler) request(w http.ResponseWriter, r *http.Request) *requestLog {
@@ -60,21 +61,13 @@ func (h *handler) request(w http.ResponseWriter, r *http.Request) *requestLog {
 	return &requestLog{ResponseWriter: w, started: time.Now(), requestID: id, status: http.StatusOK}
 }
 
-// logToken keeps an identity that a caller supplied out of the log when it is not a safe token.
-func logToken(id string) string {
-	if id == "" || logIDPattern.MatchString(id) {
-		return id
-	}
-	return "[redacted]"
-}
-
 func (r *requestLog) fields() []any {
 	role := r.role
 	if role != RoleMain && role != RoleEphemeral {
 		role = ""
 	}
 	return []any{
-		"request_id", logToken(r.requestID),
+		"request_id", r.requestID, "execution_id", r.executionID,
 		"role", role, "http_status", r.status, "error_class", r.errorClass,
 		"duration_ms", float64(time.Since(r.started).Microseconds()) / 1000,
 	}
@@ -84,6 +77,7 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	call := h.request(w, r)
 	status := h.s.Status()
 	call.role = status.Role
+	call.executionID = status.ExecutionID
 	writeJSON(call, http.StatusOK, status)
 	h.log.Debugw("status requested", append(call.fields(), "state", status.State)...)
 }
@@ -105,6 +99,7 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 		h.fail(call, err)
 		return
 	}
+	call.executionID = e.id
 
 	if req.WaitForExit {
 		// If the client goes away we stop waiting but leave the child alone.
@@ -137,6 +132,9 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 	}
 	timeout = time.Duration(req.TimeoutSeconds * float64(time.Second))
 	e, err := h.s.stopExecution(r.Context(), req.ExecutionID, req.Role, timeout, req.Force)
+	if e != nil {
+		call.executionID = e.id
+	}
 	if err != nil {
 		h.fail(call, err)
 		return

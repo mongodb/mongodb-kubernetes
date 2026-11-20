@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 )
 
 const (
@@ -25,8 +24,8 @@ const (
 
 // Listen opens the listener for the process API.
 //
-// The address must start with unix:// and name an absolute path. The socket is created with mode 0600, a stale
-// socket file left by an earlier run is removed, and the file is removed again when the listener is closed.
+// The address must start with unix:// and name an absolute path reserved for one proxy instance.
+// Listen removes any socket left at that path and binds with mode 0600. Close removes the socket.
 func Listen(addr string) (net.Listener, error) {
 	path, ok := strings.CutPrefix(addr, UnixScheme)
 	if !ok {
@@ -39,7 +38,7 @@ func listenUnix(path string) (net.Listener, error) {
 	if err := validateSocketPath(path); err != nil {
 		return nil, err
 	}
-	if err := removeStaleSocket(path); err != nil {
+	if err := removeSocket(path); err != nil {
 		return nil, err
 	}
 
@@ -69,10 +68,8 @@ func validateSocketPath(path string) error {
 	return nil
 }
 
-// removeStaleSocket deletes the socket file of an earlier run. An emptyDir outlives a restart of the container, so
-// the file is normally still there. It refuses to delete anything that is not a socket, and a socket that still
-// accepts connections, because that one belongs to a running process.
-func removeStaleSocket(path string) error {
+// An emptyDir keeps the socket file when a container exits without closing it.
+func removeSocket(path string) error {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -83,12 +80,8 @@ func removeStaleSocket(path string) error {
 	if info.Mode()&os.ModeSocket == 0 {
 		return fmt.Errorf("%q exists and is not a socket, not removing it", path)
 	}
-	if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
-		_ = conn.Close()
-		return fmt.Errorf("%q is in use by another process", path)
-	}
 	if err := os.Remove(path); err != nil {
-		return fmt.Errorf("removing the stale socket %q: %w", path, err)
+		return fmt.Errorf("removing socket %q: %w", path, err)
 	}
 	return nil
 }

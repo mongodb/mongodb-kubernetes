@@ -92,16 +92,6 @@ func TestListenUnixReplacesAStaleSocket(t *testing.T) {
 	defer func() { _ = l.Close() }()
 }
 
-func TestListenUnixRefusesASocketInUse(t *testing.T) {
-	path := filepath.Join(socketDir(t), "proxy.sock")
-	first, err := Listen(UnixScheme + path)
-	require.NoError(t, err)
-	defer func() { _ = first.Close() }()
-
-	_, err = Listen(UnixScheme + path)
-	assert.ErrorContains(t, err, "in use")
-}
-
 func TestListenUnixDoesNotRemoveAFileThatIsNotASocket(t *testing.T) {
 	path := filepath.Join(socketDir(t), "proxy.sock")
 	require.NoError(t, os.WriteFile(path, []byte("data"), 0o600))

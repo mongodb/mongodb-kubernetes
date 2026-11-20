@@ -5,11 +5,11 @@ mounted read-only as an OCI image volume (`/mnt/proxy/proxy`) into the container
 The MongoDB server must honor `MONGODB_CONFIG_OVERRIDE_NOFORK=1`. The proxy sets it to keep the child in the foreground.
 
 The Unix socket accepts launch requests from trusted callers. MongoDB opens and validates its own files.
+Use a separate socket path for each proxy instance. On startup the proxy removes any socket at its path.
 
 ### Building locally
 
 ```bash
-make mongodb-proxy                                   # bin/mongodb-proxy (linux/amd64, GOARCH=arm64 for arm64)
 make mongodb-proxy-image                             # mongodb-kubernetes-mongodb-proxy:dev
 make mongodb-proxy-image TARGETARCH=arm64 PROXY_IMAGE=mongodb-kubernetes-mongodb-proxy:1.0.0
 ```
