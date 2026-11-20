@@ -475,7 +475,6 @@ func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
 		InitAppDBImage:    "init-database:1.0.0",
 		MongodbImage:      "mongodb-enterprise-server:8.0.0",
 		MongodbProxyImage: "mongodb-proxy:1.0.0",
-		AgentImage:        "mongodb-agent:1000.2.0.11583-1",
 		CustomAgentURL:    "https://example.com/agent.tar.gz",
 	}
 	sts, err := AppDbStatefulSet(*om, nil, opts,
@@ -493,6 +492,7 @@ func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
 	assert.Equal(t, -1, getContainerIndexByName(podSpec.Containers, util.AgentContainerUtilitiesName))
 
 	agent := findContainerByName(t, podSpec.Containers, util.AgentContainerName)
+	assert.Equal(t, "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent:nammn-agent-process-maintainer", agent.Image)
 	agentCommand := agent.Command[len(agent.Command)-1]
 	assert.Contains(t, agentCommand, "-cluster=/var/lib/automation/config/cluster-config.json")
 	assert.Contains(t, agentCommand, "-operatorMode")
