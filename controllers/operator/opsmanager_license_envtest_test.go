@@ -111,12 +111,10 @@ func (h *licenseEnvHarness) loadOM(name string) *omv1.MongoDBOpsManager {
 func (h *licenseEnvHarness) reconcile(name string) workflow.Status {
 	h.t.Helper()
 	om := h.loadOM(name)
-	st := h.reconciler.ensureOpsManagerLicense(h.ctx, om, h.admin, zap.NewNop().Sugar())
-
-	reconciledStatus := om.Status
-	om = h.loadOM(name)
-	om.Status = reconciledStatus
-	require.NoError(h.t, h.client.Status().Update(h.ctx, om))
+	log := zap.NewNop().Sugar()
+	st := h.reconciler.ensureOpsManagerLicense(h.ctx, om, h.admin, log)
+	_, err := h.reconciler.updateStatus(h.ctx, om, st, log, status.NewOMPartOption(status.OpsManager))
+	require.NoError(h.t, err)
 	return st
 }
 
