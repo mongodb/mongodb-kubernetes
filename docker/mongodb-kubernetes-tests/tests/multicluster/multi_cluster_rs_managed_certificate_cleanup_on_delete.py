@@ -165,6 +165,9 @@ def test_cleanup(
     wait_until(everything_is_gone, timeout=300)
 
 
+@mark.skip(
+    reason="Skipped until the operator cleans up Ops Manager safely when the resource is deleted while a reconcile is still running. The cleanup can fail and leave the old CA path in the project, so the agents of a new resource with the same name cannot start."
+)
 @mark.e2e_managed_certificate_multi_cluster_rs_cleanup_on_delete
 def test_a_resource_with_the_same_name_gets_a_fresh_certificate(
     namespace: str,

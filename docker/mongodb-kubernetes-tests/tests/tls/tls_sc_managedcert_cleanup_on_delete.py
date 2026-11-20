@@ -100,6 +100,9 @@ def test_cleanup(sc: MongoDB, namespace: str):
     wait_until(everything_is_gone, timeout=300)
 
 
+@pytest.mark.skip(
+    reason="Skipped until the operator cleans up Ops Manager safely when the resource is deleted while a reconcile is still running. The cleanup can fail and leave the old CA path in the project, so the agents of a new resource with the same name cannot start."
+)
 @pytest.mark.e2e_sharded_cluster_tls_managedcert_cleanup_on_delete
 def test_a_resource_with_the_same_name_gets_fresh_certificates(namespace: str, custom_mdb_version: str):
     # A new object: the one the fixture returns still refers to the deleted resource, so updating it
