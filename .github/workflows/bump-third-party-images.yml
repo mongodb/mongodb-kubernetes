@@ -1,0 +1,46 @@
+name: Bump Search Third-Party Images
+
+on:
+  schedule:
+    # Runs on the 1st and 15th of each month at 08:00 UTC (~every 2 weeks).
+    - cron: '0 8 1,15 * *'
+  workflow_dispatch:
+
+jobs:
+  bump:
+    name: Bump Search third-party images if newer tags exist
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Switch to root context
+        uses: ./.github/actions/switch-context
+        with:
+          context-name: 'root-context'
+
+      - name: Setup host
+        uses: ./.github/actions/setup-ubuntu-host
+        with:
+          python-version: '${{ vars.PYTHON_VERSION }}'
+
+      - name: Install helm
+        uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+        with:
+          version: ${{ env.HELM_VERSION }} # exported by switch-context from root-context
+
+      - name: Bump images and open or update the PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PYTHONPATH=. python -m scripts.dev.bump_third_party_images
+          # status (not diff) so the new untracked changelog file counts as a change
+          if [[ -n "$(git status --porcelain)" ]]; then
+            scripts/create-third-party-images-bump-pr.sh
+          fi
