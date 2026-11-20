@@ -5,6 +5,18 @@ binaries from there. Then we continue with the other steps to fully build the im
 
 ### Building locally
 
+To build a development image for `static-ga` from an Agent branch, use:
+
+```bash
+python3 scripts/dev/pin_agent_image.py nammn-agent-process-maintainer
+```
+
+The script also accepts an `mms-automation` PR URL. It uses GitHub SSH for the
+branch and GitHub CLI credentials for private Go modules. Add `--push` with AWS
+credentials for the dev ECR repository to publish both amd64 and arm64 under the
+branch name. Without `--push`, the script loads one image into local Docker.
+Use `--platform linux/amd64` or `--platform linux/arm64` to select a local platform.
+
 For building the MongoDB Agent image locally use the example command:
 
 ```bash

@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+ARG AGENT_RUNTIME=quay.io/mongodb/mongodb-agent:109.0.2.9380-1
+FROM golang:1.26 AS go
+FROM registry.access.redhat.com/ubi9/ubi AS build
+RUN dnf install -y gcc git && dnf clean all
+COPY --from=go /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:$PATH GOPRIVATE=github.com/10gen/* CGO_ENABLED=1
+COPY go_planner/ /src/go_planner/
+WORKDIR /src/go_planner/src/com.tengen/cm
+RUN --mount=type=secret,id=github_token,required=true --mount=type=tmpfs,target=/root \
+    printf 'machine github.com login x-access-token password %s\n' "$(cat /run/secrets/github_token)" > /root/.netrc \
+    && chmod 600 /root/.netrc \
+    && go build -buildvcs=false -o /mongodb-agent ./main
+
+FROM ${AGENT_RUNTIME}
+COPY --from=build --chmod=755 /mongodb-agent /agent/mongodb-agent
