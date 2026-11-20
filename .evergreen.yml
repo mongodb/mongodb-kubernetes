@@ -2627,6 +2627,7 @@ buildvariants:
   # Only on commit builds — see DEVPROD-27436 note on notify_master_build_status below.
   - name: mckci_release_promote
     display_name: mckci_release_promote
+    batchtime: 60
     allowed_requesters: [ "commit" ]
     depends_on:
       - name: "*"
