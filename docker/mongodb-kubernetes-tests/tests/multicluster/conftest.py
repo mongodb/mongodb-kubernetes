@@ -6,7 +6,7 @@ from typing import Dict, Generator, List, Optional
 
 import kubernetes
 from kubeobject import CustomObject
-from kubetester import create_or_update_namespace, create_or_update_secret
+from kubetester import create_or_update_namespace, create_or_update_secret, downgrade_pss_to_warn
 from kubetester.certs import generate_cert
 from kubetester.kubetester import create_testing_namespace
 from kubetester.ldap import (
@@ -52,6 +52,7 @@ def multi_cluster_ldap_issuer(
         {"istio-injection": "enabled"},
         api_client=member_cluster_one.api_client,
     )
+    downgrade_pss_to_warn("openldap", api_client=member_cluster_one.api_client)
 
     return create_issuer("openldap", member_cluster_one.api_client)
 

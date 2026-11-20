@@ -92,6 +92,16 @@ def get_default_architecture() -> str:
     return "static" if is_default_architecture_static() else "non-static"
 
 
+def get_default_image_type() -> str:
+    return os.getenv("MDB_DEFAULT_IMAGE_TYPE") or "ubi9"
+
+
+def get_default_appdb_image_type() -> str:
+    """AppDB honours MDB_DEFAULT_IMAGE_TYPE in both architectures; when unset it falls back to ubi9 for static and
+    ubi8 for non-static."""
+    return os.getenv("MDB_DEFAULT_IMAGE_TYPE") or ("ubi9" if is_default_architecture_static() else "ubi8")
+
+
 def assert_statefulset_architecture(statefulset: client.V1StatefulSet, architecture: str):
     """
     Asserts that the statefulset is configured with the expected architecture.
@@ -242,11 +252,6 @@ class KubernetesTester(object):
         )
 
     @classmethod
-    def read_operator_pod(cls, namespace: str) -> Dict[str, str]:
-        label_selector = "app.kubernetes.io/name=mongodb-enterprise-operator"
-        return cls.read_pod_labels(namespace, label_selector).items[0]
-
-    @classmethod
     def read_pod_labels(cls, namespace: str, label_selector: Optional[str] = None):
         """Reads a Pod by labels."""
         return cls.clients("corev1").list_namespaced_pod(namespace=namespace, label_selector=label_selector)
@@ -296,6 +301,18 @@ class KubernetesTester(object):
         cls.clients("appsv1").create_namespaced_deployment(body=body, namespace=namespace)
 
     @classmethod
+    def create_or_update_statefulset(
+        cls, namespace: str, body: Dict, api_client: Optional[kubernetes.client.ApiClient] = None
+    ):
+        try:
+            cls.clients("appsv1", api_client=api_client).create_namespaced_stateful_set(body=body, namespace=namespace)
+        except client.rest.ApiException as e:
+            if e.status == 409:
+                cls.clients("appsv1", api_client=api_client).patch_namespaced_stateful_set(
+                    name=body["metadata"]["name"], body=body, namespace=namespace
+                )
+
+    @classmethod
     def create_service(
         cls,
         namespace: str,
@@ -303,6 +320,18 @@ class KubernetesTester(object):
         api_client: Optional[kubernetes.client.ApiClient] = None,
     ):
         cls.clients("corev1", api_client=api_client).create_namespaced_service(body=body, namespace=namespace)
+
+    @classmethod
+    def create_or_update_service(
+        cls, namespace: str, body: Dict, api_client: Optional[kubernetes.client.ApiClient] = None
+    ):
+        try:
+            cls.clients("corev1", api_client=api_client).create_namespaced_service(body=body, namespace=namespace)
+        except client.rest.ApiException as e:
+            if e.status == 409:
+                cls.clients("corev1", api_client=api_client).patch_namespaced_service(
+                    name=body["metadata"]["name"], body=body, namespace=namespace
+                )
 
     @classmethod
     def create_or_update_pvc(
@@ -482,7 +511,6 @@ class KubernetesTester(object):
         KubernetesTester.create_custom_resource_from_object(
             namespace,
             resource,
-            exception_reason=section.get("exception", None),
             patch=section.get("patch", None),
         )
 
@@ -494,7 +522,6 @@ class KubernetesTester(object):
             name, kind = KubernetesTester.create_custom_resource_from_object(
                 namespace,
                 res,
-                exception_reason=section.get("exception", None),
                 patch=section.get("patch", None),
             )
 
@@ -512,8 +539,8 @@ class KubernetesTester(object):
         return KubernetesTester.create_custom_resource_from_object(namespace, resource)
 
     @staticmethod
-    def create_mongodb_from_object(namespace, resource, exception_reason=None, patch=None):
-        name, kind = KubernetesTester.create_custom_resource_from_object(namespace, resource, exception_reason, patch)
+    def create_mongodb_from_object(namespace, resource, patch=None):
+        name, kind = KubernetesTester.create_custom_resource_from_object(namespace, resource, patch)
         KubernetesTester.namespace = namespace
         KubernetesTester.name = name
         KubernetesTester.kind = kind
@@ -522,7 +549,6 @@ class KubernetesTester(object):
     def create_custom_resource_from_object(
         namespace,
         resource,
-        exception_reason=None,
         patch=None,
         api_client: Optional[client.ApiClient] = None,
     ):
@@ -542,7 +568,6 @@ class KubernetesTester(object):
 
         print("Creating resource {} {} {}".format(kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""))
 
-        # TODO move "wait for exception" logic to a generic function and reuse for create/update/delete
         try:
             KubernetesTester.clients("customv1", api_client=api_client).create_namespaced_custom_object(
                 group, version, namespace, plural(kind), resource
@@ -553,36 +578,8 @@ class KubernetesTester(object):
                     group, version, namespace, plural(kind), name, resource
                 )
             else:
-                if isinstance(e.body, str):
-                    # In Kubernetes v1.16+ the result body is a json string that needs to be parsed, according to
-                    # whatever exception_reason was passed.
-                    try:
-                        body_json = json.loads(e.body)
-                    except json.decoder.JSONDecodeError:
-                        # The API did not return a JSON string
-                        pass
-                    else:
-                        reason = validation_reason_from_exception(exception_reason)
-
-                        if reason is not None:
-                            field = exception_reason.split()[0]
-                            for cause in body_json["details"]["causes"]:
-                                if cause["reason"] == reason and cause["field"] == field:
-                                    return None, None
-
-                if exception_reason:
-                    assert e.reason == exception_reason or exception_reason in e.body, "Real exception is: {}".format(e)
-                    print(
-                        '"{}" exception raised while creating the resource - this is expected!'.format(exception_reason)
-                    )
-                    return None, None
-
                 print("Failed to create a resource ({}): \n {}".format(e, resource))
                 raise
-
-        else:
-            if exception_reason:
-                raise AssertionError("Expected ApiException, but create operation succeeded!")
 
         print("Created resource {} {} {}".format(kind, name, "(" + res_type + ")" if kind == "MongoDb" else ""))
         return name, kind
@@ -884,35 +881,6 @@ class KubernetesTester(object):
         return response.json()
 
     @staticmethod
-    def remove_group(group_id):
-        """Remove a group/project from Ops Manager.
-
-        If the group is already deleted (GROUP_NOT_FOUND), this succeeds silently
-        since the desired state (group doesn't exist) is already achieved.
-        """
-        url = build_om_group_endpoint(KubernetesTester.get_om_base_url(), group_id)
-        try:
-            KubernetesTester.om_request("delete", url)
-        except OpsManagerGroupNotFoundError:
-            logger.debug(f"OM group {group_id} already deleted - nothing to remove")
-
-    @staticmethod
-    def remove_group_by_name(group_name):
-        orgid = KubernetesTester.get_om_org_id()
-        project_id = KubernetesTester.query_group(group_name, orgid)["id"]
-        KubernetesTester.remove_group(project_id)
-
-    @staticmethod
-    def create_organization(org_name):
-        """
-        Creates the organization with specified name in Ops Manager, returns its ID
-        """
-        url = build_om_org_endpoint(KubernetesTester.get_om_base_url())
-        response = KubernetesTester.om_request("post", url, {"name": org_name})
-
-        return response.json()["id"]
-
-    @staticmethod
     def find_organizations(org_name):
         """
         Finds all organization with specified name, iterates over max 200 pages to find all matching organizations
@@ -939,24 +907,6 @@ class KubernetesTester(object):
             page += 1
 
         return ids
-
-    @staticmethod
-    def remove_organization(org_id):
-        """
-        Removes the organization with specified id from Ops Manager
-        """
-        url = build_om_one_org_endpoint(KubernetesTester.get_om_base_url(), org_id)
-        KubernetesTester.om_request("delete", url)
-
-    @staticmethod
-    def get_groups_in_organization_first_page(org_id):
-        """
-        :return: the first page of groups  (100 items for OM 4.0 and 500 for OM 4.1)
-        """
-        url = build_om_groups_in_org_endpoint(KubernetesTester.get_om_base_url(), org_id, 1)
-        response = KubernetesTester.om_request("get", url)
-
-        return response.json()
 
     @staticmethod
     def find_groups_in_organization(org_id, group_name):
@@ -1494,6 +1444,7 @@ def run_periodically(fn, *args, **kwargs):
     Calls `fn` until it succeeds or until the `timeout` is reached, every `sleep_time` seconds.
     If `timeout` is negative or zero, it never times out.
     Callable fn can return single bool (condition result) or tuple[bool, str] ([condition result, status message]).
+    The `name` keyword sets `mck.wait.name`, and defaults to the callable name.
 
     >>> run_periodically(lambda: time.sleep(5), timeout=3, sleep_time=2)
     False
@@ -1503,11 +1454,16 @@ def run_periodically(fn, *args, **kwargs):
     sleep_time = kwargs.get("sleep_time", SLEEP_TIME)
     timeout = kwargs.get("timeout", INFINITY)
     msg = kwargs.get("msg", None)
+    wait_name = kwargs.get("name", None) or getattr(fn, "__name__", type(fn).__name__)
+
+    span = trace.get_current_span()
+    span.set_attribute("mck.wait.name", wait_name)
+    span.set_attribute("mck.wait.timeout_s", timeout)
 
     start_time = current_milliseconds()
     end = start_time + (timeout * 1000)
-    callable_name = fn.__name__
     attempts = 0
+    last_message = None
 
     while current_milliseconds() < end or timeout <= 0:
         attempts += 1
@@ -1524,20 +1480,27 @@ def run_periodically(fn, *args, **kwargs):
         if fn_condition:
             print(
                 "{} executed successfully after {} seconds and {} attempts".format(
-                    callable_name, (current_milliseconds() - start_time) / 1000, attempts
+                    wait_name, (current_milliseconds() - start_time) / 1000, attempts
                 )
             )
+            span.set_attribute("mck.wait.attempts", attempts)
+            if fn_condition_msg is not None:
+                span.set_attribute("mck.wait.last_observed.message", str(fn_condition_msg))
             return True
+        last_message = fn_condition_msg
         if msg is not None:
             condition_msg = f": {fn_condition_msg}" if fn_condition_msg is not None else ""
             print(f"waiting for {msg}{condition_msg}...")
         time.sleep(sleep_time)
 
-    raise AssertionError(
-        "Timed out executing {} after {} seconds and {} attempt(s)".format(
-            callable_name, (current_milliseconds() - start_time) / 1000, attempts
-        )
+    error = "Timed out executing {} after {} seconds and {} attempt(s)".format(
+        wait_name, (current_milliseconds() - start_time) / 1000, attempts
     )
+    span.set_attribute("mck.wait.attempts", attempts)
+    if last_message is not None:
+        span.set_attribute("mck.wait.last_observed.message", str(last_message))
+    span.set_attribute("mck.wait.error", error)
+    raise AssertionError(error)
 
 
 def get_env_var_or_fail(name):
@@ -1572,20 +1535,12 @@ def build_om_group_endpoint(base_url, group_id):
     return "{}/api/public/v1.0/groups/{}".format(base_url, group_id)
 
 
-def build_om_org_endpoint(base_url):
-    return "{}/api/public/v1.0/orgs".format(base_url)
-
-
 def build_om_org_list_endpoint(base_url: str, page_num: int):
     return "{}/api/public/v1.0/orgs?itemsPerPage=500&pageNum={}".format(base_url, page_num)
 
 
 def build_om_org_list_by_name_endpoint(base_url: str, name: str):
     return "{}/api/public/v1.0/orgs?name={}".format(base_url, name)
-
-
-def build_om_one_org_endpoint(base_url, org_id):
-    return "{}/api/public/v1.0/orgs/{}".format(base_url, org_id)
 
 
 def build_om_groups_in_org_endpoint(base_url, org_id, page_num):
@@ -1697,18 +1652,6 @@ def get_pods(podname_format, qty=3):
 
 def decode_secret(data: Dict[str, str]) -> Dict[str, str]:
     return {k: b64decode(v).decode("utf-8") for (k, v) in data.items()}
-
-
-def validation_reason_from_exception(exception_msg):
-    reasons = [
-        ("in body is required", "FieldValueRequired"),
-        ("in body should be one of", "FieldValueNotSupported"),
-        ("in body must be of type", "FieldValueInvalid"),
-    ]
-
-    for reason in reasons:
-        if reason[0] in exception_msg:
-            return reason[1]
 
 
 def create_testing_namespace(

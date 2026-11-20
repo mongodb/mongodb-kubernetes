@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -48,7 +47,7 @@ func TestX509CanBeEnabled_WhenThereAreOnlyTlsDeployments_ReplicaSet(t *testing.T
 
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 }
 
@@ -58,7 +57,7 @@ func TestX509ClusterAuthentication_CanBeEnabled_IfX509AuthenticationIsEnabled_Re
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 }
 
@@ -91,10 +90,10 @@ func TestUpdateOmAuthentication_NoAuthenticationEnabled(t *testing.T) {
 	processNames := []string{"my-rs-0", "my-rs-1", "my-rs-2"}
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
-	r.updateOmAuthentication(ctx, conn, processNames, rs, "", "", "", false, zap.S())
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
+	r.updateOmAuthentication(ctx, conn, processNames, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 
-	ac, _ := conn.ReadAutomationConfig()
+	ac, _ := conn.ReadAutomationConfig(ctx)
 
 	assert.True(t, ac.Auth.Disabled, "authentication was not specified to enabled, so it should remain disabled in Ops Manager")
 	assert.Len(t, ac.Auth.Users, 0)
@@ -112,8 +111,8 @@ func TestUpdateOmAuthentication_EnableX509_TlsNotEnabled(t *testing.T) {
 	rs.Spec.Security.TLSConfig.Enabled = true
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, conn, []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring both options at once should not result in a failed status")
 	assert.True(t, isMultiStageReconciliation, "configuring both tls and x509 at once should result in a multi stage reconciliation")
@@ -124,8 +123,8 @@ func TestUpdateOmAuthentication_EnableX509_WithTlsAlreadyEnabled(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 
 	assert.True(t, status.IsOK(), "configuring x509 when tls has already been enabled should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if tls is already enabled, we should be able to configure x509 is a single reconciliation")
@@ -139,12 +138,12 @@ func TestUpdateOmAuthentication_AuthenticationIsNotConfigured_IfAuthIsNotSet(t *
 
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
-	status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
+	status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 	assert.True(t, status.IsOK(), "no authentication should have been configured")
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	// authentication has not been touched
 	assert.True(t, ac.Auth.Disabled)
@@ -162,24 +161,24 @@ func TestUpdateOmAuthentication_DoesNotDisableAuth_IfAuthIsNotSet(t *testing.T) 
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	// x509 auth has been enabled
 	assert.True(t, ac.Auth.IsEnabled())
 	assert.Contains(t, ac.Auth.AutoAuthMechanism, authentication.MongoDBX509)
 
 	rs.Spec.Security.Authentication = nil
 
-	reconciler = newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler = newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	ac, _ = omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ = omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.True(t, ac.Auth.IsEnabled())
 	assert.Contains(t, ac.Auth.AutoAuthMechanism, authentication.MongoDBX509)
 }
@@ -197,7 +196,7 @@ func TestCanConfigureAuthenticationDisabled_WithNoModes(t *testing.T) {
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
@@ -209,11 +208,11 @@ func TestUpdateOmAuthentication_EnableX509_FromEmptyDeployment(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().EnableAuth().EnableX509().Build()
 	omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(om.NewDeployment()))
 	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	secretName := util.AgentSecretName
 	createAgentCSRs(t, ctx, r.client, secretName, certsv1.CertificateApproved)
 
-	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", false, zap.S())
+	status, isMultiStageReconciliation := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
 	assert.True(t, status.IsOK(), "configuring x509 and tls when there are no processes should not result in a failed status")
 	assert.False(t, isMultiStageReconciliation, "if we are enabling tls and x509 at once, this should be done in a single reconciliation")
 }
@@ -230,7 +229,7 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	// configure x509/tls resources
 	addKubernetesTlsResources(ctx, kubeClient, rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
@@ -242,8 +241,135 @@ func TestX509AgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.Equal(t, ac.Auth.AutoUser, "CN=mms-automation-agent,OU=cloud,O=MongoDB,L=New York,ST=New York,C=US")
+}
+
+func TestX509AgentAuthentication_ClientCertificateModeFollowsSpecChanges_ReplicaSet(t *testing.T) {
+	tests := map[string]struct {
+		updateSpec func(rs *mdbv1.MongoDB)
+	}{
+		"Removing SCRAM leaves X509 as the only mode": {
+			updateSpec: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{util.X509}
+			},
+		},
+		"Setting requireClientTLSAuthentication": {
+			updateSpec: func(rs *mdbv1.MongoDB) {
+				rs.Spec.Security.Authentication.RequiresClientTLSAuthentication = true
+			},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			rs := DefaultReplicaSetBuilder().
+				SetName("my-rs").
+				SetMembers(3).
+				EnableTLS().
+				SetTLSCA("custom-ca").
+				AgentAuthMode(util.X509).
+				EnableX509().
+				EnableSCRAM().
+				Build()
+
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+			addKubernetesTlsResources(ctx, kubeClient, rs)
+			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
+
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+			ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			require.Equal(t, util.OptionalClientCertficates, ac.AgentSSL.ClientCertificateMode)
+
+			tc.updateSpec(rs)
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+			ac, err = omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, util.RequireClientCertificates, ac.AgentSSL.ClientCertificateMode)
+		})
+	}
+}
+
+func TestX509AgentAuthentication_ClientCertificateModeFollowsSpecChanges_ShardedCluster(t *testing.T) {
+	tests := map[string]struct {
+		updateSpec func(sc *mdbv1.MongoDB)
+	}{
+		"Removing SCRAM leaves X509 as the only mode": {
+			updateSpec: func(sc *mdbv1.MongoDB) {
+				sc.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{util.X509}
+			},
+		},
+		"Setting requireClientTLSAuthentication": {
+			updateSpec: func(sc *mdbv1.MongoDB) {
+				sc.Spec.Security.Authentication.RequiresClientTLSAuthentication = true
+			},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			sc := test.DefaultClusterBuilder().
+				SetName("my-sc").
+				EnableTLS().
+				SetTLSCA("custom-ca").
+				EnableX509().
+				EnableSCRAM().
+				Build()
+			sc.Spec.Security.Authentication.Agents.Mode = util.X509
+
+			r, _, kubeClient, omConnectionFactory, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+			require.NoError(t, err)
+			addKubernetesTlsResources(ctx, r.client, sc)
+
+			checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
+
+			ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			require.Equal(t, util.OptionalClientCertficates, ac.AgentSSL.ClientCertificateMode)
+
+			tc.updateSpec(sc)
+			checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
+
+			ac, err = omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, util.RequireClientCertificates, ac.AgentSSL.ClientCertificateMode)
+		})
+	}
+}
+
+// TestX509OnlyMode_AlwaysRequiresClientCertificates_ReplicaSet pins that X509 as the only mode implies REQUIRE,
+// regardless of requireClientTLSAuthentication.
+func TestX509OnlyMode_AlwaysRequiresClientCertificates_ReplicaSet(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().
+		SetName("my-rs").
+		SetMembers(3).
+		EnableTLS().
+		SetTLSCA("custom-ca").
+		AgentAuthMode(util.X509).
+		EnableX509().
+		Build()
+	rs.Spec.Security.Authentication.RequiresClientTLSAuthentication = true
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	addKubernetesTlsResources(ctx, kubeClient, rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	require.Equal(t, util.RequireClientCertificates, ac.AgentSSL.ClientCertificateMode)
+
+	rs.Spec.Security.Authentication.RequiresClientTLSAuthentication = false
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	ac, err = omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, util.RequireClientCertificates, ac.AgentSSL.ClientCertificateMode)
 }
 
 func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
@@ -266,7 +392,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 
 	assert.NoError(t, err)
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
@@ -278,7 +404,7 @@ func TestScramAgentUserIsCorrectlyConfigured(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expected, actual)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.Equal(t, ac.Auth.AutoUser, util.AutomationAgentName)
 }
 
@@ -287,7 +413,7 @@ func TestScramAgentUser_IsNotOverridden(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableAuth().EnableSCRAM().Build()
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
-		err := connection.ReadUpdateAutomationConfig(func(ac *om.AutomationConfig) error {
+		err := connection.ReadUpdateAutomationConfig(ctx, func(ac *om.AutomationConfig) error {
 			ac.Auth.AutoUser = "my-custom-agent-name"
 			return nil
 		}, nil)
@@ -296,11 +422,11 @@ func TestScramAgentUser_IsNotOverridden(t *testing.T) {
 		}
 	})
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
 
-	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, _ := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 
 	assert.Equal(t, "my-custom-agent-name", ac.Auth.AutoUser)
 }
@@ -315,12 +441,12 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ReplicaSet(t *t
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	addKubernetesTlsResources(ctx, r.client, rs)
 
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	dep, _ := omConnectionFactory.GetConnection().ReadDeployment()
+	dep, _ := omConnectionFactory.GetConnection().ReadDeployment(ctx)
 	for _, p := range dep.ProcessesCopy() {
 		assert.Equal(t, p.ClusterAuthMode(), "x509")
 	}
@@ -338,7 +464,7 @@ func TestX509InternalClusterAuthentication_CanBeEnabledWithScram_ShardedCluster(
 	addKubernetesTlsResources(ctx, r.client, sc)
 	checkReconcileSuccessful(ctx, t, r, sc, kubeClient)
 
-	dep, _ := omConnectionFactory.GetConnection().ReadDeployment()
+	dep, _ := omConnectionFactory.GetConnection().ReadDeployment(ctx)
 	for _, p := range dep.ProcessesCopy() {
 		assert.Equal(t, p.ClusterAuthMode(), "x509")
 	}
@@ -368,7 +494,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	data := map[string]string{
 		"password": "LITZTOd6YiCV8j",
 	}
@@ -381,7 +507,7 @@ func TestConfigureLdapDeploymentAuthentication_WithScramAgentAuthentication(t *t
 	assert.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "LITZTOd6YiCV8j", ac.Ldap.BindQueryPassword)
 	assert.Equal(t, "bindQueryUser", ac.Ldap.BindQueryUser)
@@ -425,7 +551,7 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	data := map[string]string{
 		"password": "LITZTOd6YiCV8j",
 	}
@@ -438,7 +564,7 @@ func TestConfigureLdapDeploymentAuthentication_WithCustomRole(t *testing.T) {
 	assert.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "server0:1234", ac.Ldap.Servers)
 
@@ -479,7 +605,7 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	data := map[string]string{
 		"password": "LITZTOd6YiCV8j",
 	}
@@ -492,7 +618,7 @@ func TestConfigureLdapDeploymentAuthentication_WithAuthzQueryTemplate_AndUserToD
 	assert.NoError(t, err)
 	checkReconcileSuccessful(ctx, t, r, rs, kubeClient)
 
-	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig()
+	ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	assert.Equal(t, "server0:0000,server1:1111,server2:2222", ac.Ldap.Servers)
 
@@ -742,7 +868,7 @@ func TestInvalidPEM_SecretDoesNotContainKey(t *testing.T) {
 		Build()
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	// Replace the secret with an empty one
@@ -772,7 +898,7 @@ func Test_NoAdditionalDomainsPresent(t *testing.T) {
 	rs.Spec.Security.TLSConfig.AdditionalCertificateDomains = []string{"foo"}
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	certSecret := &corev1.Secret{}
@@ -795,10 +921,10 @@ func Test_NoExternalDomainPresent(t *testing.T) {
 		EnableX509().
 		Build()
 
-	rs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("foo")}
+	rs.Spec.ExternalAccessConfiguration = &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("foo")}
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 	addKubernetesTlsResources(ctx, kubeClient, rs)
 
 	secret := &corev1.Secret{}
@@ -872,4 +998,36 @@ func createMockCSRBytes() []byte {
 	}
 
 	return certRequestPemBytes.Bytes()
+}
+
+func TestUpdateOmAuthentication_KeyFileFollowsDownloadBase(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("custom download base", func(t *testing.T) {
+		rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
+		omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
+		kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
+		r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
+
+		status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", "/custom/download/base", false, zap.S())
+		assert.True(t, status.IsOK())
+
+		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, "/custom/download/base/keyfile", ac.Auth.KeyFile)
+	})
+
+	t.Run("default download base preserves the legacy keyfile path", func(t *testing.T) {
+		rs := DefaultReplicaSetBuilder().SetName("my-rs").SetMembers(3).EnableTLS().Build()
+		omConnectionFactory := om.NewCachedOMConnectionFactoryWithInitializedConnection(om.NewMockedOmConnection(deployment.CreateFromReplicaSet("fake-mongoDBImage", false, rs)))
+		kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
+		r := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
+
+		status, _ := r.updateOmAuthentication(ctx, omConnectionFactory.GetConnection(), []string{"my-rs-0", "my-rs-1", "my-rs-2"}, rs, "", "", "", util.DefaultPvcMmsMountPath, false, zap.S())
+		assert.True(t, status.IsOK())
+
+		ac, err := omConnectionFactory.GetConnection().ReadAutomationConfig(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, util.AutomationAgentKeyFilePathInContainer, ac.Auth.KeyFile)
+	})
 }

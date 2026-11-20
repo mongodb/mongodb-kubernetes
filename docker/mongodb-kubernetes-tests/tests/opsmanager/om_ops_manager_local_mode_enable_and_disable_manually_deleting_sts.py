@@ -67,6 +67,7 @@ def test_enable_local_mode(ops_manager: MongoDBOpsManager, namespace: str):
 
     ops_manager.load()
     ops_manager["spec"]["configuration"] = {"automation.versions.source": "local"}
+    ops_manager.allow_mdb_rc_versions()
     ops_manager["spec"]["statefulSet"] = om["spec"]["statefulSet"]
     ops_manager.update()
 

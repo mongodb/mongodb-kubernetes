@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -93,12 +94,12 @@ func (enc *encodeState) writeDistinguishedName(subject pkix.RDNSequence) (allUnk
 
 	allUnknownOIDs = make([]string, 0)
 
-	for i := len(subject) - 1; i >= 0; i-- {
+	for i, s := range slices.Backward(subject) {
 		if i < len(subject)-1 {
 			enc.WriteByte(',')
 		}
 
-		unknownOIDs, err := enc.writeRelativeDistinguishedName(subject[i])
+		unknownOIDs, err := enc.writeRelativeDistinguishedName(s)
 		if err != nil {
 			return []string{}, err
 		}
@@ -125,7 +126,7 @@ func (enc *encodeState) writeRelativeDistinguishedName(rdn pkix.RelativeDistingu
 	// TODO: This does not conform to the same order of attributes that OpenSSL uses
 
 	unknownOIDs = make([]string, 0)
-	for i := 0; i < len(rdn); i++ {
+	for i := range rdn {
 		if i > 0 {
 			enc.WriteByte('+')
 		}

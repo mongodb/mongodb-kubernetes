@@ -9,3 +9,9 @@ source "${script_dir}/root-context"
 
 # This variable is needed otherwise the `fetch_om_information.sh` script is called and fails the test
 export OM_EXTERNALLY_CONFIGURED=true
+
+# MongoDB versions exercised by the replica_set_change_version e2e test.
+# Kept here (not in the test) so version bumps don't require test code changes.
+export MDB_COMMUNITY_CHANGE_VERSION_INITIAL_VERSION="${MDB_COMMUNITY_CHANGE_VERSION_INITIAL_VERSION:-7.0.14}"
+export MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_VERSION="${MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_VERSION:-8.0.0}"
+export MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_PATCH_VERSION="${MDB_COMMUNITY_CHANGE_VERSION_UPGRADED_PATCH_VERSION:-8.0.5}"

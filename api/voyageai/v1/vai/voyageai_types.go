@@ -277,7 +277,7 @@ func (v *VoyageAI) GetCommonStatus(options ...status.Option) *status.Common {
 	return &v.Status.Common
 }
 
-func (v *VoyageAI) GetStatus(options ...status.Option) interface{} {
+func (v *VoyageAI) GetStatus(options ...status.Option) any {
 	return v.Status
 }
 

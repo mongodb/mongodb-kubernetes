@@ -30,6 +30,7 @@ from pytest import fixture
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import protected_search_input_uids
 from tests.conftest import get_multi_cluster_operator
 
 logger = test_logger.get_test_logger(__name__)
@@ -57,11 +58,15 @@ SOURCE_CERT_PREFIX = "clustercert"
 
 
 @fixture(scope="module")
-def tools_pod(namespace: str, member_cluster_clients: List[MultiClusterClient]) -> mongodb_tools_pod.ToolsPod:
+def tools_pod(
+    namespace: str, custom_mdb_version: str, member_cluster_clients: List[MultiClusterClient]
+) -> mongodb_tools_pod.ToolsPod:
     # Run the tools pod in a mesh-joined member cluster so it can resolve the
     # cross-cluster RS/mongos member-service DNS. The central operator cluster has
     # no istio sidecar, so a tools pod there gets "no such host" on member services.
-    return mongodb_tools_pod.get_tools_pod(namespace, api_client=member_cluster_clients[0].api_client)
+    return mongodb_tools_pod.get_tools_pod(
+        namespace, custom_mdb_version, api_client=member_cluster_clients[0].api_client
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +384,27 @@ def assert_cross_cluster_isolation(
 # ---------------------------------------------------------------------------
 # Comprehensive happy-path helpers (shared by RS + sharded variants)
 # ---------------------------------------------------------------------------
+
+
+def mc_search_customer_input_uids(
+    mcc: MultiClusterClient,
+    namespace: str,
+    search_name: str,
+    ca_configmap_name: str,
+    cluster_index: int,
+) -> Dict[str, str]:
+    """UIDs of the customer-provided Search inputs on one cluster (must survive cleanup)."""
+    return protected_search_input_uids(
+        mcc.core_v1_api(),
+        namespace,
+        search_resource_names.mongot_tls_cert_name(search_name, MDBS_TLS_CERT_PREFIX),
+        f"{search_name}-{MONGOT_USER_NAME}-password",
+        ca_configmap_name,
+        additional_secret_names=(
+            search_resource_names.lb_server_cert_name(search_name, MDBS_TLS_CERT_PREFIX, cluster_index),
+            search_resource_names.lb_client_cert_name(search_name, MDBS_TLS_CERT_PREFIX, cluster_index),
+        ),
+    )
 
 
 def assert_per_cluster_count(per_cluster: List, expected: int = 2) -> None:

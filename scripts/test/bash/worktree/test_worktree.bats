@@ -50,6 +50,8 @@ require_init_in_main_repo() {
 # ---------------------------------------------------------------------------
 
 install_hook() {
+    # A clone restored from a cache may not carry a hooks directory.
+    mkdir -p "$(dirname "${HOOK_PATH}")"
     ln -sf "${MAIN_REPO}/.githooks/post-checkout" "${HOOK_PATH}"
 }
 

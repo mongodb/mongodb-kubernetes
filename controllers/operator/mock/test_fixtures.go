@@ -9,7 +9,7 @@ import (
 // nolint:forbidigo
 func InitDefaultEnvVariables() {
 	_ = os.Setenv(util.NonStaticDatabaseEnterpriseImage, "mongodb-enterprise-database")
-	_ = os.Setenv(util.AutomationAgentImagePullPolicy, "Never")
+	_ = os.Setenv(util.ImagePullPolicyEnv, "Never")
 	_ = os.Setenv(util.OpsManagerImageUrl, "quay.io/mongodb/mongodb-enterprise-ops-manager")
 	_ = os.Setenv(util.InitOpsManagerImageUrl, "quay.io/mongodb/mongodb-kubernetes-init-ops-manager")
 	_ = os.Setenv(util.InitDatabaseImageUrlEnv, "quay.io/mongodb/mongodb-kubernetes-init-database")

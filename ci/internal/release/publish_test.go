@@ -34,7 +34,7 @@ func TestPublish(t *testing.T) {
 	reg := DefaultRegistryConnector(srv.URL)
 
 	t.Run("publish with explicit commit", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest"}, host, reg)
+		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", AllowPartialSignatures: true}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -70,7 +70,7 @@ func TestPublish(t *testing.T) {
 		backportDigest := pushImage(t, backportSrcRef, name.Insecure)
 		tagAs(t, backportSrcRef, fmt.Sprintf("%s:%s", stagingBase, promotedTagFor(marker)), name.Insecure)
 
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, ProdRepo: prodRepo, LatestMarker: marker}, host, reg)
+		result, err := Publish(PublishInputs{StagingImage: stagingBase, ProdRepo: prodRepo, LatestMarker: marker, AllowPartialSignatures: true}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -110,7 +110,7 @@ func TestPublish(t *testing.T) {
 	})
 
 	t.Run("publish resolves latest when commit omitted", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, ProdRepo: prodRepo, LatestMarker: "latest"}, host, reg)
+		result, err := Publish(PublishInputs{StagingImage: stagingBase, ProdRepo: prodRepo, LatestMarker: "latest", AllowPartialSignatures: true}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -123,7 +123,7 @@ func TestPublish(t *testing.T) {
 	})
 
 	t.Run("dry-run returns result without copying", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", DryRun: true}, host, reg)
+		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", DryRun: true, AllowPartialSignatures: true}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -133,14 +133,14 @@ func TestPublish(t *testing.T) {
 	})
 
 	t.Run("staging-image required", func(t *testing.T) {
-		_, err := Publish(PublishInputs{Commit: commit, ProdRepo: prodRepo}, host, reg)
+		_, err := Publish(PublishInputs{Commit: commit, ProdRepo: prodRepo, AllowPartialSignatures: true}, host, reg)
 		if err == nil || !strings.Contains(err.Error(), "staging-image") {
 			t.Errorf("expected error containing %q, got %v", "staging-image", err)
 		}
 	})
 
 	t.Run("prod-repo required", func(t *testing.T) {
-		_, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit}, host, reg)
+		_, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, AllowPartialSignatures: true}, host, reg)
 		if err == nil || !strings.Contains(err.Error(), "prod-repo") {
 			t.Errorf("expected error containing %q, got %v", "prod-repo", err)
 		}
@@ -148,10 +148,11 @@ func TestPublish(t *testing.T) {
 
 	t.Run("unknown commit returns error", func(t *testing.T) {
 		_, err := Publish(PublishInputs{
-			StagingImage: stagingBase,
-			Commit:       "0000000000000000000000000000000000000000",
-			ProdRepo:     prodRepo,
-			LatestMarker: "latest",
+			StagingImage:           stagingBase,
+			Commit:                 "0000000000000000000000000000000000000000",
+			ProdRepo:               prodRepo,
+			LatestMarker:           "latest",
+			AllowPartialSignatures: true,
 		}, host, reg)
 		if err == nil {
 			t.Error("expected error for unknown commit, got nil")
@@ -174,7 +175,7 @@ func TestPublish(t *testing.T) {
 		pushImage(t, newRef, name.Insecure)
 		tagAs(t, newRef, fmt.Sprintf("%s:%s", multiBase, promotedLatestTag()), name.Insecure)
 
-		result, err := Publish(PublishInputs{StagingImage: multiBase, ProdRepo: prodRepo, LatestMarker: "latest"}, host, reg)
+		result, err := Publish(PublishInputs{StagingImage: multiBase, ProdRepo: prodRepo, LatestMarker: "latest", AllowPartialSignatures: true}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -192,7 +193,7 @@ func TestPublish(t *testing.T) {
 		orphanBase := fmt.Sprintf("%s/%s", host, "myorg/staging/orphan")
 		pushImage(t, fmt.Sprintf("%s:%s", orphanBase, promotedLatestTag()), name.Insecure)
 
-		_, err := Publish(PublishInputs{StagingImage: orphanBase, ProdRepo: prodRepo, LatestMarker: "latest"}, host, reg)
+		_, err := Publish(PublishInputs{StagingImage: orphanBase, ProdRepo: prodRepo, LatestMarker: "latest", AllowPartialSignatures: true}, host, reg)
 		if err == nil || !strings.Contains(err.Error(), "matches promoted-latest") {
 			t.Errorf("expected 'matches promoted-latest' error, got %v", err)
 		}
@@ -221,14 +222,14 @@ func TestPublishRefusesStompedVersionTag(t *testing.T) {
 	reg := DefaultRegistryConnector(srv.URL)
 
 	t.Run("refused without force", func(t *testing.T) {
-		_, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest"}, host, reg)
+		_, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", AllowPartialSignatures: true}, host, reg)
 		if err == nil || !strings.Contains(err.Error(), "already exists at a different digest") {
 			t.Fatalf("expected stomp error, got %v", err)
 		}
 	})
 
 	t.Run("proceeds with force", func(t *testing.T) {
-		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", Force: true}, host, reg)
+		result, err := Publish(PublishInputs{StagingImage: stagingBase, Commit: commit, ProdRepo: prodRepo, LatestMarker: "latest", Force: true, AllowPartialSignatures: true}, host, reg)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -260,8 +261,9 @@ func TestPublishRequiresLatestMarker(t *testing.T) {
 	stagingBase := fmt.Sprintf("%s/%s", host, stagingRepo)
 
 	_, err := Publish(PublishInputs{
-		StagingImage: stagingBase,
-		ProdRepo:     prodRepo,
+		StagingImage:           stagingBase,
+		ProdRepo:               prodRepo,
+		AllowPartialSignatures: true,
 	}, host, DefaultRegistryConnector(srv.URL))
 	if err == nil || !strings.Contains(err.Error(), "latest-marker is required") {
 		t.Fatalf("expected 'latest-marker is required' error, got %v", err)

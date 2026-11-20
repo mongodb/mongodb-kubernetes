@@ -1,6 +1,7 @@
 package agentVersionManagement
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"strconv"
@@ -80,7 +81,7 @@ func newAgentVersionManager(omVersionToAgentVersion map[omv1.OpsManagerVersion]o
 func isLaterVersion(version1, version2 string) bool {
 	splitVersion := func(version string) []int {
 		var parts []int
-		for _, part := range strings.Split(strings.Split(version, "-")[0], ".") {
+		for part := range strings.SplitSeq(strings.Split(version, "-")[0], ".") {
 			if num, err := strconv.Atoi(part); err == nil {
 				parts = append(parts, num)
 			}
@@ -135,7 +136,7 @@ Unlike OM, there is no full guarantee that minor versions support each other for
 
 // GetAgentVersion returns the agent version to use with the Ops Manager
 // readFromMapping is true in the case of AppDB, because they are started before OM, so we cannot rely on the endpoint
-func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion string, readFromMapping bool) (string, error) {
+func (m *AgentVersionManager) GetAgentVersion(ctx context.Context, conn om.Connection, omVersion string, readFromMapping bool) (string, error) {
 	isCM := versionutil.OpsManagerVersion{VersionString: omVersion}.IsCloudManager()
 	if isCM {
 		return m.getAgentVersionForCloudManagerFromMapping()
@@ -154,11 +155,19 @@ func (m *AgentVersionManager) GetAgentVersion(conn om.Connection, omVersion stri
 		return "", xerrors.Errorf("Ops Manager version %s does not support static containers, please use Ops Manager version of at least %s or %s", omVersion, om6StaticContainersSupport, om7StaticContainersSupport)
 	}
 
-	version, err := m.getAgentVersionFromOpsManager(conn)
+	version, err := GetAgentVersionFromOpsManager(ctx, conn)
 	if err != nil {
 		return "", err
 	}
 	return addVersionSuffixIfAbsent(version), nil
+}
+
+func GetAgentVersionFromOpsManager(ctx context.Context, conn om.Connection) (string, error) {
+	agentResponse, err := conn.ReadAgentVersion(ctx)
+	if err != nil {
+		return "", err
+	}
+	return agentResponse.AutomationVersion, nil
 }
 
 // supportsStaticContainers verifies whether the supplied omVersion supports static containers.
@@ -211,15 +220,6 @@ func getMajorVersion(version string) string {
 		return ""
 	}
 	return strings.Split(version, ".")[0]
-}
-
-// getAgentVersionFromOpsManager retrieves the agent version by querying Ops Manager API.
-func (m *AgentVersionManager) getAgentVersionFromOpsManager(conn om.Connection) (string, error) {
-	agentResponse, err := conn.ReadAgentVersion()
-	if err != nil {
-		return "", err
-	}
-	return agentResponse.AutomationVersion, nil
 }
 
 func addVersionSuffixIfAbsent(version string) string {

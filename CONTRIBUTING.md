@@ -12,6 +12,13 @@ better.
 * Create a changelog file that will describe the changes you made. Use the `skip-changelog` label if your changes do not
   require a changelog entry.
 
+## Stale Pull Requests
+
+A daily workflow marks pull requests with no activity for 30 days as `stale` and adds a comment. If there is still no
+activity 30 days later, the pull request is closed; it can be reopened at any time. Any comment or push removes the
+`stale` label and restarts the clock. Drafts and stacked pull requests are included. To keep a long-running pull request
+open, add the `do-not-stale` label, or ask a maintainer to add it.
+
 ## Kubernetes and OpenShift versions (maintainers)
 
 Declared Kubernetes support and the OpenShift version we track for engineering checks live in **`kubernetes-versions.json`** at the repo root. Maintainer-facing details, how **`release.json`** differs from that file, and how to run the policy script are documented in **[docs/dev/kubernetes-version-support.md](docs/dev/kubernetes-version-support.md)**.

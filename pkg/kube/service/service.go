@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,25 +66,19 @@ func Merge(dest corev1.Service, source corev1.Service) corev1.Service {
 	if dest.Annotations == nil {
 		dest.Annotations = map[string]string{}
 	}
-	for k, v := range source.Annotations {
-		dest.Annotations[k] = v
-	}
+	maps.Copy(dest.Annotations, source.Annotations)
 
 	if dest.Labels == nil {
 		dest.Labels = map[string]string{}
 	}
 
-	for k, v := range source.Labels {
-		dest.Labels[k] = v
-	}
+	maps.Copy(dest.Labels, source.Labels)
 
 	if dest.Spec.Selector == nil {
 		dest.Spec.Selector = map[string]string{}
 	}
 
-	for k, v := range source.Spec.Selector {
-		dest.Spec.Selector[k] = v
-	}
+	maps.Copy(dest.Spec.Selector, source.Spec.Selector)
 
 	cachedNodePorts := map[int32]int32{}
 	for _, port := range dest.Spec.Ports {

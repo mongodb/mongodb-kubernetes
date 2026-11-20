@@ -5,9 +5,9 @@ type ProjectsResponse struct {
 	Groups []*Project `json:"results"`
 }
 
-func (o ProjectsResponse) Results() []interface{} {
+func (o ProjectsResponse) Results() []any {
 	// Lack of covariance in Go... :(
-	ans := make([]interface{}, len(o.Groups))
+	ans := make([]any, len(o.Groups))
 	for i, org := range o.Groups {
 		ans[i] = org
 	}

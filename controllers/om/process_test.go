@@ -25,11 +25,11 @@ func TestCreateMongodProcess(t *testing.T) {
 		assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 		assert.Equal(t, "/data", process.DbPath())
 		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
-		assert.Equal(t, 5, process.authSchemaVersion())
-		assert.Equal(t, "", process.replicaSetName())
+		assert.Equal(t, 5, process.AuthSchemaVersion())
+		assert.Equal(t, "", process.ReplicaSetName())
 		assert.Equal(t, nil, process.LogRotateSizeThresholdMB())
 
-		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "tls": map[string]interface{}{
+		expectedMap := map[string]any{"port": int32(util.MongoDbDefaultPort), "tls": map[string]any{
 			"mode": "disabled",
 		}}
 		assert.Equal(t, expectedMap, process.EnsureNetConfig())
@@ -60,10 +60,10 @@ func TestCreateMongodProcessStatic(t *testing.T) {
 		assert.Equal(t, "4.0", process.FeatureCompatibilityVersion())
 		assert.Equal(t, "/data", process.DbPath())
 		assert.Equal(t, "/var/log/mongodb-mms-automation/mongodb.log", process.LogPath())
-		assert.Equal(t, 5, process.authSchemaVersion())
-		assert.Equal(t, "", process.replicaSetName())
+		assert.Equal(t, 5, process.AuthSchemaVersion())
+		assert.Equal(t, "", process.ReplicaSetName())
 
-		expectedMap := map[string]interface{}{"port": int32(util.MongoDbDefaultPort), "tls": map[string]interface{}{
+		expectedMap := map[string]any{"port": int32(util.MongoDbDefaultPort), "tls": map[string]any{
 			"mode": "disabled",
 		}}
 		assert.Equal(t, expectedMap, process.EnsureNetConfig())
@@ -86,15 +86,15 @@ func TestConfigureSSL_Process(t *testing.T) {
 	process := Process{}
 
 	process.ConfigureTLS(tls.Require, "pem-file0")
-	assert.Equal(t, map[string]interface{}{"mode": string(tls.Require), "certificateKeyFile": "pem-file0"}, process.TLSConfig())
+	assert.Equal(t, map[string]any{"mode": string(tls.Require), "certificateKeyFile": "pem-file0"}, process.TLSConfig())
 
 	process = Process{}
 	process.ConfigureTLS("", "pem-file1")
-	assert.Equal(t, map[string]interface{}{"mode": "", "certificateKeyFile": "pem-file1"}, process.TLSConfig())
+	assert.Equal(t, map[string]any{"mode": "", "certificateKeyFile": "pem-file1"}, process.TLSConfig())
 
 	process = Process{}
 	process.ConfigureTLS(tls.Disabled, "pem-file2")
-	assert.Equal(t, map[string]interface{}{"mode": string(tls.Disabled)}, process.TLSConfig())
+	assert.Equal(t, map[string]any{"mode": string(tls.Disabled)}, process.TLSConfig())
 }
 
 func TestConfigureSSL_Process_CertificateKeyFile(t *testing.T) {
@@ -103,7 +103,7 @@ func TestConfigureSSL_Process_CertificateKeyFile(t *testing.T) {
 		tlsConfig := process.EnsureTLSConfig()
 		tlsConfig["certificateKeyFile"] = "xxx"
 		process.ConfigureTLS(tls.Require, "pem-file0")
-		assert.Equal(t, map[string]interface{}{"mode": string(tls.Require), "certificateKeyFile": "pem-file0"}, process.TLSConfig())
+		assert.Equal(t, map[string]any{"mode": string(tls.Require), "certificateKeyFile": "pem-file0"}, process.TLSConfig())
 	})
 
 	t.Run("A non-defined mode keeps the certificateKeyFile attribute name", func(t *testing.T) {
@@ -111,7 +111,7 @@ func TestConfigureSSL_Process_CertificateKeyFile(t *testing.T) {
 		tlsConfig := process.EnsureTLSConfig()
 		tlsConfig["certificateKeyFile"] = "xxx"
 		process.ConfigureTLS("", "pem-file1")
-		assert.Equal(t, map[string]interface{}{"mode": "", "certificateKeyFile": "pem-file1"}, process.TLSConfig())
+		assert.Equal(t, map[string]any{"mode": "", "certificateKeyFile": "pem-file1"}, process.TLSConfig())
 	})
 
 	t.Run("If TLS is disabled, the certificateKeyFile attribute is deleted", func(t *testing.T) {
@@ -119,14 +119,14 @@ func TestConfigureSSL_Process_CertificateKeyFile(t *testing.T) {
 		tlsConfig := process.EnsureTLSConfig()
 		tlsConfig["certificateKeyFile"] = "xxx"
 		process.ConfigureTLS(tls.Disabled, "pem-file2")
-		assert.Equal(t, map[string]interface{}{"mode": string(tls.Disabled)}, process.TLSConfig())
+		assert.Equal(t, map[string]any{"mode": string(tls.Disabled)}, process.TLSConfig())
 	})
 }
 
 func TestTlsConfig(t *testing.T) {
 	process := Process{}
 	process.ConfigureTLS(tls.Require, "another-pem-file")
-	process.Args()["tls"] = map[string]interface{}{
+	process.Args()["tls"] = map[string]any{
 		"mode":       "requireTLS",
 		"PEMKeyFile": "another-pem-file",
 	}
@@ -166,14 +166,14 @@ func TestCreateMongodProcess_SSL(t *testing.T) {
 
 	mdb := mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).Build()
 	process := NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, additionalConfig, mdb.GetSpec(), "", nil, "", architectures.NonStatic)
-	assert.Equal(t, map[string]interface{}{"mode": string(tls.Disabled)}, process.TLSConfig())
+	assert.Equal(t, map[string]any{"mode": string(tls.Disabled)}, process.TLSConfig())
 
 	mdb = mdbv1.NewStandaloneBuilder().SetVersion("3.6.4").SetFCVersion("3.6").SetAdditionalConfig(additionalConfig).
 		SetSecurityTLSEnabled().Build()
 
 	process = NewMongodProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, additionalConfig, mdb.GetSpec(), "", nil, "", architectures.NonStatic)
 
-	assert.Equal(t, map[string]interface{}{
+	assert.Equal(t, map[string]any{
 		"mode":               string(tls.Prefer),
 		"certificateKeyFile": "/mongodb-automation/server.pem",
 	}, process.TLSConfig())
@@ -185,12 +185,12 @@ func TestCreateMongosProcess_SSL(t *testing.T) {
 		SetSecurityTLSEnabled().Build()
 	process := NewMongosProcess("trinity", "trinity-0.trinity-svc.svc.cluster.local", "fake-mongoDBImage", false, additionalConfig, mdb.GetSpec(), "", nil, "", architectures.NonStatic)
 
-	assert.Equal(t, map[string]interface{}{"mode": string(tls.Allow), "certificateKeyFile": "/mongodb-automation/server.pem"}, process.TLSConfig())
+	assert.Equal(t, map[string]any{"mode": string(tls.Allow), "certificateKeyFile": "/mongodb-automation/server.pem"}, process.TLSConfig())
 }
 
 func TestCreateMongodMongosProcess_TLSModeForDifferentSpecs(t *testing.T) {
 	assertTLSConfig := func(p Process) {
-		expectedMap := map[string]interface{}{
+		expectedMap := map[string]any{
 			"mode":               string(tls.Allow),
 			"certificateKeyFile": "/mongodb-automation/server.pem",
 		}
@@ -235,7 +235,7 @@ func TestMergeMongodProcess_SSL(t *testing.T) {
 
 	omProcess.mergeFrom(operatorProcess, nil, nil)
 
-	expectedSSLConfig := map[string]interface{}{
+	expectedSSLConfig := map[string]any{
 		"mode":               string(tls.Require),
 		"certificateKeyFile": "/mongodb-automation/server.pem",
 		"sslOnNormalPorts":   "true",
@@ -255,23 +255,23 @@ func TestMergeMongodProcess_MongodbOptions(t *testing.T) {
 
 	omProcess.mergeFrom(operatorProcess, nil, nil)
 
-	expectedArgs := map[string]interface{}{
-		"net": map[string]interface{}{
+	expectedArgs := map[string]any{
+		"net": map[string]any{
 			"port": int32(27017),
-			"tls": map[string]interface{}{
+			"tls": map[string]any{
 				"mode": "disabled",
 			},
 		},
-		"storage": map[string]interface{}{
+		"storage": map[string]any{
 			"dbPath": "/data",
-			"wiredTiger": map[string]interface{}{
-				"engineConfig": map[string]interface{}{
+			"wiredTiger": map[string]any{
+				"engineConfig": map[string]any{
 					"cacheSizeGB":         3,           // This is the native OM configuration
 					"directoryForIndexes": "/some/dir", // This is the configuration set by MongoDB spec
 				},
 			},
 		},
-		"systemLog": map[string]interface{}{
+		"systemLog": map[string]any{
 			"destination": "file",
 			"path":        "/var/log/mongodb-mms-automation/mongodb.log",
 		},
@@ -302,31 +302,51 @@ func TestMergeMongodProcess_AdditionalMongodConfig_CanBeRemoved(t *testing.T) {
 
 	args := omProcess.Args()
 
-	expectedArgs := map[string]interface{}{
-		"net": map[string]interface{}{
+	expectedArgs := map[string]any{
+		"net": map[string]any{
 			"port": int32(27017),
-			"tls": map[string]interface{}{
+			"tls": map[string]any{
 				"mode": "disabled",
 			},
 		},
-		"storage": map[string]interface{}{
+		"storage": map[string]any{
 			"dbPath": "/data",
-			"wiredTiger": map[string]interface{}{
-				"engineConfig": map[string]interface{}{
+			"wiredTiger": map[string]any{
+				"engineConfig": map[string]any{
 					"cacheSizeGB": 4,
 				},
 			},
 		},
-		"systemLog": map[string]interface{}{
+		"systemLog": map[string]any{
 			"destination": "file",
 			"path":        "/var/log/mongodb-mms-automation/mongodb.log",
 		},
-		"some": map[string]interface{}{
-			"other": map[string]interface{}{
+		"some": map[string]any{
+			"other": map[string]any{
 				"option": "value",
 			},
 		},
 	}
 
 	assert.Equal(t, expectedArgs, args, "option2 should have been removed as it was not specified")
+}
+
+func TestPort_ReturnsPortWhenSet(t *testing.T) {
+	spec := defaultMongoDBVersioned("7.0.0")
+	p := NewMongodProcess(
+		"rs-0", "rs-0.svc.cluster.local",
+		"mongodb/mongodb-enterprise-server:7.0.0",
+		false, &mdbv1.AdditionalMongodConfig{},
+		spec, "", nil, "7.0", architectures.NonStatic,
+	)
+	assert.Equal(t, "27017", p.Port())
+}
+
+func TestPort_ReturnsEmptyWhenNotSet(t *testing.T) {
+	p := Process{
+		"hostname":    "foo",
+		"processType": ProcessTypeMongod,
+		"args2_6":     map[string]any{"net": map[string]any{}},
+	}
+	assert.Equal(t, "", p.Port())
 }

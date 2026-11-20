@@ -44,7 +44,7 @@ type commonStatus struct {
 	options           []status.Option
 }
 
-func newCommonStatus(msg string, params ...interface{}) commonStatus {
+func newCommonStatus(msg string, params ...any) commonStatus {
 	return commonStatus{msg: fmt.Sprintf(msg, params...)}
 }
 

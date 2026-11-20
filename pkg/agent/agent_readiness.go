@@ -121,7 +121,7 @@ func ReachedGoalState(pod corev1.Pod, targetConfigVersion int, log *zap.SugaredL
 // we need a subset in the case of scaling up/down.
 func statefulSetPodNames(name string, currentMembersCount int) []string {
 	names := make([]string, currentMembersCount)
-	for i := 0; i < currentMembersCount; i++ {
+	for i := range currentMembersCount {
 		names[i] = fmt.Sprintf("%s-%d", name, i)
 	}
 	return names
@@ -129,7 +129,7 @@ func statefulSetPodNames(name string, currentMembersCount int) []string {
 
 func arbitersStatefulSetPodNames(name string, currentArbitersCount int) []string {
 	names := make([]string, currentArbitersCount)
-	for i := 0; i < currentArbitersCount; i++ {
+	for i := range currentArbitersCount {
 		names[i] = fmt.Sprintf("%s-arb-%d", name, i)
 	}
 	return names

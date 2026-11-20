@@ -23,7 +23,7 @@ export TEST_POD_CLUSTER="${CLUSTER_NAME}"
 export CENTRAL_CLUSTER="${CLUSTER_NAME}"
 export MULTI_CLUSTER_CREATE_SERVICE_ACCOUNT_TOKEN_SECRETS=true
 export MULTI_CLUSTER_CONFIG_DIR=${PROJECT_DIR}/.multi_cluster_local_test_files
-export MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator
+export KUBECTL_MONGODB_PATH=${PROJECT_DIR}/docker/mongodb-kubernetes-tests/kubectl-mongodb
 
 # override for /etc/config/kubeconfig file mounted in operator's pod
 if [[ "${LOCAL_OPERATOR}" == "true" ]]; then
@@ -93,7 +93,7 @@ fi
 export KUBECONFIG
 
 if [[ "$(uname)" == "Linux" ]]; then
-  export GOROOT=/opt/golang/go1.25
+  export GOROOT=/opt/golang/go1.26
 fi
 
 export SIGNING_PUBLIC_KEY_URL="https://cosign.mongodb.com/mongodb-enterprise-kubernetes-operator.pem"
@@ -124,7 +124,7 @@ MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
 export MDB_SEARCH_VERSION
 #MDB_SEARCH_VERSION="$(jq -r '.search.version' "${PROJECT_DIR}/release.json")"
 #export MDB_SEARCH_VERSION
-#export MDB_SEARCH_NAME="mongodb-search"
+#export MDB_SEARCH_NAME="mongodb-enterprise-search"
 #export MDB_SEARCH_REPO_URL="quay.io/mongodb"
 
 # Temporary image to point to master-built mongot
@@ -132,8 +132,8 @@ export MDB_SEARCH_NAME="staging/mongodb-search"
 export MDB_SEARCH_REPO_URL="268558157000.dkr.ecr.us-east-1.amazonaws.com"
 # Pinned to a bazel build from mongot master (not a rapid-release).
 export MDB_SEARCH_VERSION="72ae26a806"
-export MDB_ENVOY_IMAGE="envoyproxy/envoy:v1.37-latest"
-export MDB_SEARCH_METRICS_FORWARDER_IMAGE="otel/opentelemetry-collector-contrib:0.152.0"
+export MDB_ENVOY_IMAGE="envoyproxy/envoy:v1.37.11"
+export MDB_SEARCH_METRICS_FORWARDER_IMAGE="otel/opentelemetry-collector-contrib:0.165.0"
 
 # VoyageAI: base registry path for model images. The model and version come from
 # the VoyageAI CR; full image = ${MDB_VOYAGEAI_REPO_URL}/<model>:<version>.
@@ -160,7 +160,7 @@ export OPERATOR_CLUSTER_SCOPED=false
 
 # for downloading helm and kubectl binaries
 export HELM_VERSION="v3.19.4"
-export KUBECTL_VERSION="v1.35.0"
+export KUBECTL_VERSION="v$(jq -r '.kubernetes.max' "${PROJECT_DIR}/kubernetes-versions.json")"
 
 # s390x-specific feature flags — use ${VAR:-default} so they can be overridden before sourcing this context.
 # PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: s390x requires pure Python protobuf implementation

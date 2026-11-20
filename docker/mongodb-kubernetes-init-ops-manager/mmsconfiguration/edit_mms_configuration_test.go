@@ -39,7 +39,7 @@ func TestEditMmsConfiguration_UpdateConfFile_Idempotent(t *testing.T) {
 	confFile := _createTestConfFile()
 	t.Setenv("CUSTOM_JAVA_MMS_UI_OPTS", "-Xmx4000m -Xms4000m")
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err := updateConfFile(confFile)
 		assert.NoError(t, err)
 	}

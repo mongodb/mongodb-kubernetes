@@ -1,11 +1,13 @@
 package om
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -29,6 +31,8 @@ type ProcessStatus struct {
 	Name                    string   `json:"name"`
 	LastGoalVersionAchieved int      `json:"lastGoalVersionAchieved"`
 	Plan                    []string `json:"plan"`
+	ErrorCode               int      `json:"errorCode"`
+	ErrorString             string   `json:"errorString"`
 }
 
 func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
@@ -41,18 +45,20 @@ func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
 }
 
 // WaitForReadyState waits until the agents for relevant processes reach their state
-func WaitForReadyState(oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
+func WaitForReadyState(ctx context.Context, oc Connection, processNames []string, supressErrors bool, log *zap.SugaredLogger) error {
 	if len(processNames) == 0 {
 		log.Infow("Not waiting for MongoDB agents to reach READY state (no expected processes to wait for)")
 		return nil
 	}
 
 	log.Infow("Waiting for MongoDB agents to reach READY state...", "processes", processNames)
+	var agentErrors []AgentError
 	reachStateFunc := func() (string, bool) {
-		as, lastErr := oc.ReadAutomationStatus()
+		as, lastErr := oc.ReadAutomationStatus(ctx)
 		if lastErr != nil {
 			return fmt.Sprintf("Error reading Automation Agents status: %s", lastErr), false
 		}
+		agentErrors = GetAgentErrors(as, func(name string) bool { return stringutil.Contains(processNames, name) })
 
 		if allReachedGoalState, msg := checkAutomationStatusIsGoal(as, processNames, log); allReachedGoalState {
 			return msg, true
@@ -60,8 +66,11 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 			return fmt.Sprintf("MongoDB agents haven't reached READY state; %s", msg), false
 		}
 	}
-	ok, msg := util.DoAndRetry(reachStateFunc, log, 30, 3)
+	ok, msg := util.DoAndRetry(ctx, reachStateFunc, log, 30, 3)
 	if !ok {
+		for _, e := range agentErrors {
+			log.Warnw("MongoDB agent reported an error", "process", e.Process, "errorCode", e.Code, "error", e.Message)
+		}
 		if supressErrors {
 			log.Warnf("automation agents haven't reached READY state but the error is supressed")
 			return nil
@@ -70,6 +79,39 @@ func WaitForReadyState(oc Connection, processNames []string, supressErrors bool,
 	}
 	log.Info("MongoDB agents have reached READY state")
 	return nil
+}
+
+// AgentError is the error reported by the agent of a process that has not reached the goal state.
+type AgentError struct {
+	Process string
+	Code    int
+	Message string
+}
+
+// GetAgentErrors returns the errors of the agents accepted by matches that have not reached the goal state.
+func GetAgentErrors(as *AutomationStatus, matches func(processName string) bool) []AgentError {
+	var agentErrors []AgentError
+	for _, p := range as.Processes {
+		if p.LastGoalVersionAchieved == as.GoalVersion || !matches(p.Name) {
+			continue
+		}
+		// one line per process; the cause is usually at the end of the agent's text
+		if msg := strings.Join(strings.Fields(p.ErrorString), " "); msg != "" {
+			agentErrors = append(agentErrors, AgentError{Process: p.Name, Code: p.ErrorCode, Message: trimAgentError(msg)})
+		}
+	}
+	return agentErrors
+}
+
+const agentErrorMaxLength = 500
+
+// trimAgentError keeps the last characters of a long error, as the cause is usually at the end, so the log line stays bounded.
+func trimAgentError(msg string) string {
+	runes := []rune(msg)
+	if len(runes) <= agentErrorMaxLength {
+		return msg
+	}
+	return "…" + string(runes[len(runes)-agentErrorMaxLength:])
 }
 
 // CheckAutomationStatusIsGoal returns true if all the relevant processes are in Goal
@@ -155,15 +197,13 @@ func areAnyAgentsInKubeUpgradeMode(as *AutomationStatus, relevantProcesses []str
 		if !stringutil.Contains(relevantProcesses, p.Name) {
 			continue
 		}
-		for _, move := range p.Plan {
-			// This means the following:
-			// - the cluster is in static architecture
-			// - the agents are in a dedicated upgrade process, waiting for their binaries to be replaced by kubernetes
-			// - this can only happen if the statefulset is ready, therefore we are returning ready here
-			if move == automationAgentKubeUpgradeMove {
-				log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
-				return true
-			}
+		// This means the following:
+		// - the cluster is in static architecture
+		// - the agents are in a dedicated upgrade process, waiting for their binaries to be replaced by kubernetes
+		// - this can only happen if the statefulset is ready, therefore we are returning ready here
+		if slices.Contains(p.Plan, automationAgentKubeUpgradeMove) {
+			log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
+			return true
 		}
 	}
 	return false

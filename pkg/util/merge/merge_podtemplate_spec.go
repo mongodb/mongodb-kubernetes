@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"maps"
 	"sort"
 
 	corev1 "k8s.io/api/core/v1"
@@ -143,9 +144,7 @@ func TopologySpreadConstraints(original, override []corev1.TopologySpreadConstra
 
 	mergedMap := map[string]corev1.TopologySpreadConstraint{}
 
-	for k, v := range originalMap {
-		mergedMap[k] = v
-	}
+	maps.Copy(mergedMap, originalMap)
 	for k, v := range overrideMap {
 		if originalValue, ok := mergedMap[k]; ok {
 			mergedMap[k] = TopologySpreadConstraint(originalValue, v)

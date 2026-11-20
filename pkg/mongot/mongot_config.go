@@ -56,12 +56,14 @@ type ConfigRouter struct {
 	HostAndPort []string         `json:"hostAndPort"`
 	X509        *ConfigX509      `json:"x509,omitempty"`
 	ScramAuth   *ConfigScramAuth `json:"scramAuth,omitempty"`
+	OIDC        *ConfigOIDC      `json:"oidc,omitempty"`
 }
 
 type ConfigReplicaSet struct {
 	HostAndPort []string         `json:"hostAndPort"`
 	X509        *ConfigX509      `json:"x509,omitempty"`
 	ScramAuth   *ConfigScramAuth `json:"scramAuth,omitempty"`
+	OIDC        *ConfigOIDC      `json:"oidc,omitempty"`
 }
 
 type ConfigScramAuth struct {
@@ -82,6 +84,31 @@ type ConfigX509 struct {
 	CertificateAuthorityFile          *string `json:"caFile,omitempty"`
 	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
 	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
+}
+
+// ConfigOIDCEnvironmentCustom is the OIDC environment mongot config value for a
+// user-supplied identity provider (as opposed to a cloud-provider-managed one).
+const ConfigOIDCEnvironmentCustom = "custom"
+
+// ConfigOIDCTLS configures TLS for the OIDC-authenticated mongod connection, x509-style:
+// always enabled; caFile is required by mongot.
+type ConfigOIDCTLS struct {
+	CertificateAuthorityFile          *string `json:"caFile,omitempty"`
+	TLSCertificateKeyFile             *string `json:"tlsCertificateKeyFile,omitempty"`
+	TLSCertificateKeyFilePasswordFile *string `json:"tlsCertificateKeyFilePasswordFile,omitempty"`
+}
+
+// ConfigOIDC configures OIDC client-credentials authentication for the sync source
+// connection: mongot obtains access tokens from the token endpoint using the client
+// id / client secret pair.
+type ConfigOIDC struct {
+	Environment      string         `json:"environment"`
+	TokenEndpoint    string         `json:"tokenEndpoint"`
+	ClientID         string         `json:"clientId"`
+	ClientSecretFile string         `json:"clientSecretFile"`
+	IDPCaFile        string         `json:"idpCaFile"`
+	Scope            *string        `json:"scope,omitempty"`
+	TLS              *ConfigOIDCTLS `json:"tls,omitempty"`
 }
 
 type ConfigStorage struct {

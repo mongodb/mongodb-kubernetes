@@ -12,7 +12,7 @@ from kubetester import (
     run_periodically,
     try_load,
 )
-from kubetester.awss3client import AwsS3Client, s3_endpoint
+from kubetester.awss3client import AwsS3Client, e2e_bucket_name, s3_endpoint
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import running_locally, skip_if_local
@@ -45,7 +45,6 @@ def new_om_s3_store(
     mdb: MongoDB,
     s3_id: str,
     s3_bucket_name: str,
-    aws_s3_client: AwsS3Client,
     assignment_enabled: bool = True,
     path_style_access_enabled: bool = True,
     user_name: Optional[str] = None,
@@ -57,8 +56,6 @@ def new_om_s3_store(
         "pathStyleAccessEnabled": path_style_access_enabled,
         "s3BucketEndpoint": s3_endpoint(AWS_REGION),
         "s3BucketName": s3_bucket_name,
-        "awsAccessKey": aws_s3_client.aws_access_key,
-        "awsSecretKey": aws_s3_client.aws_secret_access_key,
         "assignmentEnabled": assignment_enabled,
     }
 
@@ -106,7 +103,7 @@ def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
     """creates a s3 bucket and a s3 config"""
     bucket_name = set_test_identifier(
         f"create_s3_bucket_{bucket_prefix}",
-        KubernetesTester.random_k8s_name(bucket_prefix),
+        e2e_bucket_name(bucket_prefix),
     )
 
     try:
@@ -449,7 +446,7 @@ class TestBackupDatabasesAdded:
                 )
             ]
         )
-        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
+        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket)])
 
     def test_generations(self, ops_manager: MongoDBOpsManager):
         """There have been an update to the OM spec - all observed generations are expected to be updated"""
@@ -547,7 +544,7 @@ class TestOpsManagerWatchesBlockStoreUpdates:
                 )
             ]
         )
-        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
+        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket)])
 
 
 @mark.e2e_om_ops_manager_backup
@@ -776,7 +773,7 @@ class TestBackupConfigurationAdditionDeletion:
                 new_om_data_store(s3_replica_set, "oplog2"),
             ]
         )
-        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
+        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket)])
 
     def test_oplog_store_is_deleted_correctly(
         self,
@@ -807,7 +804,7 @@ class TestBackupConfigurationAdditionDeletion:
                 )
             ]
         )
-        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket, aws_s3_client)])
+        om_tester.assert_s3_stores([new_om_s3_store(s3_replica_set, "s3Store1", s3_bucket)])
         om_tester.assert_block_stores(
             [
                 new_om_data_store(

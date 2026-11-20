@@ -1,8 +1,6 @@
 package om
 
 import (
-	"strconv"
-
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 )
@@ -20,7 +18,9 @@ func NewReplicaSetWithProcesses(
 	rs ReplicaSet,
 	processes []Process,
 	memberOptions []automationconfig.MemberOptions,
+	existingProcessIds map[string]int,
 ) ReplicaSetWithProcesses {
+	newId := determineNextProcessIdStartingPoint(processes, existingProcessIds)
 	rs.clearMembers()
 
 	for idx, p := range processes {
@@ -29,8 +29,17 @@ func NewReplicaSetWithProcesses(
 		if len(memberOptions) > idx {
 			options = memberOptions[idx]
 		}
-		rs.addMember(p, "", options)
+
+		// ensure the process id is not changed if it already exists
+		if existingId, ok := existingProcessIds[p.Name()]; ok { //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
+			rs.addMember(p, new(existingId), options)
+		} else {
+			// otherwise add a new id which is always incrementing
+			rs.addMember(p, new(newId), options)
+			newId++
+		}
 	}
+
 	return ReplicaSetWithProcesses{rs, processes}
 }
 
@@ -60,11 +69,11 @@ func NewMultiClusterReplicaSetWithProcesses(rs ReplicaSet, processes []Process, 
 			options = memberOptions[idx]
 		}
 		// ensure the process id is not changed if it already exists
-		if existingId, ok := existingProcessIds[p.Name()]; ok {
-			rs.addMember(p, strconv.Itoa(existingId), options)
+		if existingId, ok := existingProcessIds[p.Name()]; ok { //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
+			rs.addMember(p, new(existingId), options)
 		} else {
 			// otherwise add a new id which is always incrementing
-			rs.addMember(p, strconv.Itoa(newId), options)
+			rs.addMember(p, new(newId), options)
 			newId++
 		}
 	}

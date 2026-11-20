@@ -1,4 +1,4 @@
-IMAGE_VERSION=0.18
+IMAGE_VERSION=0.19
 
 .PHONY: all
 all: build push install
@@ -7,7 +7,7 @@ build:
 	docker build --platform linux/amd64 -t dev/cluster-cleaner:$(IMAGE_VERSION) .
 
 push:
-	$(aws ecr get-login --no-include-email --region us-east-1 || true)
+	$(aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 268558157000.dkr.ecr.us-east-1.amazonaws.com || true)
 	docker tag dev/cluster-cleaner:$(IMAGE_VERSION) 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:$(IMAGE_VERSION)
 	docker tag dev/cluster-cleaner:$(IMAGE_VERSION) 268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/cluster-cleaner:latest
 

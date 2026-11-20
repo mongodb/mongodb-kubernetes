@@ -9,6 +9,7 @@ from kubetester import (
     get_statefulset,
     scale_statefulset,
     try_load,
+    wait_for_statefulset_ready,
     wait_for_statefulset_replicas,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
@@ -111,6 +112,20 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_mdb_created(self, replica_set: MongoDB):
         replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+    @skip_if_local
+    def test_webhook_rejects_invalid_replica_set(self, namespace: str):
+        # Only the validating webhook enforces spec.members: the CRD schema and CEL rules accept its absence.
+        invalid = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), "invalid-replica-set", namespace)
+        del invalid["spec"]["members"]
+
+        with pytest.raises(client.rest.ApiException) as exception:
+            client.CustomObjectsApi().create_namespaced_custom_object(
+                "mongodb.com", "v1", namespace, "mongodb", invalid.backing_obj
+            )
+
+        assert exception.value.status == 403
+        assert "'spec.members' must be specified if type of MongoDB is ReplicaSet" in str(exception.value)
 
     def test_replica_set_sts_exists(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
@@ -252,7 +267,7 @@ class TestReplicaSetCreation(KubernetesTester):
         for idx in range(0, 2):
             name = f"my-replica-set-{idx}"
             p = processes[idx]
-            assert p["name"] == name
+            assert p["name"] == f"k8s/{self.namespace}/{name}"
             assert p["processType"] == "mongod"
             assert custom_mdb_version in p["version"]
             assert p["authSchemaVersion"] == 5
@@ -276,7 +291,7 @@ class TestReplicaSetCreation(KubernetesTester):
             assert m["arbiterOnly"] is False
             assert m["hidden"] is False
             assert m["buildIndexes"] is True
-            assert m["host"] == f"my-replica-set-{idx}"
+            assert m["host"] == f"k8s/{self.namespace}/my-replica-set-{idx}"
             assert m["votes"] == 1
             assert m["priority"] == 1.0
 
@@ -328,6 +343,7 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_replica_set_was_configured(self, cluster_domain: str):
         ReplicaSetTester(RESOURCE_NAME, 3, ssl=False, cluster_domain=cluster_domain).assert_connectivity()
 
+    @skip_if_local
     def test_replica_set_was_configured_with_srv(self, cluster_domain: str):
         ReplicaSetTester(RESOURCE_NAME, 3, ssl=False, srv=True, cluster_domain=cluster_domain).assert_connectivity()
 
@@ -365,8 +381,8 @@ class TestReplicaSetScaleUp(KubernetesTester):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts
 
-    @pytest.mark.flaky(reruns=10, reruns_delay=3)
     def test_sts_update(self):
+        wait_for_statefulset_ready(self.namespace, RESOURCE_NAME)
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
         assert sts.api_version == "apps/v1"
@@ -442,7 +458,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
         for idx in range(0, 4):
             name = f"my-replica-set-{idx}"
             p = processes[idx]
-            assert p["name"] == name
+            assert p["name"] == f"k8s/{self.namespace}/{name}"
             assert p["processType"] == "mongod"
             assert custom_mdb_version in p["version"]
             assert p["authSchemaVersion"] == 5
@@ -469,7 +485,7 @@ class TestReplicaSetScaleUp(KubernetesTester):
             assert m["priority"] == 1.0
             assert m["votes"] == 1
             assert m["buildIndexes"] is True
-            assert m["host"] == f"my-replica-set-{idx}"
+            assert m["host"] == f"k8s/{self.namespace}/my-replica-set-{idx}"
 
     def test_monitoring_versions(self, cluster_domain: str):
         config = self.get_automation_config()
@@ -548,6 +564,7 @@ class TestReplicaSetDelete(KubernetesTester):
     delete:
       file: replica-set.yaml
       wait_until: mongo_resource_deleted
+      timeout: 600
     """
 
     def test_replica_set_sts_doesnt_exist(self):

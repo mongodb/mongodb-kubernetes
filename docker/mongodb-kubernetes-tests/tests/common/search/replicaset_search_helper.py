@@ -12,12 +12,13 @@ def verify_rs_mongod_parameters(
     namespace: str,
     mdb_resource_name: str,
     member_count: int,
-    expected_host: str,
+    expected_host: str | None,
     timeout: int = 600,
 ):
     """Verify each RS member's mongod has mongotHost and searchIndexManagementHostAndPort matching expected_host.
 
     Polls each pod's /data/automation-mongod.conf until both parameters match or the timeout is reached.
+    With expected_host=None it only requires both parameters to be set.
     """
 
     def check_mongod_parameters():
@@ -36,7 +37,15 @@ def verify_rs_mongod_parameters(
                 mongot_host = set_parameter.get("mongotHost", "")
                 search_index_host = set_parameter.get("searchIndexManagementHostAndPort", "")
 
-                if mongot_host != expected_host:
+                if expected_host is None:
+                    if mongot_host and search_index_host:
+                        status_msgs.append(f"Pod {pod_name}: search parameters are set")
+                    else:
+                        all_correct = False
+                        status_msgs.append(
+                            f"Pod {pod_name}: mongotHost={mongot_host!r}, searchIndexMgmt={search_index_host!r}, expected both set"
+                        )
+                elif mongot_host != expected_host:
                     all_correct = False
                     status_msgs.append(f"Pod {pod_name}: mongotHost={mongot_host}, expected={expected_host}")
                 elif search_index_host != expected_host:

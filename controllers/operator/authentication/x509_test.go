@@ -37,7 +37,7 @@ func TestX509EnableAgentAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,13 +66,66 @@ func TestX509_DisableAgentAuthentication(t *testing.T) {
 	assertAgentAuthenticationDisabled(t, mongoDBX509Mechanism, conn, opts)
 }
 
+func TestX509_IsAgentAuthenticationConfigured_DetectsClientCertificateModeChange(t *testing.T) {
+	tests := map[string]struct {
+		desiredClientCertificates string
+		removeAgentSSL            bool
+		expectedConfigured        bool
+	}{
+		"Same client certificate mode": {
+			desiredClientCertificates: util.OptionalClientCertficates,
+			expectedConfigured:        true,
+		},
+		"Different client certificate mode": {
+			desiredClientCertificates: util.RequireClientCertificates,
+			expectedConfigured:        false,
+		},
+		"No desired client certificate mode": {
+			desiredClientCertificates: "",
+			expectedConfigured:        true,
+		},
+		"No agent SSL settings": {
+			desiredClientCertificates: util.RequireClientCertificates,
+			removeAgentSSL:            true,
+			expectedConfigured:        true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			kubeClient, _ := mock.NewDefaultFakeClient()
+			conn := om.NewMockedOmConnection(om.NewDeployment())
+
+			opts := Options{
+				AgentMechanism:     "X509",
+				ClientCertificates: util.OptionalClientCertficates,
+				UserOptions: UserOptions{
+					AutomationSubject: validSubject("automation"),
+				},
+				MongoDBResource: types.NamespacedName{Namespace: "test", Name: "test"},
+			}
+			require.NoError(t, mongoDBX509Mechanism.EnableAgentAuthentication(ctx, kubeClient, conn, opts, zap.S()))
+
+			ac, err := conn.ReadAutomationConfig(ctx)
+			require.NoError(t, err)
+			if tc.removeAgentSSL {
+				ac.AgentSSL = nil
+			}
+
+			opts.ClientCertificates = tc.desiredClientCertificates
+			assert.Equal(t, tc.expectedConfigured, mongoDBX509Mechanism.IsAgentAuthenticationConfigured(ac, opts))
+		})
+	}
+}
+
 func TestX509_DeploymentConfigured(t *testing.T) {
+	ctx := t.Context()
 	conn := om.NewMockedOmConnection(om.NewDeployment())
 	opts := Options{AgentMechanism: "SCRAM", CAFilePath: util.CAFilePathInContainer}
 
 	assertDeploymentMechanismsConfigured(t, mongoDBX509Mechanism, conn, opts)
 
-	ac, err := conn.ReadAutomationConfig()
+	ac, err := conn.ReadAutomationConfig(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, ac.AgentSSL.CAFilePath, util.CAFilePathInContainer)
 }

@@ -9,7 +9,7 @@ This is a companion test for docs/investigation/pod-is-killed-while-agent-restor
 from typing import Dict, Optional
 
 from kubetester import create_or_update_secret, get_default_storage_class, try_load
-from kubetester.awss3client import AwsS3Client, s3_endpoint
+from kubetester.awss3client import AwsS3Client, e2e_bucket_name, s3_endpoint
 from kubetester.kubetester import KubernetesTester, ensure_ent_version
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -33,7 +33,6 @@ def new_om_s3_store(
     mdb: MongoDB,
     s3_id: str,
     s3_bucket_name: str,
-    aws_s3_client: AwsS3Client,
     assignment_enabled: bool = True,
     path_style_access_enabled: bool = True,
     user_name: Optional[str] = None,
@@ -45,8 +44,6 @@ def new_om_s3_store(
         "pathStyleAccessEnabled": path_style_access_enabled,
         "s3BucketEndpoint": s3_endpoint(AWS_REGION),
         "s3BucketName": s3_bucket_name,
-        "awsAccessKey": aws_s3_client.aws_access_key,
-        "awsSecretKey": aws_s3_client.aws_secret_access_key,
         "assignmentEnabled": assignment_enabled,
     }
 
@@ -86,7 +83,7 @@ def create_aws_secret(aws_s3_client, secret_name: str, namespace: str):
 
 def create_s3_bucket(aws_s3_client, bucket_prefix: str = "test-bucket-"):
     """creates a s3 bucket and a s3 config"""
-    bucket_prefix = KubernetesTester.random_k8s_name(bucket_prefix)
+    bucket_prefix = e2e_bucket_name(bucket_prefix)
     aws_s3_client.create_s3_bucket(bucket_prefix)
     print("Created S3 bucket", bucket_prefix)
 

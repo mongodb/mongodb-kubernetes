@@ -1,0 +1,51 @@
+---
+apiVersion: mongodb.com/v1
+kind: MongoDBOpsManager
+metadata:
+  name: meta-om
+spec:
+  version: "8.0.0"
+  replicas: 1
+  topology: SingleCluster
+  adminCredentials: meta-ops-manager-admin-secret
+  backup:
+    enabled: true
+    members: 1
+    statefulSet:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mongodb-backup-daemon
+                resources:
+                  requests:
+                    memory: 10G
+                  limits:
+                    memory: 10G
+  applicationDatabase:
+    members: 3
+    version: "8.0.6-ent"
+  statefulSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: mongodb-ops-manager
+              resources:
+                requests:
+                  memory: 15G
+                limits:
+                  memory: 15G
+
+  # adding this just to avoid wizard when opening OM UI
+  configuration:
+    automation.versions.source: mongodb
+    mms.adminEmailAddr: cloud-manager-support@mongodb.com
+    mms.fromEmailAddr: cloud-manager-support@mongodb.com
+    mms.ignoreInitialUiSetup: "true"
+    mms.mail.hostname: email-smtp.us-east-1.amazonaws.com
+    mms.mail.port: "465"
+    mms.mail.ssl: "true"
+    mms.mail.transport: smtp
+    mms.minimumTLSVersion: TLSv1.2
+    mms.replyToEmailAddr: cloud-manager-support@mongodb.com

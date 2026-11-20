@@ -30,6 +30,7 @@ func init() {
 	SetupCmd.Flags().BoolVar(&setupFlags.CreateServiceAccountSecrets, "create-service-account-secrets", true, "Create service account token secrets. [optional default: true]")
 	SetupCmd.Flags().StringVar(&setupFlags.ImagePullSecrets, "image-pull-secrets", "", "Name of the secret for imagePullSecrets to set in created service accounts")
 	SetupCmd.Flags().StringVar(&common.MemberClustersApiServers, "member-clusters-api-servers", "", "Comma separated list of api servers addresses. [optional, default will take addresses from KUBECONFIG env var]")
+	SetupCmd.Flags().StringArrayVar(&common.MemberClusterCAFiles, "member-cluster-ca", nil, "Custom CA certificate for a member cluster, in the form <member-cluster-name>=<path-to-pem-file>, repeatable once per cluster. [optional, default will take the CA from that cluster's ServiceAccount token secret]")
 }
 
 // SetupCmd represents the setup command
@@ -97,6 +98,10 @@ func parseSetupFlags() error {
 		if setupFlags.MemberClusterApiServerUrls, err = common.GetMemberClusterApiServerUrls(kubeconfig, setupFlags.MemberClusters); err != nil {
 			return err
 		}
+	}
+
+	if setupFlags.MemberClusterCAs, err = common.ParseMemberClusterCAs(common.MemberClusterCAFiles, setupFlags.MemberClusters); err != nil {
+		return err
 	}
 	return nil
 }

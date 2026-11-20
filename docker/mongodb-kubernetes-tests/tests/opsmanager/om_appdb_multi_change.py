@@ -54,13 +54,16 @@ def test_change_appdb(ops_manager: MongoDBOpsManager):
      See CLOUDP-73296 for more details."""
     ops_manager.load()
     ops_manager["spec"]["applicationDatabase"]["agent"] = {"startupOptions": {"maxLogFiles": "30"}}
-    ops_manager["spec"]["applicationDatabase"]["additionalMongodConfig"] = {
-        "replication": {"enableMajorityReadConcern": "true"}
-    }
+    # enableMajorityReadConcern was removed in MongoDB 9.0 (majority read concern is now always
+    # on) and mongod rejects it as an unrecognized option, so use a version-stable mongod config
+    # change to trigger the automation-config push + rolling upgrade this test verifies.
+    ops_manager["spec"]["applicationDatabase"]["additionalMongodConfig"] = {"systemLog": {"verbosity": "1"}}
     ops_manager.update()
 
     ops_manager.appdb_status().assert_abandons_phase(Phase.Running, timeout=100)
-    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=1200)
+    # A stalled agent Stop step (10 min waitProcessDownTimeout) adds to the normal ~650s rolling restart.
+    # https://jira.mongodb.org/browse/CLOUDP-468416
+    ops_manager.appdb_status().assert_reaches_phase(Phase.Running, timeout=2400)
 
 
 @mark.e2e_om_appdb_multi_change

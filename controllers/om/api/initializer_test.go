@@ -1,10 +1,27 @@
 package api
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestTryCreateUser_IsBoundToContext(t *testing.T) {
+	srv, requests := hangingServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	initializer := &DefaultInitializer{}
+	_, err := initializer.TryCreateUser(ctx, srv.URL, "5.0.0", User{}, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), context.DeadlineExceeded.Error())
+	assert.Equal(t, int32(1), requests.Load(), "the request aborted by its context must not be retried")
+}
 
 func TestBuildOMEndpoint(t *testing.T) {
 	var endpoint string

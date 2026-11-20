@@ -21,6 +21,8 @@ from ..constants import DATABASE_SA_NAME, OPERATOR_NAME
 from . import run_command_in_vault, store_secret_in_vault
 
 MDB_RESOURCE = "my-replica-set"
+# Mirrors certs.OperatorGeneratedCertSuffix in controllers/operator/certs/certificates.go
+OPERATOR_GENERATED_CERT_SUFFIX = "-pem"
 
 USER_NAME = "my-user-1"
 PASSWORD_SECRET_NAME = "mms-user-1-password"
@@ -435,6 +437,20 @@ def test_no_certs_in_kubernetes(namespace: str):
         read_secret(namespace, f"{MDB_RESOURCE}-cert")
     with pytest.raises(ApiException):
         read_secret(namespace, "agent-certs")
+
+
+@mark.e2e_vault_setup
+def test_no_operator_generated_pem_secrets_in_kubernetes(namespace: str):
+    """Regression test for KUBE-310: on a Vault backend the operator-generated PEM secrets
+    must only live in Vault. They used to be written to Kubernetes as well from the second
+    reconcile onwards, leaking TLS private keys into etcd."""
+    for secret_name in (
+        f"{MDB_RESOURCE}-cert{OPERATOR_GENERATED_CERT_SUFFIX}",
+        f"{MDB_RESOURCE}-clusterfile{OPERATOR_GENERATED_CERT_SUFFIX}",
+        f"agent-certs{OPERATOR_GENERATED_CERT_SUFFIX}",
+    ):
+        with pytest.raises(ApiException):
+            read_secret(namespace, secret_name)
 
 
 @mark.e2e_vault_setup

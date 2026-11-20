@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 )
 
 func TestGetMultiClusterProcessHostnames(t *testing.T) {
@@ -40,7 +39,7 @@ func TestGetMultiClusterProcessHostnames(t *testing.T) {
 			"om-db-0-1.some.domain",
 			"om-db-0-2.some.domain",
 		},
-		GetMultiClusterProcessHostnames("om-db", "ns", 0, 3, "", ptr.To("some.domain")),
+		GetMultiClusterProcessHostnames("om-db", "ns", 0, 3, "", new("some.domain")),
 	)
 }
 
@@ -119,7 +118,7 @@ func TestGetDNSNames(t *testing.T) {
 			namespace:       "default",
 			clusterDomain:   "",
 			replicas:        3,
-			externalDomain:  ptr.To("example.com"),
+			externalDomain:  new("example.com"),
 			expectedHostnames: []string{
 				"external-rs-0.example.com",
 				"external-rs-1.example.com",
@@ -184,7 +183,7 @@ func TestGetDNSNames(t *testing.T) {
 			namespace:       "default",
 			clusterDomain:   "cluster.local",
 			replicas:        2,
-			externalDomain:  ptr.To("external.example.com"),
+			externalDomain:  new("external.example.com"),
 			expectedHostnames: []string{
 				"override-rs-0.external.example.com",
 				"override-rs-1.external.example.com",

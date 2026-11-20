@@ -243,26 +243,6 @@ func AutomationAgentCommand(withStatic bool, logLevel v1.LogLevel, logFile strin
 	return []string{"/bin/bash", "-c", MongodbUserCommand + BaseAgentCommand() + " -cluster=" + clusterFilePath + automationAgentOptions + agentLogOptions}
 }
 
-func GetMongodbUserCommandWithAPIKeyExport(withStatic bool) string {
-	agentPrepareScript := ""
-	if withStatic {
-		agentPrepareScript = "/usr/local/bin/setup-agent-files.sh\n"
-	}
-
-	//nolint:gosec //The credentials path is hardcoded in the container.
-	return fmt.Sprintf(`%scurrent_uid=$(id -u)
-AGENT_API_KEY="$(cat /mongodb-automation/agent-api-key/agentApiKey)"
-declare -r current_uid
-if ! grep -q "${current_uid}" /etc/passwd ; then
-sed -e "s/^mongodb:/builder:/" /etc/passwd > /tmp/passwd
-echo "mongodb:x:$(id -u):$(id -g):,,,:/:/bin/bash" >> /tmp/passwd
-export NSS_WRAPPER_PASSWD=/tmp/passwd
-export LD_PRELOAD=libnss_wrapper.so
-export NSS_WRAPPER_GROUP=/etc/group
-fi
-`, agentPrepareScript)
-}
-
 func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, logLevel v1.LogLevel, logFile string, maxLogFileDurationHours int, agentImage string) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	return container.Apply(

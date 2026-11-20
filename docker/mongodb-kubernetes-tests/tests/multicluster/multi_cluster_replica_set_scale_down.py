@@ -80,6 +80,8 @@ def test_statefulsets_have_been_created_correctly(
     mongodb_multi: MongoDBMulti,
     member_cluster_clients: List[MultiClusterClient],
 ):
+    mongodb_multi.assert_statefulsets_are_ready(member_cluster_clients)
+
     statefulsets = mongodb_multi.read_statefulsets(member_cluster_clients)
     cluster_one_client = member_cluster_clients[0]
     cluster_one_sts = statefulsets[cluster_one_client.cluster_name]

@@ -2,24 +2,24 @@ package stringutil
 
 import (
 	"net/url"
+	"slices"
 	"strings"
 )
-
-// Ref is a convenience function which returns
-// a reference to the provided string
-func Ref(s string) *string {
-	return &s
-}
 
 // Contains returns true if there is at least one string in `slice`
 // that is equal to `s`.
 func Contains(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
+	return slices.Contains(slice, s)
+}
+
+// ToSet returns the set of the distinct strings in `slice`, for membership
+// checks that would otherwise be a linear scan with Contains.
+func ToSet(slice []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(slice))
+	for _, s := range slice {
+		set[s] = struct{}{}
 	}
-	return false
+	return set
 }
 
 // CheckCertificateAddresses determines if the provided FQDN can match any of the addresses or

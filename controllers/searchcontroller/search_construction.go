@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -67,6 +68,17 @@ const (
 	ScramClientCertOperatorMountPath = "/var/lib/tls/scram-client/"
 	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
 	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
+
+	OIDCClientSecretVolumeName = "oidc-client-secret" // #nosec G101 -- volume name, not a password
+	OIDCIdPCaVolumeName        = "oidc-idp-ca"
+	OIDCClientSecretMountPath  = "/mongot/oidcClientSecret"           // #nosec G101 -- path, not a password
+	TempOIDCClientSecretPath   = tempVolumePath + "/oidcClientSecret" // #nosec G101 -- path, not a password
+	OIDCIdPCAConfigMapKey      = "ca.crt"                             // fixed key in the user's IdP-CA ConfigMap (spec.source.oidc.idpCAConfigMapRef), same convention as spec.source.external.tls.ca
+	OIDCIdPCaMountPath         = "/mongot/oidcIdpCa"                  // dir mount of the IdP-CA ConfigMap; idpCaFile = mountPath + "/" + OIDCIdPCAConfigMapKey
+
+	// SourceUserPasswordVolumeName is the password volume/mount name, referenced by both the
+	// SCRAM mount modification and the auth-switch cleanup.
+	SourceUserPasswordVolumeName = "password"
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -90,6 +102,17 @@ type SearchSourceShardedDeployment interface {
 	MongosHostsAndPorts() []string
 }
 
+var errExternalDomainNotSupported = xerrors.New("MongoDB Search is not supported on operator-managed MongoDB resources with spec.externalAccess.externalDomain set")
+
+// validateSearchSourceExternalDomain rejects sources with externalDomain set: mongot connects
+// via the internal service DNS, which doesn't match the externally advertised member identities.
+func validateSearchSourceExternalDomain(spec *mdb.MongoDbSpec) error {
+	if spec.GetExternalDomain() != nil {
+		return errExternalDomainNotSupported
+	}
+	return nil
+}
+
 type TLSSourceConfig struct {
 	CAFileName       string
 	CAVolume         corev1.Volume
@@ -102,7 +125,7 @@ type TLSSourceConfig struct {
 // sizing is the resolved per-(cluster, shard) ClusterSpec — see
 // MongoDBSearch.ResolveSizingForClusterShard — read for Replicas / Persistence /
 // ResourceRequirements / JVMFlags / StatefulSetConfiguration.
-func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searchv1.ClusterSpec, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, usePerPodConfig bool) statefulset.Modification {
+func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searchv1.ClusterSpec, stsName, namespace, svcName, configMapName string, labels map[string]string, searchImage string, imagePullPolicy corev1.PullPolicy, usePerPodConfig bool) statefulset.Modification {
 	tmpVolume := statefulset.CreateVolumeFromEmptyDir("tmp")
 	tmpVolumeMount := statefulset.CreateVolumeMount(tmpVolume.Name, tempVolumePath, statefulset.WithReadOnly(false))
 
@@ -163,7 +186,7 @@ func CreateSearchStatefulSetFunc(mdbSearch *searchv1.MongoDBSearch, sizing searc
 				podtemplatespec.WithAffinity(labels[appLabelKey], appLabelKey, 100),
 				podtemplatespec.WithTopologyKey(util.DefaultAntiAffinityTopologyKey, 0),
 				nodeAffinityModification(sizing.NodeAffinity),
-				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, sizing, volumeMounts, searchImage, usePerPodConfig)),
+				podtemplatespec.WithContainer(MongotContainerName, mongodbSearchContainer(mdbSearch, sizing, volumeMounts, searchImage, imagePullPolicy, usePerPodConfig)),
 			),
 		),
 	}
@@ -218,10 +241,9 @@ func StatefulSetOverrideModification(stsConfig *v1.StatefulSetConfiguration) sta
 // PasswordAuthModification returns a statefulset.Modification that mounts the password secret
 // and sets up the file permissions workaround for password-based sync source authentication.
 func PasswordAuthModification(mdbSearch *searchv1.MongoDBSearch) statefulset.Modification {
-	sourceUserPasswordVolumeName := "password"
 	sourceUserPasswordSecretKey := mdbSearch.SourceUserPasswordSecretRef()
-	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
-	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
+	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(SourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
+	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(SourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
 
 	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
 		podtemplatespec.WithVolume(sourceUserPasswordVolume),
@@ -252,10 +274,13 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
+// disableBase64IntrinsicsFlag mitigates CVE-2026-114938.
+const disableBase64IntrinsicsFlag = "-XX:-UseBASE64Intrinsics"
+
 // jvmFlags builds the --jvm-flags argument from the per-cluster user-provided
 // JVMFlags slice plus a default heap-size pair derived from memory requests.
 func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements) string {
-	flags := []string{}
+	flags := []string{disableBase64IntrinsicsFlag}
 
 	var heapConfigured bool
 	for _, jvmFlag := range userJVMFlags {
@@ -272,11 +297,9 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 		// so we should do that even if the jvm flags are not configured by users.
 		memRequest := resourceRequirements.Requests.Memory()
 		halfBytes := memRequest.Value() / 2
-		halfMB := halfBytes / (1024 * 1024)
-		// The same document recommends staying under ~30GB so the JVM keeps compressed object pointers.
-		if halfMB > maxDefaultHeapMB {
-			halfMB = maxDefaultHeapMB
-		}
+		halfMB := min(
+			// The same document recommends staying under ~30GB so the JVM keeps compressed object pointers.
+			halfBytes/(1024*1024), maxDefaultHeapMB)
 		flags = append(flags, fmt.Sprintf("-Xmx%dm", halfMB))
 		flags = append(flags, fmt.Sprintf("-Xms%dm", halfMB))
 	}
@@ -286,7 +309,7 @@ func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequire
 	return fmt.Sprintf(`--jvm-flags "%s"`, flagsValue)
 }
 
-func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster searchv1.ClusterSpec, volumeMounts []corev1.VolumeMount, searchImage string, usePerPodConfig bool) container.Modification {
+func mongodbSearchContainer(mdbSearch *searchv1.MongoDBSearch, perCluster searchv1.ClusterSpec, volumeMounts []corev1.VolumeMount, searchImage string, imagePullPolicy corev1.PullPolicy, usePerPodConfig bool) container.Modification {
 	_, containerSecurityContext := podtemplatespec.WithDefaultSecurityContextsModifications()
 	resourceRequirements := createSearchResourceRequirements(perCluster.ResourceRequirements)
 
@@ -306,7 +329,7 @@ sed -i "s/%s/$HOSTNAME/" %s
 	return container.Apply(
 		container.WithName(MongotContainerName),
 		container.WithImage(searchImage),
-		container.WithImagePullPolicy(corev1.PullAlways),
+		container.WithImagePullPolicy(imagePullPolicy),
 		container.WithLivenessProbe(mongotLivenessProbe(mdbSearch)),
 		container.WithReadinessProbe(mongotReadinessProbe(mdbSearch)),
 		container.WithResourceRequirements(resourceRequirements),

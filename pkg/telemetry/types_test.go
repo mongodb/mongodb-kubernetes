@@ -39,12 +39,16 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 	databaseClusters := 5
 	appDBClusters := 3
 	omClusters := 2
+	externalMembersCount := 2
 
 	props := SearchDeploymentUsageSnapshotProperties{
 		DeploymentUsageSnapshotProperties: DeploymentUsageSnapshotProperties{
 			DatabaseClusters:         &databaseClusters,
 			AppDBClusters:            &appDBClusters,
+			AppDBBackupMode:          "enabled",
+			ExternalAppDB:            "MongoDB",
 			OmClusters:               &omClusters,
+			Role:                     "AppDB",
 			DeploymentUID:            "test-deployment-uid",
 			OperatorID:               "test-operator-id",
 			Architecture:             "amd64",
@@ -55,6 +59,10 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 			CustomRoles:              "ClusterSpecific",
 			AuthenticationAgentMode:  "SCRAM",
 			AuthenticationModes:      []string{"SCRAM", "X509"},
+			MigrationPhase:           "InProgress",
+			ExternalMembersCount:     &externalMembersCount,
+			MigrationStartedAt:       "2026-01-01T00:00:00Z",
+			MigrationCompletedAt:     "2026-01-01T01:00:00Z",
 		},
 		IsAutoEmbeddingEnabled: true,
 	}
@@ -64,7 +72,7 @@ func TestSearchDeploymentUsageSnapshotProperties_ConvertToFlatMap(t *testing.T) 
 	assert.NotNil(t, result)
 
 	// Extract expected keys from struct using reflection
-	expectedKeys := getExpectedKeysFromStruct(reflect.TypeOf(props))
+	expectedKeys := getExpectedKeysFromStruct(reflect.TypeFor[SearchDeploymentUsageSnapshotProperties]())
 
 	// Add special keys from AuthenticationModes transformation
 	for _, mode := range props.AuthenticationModes {
@@ -91,7 +99,7 @@ func getExpectedKeysFromStruct(t reflect.Type) []string {
 	var keys []string
 
 	// Handle pointer types
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 
@@ -99,8 +107,7 @@ func getExpectedKeysFromStruct(t reflect.Type) []string {
 		return keys
 	}
 
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
+	for field := range t.Fields() {
 		jsonTag := field.Tag.Get("json")
 
 		// Skip fields without json tags or with "-" tag

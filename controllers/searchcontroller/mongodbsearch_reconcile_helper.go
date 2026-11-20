@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ghodss/yaml"
-	"github.com/hashicorp/go-multierror"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/fields"
@@ -30,6 +30,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
@@ -45,6 +47,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/mongot"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
@@ -53,7 +56,9 @@ const (
 	// minSupportedSearchVersion is the minimum MongoDBSearch (mongot) version supported by this
 	// operator. MCK GA only supports the search GA (1.70.1) release and later, which guarantees a single
 	// mongot config format and feature set (e.g. auto embeddings) to reason about.
-	minSupportedSearchVersion        = "1.70.1"
+	minSupportedSearchVersion = "1.70.1"
+	// minOIDCMongotVersion is the first mongot release that understands the oidc sync-source block.
+	minOIDCMongotVersion             = "1.78.0"
 	unsupportedSearchVersionErrorFmt = "MongoDBSearch version '%s' is not supported. " +
 		"This operator requires MongoDBSearch version '%s' or newer. " +
 		"The operator will ignore this resource: it will not reconcile or reconfigure the workload. " +
@@ -79,9 +84,10 @@ const (
 )
 
 type OperatorSearchConfig struct {
-	SearchRepo    string
-	SearchName    string
-	SearchVersion string
+	SearchRepo      string
+	SearchName      string
+	SearchVersion   string
+	ImagePullPolicy corev1.PullPolicy
 }
 
 type MongoDBSearchReconcileHelper struct {
@@ -204,6 +210,7 @@ type clusterLevelResource struct {
 	svcName          types.NamespacedName
 	fallbackPodLabel string
 	ownerReferences  []metav1.OwnerReference
+	serviceConfig    *v1.ServiceConfiguration
 }
 
 // reconcilePlan is the full per-reconcile work description: a list of units plus the
@@ -295,6 +302,7 @@ type clusterWork struct {
 	ClusterName        string
 	ClusterIndex       int
 	SyncSourceSelector *searchv1.SyncSourceSelector
+	Service            *v1.ServiceConfiguration
 	Client             kubernetesClient.Client
 	Local              bool
 }
@@ -316,6 +324,7 @@ func (r *MongoDBSearchReconcileHelper) buildClusterWorkList() []clusterWork {
 			ClusterName:        c.Name,
 			ClusterIndex:       c.ResolveIndex(),
 			SyncSourceSelector: c.SyncSourceSelector,
+			Service:            c.Service,
 			Local:              c.Name == "" || c.Name == r.operatorClusterName,
 		}
 		if w.Local {
@@ -433,6 +442,7 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 				svcName:          r.mdbSearch.ProxyServiceNamespacedNameForCluster(w.ClusterIndex),
 				fallbackPodLabel: r.mdbSearch.MongotStatefulSetForClusterShard(w.ClusterIndex, shardNames[0]).Name,
 				ownerReferences:  w.ownerReferences(r.mdbSearch),
+				serviceConfig:    w.Service,
 			})
 		}
 	}
@@ -447,11 +457,11 @@ func (r *MongoDBSearchReconcileHelper) buildShardedPlan(shardedSource SearchSour
 		cleanup: func(ctx context.Context, log *zap.SugaredLogger) error {
 			var cleanupErr error
 			if err := r.cleanupStaleShardResources(ctx, log, r.buildClusterWorkList(), units); err != nil {
-				cleanupErr = multierror.Append(cleanupErr, fmt.Errorf("failed to cleanup stale shard resources: %w", err))
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to cleanup stale shard resources: %w", err))
 			}
 			if r.mdbSearch.IsLBModeManaged() {
 				if err := r.pruneRoutingReady(ctx, shardNames); err != nil {
-					cleanupErr = multierror.Append(cleanupErr, fmt.Errorf("failed to prune routing-ready switch entries: %w", err))
+					cleanupErr = errors.Join(cleanupErr, fmt.Errorf("failed to prune routing-ready switch entries: %w", err))
 				}
 			}
 			return cleanupErr
@@ -497,9 +507,21 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		return workflow.Failed(err)
 	}
 
+	if err := r.validateSCRAMAuthSource(); err != nil {
+		return workflow.Failed(err)
+	}
+
+	if err := r.validateOIDCSource(); err != nil {
+		return workflow.Failed(err)
+	}
+
 	version := r.getMongotVersion()
 
 	if err := r.ValidateSearchImageVersion(version); err != nil {
+		return workflow.Failed(err)
+	}
+
+	if err := r.validateOIDCMongotVersion(version); err != nil {
 		return workflow.Failed(err)
 	}
 
@@ -550,11 +572,16 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 
 	// Topology-agnostic modifications (computed once, applied to every unit).
 	// Ordering note: egress TLS must be applied after ingress TLS because it toggles mTLS
-	// based on the mode set by ingress. x509 must run after baseMongotConfig (which sets
-	// username/password) so it can clear them. The loop below preserves this order when
+	// based on the mode set by ingress. x509 and OIDC must run after baseMongotConfig
+	// (which sets username/password) so they can clear it. The loop below preserves this order when
 	// passing modifications to ensureMongotConfig and createOrUpdateStatefulSet.
-	passwordAuthStsModification := statefulset.NOOP()
-	if !r.mdbSearch.IsX509Auth() {
+	var passwordAuthStsModification statefulset.Modification
+	if r.mdbSearch.IsX509Auth() || r.mdbSearch.IsOIDCAuth() {
+		// The StatefulSet modifications below merge volumes/mounts, so an existing deployment
+		// switched from SCRAM to x509/OIDC auth would keep the password volume + mount forever;
+		// removing it keeps the StatefulSet consistent with the now-unused password Secret.
+		passwordAuthStsModification = removeMongotVolumesAndMounts(SourceUserPasswordVolumeName)
+	} else {
 		passwordAuthStsModification = PasswordAuthModification(r.mdbSearch)
 	}
 
@@ -595,7 +622,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 		if err != nil {
 			// e.g. unreachable cluster: aggregate and continue with the other units.
 			unitLog.Warnf("Failed to reconcile unit on cluster %q: %s", unit.clusterName, err)
-			reconcileErrs = multierror.Append(reconcileErrs, err)
+			reconcileErrs = errors.Join(reconcileErrs, err)
 			continue
 		}
 		applied = append(applied, unitApplyResult{
@@ -615,12 +642,12 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 			continue
 		}
 		if res.client == nil {
-			reconcileErrs = multierror.Append(reconcileErrs, xerrors.Errorf("no Kubernetes client registered for cluster %q", res.clusterName))
+			reconcileErrs = errors.Join(reconcileErrs, xerrors.Errorf("no Kubernetes client registered for cluster %q", res.clusterName))
 			continue
 		}
 		if err := r.ensureSearchService(ctx, log, res.client, res.svcName, buildClusterLevelProxyService(r.mdbSearch, res)); err != nil {
 			log.Warnf("Failed to ensure cluster-level proxy service on cluster %q: %s", res.clusterName, err)
-			reconcileErrs = multierror.Append(reconcileErrs, err)
+			reconcileErrs = errors.Join(reconcileErrs, err)
 			continue
 		}
 	}
@@ -635,7 +662,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// return, so one not-ready unit does not block the routing switch for the others.
 	for _, res := range applied {
 		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unitClient); err != nil {
-			reconcileErrs = multierror.Append(reconcileErrs, err)
+			reconcileErrs = errors.Join(reconcileErrs, err)
 		}
 	}
 	if reconcileErrs != nil {
@@ -655,7 +682,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	switch readiness.phase {
 	case status.PhaseFailed:
 		return workflow.Failed(xerrors.New(readiness.message)).
-			WithAdditionalOptions([]status.Option{versionOption, clusterStatusesOption})
+			WithAdditionalOptions(versionOption, clusterStatusesOption)
 	case status.PhasePending:
 		return workflow.Pending("%s", readiness.message).
 			WithResourcesNotReady(readiness.resourcesNotReady).
@@ -747,6 +774,12 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		return nil, nil, err
 	}
 
+	// Per-unit OIDC client config: uses unitClient for the same reason as egress TLS.
+	oidcMongotModification, oidcStsModification, err := r.ensureOIDCClientConfig(ctx, unitClient, tlsSecretLabels, unit.ownerReferences)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	configHash, err := r.ensureMongotConfig(ctx,
 		log,
 		unitClient,
@@ -759,6 +792,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		ingressTlsMongotModification,
 		egressTlsMongotModification,
 		x509MongotModification,
+		oidcMongotModification,
 		mods.embeddingConfigMongot,
 	)
 	if err != nil {
@@ -777,13 +811,33 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		configHash = hashBytes([]byte(configHash + keyPasswordHash))
 	}
 
+	// Include the OIDC client secret in the config hash as well: it is mounted directly
+	// (not part of the mongot config content), so rotating it must roll the mongot pods to re-read it.
+	oidcClientSecretHash, err := r.oidcClientSecretContentHash(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	if oidcClientSecretHash != "" {
+		configHash = hashBytes([]byte(configHash + oidcClientSecretHash))
+	}
+
+	// Include the OIDC IdP CA ConfigMap in the config hash as well: the OIDC callback reads
+	// idpCaFile into its trust store once at startup, so a CA rotation must roll the mongot pods.
+	oidcIdpCaHash, err := r.oidcIdpCaContentHash(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	if oidcIdpCaHash != "" {
+		configHash = hashBytes([]byte(configHash + oidcIdpCaHash))
+	}
+
 	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
 		map[string]string{
 			"mongotConfigHash": configHash,
 		},
 	))
 
-	stsFunc := CreateSearchStatefulSetFunc(r.mdbSearch, unit.sizing, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, mods.usePerPodConfig)
+	stsFunc := CreateSearchStatefulSetFunc(r.mdbSearch, unit.sizing, unit.stsName.Name, r.mdbSearch.Namespace, unit.headlessSvc.Name, unit.configMapName.Name, unit.podLabels, mods.searchImage, r.operatorSearchConfig.ImagePullPolicy, mods.usePerPodConfig)
 	stsOverride := StatefulSetOverrideModification(unit.sizing.StatefulSetConfiguration)
 	mutatedSts, err := r.createOrUpdateStatefulSet(ctx,
 		log,
@@ -797,6 +851,7 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 		ingressTlsStsModification,
 		egressTlsStsModification,
 		x509StsModification,
+		oidcStsModification,
 		mods.embeddingConfigSts,
 		stsOverride,
 		withSearchOwnerLabels(r.mdbSearch),
@@ -1105,15 +1160,15 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 	notExpected := func(expected map[string]bool) func(client.Object) bool {
 		return func(obj client.Object) bool { return !expected[obj.GetName()] }
 	}
-	var errs *multierror.Error
+	var errs error
 	for index, expected := range expectedByCluster {
 		work := workByIndex[index]
 		if work.Client == nil {
-			errs = multierror.Append(errs, fmt.Errorf("no Kubernetes client registered for cleanup on cluster %q", work.ClusterName))
+			errs = errors.Join(errs, fmt.Errorf("no Kubernetes client registered for cleanup on cluster %q", work.ClusterName))
 			continue
 		}
 		c, clusterName := work.Client, work.ClusterName
-		errs = multierror.Append(errs,
+		errs = errors.Join(errs,
 			deleteOwned(ctx, c, r.mdbSearch, clusterName, "StatefulSet", "", &appsv1.StatefulSetList{}, notExpected(expected.sts), log),
 			deleteOwned(ctx, c, r.mdbSearch, clusterName, "headless Service", mongotComponent, &corev1.ServiceList{}, notExpected(expected.headless), log),
 			deleteOwned(ctx, c, r.mdbSearch, clusterName, "ConfigMap", mongotComponent, &corev1.ConfigMapList{}, notExpected(expected.config), log),
@@ -1126,11 +1181,11 @@ func (r *MongoDBSearchReconcileHelper) cleanupStaleShardResources(ctx context.Co
 			}, log),
 		)
 		if manageProxyServices {
-			errs = multierror.Append(errs,
+			errs = errors.Join(errs,
 				deleteOwned(ctx, c, r.mdbSearch, clusterName, "proxy Service", proxyServiceComponent, &corev1.ServiceList{}, notExpected(expected.proxy), log))
 		}
 	}
-	return errs.ErrorOrNil()
+	return errs
 }
 
 func isOperatorGeneratedServerTLSSecretName(search *searchv1.MongoDBSearch, name string) bool {
@@ -1227,7 +1282,7 @@ func (r *MongoDBSearchReconcileHelper) validatePerShardTLSSecrets(ctx context.Co
 		}
 		worstPhase = searchv1.WorstOfPhase(worstPhase, validationStatus.Phase())
 		if !validationStatus.IsOK() {
-			validationErrs = multierror.Append(validationErrs, fmt.Errorf(
+			validationErrs = errors.Join(validationErrs, fmt.Errorf(
 				"cluster %q shard %q: %s",
 				w.ClusterName,
 				w.ShardName,
@@ -1327,9 +1382,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 			cm.Labels = map[string]string{}
 		}
 		cm.Labels[componentLabelKey] = mongotComponent
-		for k, v := range searchOwnerLabels(r.mdbSearch) {
-			cm.Labels[k] = v
-		}
+		maps.Copy(cm.Labels, searchOwnerLabels(r.mdbSearch))
 		cm.ResourceVersion = resourceVersion
 		cm.OwnerReferences = ownerReferences
 		return nil
@@ -1357,7 +1410,7 @@ func (r *MongoDBSearchReconcileHelper) ensureMongotConfig(ctx context.Context, l
 //	{stsName}-0:         "leader"
 //	{stsName}-1:         "follower"
 //	{stsName}-N:         "follower"
-func buildMongotConfigMapEntries(config mongot.Config, advancedConfigs map[string]interface{}, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
+func buildMongotConfigMapEntries(config mongot.Config, advancedConfigs map[string]any, usePerPodConfig bool, stsName string, replicas int) (map[string][]byte, []string, error) {
 	if usePerPodConfig {
 		return buildPerPodConfigEntries(config, advancedConfigs, stsName, replicas)
 	}
@@ -1365,7 +1418,7 @@ func buildMongotConfigMapEntries(config mongot.Config, advancedConfigs map[strin
 }
 
 // buildPerPodConfigEntries creates leader (pod-0) and follower configs with pod-name role keys.
-func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]interface{}, stsName string, replicas int) (map[string][]byte, []string, error) {
+func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]any, stsName string, replicas int) (map[string][]byte, []string, error) {
 	leaderData, err := marshalMongotConfig(config, advancedConfigs)
 	if err != nil {
 		return nil, nil, err
@@ -1374,7 +1427,7 @@ func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]i
 	followerConfig := config
 	if config.Embedding != nil {
 		embeddingCopy := *config.Embedding
-		embeddingCopy.IsAutoEmbeddingViewWriter = ptr.To(false)
+		embeddingCopy.IsAutoEmbeddingViewWriter = new(false)
 		followerConfig.Embedding = &embeddingCopy
 	}
 	followerData, err := marshalMongotConfig(followerConfig, advancedConfigs)
@@ -1387,7 +1440,7 @@ func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]i
 		MongotConfigFollowerFilename: followerData,
 	}
 
-	for i := 0; i < replicas; i++ {
+	for i := range replicas {
 		podName := fmt.Sprintf("%s-%d", stsName, i)
 		if i == 0 {
 			entries[podName] = []byte("leader")
@@ -1403,7 +1456,7 @@ func buildPerPodConfigEntries(config mongot.Config, advancedConfigs map[string]i
 // marshalMongotConfig renders the mongot config YAML. The cluster's
 // advancedMongotConfigs is an opaque block placed verbatim under the
 // "advancedConfigs" key; operator-generated sections are never touched.
-func marshalMongotConfig(config mongot.Config, advancedConfigs map[string]interface{}) ([]byte, error) {
+func marshalMongotConfig(config mongot.Config, advancedConfigs map[string]any) ([]byte, error) {
 	if len(advancedConfigs) == 0 {
 		return yaml.Marshal(config)
 	}
@@ -1416,7 +1469,7 @@ func marshalMongotConfig(config mongot.Config, advancedConfigs map[string]interf
 	return yaml.Marshal(merged)
 }
 
-func buildSingleConfigEntry(config mongot.Config, advancedConfigs map[string]interface{}, stsName string, replicas int) (map[string][]byte, []string, error) {
+func buildSingleConfigEntry(config mongot.Config, advancedConfigs map[string]any, stsName string, replicas int) (map[string][]byte, []string, error) {
 	data, err := marshalMongotConfig(config, advancedConfigs)
 	if err != nil {
 		return nil, nil, err
@@ -1424,7 +1477,7 @@ func buildSingleConfigEntry(config mongot.Config, advancedConfigs map[string]int
 
 	entries := map[string][]byte{MongotConfigFilename: data}
 	keysToRemove := []string{MongotConfigLeaderFilename, MongotConfigFollowerFilename}
-	for i := 0; i < replicas; i++ {
+	for i := range replicas {
 		keysToRemove = append(keysToRemove, fmt.Sprintf("%s-%d", stsName, i))
 	}
 	return entries, keysToRemove, nil
@@ -1499,6 +1552,16 @@ const (
 	operatorLabelValue = "mongodb-kubernetes-operator"
 )
 
+// serviceMetadata returns a Service's labels and annotations: the user metadata from cfg
+// with operatorLabels applied last, so user labels can never override the operator's
+// identity labels (which the resource sweep selects on).
+func serviceMetadata(cfg *v1.ServiceConfiguration, operatorLabels map[string]string) (map[string]string, map[string]string) {
+	if cfg == nil {
+		return operatorLabels, nil
+	}
+	return merge.StringToStringMap(cfg.MetadataWrapper.Labels, operatorLabels), merge.StringToStringMap(nil, cfg.MetadataWrapper.Annotations)
+}
+
 // buildHeadlessService builds a headless Service for a reconcile unit. All topology-specific
 // behavior comes from the unit's explicit fields — no branching on "is this a shard?".
 func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev1.Service {
@@ -1506,17 +1569,15 @@ func buildHeadlessService(search *searchv1.MongoDBSearch, unit reconcileUnit) co
 		appLabelKey:       unit.headlessSvc.Name,
 		componentLabelKey: mongotComponent,
 	}
-	for k, v := range unit.additionalSvcLabels {
-		svcLabels[k] = v
-	}
-	for k, v := range searchOwnerLabels(search) {
-		svcLabels[k] = v
-	}
+	maps.Copy(svcLabels, unit.additionalSvcLabels)
+	maps.Copy(svcLabels, searchOwnerLabels(search))
+	svcLabels, annotations := serviceMetadata(unit.sizing.Service, svcLabels)
 
 	serviceBuilder := service.Builder().
 		SetName(unit.headlessSvc.Name).
 		SetNamespace(unit.headlessSvc.Namespace).
 		SetLabels(svcLabels).
+		SetAnnotations(annotations).
 		SetSelector(map[string]string{appLabelKey: unit.podLabels[appLabelKey]}).
 		SetClusterIP("None").
 		SetServiceType(corev1.ServiceTypeClusterIP).
@@ -1550,12 +1611,9 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 		appLabelKey:       unit.proxySvc.Name,
 		componentLabelKey: proxyServiceComponent,
 	}
-	for k, v := range unit.additionalSvcLabels {
-		labels[k] = v
-	}
-	for k, v := range searchOwnerLabels(search) {
-		labels[k] = v
-	}
+	maps.Copy(labels, unit.additionalSvcLabels)
+	maps.Copy(labels, searchOwnerLabels(search))
+	labels, annotations := serviceMetadata(unit.sizing.Service, labels)
 
 	targetPort := search.GetEffectiveMongotPort()
 
@@ -1563,6 +1621,7 @@ func buildProxyService(search *searchv1.MongoDBSearch, unit reconcileUnit) corev
 		SetName(unit.proxySvc.Name).
 		SetNamespace(unit.proxySvc.Namespace).
 		SetLabels(labels).
+		SetAnnotations(annotations).
 		SetSelector(selector).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetOwnerReferences(unit.ownerReferences)
@@ -1596,9 +1655,8 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 		appLabelKey:       res.svcName.Name,
 		componentLabelKey: proxyServiceComponent,
 	}
-	for k, v := range searchOwnerLabels(search) {
-		labels[k] = v
-	}
+	maps.Copy(labels, searchOwnerLabels(search))
+	labels, annotations := serviceMetadata(res.serviceConfig, labels)
 
 	targetPort := search.GetEffectiveMongotPort()
 
@@ -1606,6 +1664,7 @@ func buildClusterLevelProxyService(search *searchv1.MongoDBSearch, res clusterLe
 		SetName(res.svcName.Name).
 		SetNamespace(res.svcName.Namespace).
 		SetLabels(labels).
+		SetAnnotations(annotations).
 		SetSelector(selector).
 		SetServiceType(corev1.ServiceTypeClusterIP).
 		SetOwnerReferences(res.ownerReferences)
@@ -1822,15 +1881,15 @@ func (r *MongoDBSearchReconcileHelper) ensureIngressTlsConfig(ctx context.Contex
 	}
 
 	mongotModification := func(config *mongot.Config) {
-		certPath := tls.OperatorSecretMountPath + certFileName
+		certPath := tls.OperatorSecretMountPath + certFileName //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
 		config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeTLS
-		config.Server.Grpc.TLS.CertificateKeyFile = ptr.To(certPath)
+		config.Server.Grpc.TLS.CertificateKeyFile = new(certPath)
 		if hasKeyPassword {
-			config.Server.Grpc.TLS.CertificateKeyFilePasswordFile = ptr.To(TempGrpcKeyPasswordPath)
+			config.Server.Grpc.TLS.CertificateKeyFilePasswordFile = new(TempGrpcKeyPasswordPath)
 		}
 		if config.Server.Wireproto != nil {
 			config.Server.Wireproto.TLS.Mode = mongot.ConfigTLSModeTLS
-			config.Server.Wireproto.TLS.CertificateKeyFile = ptr.To(certPath)
+			config.Server.Wireproto.TLS.CertificateKeyFile = new(certPath)
 		}
 	}
 
@@ -1885,10 +1944,10 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		return mongot.NOOP(), removeX509Volumes, nil
 	}
 
-	tlsSourceConfig := r.db.TLSConfig()
+	sourceTLSConfig := r.db.TLSConfig()
 	// in this https://docs.google.com/document/d/11xdolqdUR2Ht107AbxO5VKW658ytl6rPoJlYYc36ufE/edit?tab=t.0#heading=h.xpj7eo2nhgir document
 	// it's mentioned that tls=true is required for x509 auth.
-	if tlsSourceConfig == nil {
+	if sourceTLSConfig == nil {
 		return nil, nil, xerrors.New("tls must be enabled for syncSource to enable x509 auth for search resource")
 	}
 
@@ -1898,7 +1957,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		return nil, nil, err
 	}
 
-	certPath := X509ClientCertOperatorMountPath + certFileName
+	certPath := X509ClientCertOperatorMountPath + certFileName //nolint:staticcheck // SA4006 false positive on go1.26 new(expr)
 
 	// The x509 client key may be password-encrypted; the password lives in a dedicated secret
 	// (spec.source.x509.keyFilePasswordSecretRef), key "keyFilePassword".
@@ -1914,21 +1973,21 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	mongotModification := func(config *mongot.Config) {
 		config.SyncSource.ReplicaSet.ScramAuth = nil
 		config.SyncSource.ReplicaSet.X509 = &mongot.ConfigX509{
-			TLSCertificateKeyFile:    ptr.To(certPath),
-			CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+			TLSCertificateKeyFile:    new(certPath),
+			CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 		}
 		if hasKeyPassword {
-			config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile = ptr.To(TempX509KeyPasswordPath)
+			config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
 		}
 
 		if config.SyncSource.Router != nil {
 			config.SyncSource.Router.ScramAuth = nil
 			config.SyncSource.Router.X509 = &mongot.ConfigX509{
-				TLSCertificateKeyFile:    ptr.To(certPath),
-				CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+				TLSCertificateKeyFile:    new(certPath),
+				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 			}
 			if hasKeyPassword {
-				config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile = ptr.To(TempX509KeyPasswordPath)
+				config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
 			}
 		}
 	}
@@ -1971,6 +2030,123 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 	return mongotModification, statefulset.Apply(removeX509Volumes, stsModification), nil
 }
 
+// ensureOIDCClientConfig processes OIDC client-credentials authentication for the sync source in case of mongot to mongod communication.
+// When OIDC is configured, it replaces username/password auth with OIDC client-credentials auth.
+func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
+	if !r.mdbSearch.IsOIDCAuth() {
+		return mongot.NOOP(), removeMongotVolumesAndMounts(OIDCClientSecretVolumeName, OIDCIdPCaVolumeName), nil
+	}
+	removeOIDCMounts := removeMongotVolumeMounts(OIDCClientSecretVolumeName, OIDCIdPCaVolumeName)
+
+	// mongot requires oidc.tls.caFile to trust the source's TLS certificate (no JVM-trust
+	// fallback), so TLS must be enabled on the source for OIDC auth.
+	sourceTLSConfig := r.db.TLSConfig()
+	if sourceTLSConfig == nil {
+		return nil, nil, xerrors.New("tls must be enabled for syncSource to enable OIDC auth for search resource")
+	}
+
+	oidc := r.mdbSearch.Spec.Source.OIDC
+
+	// Read + verify the client secret now to fail fast with a clear error instead of a
+	// mongot startup failure.
+	clientSecretRef := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: oidc.ClientSecretRef.Name}
+	if _, err := secret.ReadKey(ctx, kubeClient, oidc.ClientSecretRef.Key, clientSecretRef); err != nil {
+		return nil, nil, xerrors.Errorf("reading OIDC client secret %s: %w", oidc.ClientSecretRef.Name, err)
+	}
+
+	// Read + verify the IdP CA ConfigMap and require its fixed "ca.crt" key.
+	idpCaConfigMapRef := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: oidc.IdPCAConfigMapRef.Name}
+	idpCaConfigMap, err := kubeClient.GetConfigMap(ctx, idpCaConfigMapRef)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("reading OIDC IdP CA configMap %s: %w", oidc.IdPCAConfigMapRef.Name, err)
+	}
+	if _, ok := idpCaConfigMap.Data[OIDCIdPCAConfigMapKey]; !ok {
+		return nil, nil, xerrors.Errorf(`key "%s" not present in the ConfigMap %s/%s`, OIDCIdPCAConfigMapKey, idpCaConfigMapRef.Namespace, idpCaConfigMapRef.Name)
+	}
+
+	// Optional mTLS client certificate for the mongod connection, reusing spec.source.tls:
+	// ensureEgressTlsConfig mounts the volume; the same secret is (re-)ensured here to derive
+	// the content-hash-named file the mount exposes.
+	var certPath string
+	if r.mdbSearch.HasScramClientCert() {
+		scramCertResource := &scramClientCertResource{MongoDBSearch: r.mdbSearch}
+		certFileName, err := tls.EnsureTLSSecret(ctx, kubeClient, scramCertResource, labels, ownerReferences)
+		if err != nil {
+			return nil, nil, err
+		}
+		certPath = ScramClientCertOperatorMountPath + certFileName
+	}
+
+	newOIDC := func() *mongot.ConfigOIDC {
+		scope := (*string)(nil)
+		if oidc.Scope != nil {
+			scope = new(*oidc.Scope)
+		}
+		oidcConfig := &mongot.ConfigOIDC{
+			Environment:      mongot.ConfigOIDCEnvironmentCustom,
+			TokenEndpoint:    oidc.TokenEndpoint,
+			ClientID:         oidc.ClientID,
+			ClientSecretFile: TempOIDCClientSecretPath,
+			IDPCaFile:        OIDCIdPCaMountPath + "/" + OIDCIdPCAConfigMapKey,
+			Scope:            scope,
+			TLS: &mongot.ConfigOIDCTLS{
+				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
+			},
+		}
+		if certPath != "" {
+			oidcConfig.TLS.TLSCertificateKeyFile = new(certPath)
+			// The mTLS client key may be password-encrypted: ensureEgressTlsConfig already mounts
+			// the password secret and applies the /tmp workaround (regardless of auth mode), so
+			// without this reference mongot cannot decrypt the client key.
+			if r.mdbSearch.ScramKeyFilePasswordSecret().Name != "" {
+				oidcConfig.TLS.TLSCertificateKeyFilePasswordFile = new(TempScramKeyPasswordPath)
+			}
+		}
+		return oidcConfig
+	}
+
+	mongotModification := func(config *mongot.Config) {
+		config.SyncSource.ReplicaSet.ScramAuth = nil
+		config.SyncSource.ReplicaSet.OIDC = newOIDC()
+
+		if config.SyncSource.Router != nil {
+			config.SyncSource.Router.ScramAuth = nil
+			config.SyncSource.Router.OIDC = newOIDC()
+		}
+	}
+
+	// Build volume/mount modifications for the OIDC client secret and the IdP CA ConfigMap.
+	// The client secret is mounted with subPath = the secret key so only that one key is
+	// exposed at /mongot/oidcClientSecret; the IdP CA ConfigMap is mounted as a directory.
+	clientSecretVolume := statefulset.CreateVolumeFromSecret(OIDCClientSecretVolumeName, oidc.ClientSecretRef.Name)
+	clientSecretVolumeMount := statefulset.CreateVolumeMount(OIDCClientSecretVolumeName, OIDCClientSecretMountPath,
+		statefulset.WithReadOnly(true), statefulset.WithSubPath(oidc.ClientSecretRef.Key))
+
+	idpCaVolume := statefulset.CreateVolumeFromConfigMap(OIDCIdPCaVolumeName, oidc.IdPCAConfigMapRef.Name)
+	idpCaVolumeMount := statefulset.CreateVolumeMount(OIDCIdPCaVolumeName, OIDCIdPCaMountPath, statefulset.WithReadOnly(true))
+
+	volumeMounts := []corev1.VolumeMount{clientSecretVolumeMount, idpCaVolumeMount}
+	volumes := []podtemplatespec.Modification{
+		podtemplatespec.WithVolume(clientSecretVolume),
+		podtemplatespec.WithVolume(idpCaVolume),
+	}
+
+	// The client secret is copied to /tmp with 0600 permissions (mongot requires it); the IdP
+	// CA is public material and gets no workaround, like the egress CA.
+	containerModifications := []container.Modification{
+		container.WithVolumeMounts(volumeMounts),
+		prependCommand(sensitiveFilePermissionsWorkaround(OIDCClientSecretMountPath, TempOIDCClientSecretPath, "0600")),
+	}
+
+	stsModification := statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
+		append(volumes, podtemplatespec.WithContainer(MongotContainerName, container.Apply(
+			containerModifications...,
+		)))...,
+	))
+
+	return mongotModification, statefulset.Apply(removeOIDCMounts, stsModification), nil
+}
+
 // perShardTLSResource wraps MongoDBSearch to provide per-(cluster, shard) TLS secret names.
 // It implements the tls.TLSConfigurableResource interface for use with tls.EnsureTLSSecret.
 type perShardTLSResource struct {
@@ -1991,8 +2167,8 @@ func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.Namespaced
 
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
 	removeScramClientVolumes := removeMongotVolumesAndMounts("scram-client-cert", "scram-key-password")
-	tlsSourceConfig := r.db.TLSConfig()
-	if tlsSourceConfig == nil {
+	sourceTLSConfig := r.db.TLSConfig()
+	if sourceTLSConfig == nil {
 		return mongot.NOOP(), removeScramClientVolumes, nil
 	}
 
@@ -2021,12 +2197,12 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 	mongotModification := func(config *mongot.Config) {
 		scramTLS := &mongot.ScramAuthTLS{
 			Enabled:                  true,
-			CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+			CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 		}
 		if scramCertPath != "" {
-			scramTLS.TLSCertificateKeyFile = ptr.To(scramCertPath)
+			scramTLS.TLSCertificateKeyFile = new(scramCertPath)
 			if hasScramKeyPassword {
-				scramTLS.TLSCertificateKeyFilePasswordFile = ptr.To(TempScramKeyPasswordPath)
+				scramTLS.TLSCertificateKeyFilePasswordFile = new(TempScramKeyPasswordPath)
 			}
 		}
 
@@ -2036,12 +2212,12 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		if config.SyncSource.Router != nil && config.SyncSource.Router.ScramAuth != nil {
 			routerScramTLS := &mongot.ScramAuthTLS{
 				Enabled:                  true,
-				CertificateAuthorityFile: ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName),
+				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 			}
 			if scramCertPath != "" {
-				routerScramTLS.TLSCertificateKeyFile = ptr.To(scramCertPath)
+				routerScramTLS.TLSCertificateKeyFile = new(scramCertPath)
 				if hasScramKeyPassword {
-					routerScramTLS.TLSCertificateKeyFilePasswordFile = ptr.To(TempScramKeyPasswordPath)
+					routerScramTLS.TLSCertificateKeyFilePasswordFile = new(TempScramKeyPasswordPath)
 				}
 			}
 			config.SyncSource.Router.ScramAuth.TLS = routerScramTLS
@@ -2050,11 +2226,11 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		// if the gRPC server is configured to accept TLS connections then toggle mTLS as well
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
 			config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeMTLS
-			config.Server.Grpc.TLS.CertificateAuthorityFile = ptr.To(tls.CAMountPath + tlsSourceConfig.CAFileName)
+			config.Server.Grpc.TLS.CertificateAuthorityFile = new(tls.CAMountPath + sourceTLSConfig.CAFileName)
 		}
 	}
 
-	caVolume := tlsSourceConfig.CAVolume
+	caVolume := sourceTLSConfig.CAVolume
 	volumeMounts := []corev1.VolumeMount{
 		statefulset.CreateVolumeMount(caVolume.Name, tls.CAMountPath, statefulset.WithReadOnly(true)),
 	}
@@ -2088,7 +2264,16 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		)))...,
 	))
 
-	return mongotModification, statefulset.Apply(removeScramClientVolumes, statefulsetModification), nil
+	// The cert volume and mount merge in place by name and never change while configured.
+	// Remove both client-auth pairs when the certificate goes; only the key-password pair
+	// when just the password goes.
+	if !r.mdbSearch.HasScramClientCert() {
+		statefulsetModification = statefulset.Apply(removeScramClientVolumes, statefulsetModification)
+	} else if !hasScramKeyPassword {
+		statefulsetModification = statefulset.Apply(removeMongotVolumesAndMounts("scram-key-password"), statefulsetModification)
+	}
+
+	return mongotModification, statefulsetModification, nil
 }
 
 func removeMongotVolumesAndMounts(names ...string) statefulset.Modification {
@@ -2099,6 +2284,18 @@ func removeMongotVolumesAndMounts(names ...string) statefulset.Modification {
 			podtemplatespec.RemoveVolume(name),
 			podtemplatespec.RemoveVolumeMount(MongotContainerName, name),
 		)
+	}
+	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(modifications...))
+}
+
+// removeMongotVolumeMounts removes only the named container mounts. Volumes merge in place by
+// name (position preserved), so removing them first would move them to the end of the volume
+// list and churn the pod template; mounts must still be removed because the mount merge keys on
+// subPath and a changed secret key would otherwise leave the stale mount behind.
+func removeMongotVolumeMounts(names ...string) statefulset.Modification {
+	modifications := make([]podtemplatespec.Modification, 0, len(names))
+	for _, name := range names {
+		modifications = append(modifications, podtemplatespec.RemoveVolumeMount(MongotContainerName, name))
 	}
 	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(modifications...))
 }
@@ -2145,6 +2342,35 @@ func (r *MongoDBSearchReconcileHelper) keyFilePasswordContentHash(ctx context.Co
 	return hashBytes(combined), nil
 }
 
+// oidcClientSecretContentHash returns a hash of the OIDC client secret's content, or ""
+// when the search resource does not authenticate with OIDC.
+func (r *MongoDBSearchReconcileHelper) oidcClientSecretContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
+	if !r.mdbSearch.IsOIDCAuth() {
+		return "", nil
+	}
+	ref := r.mdbSearch.Spec.Source.OIDC.ClientSecretRef
+	nn := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: ref.Name}
+	clientSecret, err := secret.ReadKey(ctx, kubeClient, ref.Key, nn)
+	if err != nil {
+		return "", xerrors.Errorf("reading OIDC client secret %s: %w", ref.Name, err)
+	}
+	return hashBytes([]byte(nn.Name + ":" + clientSecret)), nil
+}
+
+// oidcIdpCaContentHash returns a hash of the OIDC IdP CA ConfigMap's content, or ""
+// when the search resource does not authenticate with OIDC.
+func (r *MongoDBSearchReconcileHelper) oidcIdpCaContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
+	if !r.mdbSearch.IsOIDCAuth() {
+		return "", nil
+	}
+	nn := types.NamespacedName{Namespace: r.mdbSearch.Namespace, Name: r.mdbSearch.Spec.Source.OIDC.IdPCAConfigMapRef.Name}
+	configMap, err := kubeClient.GetConfigMap(ctx, nn)
+	if err != nil {
+		return "", xerrors.Errorf("reading OIDC IdP CA configMap %s: %w", nn.Name, err)
+	}
+	return hashBytes([]byte(nn.Name + ":" + configMap.Data[OIDCIdPCAConfigMapKey])), nil
+}
+
 // baseMongotConfig sets up the common mongot configuration fields shared by all deployment types:
 // SyncSource.ReplicaSet, Storage, Server.Grpc, Prometheus metrics, HealthCheck, and Logging.
 func baseMongotConfig(search *searchv1.MongoDBSearch, hostAndPorts []string) mongot.Modification {
@@ -2158,11 +2384,11 @@ func baseMongotConfig(search *searchv1.MongoDBSearch, hostAndPorts []string) mon
 					TLS: &mongot.ScramAuthTLS{
 						Enabled: false,
 					},
-					AuthSource: ptr.To("admin"),
+					AuthSource: new("admin"),
 				},
 			},
 			ReplicationReader: &mongot.ConfigReplicationReader{
-				ReadPreference: ptr.To("secondaryPreferred"),
+				ReadPreference: new("secondaryPreferred"),
 			},
 		}
 		config.Storage = mongot.ConfigStorage{
@@ -2427,6 +2653,24 @@ func (r *MongoDBSearchReconcileHelper) ValidateSingleMongoDBSearchForSearchSourc
 	return nil
 }
 
+// validateOIDCMongotVersion rejects OIDC on a mongot that cannot parse the oidc sync-source
+// block: the default search version would accept the CR and then fail at mongot startup.
+// Non-semver versions (dev image tags) are let through, matching ValidateSearchImageVersion.
+func (r *MongoDBSearchReconcileHelper) validateOIDCMongotVersion(version string) error {
+	if !r.mdbSearch.IsOIDCAuth() {
+		return nil
+	}
+	searchVersion, err := semver.NewVersion(version)
+	if err != nil {
+		return nil
+	}
+	minVersion, _ := semver.NewVersion(minOIDCMongotVersion)
+	if searchVersion.LessThan(minVersion) {
+		return xerrors.Errorf("OIDC sync-source authentication requires mongot %s or later, got %s", minOIDCMongotVersion, version)
+	}
+	return nil
+}
+
 func (r *MongoDBSearchReconcileHelper) ValidateSearchImageVersion(version string) error {
 	if strings.TrimSpace(version) == "" {
 		// An empty version means we could not resolve a search version at all (neither from
@@ -2508,6 +2752,96 @@ func (r *MongoDBSearchReconcileHelper) ValidateManagedLBShardedTLS() error {
 			"TLS (spec.security.tls) is required when using managed load balancer with a sharded cluster; " +
 				"Envoy uses SNI-based routing which depends on the TLS ClientHello to route traffic to the correct shard",
 		)
+	}
+
+	return nil
+}
+
+// ValidateSearchSourceAuth checks that the source MongoDB supports the search resource's
+// sync-source authentication, shared by the search reconciler and the database controllers'
+// search-endpoint gates. External sources are unverifiable from the operator and pass.
+func ValidateSearchSourceAuth(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if err := validateSCRAMAuthSource(search, db); err != nil {
+		return err
+	}
+	return validateOIDCSource(search, db)
+}
+
+// validateOIDCSource enforces the OIDC source requirements at reconcile time —
+// cross-resource, so neither the CRD CEL rules nor the spec validators can see them.
+// No-op unless the search resource authenticates to its source with OIDC. External
+// sources are unverifiable from the operator and get no check here; the source
+// MongoDB server rejects tokens its OIDC provider configuration does not accept.
+// No mongod version check either: the adapters' 8.2.0 floor already exceeds the
+// 7.0 requirement for MONGODB-OIDC.
+func (r *MongoDBSearchReconcileHelper) validateOIDCSource() error {
+	return validateOIDCSource(r.mdbSearch, r.db)
+}
+
+func validateOIDCSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if !search.IsOIDCAuth() {
+		return nil
+	}
+	var mdb *mdbv1.MongoDB
+	switch src := db.(type) {
+	case *CommunitySearchSource:
+		return xerrors.New("OIDC authentication requires an enterprise MongoDB source: community MongoDB does not support MONGODB-OIDC")
+	case EnterpriseResourceSearchSource:
+		mdb = src.MongoDB
+	case *ShardedInternalSearchSource:
+		mdb = src.MongoDB
+	}
+	if mdb == nil {
+		return nil
+	}
+	// The sync leg needs TLS to the source; without it the search only fails at render.
+	if db.TLSConfig() == nil {
+		return xerrors.New("OIDC sync-source authentication requires TLS to be enabled on the source MongoDB")
+	}
+	// IsOIDCEnabled() only checks the enabled flag + modes: a source with modes
+	// [SCRAM, OIDC] but no oidcProviderConfigs entry accepts no token at all.
+	if !mdb.IsOIDCEnabled() || len(mdb.Spec.Security.Authentication.OIDCProviderConfigs) == 0 {
+		return xerrors.New("OIDC authentication requires OIDC to be enabled on the source MongoDB (spec.security.authentication.modes=OIDC with a non-empty oidcProviderConfigs entry)")
+	}
+	return nil
+}
+
+// validateSCRAMAuthSource requires a SCRAM mode on the source for a SCRAM search. The
+// adapters cannot see the search resource, so the pairing lives here where both are visible;
+// x509 and OIDC searches are exempt, and external sources are unverifiable and unchecked.
+func (r *MongoDBSearchReconcileHelper) validateSCRAMAuthSource() error {
+	return validateSCRAMAuthSource(r.mdbSearch, r.db)
+}
+
+func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+	if search.IsX509Auth() || search.IsOIDCAuth() {
+		return nil
+	}
+
+	var authModes []string
+	switch src := db.(type) {
+	case EnterpriseResourceSearchSource:
+		authModes = src.Spec.GetSecurityAuthenticationModes()
+	case *ShardedInternalSearchSource:
+		authModes = src.Spec.GetSecurityAuthenticationModes()
+	case *CommunitySearchSource:
+		for _, authMode := range src.Spec.Security.Authentication.Modes {
+			authModes = append(authModes, string(authMode))
+		}
+	default:
+		// External sources are unverifiable from the operator — no check.
+		return nil
+	}
+
+	for _, authMode := range authModes {
+		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
+		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
+			return nil
+		}
+	}
+
+	if len(authModes) > 0 {
+		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled on the source MongoDB when using SCRAM sync-source authentication")
 	}
 
 	return nil

@@ -12,6 +12,6 @@ func NewVoyageAIVersionOption(version string) VoyageAIVersionOption {
 	return VoyageAIVersionOption{Version: version}
 }
 
-func (o VoyageAIVersionOption) Value() interface{} {
+func (o VoyageAIVersionOption) Value() any {
 	return o.Version
 }

@@ -47,7 +47,6 @@ import kubernetes
 import kubernetes.client.rest
 import requests
 from kubernetes import client
-from kubernetes.client import ApiextensionsV1Api
 from kubetester import (
     create_or_update_configmap,
     get_deployments,
@@ -255,17 +254,18 @@ def aws_s3_client(evergreen_task_id: str) -> AwsS3Client:
 
 
 def get_aws_s3_client(evergreen_task_id: str = ""):
-    tags = {"environment": "mongodb-enterprise-operator-tests"}
+    # mongodb-owner and mongodb-env are required tags for AWS resources.
+    # environment and evg_task are used by scripts/evergreen/prepare_aws.sh to clean up buckets.
+    tags = {
+        "environment": "mongodb-enterprise-operator-tests",
+        "mongodb-owner": "kubernetes-hosted-team@mongodb.com",
+        "mongodb-env": "test",
+    }
 
     if evergreen_task_id != "":
         tags["evg_task"] = evergreen_task_id
 
     return AwsS3Client("us-east-1", **tags)
-
-
-@fixture(scope="session")
-def crd_api():
-    return ApiextensionsV1Api()
 
 
 @fixture(scope="module")
@@ -501,7 +501,7 @@ def custom_version() -> str:
 
 
 def get_custom_om_version():
-    return os.getenv("CUSTOM_OM_VERSION", "6.0.22")
+    return os.getenv("CUSTOM_OM_VERSION", "8.0.26")
 
 
 @fixture(scope="module")
@@ -1352,11 +1352,11 @@ def get_api_servers_from_pod_kubeconfig(kubeconfig: str, cluster_clients: Dict[s
 
 
 def run_kube_config_creation_tool(
-    member_clusters: List[str],
+    member_clusters: list[str],
     central_namespace: str,
     member_namespace: str,
-    member_cluster_names: List[str],
-    cluster_scoped: Optional[bool] = False,
+    member_cluster_names: list[str],
+    cluster_scoped: bool = False,
     service_account_name: str = "mongodb-kubernetes-operator-multi-cluster",
     operator_name: str = OPERATOR_NAME,
 ):
@@ -1364,8 +1364,8 @@ def run_kube_config_creation_tool(
     member_clusters_str = ",".join(member_clusters)
     args: list[str] = [
         os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
+            "KUBECTL_MONGODB_PATH",
+            "kubectl-mongodb",
         ),
         "multicluster",
         "setup",
@@ -1443,8 +1443,8 @@ def run_multi_cluster_recovery_tool(
     member_clusters_str = ",".join(member_clusters)
     args: list[str] = [
         os.getenv(
-            "MULTI_CLUSTER_KUBE_CONFIG_CREATOR_PATH",
-            "multi-cluster-kube-config-creator",
+            "KUBECTL_MONGODB_PATH",
+            "kubectl-mongodb",
         ),
         "multicluster",
         "recover",
@@ -1628,9 +1628,28 @@ def coredns_config(tld: str, mappings: str, additional_rules: Optional[str] = No
 """
 
 
+def _om_project_ids_from_cr_status() -> str:
+    """Returns the Ops Manager project IDs recorded in the namespace's MongoDB resources."""
+    try:
+        response = client.CustomObjectsApi(api_client=get_central_cluster_client()).list_namespaced_custom_object(
+            group="mongodb.com", version="v1", namespace=os.environ.get("NAMESPACE"), plural="mongodb"
+        )
+    except Exception as e:
+        logging.debug(f"Failed to list MongoDB resources: {e}")
+        return ""
+
+    project_ids: list[str] = []
+    for resource in response.get("items", []):
+        project_id = (resource.get("status") or {}).get("projectId")
+        if project_id and project_id not in project_ids:
+            project_ids.append(project_id)
+
+    return ",".join(project_ids)
+
+
 @hookimpl(tryfirst=True)
 def pytest_sessionfinish(session, exitstatus):
-    project_id = os.environ.get("OM_PROJECT_ID", "")
+    project_id = os.environ.get("OM_PROJECT_ID", "") or _om_project_ids_from_cr_status()
     if project_id:
         base_url = os.environ.get("OM_HOST")
         if base_url is None:
@@ -1678,7 +1697,7 @@ def pytest_sessionfinish(session, exitstatus):
                 else:
                     logging.info("om is not healthy - not collecting events information")
 
-            except Exception as e:
+            except Exception:
                 continue
 
 

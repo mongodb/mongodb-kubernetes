@@ -43,7 +43,7 @@ class TestReplicaSetScramX509Internal(KubernetesTester):
 
     def test_ops_manager_state_was_updated_correctly(self):
         ac_tester = AutomationConfigTester(self.get_automation_config())
-        ac_tester.assert_authentication_enabled()
+        ac_tester.assert_authentication_enabled(expected_num_deployment_auth_mechanisms=2)
         ac_tester.assert_authentication_mechanism_enabled("SCRAM-SHA-256")
         ac_tester.assert_expected_users(0)
         ac_tester.assert_authoritative_set(True)

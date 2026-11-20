@@ -154,6 +154,7 @@ class TestOpsManagerMixed:
         ops_manager.load()
         ops_manager.set_appdb_version(custom_appdb_version)
         ops_manager["spec"]["configuration"] = {"mms.helpAndSupportPage.enabled": "true"}
+        ops_manager.allow_mdb_rc_versions()
         ops_manager.update()
         ops_manager.om_status().assert_reaches_phase(Phase.Running)
         ops_manager.appdb_status().assert_reaches_phase(Phase.Running)
@@ -166,7 +167,9 @@ class TestOpsManagerMixed:
         assert ops_manager.appdb_status().get_version() == custom_appdb_version
 
     def test_mongod(self, ops_manager: MongoDBOpsManager, custom_appdb_version: str):
-        mdb_tester = ops_manager.get_appdb_tester()
+        # The AppDB has SCRAM auth enabled, and buildInfo requires authentication on MongoDB 9.0,
+        # so the tester must authenticate (OM_USER_NAME + generated password) to assert the version.
+        mdb_tester = ops_manager.get_appdb_tester(authenticate=True)
         mdb_tester.assert_connectivity()
         mdb_tester.assert_version(custom_appdb_version)
 

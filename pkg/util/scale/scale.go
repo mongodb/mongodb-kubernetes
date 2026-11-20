@@ -1,5 +1,7 @@
 package scale
 
+import "slices"
+
 // ReplicaSetScaler is an interface which is able to scale up and down a replicaset
 // a single member at a time
 type ReplicaSetScaler interface {
@@ -50,10 +52,5 @@ func HasZeroReplicas(replicaSetScaler ReplicaSetScaler) bool {
 
 // AnyAreStillScaling reports true if any of one the provided members is still scaling
 func AnyAreStillScaling(scalers ...ReplicaSetScaler) bool {
-	for _, s := range scalers {
-		if IsStillScaling(s) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(scalers, IsStillScaling)
 }

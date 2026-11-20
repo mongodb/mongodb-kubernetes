@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"k8s.io/utils/ptr"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -47,17 +46,17 @@ func TestUniqueExternalDomains(t *testing.T) {
 		{
 			ClusterName:                 "1",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 		{
 			ClusterName:                 "2",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 		{
 			ClusterName:                 "3",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 	}
 
@@ -72,7 +71,7 @@ func TestAllExternalDomainsSet(t *testing.T) {
 		{
 			ClusterName:                 "1",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 		{
 			ClusterName:                 "2",
@@ -82,7 +81,7 @@ func TestAllExternalDomainsSet(t *testing.T) {
 		{
 			ClusterName:                 "3",
 			Members:                     1,
-			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: ptr.To("test")},
+			ExternalAccessConfiguration: &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("test")},
 		},
 	}
 
@@ -115,16 +114,42 @@ func TestSpecProjectOnlyOneValue(t *testing.T) {
 	file := createTestKubeConfigAndSetEnv(t)
 	defer os.Remove(file.Name())
 
-	mrs := DefaultMultiReplicaSetBuilder().Build()
-	mrs.Spec.OpsManagerConfig = &mdbv1.PrivateCloudConfig{
-		ConfigMapRef: mdbv1.ConfigMapRef{Name: "cloud-manager"},
-	}
-	mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{{
-		ClusterName: "foo",
-	}}
+	projectConfig := &mdbv1.PrivateCloudConfig{ConfigMapRef: mdbv1.ConfigMapRef{Name: "cloud-manager"}}
 
-	_, err := validator.ValidateCreate(ctx, mrs)
-	assert.NoError(t, err)
+	tests := []struct {
+		name             string
+		withCloudManager bool
+		expectedError    string
+	}{
+		{
+			name: "only opsManager is accepted",
+		},
+		{
+			name:             "both opsManager and cloudManager are rejected",
+			withCloudManager: true,
+			expectedError:    "either spec.cloudManager or spec.opsManager can be set",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mrs := DefaultMultiReplicaSetBuilder().Build()
+			mrs.Spec.OpsManagerConfig = projectConfig
+			if tt.withCloudManager {
+				mrs.Spec.CloudManagerConfig = projectConfig
+			}
+			mrs.Spec.ClusterSpecList = mdbv1.ClusterSpecList{{
+				ClusterName: "foo",
+			}}
+
+			_, err := validator.ValidateCreate(ctx, mrs)
+			if tt.expectedError == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.EqualError(t, err, tt.expectedError)
+		})
+	}
 }
 
 func createTestKubeConfigAndSetEnv(t *testing.T) *os.File {

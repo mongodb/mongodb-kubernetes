@@ -37,9 +37,6 @@ type CleanupOptions struct {
 	TestContext *TestContext
 }
 
-// ApplyToCreate is a required method for CleanupOptions passed to the Create api.
-func (*CleanupOptions) ApplyToCreate(*client.CreateOptions) {}
-
 // TestContext tracks cleanup functions to be called at the end of a test.
 type TestContext struct {
 	Ctx context.Context

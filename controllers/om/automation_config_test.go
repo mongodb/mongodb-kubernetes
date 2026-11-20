@@ -2,17 +2,19 @@ package om
 
 import (
 	"encoding/json"
+	"maps"
 	"testing"
 
 	"github.com/spf13/cast"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/utils/ptr"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/ldap"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/oidc"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 var originalAutomationConfig = *getTestAutomationConfig()
@@ -440,7 +442,7 @@ func TestVersionsAndBuildsRetained(t *testing.T) {
 	assert.Equal(t, "https://downloads.mongodb.com/linux/mongodb-linux-x86_64-enterprise-suse11-3.2.0.tgz", build1["url"])
 
 	// nested list maintains untouched
-	modulesList := build1["modules"].([]interface{})
+	modulesList := build1["modules"].([]any)
 	assert.Equal(t, "enterprise", modulesList[0])
 }
 
@@ -462,7 +464,7 @@ func TestMergoDeleteWorksInNestedMapsWithFieldsNotReturnedByAutomationConfig(t *
 func TestMergoDeleteWorksForAuthAutoUserAndAutoPwd(t *testing.T) {
 	// Create a deployment with auth.autoUser and auth.autoPwd set
 	deployment := Deployment{
-		"auth": map[string]interface{}{
+		"auth": map[string]any{
 			"autoUser": "mms-automation-agent",
 			"autoPwd":  "some-password",
 			"disabled": true,
@@ -486,7 +488,7 @@ func TestMergoDeleteWorksForAuthAutoUserAndAutoPwd(t *testing.T) {
 	require.NoError(t, err)
 
 	// Check the deployment - autoUser and autoPwd should be deleted
-	authMap := ac.Deployment["auth"].(map[string]interface{})
+	authMap := ac.Deployment["auth"].(map[string]any)
 	assert.NotContains(t, authMap, "autoUser", "autoUser should be deleted from auth map")
 	assert.NotContains(t, authMap, "autoPwd", "autoPwd should be deleted from auth map")
 	// Other fields should remain
@@ -671,7 +673,7 @@ func TestAutomationConfigEquality(t *testing.T) {
 			Audience:              "aud",
 			IssuerUri:             "https://provider1.okta.com",
 			UserClaim:             "sub",
-			GroupsClaim:           ptr.To("groups"),
+			GroupsClaim:           new("groups"),
 			SupportsHumanFlows:    false,
 			UseAuthorizationClaim: true,
 		},
@@ -679,7 +681,7 @@ func TestAutomationConfigEquality(t *testing.T) {
 			AuthNamePrefix:        "provider-2",
 			Audience:              "aud",
 			IssuerUri:             "https://provider2.okta.com",
-			ClientId:              ptr.To("provider2-clientId"),
+			ClientId:              new("provider2-clientId"),
 			RequestedScopes:       []string{"openid", "profile"},
 			UserClaim:             "sub",
 			SupportsHumanFlows:    true,
@@ -694,7 +696,7 @@ func TestAutomationConfigEquality(t *testing.T) {
 			IssuerUri:             "https://provider1.okta.com",
 			ClientId:              nil,
 			UserClaim:             "sub",
-			GroupsClaim:           ptr.To("groups"),
+			GroupsClaim:           new("groups"),
 			SupportsHumanFlows:    false,
 			UseAuthorizationClaim: true,
 		},
@@ -702,7 +704,7 @@ func TestAutomationConfigEquality(t *testing.T) {
 			AuthNamePrefix:        "provider-2",
 			Audience:              "aud",
 			IssuerUri:             "https://provider2.okta.com",
-			ClientId:              ptr.To("provider2-clientId"),
+			ClientId:              new("provider2-clientId"),
 			RequestedScopes:       []string{"openid", "profile"},
 			UserClaim:             "sub",
 			GroupsClaim:           nil,
@@ -799,27 +801,27 @@ func TestAutomationConfigEquality(t *testing.T) {
 	}
 }
 
-func getUsers(deployment map[string]interface{}) []interface{} {
-	auth := deployment["auth"].(map[string]interface{})
+func getUsers(deployment map[string]any) []any {
+	auth := deployment["auth"].(map[string]any)
 	if users, ok := auth["usersWanted"]; ok {
-		return users.([]interface{})
+		return users.([]any)
 	}
-	return make([]interface{}, 0)
+	return make([]any, 0)
 }
 
-func getUser(deployment map[string]interface{}, i int) map[string]interface{} {
+func getUser(deployment map[string]any, i int) map[string]any {
 	users := getUsers(deployment)
-	return users[i].(map[string]interface{})
+	return users[i].(map[string]any)
 }
 
-func getRoles(deployment map[string]interface{}, userIdx int) []interface{} {
+func getRoles(deployment map[string]any, userIdx int) []any {
 	user := getUser(deployment, userIdx)
-	return user["roles"].([]interface{})
+	return user["roles"].([]any)
 }
 
-func getRole(deployment map[string]interface{}, userIdx, roleIdx int) map[string]interface{} {
+func getRole(deployment map[string]any, userIdx, roleIdx int) map[string]any {
 	roles := getRoles(deployment, userIdx)
-	return roles[roleIdx].(map[string]interface{})
+	return roles[roleIdx].(map[string]any)
 }
 
 func remove(slice []*Role, i int) []*Role {
@@ -827,17 +829,17 @@ func remove(slice []*Role, i int) []*Role {
 	return slice[:len(slice)-1]
 }
 
-func getMongoDbVersions(deployment map[string]interface{}) []interface{} {
-	return deployment["mongoDbVersions"].([]interface{})
+func getMongoDbVersions(deployment map[string]any) []any {
+	return deployment["mongoDbVersions"].([]any)
 }
 
-func getVersionBuilds(deployment map[string]interface{}, versionIndex int) []interface{} {
-	versions := deployment["mongoDbVersions"].([]interface{})
-	return versions[versionIndex].(map[string]interface{})["builds"].([]interface{})
+func getVersionBuilds(deployment map[string]any, versionIndex int) []any {
+	versions := deployment["mongoDbVersions"].([]any)
+	return versions[versionIndex].(map[string]any)["builds"].([]any)
 }
 
-func getVersionBuild(deployment map[string]interface{}, versionIndex, buildIndex int) map[string]interface{} {
-	return getVersionBuilds(deployment, versionIndex)[buildIndex].(map[string]interface{})
+func getVersionBuild(deployment map[string]any, versionIndex, buildIndex int) map[string]any {
+	return getVersionBuilds(deployment, versionIndex)[buildIndex].(map[string]any)
 }
 
 func TestLDAPIsMerged(t *testing.T) {
@@ -896,7 +898,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					ClientId:              nil,
 					IssuerUri:             "https://provider-new.okta.com",
 					UserClaim:             "sub",
-					GroupsClaim:           ptr.To("groups"),
+					GroupsClaim:           new("groups"),
 					SupportsHumanFlows:    false,
 					UseAuthorizationClaim: true,
 				},
@@ -907,7 +909,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					"audience":              "aud",
 					"issuerUri":             "https://provider-new.okta.com",
 					"userClaim":             "sub",
-					"groupsClaim":           ptr.To("groups"),
+					"groupsClaim":           new("groups"),
 					"supportsHumanFlows":    false,
 					"useAuthorizationClaim": true,
 				},
@@ -919,7 +921,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					AuthNamePrefix:        "OIDC_WORKFORCE_USERID",
 					Audience:              "aud",
 					IssuerUri:             "https://provider.okta.com",
-					ClientId:              ptr.To("oktaClientId"),
+					ClientId:              new("oktaClientId"),
 					UserClaim:             "sub",
 					GroupsClaim:           nil,
 					RequestedScopes:       []string{"openid"},
@@ -932,7 +934,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					"authNamePrefix": "OIDC_WORKFORCE_USERID",
 					"audience":       "aud",
 					"issuerUri":      "https://provider.okta.com",
-					"clientId":       ptr.To("oktaClientId"),
+					"clientId":       new("oktaClientId"),
 					"requestedScopes": []string{
 						"openid",
 					},
@@ -954,7 +956,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					ClientId:              nil,
 					IssuerUri:             "https://provider1.okta.com",
 					UserClaim:             "sub",
-					GroupsClaim:           ptr.To("groups"),
+					GroupsClaim:           new("groups"),
 					SupportsHumanFlows:    false,
 					UseAuthorizationClaim: true,
 				},
@@ -965,11 +967,11 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					"audience":              "aud",
 					"issuerUri":             "https://provider1.okta.com",
 					"userClaim":             "sub",
-					"groupsClaim":           ptr.To("groups"),
+					"groupsClaim":           new("groups"),
 					"supportsHumanFlows":    false,
 					"useAuthorizationClaim": true,
 					"JWKSPollSecs":          float64(360),
-					"additionalField": []interface{}{
+					"additionalField": []any{
 						"example.com",
 					},
 				},
@@ -980,7 +982,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 				{
 					AuthNamePrefix:        "OIDC_WORKFORCE_USERID",
 					Audience:              "aud",
-					ClientId:              ptr.To("oktaClientId"),
+					ClientId:              new("oktaClientId"),
 					IssuerUri:             "https://provider.okta.com",
 					UserClaim:             "sub",
 					GroupsClaim:           nil,
@@ -1005,7 +1007,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					ClientId:              nil,
 					IssuerUri:             "https://provider.okta.com",
 					UserClaim:             "sub",
-					GroupsClaim:           ptr.To("groups"),
+					GroupsClaim:           new("groups"),
 					SupportsHumanFlows:    false,
 					UseAuthorizationClaim: true,
 				},
@@ -1015,7 +1017,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					"authNamePrefix": "OIDC_WORKFORCE_USERID",
 					"audience":       "aud",
 					"issuerUri":      "https://provider.okta.com",
-					"clientId":       ptr.To("oktaClientId"),
+					"clientId":       new("oktaClientId"),
 					"requestedScopes": []string{
 						"openid",
 					},
@@ -1023,7 +1025,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					"supportsHumanFlows":    true,
 					"useAuthorizationClaim": false,
 					"JWKSPollSecs":          float64(360),
-					"additionalField": []interface{}{
+					"additionalField": []any{
 						"example.com",
 					},
 				},
@@ -1038,7 +1040,7 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					"supportsHumanFlows":    false,
 					"useAuthorizationClaim": false,
 					"JWKSPollSecs":          float64(360),
-					"additionalField": []interface{}{
+					"additionalField": []any{
 						"example.com",
 					},
 				},
@@ -1047,11 +1049,11 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 					"audience":              "aud",
 					"issuerUri":             "https://provider.okta.com",
 					"userClaim":             "sub",
-					"groupsClaim":           ptr.To("groups"),
+					"groupsClaim":           new("groups"),
 					"supportsHumanFlows":    false,
 					"useAuthorizationClaim": true,
 					"JWKSPollSecs":          float64(360),
-					"additionalField": []interface{}{
+					"additionalField": []any{
 						"example.com",
 					},
 				},
@@ -1073,6 +1075,53 @@ func TestOIDCProviderConfigsAreMerged(t *testing.T) {
 	}
 }
 
+func TestApplyInto_RemovesLDAPBlockWhenLdapIsNil(t *testing.T) {
+	storedDeployment := Deployment{
+		"ldap": map[string]any{
+			"bindQueryUser":     "cn=admin,dc=example,dc=com",
+			"bindQueryPassword": "live-corporate-credential",
+			"servers":           "ldap.example.com",
+			"transportSecurity": "tls",
+		},
+	}
+	config := AutomationConfig{
+		Ldap:       nil,
+		Deployment: storedDeployment,
+	}
+	into := NewDeployment()
+	err := applyInto(config, &into)
+	assert.NoError(t, err)
+
+	_, ldapExists := into["ldap"]
+	assert.False(t, ldapExists, "ldap block should be deleted from deployment when Ldap is nil")
+}
+
+// TestGetSerializedACDoesNotMutateInput guards getSerializedAC's shallow clone: a nested write
+// would leak into the caller's deployment.
+func TestGetSerializedACDoesNotMutateInput(t *testing.T) {
+	withOIDC := getDeploymentWithRSOverTheWire(t)
+	withOIDC["oidcProviderConfigs"] = []any{map[string]any{"authNamePrefix": "p", "clientId": "x"}}
+
+	for name, deployment := range map[string]Deployment{"replica sets": getDeploymentWithRSOverTheWire(t), "oidc": withOIDC} {
+		t.Run(name, func(t *testing.T) {
+			original, err := BuildAutomationConfigFromDeployment(deployment)
+			require.NoError(t, err)
+			original.OIDCProviderConfigs = []oidc.ProviderConfig{{AuthNamePrefix: "p"}}
+
+			before, err := json.Marshal(original.Deployment)
+			require.NoError(t, err)
+
+			_, err = getSerializedAC(*original)
+			require.NoError(t, err)
+
+			after, err := json.Marshal(original.Deployment)
+			require.NoError(t, err)
+
+			assert.JSONEq(t, string(before), string(after), "getSerializedAC must not mutate the input deployment")
+		})
+	}
+}
+
 func TestApplyInto(t *testing.T) {
 	config := AutomationConfig{
 		Auth: NewAuth(),
@@ -1080,10 +1129,10 @@ func TestApplyInto(t *testing.T) {
 			CAFilePath:            util.MergoDelete,
 			ClientCertificateMode: "test",
 		},
-		Deployment: Deployment{"tls": map[string]interface{}{"test": ""}},
+		Deployment: Deployment{"tls": map[string]any{"test": ""}},
 		Ldap:       nil,
 	}
-	deepCopy := Deployment{"tls": map[string]interface{}{}}
+	deepCopy := Deployment{"tls": map[string]any{}}
 	err := applyInto(config, &deepCopy)
 	assert.NoError(t, err)
 
@@ -1091,7 +1140,7 @@ func TestApplyInto(t *testing.T) {
 	assert.NotEqual(t, config.Deployment, deepCopy)
 
 	// new deployment is the merge result of the previous config.Deployment + config
-	assert.Equal(t, Deployment{"tls": map[string]interface{}{"clientCertificateMode": "test", "test": ""}}, deepCopy)
+	assert.Equal(t, Deployment{"tls": map[string]any{"clientCertificateMode": "test", "test": ""}}, deepCopy)
 }
 
 func changeTypes(deployment Deployment) error {
@@ -1138,14 +1187,34 @@ func TestIsEqual(t *testing.T) {
 	}
 }
 
+func TestIsEqualAfterModification_RoleStructs(t *testing.T) {
+	for _, inheritedRole := range []string{"read", "readWrite"} {
+		t.Run(inheritedRole, func(t *testing.T) {
+			role := mdbv1.MongoDBRole{
+				Role: "inherited", Db: "admin", Privileges: []mdbv1.Privilege{},
+				Roles: []mdbv1.InheritedRole{{Role: "read", Db: "admin"}},
+			}
+			deployment, err := maputil.StructToMap(Deployment{"roles": []mdbv1.MongoDBRole{role}})
+			require.NoError(t, err)
+
+			equal, err := isEqualAfterModification(func(d Deployment) error {
+				role.Roles[0].Role = inheritedRole
+				d.SetRoles([]mdbv1.MongoDBRole{role})
+				return nil
+			}, deployment)
+			require.NoError(t, err)
+			assert.Equal(t, inheritedRole == "read", equal, "object-key order must not hide or invent a change")
+		})
+	}
+}
+
 // TestIsEqualNotWorkingWithTypeChanges is a test that shows that deep equality does not work if our depFunc changes
 // the underlying types as we mostly do.
 func TestIsEqualNotWorkingWithTypeChanges(t *testing.T) {
 	t.Run("is not working", func(t *testing.T) {
 		overTheWire := getDeploymentWithRSOverTheWire(t)
 
-		original, err := util.MapDeepCopy(overTheWire)
-		assert.NoError(t, err)
+		original := maps.Clone(overTheWire)
 
 		_ = changeTypes(overTheWire)
 
@@ -1167,7 +1236,7 @@ func getDeploymentWithRSOverTheWire(t *testing.T) Deployment {
 
 func TestAuthNewKeyRoundTrip(t *testing.T) {
 	deployment := Deployment{
-		"auth": map[string]interface{}{
+		"auth": map[string]any{
 			"key":      "current-key",
 			"newKey":   "rotation-key",
 			"disabled": false,
@@ -1182,7 +1251,7 @@ func TestAuthNewKeyRoundTrip(t *testing.T) {
 	err = ac.Apply()
 	require.NoError(t, err)
 
-	authMap := ac.Deployment["auth"].(map[string]interface{})
+	authMap := ac.Deployment["auth"].(map[string]any)
 	assert.Equal(t, "current-key", authMap["key"])
 	assert.Equal(t, "rotation-key", authMap["newKey"])
 }

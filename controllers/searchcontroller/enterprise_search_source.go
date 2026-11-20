@@ -2,7 +2,6 @@ package searchcontroller
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/blang/semver"
 	"golang.org/x/xerrors"
@@ -26,10 +25,13 @@ func (r EnterpriseResourceSearchSource) HostSeeds(shardName string) ([]string, e
 	if shardName != "" {
 		return nil, fmt.Errorf("shardName is not supported for replica set")
 	}
-	seeds := make([]string, r.Spec.Members)
 	clusterDomain := r.Spec.GetClusterDomain()
-	for i := range seeds {
+	seeds := make([]string, r.Spec.Members+len(r.Spec.ExternalMembers))
+	for i := range r.Spec.Members {
 		seeds[i] = fmt.Sprintf("%s-%d.%s.%s.svc.%s:%d", r.Name, i, r.ServiceName(), r.Namespace, clusterDomain, r.Spec.GetAdditionalMongodConfig().GetPortOrDefault())
+	}
+	for i, m := range r.Spec.ExternalMembers {
+		seeds[r.Spec.Members+i] = m.Hostname
 	}
 	return seeds, nil
 }
@@ -74,19 +76,12 @@ func (r EnterpriseResourceSearchSource) Validate() error {
 		return xerrors.Errorf("MongoDBSearch is only supported for %s resources", mdbv1.ReplicaSet)
 	}
 
-	authModes := r.Spec.GetSecurityAuthenticationModes()
-	foundScram := false
-	for _, authMode := range authModes {
-		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
-		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
-			foundScram = true
-			break
-		}
+	if err := validateSearchSourceExternalDomain(&r.Spec); err != nil {
+		return err
 	}
 
-	if !foundScram && len(authModes) > 0 {
-		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled")
-	}
-
+	// No auth-mode check here: this adapter wraps the source MongoDB only and cannot see the
+	// search resource's auth mode. The SCRAM-on-source requirement lives in the reconcile-level
+	// validateSCRAMAuthSource, which exempts x509/OIDC searches.
 	return nil
 }

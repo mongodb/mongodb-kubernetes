@@ -214,6 +214,18 @@ func ConvertCrdLogRotateToAC(lr *CrdLogRotate) *AcLogRotate {
 	}
 }
 
+// ConvertACLogRotateToCrd converts an AcLogRotate to a CrdLogRotate representation.
+func ConvertACLogRotateToCrd(lr *AcLogRotate) *CrdLogRotate {
+	if lr == nil {
+		return nil
+	}
+	return &CrdLogRotate{
+		LogRotate:          lr.LogRotate,
+		SizeThresholdMB:    cast.ToString(lr.SizeThresholdMB),
+		PercentOfDiskspace: cast.ToString(lr.PercentOfDiskspace),
+	}
+}
+
 func (p *Process) SetWiredTigerCache(cacheSizeGb *float32) *Process {
 	if cacheSizeGb == nil {
 		return p
@@ -223,7 +235,7 @@ func (p *Process) SetWiredTigerCache(cacheSizeGb *float32) *Process {
 
 // SetArgs26Field should be used whenever any args26 field needs to be set. It ensures
 // that the args26 map is non nil and assigns the given value.
-func (p *Process) SetArgs26Field(fieldName string, value interface{}) *Process {
+func (p *Process) SetArgs26Field(fieldName string, value any) *Process {
 	p.ensureArgs26()
 	p.Args26.Set(fieldName, value)
 	return p
@@ -231,7 +243,7 @@ func (p *Process) SetArgs26Field(fieldName string, value interface{}) *Process {
 
 func (p *Process) ensureArgs26() {
 	if p.Args26 == nil {
-		p.Args26 = objx.New(map[string]interface{}{})
+		p.Args26 = objx.New(map[string]any{})
 	}
 }
 
@@ -275,12 +287,12 @@ type ReplSetForceConfig struct {
 }
 
 type ReplicaSet struct {
-	Id              string                 `json:"_id"`
-	Members         []ReplicaSetMember     `json:"members"`
-	ProtocolVersion string                 `json:"protocolVersion"`
-	NumberArbiters  int                    `json:"numberArbiters"`
-	Force           *ReplSetForceConfig    `json:"force,omitempty"`
-	Settings        map[string]interface{} `json:"settings,omitempty"`
+	Id              string              `json:"_id"`
+	Members         []ReplicaSetMember  `json:"members"`
+	ProtocolVersion string              `json:"protocolVersion"`
+	NumberArbiters  int                 `json:"numberArbiters"`
+	Force           *ReplSetForceConfig `json:"force,omitempty"`
+	Settings        map[string]any      `json:"settings,omitempty"`
 }
 
 type ReplicaSetMember struct {

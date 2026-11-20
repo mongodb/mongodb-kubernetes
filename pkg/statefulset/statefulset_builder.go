@@ -1,10 +1,10 @@
 package statefulset
 
 import (
+	"errors"
 	"fmt"
+	"maps"
 	"sort"
-
-	"github.com/hashicorp/go-multierror"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -63,18 +63,8 @@ func (s *Builder) SetMatchLabels(matchLabels map[string]string) *Builder {
 	return s
 }
 
-func (s *Builder) SetReadinessProbe(probe *corev1.Probe, containerName string) *Builder {
-	s.readinessProbePerContainer[containerName] = probe
-	return s
-}
-
 func (s *Builder) SetPodTemplateSpec(podTemplateSpec corev1.PodTemplateSpec) *Builder {
 	s.podTemplateSpec = podTemplateSpec
-	return s
-}
-
-func (s *Builder) SetUpdateStrategy(updateStrategyType appsv1.StatefulSetUpdateStrategyType) *Builder {
-	s.updateStrategyType = updateStrategyType
 	return s
 }
 
@@ -97,13 +87,6 @@ func (s *Builder) AddVolumeMounts(containerName string, mounts []corev1.VolumeMo
 
 func (s *Builder) AddVolume(volume corev1.Volume) *Builder {
 	s.podTemplateSpec.Spec.Volumes = append(s.podTemplateSpec.Spec.Volumes, volume)
-	return s
-}
-
-func (s *Builder) AddVolumes(volumes []corev1.Volume) *Builder {
-	for _, v := range volumes {
-		s.AddVolume(v)
-	}
 	return s
 }
 
@@ -138,7 +121,7 @@ func (s Builder) buildPodTemplateSpec() (corev1.PodTemplateSpec, error) {
 	for containerName, volumeMounts := range s.volumeMountsPerContainer {
 		idx, err := s.GetContainerIndexByName(containerName)
 		if err != nil {
-			errs = multierror.Append(errs, err)
+			errs = errors.Join(errs, err)
 			// other containers may have valid mounts
 			continue
 		}
@@ -146,7 +129,7 @@ func (s Builder) buildPodTemplateSpec() (corev1.PodTemplateSpec, error) {
 		for _, volumeMount := range volumeMounts {
 			if prevMount, seen := existingVolumeMounts[volumeMount.MountPath]; seen {
 				// Volume with the same path already mounted
-				errs = multierror.Append(errs, fmt.Errorf("volume %v already mounted as %v", volumeMount, prevMount))
+				errs = errors.Join(errs, fmt.Errorf("volume %v already mounted as %v", volumeMount, prevMount))
 				continue
 			}
 			podTemplateSpec.Spec.Containers[idx].VolumeMounts = append(podTemplateSpec.Spec.Containers[idx].VolumeMounts, volumeMount)
@@ -157,7 +140,7 @@ func (s Builder) buildPodTemplateSpec() (corev1.PodTemplateSpec, error) {
 	for containerName, overrideReadinessProbe := range s.readinessProbePerContainer {
 		idx, err := s.GetContainerIndexByName(containerName)
 		if err != nil {
-			errs = multierror.Append(errs, err)
+			errs = errors.Join(errs, err)
 			continue
 		}
 		var readinessProbeRef *corev1.Probe
@@ -180,9 +163,7 @@ func (s Builder) buildPodTemplateSpec() (corev1.PodTemplateSpec, error) {
 
 func copyMap(originalMap map[string]string) map[string]string {
 	newMap := map[string]string{}
-	for k, v := range originalMap {
-		newMap[k] = v
-	}
+	maps.Copy(newMap, originalMap)
 	return newMap
 }
 

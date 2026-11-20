@@ -251,6 +251,11 @@ def get_all_sharded_cluster_pod_names(resource: MongoDB):
     return get_mongos_pod_names(resource) + get_config_server_pod_names(resource) + get_all_shards_pod_names(resource)
 
 
+def get_all_sharded_cluster_process_names(resource: MongoDB):
+    """Expected AC process names for a fresh deployment, which uses the k8s/{namespace}/{pod} naming scheme."""
+    return [f"k8s/{resource.namespace}/{pod_name}" for pod_name in get_all_sharded_cluster_pod_names(resource)]
+
+
 def get_mongos_pod_names(resource: MongoDB):
     pod_names = []
     for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(resource.name, resource.namespace):

@@ -16,7 +16,7 @@ KUBECTL_MONGODB_PLUGIN_BIN_PATH = "bin/kubectl-mongodb"
 
 
 def local_tests_plugin_path(arch_name: str) -> str:
-    return f"docker/mongodb-kubernetes-tests/multi-cluster-kube-config-creator_{arch_name}"
+    return f"docker/mongodb-kubernetes-tests/kubectl-mongodb_{arch_name}"
 
 
 def download_kubectl_plugin_from_s3(

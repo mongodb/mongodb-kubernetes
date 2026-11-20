@@ -1,5 +1,7 @@
 package functions
 
+import "slices"
+
 // RunSequentially executes a series of functions sequentially. Each function returns a boolean
 // indicating if the function was successful, and an error indicating if something went wrong.
 // if any function returns an error, an early exit happens. The first parameter indicates if the functions
@@ -25,8 +27,8 @@ func runInOrder(funcs ...func() (bool, error)) (bool, error) {
 }
 
 func runReversed(funcs ...func() (bool, error)) (bool, error) {
-	for i := len(funcs) - 1; i >= 0; i-- {
-		successful, err := funcs[i]()
+	for _, fn := range slices.Backward(funcs) {
+		successful, err := fn()
 		if err != nil {
 			return successful, err
 		}

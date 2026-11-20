@@ -2,6 +2,7 @@ package contains
 
 import (
 	"reflect"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -12,12 +13,7 @@ import (
 )
 
 func String(slice []string, s string) bool {
-	for _, elem := range slice {
-		if elem == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, s)
 }
 
 func Sha256(slice []string) bool {
@@ -33,21 +29,11 @@ func X509(slice []string) bool {
 }
 
 func NamespacedName(nsNames []types.NamespacedName, nsName types.NamespacedName) bool {
-	for _, elem := range nsNames {
-		if elem == nsName {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(nsNames, nsName)
 }
 
 func AccessMode(accessModes []corev1.PersistentVolumeAccessMode, mode corev1.PersistentVolumeAccessMode) bool {
-	for _, elem := range accessModes {
-		if elem == mode {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(accessModes, mode)
 }
 
 func OwnerReferences(ownerRefs []metav1.OwnerReference, ownerRef metav1.OwnerReference) bool {

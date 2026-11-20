@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 import kubernetes
@@ -427,6 +428,22 @@ def verify_per_cluster_envoy_sni(
 # Per-cluster AC mongotHost patch + observation.
 # ---------------------------------------------------------------------------
 
+K8S_PROCESS_NAME_PREFIX = "k8s/"
+
+
+def strip_k8s_process_name_prefix(process_name: str) -> str:
+    """Return the bare pod name for an AC process name, dropping any ``k8s/<namespace>/``.
+
+    New deployments name AC processes ``k8s/<namespace>/<pod>`` (see
+    controllers/om/process/om_process.go PodNameToProcessName), while deployments created
+    before that naming was introduced keep bare pod names — see IsLegacyDeployment in
+    controllers/om/replicaset/om_replicaset.go, which is why the prefix is optional here.
+    """
+    if not process_name.startswith(K8S_PROCESS_NAME_PREFIX):
+        return process_name
+    parts = process_name.split("/", 2)
+    return parts[2] if len(parts) == 3 else process_name
+
 
 def read_mongod_set_parameter(
     pod_name: str,
@@ -463,36 +480,81 @@ def patch_mongot_host_via_ac(
     """
     om_tester = mdb.get_om_tester()
     ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
-    ac = om_tester.om_request("get", ac_path).json()
-    patched: List[str] = []
-    for process in ac.get("processes", []):
-        host = resolve_host(process.get("name", ""))
-        if host is None:
-            continue
-        sp = process.setdefault("args2_6", {}).setdefault("setParameter", {})
-        sp["mongotHost"] = host
-        sp["searchIndexManagementHostAndPort"] = host
-        patched.append(f"{process.get('name', '')}->{host}")
-    assert patched, f"{no_match_detail}; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
-    log.info(f"patched {len(patched)} processes: {patched}")
-    ac["version"] = ac.get("version", 0) + 1
-    _put_automation_config_past_lock(om_tester, ac_path, ac)
-    log.info(f"PUT automation config v{ac['version']} with per-cluster mongotHost")
+
+    def wire(ac: dict) -> None:
+        patched: List[str] = []
+        for process in ac.get("processes", []):
+            host = resolve_host(process.get("name", ""))
+            if host is None:
+                continue
+            sp = process.setdefault("args2_6", {}).setdefault("setParameter", {})
+            sp["mongotHost"] = host
+            sp["searchIndexManagementHostAndPort"] = host
+            patched.append(f"{process.get('name', '')}->{host}")
+        assert patched, f"{no_match_detail}; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+        log.info(f"patched {len(patched)} processes: {patched}")
+
+    update_automation_config_past_lock(om_tester, ac_path, wire)
+    log.info("PUT automation config with per-cluster mongotHost")
     om_tester.wait_agents_ready(timeout=timeout)
 
 
-def _put_automation_config_past_lock(om_tester, ac_path: str, ac: dict, attempts: int = 3) -> None:
-    """clear_feature_controls + PUT, retried on 401 — the operator can re-assert
-    EXTERNALLY_MANAGED_LOCK between the clear and the PUT."""
+def remove_mongot_host_via_ac(mdb, log=logger, timeout: int = 900) -> None:
+    """Pop mongotHost+searchIndexManagementHostAndPort from every AC process, then block
+    until every agent applies the new goal version.
+
+    The unwire counterpart of ``patch_mongot_host_via_ac``: on an external source these
+    keys are customer-owned AC state the operator never drains, so Search deletion ends
+    with the customer removing them.
+    """
+    om_tester = mdb.get_om_tester()
+    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
+
+    routing_keys_found = False
+
+    def unwire(ac: dict) -> None:
+        nonlocal routing_keys_found
+        unwired: List[str] = []
+        for process in ac.get("processes", []):
+            sp = process.get("args2_6", {}).get("setParameter", {})
+            removed = [
+                key for key in ("mongotHost", "searchIndexManagementHostAndPort") if sp.pop(key, None) is not None
+            ]
+            if removed:
+                unwired.append(f"{process.get('name', '')}: {removed}")
+        routing_keys_found = routing_keys_found or bool(unwired)
+        assert (
+            routing_keys_found
+        ), f"no AC process carried mongot routing keys; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
+        log.info(f"unwired {len(unwired)} processes: {unwired}")
+
+    update_automation_config_past_lock(om_tester, ac_path, unwire)
+    log.info("PUT automation config without mongot routing keys")
+    om_tester.wait_agents_ready(timeout=timeout)
+
+
+def update_automation_config_past_lock(
+    om_tester, ac_path: str, mutate: Callable[[dict], None], attempts: int = 5
+) -> None:
+    """GET, mutate and PUT the automation config past EXTERNALLY_MANAGED_LOCK, retried on 401 and 409.
+    The PUT keeps the version from the GET, Ops Manager rejects any other version with 409.
+    Skips the PUT when mutate changes nothing, so a retry after a lost response is a no-op."""
     for attempt in range(1, attempts + 1):
+        ac = om_tester.om_request("get", ac_path).json()
+        original = json.dumps(ac, sort_keys=True)
+        mutate(ac)
+        if json.dumps(ac, sort_keys=True) == original:
+            logger.info("automation config already up to date, skipping the PUT")
+            return
         om_tester.clear_feature_controls()
         try:
             om_tester.om_request("put", ac_path, json_object=ac)
             return
         except requests.HTTPError as e:
-            if e.response is None or e.response.status_code != 401 or attempt == attempts:
+            if e.response is None or e.response.status_code not in (401, 409) or attempt == attempts:
                 raise
-            logger.warning(f"automationConfig PUT got 401 (operator re-locked); retry {attempt}/{attempts - 1}")
+            logger.warning(f"automationConfig PUT got {e.response.status_code}; retry {attempt}/{attempts - 1}")
+            time.sleep(attempt)
 
 
 def patch_per_cluster_mongot_host_via_om(
@@ -511,10 +573,11 @@ def patch_per_cluster_mongot_host_via_om(
     process_prefix = f"{mdb.name}-"
 
     def resolve_host(process_name: str) -> Optional[str]:
-        if not process_name.startswith(process_prefix):
+        pod_name = strip_k8s_process_name_prefix(process_name)
+        if not pod_name.startswith(process_prefix):
             return None
         try:
-            cluster_idx = int(process_name[len(process_prefix) :].split("-")[0])
+            cluster_idx = int(pod_name[len(process_prefix) :].split("-")[0])
         except ValueError:
             return None
         return proxy_by_cluster_idx.get(cluster_idx)
@@ -623,11 +686,13 @@ def _classify_sharded_process(
     foreign processes return None. Naming mirrors api/mongodb/v1/mdb/mongodb_types.go
     + pkg/dns: SC shard ``{mdb}-{shardIdx}-{member}`` / mongos ``{mdb}-mongos-{pod}``;
     MC shard ``{mdb}-{shardIdx}-{clusterIdx}-{member}`` / mongos ``{mdb}-mongos-{clusterIdx}-{pod}``.
+    An optional ``k8s/<namespace>/`` prefix on the AC process name is ignored.
     """
+    pod_name = strip_k8s_process_name_prefix(process_name)
     prefix = f"{mdb_name}-"
-    if not process_name.startswith(prefix):
+    if not pod_name.startswith(prefix):
         return None
-    tokens = process_name[len(prefix) :].split("-")
+    tokens = pod_name[len(prefix) :].split("-")
     if tokens[0] == "config":
         return None  # config servers carry no mongotHost
     if tokens[0] == "mongos":
@@ -649,22 +714,27 @@ def patch_per_cluster_sharded_mongot_host_via_om(
     cluster_indexes: List[int],
     envoy_proxy_port: int,
     multi_cluster: bool,
+    proxy_cluster_index: Optional[Callable[[int], int]] = None,
 ) -> None:
     """PUT the OM automation config so each sharded process targets its cluster-local proxy.
 
     Per (cluster, shard): shard mongod → ``shard_proxy_service_host`` (cluster-local per-shard
     proxy); per cluster: mongos → ``mc_proxy_svc_fqdn`` (cluster-level proxy). Cluster-generic:
     ``cluster_indexes=[0]`` + ``multi_cluster=False`` is the single-cluster sharded invocation.
+    ``proxy_cluster_index`` maps a process's cluster index to the cluster whose proxies it
+    targets (default: its own) — e.g. to repoint a removed cluster's still-running source
+    processes at a survivor's proxies.
     """
+    target = proxy_cluster_index or (lambda cluster_index: cluster_index)
     shard_proxy_host = {
         (cluster_index, shard_index): search_resource_names.shard_proxy_service_host(
-            mdbs_resource_name, f"{mdb.name}-{shard_index}", namespace, envoy_proxy_port, cluster_index
+            mdbs_resource_name, f"{mdb.name}-{shard_index}", namespace, envoy_proxy_port, target(cluster_index)
         )
         for cluster_index in cluster_indexes
         for shard_index in range(shard_count)
     }
     mongos_proxy_host = {
-        cluster_index: f"{search_resource_names.mc_proxy_svc_fqdn(mdbs_resource_name, namespace, cluster_index)}:{envoy_proxy_port}"
+        cluster_index: f"{search_resource_names.mc_proxy_svc_fqdn(mdbs_resource_name, namespace, target(cluster_index))}:{envoy_proxy_port}"
         for cluster_index in cluster_indexes
     }
     logger.info(f"sharded shard-proxy map: {shard_proxy_host}")
@@ -698,21 +768,24 @@ def assert_sharded_mongot_host_observed(
     envoy_proxy_port: int,
     multi_cluster: bool,
     member_api_client_by_cluster: Optional[Mapping[int, kubernetes.client.ApiClient]] = None,
+    proxy_cluster_index: Optional[Callable[[int], int]] = None,
     timeout: int = 300,
 ) -> None:
     """Poll each shard's first mongod on disk and confirm its cluster-local proxy host landed.
 
     Reads ``/data/automation-mongod.conf`` so we verify the agent applied the AC patch,
     not just that OM accepted it. ``member_api_client_by_cluster`` targets the cluster
-    hosting each pod (MC); SC leaves it None (default client).
+    hosting each pod (MC); SC leaves it None (default client). ``proxy_cluster_index``
+    mirrors ``patch_per_cluster_sharded_mongot_host_via_om``'s parameter of the same name.
     """
+    target = proxy_cluster_index or (lambda cluster_index: cluster_index)
     expected: Dict[str, str] = {}
     pod_to_cluster: Dict[str, int] = {}
     for cluster_index in cluster_indexes:
         for shard_index in range(shard_count):
             pod_name = f"{mdb.name}-{shard_index}-{cluster_index}-0" if multi_cluster else f"{mdb.name}-{shard_index}-0"
             expected[pod_name] = search_resource_names.shard_proxy_service_host(
-                mdbs_resource_name, f"{mdb.name}-{shard_index}", namespace, envoy_proxy_port, cluster_index
+                mdbs_resource_name, f"{mdb.name}-{shard_index}", namespace, envoy_proxy_port, target(cluster_index)
             )
             pod_to_cluster[pod_name] = cluster_index
 

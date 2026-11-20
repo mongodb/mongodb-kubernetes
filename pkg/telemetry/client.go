@@ -42,7 +42,7 @@ type zapAdapter struct {
 	logger *zap.SugaredLogger
 }
 
-func (z *zapAdapter) Printf(format string, v ...interface{}) {
+func (z *zapAdapter) Printf(format string, v ...any) {
 	z.logger.Infof(format, v...)
 }
 
@@ -92,9 +92,9 @@ func NewClient(retryClient *retryablehttp.Client) (*Client, error) {
 	}
 
 	c.OnResponseProcessed(func(resp *atlas.Response) {
-		respHeaders := ""
+		var respHeaders strings.Builder
 		for key, value := range resp.Header {
-			respHeaders += fmt.Sprintf("%v: %v\n", key, strings.Join(value, " "))
+			respHeaders.WriteString(fmt.Sprintf("%v: %v\n", key, strings.Join(value, " ")))
 		}
 
 		Logger.Debugf(`request:
@@ -103,7 +103,7 @@ response:
 %v %v
 %v
 %v
-`, resp.Request.Method, resp.Request.URL.String(), resp.Proto, resp.Status, respHeaders, string(resp.Raw))
+`, resp.Request.Method, resp.Request.URL.String(), resp.Proto, resp.Status, respHeaders.String(), string(resp.Raw))
 	})
 
 	return &Client{

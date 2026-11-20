@@ -8,8 +8,11 @@ set -Eeou pipefail
 UBI_IMAGE_SUFFIX="-ubi"
 
 # Convert context variables to variables required by the operator binary
+# MDB_OPERATOR_IMAGE must match what 'make operator-image' pushes (see build_info.json patch scenario and Makefile DEV_VERSION)
+# and what Helm uses (registry/name:version+build) so migration dry-run Jobs can use it.
 function print_operator_env() {
   echo "OPERATOR_ENV=\"${OPERATOR_ENV}\"
+MDB_OPERATOR_IMAGE=\"${OPERATOR_REGISTRY:-${REGISTRY}}/mongodb-kubernetes:${DEV_VERSION:-${OPERATOR_VERSION:-latest}}${OPERATOR_BUILD:-}\"
 WATCH_NAMESPACE=\"${WATCH_NAMESPACE}\"
 NAMESPACE=\"${NAMESPACE}\"
 IMAGE_PULL_POLICY=\"Always\"
@@ -26,6 +29,7 @@ MONGODB_AGENT_VERSION=\"${MONGODB_AGENT_VERSION:-}\"
 MONGODB_REPO_URL=\"${MONGODB_REPO_URL:-}\"
 IMAGE_PULL_SECRETS=\"image-registries-secret\"
 MDB_DEFAULT_ARCHITECTURE=\"${MDB_DEFAULT_ARCHITECTURE:-non-static}\"
+MDB_DEFAULT_IMAGE_TYPE=\"${MDB_DEFAULT_IMAGE_TYPE:-}\"
 MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY=\"${MDB_OPERATOR_TELEMETRY_COLLECTION_FREQUENCY:-1m}\"
 MDB_OPERATOR_TELEMETRY_SEND_ENABLED=\"${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}\"
 MDB_COMMUNITY_IMAGE=\"${MDB_COMMUNITY_IMAGE}\"

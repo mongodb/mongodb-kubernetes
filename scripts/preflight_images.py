@@ -16,6 +16,8 @@ from typing import Dict, Tuple
 
 import requests
 
+from scripts.release.build.build_scenario import is_dryrun
+
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=LOGLEVEL)
 
@@ -25,10 +27,28 @@ def image_config(
     rh_cert_project_id: str,
     name_prefix: str = "mongodb-kubernetes-",
     name_suffix: str = "",
+    apply_registry_override: bool = True,
 ) -> Tuple[str, Dict[str, str]]:
+    # Only operator-published images get the registry override, and only in dryrun-release
+    # scenarios (signaled via BUILD_SCENARIO=dryrun-release; destination from REGISTRY).
+    # Third-party images (Ops Manager, Agent, etc.) are never pushed to staging and always
+    # resolve to quay.io/mongodb.
+    dryrun = is_dryrun()
+    if apply_registry_override:
+        override = os.environ.get("REGISTRY", "").strip()
+        if dryrun and not override:
+            # REGISTRY must be set explicitly for dryrun-release; mirrors publish_images.sh.
+            raise RuntimeError(
+                "REGISTRY is unset — refusing to guess the registry for operator image "
+                f"'{name_prefix}{image}{name_suffix}'"
+            )
+        base_registry = override if dryrun else "quay.io/mongodb"
+    else:
+        base_registry = "quay.io/mongodb"
+    api_path = base_registry.replace("quay.io/", "")
     args = {
-        "registry": f"quay.io/mongodb/{name_prefix}{image}{name_suffix}",
-        "image": f"mongodb/{name_prefix}{image}{name_suffix}",
+        "registry": f"{base_registry}/{name_prefix}{image}{name_suffix}",
+        "image": f"{api_path}/{name_prefix}{image}{name_suffix}",
         "rh_cert_project_id": rh_cert_project_id,
     }
     return image, args
@@ -38,9 +58,12 @@ def official_server_image(
     image: str,
     rh_cert_project_id: str,
 ) -> Tuple[str, Dict[str, str]]:
+    # Third-party image (mongodb-enterprise-server) is not pushed to staging; always use quay.io/mongodb.
+    base_registry = "quay.io/mongodb"
+    api_path = base_registry.replace("quay.io/", "")
     args = {
-        "registry": f"quay.io/mongodb/mongodb-enterprise-server",
-        "image": f"mongodb/mongodb-enterprise-server",
+        "registry": f"{base_registry}/mongodb-enterprise-server",
+        "image": f"{api_path}/mongodb-enterprise-server",
         "rh_cert_project_id": rh_cert_project_id,
     }
     return image, args
@@ -78,9 +101,16 @@ def args_for_image(image: str) -> Dict[str, str]:
             rh_cert_project_id="633fcd36c4ee7ff29edff589",
             name_prefix="mongodb-enterprise-",
             name_suffix="-ubi",
+            # Third-party image, never pushed to staging.
+            apply_registry_override=False,
         ),
         image_config(
-            image="mongodb-agent", rh_cert_project_id="68e37c471f673a855dfe1a99", name_prefix="", name_suffix=""
+            image="mongodb-agent",
+            rh_cert_project_id="68e37c471f673a855dfe1a99",
+            name_prefix="",
+            name_suffix="",
+            # Third-party image, never pushed to staging.
+            apply_registry_override=False,
         ),
     ]
     images = {k: v for k, v in image_configs}
@@ -207,13 +237,18 @@ def main() -> int:
     parser.add_argument("--image", help="image to run preflight checks on", type=str, required=True)
     parser.add_argument(
         "--submit",
-        help="submit image for certification (true|false)",
+        help="submit image for certification (true|false); overrides preflight_submit env var",
         type=str,
-        required=True,
+        default=None,
     )
     parser.add_argument("--version", help="specific version to check", type=str, default=None)
     args = parser.parse_args()
-    submit = args.submit.lower() == "true"
+    if args.submit is not None:
+        submit = args.submit.lower() == "true"
+    elif os.environ.get("preflight_submit"):
+        submit = os.environ["preflight_submit"].lower() == "true"
+    else:
+        parser.error("--submit is required when the preflight_submit environment variable is not set")
     image_version = os.environ.get("image_version", args.version)
     image_args = args_for_image(args.image)
 

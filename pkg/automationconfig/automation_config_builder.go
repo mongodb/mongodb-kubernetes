@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/blang/semver"
-	"k8s.io/utils/ptr"
 
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versions"
 )
@@ -55,7 +54,7 @@ type Builder struct {
 	memberOptions             []MemberOptions
 	forceReconfigureToVersion *int64
 	replicaSetId              *string
-	settings                  map[string]interface{}
+	settings                  map[string]any
 }
 
 func NewBuilder() *Builder {
@@ -102,11 +101,6 @@ func (b *Builder) SetTLSConfig(tlsConfig TLS) *Builder {
 	return b
 }
 
-func (b *Builder) SetSSLConfig(sslConfig TLS) *Builder {
-	b.sslConfig = &sslConfig
-	return b
-}
-
 func (b *Builder) SetMembers(members int) *Builder {
 	b.members = members
 	return b
@@ -137,19 +131,8 @@ func (b *Builder) SetDataDir(dataDir string) *Builder {
 	return b
 }
 
-// Deprecated: ports should be set via ProcessModification or Modification
-func (b *Builder) SetPort(port int) *Builder {
-	b.port = port
-	return b
-}
-
 func (b *Builder) SetFCV(fcv string) *Builder {
 	b.fcv = fcv
-	return b
-}
-
-func (b *Builder) SetCAFilePath(caFilePath string) *Builder {
-	b.cafilePath = caFilePath
 	return b
 }
 
@@ -175,16 +158,6 @@ func (b *Builder) SetMongoDBVersion(version string) *Builder {
 	return b
 }
 
-func (b *Builder) SetBackupVersions(versions []BackupVersion) *Builder {
-	b.backupVersions = versions
-	return b
-}
-
-func (b *Builder) SetMonitoringVersions(versions []MonitoringVersion) *Builder {
-	b.monitoringVersions = versions
-	return b
-}
-
 func (b *Builder) SetPreviousAutomationConfig(previousAC AutomationConfig) *Builder {
 	b.previousAC = previousAC
 	return b
@@ -195,7 +168,7 @@ func (b *Builder) SetAuth(auth Auth) *Builder {
 	return b
 }
 
-func (b *Builder) SetSettings(settings map[string]interface{}) *Builder {
+func (b *Builder) SetSettings(settings map[string]any) *Builder {
 	b.settings = settings
 	return b
 }
@@ -357,7 +330,7 @@ func (b *Builder) Build() (AutomationConfig, error) {
 		if len(b.memberOptions) > i {
 			// override the member options if explicitly specified in the spec
 			members[i].Votes = b.memberOptions[i].Votes
-			members[i].Priority = ptr.To(b.memberOptions[i].GetPriority())
+			members[i].Priority = new(b.memberOptions[i].GetPriority())
 			members[i].Tags = b.memberOptions[i].Tags
 		}
 	}

@@ -169,7 +169,7 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 	// Useful for tests when the operator is running locally and not in the pod.
 	if mdbSearch.IsReconciliationDisabled() {
 		log.Infof("MongoDBSearch %s/%s reconciliation disabled by %s annotation; skipping",
-			mdbSearch.GetNamespace(), mdbSearch.GetName(), searchv1.DisableReconciliationAnnotation)
+			mdbSearch.GetNamespace(), mdbSearch.GetName(), util.DisableReconciliationAnnotation)
 		return reconcile.Result{}, nil
 	}
 
@@ -228,6 +228,15 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		if nn.Name != "" {
 			r.watch.AddWatchedResourceIfNotAdded(nn.Name, nn.Namespace, watch.Secret, mdbSearch.NamespacedName())
 		}
+	}
+
+	// Watch the user-provided OIDC client secret and IdP CA ConfigMap so rotating either
+	// triggers a reconcile: both are mounted directly, and only a reconcile recomputes their
+	// content hashes to roll the mongot pods (the callback reads idpCaFile once at startup).
+	if mdbSearch.IsOIDCAuth() {
+		oidcClientSecretRef := mdbSearch.Spec.Source.OIDC.ClientSecretRef
+		r.watch.AddWatchedResourceIfNotAdded(oidcClientSecretRef.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.Spec.Source.OIDC.IdPCAConfigMapRef.Name, mdbSearch.Namespace, watch.ConfigMap, mdbSearch.NamespacedName())
 	}
 
 	// The no-op mutation reads the state and, as a side effect, repairs legacy
@@ -479,9 +488,22 @@ func memberMongoDBSearchResourceWatches(r *MongoDBSearchReconciler) []mongoDBSea
 			predicates: searchOwnerPredicates,
 		},
 		{
+			// Referenced user-provided ConfigMaps (e.g. the OIDC IdP CA) carry no
+			// search-owner labels; route them by name through the dependency watcher.
+			obj:     &corev1.ConfigMap{},
+			handler: &watch.ResourcesHandler{ResourceType: watch.ConfigMap, ResourceWatcher: r.watch},
+		},
+		{
 			obj:        &corev1.Secret{},
 			handler:    searchOwnerHandler,
 			predicates: searchOwnerPredicates,
+		},
+		{
+			// Referenced user-provided Secrets (e.g. the OIDC client secret) carry no
+			// search-owner labels, so they route by name through the dependency watcher
+			// and member-cluster rotations reconcile like central ones.
+			obj:     &corev1.Secret{},
+			handler: &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: r.watch},
 		},
 	}
 }

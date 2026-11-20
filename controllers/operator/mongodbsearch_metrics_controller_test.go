@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -134,16 +133,16 @@ type stubOMAgentRequester struct {
 	getOMVersionFn func(projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error)
 }
 
-func (s stubOMAgentRequester) RequestWithAgentAuth(projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
+func (s stubOMAgentRequester) RequestWithAgentAuth(_ context.Context, projectConfig mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
 	return s.fn(projectConfig, method, path, authHeader, body)
 }
 
-func (s stubOMAgentRequester) GetOMVersion(projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
+func (s stubOMAgentRequester) GetOMVersion(_ context.Context, projectConfig mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
 	if s.getOMVersionFn != nil {
 		return s.getOMVersionFn(projectConfig)
 	}
 	// Default: return the minimum supported version so existing tests are unaffected.
-	return versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion}, nil
+	return versionutil.OpsManagerVersion{VersionString: versionutil.MinOTLPMetricsOpsManagerVersion}, nil
 }
 
 // newStubOMAgentRequester returns a requester that resolves the group API to the given groupID and
@@ -154,7 +153,7 @@ func newStubOMAgentRequester(groupID string) stubOMAgentRequester {
 		fn: func(_ mdbv1.ProjectConfig, method, path, _ string, _ any) ([]byte, error) {
 			switch {
 			case method == "GET" && path == "/agents/api/group/v1":
-				return []byte(fmt.Sprintf(`{"groupId":%q}`, groupID)), nil
+				return fmt.Appendf(nil, `{"groupId":%q}`, groupID), nil
 			case method == "POST" && strings.HasSuffix(path, "/v1/delete"):
 				return []byte(`{"results":[]}`), nil
 			default:
@@ -258,10 +257,10 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 		{
 			name: "legacy index left unused: entry deleted",
 			clusters: []searchv1.ClusterSpec{
-				{Name: "cluster-a", Index: ptr.To(int32(1))},
-				{Name: "cluster-b", Index: ptr.To(int32(2))},
+				{Name: "cluster-a", Index: new(int32(1))},
+				{Name: "cluster-b", Index: new(int32(2))},
 			},
-			initialState: clusterTopologyState{ClusterIndex: ptr.To(0)},
+			initialState: clusterTopologyState{ClusterIndex: new(0)},
 			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, legacyDeployment *appsv1.Deployment, deletedHostIDs []string) {
 				assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(legacyDeployment), &appsv1.Deployment{})),
 					"legacy central Deployment must be deleted after the move to named clusters")
@@ -281,10 +280,10 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 		{
 			name: "legacy index 0 renamed to a named cluster: state re-keys, no cleanup",
 			clusters: []searchv1.ClusterSpec{
-				{Name: "cluster-a", Index: ptr.To(int32(0))},
-				{Name: "cluster-b", Index: ptr.To(int32(2))},
+				{Name: "cluster-a", Index: new(int32(0))},
+				{Name: "cluster-b", Index: new(int32(2))},
 			},
-			initialState: clusterTopologyState{ClusterIndex: ptr.To(0), Replicas: 2},
+			initialState: clusterTopologyState{ClusterIndex: new(0), Replicas: 2},
 			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, legacyDeployment *appsv1.Deployment, deletedHostIDs []string) {
 				assert.Empty(t, deletedHostIDs, "index 0 is live under cluster-a: its hosts must not be deregistered")
 				topologyState := getFullTopologyState(t, fakeClient, search)
@@ -302,12 +301,12 @@ func TestReconcileCore_LegacyTopologyStateEntryCleanedAfterMoveToNamedClusters(t
 		{
 			name: "same name at a new index: old index cleaned, new index added",
 			clusters: []searchv1.ClusterSpec{
-				{Name: "cluster-a", Index: ptr.To(int32(7))},
-				{Name: "cluster-b", Index: ptr.To(int32(1))},
+				{Name: "cluster-a", Index: new(int32(7))},
+				{Name: "cluster-b", Index: new(int32(1))},
 			},
 			fullState: &searchTopologyState{Clusters: map[string]clusterTopologyState{
-				"cluster-a": {ClusterIndex: ptr.To(0), Replicas: 2},
-				"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+				"cluster-a": {ClusterIndex: new(0), Replicas: 2},
+				"cluster-b": {ClusterIndex: new(1), Replicas: 1},
 			}},
 			verify: func(t *testing.T, fakeClient client.Client, search *searchv1.MongoDBSearch, oldDeployment *appsv1.Deployment, deletedHostIDs []string) {
 				assert.True(t, apierrors.IsNotFound(fakeClient.Get(t.Context(), client.ObjectKeyFromObject(oldDeployment), &appsv1.Deployment{})),
@@ -424,14 +423,14 @@ func TestMongoDBSearchMetricsDependencyWatchesRouteRotations(t *testing.T) {
 // with no resolvable index is skipped rather than guessed.
 func TestWorkForRemovedClusters_IndexKeyed(t *testing.T) {
 	search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
-	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-c", Index: ptr.To(int32(5))}}
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-c", Index: new(int32(5))}}
 	r, _ := newMetricsForwarderReconciler(testDefaultImage, search)
 
 	topologyState := &searchTopologyState{Clusters: map[string]clusterTopologyState{
-		"":          {ClusterIndex: ptr.To(0), Replicas: 1}, // index 0 unoccupied: cleaned
-		"cluster-a": {Replicas: 1},                          // no persisted index, not in spec: invalid state, skipped
-		"cluster-b": {ClusterIndex: ptr.To(2), Replicas: 1}, // index 2 unoccupied: cleaned
-		"cluster-c": {Replicas: 1},                          // legacy entry resolves to the spec's index 5: live
+		"":          {ClusterIndex: new(0), Replicas: 1}, // index 0 unoccupied: cleaned
+		"cluster-a": {Replicas: 1},                       // no persisted index, not in spec: invalid state, skipped
+		"cluster-b": {ClusterIndex: new(2), Replicas: 1}, // index 2 unoccupied: cleaned
+		"cluster-c": {Replicas: 1},                       // legacy entry resolves to the spec's index 5: live
 	}}
 	normalizeTopologyState(search, topologyState, zap.S())
 
@@ -484,8 +483,8 @@ func TestMetricsForwarderResources_WorkListAndOwnerLocality(t *testing.T) {
 		wantIdx             int
 	}{
 		{name: "local legacy single cluster"},
-		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: ptr.To(int32(0))}}, crossCluster: true},
-		{name: "operator-per-cluster entry keeps pinned index and stays local", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7},
+		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: new(int32(0))}}, crossCluster: true},
+		{name: "operator-per-cluster entry keeps pinned index and stays local", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: new(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -499,7 +498,7 @@ func TestMetricsForwarderResources_WorkListAndOwnerLocality(t *testing.T) {
 				target = memberTarget
 				members = map[string]client.Client{tc.clusters[0].Name: memberTarget}
 			}
-			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, members, tc.operatorClusterName)
+			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, corev1.PullAlways, members, tc.operatorClusterName)
 
 			wl := r.buildClusterWorkList(search)
 			require.Len(t, wl, 1)
@@ -558,7 +557,7 @@ func TestBuildMetricsForwarderPodSpec_CustomResources(t *testing.T) {
 		},
 	}
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	assert.Equal(t, resource.MustParse("200m"), podSpec.Containers[0].Resources.Requests[corev1.ResourceCPU])
 	assert.Equal(t, resource.MustParse("256Mi"), podSpec.Containers[0].Resources.Requests[corev1.ResourceMemory])
@@ -573,7 +572,7 @@ func TestBuildMetricsForwarderPodSpec_Volumes(t *testing.T) {
 	resources := metricsForwarderResourceRequirements(search)
 
 	t.Run("without CA cert", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 		assert.Len(t, podSpec.Volumes, 2)
 		assert.Equal(t, "metrics-forwarder-config", podSpec.Volumes[0].Name)
@@ -588,7 +587,7 @@ func TestBuildMetricsForwarderPodSpec_Volumes(t *testing.T) {
 	})
 
 	t.Run("with CA cert", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "my-ca-cm", 0, testDefaultImage, resources, false)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "my-ca-cm", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 		assert.Len(t, podSpec.Volumes, 3)
 		assert.Equal(t, metricsForwarderCACertVolumeName, podSpec.Volumes[2].Name)
@@ -608,7 +607,7 @@ func TestBuildMetricsForwarderPodSpec_EnvVars(t *testing.T) {
 		},
 	}
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	env := envMap(podSpec.Containers[0].Env)
 
@@ -626,13 +625,13 @@ func TestBuildMetricsForwarderPodSpec_SecurityContext(t *testing.T) {
 	resources := metricsForwarderResourceRequirements(search)
 
 	t.Run("managed security context disabled", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 		assert.NotNil(t, podSpec.SecurityContext)
 		assert.NotNil(t, podSpec.Containers[0].SecurityContext)
 	})
 
 	t.Run("managed security context enabled", func(t *testing.T) {
-		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, true)
+		podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, true)
 		assert.Nil(t, podSpec.SecurityContext)
 		assert.Nil(t, podSpec.Containers[0].SecurityContext)
 	})
@@ -643,7 +642,7 @@ func TestBuildMetricsForwarderPodSpec_ContainerArgs(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
 	}
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	assert.Equal(t, []string{"--config", "/etc/otelcol/config.yaml"}, podSpec.Containers[0].Args)
 }
@@ -713,6 +712,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder(t *testing.T) {
 											{Key: "dedicated", Value: "metrics", Effect: corev1.TaintEffectNoSchedule},
 										},
 										NodeSelector: map[string]string{"node-type": "metrics"},
+										Containers:   []corev1.Container{{Name: "metrics-forwarder", ImagePullPolicy: corev1.PullNever}},
 									},
 								},
 							},
@@ -728,7 +728,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder(t *testing.T) {
 	}
 
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	// Base spec: no tolerations
 	assert.Empty(t, podSpec.Tolerations)
@@ -762,6 +762,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder(t *testing.T) {
 	// Container preserved
 	assert.Len(t, dep.Spec.Template.Spec.Containers, 1)
 	assert.Equal(t, testDefaultImage, dep.Spec.Template.Spec.Containers[0].Image)
+	assert.Equal(t, corev1.PullNever, dep.Spec.Template.Spec.Containers[0].ImagePullPolicy)
 }
 
 func TestDeploymentConfigurationOverride_MetricsForwarder_EnvVars(t *testing.T) {
@@ -799,7 +800,7 @@ func TestDeploymentConfigurationOverride_MetricsForwarder_EnvVars(t *testing.T) 
 	}
 
 	resources := metricsForwarderResourceRequirements(search)
-	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, resources, false)
+	podSpec := buildMetricsForwarderPodSpec(search, "agent-key-secret", "", 0, testDefaultImage, corev1.PullAlways, resources, false)
 
 	// Base spec uses the default BATCH_SIZE and has no custom env.
 	baseEnv := envMap(podSpec.Containers[0].Env)
@@ -838,8 +839,8 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 		wantStateKey        string
 	}{
 		{name: "legacy single cluster"},
-		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: ptr.To(int32(0))}}, crossCluster: true, wantStateKey: "member-a"},
-		{name: "operator-per-cluster", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: ptr.To(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7, wantStateKey: "cluster-b"},
+		{name: "hub member cluster", clusters: []searchv1.ClusterSpec{{Name: "member-a", Index: new(int32(0))}}, crossCluster: true, wantStateKey: "member-a"},
+		{name: "operator-per-cluster", clusters: []searchv1.ClusterSpec{{Name: "cluster-b", Index: new(int32(7))}}, operatorClusterName: "cluster-b", wantIdx: 7, wantStateKey: "cluster-b"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -859,7 +860,7 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 				target = memberTarget
 				members = map[string]client.Client{tc.clusters[0].Name: memberTarget}
 			}
-			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, members, tc.operatorClusterName)
+			r := newMongoDBSearchMetricsForwarderReconciler(central, testDefaultImage, corev1.PullAlways, members, tc.operatorClusterName)
 			r.omRequester = newStubOMAgentRequester(testGroupID)
 			reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 
@@ -869,6 +870,7 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 				Name:      search.MetricsForwarderDeploymentNameForCluster(tc.wantIdx),
 			}, dep))
 			assert.Equal(t, testDefaultImage, dep.Spec.Template.Spec.Containers[0].Image)
+			assert.Equal(t, corev1.PullAlways, dep.Spec.Template.Spec.Containers[0].ImagePullPolicy)
 			assert.Equal(t, "metrics-forwarder", dep.Spec.Template.Spec.Containers[0].Name)
 			if tc.crossCluster {
 				assert.Empty(t, dep.GetOwnerReferences(), "no owner ref across cluster boundaries")
@@ -886,7 +888,8 @@ func TestReconcile_EnterpriseSource_CreatesDeploymentAndConfigMap(t *testing.T) 
 				Namespace: testNamespace,
 				Name:      search.MetricsForwarderConfigMapNameForCluster(tc.wantIdx),
 			}, cm))
-			assert.Contains(t, cm.Data, "config.yaml")
+			assert.Contains(t, cm.Data["config.yaml"], "cumulative_to_delta/latency")
+			assert.NotContains(t, cm.Data["config.yaml"], "cumulativetodelta")
 
 			updatedSearch := getMongoDBSearch(t, central, testNamespace, testSearchName)
 			require.NotNil(t, updatedSearch.Status.MetricsForwarder)
@@ -905,12 +908,12 @@ func TestReconcile_DisabledMode_DeletesResources(t *testing.T) {
 			Mode: searchv1.MetricsForwarderModeDisabled,
 		},
 	}
-	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+	search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(0))}}
 	projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 	stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
 	stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
-		"cluster-a": {ClusterIndex: ptr.To(0)},
-		"cluster-b": {ClusterIndex: ptr.To(1)},
+		"cluster-a": {ClusterIndex: new(0)},
+		"cluster-b": {ClusterIndex: new(1)},
 	}})
 	require.NoError(t, err)
 	stateCM.Data[stateKey] = string(stateJSON)
@@ -1050,7 +1053,7 @@ func TestReconcile_CommunitySource_FinalizerLifecycle(t *testing.T) {
 				search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
 			}
 			if tc.persistedHosts {
-				objects = append(objects, newTestTopologyStateConfigMap(t, search, clusterTopologyState{ClusterIndex: ptr.To(0), Replicas: 1}))
+				objects = append(objects, newTestTopologyStateConfigMap(t, search, clusterTopologyState{ClusterIndex: new(0), Replicas: 1}))
 			}
 			r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, objects...)
 			if tc.deleteSearch {
@@ -1224,8 +1227,8 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
 		search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
 		search.Spec.Clusters = []searchv1.ClusterSpec{
-			{Name: "cluster-a", Index: ptr.To(int32(0))},
-			{Name: "cluster-b", Index: ptr.To(int32(1))},
+			{Name: "cluster-a", Index: new(int32(0))},
+			{Name: "cluster-b", Index: new(int32(1))},
 		}
 		projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
 		agentKeySecret := newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace)
@@ -1272,7 +1275,7 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		require.NoError(t, memberRemoved.Create(context.Background(), removedDep))
 		stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
 		stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
-			"cluster-removed": {ClusterIndex: ptr.To(2)},
+			"cluster-removed": {ClusterIndex: new(2)},
 		}})
 		require.NoError(t, err)
 		stateCM.Data[stateKey] = string(stateJSON)
@@ -1297,7 +1300,7 @@ func TestReconcile_MissingClusterClientSurfacesPending(t *testing.T) {
 		r, fakeClient, search := newFixture(t, map[string]kubernetesClient.Client{"cluster-a": memberA, "cluster-b": memberB})
 		stateCM := newTestTopologyStateConfigMap(t, search, clusterTopologyState{})
 		stateJSON, err := json.Marshal(searchTopologyState{Clusters: map[string]clusterTopologyState{
-			"cluster-gone": {ClusterIndex: ptr.To(2), Replicas: 1},
+			"cluster-gone": {ClusterIndex: new(2), Replicas: 1},
 		}})
 		require.NoError(t, err)
 		stateCM.Data[stateKey] = string(stateJSON)
@@ -1333,10 +1336,10 @@ func TestReconcile_RemovedPerClusterOperatorCleansPersistedTopology(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			mdb := newTestMongoDB(testMDBName, testNamespace, testProjectCMName, testGroupID)
 			search := newTestMongoDBSearch(testSearchName, testNamespace, testMDBName)
-			search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: ptr.To(int32(0))}}
+			search.Spec.Clusters = []searchv1.ClusterSpec{{Name: "cluster-a", Index: new(int32(0))}}
 			stateClusters := map[string]clusterTopologyState{
-				"cluster-a": {ClusterIndex: ptr.To(0)},
-				"cluster-b": {ClusterIndex: ptr.To(1), Replicas: 1},
+				"cluster-a": {ClusterIndex: new(0)},
+				"cluster-b": {ClusterIndex: new(1), Replicas: 1},
 			}
 			search.Finalizers = []string{util.SearchMetricsForwarderFinalizer}
 			projectCM := newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL)
@@ -1644,7 +1647,7 @@ func TestReconcile_ShardedSource_ConfigMapUsesClusterIndex(t *testing.T) {
 					},
 				},
 			},
-			Clusters: []searchv1.ClusterSpec{{Name: "", Index: ptr.To(int32(clusterIndex))}},
+			Clusters: []searchv1.ClusterSpec{{Name: "", Index: new(int32(clusterIndex))}},
 		},
 		Status: searchv1.MongoDBSearchStatus{Version: "1.0.0"},
 	}
@@ -1955,15 +1958,15 @@ type recordingOMAgentRequester struct {
 	gotBody   any
 }
 
-func (r *recordingOMAgentRequester) RequestWithAgentAuth(_ mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
+func (r *recordingOMAgentRequester) RequestWithAgentAuth(_ context.Context, _ mdbv1.ProjectConfig, method, path, authHeader string, body any) ([]byte, error) {
 	r.called++
 	r.gotMethod, r.gotPath, r.gotAuth, r.gotBody = method, path, authHeader, body
 	return r.resp, r.err
 }
 
-func (r *recordingOMAgentRequester) GetOMVersion(_ mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
+func (r *recordingOMAgentRequester) GetOMVersion(_ context.Context, _ mdbv1.ProjectConfig) (versionutil.OpsManagerVersion, error) {
 	// recordingOMAgentRequester is used only for host-deletion tests; return a supported version.
-	return versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion}, nil
+	return versionutil.OpsManagerVersion{VersionString: versionutil.MinOTLPMetricsOpsManagerVersion}, nil
 }
 
 func TestCleanupRemovedMongotPods(t *testing.T) {
@@ -2132,7 +2135,7 @@ func TestMetricsForwarder_OMVersionTooOld_ImplicitConnection(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseUnsupported, updatedSearch.Status.MetricsForwarder.Phase)
-	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, versionutil.MinOTLPMetricsOpsManagerVersion)
 
 	// No Deployment must exist.
 	dep := &appsv1.Deployment{}
@@ -2157,7 +2160,7 @@ func TestMetricsForwarder_OMVersionTooOld_ExplicitConnection(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
-	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, versionutil.MinOTLPMetricsOpsManagerVersion)
 
 	dep := &appsv1.Deployment{}
 	err := fakeClient.Get(context.Background(), types.NamespacedName{Namespace: testNamespace, Name: search.MetricsForwarderDeploymentNameForCluster(0)}, dep)
@@ -2180,7 +2183,7 @@ func TestMetricsForwarder_ExternalSource_OMVersionTooOld(t *testing.T) {
 	updatedSearch := getMongoDBSearch(t, fakeClient, testNamespace, testSearchName)
 	require.NotNil(t, updatedSearch.Status.MetricsForwarder)
 	assert.Equal(t, status.PhaseFailed, updatedSearch.Status.MetricsForwarder.Phase)
-	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, metricsForwarderMinOpsManagerVersion)
+	assert.Contains(t, updatedSearch.Status.MetricsForwarder.Message, versionutil.MinOTLPMetricsOpsManagerVersion)
 }
 
 // TestMetricsForwarder_CloudManager_ImplicitConnection: implicit connection pointing at Cloud Manager.
@@ -2239,7 +2242,7 @@ func TestMetricsForwarder_OMVersionSupported(t *testing.T) {
 
 	r, fakeClient := newMetricsForwarderReconciler(testDefaultImage, mdb, search, projectCM, agentKeySecret)
 	// Default stub already returns 8.0.25; being explicit here for clarity.
-	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: metricsForwarderMinOpsManagerVersion})
+	r.omRequester = newStubOMAgentRequesterWithVersion(testGroupID, versionutil.OpsManagerVersion{VersionString: versionutil.MinOTLPMetricsOpsManagerVersion})
 
 	reconcileMetricsForwarder(t, r, testNamespace, testSearchName)
 

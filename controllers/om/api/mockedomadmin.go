@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -37,7 +38,7 @@ type MockedOmAdmin struct {
 	agentVersion           string
 }
 
-func (a *MockedOmAdmin) UpdateDaemonConfig(config backup.DaemonConfig) error {
+func (a *MockedOmAdmin) UpdateDaemonConfig(ctx context.Context, config backup.DaemonConfig) error {
 	for _, dc := range a.daemonConfigs {
 		if dc.Machine.MachineHostName == config.Machine.HeadRootDirectory {
 			dc.AssignmentEnabled = config.AssignmentEnabled
@@ -80,7 +81,7 @@ func (a *MockedOmAdmin) ReadDaemonConfigs() ([]backup.DaemonConfig, error) {
 	return a.daemonConfigs, nil
 }
 
-func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.DaemonConfig, error) {
+func (a *MockedOmAdmin) ReadDaemonConfig(ctx context.Context, hostName, headDbDir string) (backup.DaemonConfig, error) {
 	for _, v := range a.daemonConfigs {
 		if v.Machine.HeadRootDirectory == headDbDir && v.Machine.MachineHostName == hostName {
 			return v, nil
@@ -89,7 +90,7 @@ func (a *MockedOmAdmin) ReadDaemonConfig(hostName, headDbDir string) (backup.Dae
 	return backup.DaemonConfig{}, apierror.NewErrorWithCode(apierror.BackupDaemonConfigNotFound)
 }
 
-func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string, assignmentLabels []string) error {
+func (a *MockedOmAdmin) CreateDaemonConfig(ctx context.Context, hostName, headDbDir string, assignmentLabels []string) error {
 	config := backup.NewDaemonConfig(hostName, headDbDir, assignmentLabels)
 
 	for _, dConf := range a.daemonConfigs {
@@ -103,7 +104,7 @@ func (a *MockedOmAdmin) CreateDaemonConfig(hostName, headDbDir string, assignmen
 	return nil
 }
 
-func (a *MockedOmAdmin) ReadS3Configs() ([]backup.S3Config, error) {
+func (a *MockedOmAdmin) ReadS3Configs(ctx context.Context) ([]backup.S3Config, error) {
 	allConfigs := make([]backup.S3Config, 0)
 	for _, v := range a.s3Configs {
 		allConfigs = append(allConfigs, v)
@@ -116,7 +117,7 @@ func (a *MockedOmAdmin) ReadS3Configs() ([]backup.S3Config, error) {
 	return allConfigs, nil
 }
 
-func (a *MockedOmAdmin) DeleteS3Config(id string) error {
+func (a *MockedOmAdmin) DeleteS3Config(ctx context.Context, id string) error {
 	if _, ok := a.s3Configs[id]; !ok {
 		return errors.New("failed to remove as the s3 config doesn't exist")
 	}
@@ -124,16 +125,16 @@ func (a *MockedOmAdmin) DeleteS3Config(id string) error {
 	return nil
 }
 
-func (a *MockedOmAdmin) CreateS3Config(s3Config backup.S3Config) error {
+func (a *MockedOmAdmin) CreateS3Config(ctx context.Context, s3Config backup.S3Config) error {
 	a.s3Configs[s3Config.Id] = s3Config
 	return nil
 }
 
-func (a *MockedOmAdmin) UpdateS3Config(s3Config backup.S3Config) error {
-	return a.CreateS3Config(s3Config)
+func (a *MockedOmAdmin) UpdateS3Config(ctx context.Context, s3Config backup.S3Config) error {
+	return a.CreateS3Config(ctx, s3Config)
 }
 
-func (a *MockedOmAdmin) ReadOplogStoreConfigs() ([]backup.DataStoreConfig, error) {
+func (a *MockedOmAdmin) ReadOplogStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error) {
 	allConfigs := make([]backup.DataStoreConfig, 0)
 	for _, v := range a.oplogConfigs {
 		allConfigs = append(allConfigs, v)
@@ -146,19 +147,19 @@ func (a *MockedOmAdmin) ReadOplogStoreConfigs() ([]backup.DataStoreConfig, error
 	return allConfigs, nil
 }
 
-func (a *MockedOmAdmin) CreateOplogStoreConfig(config backup.DataStoreConfig) error {
+func (a *MockedOmAdmin) CreateOplogStoreConfig(ctx context.Context, config backup.DataStoreConfig) error {
 	// Note, that backup API doesn't throw an error if the config already exists - it just updates it
 	a.oplogConfigs[config.Id] = config
 	return nil
 }
 
-func (a *MockedOmAdmin) UpdateOplogStoreConfig(config backup.DataStoreConfig) error {
+func (a *MockedOmAdmin) UpdateOplogStoreConfig(ctx context.Context, config backup.DataStoreConfig) error {
 	a.oplogConfigs[config.Id] = config
 	// OM backup service doesn't throw any errors if the config is not there
 	return nil
 }
 
-func (a *MockedOmAdmin) DeleteOplogStoreConfig(id string) error {
+func (a *MockedOmAdmin) DeleteOplogStoreConfig(ctx context.Context, id string) error {
 	if _, ok := a.oplogConfigs[id]; !ok {
 		return errors.New("failed to remove as the oplog doesn't exist")
 	}
@@ -166,7 +167,7 @@ func (a *MockedOmAdmin) DeleteOplogStoreConfig(id string) error {
 	return nil
 }
 
-func (a *MockedOmAdmin) ReadS3OplogStoreConfigs() ([]backup.S3Config, error) {
+func (a *MockedOmAdmin) ReadS3OplogStoreConfigs(ctx context.Context) ([]backup.S3Config, error) {
 	allConfigs := make([]backup.S3Config, 0)
 	for _, v := range a.s3OpLogConfigs {
 		allConfigs = append(allConfigs, v)
@@ -175,16 +176,16 @@ func (a *MockedOmAdmin) ReadS3OplogStoreConfigs() ([]backup.S3Config, error) {
 	return allConfigs, nil
 }
 
-func (a *MockedOmAdmin) UpdateS3OplogConfig(s3Config backup.S3Config) error {
+func (a *MockedOmAdmin) UpdateS3OplogConfig(ctx context.Context, s3Config backup.S3Config) error {
 	a.s3OpLogConfigs[s3Config.Id] = s3Config
 	return nil
 }
 
-func (a *MockedOmAdmin) CreateS3OplogStoreConfig(s3Config backup.S3Config) error {
-	return a.UpdateS3OplogConfig(s3Config)
+func (a *MockedOmAdmin) CreateS3OplogStoreConfig(ctx context.Context, s3Config backup.S3Config) error {
+	return a.UpdateS3OplogConfig(ctx, s3Config)
 }
 
-func (a *MockedOmAdmin) DeleteS3OplogStoreConfig(id string) error {
+func (a *MockedOmAdmin) DeleteS3OplogStoreConfig(ctx context.Context, id string) error {
 	if _, ok := a.s3OpLogConfigs[id]; !ok {
 		return errors.New("failed to remove as the s3 oplog doesn't exist")
 	}
@@ -192,7 +193,7 @@ func (a *MockedOmAdmin) DeleteS3OplogStoreConfig(id string) error {
 	return nil
 }
 
-func (a *MockedOmAdmin) ReadBlockStoreConfigs() ([]backup.DataStoreConfig, error) {
+func (a *MockedOmAdmin) ReadBlockStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error) {
 	allConfigs := make([]backup.DataStoreConfig, 0)
 	for _, v := range a.blockStoreConfigs {
 		allConfigs = append(allConfigs, v)
@@ -205,18 +206,18 @@ func (a *MockedOmAdmin) ReadBlockStoreConfigs() ([]backup.DataStoreConfig, error
 	return allConfigs, nil
 }
 
-func (a *MockedOmAdmin) CreateBlockStoreConfig(config backup.DataStoreConfig) error {
+func (a *MockedOmAdmin) CreateBlockStoreConfig(ctx context.Context, config backup.DataStoreConfig) error {
 	a.blockStoreConfigs[config.Id] = config
 	return nil
 }
 
-func (a *MockedOmAdmin) UpdateBlockStoreConfig(config backup.DataStoreConfig) error {
+func (a *MockedOmAdmin) UpdateBlockStoreConfig(ctx context.Context, config backup.DataStoreConfig) error {
 	a.blockStoreConfigs[config.Id] = config
 	// OM backup service doesn't throw any errors if the config is not there
 	return nil
 }
 
-func (a *MockedOmAdmin) DeleteBlockStoreConfig(id string) error {
+func (a *MockedOmAdmin) DeleteBlockStoreConfig(ctx context.Context, id string) error {
 	if _, ok := a.blockStoreConfigs[id]; !ok {
 		return errors.New("failed to remove as the block store doesn't exist")
 	}
@@ -224,7 +225,7 @@ func (a *MockedOmAdmin) DeleteBlockStoreConfig(id string) error {
 	return nil
 }
 
-func (a *MockedOmAdmin) ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, error) {
+func (a *MockedOmAdmin) ReadFileSystemStoreConfigs(ctx context.Context) ([]backup.DataStoreConfig, error) {
 	allConfigs := make([]backup.DataStoreConfig, len(a.blockStoreConfigs))
 	for _, v := range a.fileSystemStoreConfigs {
 		allConfigs = append(allConfigs, v)
@@ -232,11 +233,11 @@ func (a *MockedOmAdmin) ReadFileSystemStoreConfigs() ([]backup.DataStoreConfig, 
 	return allConfigs, nil
 }
 
-func (a *MockedOmAdmin) ReadGlobalAPIKeys() ([]Key, error) {
+func (a *MockedOmAdmin) ReadGlobalAPIKeys(ctx context.Context) ([]Key, error) {
 	return a.apiKeys, nil
 }
 
-func (a *MockedOmAdmin) CreateGlobalAPIKey(description string) (Key, error) {
+func (a *MockedOmAdmin) CreateGlobalAPIKey(ctx context.Context, description string) (Key, error) {
 	newKey := Key{
 		Description: description,
 		Roles:       []map[string]string{{"role_name": "GLOBAL_ONWER"}},
@@ -245,7 +246,7 @@ func (a *MockedOmAdmin) CreateGlobalAPIKey(description string) (Key, error) {
 	return newKey, nil
 }
 
-func (a *MockedOmAdmin) ReadOpsManagerVersion() (versionutil.OpsManagerVersion, error) {
+func (a *MockedOmAdmin) ReadOpsManagerVersion(ctx context.Context) (versionutil.OpsManagerVersion, error) {
 	return versionutil.OpsManagerVersion{}, nil
 }
 

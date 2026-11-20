@@ -20,9 +20,9 @@ type args struct {
 	name                             string
 	namespace                        string
 	clusterDomain                    string
-	additionalMongodConfig           map[string]interface{}
-	additionalConnectionStringConfig map[string]interface{}
-	userConnectionStringConfig       map[string]interface{}
+	additionalMongodConfig           map[string]any
+	additionalConnectionStringConfig map[string]any
+	userConnectionStringConfig       map[string]any
 	connectionString                 string
 }
 
@@ -75,7 +75,7 @@ func TestMongoDB_MongoURI(t *testing.T) {
 			name:          "my-rs",
 			namespace:     "my-namespace",
 			clusterDomain: "",
-			additionalMongodConfig: map[string]interface{}{
+			additionalMongodConfig: map[string]any{
 				"net.port": 40333.,
 			},
 			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:40333,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:40333/?replicaSet=my-rs",
@@ -85,7 +85,7 @@ func TestMongoDB_MongoURI(t *testing.T) {
 			name:          "my-rs",
 			namespace:     "my-namespace",
 			clusterDomain: "my.cluster",
-			additionalMongodConfig: map[string]interface{}{
+			additionalMongodConfig: map[string]any{
 				"net.port": 40333.,
 			},
 			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.my.cluster:40333,my-rs-1.my-rs-svc.my-namespace.svc.my.cluster:40333/?replicaSet=my-rs",
@@ -106,14 +106,14 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			members:                          2,
 			name:                             "my-rs",
 			namespace:                        "my-namespace",
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
 			connectionString:                 "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?replicaSet=my-rs&readPreference=primary",
 		},
 		{
 			members:   2,
 			name:      "my-rs",
 			namespace: "my-namespace",
-			additionalConnectionStringConfig: map[string]interface{}{
+			additionalConnectionStringConfig: map[string]any{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
 			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/?replicaSet=my-rs&readPreference=primary",
@@ -122,7 +122,7 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			members:   1,
 			name:      "my-single-rs",
 			namespace: "my-single-namespace",
-			additionalConnectionStringConfig: map[string]interface{}{
+			additionalConnectionStringConfig: map[string]any{
 				"readPreference": "primary",
 			},
 			connectionString: "mongodb://my-single-rs-0.my-single-rs-svc.my-single-namespace.svc.cluster.local:27017/?replicaSet=my-single-rs&readPreference=primary",
@@ -131,7 +131,7 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			members:   5,
 			name:      "my-big-rs",
 			namespace: "my-big-namespace",
-			additionalConnectionStringConfig: map[string]interface{}{
+			additionalConnectionStringConfig: map[string]any{
 				"readPreference": "primary",
 			},
 			connectionString: "mongodb://my-big-rs-0.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-1.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-2.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-3.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017,my-big-rs-4.my-big-rs-svc.my-big-namespace.svc.cluster.local:27017/?replicaSet=my-big-rs&readPreference=primary",
@@ -140,10 +140,10 @@ func TestMongoDB_MongoURI_With_Options(t *testing.T) {
 			members:   2,
 			name:      "my-rs",
 			namespace: "my-namespace",
-			additionalConnectionStringConfig: map[string]interface{}{
+			additionalConnectionStringConfig: map[string]any{
 				"readPreference": "primary",
 			},
-			additionalMongodConfig: map[string]interface{}{
+			additionalMongodConfig: map[string]any{
 				"net.port": 40333.,
 			},
 			connectionString: "mongodb://my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:40333,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:40333/?replicaSet=my-rs&readPreference=primary",
@@ -168,7 +168,7 @@ func TestMongoDB_MongoSRVURI(t *testing.T) {
 
 func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
 	mdb := newReplicaSet(2, "my-rs", "my-namespace")
-	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]interface{}{
+	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]any{
 		"readPreference": "primary",
 	}
 	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
@@ -176,7 +176,7 @@ func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
 	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.my.cluster/?replicaSet=my-rs&readPreference=primary")
 
 	mdb = newReplicaSet(2, "my-rs", "my-namespace")
-	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]interface{}{
+	mdb.Spec.AdditionalConnectionStringConfig.Object = map[string]any{
 		"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 	}
 	assert.Equal(t, mdb.MongoSRVURI(), "mongodb+srv://my-rs-svc.my-namespace.svc.cluster.local/?replicaSet=my-rs&readPreference=primary")
@@ -186,18 +186,18 @@ func TestMongoDB_MongoSRVURI_With_Options(t *testing.T) {
 
 func TestMongodConfiguration(t *testing.T) {
 	mc := rootv1.NewMongodConfiguration()
-	assert.Equal(t, mc.Object, map[string]interface{}{})
+	assert.Equal(t, mc.Object, map[string]any{})
 	assert.Equal(t, mc.GetDBDataDir(), "/data")
 	assert.Equal(t, mc.GetDBPort(), 27017)
 	mc.SetOption("net.port", 40333.)
 	assert.Equal(t, mc.GetDBPort(), 40333)
-	mc.SetOption("storage", map[string]interface{}{"dbPath": "/other/data/path"})
+	mc.SetOption("storage", map[string]any{"dbPath": "/other/data/path"})
 	assert.Equal(t, mc.GetDBDataDir(), "/other/data/path")
-	assert.Equal(t, mc.Object, map[string]interface{}{
-		"net": map[string]interface{}{
+	assert.Equal(t, mc.Object, map[string]any{
+		"net": map[string]any{
 			"port": 40333.,
 		},
-		"storage": map[string]interface{}{
+		"storage": map[string]any{
 			"dbPath": "/other/data/path",
 		},
 	})
@@ -212,11 +212,11 @@ func TestMongodConfigurationWithNestedMapsAfterUnmarshalling(t *testing.T) {
 	`
 	mc := rootv1.NewMongodConfiguration()
 	require.NoError(t, json.Unmarshal([]byte(jsonStr), &mc))
-	assert.Equal(t, map[string]interface{}{
-		"net": map[string]interface{}{
+	assert.Equal(t, map[string]any{
+		"net": map[string]any{
 			"port": 40333.,
 		},
-		"storage": map[string]interface{}{
+		"storage": map[string]any{
 			"dbPath": "/other/data/path",
 		},
 	}, mc.Object)
@@ -365,39 +365,39 @@ func TestMongoDBCommunity_MongoAuthUserURI(t *testing.T) {
 
 	tests := []args{
 		{
-			additionalConnectionStringConfig: map[string]interface{}{},
+			additionalConnectionStringConfig: map[string]any{},
 			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
 			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{
+			additionalConnectionStringConfig: map[string]any{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
 			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			userConnectionStringConfig:       map[string]interface{}{"readPreference": "primary"},
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
+			userConnectionStringConfig:       map[string]any{"readPreference": "primary"},
 			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			userConnectionStringConfig: map[string]interface{}{
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
+			userConnectionStringConfig: map[string]any{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
 			connectionString: "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			userConnectionStringConfig:       map[string]interface{}{"readPreference": "secondary"},
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
+			userConnectionStringConfig:       map[string]any{"readPreference": "secondary"},
 			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&readPreference=secondary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			userConnectionStringConfig:       map[string]interface{}{"retryReads": true},
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
+			userConnectionStringConfig:       map[string]any{"retryReads": true},
 			connectionString:                 "mongodb://testuser:password@my-rs-0.my-rs-svc.my-namespace.svc.cluster.local:27017,my-rs-1.my-rs-svc.my-namespace.svc.cluster.local:27017/admin?replicaSet=my-rs&ssl=false&retryReads=true&readPreference=primary",
 		},
 	}
@@ -432,39 +432,39 @@ func TestMongoDBCommunity_MongoAuthUserSRVURI(t *testing.T) {
 
 	tests := []args{
 		{
-			additionalConnectionStringConfig: map[string]interface{}{},
+			additionalConnectionStringConfig: map[string]any{},
 			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
 			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{
+			additionalConnectionStringConfig: map[string]any{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
 			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			userConnectionStringConfig:       map[string]interface{}{"readPreference": "primary"},
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
+			userConnectionStringConfig:       map[string]any{"readPreference": "primary"},
 			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			userConnectionStringConfig: map[string]interface{}{
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
+			userConnectionStringConfig: map[string]any{
 				"readPreference": "primary", "replicaSet": "differentName", "tls": true, "ssl": true,
 			},
 			connectionString: "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=primary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			userConnectionStringConfig:       map[string]interface{}{"readPreference": "secondary"},
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
+			userConnectionStringConfig:       map[string]any{"readPreference": "secondary"},
 			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&readPreference=secondary",
 		},
 		{
-			additionalConnectionStringConfig: map[string]interface{}{"readPreference": "primary"},
-			userConnectionStringConfig:       map[string]interface{}{"retryReads": true},
+			additionalConnectionStringConfig: map[string]any{"readPreference": "primary"},
+			userConnectionStringConfig:       map[string]any{"retryReads": true},
 			connectionString:                 "mongodb+srv://testuser:password@my-rs-svc.my-namespace.svc.cluster.local/admin?replicaSet=my-rs&ssl=false&retryReads=true&readPreference=primary",
 		},
 	}

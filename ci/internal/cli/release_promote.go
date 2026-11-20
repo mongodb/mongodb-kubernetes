@@ -32,6 +32,7 @@ func newPromoteImageCmd() *cobra.Command {
 		latestMarker string
 		force        bool
 		dryRun       bool
+		allowPartial bool
 	)
 
 	cmd := &cobra.Command{
@@ -46,7 +47,7 @@ newer version has already been promoted), pass a distinct --latest-marker
 (e.g. "latestv1") so the backport doesn't steal the "latest" pointer away
 from the newest promoted version.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return promoteImage(cmd, image, commit, version, registryURL, repo, latestMarker, force, dryRun)
+			return promoteImage(cmd, image, commit, version, registryURL, repo, latestMarker, force, dryRun, allowPartial)
 		},
 	}
 
@@ -58,6 +59,7 @@ from the newest promoted version.`,
 	cmd.Flags().StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable promoted-{marker} pointer tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite the promoted-{commit}-{version} tag even if it already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
+	cmd.Flags().BoolVar(&allowPartial, "allow-partial-signatures", false, "don't fail when child manifest .sig tags are missing")
 
 	MustNotErr(cmd.MarkFlagRequired("image"))
 	MustNotErr(cmd.MarkFlagRequired("commit"))
@@ -75,6 +77,7 @@ func newPromoteImagesCmd() *cobra.Command {
 		latestMarker string
 		force        bool
 		dryRun       bool
+		allowPartial bool
 	)
 
 	cmd := &cobra.Command{
@@ -93,7 +96,7 @@ patching an older release branch after a newer version has already been
 promoted), pass a distinct --latest-marker (e.g. "latestv1") so the backport
 doesn't steal the "latest" pointer away from the newest promoted version.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return promoteAllImages(cmd, buildInfo, releaseJSON, commit, latestMarker, force, dryRun)
+			return promoteAllImages(cmd, buildInfo, releaseJSON, commit, latestMarker, force, dryRun, allowPartial)
 		},
 	}
 
@@ -103,6 +106,7 @@ doesn't steal the "latest" pointer away from the newest promoted version.`,
 	cmd.Flags().StringVar(&latestMarker, "latest-marker", "", "marker used for the mutable promoted-{marker} pointer tag (required; use a distinct value, e.g. \"latestv1\", for backports)")
 	cmd.Flags().BoolVar(&force, "force", false, "promote every image even if any promoted tag already points at a different digest")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would happen without copying any images")
+	cmd.Flags().BoolVar(&allowPartial, "allow-partial-signatures", false, "don't fail when child manifest .sig tags are missing")
 
 	MustNotErr(cmd.MarkFlagRequired("commit"))
 	MustNotErr(cmd.MarkFlagRequired("latest-marker"))
@@ -112,12 +116,12 @@ doesn't steal the "latest" pointer away from the newest promoted version.`,
 
 // promoteAllImages promotes every release image in build_info.json at the given
 // commit, writing promoted tags to each image's primary staging repository.
-func promoteAllImages(cmd *cobra.Command, buildInfo, releaseJSON, commit, latestMarker string, force, dryRun bool) error {
+func promoteAllImages(cmd *cobra.Command, buildInfo, releaseJSON, commit, latestMarker string, force, dryRun, allowPartial bool) error {
 	images, err := release.LoadReleaseImages(buildInfo, releaseJSON)
 	if err != nil {
 		return err
 	}
-	results, err := release.PromoteImages(images, commit, latestMarker, force, dryRun, release.DefaultRegistryConnector)
+	results, err := release.PromoteImages(images, commit, latestMarker, force, dryRun, allowPartial, release.DefaultRegistryConnector)
 	if err != nil {
 		return err
 	}
@@ -138,16 +142,17 @@ func promoteAllImages(cmd *cobra.Command, buildInfo, releaseJSON, commit, latest
 	return nil
 }
 
-func promoteImage(cmd *cobra.Command, image, commit, version, registryURL, repo, latestMarker string, force, dryRun bool) error {
+func promoteImage(cmd *cobra.Command, image, commit, version, registryURL, repo, latestMarker string, force, dryRun, allowPartial bool) error {
 	host := strings.TrimPrefix(strings.TrimPrefix(registryURL, "https://"), "http://")
 	result, err := release.Promote(release.PromoteInputs{
-		Image:        image,
-		Commit:       commit,
-		Version:      version,
-		Repo:         repo,
-		LatestMarker: latestMarker,
-		Force:        force,
-		DryRun:       dryRun,
+		Image:                  image,
+		Commit:                 commit,
+		Version:                version,
+		Repo:                   repo,
+		LatestMarker:           latestMarker,
+		Force:                  force,
+		DryRun:                 dryRun,
+		AllowPartialSignatures: allowPartial,
 	}, host, release.DefaultRegistryConnector(registryURL))
 	if err != nil {
 		return err

@@ -23,7 +23,7 @@ func (m *MockedCluster) GetHTTPClient() *http.Client {
 	panic("implement me")
 }
 
-func (m *MockedCluster) SetFields(interface{}) error {
+func (m *MockedCluster) SetFields(any) error {
 	return nil
 }
 

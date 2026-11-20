@@ -1,6 +1,5 @@
 import base64
 import time
-from typing import List, Optional
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -49,14 +48,14 @@ def generate_csr(namespace: str, host: str, servicename: str):
     )
 
 
-def get_pem_certificate(name: str) -> Optional[bytes]:
+def get_pem_certificate(name: str) -> bytes | None:
     body = client.CertificatesV1Api().read_certificate_signing_request_status(name)
     if body.status.certificate is None:
         return None
     return base64.b64decode(body.status.certificate)
 
 
-def wait_for_certs_to_be_issued(certificates: List[str]) -> None:
+def wait_for_certs_to_be_issued(certificates: list[str]) -> None:
     un_issued_certs = set(certificates)
     while un_issued_certs:
         issued_certs = set()

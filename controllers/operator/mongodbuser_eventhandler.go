@@ -16,7 +16,7 @@ import (
 type MongoDBUserEventHandler struct {
 	*handler.EnqueueRequestForObject
 	reconciler interface {
-		delete(ctx context.Context, obj interface{}, log *zap.SugaredLogger) error
+		delete(ctx context.Context, obj any, log *zap.SugaredLogger) error
 	}
 }
 

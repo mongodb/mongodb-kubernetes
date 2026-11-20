@@ -1,8 +1,17 @@
 from time import sleep
+from typing import Dict, Optional
 
 import boto3
 from botocore.exceptions import ClientError
+from kubetester import random_k8s_name
 from kubetester.kubetester import get_env_var_or_fail
+
+# All e2e buckets share this prefix so they are recognisable as MCK test buckets (and cleaned up by prepare_aws.sh).
+E2E_BUCKET_PREFIX = "mck-e2e-"
+
+
+def e2e_bucket_name(prefix: str) -> str:
+    return random_k8s_name(E2E_BUCKET_PREFIX + prefix)
 
 
 class AwsS3Client:
@@ -15,8 +24,13 @@ class AwsS3Client:
         self.tags = tags
 
     def create_s3_bucket(self, name: str):
-        self.s3_client.create_bucket(ACL="private", Bucket=name)
-        self.update_bucket_tags(name=name, **self.tags)
+        # Tags are passed at creation because bucket creation is denied when required tags are missing.
+        # In us-east-1 the configuration must not contain a LocationConstraint.
+        self.s3_client.create_bucket(
+            ACL="private",
+            Bucket=name,
+            CreateBucketConfiguration={"Tags": [{"Key": k, "Value": v} for k, v in self.tags.items()]},
+        )
 
     def update_bucket_tags(self, name: str, **tags):
         try:
@@ -42,11 +56,35 @@ class AwsS3Client:
                 raise error
 
     def delete_s3_bucket(self, name: str, attempts: int = 10):
-        v = self.s3_client.list_objects_v2(Bucket=name)
-        print(v)
-        if v is not None and "Contents" in v:
-            for x in v["Contents"]:
-                self.s3_client.delete_object(Bucket=name, Key=x["Key"])
+        """Delete an S3 bucket, draining all object versions and delete markers first.
+
+        Versioned and object-lock enabled buckets cannot be deleted while any
+        versions remain, so this drains them (bypassing governance retention
+        where permitted). Warnings are printed instead of raised so that
+        teardown never obscures test results.
+        """
+        # Drain all object versions and delete markers (also covers unversioned
+        # buckets, whose objects appear as a single version).
+        to_delete = []
+        try:
+            paginator = self.s3_client.get_paginator("list_object_versions")
+            for page in paginator.paginate(Bucket=name):
+                for v in page.get("Versions", []):
+                    to_delete.append({"Key": v["Key"], "VersionId": v["VersionId"]})
+                for m in page.get("DeleteMarkers", []):
+                    to_delete.append({"Key": m["Key"], "VersionId": m["VersionId"]})
+
+            for i in range(0, len(to_delete), 1000):
+                self.s3_client.delete_objects(
+                    Bucket=name,
+                    Delete={"Objects": to_delete[i : i + 1000], "Quiet": True},
+                    BypassGovernanceRetention=True,
+                )
+        except ClientError:
+            print(
+                f"Warning: could not fully drain versions of bucket ({name}); "
+                "object-lock retention may prevent deletion"
+            )
 
         while attempts > 0:
             try:
@@ -77,10 +115,14 @@ class AwsS3Client:
     def get_versioning(self, name: str):
         return self.s3_client.get_bucket_versioning(Bucket=name)
 
-    def put_object_lock(self, name: str):
-        self.s3_client.put_object_lock_configuration(
-            Bucket=name, ObjectLockConfiguration={"ObjectLockEnabled": "Enabled"}
-        )
+    def put_object_lock(self, name: str, retention_days: Optional[int] = None, retention_mode: str = "GOVERNANCE"):
+        config: Dict = {"ObjectLockEnabled": "Enabled"}
+        if retention_days is not None:
+            config["Rule"] = {"DefaultRetention": {"Mode": retention_mode, "Days": retention_days}}
+        self.s3_client.put_object_lock_configuration(Bucket=name, ObjectLockConfiguration=config)
+
+    def get_object_lock(self, name: str):
+        return self.s3_client.get_object_lock_configuration(Bucket=name)
 
 
 def s3_endpoint(aws_region: str) -> str:

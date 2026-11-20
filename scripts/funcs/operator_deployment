@@ -30,7 +30,9 @@ get_operator_helm_values() {
     "readinessProbe.version=${READINESS_PROBE_VERSION}"
     "versionUpgradeHook.version=${VERSION_UPGRADE_HOOK_VERSION}"
     "mongodb.name=mongodb-enterprise-server"
+    "mongodb.repo=${MONGODB_REPO_URL}"
     "operator.mdbDefaultArchitecture=${MDB_DEFAULT_ARCHITECTURE:-non-static}"
+    "operator.mdbDefaultImageType=${MDB_DEFAULT_IMAGE_TYPE:-}"
     "operator.enablePVCResize=${MDB_ENABLE_PVC_RESIZE:-true}"
     # only send the telemetry to the backend on a specific variant, thus default to false
     "operator.telemetry.send.enabled=${MDB_OPERATOR_TELEMETRY_SEND_ENABLED:-false}"
@@ -84,6 +86,8 @@ get_operator_helm_values() {
 
   if [[ "${BUILD_WITH_RACE_DETECTION:-}" == "true" ]]; then
     config+=("operator.build=-race")
+    # the race detector multiplies memory usage; the chart's default 1Gi limit gets the operator OOMKilled
+    config+=("operator.resources.limits.memory=4Gi")
   fi
 
   if [[ "${MDB_MAX_CONCURRENT_RECONCILES:-}" != "" ]]; then
@@ -93,6 +97,10 @@ get_operator_helm_values() {
   # change this locally or as changed in variant e2e_operator_race_ubi_with_telemetry which also sends telemetry
   if [[ "${MDB_OPERATOR_TELEMETRY_SEND_BASEURL:-}" != "" ]]; then
     config+=("operator.telemetry.send.baseUrl=${MDB_OPERATOR_TELEMETRY_SEND_BASEURL}")
+  fi
+
+  if [[ "${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY:-}" != "" ]]; then
+    config+=("operator.telemetry.send.frequency=${MDB_OPERATOR_TELEMETRY_SEND_FREQUENCY}")
   fi
 
   if [[ "${MDB_HELM_OPERATOR_WEBHOOK_INSTALL_CLUSTER_ROLE:-}" != "" ]]; then

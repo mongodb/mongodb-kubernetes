@@ -34,9 +34,9 @@ func UpdateStatus(ctx context.Context, kubeClient kubernetesClient.Client, recon
 type emptyPayload struct{}
 
 type patchValue struct {
-	Op    string      `json:"op"`
-	Path  string      `json:"path"`
-	Value interface{} `json:"value"`
+	Op    string `json:"op"`
+	Path  string `json:"path"`
+	Value any    `json:"value"`
 }
 
 // We fetch a fresh version in case any modifications have been made.
@@ -120,13 +120,13 @@ func statusPathAbsent(ctx context.Context, kubeClient kubernetesClient.Client, r
 // document root: a JSON-patch add at "/" would replace the entire status.
 func statusSubresourcePatchPaths(fullPath string) []string {
 	var paths []string
-	prefix := ""
-	for _, part := range strings.Split(fullPath, "/") {
+	var prefix strings.Builder
+	for part := range strings.SplitSeq(fullPath, "/") {
 		if part == "" {
 			continue
 		}
-		prefix += "/" + part
-		paths = append(paths, prefix)
+		prefix.WriteString("/" + part)
+		paths = append(paths, prefix.String())
 	}
 	return paths
 }

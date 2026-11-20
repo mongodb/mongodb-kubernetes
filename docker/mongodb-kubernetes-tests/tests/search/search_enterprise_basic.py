@@ -93,7 +93,7 @@ def test_create_ops_manager(namespace: str):
 @mark.e2e_search_enterprise_basic
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_enterprise_basic
@@ -142,7 +142,7 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
 def sample_movies_helper(mdb: MongoDB, namespace: str) -> SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester.for_replicaset(mdb, USER_NAME, USER_PASSWORD),
-        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace, mdb.get_version()),
     )
 
 

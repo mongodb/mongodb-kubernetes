@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/public_gke_code_snippets"

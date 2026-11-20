@@ -31,6 +31,13 @@ func (f *fakeRegistry) CopyWithTags(srcRef, dstRepo string, tags []string) error
 	return nil
 }
 
+func (f *fakeRegistry) CopySignatures(srcRef, dstRepo string, allowPartialSignatures bool) error {
+	if err := f.fail[srcRef]; err != nil {
+		return err
+	}
+	return nil
+}
+
 func (f *fakeRegistry) ListTags(repo string) ([]string, error) {
 	return nil, errors.New("fakeRegistry.ListTags not implemented")
 }
@@ -54,7 +61,7 @@ func TestPromoteImages(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: "quay.io/staging/mongodb-kubernetes-readinessprobe", Version: "1.0.24"},
 	}
 
-	results, err := PromoteImages(images, "abc1234", "latest", false, false, connect)
+	results, err := PromoteImages(images, "abc1234", "latest", false, false, true, connect)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -108,7 +115,7 @@ func TestPromoteImagesHardFailsOnMissingSource(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: "quay.io/staging/mongodb-kubernetes-readinessprobe", Version: "1.0.24"},
 	}
 
-	_, err := PromoteImages(images, "abc1234", "latest", false, false, connect)
+	_, err := PromoteImages(images, "abc1234", "latest", false, false, true, connect)
 	if err == nil || !strings.Contains(err.Error(), "readiness-probe") {
 		t.Fatalf("expected hard failure mentioning readiness-probe, got %v", err)
 	}
@@ -125,7 +132,7 @@ func TestPromoteImagesUsesShortCommitAsSourceTag(t *testing.T) {
 
 	force := false
 	dryrun := false
-	results, err := PromoteImages(images, fullCommit, "latest", force, dryrun, connect)
+	results, err := PromoteImages(images, fullCommit, "latest", force, dryrun, true, connect)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -157,7 +164,7 @@ func TestPromoteImagesCommitRequired(t *testing.T) {
 		return nil
 	}
 	images := []ReleaseImage{{Name: "operator", StagingRepo: "h/staging/op", Version: "1.9.2"}}
-	_, err := PromoteImages(images, "", "", false, false, connect)
+	_, err := PromoteImages(images, "", "", false, false, true, connect)
 	if err == nil || !strings.Contains(err.Error(), "commit") {
 		t.Fatalf("expected commit error, got %v", err)
 	}
@@ -180,7 +187,7 @@ func TestPromoteImagesRefusesAllOnAnyConflict(t *testing.T) {
 		{Name: "readiness-probe", StagingRepo: rpRepo, Version: "1.0.24"},
 	}
 
-	_, err := PromoteImages(images, "abc1234", "latest", false, false, insecureConnect)
+	_, err := PromoteImages(images, "abc1234", "latest", false, false, true, insecureConnect)
 	if err == nil || !strings.Contains(err.Error(), "readiness-probe") {
 		t.Fatalf("expected conflict error mentioning readiness-probe, got %v", err)
 	}
@@ -189,7 +196,7 @@ func TestPromoteImagesRefusesAllOnAnyConflict(t *testing.T) {
 		t.Error("operator promoted tag should not exist: images must be refused before any writes")
 	}
 
-	results, err := PromoteImages(images, "abc1234", "latest", true, false, insecureConnect)
+	results, err := PromoteImages(images, "abc1234", "latest", true, false, true, insecureConnect)
 	if err != nil {
 		t.Fatalf("force: unexpected error: %v", err)
 	}

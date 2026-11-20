@@ -51,7 +51,7 @@ func (m *MockedManager) Elected() <-chan struct{} {
 
 // SetFields will set any dependencies on an object for which the object has implemented the inject
 // interface - e.g. inject.Client.
-func (m *MockedManager) SetFields(interface{}) error {
+func (m *MockedManager) SetFields(any) error {
 	return nil
 }
 

@@ -12,6 +12,7 @@ This test verifies the sharded Search + managed LB PoC implementation:
 - Imports sample data and shards collections
 - Creates text and vector search indexes
 - Executes search queries through mongos and verifies results from all shards
+- Rotates managed LB certificates sequentially and verifies replacements and search across all shards
 """
 
 import os
@@ -29,6 +30,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import rotate_envoy_certificates
 from tests.common.search.movies_search_helper import EMBEDDING_QUERY_KEY_ENV_VAR, EmbeddedMoviesSearchHelper
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import *
@@ -320,3 +322,13 @@ def test_verify_search_resource_status(mdbs: MongoDBSearch):
     mdbs.assert_lb_status()
 
     logger.info(f"✓ MongoDBSearch {mdbs.name} is in Running phase")
+
+
+@mark.e2e_search_sharded_internal_mongodb_multi_mongot_managed_lb
+def test_rotate_lb_certificates_restarts_envoy(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
+    rotate_envoy_certificates(namespace, MDBS_RESOURCE_NAME, MDBS_TLS_CERT_PREFIX)
+    mdbs.assert_reaches_phase(Phase.Running, timeout=300)
+    mdbs.assert_lb_status()
+    search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
+    verify_text_search_query(search_tester)
+    verify_search_results_from_all_shards(search_tester)

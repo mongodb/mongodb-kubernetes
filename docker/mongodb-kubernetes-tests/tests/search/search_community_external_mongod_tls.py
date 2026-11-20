@@ -157,7 +157,7 @@ def test_wait_for_community_resource_ready(mdbc: MongoDBCommunity):
 def sample_movies_helper(mdbc: MongoDBCommunity, issuer_ca_filepath: str, namespace: str) -> SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester.for_replicaset(mdbc, USER_NAME, USER_PASSWORD, use_ssl=True, ca_path=issuer_ca_filepath),
-        tools_pod=mongodb_tools_pod.get_tools_pod(namespace),
+        tools_pod=mongodb_tools_pod.get_tools_pod(namespace, mdbc.get_version()),
     )
 
 

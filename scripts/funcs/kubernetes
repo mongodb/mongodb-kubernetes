@@ -254,6 +254,13 @@ reset_namespace() {
 
   echo "Removing CSRs"
   kubectl --context "${context}" delete "$(kubectl get csr -o name | grep "${NAMESPACE}")" &> /dev/null || true
+
+  # The cluster-scoped ValidatingWebhookConfiguration is created by the operator at runtime. Neither
+  # namespace deletion nor helm uninstall removes it. Tests overriding the webhook name (e.g. shared OpenShift
+  # clusters running tests in parallel) need it to be deleted explicitly.
+  if [[ -n "${MDB_WEBHOOK_NAME:-}" ]]; then
+    kubectl --context "${context}" delete validatingwebhookconfiguration "${MDB_WEBHOOK_NAME}" --wait=false || true
+  fi
 }
 
 delete_kind_network() {

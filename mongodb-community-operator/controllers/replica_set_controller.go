@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -235,6 +236,12 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 			withPendingPhase(10))
 	}
 
+	if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
+		return status.Update(ctx, r.client.Status(), &mdb, statusOptions().
+			withMessage(Error, fmt.Sprintf("Error updating connection string secrets: %s", err)).
+			withFailedPhase())
+	}
+
 	res, err := status.Update(ctx, r.client.Status(), &mdb, statusOptions().
 		withMongoURI(mdb.MongoURI()). // nolint:forbidigo
 		withMongoDBMembers(mdb.AutomationConfigMembersThisReconciliation()).
@@ -249,14 +256,10 @@ func (r ReplicaSetReconciler) Reconcile(ctx context.Context, request reconcile.R
 		return res, err
 	}
 
-	if err := r.updateConnectionStringSecrets(ctx, mdb); err != nil { // nolint:forbidigo
-		r.log.Errorf("Could not update connection string secrets: %s", err)
-	}
-
 	if lastAppliedSpec != nil {
 		r.cleanupScramSecrets(ctx, mdb.Spec, *lastAppliedSpec, mdb.Namespace)
 		r.cleanupPemSecret(ctx, mdb.Spec, *lastAppliedSpec, mdb.Namespace)
-		r.cleanupConnectionStringSecrets(ctx, mdb.Spec, *lastAppliedSpec, mdb.Namespace, mdb.Name)
+		r.cleanupConnectionStringSecrets(ctx, mdb, *lastAppliedSpec)
 	}
 
 	if err := r.updateLastSuccessfulConfiguration(ctx, mdb); err != nil {
@@ -543,7 +546,7 @@ func buildAutomationConfig(mdb mdbv1.MongoDBCommunity, isEnterprise bool, auth a
 		arbitersCount = mdb.Status.CurrentMongoDBArbiters
 	}
 
-	var acOverrideSettings map[string]interface{}
+	var acOverrideSettings map[string]any
 	var acReplicaSetId *string
 	if mdb.Spec.AutomationConfigOverride != nil {
 		acOverrideSettings = mdb.Spec.AutomationConfigOverride.ReplicaSet.Settings.Object
@@ -716,8 +719,9 @@ func (r ReplicaSetReconciler) buildAutomationConfig(ctx context.Context, mdb mdb
 	// for the mongod automation config.
 	if len(searchList.Items) == 1 {
 		searchSource := searchcontroller.NewCommunityResourceSearchSource(&mdb)
-		if searchSource.Validate() == nil {
-			search = &searchList.Items[0]
+		searchCandidate := &searchList.Items[0]
+		if searchSource.Validate() == nil && searchcontroller.ValidateSearchSourceAuth(searchCandidate, searchSource) == nil {
+			search = searchCandidate
 		}
 	}
 
@@ -841,10 +845,8 @@ func getMongoDBImage(repoUrl, mongodbImage, mongodbImageType, version string) st
 		repoUrl = strings.TrimRight(repoUrl, "/")
 	}
 	mongoImageName := mongodbImage
-	for _, officialUrl := range util.OfficialMongodbRepoUrls {
-		if repoUrl == officialUrl {
-			return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
-		}
+	if slices.Contains(util.OfficialMongodbRepoUrls, repoUrl) {
+		return fmt.Sprintf("%s/%s:%s-%s", repoUrl, mongoImageName, version, mongodbImageType)
 	}
 
 	// This is the old images backwards compatibility code path.

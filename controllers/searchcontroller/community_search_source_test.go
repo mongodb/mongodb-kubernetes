@@ -77,7 +77,9 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 			authModes:   []mdbcv1.AuthMode{"SCRAM-SHA-256"},
 			expectError: false,
 		},
-		// Authentication mode tests - empty/nil cases
+		// Authentication mode tests - empty/nil cases. The SCRAM-mode requirement moved to the
+		// reconcile-level validator (validateSCRAMAuthSource): the adapter cannot see the search
+		// resource's auth mode, and an OIDC-auth search needs no SCRAM on the source.
 		{
 			name:        "Empty auth modes",
 			version:     "8.2.0",
@@ -91,11 +93,10 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:           "X509 mode only",
-			version:        "8.2.0",
-			authModes:      []mdbcv1.AuthMode{"X509"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			name:        "X509 mode only",
+			version:     "8.2.0",
+			authModes:   []mdbcv1.AuthMode{"X509"},
+			expectError: false,
 		},
 		{
 			name:        "X509 and SCRAM",
@@ -116,11 +117,10 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:           "Multiple non-SCRAM modes",
-			version:        "8.2.0",
-			authModes:      []mdbcv1.AuthMode{"PLAIN", "X509"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			name:        "Multiple non-SCRAM modes",
+			version:     "8.2.0",
+			authModes:   []mdbcv1.AuthMode{"PLAIN", "X509"},
+			expectError: false,
 		},
 		// SCRAM variant tests
 		{
@@ -162,11 +162,10 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 		},
 		// Edge case tests
 		{
-			name:           "PLAIN only",
-			version:        "8.2.0",
-			authModes:      []mdbcv1.AuthMode{"PLAIN"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			name:        "PLAIN only",
+			version:     "8.2.0",
+			authModes:   []mdbcv1.AuthMode{"PLAIN"},
+			expectError: false,
 		},
 		// Combined validation tests
 		{
@@ -177,11 +176,10 @@ func TestCommunitySearchSource_Validate(t *testing.T) {
 			expectedErrMsg: "MongoDB version must be 8.2.0 or higher",
 		},
 		{
-			name:           "Valid version with invalid auth",
-			version:        "8.2.0",
-			authModes:      []mdbcv1.AuthMode{"X509"},
-			expectError:    true,
-			expectedErrMsg: "MongoDBSearch requires SCRAM authentication to be enabled",
+			name:        "Valid version with non-SCRAM auth",
+			version:     "8.2.0",
+			authModes:   []mdbcv1.AuthMode{"X509"},
+			expectError: false,
 		},
 		{
 			name:           "Invalid version with invalid auth",

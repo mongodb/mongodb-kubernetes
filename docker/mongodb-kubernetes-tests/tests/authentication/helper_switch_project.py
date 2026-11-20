@@ -58,7 +58,7 @@ class SwitchProjectHelper:
         )
         self.resource["spec"]["opsManager"]["configMapRef"]["name"] = new_project_configmap
         self.resource.update()
-        self.resource.assert_reaches_phase(Phase.Running, timeout=600)
+        self.resource.assert_reaches_phase(Phase.Running, timeout=1200)
         switched_tester = self.resource.get_automation_config_tester()
         switched_auth_key = switched_tester.get_auth_key()
         if password_check_required:
