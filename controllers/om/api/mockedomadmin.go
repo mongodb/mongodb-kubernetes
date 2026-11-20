@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
@@ -37,9 +38,9 @@ type MockedOmAdmin struct {
 	fileSystemStoreConfigs map[string]backup.DataStoreConfig
 	apiKeys                []Key
 	agentVersion           string
-	LicenseState           any
-	LicenseReadState       any
-	LicenseRecomputedState any
+	LicenseState           LicenseView
+	LicenseReadState       *LicenseView
+	LicenseRecomputedState *LicenseView
 	InstalledLicense       json.RawMessage
 	ReleasedIDs            []string
 	LicenseReceipt         string
@@ -277,9 +278,9 @@ func (a *MockedOmAdmin) ReadLicenseState(_ context.Context) (LicenseView, error)
 		return LicenseView{}, a.LicenseReadErr
 	}
 	if a.LicenseReadState != nil {
-		return unmarshalMockLicenseState(a.LicenseReadState)
+		return copyLicenseView(*a.LicenseReadState), nil
 	}
-	return unmarshalMockLicenseState(a.LicenseState)
+	return copyLicenseView(a.LicenseState), nil
 }
 
 func (a *MockedOmAdmin) InstallLicense(_ context.Context, rawArtifact json.RawMessage) (LicenseView, error) {
@@ -288,29 +289,20 @@ func (a *MockedOmAdmin) InstallLicense(_ context.Context, rawArtifact json.RawMe
 	}
 	a.InstalledLicense = rawArtifact
 	if artifactID, err := ArtifactIDFromRaw(string(rawArtifact)); err == nil {
-		state, err := unmarshalMockLicenseState(a.LicenseState)
-		if err != nil {
-			return LicenseView{}, err
-		}
+		state := copyLicenseView(a.LicenseState)
 		if _, listed := state.Artifact(artifactID); !listed {
-			state.Licenses = append(state.Licenses, LicenseArtifactView{
-				ArtifactID: artifactID,
-				Usable:     true,
-				Status:     "ACTIVE",
-			})
+			state.Licenses = append(state.Licenses, LicenseArtifactView{ArtifactID: artifactID, Usable: true, Status: "ACTIVE"})
 		}
-		for i, license := range state.Licenses {
-			if license.ArtifactID != artifactID && license.Status != LicenseArtifactReleased {
-				state.Licenses[i].Status = LicenseArtifactReleased
-				state.Licenses[i].Usable = false
-				state.Licenses[i].TermEnd = ""
+		for i := range state.Licenses {
+			if state.Licenses[i].ArtifactID != artifactID {
+				markReleased(&state.Licenses[i])
 			}
 		}
 		a.LicenseState = state
 	}
 	// After a PUT, reads see the state OM returned for it.
 	a.LicenseReadState = nil
-	return unmarshalMockLicenseState(a.LicenseState)
+	return copyLicenseView(a.LicenseState), nil
 }
 
 func (a *MockedOmAdmin) RecomputeLicense(ctx context.Context) (LicenseView, error) {
@@ -324,72 +316,32 @@ func (a *MockedOmAdmin) RecomputeLicense(ctx context.Context) (LicenseView, erro
 }
 
 func (a *MockedOmAdmin) ReleaseLicense(_ context.Context, artifactID string) (LicenseView, error) {
-	held, err := unmarshalMockLicenseState(a.LicenseState)
-	if err != nil {
-		return LicenseView{}, err
-	}
-	if _, listed := held.Artifact(artifactID); !listed {
+	state := copyLicenseView(a.LicenseState)
+	if _, listed := state.Artifact(artifactID); !listed {
 		notFound := 404
-		return LicenseView{}, &apierror.Error{
-			Status: &notFound,
-			Detail: fmt.Sprintf("Ops Manager does not hold license %s", artifactID),
-		}
+		return LicenseView{}, &apierror.Error{Status: &notFound, Detail: fmt.Sprintf("Ops Manager does not hold license %s", artifactID)}
 	}
 	a.ReleasedIDs = append(a.ReleasedIDs, artifactID)
-	raw, err := marshalMockLicenseState(a.LicenseState)
-	if err != nil {
-		return LicenseView{}, err
-	}
-	var state map[string]any
-	if err := json.Unmarshal(raw, &state); err != nil {
-		return LicenseView{}, err
-	}
-	if licenses, ok := state["licenses"].([]any); ok {
-		for i, license := range licenses {
-			licenseMap, ok := license.(map[string]any)
-			if !ok || licenseMap["artifactId"] != artifactID {
-				continue
-			}
-			licenseMap["status"] = LicenseArtifactReleased
-			licenseMap["usable"] = false
-			licenseMap["termEnd"] = nil
-			licenses[i] = licenseMap
+	for i := range state.Licenses {
+		if state.Licenses[i].ArtifactID == artifactID {
+			markReleased(&state.Licenses[i])
 		}
-		state["licenses"] = licenses
 	}
-	raw, err = json.Marshal(state)
-	if err != nil {
-		return LicenseView{}, err
-	}
-	a.LicenseState = raw
+	a.LicenseState = state
 	a.LicenseReadState = nil
-	var response LicenseView
-	if err := json.Unmarshal(raw, &response); err != nil {
-		return LicenseView{}, err
-	}
-	return response, nil
+	return copyLicenseView(state), nil
 }
 
-func marshalMockLicenseState(state any) (json.RawMessage, error) {
-	if state == nil {
-		return json.RawMessage(`{}`), nil
-	}
-	if raw, ok := state.(json.RawMessage); ok {
-		return append(json.RawMessage(nil), raw...), nil
-	}
-	return json.Marshal(state)
+func markReleased(license *LicenseArtifactView) {
+	license.Status = LicenseArtifactReleased
+	license.Usable = false
+	license.TermEnd = ""
 }
 
-func unmarshalMockLicenseState(state any) (LicenseView, error) {
-	raw, err := marshalMockLicenseState(state)
-	if err != nil {
-		return LicenseView{}, err
-	}
-	var response LicenseView
-	if err := json.Unmarshal(raw, &response); err != nil {
-		return LicenseView{}, err
-	}
-	return response, nil
+// copyLicenseView copies the licenses, so a test keeps its own view when the mock changes the state.
+func copyLicenseView(view LicenseView) LicenseView {
+	view.Licenses = slices.Clone(view.Licenses)
+	return view
 }
 
 func (a *MockedOmAdmin) ReadLicenseReceipt(_ context.Context, artifactID string) (string, error) {
