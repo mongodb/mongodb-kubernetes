@@ -529,6 +529,77 @@ func TestDatabaseStatefulSet_StaticContainersEnvVars(t *testing.T) {
 	}
 }
 
+func TestDatabaseStatefulSet_StaticGAInfraRevisionEnvVar(t *testing.T) {
+	expectedInfraRevisionEnvVar := corev1.EnvVar{
+		Name: util.InfraRevisionEnv,
+		ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['controller-revision-hash']"},
+		},
+	}
+
+	tests := []struct {
+		name                           string
+		defaultArchitecture            architectures.DefaultArchitecture
+		annotations                    map[string]string
+		expectedAgentInfraRevisionEnvs []corev1.EnvVar
+	}{
+		{
+			name:                           "annotation static-ga",
+			defaultArchitecture:            architectures.NonStatic,
+			annotations:                    map[string]string{architectures.ArchitectureAnnotation: string(architectures.StaticGA)},
+			expectedAgentInfraRevisionEnvs: []corev1.EnvVar{expectedInfraRevisionEnvVar},
+		},
+		{
+			name:                           "operator default static-ga",
+			defaultArchitecture:            architectures.StaticGA,
+			expectedAgentInfraRevisionEnvs: []corev1.EnvVar{expectedInfraRevisionEnvVar},
+		},
+		{
+			name:                "annotation static",
+			defaultArchitecture: architectures.NonStatic,
+			annotations:         map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)},
+		},
+		{
+			name:                "annotation non-static",
+			defaultArchitecture: architectures.Static,
+			annotations:         map[string]string{architectures.ArchitectureAnnotation: string(architectures.NonStatic)},
+		},
+		{
+			name:                "operator default non-static",
+			defaultArchitecture: architectures.NonStatic,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mdb := mdbv1.NewReplicaSetBuilder().SetAnnotations(tt.annotations).Build()
+			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(tt.defaultArchitecture)), zap.S())
+
+			agentIdx := slices.IndexFunc(sts.Spec.Template.Spec.Containers, func(container corev1.Container) bool {
+				return container.Name == util.AgentContainerName
+			})
+			if len(tt.expectedAgentInfraRevisionEnvs) > 0 {
+				require.NotEqual(t, -1, agentIdx)
+			}
+
+			for i, container := range sts.Spec.Template.Spec.Containers {
+				infraRevisionEnvs := envVarsNamed(container.Env, util.InfraRevisionEnv)
+				if i == agentIdx {
+					assert.ElementsMatch(t, tt.expectedAgentInfraRevisionEnvs, infraRevisionEnvs)
+					continue
+				}
+				assert.Empty(t, infraRevisionEnvs, "container %q must not get %s", container.Name, util.InfraRevisionEnv)
+			}
+		})
+	}
+}
+
+func envVarsNamed(envVars []corev1.EnvVar, name string) []corev1.EnvVar {
+	return slices.DeleteFunc(slices.Clone(envVars), func(envVar corev1.EnvVar) bool {
+		return envVar.Name != name
+	})
+}
+
 func TestShardedOptionsResolveExternalAccessPerTier(t *testing.T) {
 	perTierConfigSrv := &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("config.example.com")}
 	topLevel := &mdbv1.ExternalAccessConfiguration{ExternalDomain: new("top.example.com")}

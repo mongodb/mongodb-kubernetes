@@ -1015,9 +1015,20 @@ func logConfigurationToEnvVars(parameters mdbv1.StartupParameters, additionalMon
 
 func staticContainersEnvVars(mdb databaseStatefulSetSource, defaultArchitecture architectures.DefaultArchitecture) []corev1.EnvVar {
 	var envVars []corev1.EnvVar
+
 	if architectures.IsRunningStaticArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
 		envVars = append(envVars, corev1.EnvVar{Name: "MDB_STATIC_CONTAINERS_ARCHITECTURE", Value: "true"})
 	}
+
+	if architectures.IsRunningStaticGAArchitecture(mdb.GetAnnotations(), defaultArchitecture) {
+		envVars = append(envVars, corev1.EnvVar{
+			Name: util.InfraRevisionEnv,
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.labels['controller-revision-hash']"},
+			},
+		})
+	}
+
 	return envVars
 }
 
