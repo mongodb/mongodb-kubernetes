@@ -77,6 +77,11 @@ class ManagedCertificateNames:
         accessor = getattr(ops_manager, "app_db_name", None)
         return cls(ops_manager.name, accessor() if callable(accessor) else None)
 
+    @classmethod
+    def for_app_db(cls, app_db_name: str) -> "ManagedCertificateNames":
+        """The AppDB-side names for an external AppDB that no Ops Manager owns."""
+        return cls(om_name=app_db_name, captured_app_db_name=app_db_name)
+
     @property
     def app_db_name(self) -> str:
         # Direct construction, and duck-typed callers without the accessor, keep the documented suffix.
@@ -504,7 +509,7 @@ def customer_ca_issuer(namespace: str, name: str) -> str:
 
     self_signed_issuer = Issuer(name=self_signed_issuer_name, namespace=namespace)
     self_signed_issuer["spec"] = {"selfSigned": {}}
-    self_signed_issuer.create()
+    self_signed_issuer.update()
     _wait_for_ready(self_signed_issuer, self_signed_issuer_name)
 
     ca_certificate = Certificate(name=ca_certificate_name, namespace=namespace)
@@ -516,12 +521,12 @@ def customer_ca_issuer(namespace: str, name: str) -> str:
         "issuerRef": {"name": self_signed_issuer_name, "kind": "Issuer"},
         "usages": CUSTOMER_CA_USAGES,
     }
-    ca_certificate.create()
+    ca_certificate.update()
     _wait_for_ready(ca_certificate, ca_certificate_name)
 
     ca_issuer = Issuer(name=name, namespace=namespace)
     ca_issuer["spec"] = {"ca": {"secretName": ca_certificate_name}}
-    ca_issuer.create()
+    ca_issuer.update()
     _wait_for_ready(ca_issuer, name)
 
     return name

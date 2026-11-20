@@ -751,11 +751,8 @@ func opsManagerCertificateSANs(opsManager *omv1.MongoDBOpsManager) ([]string, []
 }
 
 func (r *OpsManagerReconciler) ensureAppDBCertAndCA(ctx context.Context, opsManager *omv1.MongoDBOpsManager, log *zap.SugaredLogger) componentCertificateResult {
-	// Multi-cluster and referenced AppDBs are not part of the single-cluster managed-certificate
-	// scope; they stay on their existing lifecycle instead of receiving single-cluster SANs.
 	enabled := opsManager.IsInternalAppDB() &&
 		opsManager.Spec.AppDB != nil &&
-		!opsManager.Spec.AppDB.IsMultiCluster() &&
 		opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled()
 	if !r.certManagerReadiness.Ready {
 		return r.managedCertificateGateResult(mdbstatus.AppDb, certs.OpsManagerPruneTargetAppDB, enabled)
@@ -765,9 +762,13 @@ func (r *OpsManagerReconciler) ensureAppDBCertAndCA(ctx context.Context, opsMana
 		return componentCertificateResult{part: mdbstatus.AppDb, pruneTarget: certs.OpsManagerPruneTargetAppDB, status: workflow.OK()}
 	}
 
-	owned, err := r.appDBStatefulSetReadyForManagedCertificates(ctx, opsManager)
+	helper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, r.memberClustersMap, log)
+	owned := false
+	if err == nil {
+		owned, err = r.appDBStatefulSetReadyForManagedCertificates(ctx, opsManager, helper)
+	}
 	if err != nil {
-		message := fmt.Sprintf("Failed to read AppDB StatefulSet %s before preparing its operator-managed certificates: %s", opsManager.Spec.AppDB.Name(), err)
+		message := fmt.Sprintf("Failed to prepare AppDB %s operator-managed certificates: %s", opsManager.Spec.AppDB.Name(), err)
 		condition := certs.IssuanceFailedCondition(message)
 		return componentCertificateResult{
 			part:        mdbstatus.AppDb,
@@ -783,29 +784,33 @@ func (r *OpsManagerReconciler) ensureAppDBCertAndCA(ctx context.Context, opsMana
 		return componentCertificateResult{part: mdbstatus.AppDb, pruneTarget: certs.OpsManagerPruneTargetAppDB, status: workflow.OK()}
 	}
 
-	opts := certs.AppDBManagedCertConfig(opsManager)
+	opts := helper.managedCertificateOptions(opsManager)
 	status, condition, pruneApplied := certs.EnsureAppDBCertificatesAndCA(ctx, r.client, opsManager, []certs.Options{opts}, log)
 	return componentCertificateResult{part: mdbstatus.AppDb, pruneTarget: certs.OpsManagerPruneTargetAppDB, status: status, condition: &condition, managed: true, pruneApplied: pruneApplied}
 }
 
-// appDBStatefulSetReadyForManagedCertificates reports whether the AppDB StatefulSet is absent or
-// already owned by this Ops Manager, based on the current ownership labels or a legacy owner
-// reference. It never mutates the StatefulSet.
-func (r *OpsManagerReconciler) appDBStatefulSetReadyForManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (bool, error) {
-	appDBStatefulSet := &appsv1.StatefulSet{}
-	err := r.client.Get(ctx, kube.ObjectKey(opsManager.Namespace, opsManager.Spec.AppDB.Name()), appDBStatefulSet)
-	if apiErrors.IsNotFound(err) {
-		return true, nil
-	}
-	if err != nil {
-		return false, err
-	}
+// Preparation never claims StatefulSets or issues into another controller's certificate lifecycle.
+func (r *OpsManagerReconciler) appDBStatefulSetReadyForManagedCertificates(ctx context.Context, opsManager *omv1.MongoDBOpsManager, helper *AppDBReconcilerHelper) (bool, error) {
+	for _, memberCluster := range helper.GetHealthyMemberClusters() {
+		appDBStatefulSet := &appsv1.StatefulSet{}
+		err := memberCluster.Client.Get(ctx, opsManager.AppDBStatefulSetObjectKey(memberCluster.Index), appDBStatefulSet)
+		if apiErrors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
 
-	ownershipLabels := util.GetOwnershipLabels(appDBStatefulSet.Labels)
-	if len(ownershipLabels) == 0 {
-		return statefulset.IsOwnedBy(appDBStatefulSet, opsManager), nil
+		ownershipLabels := util.GetOwnershipLabels(appDBStatefulSet.Labels)
+		if len(ownershipLabels) == 0 {
+			if !statefulset.IsOwnedBy(appDBStatefulSet, opsManager) {
+				return false, nil
+			}
+		} else if ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] != opsManager.GetName() {
+			return false, nil
+		}
 	}
-	return ownershipLabels[util.MongoDBOpsManagerResourceOwnerLabel] == opsManager.GetName(), nil
+	return true, nil
 }
 
 func (r *OpsManagerReconciler) managedCertificateGateResult(part mdbstatus.Part, pruneTarget string, enabled bool) componentCertificateResult {
@@ -1735,7 +1740,13 @@ func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Conte
 	if r.VaultClient != nil {
 		opsManagerSecretPath = r.VaultClient.OpsManagerSecretPath()
 	}
-	secretMap, err := r.ReadSecret(ctx, objectKey, opsManagerSecretPath)
+	var source corev1.Secret
+	var err error
+	if vault.IsVaultSecretBackend() {
+		source.Data, err = r.ReadBinarySecret(ctx, objectKey, opsManagerSecretPath)
+	} else {
+		source, err = r.client.GetSecret(ctx, objectKey)
+	}
 	if err != nil {
 		return xerrors.Errorf("failed to read secret %s: %w", secretName, err)
 	}
@@ -1744,10 +1755,16 @@ func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Conte
 		SetName(objectKey.Name).
 		SetNamespace(objectKey.Namespace).
 		SetLabels(map[string]string{}).
-		SetStringMapToData(secretMap).
+		SetByteData(source.Data).
 		Build()
 
 	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
+		// Never write a member copy back onto the source, including during certificate renewal.
+		if source.UID != "" {
+			if existing, err := memberCluster.Client.GetSecret(ctx, objectKey); err == nil && existing.UID == source.UID {
+				continue
+			}
+		}
 		if err := memberCluster.SecretClient.PutSecretIfChanged(ctx, newSecret, opsManagerSecretPath); err != nil {
 			return xerrors.Errorf("error replicating secret %v to cluster %s: %w", objectKey, memberCluster.Name, err)
 		}
@@ -1802,6 +1819,13 @@ func (r *OpsManagerReconciler) replicateAppDBTLSCAInMemberClusters(ctx context.C
 		return nil
 	}
 
+	// With operator-managed certificates the AppDB reconciler publishes the bundle and replicates it
+	// to the member clusters. Copying it here too would give every member object two writers that can
+	// race on a rotation.
+	if opsManager := reconcileHelper.opsManager; opsManager.Spec.AppDB != nil && opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() {
+		return nil
+	}
+
 	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, appDBConfig.CAConfigMapName)
 }
 
@@ -1819,7 +1843,7 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 	}
 
 	configMapNSName := types.NamespacedName{Name: configMapName, Namespace: namespace}
-	caConfigMapData, err := configmap.ReadData(ctx, r.client, configMapNSName)
+	source, err := r.client.GetConfigMap(ctx, configMapNSName)
 	if err != nil {
 		return xerrors.Errorf("failed to read config map %+v from central cluster: %w", configMapNSName, err)
 	}
@@ -1828,10 +1852,28 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 		SetLabels(reconcileHelper.opsManager.GetOwnerLabels()).
 		SetName(configMapNSName.Name).
 		SetNamespace(configMapNSName.Namespace).
-		SetData(caConfigMapData).
+		SetData(source.Data).
 		Build()
 
 	for _, memberCluster := range reconcileHelper.getHealthyMemberClusters() {
+		existing, err := memberCluster.Client.GetConfigMap(ctx, configMapNSName)
+		if err != nil && !apiErrors.IsNotFound(err) {
+			return xerrors.Errorf("failed to read config map %+v in cluster %s: %w", configMapNSName, memberCluster.Name, err)
+		}
+		if err == nil {
+			// The central cluster can also be a member, so this copy may be the source itself. Don't overwrite
+			// it: an external AppDB's managed CA bundle is owned by the database, and the write would drop its
+			// owner reference or revert a CA rotation.
+			if source.UID != "" && existing.UID == source.UID {
+				continue
+			}
+			// An external multi-cluster AppDB publishes its managed CA bundle into the member clusters too.
+			// That copy belongs to the database, which keeps it current and removes it on deletion; writing
+			// it here would replace its labels and make the two controllers fight over the same object.
+			if existing.Labels[util.ManagedCertificateOwnerUIDLabel] != "" {
+				continue
+			}
+		}
 		if err := configmap.CreateOrUpdate(ctx, memberCluster.Client, caConfigMap); err != nil && !apiErrors.IsAlreadyExists(err) {
 			return xerrors.Errorf("failed to create or update config map %+v in cluster %s: %w", configMapNSName, memberCluster.Name, err)
 		}

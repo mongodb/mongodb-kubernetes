@@ -1372,6 +1372,14 @@ func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, 
 	}
 
 	caConfigMapName := construct.CAConfigMapName(*om.Spec.AppDB, log)
+	if appDBSpec.GetSecurity().IsManagedCertificateEnabled() {
+		var targets []certs.MemberClusterTarget
+		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
+			targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
+		}
+		return certs.ReplicateManagedCABundlesToMemberClusters(ctx, r.client, appDBSpec.Namespace,
+			[]string{caConfigMapName}, targets, appDBSpec.GetOwnerLabels(), log)
+	}
 
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(appDBSpec.Namespace, caConfigMapName))
 	if err != nil {
@@ -1398,6 +1406,14 @@ func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Contex
 	}
 
 	caConfigMapName := podVars.SSLMMSCAConfigMap
+	if om.IsManagedCertificateEnabled() {
+		var targets []certs.MemberClusterTarget
+		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
+			targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
+		}
+		return certs.ReplicateManagedCABundlesToMemberClusters(ctx, r.client, appDBSpec.Namespace,
+			[]string{caConfigMapName}, targets, appDBSpec.GetOwnerLabels(), log)
+	}
 
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(appDBSpec.Namespace, caConfigMapName))
 	if err != nil {
@@ -1452,8 +1468,8 @@ func (r *ReconcileAppDbReplicaSet) getExistingAutomationConfig(ctx context.Conte
 // appDBCAFilePath returns the CA file path configured for AppDB mongod and its monitoring agent.
 // With operator-managed certificates the trust bundle is published under its content hash: mongod
 // reads CAFile only at startup and the agent restarts it when the automation config changes, so
-// pointing at the hash-keyed file makes a widened or rotated bundle take effect. Non-managed and
-// multi-cluster AppDBs keep the fixed ca-pem path.
+// pointing at the hash-keyed file makes a widened or rotated bundle take effect. Non-managed AppDBs
+// keep the fixed ca-pem path.
 func (r *ReconcileAppDbReplicaSet) appDBCAFilePath(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
 	caHash, err := r.managedAppDBCABundleHash(ctx, opsManager)
 	if err != nil || caHash == "" {
@@ -1464,9 +1480,9 @@ func (r *ReconcileAppDbReplicaSet) appDBCAFilePath(ctx context.Context, opsManag
 }
 
 // managedAppDBCABundleHash returns the hash of the published operator-managed AppDB CA bundle, or
-// "" when the AppDB does not use operator-managed certificates (non-managed or multi-cluster AppDB).
+// "" when the AppDB does not use operator-managed certificates.
 func (r *ReconcileAppDbReplicaSet) managedAppDBCABundleHash(ctx context.Context, opsManager *omv1.MongoDBOpsManager) (string, error) {
-	if !opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() || opsManager.Spec.AppDB.IsMultiCluster() {
+	if !opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() {
 		return "", nil
 	}
 
@@ -2534,6 +2550,24 @@ func (r *ReconcileAppDbReplicaSet) allAgentsReachedGoalStateSingleCluster(ctx co
 
 func (r *AppDBReconcilerHelper) getAllMemberClusters() []multicluster.MemberCluster {
 	return r.memberClusters
+}
+
+func (r *AppDBReconcilerHelper) managedCertificateOptions(om *omv1.MongoDBOpsManager) certs.Options {
+	opts := certs.AppDBManagedCertConfig(om)
+	for _, memberCluster := range r.getAllMemberClusters() {
+		if memberCluster.Legacy {
+			continue
+		}
+		scaler := scalers.GetAppDBScaler(om, memberCluster.Name, memberCluster.Index, r.memberClusters)
+		opts.MultiClusterMembers = append(opts.MultiClusterMembers, certs.MemberCluster{
+			ClusterNum:     memberCluster.Index,
+			ClusterName:    memberCluster.Name,
+			Members:        max(scaler.CurrentReplicas(), scaler.TargetReplicas()),
+			ExternalDomain: om.Spec.AppDB.GetExternalDomainForMemberCluster(memberCluster.Name),
+		})
+	}
+	opts.Topology = om.Spec.AppDB.Topology
+	return opts
 }
 
 func (r *AppDBReconcilerHelper) GetHealthyMemberClusters() []multicluster.MemberCluster {

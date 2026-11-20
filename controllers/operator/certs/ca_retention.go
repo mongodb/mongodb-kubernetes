@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/xerrors"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -159,8 +160,12 @@ func ensureHashedCABundleConfigMap(
 		data[aliasKey] = bundle
 	}
 
+	ownerReferences := certificateOwnerReferences(res)
 	publishedAt, publishedAtIsNew := caBundlePublishedAt(existing, hash)
-	if existing != nil && maps.Equal(existingData, data) && !publishedAtIsNew {
+	// A matching bundle is still rewritten when its owner changed, so that a resource taking over
+	// an existing managed graph (for example, from an Ops Manager AppDB) also adopts its CA bundles.
+	if existing != nil && maps.Equal(existingData, data) && !publishedAtIsNew &&
+		equality.Semantic.DeepEqual(existing.OwnerReferences, ownerReferences) {
 		return nil
 	}
 
@@ -173,7 +178,7 @@ func ensureHashedCABundleConfigMap(
 	cm := configmap.Builder().
 		SetName(name).
 		SetNamespace(res.GetNamespace()).
-		SetOwnerReferences(certificateOwnerReferences(res)).
+		SetOwnerReferences(ownerReferences).
 		SetData(data).
 		SetAnnotations(annotations).
 		Build()

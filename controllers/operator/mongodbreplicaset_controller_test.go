@@ -27,6 +27,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	mdbmultiv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -2515,6 +2516,57 @@ func TestValidateAppDBForwardMigration(t *testing.T) {
 			require.False(t, validationStatus.IsOK())
 			assert.Equal(t, status.PhaseFailed, validationStatus.Phase())
 			assert.Equal(t, tt.expectedError, statusMessage(validationStatus))
+		})
+	}
+}
+
+func TestAppDBManagedForwardMigrationValidation(t *testing.T) {
+	testManagedAppDBForwardMigrationValidation(t, false)
+}
+
+func TestAppDBManagedForwardMigrationValidationMultiCluster(t *testing.T) {
+	testManagedAppDBForwardMigrationValidation(t, true)
+}
+
+func testManagedAppDBForwardMigrationValidation(t *testing.T, multi bool) {
+	t.Helper()
+	for _, tt := range []struct {
+		name, mountedCA string
+		members         int
+		managed, wantOK bool
+	}{
+		{name: "matching managed configuration", mountedCA: "example-db-managed-server-ca-bundle", members: 3, managed: true, wantOK: true},
+		{name: "different CA", mountedCA: "different-ca", members: 3, managed: true},
+		{name: "member change", mountedCA: "example-db-managed-server-ca-bundle", members: 5, managed: true},
+		{name: "TLS disabled", mountedCA: "example-db-managed-server-ca-bundle", members: 3},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			mdb := DefaultReplicaSetBuilder().SetName("example-db").SetRole(mdbv1.RoleAppDB).SetMembers(tt.members).Build()
+			mdb.Spec.Security = &mdbv1.Security{}
+			if tt.managed {
+				mdb.Spec.Security.ManagedCertificate = &mdbv1.ManagedCertificate{}
+			}
+			sts := DefaultStatefulSetBuilder().SetName("example-db").SetReplicas(3).
+				SetAnnotations(map[string]string{util.AppDBMigrationReadyAnnotation: "true"}).
+				SetVolumes([]corev1.Volume{
+					{Name: util.SecretVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "example-db-managed-cert-pem"}}},
+					{Name: tls.ConfigMapVolumeCAName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: tt.mountedCA}}}},
+				}).Build()
+			before := sts.DeepCopy()
+			reconciler, c, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+			require.NoError(t, c.CreateSecret(ctx, secret.Builder().SetName("example-db-managed-cert-pem").SetNamespace(mdb.Namespace).SetField("active", "pem").Build()))
+			var result workflow.Status
+			if multi {
+				mrs := &mdbmultiv1.MongoDBMultiCluster{ObjectMeta: mdb.ObjectMeta}
+				mrs.Spec.DbCommonSpec = mdb.Spec.DbCommonSpec
+				result = (&ReconcileMongoDbMultiReplicaSet{}).validateAppDBForwardMigration(ctx, mrs, mdbv1.ClusterSpecItem{Members: tt.members}, sts, reconciler.SecretClient, zap.S())
+			} else {
+				helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+				result = helper.validateAppDBForwardMigration(ctx, mdb, sts)
+			}
+			assert.Equal(t, tt.wantOK, result.IsOK(), statusMessage(result))
+			assert.Equal(t, before, &sts, "validation must not mutate the StatefulSet")
 		})
 	}
 }
