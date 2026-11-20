@@ -1007,6 +1007,7 @@ func createOMAPIKeySecret(ctx context.Context, t *testing.T, secretClient secret
 		SetNamespace(operatorNamespace()).
 		SetName(APIKeySecretName).
 		SetStringMapToData(data).
+		SetLabels(map[string]string{omv1.OpsManagerNamespaceLabel: opsManager.Namespace}).
 		Build()
 
 	err = secretClient.CreateSecret(ctx, apiKeySecret)
