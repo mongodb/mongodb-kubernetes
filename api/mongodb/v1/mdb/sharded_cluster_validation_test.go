@@ -64,6 +64,34 @@ func TestMandatorySingleClusterFieldsAreSpecified_WaivedDuringMigration(t *testi
 	require.NoError(t, err)
 }
 
+func TestShardOverridesPodTemplateIsIgnoredInSingleCluster(t *testing.T) {
+	expectedWarning := status.Warning("In Single Cluster topology, spec.shardOverrides.podSpec.podTemplate field is ignored. Use instead: spec.shardOverrides.statefulSet.spec.template")
+
+	scSingle := NewDefaultShardedClusterBuilder().
+		SetName("foo").
+		SetShardOverrides([]ShardOverride{{
+			ShardNames: []string{"foo-0"},
+			PodSpec: &MongoDbPodSpec{
+				PodTemplateWrapper: v1.PodTemplateSpecWrapper{PodTemplate: &corev1.PodTemplateSpec{}},
+			},
+		}}).
+		Build()
+	_, err := validator.ValidateCreate(ctx, scSingle)
+	require.NoError(t, err)
+	assert.Contains(t, scSingle.Status.Warnings, expectedWarning)
+
+	scSinglePersistenceOnly := NewDefaultShardedClusterBuilder().
+		SetName("foo").
+		SetShardOverrides([]ShardOverride{{
+			ShardNames: []string{"foo-0"},
+			PodSpec:    &MongoDbPodSpec{Persistence: &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "30Gi"}}},
+		}}).
+		Build()
+	_, err = validator.ValidateCreate(ctx, scSinglePersistenceOnly)
+	require.NoError(t, err)
+	assert.NotContains(t, scSinglePersistenceOnly.Status.Warnings, expectedWarning)
+}
+
 func TestShardOverridesAreCorrect(t *testing.T) {
 	intPointer := new(3)
 	resourceName := "foo"

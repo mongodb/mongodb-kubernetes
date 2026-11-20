@@ -19,6 +19,7 @@ from tests.multicluster_shardedcluster import (
     validate_shard_configurations_in_ac,
     validate_shard_configurations_in_ac_multi,
 )
+from tests.shardedcluster.conftest import get_member_cluster_clients_using_cluster_mapping
 
 logger = test_logger.get_test_logger(__name__)
 
@@ -79,6 +80,21 @@ class TestShardedClusterShardOverrides:
             expected_single = build_expected_statefulsets(sc)
             validate_correct_sts_in_cluster(expected_single, namespace, "__default", central_cluster_client)
 
+    def test_assert_shard_persistence(self, sc: MongoDB):
+        logger.info("Validating shard volume claim templates")
+        shard_storage = expected_shard_storage(sc)
+        for cluster_member_client in get_member_cluster_clients_using_cluster_mapping(sc.name, sc.namespace):
+            for shard_idx, storage in shard_storage.items():
+                if is_multi_cluster() and not shard_has_members_in_cluster(
+                    sc, shard_idx, cluster_member_client.cluster_name
+                ):
+                    continue
+                sts_name = sc.shard_statefulset_name(shard_idx, cluster_member_client.cluster_index)
+                sts = cluster_member_client.read_namespaced_stateful_set(sts_name, sc.namespace)
+                data_claim = next(c for c in sts.spec.volume_claim_templates if c.metadata.name == "data")
+                actual = data_claim.spec.resources.requests["storage"]
+                assert actual == storage, f"StatefulSet {sts_name}: expected storage {storage}, got {actual}"
+
     def test_scale_shard_overrides(self, sc: MongoDB):
         if is_multi_cluster():
             # Override for shards 0 and 1
@@ -133,3 +149,26 @@ class TestShardedClusterShardOverrides:
         else:
             expected_single = build_expected_statefulsets(sc)
             validate_correct_sts_in_cluster(expected_single, namespace, "__default", central_cluster_client)
+
+
+def expected_shard_storage(sc: MongoDB) -> dict[int, str]:
+    """Returns the expected data volume size per shard index. An override without persistence keeps the
+    shardPodSpec persistence, an override with persistence replaces it."""
+    default_storage = sc["spec"]["shardPodSpec"]["persistence"]["single"]["storage"]
+    storage = {shard_idx: default_storage for shard_idx in range(sc["spec"]["shardCount"])}
+    for override in sc["spec"].get("shardOverrides", []):
+        persistence = (override.get("podSpec") or {}).get("persistence")
+        if not persistence:
+            continue
+        for shard_name in override["shardNames"]:
+            storage[int(shard_name.rsplit("-", 1)[1])] = persistence["single"]["storage"]
+    return storage
+
+
+def shard_has_members_in_cluster(sc: MongoDB, shard_idx: int, cluster_name: str) -> bool:
+    shard_name = f"{sc.name}-{shard_idx}"
+    cluster_spec_list = sc["spec"]["shard"]["clusterSpecList"]
+    for override in sc["spec"].get("shardOverrides", []):
+        if shard_name in override["shardNames"] and override.get("clusterSpecList"):
+            cluster_spec_list = override["clusterSpecList"]
+    return any(c["clusterName"] == cluster_name and c.get("members", 0) > 0 for c in cluster_spec_list)
