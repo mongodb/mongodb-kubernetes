@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+source "${script_dir}/variables/om_dev"
+
+export KUBE_ENVIRONMENT_NAME=kind
+
+export CUSTOM_MDB_VERSION=8.0.6
+export CUSTOM_MDB_PREV_VERSION=7.0.18
+
+export CUSTOM_APPDB_VERSION=8.0.6-ent
+export TEST_MODE=opsmanager
+
+# The image is in the registry of the build scenario, the dev ECR repo for patches,
+# where build_om_dev_image pushed it.
+export OPS_MANAGER_REGISTRY="${REGISTRY}"
