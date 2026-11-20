@@ -11,20 +11,21 @@ const (
 	ConditionLicenseManaged = "LicenseManaged"
 )
 
-// Reasons of LicenseReady. LicenseStateUnknown is used while Ops Manager has not reported a
-// license state, or reports one the operator does not recognize.
+// Reasons of LicenseReady. Unknown is used while Ops Manager has not reported a license state, or
+// reports one the operator does not recognize.
 const (
-	ReasonLicenseReady        = "LicenseReady"
-	ReasonLicenseNotReady     = "LicenseNotReady"
-	ReasonLicenseStateUnknown = "LicenseStateUnknown"
+	ReasonLicenseActive   = "Active"
+	ReasonLicenseInactive = "Inactive"
+	ReasonLicenseUnknown  = "Unknown"
 )
 
-// Reasons of LicenseManaged. NotManaged covers a license Ops Manager rejected as outdated and a
-// failed license reconcile, and the message names which.
+// Reasons of LicenseManaged. Rejected means Ops Manager refused the license from secretRef as
+// outdated, Failed means the license reconcile failed.
 const (
-	ReasonLicenseManaged     = "LicenseManaged"
-	ReasonLicenseNotProvided = "LicenseNotProvided"
-	ReasonLicenseNotManaged  = "LicenseNotManaged"
+	ReasonLicenseManaged     = "Managed"
+	ReasonLicenseNotProvided = "NotProvided"
+	ReasonLicenseRejected    = "Rejected"
+	ReasonLicenseFailed      = "Failed"
 )
 
 func LicenseReadyCondition(status metav1.ConditionStatus, reason, message string) metav1.Condition {
