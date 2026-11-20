@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -36,6 +38,8 @@ type LicenseReconcilerHelper struct {
 	installedSecretRef   string
 	observed             *api.LicenseView
 	holderID             string
+	// receiptLicenseSecrets maps each listed released artifact to its license Secret.
+	receiptLicenseSecrets map[string]string
 }
 
 func (r *OpsManagerReconciler) newLicenseReconcilerHelper(ctx context.Context, opsManager *omv1.MongoDBOpsManager, omAdmin api.OpsManagerAdmin, log *zap.SugaredLogger) (*LicenseReconcilerHelper, error) {
@@ -269,7 +273,14 @@ func (h *LicenseReconcilerHelper) reconcileReleaseReceipts(ctx context.Context, 
 		receipts = append(receipts, releasedID)
 	}
 	for _, artifactID := range receipts {
-		secretName := releaseReceiptSecretName(artifactID)
+		licenseSecretName, listed := h.receiptLicenseSecrets[artifactID]
+		if !listed {
+			licenseSecretName = h.lastInstallSecretRef
+		}
+		secretName := releaseReceiptSecretName(licenseSecretName, artifactID)
+		if errs := validation.IsDNS1123Subdomain(secretName); len(errs) > 0 {
+			return licenseFailed(xerrors.Errorf("release receipt secret name %s is not valid: %s", secretName, strings.Join(errs, ", ")))
+		}
 		h.reconciler.resourceWatcher.AddWatchedResourceIfNotAdded(secretName, h.opsManager.Namespace, watch.Secret, kube.ObjectKeyFromApiObject(h.opsManager))
 		existing, err := h.reconciler.client.GetSecret(ctx, kube.ObjectKey(h.opsManager.Namespace, secretName))
 		if err != nil && !secret.SecretNotExist(err) {
@@ -392,6 +403,7 @@ func (h *LicenseReconcilerHelper) releaseInstalledLicense(ctx context.Context) (
 func (h *LicenseReconcilerHelper) resolveReleasedLicenses(ctx context.Context) ([]string, workflow.Status) {
 	entries := h.opsManager.Spec.License.GetReleasedLicenses()
 	receipts := make([]string, 0, len(entries))
+	h.receiptLicenseSecrets = make(map[string]string, len(entries))
 	for _, entry := range entries {
 		artifactID, st := h.receiptArtifactID(ctx, entry)
 		if !st.IsOK() {
@@ -401,6 +413,7 @@ func (h *LicenseReconcilerHelper) resolveReleasedLicenses(ctx context.Context) (
 			return nil, licenseFailed(xerrors.Errorf("releasedLicenses entries resolve to the same artifact id %s", artifactID))
 		}
 		receipts = append(receipts, artifactID)
+		h.receiptLicenseSecrets[artifactID] = entry.SecretRef.Name
 	}
 	return receipts, workflow.OK()
 }
@@ -442,6 +455,11 @@ func (h *LicenseReconcilerHelper) createReleaseReceiptSecret(ctx context.Context
 		Build())
 }
 
-func releaseReceiptSecretName(artifactID string) string {
-	return artifactID + "-release-receipt"
+// releaseReceiptSecretName names the receipt after the license Secret and the artifact, or after
+// the artifact alone when the license Secret is not known.
+func releaseReceiptSecretName(licenseSecretName, artifactID string) string {
+	if licenseSecretName == "" {
+		return artifactID + "-release-receipt"
+	}
+	return licenseSecretName + "-" + artifactID + "-release-receipt"
 }

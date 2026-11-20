@@ -537,12 +537,12 @@ func TestEnsureOpsManagerLicense_ReceiptAddedAfterRelease(t *testing.T) {
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
 	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
 
-	receiptSecret := emptyReceiptSecret(testOm, "art-1-release-receipt")
+	receiptSecret := emptyReceiptSecret(testOm, "om-license-art-1-release-receipt")
 	require.NoError(t, r.client.Create(context.Background(), &receiptSecret))
 	testOm.Spec.License.ReleasedLicenses = []omv1.ReleasedLicense{releasedLicense("om-license")}
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
 	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "om-license-art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 }
 
@@ -558,12 +558,12 @@ func TestEnsureOpsManagerLicense_LostReceiptIsWrittenAgain(t *testing.T) {
 	}
 
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "old-license-art-1-release-receipt")
 	delete(got.Data, util.DefaultOpsManagerReleaseReceiptKey)
 	require.NoError(t, r.client.Update(context.Background(), &got))
 
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
-	got = getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got = getLicenseReceiptSecret(t, r, testOm, "old-license-art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 	assert.Empty(t, admin.ReleasedIDs)
 }
@@ -574,7 +574,7 @@ func TestEnsureOpsManagerLicense_ReceiptSecretIsRebuilt(t *testing.T) {
 		ReleasedLicenses: []omv1.ReleasedLicense{releasedLicense("old-license")},
 	}
 	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
-	receiptSecret := licenseSecretFor(testOm, "art-1-release-receipt", "note", "customer note")
+	receiptSecret := licenseSecretFor(testOm, "old-license-art-1-release-receipt", "note", "customer note")
 	receiptSecret.Labels = map[string]string{"team": "licensing"}
 	r := newOmLicenseReconciler(t, testOm, &oldLicense, &receiptSecret)
 
@@ -582,7 +582,7 @@ func TestEnsureOpsManagerLicense_ReceiptSecretIsRebuilt(t *testing.T) {
 		LicenseState: viewWithLicenses("", releasedArtifactView("art-1")),
 	}
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "old-license-art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 	assert.NotContains(t, got.Data, "note")
 	assert.Empty(t, got.Labels)
@@ -594,7 +594,7 @@ func TestEnsureOpsManagerLicense_WrittenReceiptSkipsOpsManager(t *testing.T) {
 		ReleasedLicenses: []omv1.ReleasedLicense{releasedLicense("old-license")},
 	}
 	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
-	receipt := licenseSecretFor(testOm, "art-1-release-receipt", util.DefaultOpsManagerReleaseReceiptKey, `{"artifactId":"art-1"}`)
+	receipt := licenseSecretFor(testOm, "old-license-art-1-release-receipt", util.DefaultOpsManagerReleaseReceiptKey, `{"artifactId":"art-1"}`)
 	r := newOmLicenseReconciler(t, testOm, &oldLicense, &receipt)
 	admin := &api.MockedOmAdmin{
 		LicenseState:      viewWithLicenses("LICENSED", artifactView("art-1")),
@@ -619,9 +619,9 @@ func TestEnsureOpsManagerLicense_ReceiptFetchedOnlyOnce(t *testing.T) {
 	for range 5 {
 		assert.True(t, ensureLicense(r, testOm, admin).IsOK())
 	}
-	assert.Contains(t, r.resourceWatcher.GetWatchedResources(), getWatch(testOm.Namespace, "art-1-release-receipt", watch.Secret))
+	assert.Contains(t, r.resourceWatcher.GetWatchedResources(), getWatch(testOm.Namespace, "old-license-art-1-release-receipt", watch.Secret))
 
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "old-license-art-1-release-receipt")
 	delete(got.Data, util.DefaultOpsManagerReleaseReceiptKey)
 	require.NoError(t, r.client.Update(context.Background(), &got))
 	for range 3 {
@@ -723,7 +723,7 @@ func TestEnsureOpsManagerLicense_RenewalWritesReceiptOfReplacedArtifact(t *testi
 	assert.Empty(t, admin.ReleasedIDs)
 	assert.Equal(t, json.RawMessage(newArtifact), admin.InstalledLicense)
 
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "old-license-art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 }
 
@@ -740,7 +740,7 @@ func TestEnsureOpsManagerLicense_WritesReceiptForReleasedArtifactRow(t *testing.
 	}
 
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "old-license-art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 }
 
@@ -761,12 +761,12 @@ func TestEnsureOpsManagerLicense_ReceiptPendingWhileOpsManagerHoldsArtifact(t *t
 	assert.Contains(t, testOm.Status.OpsManagerStatus.Warnings, status.Warning(
 		"Ops Manager still holds license art-ea, its release receipt is written once it is released",
 	))
-	err := r.client.Get(context.Background(), client.ObjectKey{Namespace: testOm.Namespace, Name: "art-ea-release-receipt"}, &corev1.Secret{})
+	err := r.client.Get(context.Background(), client.ObjectKey{Namespace: testOm.Namespace, Name: "ea-license-art-ea-release-receipt"}, &corev1.Secret{})
 	assert.True(t, apiErrors.IsNotFound(err))
 
 	admin.LicenseReadState = &api.LicenseView{Licenses: []api.LicenseArtifactView{releasedArtifactView("art-ea")}}
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
-	got := getLicenseReceiptSecret(t, r, testOm, "art-ea-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "ea-license-art-ea-release-receipt")
 	assert.Contains(t, got.Data, util.DefaultOpsManagerReleaseReceiptKey)
 	assert.Empty(t, admin.ReleasedIDs)
 }
@@ -888,7 +888,7 @@ func TestEnsureOpsManagerLicense_MissingReceiptSecretIsCreated(t *testing.T) {
 	}
 
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "old-license-art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 	assertNotOwnedByOperator(t, got)
 }
@@ -932,7 +932,7 @@ func TestEnsureOpsManagerLicense_AutoReceiptsWriteReleaseReceipt(t *testing.T) {
 	testOm.Spec.License.SecretRef = nil
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
 	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "om-license-art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 	assert.Empty(t, got.OwnerReferences)
 }
@@ -966,7 +966,7 @@ func TestEnsureOpsManagerLicense_AutoReceiptFailureKeepsMarkersForRetry(t *testi
 	admin.LicenseState = viewWithLicenses("GRACE", releasedArtifactView("art-1"))
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
 	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "om-license-art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 }
 
@@ -991,6 +991,7 @@ func TestEnsureOpsManagerLicense_AutoReceiptsWriteRenewalReceipt(t *testing.T) {
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
 	assert.Empty(t, admin.ReleasedIDs)
 	assert.Equal(t, json.RawMessage(newArtifact), admin.InstalledLicense)
+	// Nothing recorded the Secret art-1 came from, so the receipt is named after the artifact alone.
 	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 }
@@ -1009,7 +1010,7 @@ func TestEnsureOpsManagerLicense_AutoReceiptsOffByDefault(t *testing.T) {
 	}
 
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
-	err := r.client.Get(context.Background(), client.ObjectKey{Namespace: testOm.Namespace, Name: "art-1-release-receipt"}, &corev1.Secret{})
+	err := r.client.Get(context.Background(), client.ObjectKey{Namespace: testOm.Namespace, Name: "om-license-art-1-release-receipt"}, &corev1.Secret{})
 	assert.True(t, apiErrors.IsNotFound(err))
 }
 
@@ -1035,7 +1036,7 @@ func TestEnsureOpsManagerLicense_ReleaseReceiptReadFailureIsRetried(t *testing.T
 	admin.LicenseState = viewWithLicenses("GRACE", releasedArtifactView("art-1"))
 	assert.True(t, ensureLicense(r, testOm, admin).IsOK())
 	assert.Equal(t, []string{"art-1"}, admin.ReleasedIDs)
-	got := getLicenseReceiptSecret(t, r, testOm, "art-1-release-receipt")
+	got := getLicenseReceiptSecret(t, r, testOm, "om-license-art-1-release-receipt")
 	assert.Equal(t, `{"artifactId":"art-1"}`, string(got.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 }
 
@@ -1117,7 +1118,7 @@ func TestEnsureOpsManagerLicense_ReceiptCheckReadsKubernetes(t *testing.T) {
 	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{ReleasedLicenses: []omv1.ReleasedLicense{releasedLicense("old-license")}}
 	oldLicense := licenseSecretFor(testOm, "old-license", "license", licenseArtifactJSON("art-1"))
 	written := corev1.Secret{}
-	written.Name = "art-1-release-receipt"
+	written.Name = "old-license-art-1-release-receipt"
 	written.Namespace = testOm.Namespace
 	written.Data = map[string][]byte{util.DefaultOpsManagerReleaseReceiptKey: []byte(`{"artifactId":"art-1"}`)}
 	r := newOmLicenseReconciler(t, testOm, &oldLicense, &written)

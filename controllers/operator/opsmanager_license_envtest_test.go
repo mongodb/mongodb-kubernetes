@@ -233,7 +233,7 @@ func TestLicenseE2E_InstallReleaseThenReceipt(t *testing.T) {
 	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
 	assert.Contains(t, licenseActiveCondition(t, got).Message, "no license")
 
-	receiptName := testLicenseArtifactID + "-release-receipt"
+	receiptName := om.Name + "-license" + "-" + testLicenseArtifactID + "-release-receipt"
 	h.createSecret(receiptName, "note", "declared in git", nil)
 	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
 		om.Spec.License.ReleasedLicenses = []omv1.ReleasedLicense{releasedLicense(om.Name + "-license")}
@@ -262,7 +262,7 @@ func TestLicenseE2E_ReleaseWithReceiptInOneStep(t *testing.T) {
 	h.setInstallFromSecret(om, testLicenseArtifact)
 	h.reconcileExpectOK(om.Name)
 
-	receiptName := testLicenseArtifactID + "-release-receipt"
+	receiptName := om.Name + "-license" + "-" + testLicenseArtifactID + "-release-receipt"
 	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
 		om.Spec.License = &omv1.MongoDBOpsManagerLicense{
 			ReleasedLicenses: []omv1.ReleasedLicense{releasedLicense(om.Name + "-license")},
@@ -293,7 +293,7 @@ func TestLicenseE2E_ReleaseWithoutReceipt(t *testing.T) {
 	assert.Contains(t, licenseActiveCondition(t, got).Message, "no license")
 
 	receipt := &corev1.Secret{}
-	err := h.client.Get(h.ctx, client.ObjectKey{Namespace: h.namespace, Name: "art-1-release-receipt"}, receipt)
+	err := h.client.Get(h.ctx, client.ObjectKey{Namespace: h.namespace, Name: om.Name + "-license" + "-art-1-release-receipt"}, receipt)
 	assert.True(t, apierrors.IsNotFound(err))
 }
 
@@ -500,7 +500,7 @@ func TestLicenseE2E_ReceiptSecretIsCreated(t *testing.T) {
 	h.admin.LicenseReceipt = `{"artifactId":"art-1","receipt":"ea-export"}`
 
 	om := h.createOM(nil)
-	receiptName := "art-1-release-receipt"
+	receiptName := om.Name + "-license-old" + "-art-1-release-receipt"
 	oldLicense := om.Name + "-license-old"
 	h.createSecret(oldLicense, util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-1"), om)
 	h.updateSpec(om.Name, func(om *omv1.MongoDBOpsManager) {
@@ -534,7 +534,7 @@ func TestLicenseE2E_ReceiptEntryNamesArtifactByOldLicenseSecret(t *testing.T) {
 
 	h.reconcileExpectOK(om.Name)
 	receipt := &corev1.Secret{}
-	receiptName := "art-old-release-receipt"
+	receiptName := oldLicense + "-art-old-release-receipt"
 	require.NoError(t, h.client.Get(h.ctx, client.ObjectKey{Namespace: h.namespace, Name: receiptName}, receipt))
 	assert.Equal(t, h.admin.LicenseReceipt, string(receipt.Data[util.DefaultOpsManagerReleaseReceiptKey]))
 }
@@ -556,7 +556,7 @@ func TestLicenseE2E_AutoReceiptSecretOnRelease(t *testing.T) {
 	assert.Equal(t, []string{testLicenseArtifactID}, h.admin.ReleasedIDs)
 	assert.Contains(t, licenseActiveCondition(t, got).Message, "no license")
 
-	receiptName := testLicenseArtifactID + "-release-receipt"
+	receiptName := om.Name + "-license" + "-" + testLicenseArtifactID + "-release-receipt"
 	receipt := &corev1.Secret{}
 	require.NoError(t, h.client.Get(h.ctx, client.ObjectKey{Namespace: h.namespace, Name: receiptName}, receipt))
 	assert.Equal(t, h.admin.LicenseReceipt, string(receipt.Data[util.DefaultOpsManagerReleaseReceiptKey]))
