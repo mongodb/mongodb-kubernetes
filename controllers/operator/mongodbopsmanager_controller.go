@@ -1040,7 +1040,7 @@ func (r *OpsManagerReconciler) watchLicenseSecrets(opsManager *omv1.MongoDBOpsMa
 	watchSecret := func(name string) {
 		r.resourceWatcher.AddWatchedResourceIfNotAdded(name, opsManager.Namespace, watch.Secret, key)
 	}
-	if spec.InstallRequested() {
+	if spec.LicenseProvided() {
 		watchSecret(spec.SecretRef.Name)
 	}
 	for _, entry := range spec.ReleaseReceipts {

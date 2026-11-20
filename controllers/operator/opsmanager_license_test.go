@@ -136,9 +136,9 @@ func assertOperatorManagedLicenseReason(t *testing.T, options []status.Option, r
 }
 
 func TestMongoDBOpsManagerLicense_InstallRequested(t *testing.T) {
-	assert.False(t, (*omv1.MongoDBOpsManagerLicense)(nil).InstallRequested())
-	assert.False(t, (&omv1.MongoDBOpsManagerLicense{}).InstallRequested())
-	assert.True(t, (&omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}).InstallRequested())
+	assert.False(t, (*omv1.MongoDBOpsManagerLicense)(nil).LicenseProvided())
+	assert.False(t, (&omv1.MongoDBOpsManagerLicense{}).LicenseProvided())
+	assert.True(t, (&omv1.MongoDBOpsManagerLicense{SecretRef: &omv1.SecretRef{Name: "om-license"}}).LicenseProvided())
 	assert.False(t, (*omv1.MongoDBOpsManagerLicense)(nil).AutoReleaseReceiptsRequested())
 	assert.False(t, (&omv1.MongoDBOpsManagerLicense{}).AutoReleaseReceiptsRequested())
 	policy := &omv1.MongoDBOpsManagerLicense{ReleaseReceiptsPolicy: omv1.ReleaseReceiptsAutomatic}

@@ -97,7 +97,7 @@ func (h *LicenseReconcilerHelper) Reconcile(ctx context.Context) workflow.Status
 
 func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow.Status {
 	// Held while a license may be in Ops Manager, so a deletion can release it.
-	held := h.opsManager.Spec.License.InstallRequested() || h.lastInstallSecretRef != ""
+	held := h.opsManager.Spec.License.LicenseProvided() || h.lastInstallSecretRef != ""
 	if st := h.syncLicenseFinalizer(ctx, held); !st.IsOK() {
 		return st
 	}
@@ -138,7 +138,7 @@ func (h *LicenseReconcilerHelper) reconcileLicense(ctx context.Context) workflow
 
 // releaseDue reports whether the install intent was removed while the last achieved spec still had one.
 func (h *LicenseReconcilerHelper) releaseDue() bool {
-	return !h.opsManager.Spec.License.InstallRequested() && h.lastInstallSecretRef != ""
+	return !h.opsManager.Spec.License.LicenseProvided() && h.lastInstallSecretRef != ""
 }
 
 func (h *LicenseReconcilerHelper) syncLicenseFinalizer(ctx context.Context, wanted bool) workflow.Status {
@@ -196,7 +196,7 @@ func (h *LicenseReconcilerHelper) reconcileLicenseIntent(ctx context.Context, re
 		}
 		return "", releasedID, st
 	}
-	if h.opsManager.Spec.License.InstallRequested() {
+	if h.opsManager.Spec.License.LicenseProvided() {
 		requestedID, releasedID, st := h.installLicenseFromSecret(ctx, receipts)
 		if st.IsOK() && h.observed.HoldsArtifact(requestedID) {
 			h.installedSecretRef = h.opsManager.Spec.License.SecretRef.Name
