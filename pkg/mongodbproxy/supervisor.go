@@ -35,7 +35,6 @@ type Supervisor struct {
 	current     *Execution
 	terminating bool
 	lastExit    *ExitStatus
-	events      *eventLog
 }
 
 // NewSupervisor forwards child output to stdout and stderr. An empty binDir uses PATH.
@@ -45,7 +44,7 @@ func NewSupervisor(binDir string, env []string, log *zap.SugaredLogger) *Supervi
 	}
 	return &Supervisor{
 		binDir: binDir, stdout: os.Stdout, stderr: os.Stderr, log: log,
-		baseEnv: env, events: newEventLog(),
+		baseEnv: env,
 	}
 }
 
@@ -126,19 +125,6 @@ func (s *Supervisor) statusLocked(e *Execution) Status {
 	return st
 }
 
-func (s *Supervisor) recordEvent(e Event) {
-	if s.events != nil {
-		s.events.record(e)
-	}
-}
-
-func (s *Supervisor) eventSnapshot() ([]Event, uint64) {
-	if s.events == nil {
-		return []Event{}, 0
-	}
-	return s.events.snapshot()
-}
-
 // Start launches the child and returns right after the process was spawned.
 // If a child with the same role is already running it is a no-op and returns the running execution.
 func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
@@ -197,15 +183,6 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 	s.current = e
 	s.log.Infow("process started", "role", e.role, "configPath", e.configPath, "pid", e.pid)
-	s.recordEvent(Event{
-		Action:    "child_started",
-		RequestID: req.RequestID,
-		Request:   requestStart,
-		Role:      e.role,
-		PID:       e.pid,
-		Outcome:   "started",
-		Returned:  "started",
-	})
 	go s.wait(e)
 	return e, nil
 }
@@ -230,29 +207,9 @@ func (s *Supervisor) wait(e *Execution) {
 		ExitedAt:      exitedAt.Format(time.RFC3339Nano),
 		UptimeSeconds: uptime,
 	}
-	outcome := "exited"
-	if e.exitStatus.ExitCode != 0 {
-		outcome = "failed"
-	}
 	s.lastExit = e.exitStatus
 	s.log.Infow("process exited", "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitStatus.ExitCode, "signal", e.exitStatus.Signal, "uptime_s", uptime)
-	s.recordEvent(Event{
-		Action:     "child_exited",
-		Role:       e.role,
-		PID:        e.pid,
-		Outcome:    outcome,
-		Returned:   exitReturned(e.exitStatus.ExitCode, e.exitStatus.Signal),
-		DurationMs: uptime * 1000,
-		Signal:     e.exitStatus.Signal,
-	})
 	close(e.done)
-}
-
-func exitReturned(code int, signal string) string {
-	if signal != "" {
-		return "signal " + signal
-	}
-	return fmt.Sprintf("exit %d", code)
 }
 
 // resolve finds a program in binDir, or on PATH when binDir is empty. exec.LookPath also checks that the file exists
@@ -334,8 +291,6 @@ func (s *Supervisor) Terminate(ctx context.Context) error {
 	s.terminating = true
 	e := s.current
 	s.mu.Unlock()
-
-	s.recordEvent(Event{Action: "proxy_shutdown", Outcome: "terminating"})
 
 	if e == nil || e.finished() {
 		return nil

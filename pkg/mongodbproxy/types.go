@@ -2,7 +2,7 @@
 //
 // The proxy owns at most one direct mongod/mongos child and exposes a localhost HTTP API
 // (see NewHandler) that the automation agent uses instead of fork/kill/proc calls.
-// The proxy keeps no state outside of memory: the last execution and a bounded event history.
+// The proxy keeps its process state in memory.
 package mongodbproxy
 
 import "errors"
@@ -78,8 +78,6 @@ type StartRequest struct {
 	Role        Role   `json:"role"`
 	Other       Other  `json:"other"`
 	WaitForExit bool   `json:"waitForExit,omitempty"`
-	// RequestID is the internal request identity of the event log. It is not part of the wire format.
-	RequestID string `json:"-"`
 }
 
 // StopRequest is the body of POST /v1/process/stop.

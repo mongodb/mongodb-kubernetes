@@ -381,22 +381,6 @@ func TestStatusStartedAtAndLastExit(t *testing.T) {
 	assert.GreaterOrEqual(t, st.LastExit.UptimeSeconds, 0.0)
 }
 
-func TestTerminateRecordsShutdownEvent(t *testing.T) {
-	f := newFixture(t)
-	f.start(RoleMain, "run")
-
-	require.NoError(t, f.sup.Terminate(context.Background()))
-
-	events, _ := f.sup.eventSnapshot()
-	var found bool
-	for _, event := range events {
-		if event.Action == "proxy_shutdown" {
-			found = true
-		}
-	}
-	assert.True(t, found, "Terminate must record a proxy_shutdown event")
-}
-
 func TestTailBufferKeepsTheLastBytes(t *testing.T) {
 	b := &tailBuffer{limit: 5}
 	_, _ = b.Write([]byte("abc"))
