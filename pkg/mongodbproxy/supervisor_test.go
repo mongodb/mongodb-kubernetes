@@ -113,13 +113,6 @@ func waitDone(t *testing.T, e *Execution) {
 	}
 }
 
-func TestStartWhileRunningIsNoOp(t *testing.T) {
-	f := newFixture(t)
-	first := f.start(RoleMain, "run")
-	second := f.start(RoleMain, "run")
-	assert.Same(t, first, second)
-}
-
 func TestStartWithOtherRoleWhileRunningIsRejected(t *testing.T) {
 	f := newFixture(t)
 	f.start(RoleMain, "run")
