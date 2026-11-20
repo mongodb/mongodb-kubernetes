@@ -11,7 +11,6 @@ from kubernetes import client
 from kubetester import run_periodically
 from kubetester.kubetester import assert_statefulset_architecture, configured_proxy_image, get_default_architecture
 from kubetester.mongodb import MongoDB
-from kubetester.operator import STATIC_GA_AGENT_URL
 from kubetester.opsmanager import MongoDBOpsManager
 
 
@@ -286,9 +285,10 @@ def get_candidate_env_vars_for_subscription(config: dict[str, str]) -> list[dict
         return []
     env = {
         "MDB_DEFAULT_ARCHITECTURE": "static-ga",
-        "MDB_CUSTOM_AGENT_URL": config.get("agent.customAgentUrl") or STATIC_GA_AGENT_URL,
         "MDB_MONGODB_PROXY_IMAGE": configured_proxy_image(config),
     }
+    if custom_agent_url := config.get("agent.customAgentUrl"):
+        env["MDB_CUSTOM_AGENT_URL"] = custom_agent_url
     return [{"name": name, "value": value} for name, value in env.items()]
 
 
