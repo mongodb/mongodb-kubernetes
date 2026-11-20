@@ -35,6 +35,9 @@ MCK is supported by the [MongoDB Support Team](https://support.mongodb.com/). If
 
 You can discuss this integration in our new [Community Forum](https://developer.mongodb.com/community/forums/) - please use the tag [kubernetes-operator](https://developer.mongodb.com/community/forums/tag/kubernetes-operator)
 
+## Contributing
+MCK is developed and maintained by a dedicated MongoDB engineering team. We are not currently accepting pull requests from external contributors. Bug reports, questions, and ideas for changes are welcome as [GitHub issues](https://github.com/mongodb/mongodb-kubernetes/issues/new/choose); see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
 ## How does MCK differ from the MongoDB Enterprise Kubernetes Operator or MongoDB Community Operator?
 MCK unifies MongoDB's support for running MongoDB in Kubernetes into a single Operator.
 
@@ -44,7 +47,7 @@ This unifies:
 
 While early versions of MCK simply bring the capabilities of both previous Operators into a single new Operator, future changes will build on this to more closely align how Community and Enterprise are managed in Kubernetes to offer an even more seamless and streamlined experience.
 
-As an open-source project, MCK allows for community contributions, helping drive quicker bug fixes and ongoing innovation.
+MCK is an open-source project, developed and maintained by a dedicated MongoDB engineering team.
 
 ### Deprecation and EOL for MCO and MEKO
 * [MongoDB Community Operator](https://github.com/mongodb/mongodb-kubernetes-operator) End-of-Life (EOL): We will continue best efforts support for 6 months (until November, 2025)
