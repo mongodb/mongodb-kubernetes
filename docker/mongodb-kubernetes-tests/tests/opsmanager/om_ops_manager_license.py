@@ -137,7 +137,7 @@ class TestOpsManagerLicenseE2E:
 
     def test_install_release_then_receipt(self, ops_manager: MongoDBOpsManager, namespace: str):
         """Removing secretRef releases the license at EA without a receipt. Listing the license Secret in
-        releaseReceipts afterwards writes the receipt read from Ops Manager, and writes it again when its Secret
+        releasedLicenses afterwards writes the receipt read from Ops Manager, and writes it again when its Secret
         is lost."""
         install_and_release_license(ops_manager, namespace)
         assert_secret_absent(namespace, current_receipt_secret_name())

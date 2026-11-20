@@ -400,7 +400,7 @@ def set_license_release_spec(ops_manager: MongoDBOpsManager) -> None:
 def set_release_receipts_spec(ops_manager: MongoDBOpsManager) -> None:
     """Requests the receipt of the license held in the license Secret, which the operator reads the
     artifact id from. The Secret cannot also be the install secretRef, so the install intent is removed."""
-    _patch_license_spec(ops_manager, secretRef=None, releaseReceipts=[{"secretRef": {"name": LICENSE_SECRET_NAME}}])
+    _patch_license_spec(ops_manager, secretRef=None, releasedLicenses=[{"secretRef": {"name": LICENSE_SECRET_NAME}}])
 
 
 def nudge_reconcile(ops_manager: MongoDBOpsManager) -> None:
