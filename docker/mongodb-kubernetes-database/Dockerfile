@@ -66,6 +66,6 @@ USER 2000
 # The docker image doesn't have any scripts so by default does nothing
 # The script will be copied in runtime from init containers and the operator is expected
 # to override the COMMAND
-ENTRYPOINT ["sleep infinity"]
+ENTRYPOINT ["sleep", "infinity"]
 
 COPY --from=base /data/licenses/mongodb-kubernetes-database /licenses/mongodb-kubernetes-database
