@@ -6,6 +6,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.conftest import get_member_cluster_clients, get_member_cluster_names
 from tests.multicluster.conftest import cluster_spec_list
+from tests.shardedcluster.conftest import get_member_cluster_clients_using_cluster_mapping
 
 MDB_RESOURCE_NAME = "sh"
 
@@ -66,3 +67,99 @@ def test_statefulsets_multi_cluster_identity(namespace: str):
                 f"StatefulSet {sts.metadata.name} in cluster {mcc.cluster_name} must carry "
                 f"annotation 'MongoDBMultiResource={MDB_RESOURCE_NAME}', but got: {annotation_value!r}"
             )
+
+
+@mark.e2e_multi_cluster_sharded_simplest
+def test_internal_connectivity_annotations(sharded_cluster: MongoDB):
+    """spec.internalConnectivity.annotations are merged onto the internal Services of a
+    multi-cluster sharded cluster: the top-level value lands on every tier in every member
+    cluster, while a per-member-cluster entry on the shard tier overrides individual keys in
+    its own cluster only (with clusterName/clusterIndex placeholders substituted).
+
+    Pod-scoped placeholders (e.g. {podName}) are substituted on the per-pod Services and are
+    omitted from the shared per-tier headless Services, where they have no meaning."""
+    override_cluster_name = sharded_cluster["spec"]["shard"]["clusterSpecList"][0]["clusterName"]
+    sharded_cluster["spec"]["internalConnectivity"] = {
+        "annotations": {
+            "service.cilium.io/global": "true",
+            "example.com/conflict": "top-level",
+            "example.com/pod": "{podName}",
+        }
+    }
+    sharded_cluster["spec"]["shard"]["clusterSpecList"][0]["internalConnectivity"] = {
+        "annotations": {
+            "example.com/conflict": "cluster-override",
+            "example.com/cluster-only": "{clusterName}-{clusterIndex}",
+        }
+    }
+    sharded_cluster.update()
+    sharded_cluster.assert_reaches_phase(Phase.Running, timeout=900)
+
+    for mcc in get_member_cluster_clients_using_cluster_mapping(sharded_cluster.name, sharded_cluster.namespace):
+        # (statefulset name, members in this cluster, whether this is the shard tier)
+        tiers = [
+            (
+                sharded_cluster.config_srv_statefulset_name(mcc.cluster_index),
+                sharded_cluster.config_srv_members_in_cluster(mcc.cluster_name),
+                False,
+            ),
+            (
+                sharded_cluster.mongos_statefulset_name(mcc.cluster_index),
+                sharded_cluster.mongos_members_in_cluster(mcc.cluster_name),
+                False,
+            ),
+            (
+                sharded_cluster.shard_statefulset_name(0, mcc.cluster_index),
+                sharded_cluster.shard_members_in_cluster(mcc.cluster_name),
+                True,
+            ),
+        ]
+        for sts_name, members, is_shard in tiers:
+            expected_annotations = {
+                "service.cilium.io/global": "true",
+                "example.com/conflict": "top-level",
+            }
+            override_applies = is_shard and mcc.cluster_name == override_cluster_name
+            if override_applies:
+                expected_annotations["example.com/conflict"] = "cluster-override"
+                expected_annotations["example.com/cluster-only"] = f"{mcc.cluster_name}-{mcc.cluster_index}"
+
+            for pod_idx in range(members):
+                service_name = f"{sts_name}-{pod_idx}-svc"
+                svc = mcc.read_namespaced_service(service_name, sharded_cluster.namespace)
+                annotations = svc.metadata.annotations or {}
+                for key, value in expected_annotations.items():
+                    assert annotations.get(key) == value, (
+                        f"Service {service_name} in cluster {mcc.cluster_name} must carry "
+                        f"annotation '{key}={value}', but got: {annotations.get(key)!r}"
+                    )
+                # the pod-scoped placeholder is substituted with the pod name on per-pod Services
+                assert annotations.get("example.com/pod") == service_name[: -len("-svc")], (
+                    f"Service {service_name} in cluster {mcc.cluster_name} must carry "
+                    f"annotation 'example.com/pod={service_name[: -len('-svc')]}', "
+                    f"but got: {annotations.get('example.com/pod')!r}"
+                )
+                if is_shard and not override_applies:
+                    assert "example.com/cluster-only" not in annotations, (
+                        f"Service {service_name} in cluster {mcc.cluster_name} must not carry "
+                        f"the per-cluster override annotation, but got: {annotations!r}"
+                    )
+
+            # the shared per-tier headless Service: pod-scoped placeholders are omitted there
+            headless_service_name = f"{sts_name}-svc"
+            svc = mcc.read_namespaced_service(headless_service_name, sharded_cluster.namespace)
+            annotations = svc.metadata.annotations or {}
+            for key, value in expected_annotations.items():
+                assert annotations.get(key) == value, (
+                    f"Service {headless_service_name} in cluster {mcc.cluster_name} must carry "
+                    f"annotation '{key}={value}', but got: {annotations.get(key)!r}"
+                )
+            assert "example.com/pod" not in annotations, (
+                f"Service {headless_service_name} in cluster {mcc.cluster_name} must not carry "
+                f"the pod-scoped annotation, but got: {annotations!r}"
+            )
+            if is_shard and not override_applies:
+                assert "example.com/cluster-only" not in annotations, (
+                    f"Service {headless_service_name} in cluster {mcc.cluster_name} must not carry "
+                    f"the per-cluster override annotation, but got: {annotations!r}"
+                )
