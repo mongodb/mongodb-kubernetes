@@ -153,6 +153,13 @@ operator:
 security:
   managedCertificate:
     enabled: false
+    # Restricts the issuers that resources may point at from a security.managedCertificate
+    # issuerRef. When empty, any Issuer or ClusterIssuer is allowed.
+    allowedIssuers: []
+    #  - name: mdb-certs
+    #    kind: Issuer          # Issuer (default) or ClusterIssuer
+    #  - name: prod-ca
+    #    kind: ClusterIssuer
 
 ## Database
 database:

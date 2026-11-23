@@ -29,6 +29,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
+	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -1162,4 +1163,84 @@ func CertificatesReadyCondition(t *testing.T, rs *mdbv1.MongoDB) metav1.Conditio
 	condition := meta.FindStatusCondition(rs.Status.Conditions, certs.ConditionCertificatesReady)
 	require.NotNil(t, condition, "CertificatesReady condition is missing")
 	return *condition
+}
+
+// TestReplicaSetManagedCertificate_DisallowedIssuerFailsReconcile checks that a replica set whose
+// issuerRef points at an issuer the operator is not configured to allow fails with a message that
+// names the issuer and the allowed ones, and that nothing is created for cert-manager.
+func TestReplicaSetManagedCertificate_DisallowedIssuerFailsReconcile(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(1).SetSecurity(mdbv1.Security{
+		ManagedCertificate: &mdbv1.ManagedCertificate{
+			Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "prod-ca", Kind: "ClusterIssuer"}},
+		},
+	}).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	readiness := certs.CertManagerReadiness{Ready: true, AllowedIssuers: certs.ParseAllowedIssuers("Issuer/mdb-certs")}
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, readiness)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+
+	assert.Equal(t, status.PhaseFailed, rs.Status.Phase)
+	assert.Contains(t, rs.Status.Message, "issuerRef security.managedCertificate.server.issuerRef points at ClusterIssuer/prod-ca")
+	assert.Contains(t, rs.Status.Message, "configured to allow only Issuer/mdb-certs")
+
+	certificates := &certmanagerv1.CertificateList{}
+	require.NoError(t, kubeClient.List(ctx, certificates))
+	assert.Empty(t, certificates.Items, "a disallowed issuer must fail before anything is created for cert-manager")
+}
+
+// TestShardedClusterManagedCertificate_DisallowedIssuerFailsReconcile checks that a sharded
+// cluster whose issuerRef points at an issuer the operator is not configured to allow fails
+// before anything is created for cert-manager.
+func TestShardedClusterManagedCertificate_DisallowedIssuerFailsReconcile(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().SetSecurity(mdbv1.Security{
+		ManagedCertificate: &mdbv1.ManagedCertificate{
+			Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "prod-ca", Kind: "ClusterIssuer"}},
+		},
+	}).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(sc)
+	readiness := certs.CertManagerReadiness{Ready: true, AllowedIssuers: certs.ParseAllowedIssuers("Issuer/mdb-certs")}
+	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil, readiness)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(sc))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
+
+	assert.Equal(t, status.PhaseFailed, sc.Status.Phase)
+	assert.Contains(t, sc.Status.Message, "issuerRef security.managedCertificate.server.issuerRef points at ClusterIssuer/prod-ca")
+
+	certificates := &certmanagerv1.CertificateList{}
+	require.NoError(t, kubeClient.List(ctx, certificates))
+	assert.Empty(t, certificates.Items, "a disallowed issuer must fail before anything is created for cert-manager")
+}
+
+// TestMultiReplicaSetManagedCertificate_DisallowedIssuerFailsReconcile checks that a multi-cluster
+// replica set whose issuerRef the operator is not configured to allow fails with a message that
+// names the issuer.
+func TestMultiReplicaSetManagedCertificate_DisallowedIssuerFailsReconcile(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().
+		SetClusterSpecList(clusters).
+		SetSecurity(&mdbv1.Security{
+			ManagedCertificate: &mdbv1.ManagedCertificate{
+				Server: &mdbv1.CertificateConfig{IssuerRef: &mdbv1.IssuerRef{Name: "prod-ca", Kind: "ClusterIssuer"}},
+			},
+		}).
+		Build()
+
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	reconciler.certManagerReadiness = certs.CertManagerReadiness{Ready: true, AllowedIssuers: certs.ParseAllowedIssuers("Issuer/mdb-certs")}
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(mrs), mrs))
+
+	assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
+	assert.Contains(t, mrs.Status.Message, "issuerRef security.managedCertificate.server.issuerRef points at ClusterIssuer/prod-ca")
 }

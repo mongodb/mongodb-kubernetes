@@ -167,6 +167,18 @@ spec:
             - name: MDB_MEMBER_CLUSTER_REQUIRED_HEALTHY_STREAK
               value: "{{ .Values.multiCluster.memberClusterRequiredHealthyStreak }}"
     {{- end }}
+    {{- range .Values.security.managedCertificate.allowedIssuers }}
+    {{- if not .name }}
+    {{- fail "security.managedCertificate.allowedIssuers: every entry needs a name" }}
+    {{- end }}
+    {{- if and .kind (not (has .kind (list "Issuer" "ClusterIssuer"))) }}
+    {{- fail (printf "security.managedCertificate.allowedIssuers: kind must be Issuer or ClusterIssuer, got %q" .kind) }}
+    {{- end }}
+    {{- end }}
+    {{- if .Values.security.managedCertificate.allowedIssuers }}
+            - name: MDB_MANAGED_CERTIFICATE_ALLOWED_ISSUERS
+              value: "{{ range $i, $issuer := .Values.security.managedCertificate.allowedIssuers }}{{ if $i }},{{ end }}{{ $issuer.kind | default "Issuer" }}/{{ $issuer.name }}{{ end }}"
+    {{- end }}
     {{- $mongodbEnterpriseDatabaseImageEnv := "MONGODB_ENTERPRISE_DATABASE_IMAGE" -}}
     {{- $initDatabaseImageRepositoryEnv := "INIT_DATABASE_IMAGE_REPOSITORY" -}}
     {{- $opsManagerImageRepositoryEnv := "OPS_MANAGER_IMAGE_REPOSITORY" -}}

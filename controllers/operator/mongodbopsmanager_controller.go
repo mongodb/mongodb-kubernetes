@@ -586,6 +586,10 @@ func (r *OpsManagerReconciler) ensureBackupCertAndCA(ctx context.Context, opsMan
 		opsManager.Status.BackupStatus.CertificateRenewals = nil
 		return componentCertificateResult{part: mdbstatus.Backup, pruneTarget: certs.OpsManagerPruneTargetBackup, status: workflow.OK()}
 	}
+	// make sure the operator is configured to allow the issuer the component points at.
+	if err := r.certManagerReadiness.ValidateManagedCertificateConfig(&opsManager.Spec.Backup.ManagedCertificate.CertificateConfig, "spec.backup.managedCertificate.issuerRef"); err != nil {
+		return r.issuerGateResult(mdbstatus.Backup, certs.OpsManagerPruneTargetBackup, err)
+	}
 	dnsNames, ipAddresses, err := opsManagerCertificateSANs(opsManager)
 	if err != nil {
 		condition := certs.IssuanceFailedCondition(err.Error())
@@ -705,6 +709,10 @@ func (r *OpsManagerReconciler) ensureOpsManagerCertificateAndCA(ctx context.Cont
 		opsManager.Status.OpsManagerStatus.CertificateRenewals = nil
 		return componentCertificateResult{part: mdbstatus.OpsManager, pruneTarget: certs.OpsManagerPruneTargetOM, status: workflow.OK()}
 	}
+	// make sure the operator is configured to allow the issuer the component points at.
+	if err := r.certManagerReadiness.ValidateManagedCertificateConfig(&opsManager.Spec.Security.ManagedCertificate.CertificateConfig, "spec.security.managedCertificate.issuerRef"); err != nil {
+		return r.issuerGateResult(mdbstatus.OpsManager, certs.OpsManagerPruneTargetOM, err)
+	}
 
 	dnsNames, ipAddresses, err := opsManagerCertificateSANs(opsManager)
 	if err != nil {
@@ -772,6 +780,10 @@ func (r *OpsManagerReconciler) ensureAppDBCertAndCA(ctx context.Context, opsMana
 		opsManager.Status.AppDbStatus.CertificateRenewals = nil
 		return componentCertificateResult{part: mdbstatus.AppDb, pruneTarget: certs.OpsManagerPruneTargetAppDB, status: workflow.OK()}
 	}
+	// make sure the operator is configured to allow the issuers the AppDB points at.
+	if err := r.certManagerReadiness.ValidateManagedCertificateIssuers(opsManager.Spec.AppDB.GetSecurity(), "spec.applicationDatabase."); err != nil {
+		return r.issuerGateResult(mdbstatus.AppDb, certs.OpsManagerPruneTargetAppDB, err)
+	}
 
 	helper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, r.memberClustersMap, log)
 	owned := false
@@ -832,6 +844,13 @@ func (r *OpsManagerReconciler) managedCertificateGateResult(part mdbstatus.Part,
 	message := r.certManagerReadiness.UnavailableMessage()
 	condition := certs.IssuanceFailedCondition(message)
 	return componentCertificateResult{part: part, pruneTarget: pruneTarget, status: workflow.Failed(xerrors.New(message)), condition: &condition, managed: true}
+}
+
+// issuerGateResult fails one Ops Manager component when its issuerRef points at an issuer the
+// operator is not configured to allow.
+func (r *OpsManagerReconciler) issuerGateResult(part mdbstatus.Part, pruneTarget string, err error) componentCertificateResult {
+	condition := certs.IssuanceFailedCondition(err.Error())
+	return componentCertificateResult{part: part, pruneTarget: pruneTarget, status: workflow.Failed(err), condition: &condition, managed: true}
 }
 
 func (r *OpsManagerReconciler) applyManagedCertificateResults(ctx context.Context, opsManager *omv1.MongoDBOpsManager, results []componentCertificateResult, log *zap.SugaredLogger) (reconcile.Result, bool, error) {
@@ -1362,10 +1381,20 @@ func (r *OpsManagerReconciler) createOpsManagerStatefulsetInMemberCluster(ctx co
 	return create.OpsManagerInKubernetes(ctx, memberCluster, opsManager, sts, log)
 }
 
-func AddOpsManagerController(ctx context.Context, mgr manager.Manager, memberClustersMap map[string]cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
+func AddOpsManagerController(
+	ctx context.Context,
+	mgr manager.Manager,
+	memberClustersMap map[string]cluster.Cluster,
+	imageUrls images.ImageUrls,
+	initDatabaseVersion,
+	initOpsManagerImageVersion string,
+	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
+	allowedIssuers certs.AllowedIssuers,
+) error {
 	// make sure cert-manager resources are registered and operator has authz to access them, before
 	// registering watches or doing anything with cert-manager resources.
-	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace(), allowedIssuers)
 
 	reconciler := NewOpsManagerReconciler(ctx, mgr.GetClient(), multicluster.ClustersMapToClientMap(memberClustersMap), imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, &api.DefaultInitializer{}, api.NewOmAdmin)
 	reconciler.certManagerReadiness = certManagerReadiness

@@ -218,6 +218,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return r.updateStatus(ctx, &mrs, workflow.Failed(xerrors.New(
 				r.certManagerReadiness.UnavailableMessage())), log)
 		}
+		// make sure the operator is configured to allow the issuers the resource points at.
+		if err := r.certManagerReadiness.ValidateManagedCertificateIssuers(mrs.GetSecurity(), ""); err != nil {
+			return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
+		}
 		if status := r.ensureManagedCertificates(ctx, &mrs, log); !status.IsOK() {
 			return r.updateStatus(ctx, &mrs, status, log)
 		}
@@ -1603,10 +1607,26 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, requiredHealthyStreak int, memberClustersMap map[string]cluster.Cluster, omMetrics OMMetricsMultiplexer) error {
+func AddMultiReplicaSetController(
+	ctx context.Context,
+	mgr manager.Manager,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise,
+	enableClusterMongoDBRoles,
+	agentDebug bool,
+	agentDebugImage string,
+	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
+	requiredHealthyStreak int,
+	memberClustersMap map[string]cluster.Cluster,
+	omMetrics OMMetricsMultiplexer,
+	allowedIssuers certs.AllowedIssuers,
+) error {
 	// The operator decides once, at startup, whether it may use cert-manager, the same way the
 	// single-cluster controllers do. The managed-certificate path reports the reason when it may not.
-	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace(), allowedIssuers)
 
 	// Create a new controller
 	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, multicluster.ClustersMapToClientMap(memberClustersMap), omMetrics, certManagerReadiness)

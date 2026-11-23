@@ -428,6 +428,14 @@ const (
 	ManagedCertificateOwnerUIDLabel = "mongodb.com/v1.managedCertificateOwnerUID"
 )
 
+const (
+	// ManagedCertificateAllowedIssuersEnv is used to configure the list of issuers that can be used as issuerRef
+	// in managed certificate feature. The value is a comma-separated list of "Kind/name"
+	// entries (Issuer or ClusterIssuer). An entry without a kind means Issuer. Empty means any
+	// issuer is allowed. The helm chart sets it from security.managedCertificate.allowedIssuers helm field.
+	ManagedCertificateAllowedIssuersEnv = "MDB_MANAGED_CERTIFICATE_ALLOWED_ISSUERS"
+)
+
 var mongoDBOwnerLabels = []string{
 	MongoDBResourceOwnerLabel,
 	MongoDBOpsManagerResourceOwnerLabel,
