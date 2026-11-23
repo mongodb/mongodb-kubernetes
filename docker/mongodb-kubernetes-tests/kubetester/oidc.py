@@ -1,6 +1,8 @@
+import functools
 import os
 
 import requests
+from kubetester.http import get_retriable_https_session
 
 # Note: The project uses AWS Cognito in the mongodb-mms-testing AWS account to facilitate OIDC authentication testing.
 # This setup includes:
@@ -59,12 +61,36 @@ def get_oidc_audience() -> str:
     return ""
 
 
+# Retryable IdP responses: the token endpoint rate-limits (429) and the provider's edge
+# returns 5xx under load.
+_TRANSIENT_STATUSES = (429, 500, 502, 503, 504)
+
+
+@functools.lru_cache(maxsize=None)
+def oidc_session() -> requests.Session:
+    """IdP calls use the shared retry policy: allowed_methods=None retries the token POST too,
+    raise_on_status=False returns a 4xx for the caller to inspect."""
+    return get_retriable_https_session(
+        tls_verify=True,
+        status_forcelist=_TRANSIENT_STATUSES,
+        allowed_methods=None,
+        respect_retry_after_header=False,
+    )
+
+
+@functools.lru_cache(maxsize=None)
+def _discovery_document(issuer: str) -> dict:
+    """The provider's OIDC discovery document, fetched once per issuer: the token endpoint
+    is read from it by the token fetch and the mdbs fixture alike."""
+    discovery_url = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
+    response = oidc_session().get(discovery_url, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
 def get_oidc_token_endpoint() -> str:
     """The provider's token endpoint, derived from its OIDC discovery document."""
-    discovery_url = f"{get_oidc_issuer().rstrip('/')}/.well-known/openid-configuration"
-    response = requests.get(discovery_url, timeout=30)
-    response.raise_for_status()
-    return response.json()["token_endpoint"]
+    return _discovery_document(get_oidc_issuer())["token_endpoint"]
 
 
 def oidc_test_provider_configured() -> bool:

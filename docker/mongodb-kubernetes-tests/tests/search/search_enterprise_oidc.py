@@ -1,6 +1,7 @@
 import base64
 import functools
 import json
+from urllib.parse import urlparse
 
 import kubetester.oidc as oidc
 import requests
@@ -91,52 +92,63 @@ def _client_credentials_claims() -> dict:
     sends audience, and Cognito needs a pool-side pre-token Lambda to add it. The OIDC
     provider audience and the $external username below are derived from this token, so
     the source of truth is the IdP, not the user-flow fixtures.
+
+    Every failure path here is a fail(..., pytrace=False), which prints the message only:
+    pytest runs with -l, so an exception escaping this frame would print its locals, and
+    they hold the client secret and the access token.
     """
     token_endpoint = oidc.get_oidc_token_endpoint()
+    provider = oidc.get_oidc_provider()
+    endpoint_host = urlparse(token_endpoint).netloc
     # A non-HTTPS endpoint is a misconfiguration, not a reason to skip: fail before the
     # token request sends the client secret over plain HTTP.
     if not token_endpoint.startswith("https://"):
         fail(
             f"Derived token endpoint is not HTTPS: {token_endpoint}. "
-            f"Check the {oidc.get_oidc_provider()} issuer/discovery configuration.",
+            f"Check the {provider} issuer/discovery configuration.",
             pytrace=False,
         )
-    token_request = {
-        "grant_type": "client_credentials",
-        "client_id": oidc.get_oidc_client_id(),
-        "client_secret": oidc.get_oidc_client_secret(),
-    }
     # Auth0 requires an explicit audience; Cognito and Entra/Okta derive it server-side.
     audience = oidc.get_oidc_audience()
-    if audience:
-        token_request["audience"] = audience
-    response = requests.post(
-        token_endpoint,
-        data=token_request,
-        timeout=30,
-    )
+    try:
+        response = oidc.oidc_session().post(
+            token_endpoint,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": oidc.get_oidc_client_id(),
+                "client_secret": oidc.get_oidc_client_secret(),
+                **({"audience": audience} if audience else {}),
+            },
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        fail(
+            f"Could not reach the {provider} token endpoint at {endpoint_host} ({type(e).__name__}).",
+            pytrace=False,
+        )
     if not 200 <= response.status_code < 300:
         fail(
-            f"Client-credentials token request to {token_endpoint} failed with HTTP "
-            f"{response.status_code}: {response.text}. The {oidc.get_oidc_provider()} "
-            "app-client/token-endpoint setup for this test is broken.",
+            f"The {provider} token endpoint at {endpoint_host} returned HTTP "
+            f"{response.status_code}. The app-client/token-endpoint setup for this test is broken.",
             pytrace=False,
         )
-    access_token = response.json().get("access_token")
-    if not access_token:
+    # The catch is broad on purpose: a 2xx body can still be a JSON array, an access_token
+    # that is null, or a string that is not a JWT, and this function turns any of them into
+    # one clear message rather than a traceback.
+    try:
+        return _decode_jwt_payload(response.json()["access_token"])
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         fail(
-            f"Token endpoint {token_endpoint} returned no access_token: {response.text}. "
-            f"The {oidc.get_oidc_provider()} app-client/token-endpoint setup for this test "
-            "is broken.",
+            f"The {provider} token endpoint at {endpoint_host} returned no usable "
+            "access_token. The app-client/token-endpoint setup for this test is broken.",
             pytrace=False,
         )
-    return _decode_jwt_payload(access_token)
 
 
 def _cc_token_audience() -> str:
-    """Audience of the token the app client actually mints (for oidcProviderConfigs)."""
+    """Audience of the token the app client actually mints (for oidcProviderConfigs); see
+    _client_credentials_claims for why it comes from the client-credentials token."""
     claims = _client_credentials_claims()
-    # aud must come from the client-credentials token; see the docstring above.
     audience = claims.get("aud")
     if isinstance(audience, list):
         if len(audience) != 1:
@@ -178,7 +190,8 @@ def cc_claims() -> dict:
 
 
 def _cc_token_subject() -> str:
-    """Subject of the token the app client actually mints (for the $external username)."""
+    """Subject of the token the app client actually mints (for the $external username); see
+    _client_credentials_claims."""
     subject = _client_credentials_claims().get("sub")
     if not subject:
         fail(
@@ -198,7 +211,7 @@ def helper(namespace: str) -> SearchDeploymentHelper:
     )
 
 
-@fixture(scope="function")
+@fixture(scope="module")
 def mdb(namespace: str, issuer_ca_configmap: str, cc_claims: dict) -> MongoDB:
     resource = MongoDB.from_yaml(
         yaml_fixture("enterprise-replicaset-sample-mflix.yaml"),
@@ -215,7 +228,7 @@ def mdb(namespace: str, issuer_ca_configmap: str, cc_claims: dict) -> MongoDB:
         "modes": ["SCRAM", "OIDC"],
         "oidcProviderConfigs": [
             {
-                # audience must match the token the app client mints (see _cc_token_audience).
+                # audience must match the token the app client mints (see _client_credentials_claims).
                 "audience": _cc_token_audience(),
                 "clientId": oidc.get_oidc_client_id(),
                 "issuerURI": oidc.get_oidc_issuer(),
@@ -280,7 +293,7 @@ def oidc_mongot_user(namespace: str, helper: SearchDeploymentHelper, cc_claims: 
     if try_load(resource):
         return resource
     resource["spec"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
-    # the $external principal matches the minted token's sub (see _cc_token_subject).
+    # the $external principal matches the minted token's sub (see _client_credentials_claims).
     resource["spec"]["username"] = f"{CONFIGURATION_NAME}/{_cc_token_subject()}"
     resource["spec"]["db"] = "$external"
     # OIDC users don't use password auth -- remove passwordSecretKeyRef if present
@@ -288,6 +301,7 @@ def oidc_mongot_user(namespace: str, helper: SearchDeploymentHelper, cc_claims: 
     return resource
 
 
+# Pins the enterprise mongot image for the whole namespace: no other module may share it.
 @fixture(scope="module")
 def oidc_operator_installation_config(operator_installation_config: dict[str, str]) -> dict[str, str]:
     config = dict(operator_installation_config)
@@ -328,12 +342,10 @@ def test_install_tls_secrets_and_oidc_configmaps(namespace: str, mdb: MongoDB, i
 
     # OIDC client secret for mongot's client-credentials grant at the token endpoint
     # (non-empty is guaranteed by the module-level OIDC provider guard)
-    client_secret = oidc.get_oidc_client_secret()
-    assert client_secret
     create_or_update_secret(
         namespace,
         name=OIDC_CLIENT_SECRET_NAME,
-        data={"clientSecret": client_secret},
+        data={"clientSecret": oidc.get_oidc_client_secret()},
     )
 
     # IdP CA validating the token endpoint's TLS certificate (Amazon Root CA 1 for
@@ -357,14 +369,15 @@ def test_create_users(
 ):
     # Admin user (password auth)
     helper.apply_user_password(admin_user, ADMIN_USER_PASSWORD)
-    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     # Regular user (password auth)
     helper.apply_user_password(user, USER_PASSWORD)
-    user.assert_reaches_phase(Phase.Updated, timeout=300)
 
     # OIDC mongot user (no password needed)
     oidc_mongot_user.update()
+
+    admin_user.assert_reaches_phase(Phase.Updated, timeout=300)
+    user.assert_reaches_phase(Phase.Updated, timeout=300)
     oidc_mongot_user.assert_reaches_phase(Phase.Updated, timeout=300)
 
 
@@ -380,7 +393,7 @@ def test_wait_for_database_resource_ready(mdb: MongoDB):
     verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members(), expected_host)
 
 
-@fixture(scope="function")
+@fixture(scope="module")
 def sample_movies_helper(mdb: MongoDB, namespace: str) -> SampleMoviesSearchHelper:
     return movies_search_helper.SampleMoviesSearchHelper(
         SearchTester.for_replicaset(
