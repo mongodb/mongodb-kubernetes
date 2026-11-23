@@ -842,9 +842,13 @@ class OMTester(object):
             },
         }
 
-    def query_backup(self, db_name: str, collection_name: str, timeout: int):
-        """Query the first backup snapshot and return all records from specified collection."""
-        qb = OMQueryableBackup(self.context.base_url, self.context.project_id)
+    def query_backup(self, db_name: str, collection_name: str, timeout: int, om_version: Optional[str] = None):
+        """Query the first backup snapshot and return all records from specified collection.
+
+        ``om_version`` is used to decide how the password is encoded for the UI login: Ops Manager
+        8.0.26 and newer expect it base64 encoded while older versions expect plaintext.
+        """
+        qb = OMQueryableBackup(self.context.base_url, self.context.project_id, om_version=om_version)
         connParams = qb.connection_params(timeout)
 
         caPem = tempfile.NamedTemporaryFile(delete=False, mode="w")
