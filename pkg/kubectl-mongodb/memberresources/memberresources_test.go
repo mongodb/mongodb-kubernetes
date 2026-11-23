@@ -287,7 +287,7 @@ func TestRender(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := Render("test-cluster", memberNs, tc.workload, tc.operatorClusterScoped, tc.operatorTelemetry, "")
+			out, err := Render("test-cluster", memberNs, tc.workload, tc.operatorClusterScoped, tc.operatorTelemetry, false, "")
 			require.NoError(t, err, "render failed")
 			resources := parseResources(t, out)
 
@@ -357,7 +357,7 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 	const memberNs = "mongodb"
 	n := expectedNames()
 
-	out, err := Render("test-cluster", memberNs, []string{memberNs}, false, true, "")
+	out, err := Render("test-cluster", memberNs, []string{memberNs}, false, true, false, "")
 	require.NoError(t, err, "render failed")
 
 	byName := map[string]*unstructured.Unstructured{}
@@ -399,6 +399,51 @@ func TestRender_OperatorRoleRules(t *testing.T) {
 	}
 }
 
+func TestRender_ClusterMongoDBRole(t *testing.T) {
+	const memberNs = "mongodb"
+	const roleName = "mck-member-cluster-mongodb-role"
+	const bindingName = "mck-member-cluster-mongodb-role-binding"
+
+	out, err := Render("test-cluster", memberNs, []string{memberNs}, false, true, false, "")
+	require.NoError(t, err, "render failed")
+	for _, r := range parseResources(t, out) {
+		assert.NotContains(t, r.GetName(), "cluster-mongodb-role", "%s/%s rendered without operatorClusterMongoDBRole", r.GetKind(), r.GetName())
+	}
+
+	out, err = Render("test-cluster", memberNs, []string{memberNs}, false, true, true, "")
+	require.NoError(t, err, "render failed")
+	byName := map[string]*unstructured.Unstructured{}
+	for _, r := range parseResources(t, out) {
+		byName[r.GetName()] = r
+	}
+	require.Contains(t, byName, roleName, "rendered resources missing %s", roleName)
+	require.Contains(t, byName, bindingName, "rendered resources missing %s", bindingName)
+
+	role := byName[roleName]
+	assert.Equal(t, "ClusterRole", role.GetKind())
+	assert.NotEmpty(t, role.GetAnnotations()["mongodb.com/rbac-version"], "%s missing mongodb.com/rbac-version annotation", roleName)
+	assert.ElementsMatch(t, []rbacRule{
+		{apiGroups: []string{"mongodb.com"}, resources: []string{"clustermongodbroles"}, verbs: []string{"*"}},
+	}, rulesOf(t, role), "%s rules", roleName)
+
+	binding := byName[bindingName]
+	assert.Equal(t, "ClusterRoleBinding", binding.GetKind())
+	assert.NotEmpty(t, binding.GetAnnotations()["mongodb.com/rbac-version"], "%s missing mongodb.com/rbac-version annotation", bindingName)
+	roleRefName, found, err := unstructured.NestedString(binding.Object, "roleRef", "name")
+	require.NoError(t, err)
+	require.True(t, found, "%s missing roleRef.name", bindingName)
+	assert.Equal(t, roleName, roleRefName)
+	subjects, found, err := unstructured.NestedSlice(binding.Object, "subjects")
+	require.NoError(t, err)
+	require.True(t, found, "%s missing subjects", bindingName)
+	require.Len(t, subjects, 1)
+	subject, ok := subjects[0].(map[string]any)
+	require.True(t, ok, "%s subject is not a map", bindingName)
+	assert.Equal(t, "ServiceAccount", subject["kind"])
+	assert.Equal(t, "mck-member-sa", subject["name"])
+	assert.Equal(t, memberNs, subject["namespace"])
+}
+
 // TestRender_ImagePullSecrets asserts that a non-empty imagePullSecrets argument is set on
 // the workload ServiceAccounts only (the operator's own member SA carries no image pull
 // secret, since it is not used to pull workload images).
@@ -406,7 +451,7 @@ func TestRender_ImagePullSecrets(t *testing.T) {
 	const memberNs = "mongodb"
 	n := expectedNames()
 
-	out, err := Render("test-cluster", memberNs, []string{memberNs}, false, true, "my-pull-secret")
+	out, err := Render("test-cluster", memberNs, []string{memberNs}, false, true, false, "my-pull-secret")
 	require.NoError(t, err, "render failed")
 	resources := parseResources(t, out)
 
@@ -441,7 +486,7 @@ func TestRender_IdentityConfigMap(t *testing.T) {
 
 	for _, logicalName := range []string{"test-cluster", "my_cluster_1"} {
 		t.Run(logicalName, func(t *testing.T) {
-			out, err := Render(logicalName, memberNs, []string{memberNs}, false, true, "")
+			out, err := Render(logicalName, memberNs, []string{memberNs}, false, true, false, "")
 			require.NoError(t, err, "render failed")
 
 			var identity *unstructured.Unstructured
@@ -529,7 +574,7 @@ func TestHelmTemplateParity(t *testing.T) {
 		return stdout.String()
 	}
 
-	embeddedOut, err := Render("test-cluster", "mongodb", []string{"mongodb"}, false, true, "")
+	embeddedOut, err := Render("test-cluster", "mongodb", []string{"mongodb"}, false, true, false, "")
 	require.NoError(t, err, "embedded render failed")
 	embeddedResources := parseResources(t, embeddedOut)
 

@@ -12,12 +12,13 @@ import (
 )
 
 var flags struct {
-	memberCluster            string
-	operatorNamespace        string
-	workloadNamespaces       string
-	operatorClusterScoped    bool
-	operatorTelemetry        bool
-	workloadImagePullSecrets string
+	memberCluster              string
+	operatorNamespace          string
+	workloadNamespaces         string
+	operatorClusterScoped      bool
+	operatorTelemetry          bool
+	operatorClusterMongoDBRole bool
+	workloadImagePullSecrets   string
 }
 
 func init() {
@@ -33,6 +34,7 @@ func init() {
 	// namespaces.
 	GenerateResourcesCmd.Flags().BoolVar(&flags.operatorClusterScoped, "operator-cluster-scoped", false, "Grant the operator access to all namespaces on this member cluster. Use when the operator is installed cluster-wide (watches all namespaces). Without this flag, the rendered operator permissions are namespaced Roles bound in each workload namespace. [optional]")
 	GenerateResourcesCmd.Flags().BoolVar(&flags.operatorTelemetry, "operator-telemetry", true, "Allow the operator to collect cluster-level telemetry on this member cluster. Set to false to opt out. [optional]")
+	GenerateResourcesCmd.Flags().BoolVar(&flags.operatorClusterMongoDBRole, "operator-clustermongodbrole", false, "Grant the operator permissions to reconcile ClusterMongoDBRole resources. [optional]")
 	GenerateResourcesCmd.Flags().StringVar(&flags.workloadImagePullSecrets, "workload-image-pull-secrets", "", "Name of an existing image pull Secret to set on the member-cluster workload ServiceAccounts, for pulling images from a private registry. The Secret must already exist in the workload namespace on the member cluster. [optional]")
 }
 
@@ -65,7 +67,7 @@ kubectl-mongodb cluster generate-resources --member-cluster=cluster-east --opera
 			return err
 		}
 
-		out, err := memberresources.Render(memberClusterName, flags.operatorNamespace, workloadNamespaces, flags.operatorClusterScoped, flags.operatorTelemetry, flags.workloadImagePullSecrets)
+		out, err := memberresources.Render(memberClusterName, flags.operatorNamespace, workloadNamespaces, flags.operatorClusterScoped, flags.operatorTelemetry, flags.operatorClusterMongoDBRole, flags.workloadImagePullSecrets)
 		if err != nil {
 			return err
 		}
