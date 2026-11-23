@@ -68,6 +68,17 @@ const (
 	ScramClientCertOperatorMountPath = "/var/lib/tls/scram-client/"
 	ScramKeyPasswordMountPath        = "/mongot/scram-key-password"           // #nosec G101 -- path, not a password
 	TempScramKeyPasswordPath         = tempVolumePath + "/scram-key-password" // #nosec G101 -- path, not a password
+
+	OIDCClientSecretVolumeName = "oidc-client-secret" // #nosec G101 -- volume name, not a password
+	OIDCIdPCaVolumeName        = "oidc-idp-ca"
+	OIDCClientSecretMountPath  = "/mongot/oidcClientSecret"           // #nosec G101 -- path, not a password
+	TempOIDCClientSecretPath   = tempVolumePath + "/oidcClientSecret" // #nosec G101 -- path, not a password
+	OIDCIdPCAConfigMapKey      = "ca.crt"                             // fixed key in the user's IdP-CA ConfigMap (spec.source.oidc.idpCAConfigMapRef), same convention as spec.source.external.tls.ca
+	OIDCIdPCaMountPath         = "/mongot/oidcIdpCa"                  // dir mount of the IdP-CA ConfigMap; idpCaFile = mountPath + "/" + OIDCIdPCAConfigMapKey
+
+	// SourceUserPasswordVolumeName is the password volume/mount name, referenced by both the
+	// SCRAM mount modification and the auth-switch cleanup.
+	SourceUserPasswordVolumeName = "password"
 )
 
 // SearchSourceDBResource is an object wrapping a MongoDBCommunity object
@@ -230,10 +241,9 @@ func StatefulSetOverrideModification(stsConfig *v1.StatefulSetConfiguration) sta
 // PasswordAuthModification returns a statefulset.Modification that mounts the password secret
 // and sets up the file permissions workaround for password-based sync source authentication.
 func PasswordAuthModification(mdbSearch *searchv1.MongoDBSearch) statefulset.Modification {
-	sourceUserPasswordVolumeName := "password"
 	sourceUserPasswordSecretKey := mdbSearch.SourceUserPasswordSecretRef()
-	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(sourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
-	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(sourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
+	sourceUserPasswordVolume := statefulset.CreateVolumeFromSecret(SourceUserPasswordVolumeName, sourceUserPasswordSecretKey.Name)
+	sourceUserPasswordVolumeMount := statefulset.CreateVolumeMount(SourceUserPasswordVolumeName, MongotSourceUserPasswordPath, statefulset.WithReadOnly(true), statefulset.WithSubPath(sourceUserPasswordSecretKey.Key))
 
 	return statefulset.WithPodSpecTemplate(podtemplatespec.Apply(
 		podtemplatespec.WithVolume(sourceUserPasswordVolume),
@@ -264,10 +274,13 @@ func CreateKeyfileModificationFunc(keyfileSecretName string) statefulset.Modific
 	)
 }
 
+// disableBase64IntrinsicsFlag mitigates CVE-2026-114938.
+const disableBase64IntrinsicsFlag = "-XX:-UseBASE64Intrinsics"
+
 // jvmFlags builds the --jvm-flags argument from the per-cluster user-provided
 // JVMFlags slice plus a default heap-size pair derived from memory requests.
 func jvmFlags(userJVMFlags []string, resourceRequirements corev1.ResourceRequirements) string {
-	flags := []string{}
+	flags := []string{disableBase64IntrinsicsFlag}
 
 	var heapConfigured bool
 	for _, jvmFlag := range userJVMFlags {

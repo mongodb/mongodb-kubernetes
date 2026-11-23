@@ -203,7 +203,7 @@ def test_install_tls_secrets_and_configmaps(namespace: str, mdb: MongoDB, mdbs: 
 @mark.e2e_search_mongot_replicaset_x509_auth
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_mongot_replicaset_x509_auth

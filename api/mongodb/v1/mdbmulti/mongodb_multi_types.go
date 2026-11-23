@@ -113,6 +113,15 @@ func (m *MongoDBMultiCluster) GetResourceName() string {
 	return m.Name
 }
 
+func (m *MongoDBMultiCluster) TelemetryIdentifier() string {
+	return string(m.UID)
+}
+
+// OpsManagerDeploymentName matches the replica set name the reconciler writes to the automation config.
+func (m *MongoDBMultiCluster) OpsManagerDeploymentName() string {
+	return m.Name
+}
+
 func (m *MongoDBMultiCluster) GetSecurity() *mdbv1.Security {
 	return m.Spec.Security
 }
@@ -280,6 +289,10 @@ func (m *MongoDBMultiCluster) UpdateStatus(phase status.Phase, statusOptions ...
 			m.Status.BackupStatus = &mdbv1.BackupStatus{}
 		}
 		m.Status.BackupStatus.StatusName = option.(status.BackupStatusOption).Value().(string)
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.BaseUrlOption{}); exists {
+		m.Status.Link = option.(status.BaseUrlOption).BaseUrl
 	}
 
 	if phase == status.PhaseRunning {

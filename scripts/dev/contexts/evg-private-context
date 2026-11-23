@@ -97,6 +97,12 @@ export cognito_user_password="${cognito_user_password}"
 export cognito_workload_url="${cognito_workload_url}"
 export cognito_workload_user_id="${cognito_workload_user_id}"
 
+export oidc_provider="${oidc_provider:-cognito}"
+export auth0_issuer="${auth0_issuer:-}"
+export auth0_client_id="${auth0_client_id:-}"
+export auth0_client_secret="${auth0_client_secret:-}"
+export auth0_audience="${auth0_audience:-}"
+
 export MDB_UPDATE_LICENSES=true
 
 # Set BUILD_SCENARIO based on evergreen variables
@@ -117,12 +123,14 @@ fi
 echo "Setting BUILD_SCENARIO=${BUILD_SCENARIO}"
 export BUILD_SCENARIO="${BUILD_SCENARIO}"
 
-# Default preflight_submit to true for release builds only; preserve any
-# explicitly supplied Evergreen expansion/override.
-export preflight_submit="${preflight_submit:-}"
-if [ "${BUILD_SCENARIO}" == "${BUILD_SCENARIO_RELEASE}" ] && [ "${preflight_submit}" == "" ]; then
-  export preflight_submit="true"
+if [ -z "${preflight_submit:-}" ]; then
+  if [ "${BUILD_SCENARIO}" = "release" ]; then
+    preflight_submit=true
+  else
+    preflight_submit=false
+  fi
 fi
+export preflight_submit
 
 # Select Quay credentials: staging and dryrun-release use staging creds, everything else uses prod creds.
 source "${script_dir:-scripts/dev/contexts}/select_quay_credentials.sh"

@@ -12,6 +12,17 @@ import (
 
 var semverRegex *regexp.Regexp
 
+// MinOTLPMetricsOpsManagerVersion is the first Ops Manager with a usable OTLP metrics endpoint.
+// 8.0.24 exposes it, but registering mongot hosts there prevents Ops Manager from restarting.
+const MinOTLPMetricsOpsManagerVersion = "8.0.25"
+
+var MinOTLPMetricsOpsManagerSemver = semver.MustParse(MinOTLPMetricsOpsManagerVersion)
+
+var (
+	minBucketDerivedObjectLockVersion8 = semver.MustParse(util.MinimumVersionS3BucketDerivedObjectLock80)
+	minBucketDerivedObjectLockVersion9 = semver.MustParse(util.MinimumVersionS3BucketDerivedObjectLock90)
+)
+
 // StringToSemverVersion returns semver.Version for the 'version' provided as a string.
 // Important: this method is a bit hacky as ignores everything after patch and must be used only when needed
 // (so far only for creating the semver for OM version as this was needed to support IBM)
@@ -31,6 +42,20 @@ func StringToSemverVersion(version string) (semver.Version, error) {
 		v, err = semver.Make(result[1] + "." + result[2] + "." + result[3])
 	}
 	return v, err
+}
+
+// OpsManagerUsesBucketDerivedObjectLockSettings reports whether this Ops Manager version reads
+// the S3 Object Lock settings from the bucket and supports portableBackupEnabled.
+func OpsManagerUsesBucketDerivedObjectLockSettings(version string) bool {
+	v, err := StringToSemverVersion(version)
+	if err != nil {
+		return false
+	}
+
+	if v.Major == 8 {
+		return !v.LT(minBucketDerivedObjectLockVersion8)
+	}
+	return !v.LT(minBucketDerivedObjectLockVersion9)
 }
 
 // StaticContainersOperatorVersion gets the Operator version for the Static Containers Architecture based on

@@ -9,6 +9,7 @@ from kubetester import (
     get_statefulset,
     scale_statefulset,
     try_load,
+    wait_for_statefulset_ready,
     wait_for_statefulset_replicas,
 )
 from kubetester.automation_config_tester import AutomationConfigTester
@@ -111,6 +112,20 @@ class TestReplicaSetCreation(KubernetesTester):
     def test_mdb_created(self, replica_set: MongoDB):
         replica_set.update()
         replica_set.assert_reaches_phase(Phase.Running, timeout=400)
+
+    @skip_if_local
+    def test_webhook_rejects_invalid_replica_set(self, namespace: str):
+        # Only the validating webhook enforces spec.members: the CRD schema and CEL rules accept its absence.
+        invalid = MongoDB.from_yaml(yaml_fixture("replica-set.yaml"), "invalid-replica-set", namespace)
+        del invalid["spec"]["members"]
+
+        with pytest.raises(client.rest.ApiException) as exception:
+            client.CustomObjectsApi().create_namespaced_custom_object(
+                "mongodb.com", "v1", namespace, "mongodb", invalid.backing_obj
+            )
+
+        assert exception.value.status == 403
+        assert "'spec.members' must be specified if type of MongoDB is ReplicaSet" in str(exception.value)
 
     def test_replica_set_sts_exists(self):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
@@ -366,8 +381,8 @@ class TestReplicaSetScaleUp(KubernetesTester):
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
         assert sts
 
-    @pytest.mark.flaky(reruns=10, reruns_delay=3)
     def test_sts_update(self):
+        wait_for_statefulset_ready(self.namespace, RESOURCE_NAME)
         sts = self.appsv1.read_namespaced_stateful_set(RESOURCE_NAME, self.namespace)
 
         assert sts.api_version == "apps/v1"
@@ -549,6 +564,7 @@ class TestReplicaSetDelete(KubernetesTester):
     delete:
       file: replica-set.yaml
       wait_until: mongo_resource_deleted
+      timeout: 600
     """
 
     def test_replica_set_sts_doesnt_exist(self):

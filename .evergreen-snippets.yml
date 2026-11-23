@@ -15,6 +15,7 @@ variables:
       - func: upload_e2e_logs
       - func: upload_code_snippets_logs
       - func: upload_code_snippets_outputs
+      - func: attach_code_snippets_results
 
   - &setup_and_teardown_group_kind_code_snippets
     setup_task_can_fail_task: true
@@ -32,6 +33,7 @@ variables:
       - func: upload_e2e_logs
       - func: upload_code_snippets_logs
       - func: upload_code_snippets_outputs
+      - func: attach_code_snippets_results
       - func: teardown_kubernetes_environment
       - func: teardown_cloud_qa
 
@@ -62,6 +64,7 @@ variables:
       - func: upload_e2e_logs
       - func: upload_code_snippets_logs
       - func: upload_code_snippets_outputs
+      - func: attach_code_snippets_results
       - func: teardown_kubernetes_environment
       - func: teardown_cloud_qa
 
@@ -162,6 +165,15 @@ functions:
         visibility: signed
         content_type: ${content_type|application/x-gzip}
 
+  # sample_test_runner.sh appends Go test output for each snippet. Teardown runs
+  # after a failed test command, so failed tasks publish their results too.
+  # optional_output keeps a task that stops before the first snippet a no-op.
+  attach_code_snippets_results:
+    - command: gotest.parse_files
+      params:
+        files: [ "src/github.com/mongodb/mongodb-kubernetes/logs/snippets.junit.suite" ]
+        optional_output: "true"
+
 tasks:
   # Code snippets tasks
   # Each scripts/code_snippets/tests/test_*.sh should have its task defined here.
@@ -234,7 +246,7 @@ tasks:
       - func: archive_snippets_output
 
   - name: test_kind_search_rs_managed_lb_snippets.sh
-    tags: [ "code_snippets", "patch-run" ]
+    tags: [ "code_snippets", "patch-run", "e2e_search_images" ]
     commands:
       - func: test_code_snippets
       - func: archive_snippets_output

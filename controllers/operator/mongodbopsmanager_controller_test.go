@@ -6,10 +6,12 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,6 +33,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/api"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/backup"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	operatorConstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
@@ -370,7 +373,7 @@ func TestOpsManagerReconciler_OnDeleteClusterResourceCleanup(t *testing.T) {
 			})
 			kubeClient := kubernetesClient.NewClient(fakeClientBuilder.Build())
 
-			reconciler := NewOpsManagerReconciler(ctx, kubeClient, memberClustersMap, images.ImageUrls{}, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+			reconciler := NewOpsManagerReconciler(ctx, kubeClient, memberClustersMap, images.ImageUrls{}, "", "", architectures.NonStatic, "", omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 				return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 			})
 
@@ -626,6 +629,138 @@ func TestBackupStatefulSetIsNotRemoved_WhenDisabled(t *testing.T) {
 	assert.NoError(t, err, "Backup StatefulSet should not be removed when backup is disabled")
 }
 
+func TestOpsManagerLicenseFailureDoesNotBlockBackupDaemon(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
+		Enabled: true,
+	}).
+		AddOplogStoreConfig("oplog-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddBlockStoreConfig("block-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef: &omv1.SecretRef{Name: "om-license"},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", "license", licenseArtifactJSON("art-1"))
+
+	api.CurrMockedAdmin = api.NewMockedAdminProvider(testOm.CentralURL(), "jane.doe@g.com", "jane.doe@g.com-key", true).(*api.MockedOmAdmin)
+	api.CurrMockedAdmin.LicenseInstallErr = assert.AnError
+	t.Cleanup(func() { api.CurrMockedAdmin = nil })
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, client.Create(ctx, &licenseSecret))
+	configureBackupResources(ctx, client, testOm)
+
+	var result reconcile.Result
+	for range 5 {
+		var err error
+		result, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+		require.NoError(t, err)
+		if result.RequeueAfter == 10*time.Second {
+			break
+		}
+	}
+	assert.Equal(t, 10*time.Second, result.RequeueAfter)
+
+	backupStatefulSet := &appsv1.StatefulSet{}
+	require.NoError(t, client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.BackupDaemonStatefulSetName()), backupStatefulSet))
+
+	require.NoError(t, client.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	licenseCondition := meta.FindStatusCondition(testOm.Status.OpsManagerStatus.Conditions, status.ConditionOperatorManagedLicense)
+	require.NotNil(t, licenseCondition)
+	assert.Equal(t, metav1.ConditionFalse, licenseCondition.Status)
+	assert.Equal(t, status.ReasonLicenseFailed, licenseCondition.Reason)
+}
+
+func TestOpsManagerReleaseWithoutTheLicenseSecretIsReportedOnce(t *testing.T) {
+	ctx := context.Background()
+	testOm, reconciler, kubeClient := newLicensedOpsManager(ctx, t)
+
+	require.NoError(t, kubeClient.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: testOm.Namespace, Name: "om-license"}}))
+	testOm.Spec.License.SecretRef = nil
+	require.NoError(t, kubeClient.Update(ctx, testOm))
+
+	// The operator can't identify the license it installed, so it reports that and stops tracking it.
+	result, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Second, result.RequeueAfter)
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseFailed)
+	lastInstallSecretRef, err := reconciler.readLicenseSecretRef(ctx, testOm)
+	require.NoError(t, err)
+	assert.Empty(t, lastInstallSecretRef)
+
+	// The requeued reconcile succeeds without releasing anything, and Ops Manager keeps the license.
+	result, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Equal(t, util.TWENTY_FOUR_HOURS, result.RequeueAfter)
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseNotProvided)
+	assert.NotContains(t, testOm.Finalizers, util.OpsManagerLicenseFinalizer)
+	assert.Empty(t, api.CurrMockedAdmin.ReleasedIDs)
+}
+
+func TestOpsManagerDeletionWithoutTheLicenseSecretWaitsForIt(t *testing.T) {
+	ctx := context.Background()
+	testOm, reconciler, kubeClient := newLicensedOpsManager(ctx, t)
+
+	licenseSecret := licenseSecretFor(testOm, "om-license", util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-1"))
+	require.NoError(t, kubeClient.Delete(ctx, &licenseSecret))
+	require.NoError(t, kubeClient.Delete(ctx, testOm))
+
+	// Without the Secret the operator can't identify the license, so the finalizer holds the deletion.
+	for range 2 {
+		_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+		assert.Contains(t, testOm.Finalizers, util.OpsManagerLicenseFinalizer)
+		assertOperatorManagedLicense(t, testOm, status.ReasonLicenseFailed)
+	}
+	assert.Empty(t, api.CurrMockedAdmin.ReleasedIDs)
+
+	// Restoring the Secret lets the operator release the license and finish the deletion.
+	licenseSecret.ResourceVersion = ""
+	require.NoError(t, kubeClient.Create(ctx, &licenseSecret))
+	_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"art-1"}, api.CurrMockedAdmin.ReleasedIDs)
+	err = kubeClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm)
+	assert.True(t, apiErrors.IsNotFound(err))
+}
+
+// newLicensedOpsManager reconciles an Ops Manager until it holds the license from the om-license Secret.
+func newLicensedOpsManager(ctx context.Context, t *testing.T) (*omv1.MongoDBOpsManager, *OpsManagerReconciler, kubernetesClient.Client) {
+	t.Helper()
+	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).Build()
+	testOm.Spec.License = &omv1.MongoDBOpsManagerLicense{
+		SecretRef: &omv1.SecretRef{Name: "om-license"},
+	}
+	licenseSecret := licenseSecretFor(testOm, "om-license", util.DefaultOpsManagerLicenseKey, licenseArtifactJSON("art-1"))
+
+	api.CurrMockedAdmin = api.NewMockedAdminProvider(testOm.CentralURL(), "jane.doe@g.com", "jane.doe@g.com-key", true).(*api.MockedOmAdmin)
+	api.CurrMockedAdmin.LicenseState = licensedView("LICENSED")
+	t.Cleanup(func() { api.CurrMockedAdmin = nil })
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, architectures.NonStatic)
+	require.NoError(t, kubeClient.Create(ctx, &licenseSecret))
+
+	checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, kubeClient)
+	assertOperatorManagedLicense(t, testOm, status.ReasonLicenseManaged)
+	require.Contains(t, testOm.Finalizers, util.OpsManagerLicenseFinalizer)
+	lastInstallSecretRef, err := reconciler.readLicenseSecretRef(ctx, testOm)
+	require.NoError(t, err)
+	require.Equal(t, "om-license", lastInstallSecretRef)
+	return testOm, reconciler, kubeClient
+}
+
+func assertOperatorManagedLicense(t *testing.T, opsManager *omv1.MongoDBOpsManager, reason string) {
+	t.Helper()
+	condition := meta.FindStatusCondition(opsManager.Status.OpsManagerStatus.Conditions, status.ConditionOperatorManagedLicense)
+	require.NotNil(t, condition)
+	assert.Equal(t, reason, condition.Reason)
+}
+
 func TestOpsManagerPodTemplateSpec_IsAnnotatedWithHash(t *testing.T) {
 	ctx := context.Background()
 	testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{
@@ -778,6 +913,144 @@ func TestOpsManagerReconcileContainerImagesWithStaticArchitecture(t *testing.T) 
 	require.Len(t, appDBSts.Spec.Template.Spec.InitContainers, 0)
 	require.Len(t, appDBSts.Spec.Template.Spec.Containers, 3)
 	assert.Equal(t, "quay.io/mongodb/mongodb-enterprise-appdb-database-ubi@sha256:MONGODB_SHA", appDBSts.Spec.Template.Spec.Containers[1].Image)
+}
+
+func TestOpsManagerReconcileAppDBContainerImageType(t *testing.T) {
+	tests := []struct {
+		name                string
+		defaultArchitecture architectures.DefaultArchitecture
+		defaultImageType    architectures.ImageType
+		annotations         map[string]string
+		wantImageType       architectures.ImageType
+	}{
+		{
+			name:                "static without configuration uses ubi9",
+			defaultArchitecture: architectures.Static,
+			wantImageType:       architectures.ImageTypeUBI9,
+		},
+		{
+			name:                "static uses global image type",
+			defaultArchitecture: architectures.Static,
+			defaultImageType:    architectures.ImageTypeUBI9Slim,
+			wantImageType:       architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:                "static annotation overrides global image type",
+			defaultArchitecture: architectures.Static,
+			defaultImageType:    architectures.ImageTypeUBI9,
+			annotations: map[string]string{
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+			wantImageType: architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:                "non-static without configuration uses ubi8",
+			defaultArchitecture: architectures.NonStatic,
+			wantImageType:       architectures.ImageTypeUBI8,
+		},
+		{
+			name:                "non-static uses global image type",
+			defaultArchitecture: architectures.NonStatic,
+			defaultImageType:    architectures.ImageTypeUBI9Slim,
+			wantImageType:       architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:                "non-static annotation overrides global image type",
+			defaultArchitecture: architectures.NonStatic,
+			defaultImageType:    architectures.ImageTypeUBI9,
+			annotations: map[string]string{
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+			wantImageType: architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:                "non-static architecture annotation honors image type annotation",
+			defaultArchitecture: architectures.Static,
+			annotations: map[string]string{
+				architectures.ArchitectureAnnotation:       string(architectures.NonStatic),
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+			wantImageType: architectures.ImageTypeUBI9Slim,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			imageUrlsMock := images.ImageUrls{
+				fmt.Sprintf("RELATED_IMAGE_%s_8_0_0", util.OpsManagerImageUrl): "quay.io/mongodb/mongodb-enterprise-ops-manager:@sha256:MONGODB_OPS_MANAGER",
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+			}
+
+			ctx := context.Background()
+			testOm := DefaultOpsManagerBuilder().
+				SetVersion("8.0.0").
+				SetAppDbVersion("8.0.23").
+				SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).
+				Build()
+			testOm.SetAnnotations(test.annotations)
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			reconciler, client, _ := defaultTestOmReconciler(ctx, t, imageUrlsMock, "", "", testOm, nil, omConnectionFactory, test.defaultArchitecture)
+			reconciler.defaultImageType = test.defaultImageType
+
+			checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
+
+			appDBSts := appsv1.StatefulSet{}
+			err := client.Get(ctx, kube.ObjectKey(testOm.Namespace, testOm.Spec.AppDB.Name()), &appDBSts)
+			require.NoError(t, err)
+			wantImage := fmt.Sprintf("quay.io/mongodb/mongodb-enterprise-server:8.0.23-%s", test.wantImageType)
+			assert.Equal(t, wantImage, findContainerImage(appDBSts.Spec.Template.Spec.Containers, util.MongodbContainerName))
+			assert.False(t, hasContainerImageTypeWarning(testOm.Status.AppDbStatus.Warnings), "AppDB status warnings: %v", testOm.Status.AppDbStatus.Warnings)
+		})
+	}
+}
+
+func TestOpsManagerAppDBContainerImageTypeAnnotationWarning(t *testing.T) {
+	tests := []struct {
+		name                string
+		defaultArchitecture architectures.DefaultArchitecture
+		imageType           string
+		wantWarning         bool
+	}{
+		{
+			name:                "supported annotation on static has no warning",
+			defaultArchitecture: architectures.Static,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+		},
+		{
+			name:                "unsupported annotation on static warns",
+			defaultArchitecture: architectures.Static,
+			imageType:           "ubi9slim",
+			wantWarning:         true,
+		},
+		{
+			name:                "supported annotation on non-static has no warning",
+			defaultArchitecture: architectures.NonStatic,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+		},
+		{
+			name:                "unsupported annotation on non-static warns",
+			defaultArchitecture: architectures.NonStatic,
+			imageType:           "ubi9slim",
+			wantWarning:         true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			testOm := DefaultOpsManagerBuilder().SetBackup(omv1.MongoDBOpsManagerBackup{Enabled: false}).Build()
+			testOm.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: test.imageType})
+
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			reconciler, _, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, omConnectionFactory, test.defaultArchitecture)
+
+			checkOMReconciliationSuccessful(ctx, t, reconciler, testOm, reconciler.client)
+
+			assert.Equal(t, test.wantWarning, hasContainerImageTypeWarning(testOm.Status.AppDbStatus.Warnings), "AppDB status warnings: %v", testOm.Status.AppDbStatus.Warnings)
+		})
+	}
 }
 
 func TestOpsManagerConnectionString_IsPassedAsSecretRef(t *testing.T) {
@@ -1015,6 +1288,109 @@ func TestOpsManagerBackupObjectLockRetentionFields(t *testing.T) {
 	assert.Equal(t, "COMPLIANCE", *s3Configs[0].ObjectRetentionMode)
 }
 
+func TestOpsManagerBackupBucketDerivedObjectLockFields(t *testing.T) {
+	ctx := context.Background()
+
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.28").
+		AddOplogStoreConfig("oplog-store-2", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{
+			Name:                  "snapshot",
+			S3SecretRef:           &omv1.SecretRef{Name: "s3-secret"},
+			ObjectLockEnabled:     new(true),
+			ObjectRetentionDays:   new(30),
+			ObjectRetentionMode:   new("GOVERNANCE"),
+			PortableBackupEnabled: new(true),
+		}).
+		Build()
+	testOm.Spec.Backup.S3OplogStoreConfigs = []omv1.S3Config{{
+		Name:                  "oplog",
+		S3SecretRef:           &omv1.SecretRef{Name: "s3-secret"},
+		ObjectLockEnabled:     new(true),
+		ObjectRetentionDays:   new(30),
+		ObjectRetentionMode:   new("GOVERNANCE"),
+		PortableBackupEnabled: new(true),
+	}}
+
+	reconciler, client, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	configureBackupResources(ctx, client, testOm)
+	mockedAdmin := api.NewMockedAdminProvider("testUrl", "publicApiKey", "privateApiKey", true)
+	defer mockedAdmin.(*api.MockedOmAdmin).Reset()
+
+	reconcilerHelper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
+	require.NoError(t, err)
+	status := reconciler.prepareBackupInOpsManager(ctx, reconcilerHelper, testOm, mockedAdmin, &AppDBConfig{}, zap.S())
+	require.True(t, status.IsOK())
+
+	snapshotConfigs, err := mockedAdmin.ReadS3Configs(ctx)
+	require.NoError(t, err)
+	require.Len(t, snapshotConfigs, 1)
+	assert.Nil(t, snapshotConfigs[0].ObjectLockEnabled)
+	assert.Nil(t, snapshotConfigs[0].ObjectRetentionDays)
+	assert.Nil(t, snapshotConfigs[0].ObjectRetentionMode)
+	assert.Equal(t, new(true), snapshotConfigs[0].PortableBackupEnabled)
+
+	oplogConfigs, err := mockedAdmin.ReadS3OplogStoreConfigs(ctx)
+	require.NoError(t, err)
+	require.Len(t, oplogConfigs, 1)
+	assert.Nil(t, oplogConfigs[0].ObjectLockEnabled)
+	assert.Nil(t, oplogConfigs[0].ObjectRetentionDays)
+	assert.Nil(t, oplogConfigs[0].ObjectRetentionMode)
+	assert.Equal(t, new(true), oplogConfigs[0].PortableBackupEnabled)
+}
+
+func TestOpsManagerBackupDeprecatedObjectLockWarningIsPersisted(t *testing.T) {
+	ctx := context.Background()
+	testOm := DefaultOpsManagerBuilder().
+		SetVersion("8.0.28").
+		AddOplogStoreConfig("oplog-store", "my-user", types.NamespacedName{Name: "config-0-mdb", Namespace: mock.TestNamespace}).
+		AddS3SnapshotStore(omv1.S3Config{Name: "s3-config", S3SecretRef: &omv1.SecretRef{Name: "s3-secret"}, ObjectLockEnabled: new(true)}).
+		Build()
+
+	reconciler, mockedClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
+	configureBackupResources(ctx, mockedClient, testOm)
+
+	// the first reconcile is requeued to configure AppDB monitoring
+	_, err := reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+	_, err = reconciler.Reconcile(ctx, requestFromObject(testOm))
+	require.NoError(t, err)
+
+	require.NoError(t, mockedClient.Get(ctx, kube.ObjectKeyFromApiObject(testOm), testOm))
+	assert.Equal(t, status.PhaseRunning, testOm.Status.BackupStatus.Phase)
+	require.Len(t, testOm.Status.BackupStatus.Warnings, 1)
+	assert.Contains(t, string(testOm.Status.BackupStatus.Warnings[0]), "s3Stores/s3-config")
+}
+
+func TestValidatePortableBackupUpdate(t *testing.T) {
+	tests := []struct {
+		name    string
+		current *bool
+		desired *bool
+		wantErr bool
+	}{
+		{name: "disable enabled portable backups", current: new(true), desired: new(false), wantErr: true},
+		{name: "omitted desired value preserves enabled setting", current: new(true)},
+		{name: "no transition from false", current: new(false), desired: new(false)},
+		{name: "no current portable setting", desired: new(false)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePortableBackupUpdate(
+				backup.S3Config{Id: "store", PortableBackupEnabled: tt.current},
+				backup.S3Config{Id: "store", PortableBackupEnabled: tt.desired},
+			)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "cannot be set to false")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 	ctx := context.Background()
 	t.Run("Om changed event got triggered, major version update", func(t *testing.T) {
@@ -1157,7 +1533,7 @@ func TestOpsManagerRace(t *testing.T) {
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager1.CentralURL(), t: t, skipChecks: true}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, nil, nil, "fake-initDatabaseVersion", "fake-initOpsManagerImageVersion", architectures.NonStatic, "", omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, false).(*api.MockedOmAdmin)
 	})
 
@@ -1416,7 +1792,7 @@ func defaultTestOmReconciler(ctx context.Context, t *testing.T, imageUrls images
 
 	initializer := &MockedInitializer{expectedOmURL: opsManager.CentralURL(), t: t}
 
-	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, arch, omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+	reconciler := NewOpsManagerReconciler(ctx, kubeClient, globalMemberClustersMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, arch, "", omConnectionFactory.GetConnectionFunc, initializer, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
 		if api.CurrMockedAdmin == nil {
 			api.CurrMockedAdmin = api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
 		}

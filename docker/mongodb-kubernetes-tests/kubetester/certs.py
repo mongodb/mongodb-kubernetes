@@ -13,7 +13,7 @@ import kubernetes
 from kubeobject import CustomObject
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kubetester import create_secret, delete_secret, kubetester, random_k8s_name, read_secret
+from kubetester import create_secret, delete_secret, random_k8s_name, read_secret
 from kubetester.kubetester import KubernetesTester, run_periodically
 from kubetester.phase import Phase
 from opentelemetry import trace
@@ -747,32 +747,32 @@ def yield_existing_csrs(csr_names: List[str], timeout: int = 300) -> Generator[s
 
 @TRACER.start_as_current_span("assert_certificate_rotation")
 def rotate_and_assert_certificates(mdb, namespace, certificate_name):
-    """
-    Verifies certificate rotation completes successfully.
-
-    Rotates the specified certificate and validates that:
-    1. Automation config version increases, as cert changes causes a new ac version
-    2. All MongoDB processes reach the new goal version
-    3. MongoDB instance returns/stays to Running state
-
-    """
-
+    """Wait for a reissued certificate and all processes to apply the updated automation config."""
+    cert = Certificate(name=certificate_name, namespace=namespace).load()
+    secret_name = cert["spec"]["secretName"]
+    old_certificate = read_secret(namespace, secret_name)["tls.crt"]
     old_ac_version = KubernetesTester.get_automation_config()["version"]
-    rotate_cert(namespace, certificate_name, should_block_until_ready=True)
+    rotate_cert(namespace, certificate_name)
 
-    # Create named function to check version and process status
-    def check_version_increased():
+    def rotation_applied():
+        if read_secret(namespace, secret_name)["tls.crt"] == old_certificate:
+            return False
 
-        current_version = KubernetesTester.get_automation_config()["version"]
-        version_increased = current_version > old_ac_version
+        automation_config = KubernetesTester.get_automation_config()
+        version = automation_config["version"]
+        if version <= old_ac_version:
+            return False
 
-        return version_increased
+        automation_status = KubernetesTester.get_automation_status()
+        expected_processes = {process["name"] for process in automation_config["processes"]}
+        processes = automation_status["processes"]
+        return (
+            bool(expected_processes)
+            and automation_status["goalVersion"] == version
+            and {process["name"] for process in processes} == expected_processes
+            and all(process["lastGoalVersionAchieved"] == version for process in processes)
+        )
 
-    timeout = 600
-    KubernetesTester.wait_until(
-        check_version_increased,
-        timeout=timeout,
-    )
-    kubetester.wait_processes_ready()
+    run_periodically(rotation_applied, timeout=1200, sleep_time=5, msg=f"{certificate_name}: certificate rotation")
 
     mdb.assert_reaches_phase(Phase.Running, timeout=1200)

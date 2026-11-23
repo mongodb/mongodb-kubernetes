@@ -82,6 +82,10 @@ type S3Config struct {
 	// ObjectRetentionMode is the S3 Object Lock retention mode (GOVERNANCE or COMPLIANCE).
 	// Only meaningful when ObjectLockEnabled is true.
 	ObjectRetentionMode *string `json:"objectRetentionMode,omitempty"`
+
+	// PortableBackupEnabled opts this store into portable backups. Only sent to Ops Manager
+	// versions that read the Object Lock settings from the bucket.
+	PortableBackupEnabled *bool `json:"portableBackupEnabled,omitempty"`
 }
 
 // S3CustomCertificate stores the filename or contents of a custom certificate PEM file.
@@ -131,14 +135,21 @@ func NewS3Config(opsManager *omv1.MongoDBOpsManager, s3Config omv1.S3Config, uri
 		PathStyleAccessEnabled: true,
 		AuthMethod:             string(authMode),
 		S3RegionOverride:       &s3Config.S3RegionOverride,
-		ObjectLockEnabled:      s3Config.ObjectLockEnabled,
 	}
 
-	// OM versions older than 8.0.27 reject the retention attributes with
-	// INVALID_ATTRIBUTE, so they must not be sent there.
-	if objectLockRetentionSupported(opsManager) {
-		config.ObjectRetentionDays = s3Config.ObjectRetentionDays
-		config.ObjectRetentionMode = s3Config.ObjectRetentionMode
+	// Newer OM versions read the Object Lock settings from the bucket and accept
+	// portableBackupEnabled instead; older versions reject it with INVALID_ATTRIBUTE.
+	if versionutil.OpsManagerUsesBucketDerivedObjectLockSettings(opsManager.Spec.Version) {
+		config.PortableBackupEnabled = s3Config.PortableBackupEnabled
+	} else {
+		config.ObjectLockEnabled = s3Config.ObjectLockEnabled
+
+		// OM versions older than 8.0.27 reject the retention attributes with
+		// INVALID_ATTRIBUTE, so they must not be sent there.
+		if objectLockRetentionSupported(opsManager) {
+			config.ObjectRetentionDays = s3Config.ObjectRetentionDays
+			config.ObjectRetentionMode = s3Config.ObjectRetentionMode
+		}
 	}
 
 	if _, err := versionutil.StringToSemverVersion(opsManager.Spec.Version); err == nil {
@@ -198,5 +209,8 @@ func (s S3Config) MergeIntoOpsManagerConfig(opsManagerS3Config S3Config) S3Confi
 	opsManagerS3Config.ObjectLockEnabled = s.ObjectLockEnabled
 	opsManagerS3Config.ObjectRetentionDays = s.ObjectRetentionDays
 	opsManagerS3Config.ObjectRetentionMode = s.ObjectRetentionMode
+	if s.PortableBackupEnabled != nil {
+		opsManagerS3Config.PortableBackupEnabled = s.PortableBackupEnabled
+	}
 	return opsManagerS3Config
 }

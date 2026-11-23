@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -82,6 +83,15 @@ func TestCreateReplicaSet(t *testing.T) {
 	connection.(*om.MockedOmConnection).CheckNumberOfUpdateRequests(t, 1)
 }
 
+func TestReplicaSetReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	rs.SetUID(types.UID("replica-set-uid"))
+	reconciler, kubeClient, _ := defaultReplicaSetReconcilerWithConnectionFactory(ctx, nil, "", "", rs, architectures.NonStatic, monitoringMappingConnectionFactory())
+
+	runReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, rs, rs.GetReplicaSetName())
+}
+
 func TestReplicaSetRace(t *testing.T) {
 	ctx := context.Background()
 	rs, cfgMap, projectName := buildReplicaSetWithCustomProjectName("my-rs")
@@ -103,7 +113,7 @@ func TestReplicaSetRace(t *testing.T) {
 			Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true),
 		}).Build()
 
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
 }
@@ -163,6 +173,166 @@ func TestReplicaSetClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
 }
 
+func TestReplicaSetClusterReconcileContainerImageType(t *testing.T) {
+	tests := []struct {
+		name             string
+		defaultImageType architectures.ImageType
+		annotations      map[string]string
+	}{
+		{
+			name:             "global slim image type",
+			defaultImageType: architectures.ImageTypeUBI9Slim,
+		},
+		{
+			name:             "annotation overrides global image type",
+			defaultImageType: architectures.ImageTypeUBI9,
+			annotations: map[string]string{
+				architectures.ContainerImageTypeAnnotation: string(architectures.ImageTypeUBI9Slim),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			relatedImageEnv := fmt.Sprintf("RELATED_IMAGE_%s_8_0_23_ubi9_slim", util.MongodbImageEnv)
+			imageUrlsMock := images.ImageUrls{
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+				relatedImageEnv:       "quay.io/mongodb/mongodb-enterprise-server:@sha256:MONGODB_DATABASE_SLIM",
+			}
+
+			ctx := context.Background()
+			rs := DefaultReplicaSetBuilder().SetVersion("8.0.23").Build()
+			rs.SetAnnotations(test.annotations)
+			reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, imageUrlsMock, "", "", rs, architectures.Static)
+			reconciler.defaultImageType = test.defaultImageType
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+			sts := &appsv1.StatefulSet{}
+			err := kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts)
+			require.NoError(t, err)
+			assert.Equal(t, imageUrlsMock[relatedImageEnv], findContainerImage(sts.Spec.Template.Spec.Containers, util.DatabaseContainerName))
+		})
+	}
+}
+
+func TestReplicaSetContainerImageTypeRejection(t *testing.T) {
+	ctx := context.Background()
+	imageURLs := images.ImageUrls{
+		util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+		util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+	}
+	for _, inherited := range []bool{false, true} {
+		t.Run(fmt.Sprintf("inherited=%t", inherited), func(t *testing.T) {
+			rs := DefaultReplicaSetBuilder().SetVersion("8.0.23").Build()
+			reconciler, cl, factory := defaultReplicaSetReconciler(ctx, imageURLs, "", "", rs, architectures.Static)
+			reconciler.defaultImageType = architectures.ImageTypeUBI9
+			if inherited {
+				reconciler.defaultImageType = architectures.ImageTypeUBI8
+			}
+			if !inherited {
+				rs.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi8"})
+				require.NoError(t, cl.Update(ctx, rs))
+			}
+			connections := 0
+			factory.SetPostCreateHook(func(connection om.Connection) {
+				connections++
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+			checkReconcileFailed(ctx, t, reconciler, rs, false, "not supported with static architecture", cl)
+			assert.Zero(t, connections, "validation must run before connecting to Ops Manager")
+			statefulSets := &appsv1.StatefulSetList{}
+			require.NoError(t, cl.List(ctx, statefulSets))
+			require.Empty(t, statefulSets.Items)
+
+			rs.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi9-slim"})
+			require.NoError(t, cl.Update(ctx, rs))
+			checkReconcileSuccessful(ctx, t, reconciler, rs, cl)
+			require.NoError(t, cl.List(ctx, statefulSets))
+			require.NotEmpty(t, statefulSets.Items)
+			before := statefulSets.DeepCopy()
+			deployment, err := factory.GetConnection().ReadDeployment(ctx)
+			require.NoError(t, err)
+			beforeDeployment, err := json.Marshal(deployment)
+			require.NoError(t, err)
+
+			rs.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi8"})
+			require.NoError(t, cl.Update(ctx, rs))
+			checkReconcileFailed(ctx, t, reconciler, rs, false, "not supported with static architecture", cl)
+			for _, previous := range before.Items {
+				current := &appsv1.StatefulSet{}
+				require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(&previous), current))
+				assert.Equal(t, previous.Spec, current.Spec, previous.Name)
+			}
+			deployment, err = factory.GetConnection().ReadDeployment(ctx)
+			require.NoError(t, err)
+			afterDeployment, err := json.Marshal(deployment)
+			require.NoError(t, err)
+			assert.JSONEq(t, string(beforeDeployment), string(afterDeployment))
+		})
+	}
+}
+
+func TestReplicaSetContainerImageTypeAnnotationWarning(t *testing.T) {
+	tests := []struct {
+		name                string
+		defaultArchitecture architectures.DefaultArchitecture
+		imageType           string
+		wantWarning         bool
+	}{
+		{
+			name:                "supported annotation on static has no warning",
+			defaultArchitecture: architectures.Static,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+		},
+		{
+			name:                "unsupported annotation on static warns",
+			defaultArchitecture: architectures.Static,
+			imageType:           "ubi9slim",
+			wantWarning:         true,
+		},
+		{
+			name:                "annotation on non-static warns",
+			defaultArchitecture: architectures.NonStatic,
+			imageType:           string(architectures.ImageTypeUBI9Slim),
+			wantWarning:         true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			imageUrlsMock := images.ImageUrls{
+				util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+				util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+			}
+			rs := DefaultReplicaSetBuilder().Build()
+			rs.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: test.imageType})
+			reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, imageUrlsMock, "", "", rs, test.defaultArchitecture)
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+			assert.Equal(t, test.wantWarning, hasContainerImageTypeWarning(rs.Status.Warnings), "status warnings: %v", rs.Status.Warnings)
+		})
+	}
+}
+
+func hasContainerImageTypeWarning[W ~string](warnings []W) bool {
+	for _, warning := range warnings {
+		if strings.Contains(string(warning), architectures.ContainerImageTypeAnnotation) {
+			return true
+		}
+	}
+	return false
+}
+
 func VerifyStaticContainers(t *testing.T, containers []corev1.Container) {
 	agentContainerImage := findContainerImage(containers, util.AgentContainerName)
 	require.NotNil(t, agentContainerImage, "Agent container not found")
@@ -201,6 +371,85 @@ func TestReplicaSetServiceName(t *testing.T) {
 	assert.Equal(t, "foo", rs.ServiceName())
 	_, err := client.GetService(ctx, kube.ObjectKey(rs.Namespace, rs.ServiceName()))
 	assert.NoError(t, err)
+}
+
+func TestReplicaSetCustomServiceAccount(t *testing.T) {
+	for _, arch := range []architectures.DefaultArchitecture{architectures.NonStatic, architectures.Static} {
+		t.Run(string(arch), func(t *testing.T) {
+			ctx := context.Background()
+			podSpec := corev1.PodSpec{ServiceAccountName: "test-sa"}
+			rs := DefaultReplicaSetBuilder().SetPodSpecTemplate(corev1.PodTemplateSpec{Spec: podSpec}).Build()
+			reconciler, client, omConnectionFactory := defaultReplicaSetReconciler(ctx, nil, "", "", rs, arch)
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+
+			sts, err := client.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, rs.Name))
+			require.NoError(t, err)
+			assert.Equal(t, podSpec.ServiceAccountName, sts.Spec.Template.Spec.ServiceAccountName)
+		})
+	}
+}
+
+func TestReplicaSetStatefulSetStatus(t *testing.T) {
+	for _, arch := range []architectures.DefaultArchitecture{architectures.NonStatic, architectures.Static} {
+		t.Run(string(arch), func(t *testing.T) {
+			ctx := context.Background()
+			rs := DefaultReplicaSetBuilder().SetMembers(2).Build()
+
+			markStsAsReady := false
+			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+			kubeClient := interceptor.NewClient(
+				mock.NewEmptyFakeClientBuilder().WithObjects(rs).WithObjects(mock.GetDefaultResources()...).Build(),
+				interceptor.Funcs{
+					Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						return mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, markStsAsReady, markStsAsReady)(ctx, client, key, obj, opts...)
+					},
+				})
+			reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
+
+			checkReconcilePending(ctx, t, reconciler, rs, "StatefulSet not ready", kubeClient, 3)
+			assert.Equal(t, "StatefulSet not ready", rs.Status.Message)
+			assert.Equal(t, []status.ResourceNotReady{{
+				Kind:    status.StatefulsetKind,
+				Name:    rs.Name,
+				Message: "Not all the Pods are ready (wanted: 2, updated: 0, ready: 0, current: 0)",
+			}}, rs.Status.ResourcesNotReady)
+
+			markStsAsReady = true
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+			assert.Empty(t, rs.Status.ResourcesNotReady)
+			assert.Empty(t, rs.Status.Message)
+		})
+	}
+}
+
+func TestReplicaSetRecoversFromMissingCredentials(t *testing.T) {
+	ctx := context.Background()
+	const missingCredentials = "missing-credentials"
+	rs := DefaultReplicaSetBuilder().Build()
+	rs.Spec.Credentials = missingCredentials
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	checkReconcileFailed(ctx, t, reconciler, rs, true, fmt.Sprintf(`Error reading Credentials secret: secrets %q not found`, missingCredentials), client)
+
+	rs.Spec.Credentials = mock.TestCredentialsSecretName
+	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+}
+
+func TestReplicaSetMembersNotSpecified(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().SetMembers(0).Build()
+
+	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	msg := "'spec.members' must be specified if type of MongoDB is ReplicaSet"
+	checkReconcileFailed(ctx, t, reconciler, rs, false, msg, client)
 }
 
 func TestHorizonVerificationTLS(t *testing.T) {
@@ -611,7 +860,7 @@ func TestFeatureControlPolicyAndTagAddedWithNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -635,7 +884,7 @@ func TestFeatureControlPolicyNoAuthNewerOpsManager(t *testing.T) {
 
 	omConnectionFactory := om.NewCachedOMConnectionFactory(omConnectionFactoryFuncSettingVersion())
 	fakeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, fakeClient)
 
@@ -1024,7 +1273,7 @@ func TestReplicaSetAnnotations_NotWrittenOnFailure(t *testing.T) {
 		WithObjects(mock.GetProjectConfigMap(mock.TestProjectConfigMapName, "testProject", "testOrg")).
 		Build()
 
-	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, nil)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, nil, nil)
 
 	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
 	require.NoError(t, err, "Reconcile should not return error (error captured in status)")
@@ -1254,12 +1503,16 @@ func assertCorrectNumberOfMembersAndProcesses(ctx context.Context, t *testing.T,
 	assert.Len(t, dep.ProcessesCopy(), expected)
 }
 
-func defaultReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
-	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+func defaultReplicaSetReconcilerWithConnectionFactory(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, rs)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateReplicaSetExternalHostnames(rs)
 	})
-	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil), kubeClient, omConnectionFactory
+}
+
+func defaultReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, rs *mdbv1.MongoDB, arch architectures.DefaultArchitecture) (*ReconcileMongoDbReplicaSet, kubernetesClient.Client, *om.CachedOMConnectionFactory) {
+	return defaultReplicaSetReconcilerWithConnectionFactory(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, rs, arch, om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection))
 }
 
 func calculateReplicaSetExternalHostnames(rs *mdbv1.MongoDB) []string {
@@ -1718,7 +1971,7 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 	}
 	applyOverrides := func(t *testing.T, c client.Client) string {
 		rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").Build()
-		reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c)}
+		reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c, nil)}
 		helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
 		applied, err := helper.applySearchOverrides(ctx)
 		require.NoError(t, err)
@@ -2393,4 +2646,53 @@ func TestReconcile_ReleasedAppDBRoleCRDoesNotReclaimSecrets(t *testing.T) {
 		assert.Equal(t, types.UID("om-uid-1111"), s.OwnerReferences[0].UID,
 			"secret %s must stay OM-owned while the CR is released", name)
 	}
+}
+
+// TestLookupCorrespondingSearchResource_AuthGate pins the database-controller gate: a search
+// resource whose sync-source auth is incompatible with the source MongoDB (e.g. a default
+// SCRAM search on an x509-only source) must not wire the search endpoints into the automation
+// config — the search deployment fails its own reconcile for the same reason.
+func TestLookupCorrespondingSearchResource_AuthGate(t *testing.T) {
+	ctx := context.Background()
+	newSource := func(modes ...mdbv1.AuthMode) *mdbv1.MongoDB {
+		return DefaultReplicaSetBuilder().
+			SetName("my-om-db").
+			SetVersion("8.2.0").
+			SetAuthentication(&mdbv1.Authentication{Enabled: true, Modes: modes}).
+			Build()
+	}
+	newSearch := func(x509 bool) *searchv1.MongoDBSearch {
+		s := &searchv1.MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "search", Namespace: mock.TestNamespace},
+			Spec: searchv1.MongoDBSearchSpec{
+				Source: &searchv1.MongoDBSource{
+					MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "my-om-db"},
+				},
+			},
+		}
+		if x509 {
+			s.Spec.Source.X509 = &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}}
+		}
+		return s
+	}
+	lookup := func(t *testing.T, mdb *mdbv1.MongoDB, search *searchv1.MongoDBSearch) *searchv1.MongoDBSearch {
+		t.Helper()
+		reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", mdb, architectures.NonStatic)
+		require.NoError(t, kubeClient.Create(ctx, search))
+		helper := &ReplicaSetReconcilerHelper{resource: mdb, reconciler: reconciler, log: zap.S()}
+		found, err := helper.lookupCorrespondingSearchResource(ctx)
+		require.NoError(t, err)
+		return found
+	}
+
+	t.Run("x509-only source with a default SCRAM search is not wired", func(t *testing.T) {
+		assert.Nil(t, lookup(t, newSource(mdbv1.AuthMode("X509")), newSearch(false)),
+			"the auth-incompatible combination must not wire the search endpoints")
+	})
+	t.Run("x509-only source with an x509 search is wired", func(t *testing.T) {
+		assert.NotNil(t, lookup(t, newSource(mdbv1.AuthMode("X509")), newSearch(true)))
+	})
+	t.Run("SCRAM source with a default SCRAM search is wired", func(t *testing.T) {
+		assert.NotNil(t, lookup(t, newSource(mdbv1.AuthMode("SCRAM-SHA-256")), newSearch(false)))
+	})
 }

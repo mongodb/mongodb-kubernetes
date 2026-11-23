@@ -181,6 +181,8 @@ spec:
     {{ end }}
     - name: MDB_DEFAULT_ARCHITECTURE
       value: "{{ .Values.mdbDefaultArchitecture }}"
+    - name: MDB_DEFAULT_IMAGE_TYPE
+      value: "{{ .Values.mdbDefaultImageType }}"
     - name: CLUSTER_DOMAIN
       value: "{{ .Values.clusterDomain }}"
     {{ if .Values.omDebugHttp }}
@@ -211,6 +213,16 @@ spec:
       value: "{{ .Values.cognito_workload_url }}"
     - name: cognito_workload_user_id
       value: {{ .Values.cognito_workload_user_id }}
+    - name: oidc_provider
+      value: "{{ .Values.oidc_provider }}"
+    - name: auth0_issuer
+      value: "{{ .Values.auth0_issuer }}"
+    - name: auth0_client_id
+      value: "{{ .Values.auth0_client_id }}"
+    - name: auth0_client_secret
+      value: "{{ .Values.auth0_client_secret }}"
+    - name: auth0_audience
+      value: "{{ .Values.auth0_audience }}"
     - name: HOME
       value: /home/tests-home
     - name: AI_MONGODB_EMBEDDING_INDEXING_KEY

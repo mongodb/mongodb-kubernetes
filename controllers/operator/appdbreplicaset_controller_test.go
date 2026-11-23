@@ -54,6 +54,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	envtestlib "github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
 func init() {
@@ -84,8 +85,7 @@ func TestMain(m *testing.M) {
 	defer func(key string) {
 		_ = os.Unsetenv(key) // nolint:forbidigo
 	}(agentVersionManagement.MappingFilePathEnv)
-	code := m.Run()
-	os.Exit(code)
+	os.Exit(envtestlib.RunShared(m, envtestlib.WithCRDs("mongodb.com_opsmanagers.yaml")))
 }
 
 func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {
@@ -449,11 +449,14 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(ctx, hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(ctx, opsManager.Spec.AppDB.GetSecurity(), hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
 		assert.NoError(t, err)
 
 		hosts, _ := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetHosts(ctx)
 		assert.Len(t, hosts.Results, 3)
+		for _, h := range hosts.Results {
+			assert.False(t, h.SSLEnabled, "AppDB TLS is not enabled, so host %s must be registered with SSL off", h.Hostname)
+		}
 	})
 
 	t.Run("Ensure hosts are added when scaled up", func(t *testing.T) {
@@ -461,7 +464,7 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(ctx, hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(ctx, opsManager.Spec.AppDB.GetSecurity(), hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
 		assert.NoError(t, err)
 
 		hosts, _ := omConnectionFactory.GetConnection().GetHosts(ctx)
@@ -473,12 +476,26 @@ func TestRegisterAppDBHostsWithProject(t *testing.T) {
 		_, err = reconciler.ReconcileAppDB(ctx, opsManager)
 
 		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
-		err = reconciler.registerAppDBHostsWithProject(ctx, hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		err = reconciler.registerAppDBHostsWithProject(ctx, opsManager.Spec.AppDB.GetSecurity(), hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
 		assert.NoError(t, err)
 
 		// After scale-down, hosts should be removed from monitoring
 		hosts, _ := omConnectionFactory.GetConnection().GetHosts(ctx)
 		assert.Len(t, hosts.Results, 3, "Expected 3 hosts after scaling down from 5 to 3 members")
+	})
+
+	t.Run("Ensure hosts are registered with SSL on when the AppDB has TLS enabled", func(t *testing.T) {
+		opsManager.Spec.AppDB.Security = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
+
+		hostnames := reconciler.getCurrentStatefulsetHostnames(opsManager)
+		err = reconciler.registerAppDBHostsWithProject(ctx, opsManager.Spec.AppDB.GetSecurity(), hostnames, omConnectionFactory.GetConnection(), "password", zap.S())
+		require.NoError(t, err)
+
+		hosts, _ := omConnectionFactory.GetConnection().GetHosts(ctx)
+		require.Len(t, hosts.Results, 3)
+		for _, h := range hosts.Results {
+			assert.True(t, h.SSLEnabled, "host %s should be registered with SSL on", h.Hostname)
+		}
 	})
 }
 
@@ -1766,14 +1783,14 @@ func TestEnsureResourcesForArchitectureChange(t *testing.T) {
 }
 
 func newAppDbReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, omConnectionFactoryFunc om.ConnectionFactory, log *zap.SugaredLogger) (*ReconcileAppDbReplicaSet, error) {
-	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager, commonController, omConnectionFactoryFunc, nil, architectures.NonStatic, log)
+	commonController := NewReconcileCommonController(ctx, c, nil)
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager, commonController, omConnectionFactoryFunc, nil, architectures.NonStatic, "", log)
 }
 
 func newAppDbMultiReconciler(ctx context.Context, c client.Client, opsManager *omv1.MongoDBOpsManager, memberClusterMap map[string]client.Client, log *zap.SugaredLogger, omConnectionFactoryFunc om.ConnectionFactory) (*ReconcileAppDbReplicaSet, error) {
 	_ = c.Update(ctx, opsManager)
-	commonController := NewReconcileCommonController(ctx, c)
-	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager, commonController, omConnectionFactoryFunc, memberClusterMap, architectures.NonStatic, log)
+	commonController := NewReconcileCommonController(ctx, c, nil)
+	return NewAppDBReplicaSetReconciler(ctx, nil, "", opsManager, commonController, omConnectionFactoryFunc, memberClusterMap, architectures.NonStatic, "", log)
 }
 
 func TestChangingFCVAppDB(t *testing.T) {

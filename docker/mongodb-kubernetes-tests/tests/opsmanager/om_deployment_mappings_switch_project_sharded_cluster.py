@@ -1,0 +1,7 @@
+from pytest import mark
+from tests.common.ops_manager.deployment_mappings import DeploymentMappingsSwitchProject, ShardedClusterTopology
+
+
+@mark.e2e_om_deployment_mappings_switch_project_sharded_cluster
+class TestShardedClusterDeploymentMappingsSwitchProject(ShardedClusterTopology, DeploymentMappingsSwitchProject):
+    pass

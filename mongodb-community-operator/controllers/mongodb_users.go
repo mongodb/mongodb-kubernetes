@@ -9,6 +9,7 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
+	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
@@ -42,17 +43,20 @@ func (r ReplicaSetReconciler) ensureUserResources(ctx context.Context, mdb mdbv1
 // updateConnectionStringSecrets updates secrets where user specific connection strings are stored.
 // The client applications can mount these secrets and connect to the mongodb cluster
 func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context, mdb mdbv1.MongoDBCommunity) error {
+	// Check every target secret and read every password before writing anything. A failed
+	// reconcile skips cleanup, so failing on a later user would orphan earlier writes.
+	type userWithPassword struct {
+		user authtypes.User
+		pwd  string
+	}
+	var toWrite []userWithPassword
+
 	for _, user := range mdb.GetAuthUsers() {
 		secretName := user.ConnectionStringSecretName
 
-		secretNamespace := mdb.Namespace
-		if user.ConnectionStringSecretNamespace != "" {
-			secretNamespace = user.ConnectionStringSecretNamespace
-		}
-
 		existingSecret, err := r.client.GetSecret(ctx, types.NamespacedName{
 			Name:      secretName,
-			Namespace: secretNamespace,
+			Namespace: user.ConnectionStringSecretNamespace,
 		})
 		if err != nil && !apiErrors.IsNotFound(err) {
 			return err
@@ -62,23 +66,31 @@ func (r ReplicaSetReconciler) updateConnectionStringSecrets(ctx context.Context,
 		}
 
 		pwd := ""
-
 		if user.Database != constants.ExternalDB {
-			secretNamespacedName := types.NamespacedName{Name: user.PasswordSecretName, Namespace: mdb.Namespace}
-			pwd, err = secret.ReadKey(ctx, r.client, user.PasswordSecretKey, secretNamespacedName)
+			passwordSecret := types.NamespacedName{Name: user.PasswordSecretName, Namespace: mdb.Namespace}
+			pwd, err = secret.ReadKey(ctx, r.client, user.PasswordSecretKey, passwordSecret)
 			if err != nil {
+				if apiErrors.IsNotFound(err) {
+					// users may delete the password secret once the resource is running, in
+					// which case the existing connection string secret is left untouched
+					r.log.Debugf("Skipping connection string secret %s: required password secret not found", secretName)
+					continue
+				}
 				return err
 			}
 		}
+		toWrite = append(toWrite, userWithPassword{user: user, pwd: pwd})
+	}
 
+	for _, u := range toWrite {
 		connectionStringSecret := secret.Builder().
-			SetName(secretName).
-			SetNamespace(secretNamespace).
-			SetAnnotations(user.ConnectionStringSecretAnnotations).
-			SetField("connectionString.standard", mdb.MongoAuthUserURI(user, pwd)).
-			SetField("connectionString.standardSrv", mdb.MongoAuthUserSRVURI(user, pwd)).
-			SetField("username", user.Username).
-			SetField("password", pwd).
+			SetName(u.user.ConnectionStringSecretName).
+			SetNamespace(u.user.ConnectionStringSecretNamespace).
+			SetAnnotations(u.user.ConnectionStringSecretAnnotations).
+			SetField("connectionString.standard", mdb.MongoAuthUserURI(u.user, u.pwd)).
+			SetField("connectionString.standardSrv", mdb.MongoAuthUserSRVURI(u.user, u.pwd)).
+			SetField("username", u.user.Username).
+			SetField("password", u.pwd).
 			SetOwnerReferences(mdb.GetOwnerReferences()).
 			Build()
 

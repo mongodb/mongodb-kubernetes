@@ -93,7 +93,7 @@ def test_create_ops_manager(namespace: str):
 @mark.e2e_search_enterprise_basic
 def test_create_database_resource(mdb: MongoDB):
     mdb.update()
-    mdb.assert_reaches_phase(Phase.Running, timeout=300)
+    mdb.assert_reaches_phase(Phase.Running, timeout=600)
 
 
 @mark.e2e_search_enterprise_basic

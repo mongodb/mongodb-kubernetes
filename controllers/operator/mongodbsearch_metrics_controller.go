@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blang/semver"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -68,11 +67,6 @@ const (
 	metricsForwarderConfigHashAnnotation = "mongodb.com/metrics-forwarder-config-hash"
 	metricsForwarderLabelName            = "search-metrics-forwarder"
 
-	// metricsForwarderMinOpsManagerVersion is the minimum supported self-hosted Ops Manager version.
-	// 8.0.24 exposes the ingest endpoint too, but registering mongot hosts on it triggers a bug
-	// that prevents Ops Manager from restarting; 8.0.25 fixes it.
-	metricsForwarderMinOpsManagerVersion = "8.0.25"
-
 	// how long to wait before re-checking whether removed mongot
 	// pods have terminated so their Ops Manager hosts can be safely deregistered.
 	mongotPodTerminationRequeueIntervalSeconds = 15
@@ -101,6 +95,7 @@ type MongoDBSearchMetricsForwarderReconciler struct {
 	secretClient        secrets.SecretClient
 	watch               *watch.ResourceWatcher
 	defaultImage        string
+	imagePullPolicy     corev1.PullPolicy
 	omRequester         omAgentRequester
 	otelConfigTemplate  searchcontroller.MetricsForwarderOTelConfigTemplate
 	operatorClusterName string
@@ -109,7 +104,7 @@ type MongoDBSearchMetricsForwarderReconciler struct {
 	prepareSearch prepareSearchFuncs
 }
 
-func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage string, memberClusterMap map[string]client.Client, operatorClusterName string) *MongoDBSearchMetricsForwarderReconciler {
+func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage string, imagePullPolicy corev1.PullPolicy, memberClusterMap map[string]client.Client, operatorClusterName string) *MongoDBSearchMetricsForwarderReconciler {
 	clientsMap := make(map[string]kubernetesClient.Client, len(memberClusterMap))
 	for k, v := range memberClusterMap {
 		clientsMap[k] = kubernetesClient.NewClient(v)
@@ -121,6 +116,7 @@ func newMongoDBSearchMetricsForwarderReconciler(c client.Client, defaultImage st
 		secretClient:        secrets.SecretClient{KubeClient: central},
 		watch:               watch.NewResourceWatcher(),
 		defaultImage:        defaultImage,
+		imagePullPolicy:     imagePullPolicy,
 		omRequester:         omHTTPAgentRequester{},
 		otelConfigTemplate:  searchcontroller.NewMetricsForwarderOTelConfigTemplate(),
 		operatorClusterName: operatorClusterName,
@@ -865,17 +861,16 @@ func (r *MongoDBSearchMetricsForwarderReconciler) checkOMVersionForMetricsEndpoi
 		return false, workflow.Unsupported(unknownVersionMsg)
 	}
 
-	minVersion := semver.MustParse(metricsForwarderMinOpsManagerVersion)
-	if sv.GTE(minVersion) {
+	if sv.GTE(versionutil.MinOTLPMetricsOpsManagerSemver) {
 		return true, workflow.OK()
 	}
 
 	const message = "Ops Manager version %s does not support the metrics forwarding endpoint (minimum: %s)." + disableHint
 
 	if explicit {
-		return false, workflow.Failed(fmt.Errorf(message, omVersion, metricsForwarderMinOpsManagerVersion)) //nolint:staticcheck // ST1005: "Ops Manager" is a proper product name
+		return false, workflow.Failed(fmt.Errorf(message, omVersion, versionutil.MinOTLPMetricsOpsManagerVersion)) //nolint:staticcheck // ST1005: "Ops Manager" is a proper product name
 	}
-	return false, workflow.Unsupported(message, omVersion, metricsForwarderMinOpsManagerVersion)
+	return false, workflow.Unsupported(message, omVersion, versionutil.MinOTLPMetricsOpsManagerVersion)
 }
 
 // newOMHTTPClient builds an Ops Manager HTTP client honouring the project's TLS configuration.
@@ -1249,7 +1244,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 						metricsForwarderConfigHashAnnotation: configHash,
 					},
 				},
-				Spec: buildMetricsForwarderPodSpec(search, agentKeySecretName, caConfigMapName, w.ClusterIndex, r.defaultImage, resources, managedSecurityContext),
+				Spec: buildMetricsForwarderPodSpec(search, agentKeySecretName, caConfigMapName, w.ClusterIndex, r.defaultImage, r.imagePullPolicy, resources, managedSecurityContext),
 			},
 		}
 
@@ -1271,7 +1266,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) ensureMetricsForwarderDeployme
 	return nil
 }
 
-func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecretName, caConfigMapName string, clusterIndex int, image string, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
+func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecretName, caConfigMapName string, clusterIndex int, image string, imagePullPolicy corev1.PullPolicy, resources corev1.ResourceRequirements, managedSecurityContext bool) corev1.PodSpec {
 	volumes := []corev1.Volume{
 		{
 			Name: "metrics-forwarder-config",
@@ -1342,6 +1337,7 @@ func buildMetricsForwarderPodSpec(search *searchv1.MongoDBSearch, agentKeySecret
 			{
 				Name:            "metrics-forwarder",
 				Image:           image,
+				ImagePullPolicy: imagePullPolicy,
 				Args:            []string{"--config", metricsForwarderConfigPath + "/" + metricsForwarderConfigFileName},
 				Env:             envVars,
 				Resources:       resources,
@@ -1537,10 +1533,11 @@ func memberMongoDBSearchMetricsForwarderResourceWatches(r *MongoDBSearchMetricsF
 }
 
 // AddMongoDBSearchMetricsForwarderController registers the metrics forwarder controller with the manager.
-func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager.Manager, defaultImage string, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
+func AddMongoDBSearchMetricsForwarderController(ctx context.Context, mgr manager.Manager, defaultImage string, imagePullPolicy corev1.PullPolicy, memberClusterObjectsMap map[string]runtimeCluster.Cluster, operatorClusterName string) error {
 	r := newMongoDBSearchMetricsForwarderReconciler(
 		mgr.GetClient(),
 		defaultImage,
+		imagePullPolicy,
 		multicluster.ClustersMapToClientMap(memberClusterObjectsMap),
 		operatorClusterName,
 	)

@@ -1,0 +1,31 @@
+name: Mark stale pull requests
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11
+        with:
+          operations-per-run: 1000
+          days-before-issue-stale: -1
+          days-before-issue-close: -1
+          days-before-pr-stale: 30
+          days-before-pr-close: 30
+          stale-pr-label: stale
+          exempt-pr-labels: do-not-stale
+          stale-pr-message: >-
+            This PR has had no activity for 30 days and is marked as stale.
+            It will be closed in 30 days unless there is new activity.
+            Comment or push a commit to keep it open, or add the `do-not-stale` label for long-running work.
+          close-pr-message: >-
+            This PR was closed after 30 more days without activity.
+            Feel free to reopen it if it is still relevant.
