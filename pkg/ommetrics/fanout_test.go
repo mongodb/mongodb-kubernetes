@@ -16,6 +16,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 )
 
 func TestFanoutExportsDestinationMappings(t *testing.T) {
@@ -47,7 +49,7 @@ func TestFanoutExportsDestinationMappings(t *testing.T) {
 	cfg := NewConfig()
 	reg := newRegistry(cfg)
 	want := map[string]string{}
-	for _, topology := range []DeploymentTopology{DeploymentTopologySingleCluster, DeploymentTopologyMultiCluster} {
+	for _, topology := range []v1.DeploymentTopology{v1.DeploymentTopologySingleCluster, v1.DeploymentTopologyMultiCluster} {
 		groupID := string(topology)
 		deployment := fakeDeployment{uid: "uid-" + groupID, name: "rs-" + groupID, topology: topology}
 		if err := reg.ensure(Project{BaseURL: srv.URL, GroupID: groupID}, "k", TLSOptions{}, deployment); err != nil {

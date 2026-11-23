@@ -20,7 +20,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/fcv"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster/failedcluster"
-	"github.com/mongodb/mongodb-kubernetes/pkg/ommetrics"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	intp "github.com/mongodb/mongodb-kubernetes/pkg/util/int"
 )
@@ -118,8 +117,8 @@ func (m *MongoDBMultiCluster) TelemetryIdentifier() string {
 	return string(m.UID)
 }
 
-func (m *MongoDBMultiCluster) DeploymentTopology() ommetrics.DeploymentTopology {
-	return ommetrics.DeploymentTopologyMultiCluster
+func (m *MongoDBMultiCluster) DeploymentTopology() v1.DeploymentTopology {
+	return v1.DeploymentTopologyMultiCluster
 }
 
 // OpsManagerDeploymentName matches the replica set name the reconciler writes to the automation config.

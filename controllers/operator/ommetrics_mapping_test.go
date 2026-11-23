@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	mdbmulti "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdbmulti"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
@@ -66,8 +67,8 @@ type fakeDeployment struct{ uid, name string }
 
 func (d fakeDeployment) TelemetryIdentifier() string      { return d.uid }
 func (d fakeDeployment) OpsManagerDeploymentName() string { return d.name }
-func (d fakeDeployment) DeploymentTopology() ommetrics.DeploymentTopology {
-	return ommetrics.DeploymentTopologySingleCluster
+func (d fakeDeployment) DeploymentTopology() v1.DeploymentTopology {
+	return v1.DeploymentTopologySingleCluster
 }
 
 // monitoringMappingConnectionFactory mocks an Ops Manager version that supports OTLP metrics.

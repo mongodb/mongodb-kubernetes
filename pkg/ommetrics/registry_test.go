@@ -7,21 +7,23 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 )
 
 type fakeDeployment struct {
 	uid, name string
-	topology  DeploymentTopology
+	topology  v1.DeploymentTopology
 }
 
 func (d fakeDeployment) TelemetryIdentifier() string      { return d.uid }
 func (d fakeDeployment) OpsManagerDeploymentName() string { return d.name }
 
-func (d fakeDeployment) DeploymentTopology() DeploymentTopology {
+func (d fakeDeployment) DeploymentTopology() v1.DeploymentTopology {
 	if d.topology != "" {
 		return d.topology
 	}
-	return DeploymentTopologySingleCluster
+	return v1.DeploymentTopologySingleCluster
 }
 
 var testDeployment = fakeDeployment{uid: "uid-1", name: "rs"}
@@ -120,7 +122,7 @@ func TestEnsureRefreshesKeyAndMapping(t *testing.T) {
 	if got := *reg.dests[mustKey(t, p)].agentAPIKey.Load(); got != "k2" {
 		t.Fatalf("agent API key after rotation = %q, want k2", got)
 	}
-	if m := destinationMappings(t, reg); m != `[{"mckDeploymentUid":"uid-1","deploymentName":"rs-renamed","topology":"single-cluster"}]` {
+	if m := destinationMappings(t, reg); m != `[{"mckDeploymentUid":"uid-1","deploymentName":"rs-renamed","topology":"SingleCluster"}]` {
 		t.Fatalf("mappings after refresh = %s", m)
 	}
 }
@@ -128,7 +130,7 @@ func TestEnsureRefreshesKeyAndMapping(t *testing.T) {
 func TestEnsureEncodesDeploymentMapping(t *testing.T) {
 	reg := newRegistry(NewConfig())
 	mustEnsure(t, reg, Project{BaseURL: "https://om.example.com", GroupID: "g1"}, "k", TLSOptions{})
-	if m := destinationMappings(t, reg); m != `[{"mckDeploymentUid":"uid-1","deploymentName":"rs","topology":"single-cluster"}]` {
+	if m := destinationMappings(t, reg); m != `[{"mckDeploymentUid":"uid-1","deploymentName":"rs","topology":"SingleCluster"}]` {
 		t.Fatalf("mappings = %s", m)
 	}
 }
@@ -136,7 +138,7 @@ func TestEnsureEncodesDeploymentMapping(t *testing.T) {
 func TestEnsureDeploymentTopology(t *testing.T) {
 	reg := newRegistry(NewConfig())
 	project := Project{BaseURL: "https://om.example.com", GroupID: "g1"}
-	for _, topology := range []DeploymentTopology{DeploymentTopologySingleCluster, DeploymentTopologyMultiCluster, DeploymentTopologySingleCluster} {
+	for _, topology := range []v1.DeploymentTopology{v1.DeploymentTopologySingleCluster, v1.DeploymentTopologyMultiCluster, v1.DeploymentTopologySingleCluster} {
 		deployment := fakeDeployment{uid: "uid-1", name: "rs", topology: topology}
 		if err := reg.ensure(project, "k", TLSOptions{}, deployment); err != nil {
 			t.Fatal(err)
@@ -154,7 +156,7 @@ func TestEnsureRejectsIncompleteDeployment(t *testing.T) {
 		"typed nil":        (*ptrDeployment)(nil),
 		"blank uid":        fakeDeployment{name: "rs"},
 		"blank name":       fakeDeployment{uid: "uid-1"},
-		"unknown topology": fakeDeployment{uid: "uid-1", name: "rs", topology: "SingleCluster"},
+		"unknown topology": fakeDeployment{uid: "uid-1", name: "rs", topology: "InvalidTopology"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			reg := newRegistry(NewConfig())

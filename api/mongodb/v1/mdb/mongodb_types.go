@@ -27,7 +27,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
-	"github.com/mongodb/mongodb-kubernetes/pkg/ommetrics"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
@@ -61,8 +60,8 @@ const (
 	TransportSecurityNone TransportSecurity = "none"
 	TransportSecurityTLS  TransportSecurity = "tls"
 
-	ClusterTopologySingleCluster = "SingleCluster"
-	ClusterTopologyMultiCluster  = "MultiCluster"
+	ClusterTopologySingleCluster string = string(v1.DeploymentTopologySingleCluster)
+	ClusterTopologyMultiCluster  string = string(v1.DeploymentTopologyMultiCluster)
 
 	OIDCAuthorizationTypeGroupMembership = "GroupMembership"
 	OIDCAuthorizationTypeUserID          = "UserID"
@@ -264,11 +263,11 @@ func (m *MongoDB) TelemetryIdentifier() string {
 	return string(m.UID)
 }
 
-func (m *MongoDB) DeploymentTopology() ommetrics.DeploymentTopology {
+func (m *MongoDB) DeploymentTopology() v1.DeploymentTopology {
 	if m.Spec.IsMultiCluster() {
-		return ommetrics.DeploymentTopologyMultiCluster
+		return v1.DeploymentTopologyMultiCluster
 	}
-	return ommetrics.DeploymentTopologySingleCluster
+	return v1.DeploymentTopologySingleCluster
 }
 
 // OpsManagerDeploymentName is the name Ops Manager resolves this deployment by; standalones match on hostname:
