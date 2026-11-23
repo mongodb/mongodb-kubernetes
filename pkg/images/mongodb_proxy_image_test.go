@@ -27,19 +27,12 @@ func TestMongodbProxyImage(t *testing.T) {
 			urls: ImageUrls{util.MongodbProxyImageEnv: "localhost:5000/mongodb-kubernetes-mongodb-proxy:proxydev-1"},
 			want: "localhost:5000/mongodb-kubernetes-mongodb-proxy:proxydev-1",
 		},
-		"the related image of the version wins (a digest in a disconnected installation)": {
+		"the runtime reference wins over a related image": {
 			urls: ImageUrls{
 				util.MongodbProxyImageEnv: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy:1.15.0",
 				related:                   "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy@sha256:abc",
 			},
-			want: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy@sha256:abc",
-		},
-		"the related image of another version is not used": {
-			urls: ImageUrls{
-				util.MongodbProxyImageEnv: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy:1.16.0",
-				related:                   "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy@sha256:abc",
-			},
-			want: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy:1.16.0",
+			want: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy:1.15.0",
 		},
 		"a digest is kept": {
 			urls: ImageUrls{util.MongodbProxyImageEnv: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy@sha256:abc"},

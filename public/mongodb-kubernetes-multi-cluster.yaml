@@ -419,7 +419,7 @@ spec:
             - name: INIT_DATABASE_VERSION
               value: "1.17.0"
             - name: MDB_MONGODB_PROXY_IMAGE
-              value: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy:1.17.0"
+              value: "268558157000.dkr.ecr.us-east-1.amazonaws.com/mongodb-kubernetes-mongodb-proxy:1.17.0"
             - name: DATABASE_VERSION
               value: "1.17.0"
             # Ops Manager

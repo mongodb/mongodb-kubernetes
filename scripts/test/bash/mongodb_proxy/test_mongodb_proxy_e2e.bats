@@ -39,7 +39,7 @@ setup() {
     [[ "${output}" == *"agent.customAgentUrl= "* ]] || return 1
 }
 
-@test "operator rendering supplies the proxy image and OLM related image" {
+@test "OpenShift rendering supplies the proxy image without an OLM related image" {
     export MDB_MONGODB_PROXY_IMAGE=registry.example:5000/team/mongodb-proxy:patch-test
     run bash -c '
         source scripts/funcs/operator_deployment
@@ -52,7 +52,7 @@ setup() {
     '
     [ "${status}" -eq 0 ]
     [[ "${output}" == *"name: MDB_MONGODB_PROXY_IMAGE"* ]] || return 1
-    [[ "${output}" == *"name: RELATED_IMAGE_MDB_MONGODB_PROXY_IMAGE_patch_test"* ]] || return 1
+    [[ "${output}" != *"name: RELATED_IMAGE_MDB_MONGODB_PROXY_IMAGE_"* ]] || return 1
     [[ "${output}" == *'value: "registry.example:5000/team/mongodb-proxy:patch-test"'* ]] || return 1
 }
 
