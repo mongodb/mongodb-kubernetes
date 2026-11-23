@@ -50,6 +50,8 @@ from kubernetes import client
 from kubernetes.client import ApiextensionsV1Api
 from kubetester import (
     create_or_update_configmap,
+    delete_cluster_role,
+    delete_cluster_role_binding,
     get_deployments,
     get_pod_when_ready,
     is_pod_ready,
@@ -787,6 +789,11 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
 ) -> Operator:
     os.environ["HELM_KUBECONTEXT"] = central_cluster_name
 
+    # The opt-in ClusterMongoDBRole RBAC is applied out-of-band with kubectl (not Helm), so a Helm
+    # reinstall leaves it behind; delete it explicitly so the operator starts with the feature off.
+    delete_cluster_role_binding("mck-member-cluster-mongodb-role-binding", api_client=central_cluster_client)
+    delete_cluster_role("mck-member-cluster-mongodb-role", api_client=central_cluster_client)
+
     return _install_multi_cluster_operator(
         namespace,
         multi_cluster_operator_installation_config,
@@ -794,23 +801,10 @@ def multi_cluster_operator_no_cluster_mongodb_roles(
         member_cluster_clients,
         {
             "operator.name": MULTI_CLUSTER_OPERATOR_NAME,
-            # Skip creating the ClusterMongoDBRole RBAC.
-            "operator.enableClusterMongoDBRoles": "false",
         },
         central_cluster_name,
         apply_crds_first=apply_crds_first,
         configure_member_clusters=member_cluster_names,
-        operator_config_extra_spec={
-            "watchedResources": [
-                "mongodb",
-                "opsmanagers",
-                "mongodbusers",
-                "mongodbcommunity",
-                "mongodbsearch",
-                "mongodbmulticluster",
-                "voyageais",
-            ]
-        },
     )
 
 
@@ -891,6 +885,7 @@ def _install_multi_cluster_operator(
     configure_member_clusters: Optional[List[str]] = None,
     member_clusters_workload_namespaces: Optional[str] = None,
     member_clusters_operator_cluster_scoped: bool = False,
+    member_clusters_operator_cluster_mongodb_role: bool = False,
 ) -> Operator:
     multi_cluster_operator_installation_config.update(helm_opts)
 
@@ -958,6 +953,7 @@ def _install_multi_cluster_operator(
             central_cluster_name,
             workload_namespaces=member_clusters_workload_namespaces,
             operator_cluster_scoped=member_clusters_operator_cluster_scoped,
+            operator_cluster_mongodb_role=member_clusters_operator_cluster_mongodb_role,
         )
         if restart_count is not None:
             wait_for_operator_pod_restart(namespace, operator_name, restart_count, api_client=central_cluster_client)
@@ -1522,6 +1518,7 @@ def generate_and_apply_member_resources(
     member_namespace: str,
     workload_namespaces: Optional[str] = None,
     operator_cluster_scoped: bool = False,
+    operator_cluster_mongodb_role: bool = False,
 ):
     """Render and apply member-cluster RBAC to each member cluster."""
     plugin = _multi_cluster_plugin_path()
@@ -1539,6 +1536,8 @@ def generate_and_apply_member_resources(
             args += ["--workload-namespaces", workload_namespaces]
         if operator_cluster_scoped:
             args += ["--operator-cluster-scoped"]
+        if operator_cluster_mongodb_role:
+            args += ["--operator-clustermongodbrole"]
         print(f"Rendering member resources for {cluster}: {' '.join(args)}")
         manifests = subprocess.check_output(args, stderr=subprocess.STDOUT)
         _kubectl_apply_to_context(cluster, manifests)
@@ -1580,10 +1579,13 @@ def configure_multi_cluster_members(
     central_cluster: str,
     workload_namespaces: Optional[str] = None,
     operator_cluster_scoped: bool = False,
+    operator_cluster_mongodb_role: bool = False,
 ):
     """Apply member-cluster RBAC to each member cluster, then register each cluster with the
     operator's cluster."""
-    generate_and_apply_member_resources(member_clusters, member_namespace, workload_namespaces, operator_cluster_scoped)
+    generate_and_apply_member_resources(
+        member_clusters, member_namespace, workload_namespaces, operator_cluster_scoped, operator_cluster_mongodb_role
+    )
     generate_and_apply_member_registration(member_clusters, operator_namespace, central_cluster)
 
 

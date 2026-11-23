@@ -1,0 +1,6 @@
+---
+kind: breaking
+date: 2026-11-18
+---
+
+* **ClusterMongoDBRole is now an opt-in feature**: the base installation no longer ships the ClusterRole and ClusterRoleBinding for `ClusterMongoDBRole` resources and the `operator.enableClusterMongoDBRoles` Helm value has been removed. Listing `clustermongodbroles` in `.spec.watchedResources` of the OperatorConfig CR no longer has any effect either. The operator now enables `ClusterMongoDBRole` support purely based on RBAC presence: it reconciles `ClusterMongoDBRole` resources if and only if the operator's member ServiceAccount on its own cluster holds the permission. To opt in, apply the output of `kubectl mongodb cluster generate-resources --member-cluster <name> --operator-namespace <ns> --operator-clustermongodbrole` to the cluster and register the cluster with the operator via `kubectl mongodb cluster generate-registration` (for a single-cluster deployment, do this for the only cluster). To opt out again, delete the `mck-member-cluster-mongodb-role-binding` ClusterRoleBinding and the `mck-member-cluster-mongodb-role` ClusterRole. The `ClusterMongoDBRole` CRD itself remains installed in all cases; MongoDB resources referencing `spec.security.roleRefs` without the opt-in fail reconciliation with an explanatory error.

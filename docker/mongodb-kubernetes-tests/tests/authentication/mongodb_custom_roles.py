@@ -1,11 +1,54 @@
+import os
+from typing import List
+
+from kubernetes import client
 from kubetester import create_or_update_configmap, find_fixture, read_configmap, try_load, wait_until
 from kubetester.automation_config_tester import AutomationConfigTester
 from kubetester.mongodb import MongoDB, Phase
 from kubetester.mongodb_multi import MongoDBMulti
 from kubetester.mongodb_role import ClusterMongoDBRole, ClusterMongoDBRoleKind
+from kubetester.multicluster_client import MultiClusterClient
 from kubetester.operator import Operator
 from pytest import fixture, mark
+from tests.conftest import (
+    MULTI_CLUSTER_OPERATOR_NAME,
+    _install_multi_cluster_operator,
+    get_default_operator,
+    is_multi_cluster,
+)
 from tests.multicluster.conftest import cluster_spec_list
+
+
+# ClusterMongoDBRole support is opt-in: the operator reconciles ClusterMongoDBRoles only once its
+# member ServiceAccount on the central cluster holds the RBAC. The central cluster is not in
+# MEMBER_CLUSTERS, so register it as a member and render the --operator-clustermongodbrole RBAC.
+@fixture(scope="module")
+def default_operator(
+    namespace: str,
+    operator_installation_config: dict[str, str],
+    central_cluster_name: str,
+    multi_cluster_operator_installation_config: dict[str, str],
+    central_cluster_client: client.ApiClient,
+    member_cluster_clients: List[MultiClusterClient],
+    member_cluster_names: List[str],
+    operator_config_extra_spec: dict,
+) -> Operator:
+    if is_multi_cluster():
+        os.environ["HELM_KUBECONTEXT"] = central_cluster_name
+        return _install_multi_cluster_operator(
+            namespace,
+            multi_cluster_operator_installation_config,
+            central_cluster_client,
+            member_cluster_clients,
+            {"operator.name": MULTI_CLUSTER_OPERATOR_NAME},
+            central_cluster_name,
+            operator_config_extra_spec=operator_config_extra_spec,
+            configure_member_clusters=member_cluster_names + [central_cluster_name],
+            member_clusters_operator_cluster_mongodb_role=True,
+        )
+    return get_default_operator(
+        namespace, operator_installation_config, operator_config_extra_spec=operator_config_extra_spec
+    )
 
 
 # fmt: off
@@ -358,7 +401,7 @@ def test_install_operator_with_clustermongodbroles_disabled(multi_cluster_operat
 def test_replicaset_is_failed(replica_set: MongoDB):
     replica_set.assert_reaches_phase(
         Phase.Failed,
-        msg_regexp="RoleRefs are not supported when ClusterMongoDBRoles are disabled",
+        msg_regexp="RoleRefs are not supported because ClusterMongoDBRole support is not enabled",
     )
 
 
