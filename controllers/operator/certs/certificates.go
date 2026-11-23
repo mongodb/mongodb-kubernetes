@@ -157,50 +157,72 @@ func SeedManagedPEMSecretsFromLegacy(ctx context.Context, secretClient secrets.S
 		{lastAchieved.AgentClientCertificateSecretName(resourceName), current.AgentClientCertificateSecretName(resourceName)},
 	}
 	for _, p := range pairs {
-		if err := seedPEMSecret(ctx, secretClient, namespace, p.legacy, p.managed, log); err != nil {
+		if err := SeedManagedPEMSecretFromLegacy(ctx, secretClient, namespace, p.legacy, p.managed, nil, Database, nil, log); err != nil {
 			return xerrors.Errorf("failed to create the initial -pem secret %s with the legacy certificate from %s: %w", p.managed, p.legacy, err)
 		}
 	}
 	return nil
 }
 
-// seedPEMSecret creates the -pem secret of managedSecretName holding the current certificate of
-// legacySecretName's -pem secret. It does nothing when the names are the same, when the managed -pem
-// secret already exists, or when there is no legacy -pem secret to take the certificate from.
-func seedPEMSecret(ctx context.Context, secretClient secrets.SecretClient, namespace, legacySecretName, managedSecretName string, log *zap.SugaredLogger) error {
+// SeedPEMValidator validates the exact legacy PEM before the seeder copies it.
+type SeedPEMValidator func(secretName, certificate string) error
+
+// SeedManagedPEMSecretFromLegacy creates the -pem secret of managedSecretName holding the current
+// certificate of legacySecretName's -pem secret. The names are the base TLS Secret names; the -pem
+// suffix is appended with the existing naming. It does nothing when the names are the same, when the
+// destination already exists, or when there is no legacy -pem secret to take the certificate from.
+//
+// A missing legacy source is a no-op only when no validator is provided.
+func SeedManagedPEMSecretFromLegacy(ctx context.Context, secretClient secrets.SecretClient, namespace, legacySecretName, managedSecretName string, ownerReferences []metav1.OwnerReference, podType certDestination, validate SeedPEMValidator, log *zap.SugaredLogger) error {
 	if legacySecretName == managedSecretName {
 		return nil
 	}
-	path, err := getVaultBasePath(secretClient, Database)
+	path, err := getVaultBasePath(secretClient, podType)
 	if err != nil {
 		return err
 	}
 	legacyPEM := getOperatorGeneratedSecret(kube.ObjectKey(namespace, legacySecretName))
 	managedPEM := getOperatorGeneratedSecret(kube.ObjectKey(namespace, managedSecretName))
+	readPEM := secretClient.ReadSecret
+	if podType != Database {
+		readPEM = func(ctx context.Context, name types.NamespacedName, path string) (map[string]string, error) {
+			return readExistingPEMSecretData(ctx, secretClient, name, path)
+		}
+	}
 
-	// nothing should be done if managed -pem secret is found, return early
-	if _, err := secretClient.ReadSecret(ctx, managedPEM, path); err == nil {
+	// nothing should be done if the managed -pem secret is found, return early
+	if _, err := readPEM(ctx, managedPEM, path); err == nil {
 		return nil
 	} else if !secret.SecretNotExist(err) {
 		return err
 	}
 
-	legacyData, err := secretClient.ReadSecret(ctx, legacyPEM, path)
+	legacyData, err := readPEM(ctx, legacyPEM, path)
 	if secret.SecretNotExist(err) {
+		if validate != nil {
+			return xerrors.Errorf("%s does not exist", legacyPEM.Name)
+		}
 		return nil
 	} else if err != nil {
 		return err
 	}
 	legacyHash := currentHashOfPEMSecret(legacyData)
-	if legacyHash == "" {
+	if validate != nil {
+		if legacyHash == "" || legacyData[legacyHash] == "" {
+			return xerrors.Errorf("%s has no certificate data under %q", legacyPEM.Name, legacyHash)
+		}
+		if err := validate(legacyPEM.Name, legacyData[legacyHash]); err != nil {
+			return err
+		}
+	} else if legacyHash == "" {
 		return nil
 	}
 
-	log.Infof("Moving to operator-managed certificates: keeping the certificate of %s in %s, so restarted pods still have the file the automation config names", legacyPEM.Name, managedPEM.Name)
+	log.Infof("Moving to operator-managed certificates: keeping the current certificate of %s in %s", legacyPEM.Name, managedPEM.Name)
 	return CreateOrUpdatePEMSecret(ctx, secretClient, kube.ObjectKey(namespace, managedSecretName), map[string]string{
 		legacyHash:               legacyData[legacyHash],
 		util.LatestHashSecretKey: legacyHash,
-	}, nil, nil, Database)
+	}, ownerReferences, nil, podType)
 }
 
 // VerifyManagedPEMSecretsKeepLegacy makes sure that the -pem secrets the operator created for the

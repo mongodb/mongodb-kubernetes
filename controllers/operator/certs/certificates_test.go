@@ -22,6 +22,7 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
@@ -673,6 +674,303 @@ func TestSeedManagedPEMSecretsFromLegacy_LeavesAnExistingManagedSecretAlone(t *t
 	pem, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-rs-managed-cert-pem"}, Unused)
 	assert.NoError(t, err)
 	assert.Equal(t, existing, pem)
+}
+
+func TestSeedManagedPEMSecretsFromLegacy_NormalizesTrailingNewline(t *testing.T) {
+	ctx := t.Context()
+	client := newFakeSecretClient()
+	legacy := &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
+	managed := &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+	putPEMSecret(ctx, t, client, "my-rs-cert-pem", map[string]string{
+		util.LatestHashSecretKey: "legacy_member",
+		"legacy_member":          "legacy member cert\n",
+	})
+
+	require.NoError(t, SeedManagedPEMSecretsFromLegacy(ctx, client, mock.TestNamespace, "my-rs", "my-rs", legacy, managed, zap.S()))
+	seeded, err := readPEMSecretRaw(ctx, t, client, "my-rs-managed-cert-pem")
+	require.NoError(t, err)
+	assert.Equal(t, "legacy member cert", seeded["legacy_member"])
+}
+
+// errorInjectingSecretClient wraps the fake client and fails reads for the named Secrets, or every
+// write, so the seeding's error paths run without a cluster.
+type errorInjectingSecretClient struct {
+	kubernetesClient.KubernetesSecretClient
+	getErrors map[string]error
+	createErr error
+	updateErr error
+}
+
+func (f errorInjectingSecretClient) GetSecret(ctx context.Context, objectKey types.NamespacedName) (corev1.Secret, error) {
+	if err, ok := f.getErrors[objectKey.Name]; ok {
+		return corev1.Secret{}, err
+	}
+	return f.KubernetesSecretClient.GetSecret(ctx, objectKey)
+}
+
+func (f errorInjectingSecretClient) CreateSecret(ctx context.Context, secret corev1.Secret) error {
+	if f.createErr != nil {
+		return f.createErr
+	}
+	return f.KubernetesSecretClient.CreateSecret(ctx, secret)
+}
+
+func (f errorInjectingSecretClient) UpdateSecret(ctx context.Context, secret corev1.Secret) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	return f.KubernetesSecretClient.UpdateSecret(ctx, secret)
+}
+
+// readPEMSecretRaw reads a Secret as the raw bytes on the Kubernetes backend, so a test can pin exact
+// PEM material that the string-based read normalizes.
+func readPEMSecretRaw(ctx context.Context, t *testing.T, client secrets.SecretClient, name string) (map[string]string, error) {
+	t.Helper()
+	data, err := client.ReadBinarySecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: name}, Unused)
+	if err != nil {
+		return nil, err
+	}
+	raw := map[string]string{}
+	for key, value := range data {
+		raw[key] = string(value)
+	}
+	return raw, nil
+}
+
+func TestSeedManagedPEMSecretFromLegacy_NilValidatorKeepsEmptyLatestEntryBehavior(t *testing.T) {
+	ctx := context.Background()
+	client := newFakeSecretClient()
+	putPEMSecret(ctx, t, client, "my-rs-cert-pem", map[string]string{
+		util.LatestHashSecretKey: "legacy_member",
+		"legacy_member":          "",
+	})
+
+	require.NoError(t, SeedManagedPEMSecretFromLegacy(ctx, client, mock.TestNamespace,
+		"my-rs-cert", "my-rs-managed-cert", nil, Database, nil, zap.S()))
+
+	seeded, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-rs-managed-cert-pem"}, Unused)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{util.LatestHashSecretKey: "legacy_member", "legacy_member": ""}, seeded)
+}
+
+func TestSeedManagedPEMSecretFromLegacy_AppDB(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("seeds the AppDB secret with the legacy certificate like a rotation", func(t *testing.T) {
+		client := newFakeSecretClient()
+		putPEMSecret(ctx, t, client, "appdb-my-om-db-cert-pem", map[string]string{
+			util.LatestHashSecretKey: "legacy",
+			"legacy":                 "legacy cert",
+		})
+
+		require.NoError(t, SeedManagedPEMSecretFromLegacy(ctx, client, mock.TestNamespace,
+			"appdb-my-om-db-cert", "my-om-db-managed-cert", nil, AppDB, nil, zap.S()))
+
+		seeded, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-om-db-managed-cert-pem"}, Unused)
+		require.NoError(t, err)
+		require.Equal(t, map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert"}, seeded)
+
+		// The write the operator does on every reconcile keeps the legacy certificate as the previous one.
+		require.NoError(t, CreateOrUpdatePEMSecretWithPreviousCert(ctx, client,
+			types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-om-db-managed-cert"},
+			"managed", "managed cert", nil, nil, AppDB))
+
+		managedData, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-om-db-managed-cert-pem"}, Unused)
+		require.NoError(t, err)
+		require.Equal(t, map[string]string{
+			util.LatestHashSecretKey: "managed", util.PreviousHashSecretKey: "legacy",
+			"managed": "managed cert", "legacy": "legacy cert",
+		}, managedData)
+
+		// The legacy source is read-only material: seeding and writing must not touch it.
+		source, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "appdb-my-om-db-cert-pem"}, Unused)
+		require.NoError(t, err)
+		require.Equal(t, map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert"}, source)
+	})
+
+	t.Run("re-seeding and re-writing do not rewind the managed latest hash", func(t *testing.T) {
+		client := newFakeSecretClient()
+		putPEMSecret(ctx, t, client, "appdb-my-om-db-cert-pem", map[string]string{
+			util.LatestHashSecretKey: "legacy",
+			"legacy":                 "legacy cert",
+		})
+		require.NoError(t, SeedManagedPEMSecretFromLegacy(ctx, client, mock.TestNamespace,
+			"appdb-my-om-db-cert", "my-om-db-managed-cert", nil, AppDB, nil, zap.S()))
+		require.NoError(t, CreateOrUpdatePEMSecretWithPreviousCert(ctx, client,
+			types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-om-db-managed-cert"},
+			"managed", "managed cert", nil, nil, AppDB))
+
+		before, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-om-db-managed-cert-pem"}, Unused)
+		require.NoError(t, err)
+
+		// A reconstructed reconciler seeds and writes the same managed certificate again.
+		require.NoError(t, SeedManagedPEMSecretFromLegacy(ctx, client, mock.TestNamespace,
+			"appdb-my-om-db-cert", "my-om-db-managed-cert", nil, AppDB, nil, zap.S()))
+		require.NoError(t, CreateOrUpdatePEMSecretWithPreviousCert(ctx, client,
+			types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-om-db-managed-cert"},
+			"managed", "managed cert", nil, nil, AppDB))
+
+		after, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-om-db-managed-cert-pem"}, Unused)
+		require.NoError(t, err)
+		require.Equal(t, before, after)
+	})
+
+	ownerReferences := []v1.OwnerReference{{
+		APIVersion: "mongodb.com/v1",
+		Kind:       "MongoDBOpsManager",
+		Name:       "my-om",
+		UID:        "om-uid",
+	}}
+
+	tests := []struct {
+		name            string
+		legacyName      string
+		managedName     string
+		legacyData      map[string]string
+		existingManaged map[string]string
+		ownerReferences []v1.OwnerReference
+		getErrors       map[string]error
+		createErr       error
+		wantManaged     map[string]string
+		wantErr         bool
+	}{
+		{
+			name:        "single-key legacy format",
+			legacyName:  "appdb-my-om-db-cert",
+			managedName: "my-om-db-managed-cert",
+			legacyData:  map[string]string{"legacy_single": "legacy cert"},
+			wantManaged: map[string]string{util.LatestHashSecretKey: "legacy_single", "legacy_single": "legacy cert"},
+		},
+		{
+			name:            "keeps the owner references on the seeded secret",
+			legacyName:      "appdb-my-om-db-cert",
+			managedName:     "my-om-db-managed-cert",
+			legacyData:      map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert"},
+			ownerReferences: ownerReferences,
+			wantManaged:     map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert"},
+		},
+		{
+			name:        "copies PEM bytes exactly, including a trailing newline",
+			legacyName:  "appdb-my-om-db-cert",
+			managedName: "my-om-db-managed-cert",
+			legacyData:  map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert\n"},
+			wantManaged: map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert\n"},
+		},
+		{
+			name:        "same names are a no-op",
+			legacyName:  "my-om-db-managed-cert",
+			managedName: "my-om-db-managed-cert",
+			legacyData:  map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert"},
+			wantManaged: nil,
+		},
+		{
+			name:        "absent optional source is a no-op",
+			legacyName:  "appdb-my-om-db-cert",
+			managedName: "my-om-db-managed-cert",
+			wantManaged: nil,
+		},
+		{
+			name:            "an already populated destination is left alone",
+			legacyName:      "appdb-my-om-db-cert",
+			managedName:     "my-om-db-managed-cert",
+			legacyData:      map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert"},
+			existingManaged: map[string]string{util.LatestHashSecretKey: "managed", "managed": "managed cert"},
+			wantManaged:     map[string]string{util.LatestHashSecretKey: "managed", "managed": "managed cert"},
+		},
+		{
+			name:        "a read error is returned",
+			legacyName:  "appdb-my-om-db-cert",
+			managedName: "my-om-db-managed-cert",
+			legacyData:  map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert"},
+			getErrors:   map[string]error{"appdb-my-om-db-cert-pem": fmt.Errorf("read failed")},
+			wantErr:     true,
+		},
+		{
+			name:        "a write error is returned",
+			legacyName:  "appdb-my-om-db-cert",
+			managedName: "my-om-db-managed-cert",
+			legacyData:  map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert"},
+			createErr:   fmt.Errorf("write failed"),
+			wantErr:     true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			baseClient := newFakeSecretClient()
+			if test.legacyName != test.managedName && test.legacyData != nil {
+				putPEMSecret(ctx, t, baseClient, test.legacyName+"-pem", test.legacyData)
+			}
+			if test.existingManaged != nil {
+				putPEMSecret(ctx, t, baseClient, test.managedName+"-pem", test.existingManaged)
+			}
+			client := secrets.SecretClient{KubeClient: errorInjectingSecretClient{
+				KubernetesSecretClient: baseClient.KubeClient,
+				getErrors:              test.getErrors,
+				createErr:              test.createErr,
+			}}
+
+			err := SeedManagedPEMSecretFromLegacy(ctx, client, mock.TestNamespace,
+				test.legacyName, test.managedName, test.ownerReferences, AppDB, nil, zap.S())
+
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			managed, err := readPEMSecretRaw(ctx, t, baseClient, test.managedName+"-pem")
+			if test.wantManaged == nil {
+				require.True(t, secret.SecretNotExist(err), "no managed PEM secret must be created")
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, test.wantManaged, managed)
+			}
+
+			if test.ownerReferences != nil {
+				created, err := baseClient.KubeClient.GetSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: test.managedName + "-pem"})
+				require.NoError(t, err)
+				require.Equal(t, test.ownerReferences, created.OwnerReferences)
+			}
+
+			if test.legacyData != nil && test.legacyName != test.managedName {
+				source, err := readPEMSecretRaw(ctx, t, baseClient, test.legacyName+"-pem")
+				require.NoError(t, err)
+				require.Equal(t, test.legacyData, source)
+			}
+		})
+	}
+}
+
+func TestSeedManagedPEMSecretFromLegacyValidated_AppDBSeedsOnlyMember(t *testing.T) {
+	ctx := context.Background()
+	client := newFakeSecretClient()
+	legacy := &mdbv1.Security{
+		TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: "legacy-appdb-ca"},
+		CertificatesSecretsPrefix: "appdb",
+	}
+	managed := &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+
+	putPEMSecret(ctx, t, client, "appdb-my-om-db-cert-pem", map[string]string{
+		util.LatestHashSecretKey: "legacy",
+		"legacy":                 "legacy cert",
+	})
+
+	require.NoError(t, SeedManagedPEMSecretFromLegacy(ctx, client, mock.TestNamespace,
+		legacy.MemberCertificateSecretName("my-om-db"), managed.MemberCertificateSecretName("my-om-db"), nil, AppDB,
+		func(_, certificate string) error {
+			require.Equal(t, "legacy cert", certificate)
+			return nil
+		}, zap.S()))
+
+	member, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: "my-om-db-managed-cert-pem"}, Unused)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{util.LatestHashSecretKey: "legacy", "legacy": "legacy cert"}, member)
+
+	for _, name := range []string{"my-om-db-managed-clusterfile-pem", "my-om-db-managed-agent-certs-pem"} {
+		_, err := client.ReadSecret(ctx, types.NamespacedName{Namespace: mock.TestNamespace, Name: name}, Unused)
+		require.True(t, secret.SecretNotExist(err), "%s must not be created for a SCRAM AppDB", name)
+	}
 }
 
 // When managedCertificate is removed before the migration finished, the operator names the legacy

@@ -2,7 +2,15 @@ package construct
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,9 +23,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	certspkg "github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
+	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
@@ -678,4 +689,162 @@ func TestHasVolumeMount(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// httpsMigrationTLSSecret builds a kubernetes.io/tls Secret for the HTTPS migration cases. The
+// operator concatenates tls.crt and tls.key into the mounted PEM file, so the material has to be a
+// real certificate and key.
+func httpsMigrationTLSSecret(t *testing.T, name string) *corev1.Secret {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: name},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	require.NoError(t, err)
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err)
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: mock.TestNamespace},
+		Type:       corev1.SecretTypeTLS,
+		Data: map[string][]byte{
+			"tls.crt": pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+			"tls.key": pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}),
+		},
+	}
+}
+
+func createOpsManagerStatefulsetWithClient(ctx context.Context, om *omv1.MongoDBOpsManager, kubeClient kubernetesClient.Client) (appsv1.StatefulSet, error) {
+	secretsClient := secrets.SecretClient{
+		VaultClient: &vault.VaultClient{},
+		KubeClient:  kubeClient,
+	}
+	return OpsManagerStatefulSet(ctx, secretsClient, om, multicluster.GetLegacyCentralMemberCluster(om.Spec.Replicas, 0, kubeClient, secretsClient), zap.S())
+}
+
+func opsManagerHTTPSVolume(t *testing.T, sts appsv1.StatefulSet) corev1.Volume {
+	t.Helper()
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == "om-https-certificate" {
+			return volume
+		}
+	}
+	t.Fatalf("the Ops Manager StatefulSet has no om-https-certificate volume: %v", sts.Spec.Template.Spec.Volumes)
+	return corev1.Volume{}
+}
+
+func opsManagerHTTPSPEMPath(t *testing.T, sts appsv1.StatefulSet) string {
+	t.Helper()
+	for _, container := range sts.Spec.Template.Spec.Containers {
+		if container.Name != util.OpsManagerContainerName {
+			continue
+		}
+		for _, env := range container.Env {
+			if env.Name == "OM_PROP_mms_https_PEMKeyFile" {
+				return env.Value
+			}
+		}
+	}
+	t.Fatalf("the Ops Manager container has no OM_PROP_mms_https_PEMKeyFile environment variable")
+	return ""
+}
+
+// TestOpsManagerHTTPSManagedCertificateMigration pins the coordinated HTTPS rollout: the mounted
+// volume and the PEMKeyFile environment must move to the operator-managed PEM Secret and its hash
+// key in the same desired StatefulSet, for every legacy form the operator accepts.
+func TestOpsManagerHTTPSManagedCertificateMigration(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("legacy tls.secretRef moves to the managed PEM secret and hash", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().SetName("https-om").SetNamespace(mock.TestNamespace).Build()
+		om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{
+			TLS: omv1.MongoDBOpsManagerTLS{SecretRef: omv1.TLSSecretRef{Name: "legacy-om-cert"}, CA: "legacy-om-ca"},
+		}
+		kubeClient, _ := mock.NewDefaultFakeClient(httpsMigrationTLSSecret(t, "legacy-om-cert"))
+
+		legacySts, err := createOpsManagerStatefulsetWithClient(ctx, om, kubeClient)
+		require.NoError(t, err)
+		legacyPEM := &corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mock.TestNamespace, "legacy-om-cert-pem"), legacyPEM))
+		legacyHash := string(legacyPEM.Data[util.LatestHashSecretKey])
+		require.NotEmpty(t, legacyHash)
+
+		legacyVolume := opsManagerHTTPSVolume(t, legacySts)
+		require.NotNil(t, legacyVolume.Secret)
+		assert.Equal(t, "legacy-om-cert-pem", legacyVolume.Secret.SecretName)
+		assert.Equal(t, util.MmsPemKeyFileDirInContainer+"/"+legacyHash, opsManagerHTTPSPEMPath(t, legacySts))
+
+		// The same resource is migrated in one edit: the Secret reference and CA are dropped and
+		// managedCertificate is added. The desired StatefulSet must name the managed resources.
+		om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{}}
+		managed := httpsMigrationTLSSecret(t, om.TLSCertificateSecretName())
+		require.NoError(t, kubeClient.Create(ctx, managed))
+
+		managedSts, err := createOpsManagerStatefulsetWithClient(ctx, om, kubeClient)
+		require.NoError(t, err)
+		managedPEM := &corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mock.TestNamespace, om.TLSCertificateSecretName()+certspkg.OperatorGeneratedCertSuffix), managedPEM))
+		managedHash := string(managedPEM.Data[util.LatestHashSecretKey])
+		require.NotEmpty(t, managedHash)
+		require.NotEqual(t, legacyHash, managedHash)
+
+		managedVolume := opsManagerHTTPSVolume(t, managedSts)
+		require.NotNil(t, managedVolume.Secret)
+		assert.Equal(t, "https-om-managed-om-cert-pem", managedVolume.Secret.SecretName)
+		assert.Equal(t, util.MmsPemKeyFileDirInContainer+"/"+managedHash, opsManagerHTTPSPEMPath(t, managedSts))
+	})
+
+	t.Run("legacy certsSecretPrefix moves to the managed PEM secret and hash", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().SetName("https-om").SetNamespace(mock.TestNamespace).Build()
+		om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{CertificatesSecretsPrefix: "legacy-prefix"}
+		kubeClient, _ := mock.NewDefaultFakeClient(httpsMigrationTLSSecret(t, "legacy-prefix-https-om-cert"))
+
+		legacySts, err := createOpsManagerStatefulsetWithClient(ctx, om, kubeClient)
+		require.NoError(t, err)
+		legacyVolume := opsManagerHTTPSVolume(t, legacySts)
+		require.NotNil(t, legacyVolume.Secret)
+		assert.Equal(t, "legacy-prefix-https-om-cert-pem", legacyVolume.Secret.SecretName)
+		assert.NotEqual(t, util.MmsPemKeyFileDirInContainer+"/server.pem", opsManagerHTTPSPEMPath(t, legacySts))
+
+		// The prefix form migrates to the same co-ordinated managed mount and environment.
+		om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{}}
+		require.NoError(t, kubeClient.Create(ctx, httpsMigrationTLSSecret(t, om.TLSCertificateSecretName())))
+
+		managedSts, err := createOpsManagerStatefulsetWithClient(ctx, om, kubeClient)
+		require.NoError(t, err)
+		managedPEM := &corev1.Secret{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mock.TestNamespace, om.TLSCertificateSecretName()+certspkg.OperatorGeneratedCertSuffix), managedPEM))
+		managedHash := string(managedPEM.Data[util.LatestHashSecretKey])
+		require.NotEmpty(t, managedHash)
+
+		managedVolume := opsManagerHTTPSVolume(t, managedSts)
+		require.NotNil(t, managedVolume.Secret)
+		assert.Equal(t, "https-om-managed-om-cert-pem", managedVolume.Secret.SecretName)
+		assert.Equal(t, util.MmsPemKeyFileDirInContainer+"/"+managedHash, opsManagerHTTPSPEMPath(t, managedSts))
+	})
+
+	t.Run("a raw server.pem Secret is mounted under its fixed file name", func(t *testing.T) {
+		om := omv1.NewOpsManagerBuilderDefault().SetName("https-om").SetNamespace(mock.TestNamespace).Build()
+		om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{
+			TLS: omv1.MongoDBOpsManagerTLS{SecretRef: omv1.TLSSecretRef{Name: "legacy-raw-om-cert"}},
+		}
+		// An Opaque Secret with a concatenated server.pem is the pre-existing form the operator
+		// accepts without deriving a hash-keyed PEM Secret.
+		rawSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "legacy-raw-om-cert", Namespace: mock.TestNamespace},
+			Data:       map[string][]byte{"server.pem": []byte("legacy pem")},
+		}
+		kubeClient, _ := mock.NewDefaultFakeClient(rawSecret)
+
+		sts, err := createOpsManagerStatefulsetWithClient(ctx, om, kubeClient)
+		require.NoError(t, err)
+		volume := opsManagerHTTPSVolume(t, sts)
+		require.NotNil(t, volume.Secret)
+		assert.Equal(t, "legacy-raw-om-cert", volume.Secret.SecretName)
+		assert.Equal(t, util.MmsPemKeyFileDirInContainer+"/server.pem", opsManagerHTTPSPEMPath(t, sts))
+	})
 }
