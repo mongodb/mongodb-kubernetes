@@ -11,6 +11,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/ommetrics"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -36,6 +37,27 @@ func TestOpsManagerDeploymentName(t *testing.T) {
 			assert.Equal(t, tc.want, m.OpsManagerDeploymentName())
 			assert.Equal(t, "uid-1", m.TelemetryIdentifier())
 		})
+	}
+}
+
+func TestDeploymentTopology(t *testing.T) {
+	for _, resourceType := range []ResourceType{ReplicaSet, ShardedCluster, Standalone} {
+		for _, topology := range []string{"", ClusterTopologySingleCluster, ClusterTopologyMultiCluster} {
+			if resourceType == Standalone && topology == ClusterTopologyMultiCluster {
+				continue
+			}
+			t.Run(fmt.Sprintf("%s/%s", resourceType, topology), func(t *testing.T) {
+				deployment := &MongoDB{Spec: MongoDbSpec{
+					DbCommonSpec: DbCommonSpec{ResourceType: resourceType},
+				}}
+				deployment.Spec.Topology = topology
+				want := ommetrics.DeploymentTopologySingleCluster
+				if topology == ClusterTopologyMultiCluster {
+					want = ommetrics.DeploymentTopologyMultiCluster
+				}
+				assert.Equal(t, want, deployment.DeploymentTopology())
+			})
+		}
 	}
 }
 

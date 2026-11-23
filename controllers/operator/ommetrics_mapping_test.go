@@ -66,6 +66,9 @@ type fakeDeployment struct{ uid, name string }
 
 func (d fakeDeployment) TelemetryIdentifier() string      { return d.uid }
 func (d fakeDeployment) OpsManagerDeploymentName() string { return d.name }
+func (d fakeDeployment) DeploymentTopology() ommetrics.DeploymentTopology {
+	return ommetrics.DeploymentTopologySingleCluster
+}
 
 // monitoringMappingConnectionFactory mocks an Ops Manager version that supports OTLP metrics.
 func monitoringMappingConnectionFactory() *om.CachedOMConnectionFactory {

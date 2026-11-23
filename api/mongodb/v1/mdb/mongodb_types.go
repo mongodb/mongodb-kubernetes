@@ -27,6 +27,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
+	"github.com/mongodb/mongodb-kubernetes/pkg/ommetrics"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/scale"
@@ -261,6 +262,13 @@ func (m *MongoDB) GetReplicaSetName() string {
 
 func (m *MongoDB) TelemetryIdentifier() string {
 	return string(m.UID)
+}
+
+func (m *MongoDB) DeploymentTopology() ommetrics.DeploymentTopology {
+	if m.Spec.IsMultiCluster() {
+		return ommetrics.DeploymentTopologyMultiCluster
+	}
+	return ommetrics.DeploymentTopologySingleCluster
 }
 
 // OpsManagerDeploymentName is the name Ops Manager resolves this deployment by; standalones match on hostname:
