@@ -277,8 +277,6 @@ spec:
               value: "{{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}:{{ $initDatabaseVersion }}"
             - name: RELATED_IMAGE_{{ $initOpsManagerImageRepositoryEnv }}_{{ $initOpsManagerVersion | replace "." "_" | replace "-" "_" }}
               value: "{{ .Values.registry.initOpsManager }}/{{ .Values.initOpsManager.name }}:{{ $initOpsManagerVersion }}"
-            - name: RELATED_IMAGE_{{ $mongodbProxyImageEnv }}_{{ $mongodbProxyVersion | replace "." "_" | replace "-" "_" }}
-              value: "{{ .Values.registry.mongodbProxy }}/{{ .Values.mongodbProxy.name }}:{{ $mongodbProxyVersion }}"
       {{- range $version := .Values.relatedImages.agent }}
             - name: RELATED_IMAGE_{{ $agentImageEnv }}_{{ $version | replace "." "_" | replace "-" "_" }}
               value: "{{ $.Values.registry.agent }}/{{ $.Values.agent.name }}:{{ $version }}"

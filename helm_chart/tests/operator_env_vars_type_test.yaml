@@ -44,7 +44,7 @@ tests:
           content:
             name: INIT_OPS_MANAGER_VERSION
             value: "1.2.3"
-  - it: should pass the mongodb-proxy image with its version and add the related image of that version
+  - it: should pass the configured mongodb-proxy image with its version
     set:
       registry.mongodbProxy: registry.example.com/mongodb
       mongodbProxy.name: proxy
@@ -55,9 +55,4 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: MDB_MONGODB_PROXY_IMAGE
-            value: "registry.example.com/mongodb/proxy:1.2.3"
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: RELATED_IMAGE_MDB_MONGODB_PROXY_IMAGE_1_2_3
             value: "registry.example.com/mongodb/proxy:1.2.3"
