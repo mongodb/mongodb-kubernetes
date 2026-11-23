@@ -1204,6 +1204,37 @@ func TestReconcileMultiClusterShardedClusterUnknownPlaceholderFails(t *testing.T
 	checkReconcileFailed(ctx, t, reconciler, sc, true, "failed to process annotations in internal service", kubeClient)
 }
 
+// TestMergeOverrideClusterSpecListPreservesInternalConnectivity pins that per-member-cluster
+// internalConnectivity survives shardOverrides: ClusterSpecItemOverride doesn't carry the field,
+// so mergeOverrideClusterSpecList must salvage it from the base shard configuration.
+func TestMergeOverrideClusterSpecListPreservesInternalConnectivity(t *testing.T) {
+	internalConnectivity := &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{"key": "value"}}
+	externalAccess := &mdbv1.ExternalAccessConfiguration{}
+	defaultShardConfiguration := &mdbv1.ShardedClusterComponentSpec{
+		ClusterSpecList: mdbv1.ClusterSpecList{
+			{ClusterName: "cluster-1", Members: 2, ExternalAccessConfiguration: externalAccess, InternalConnectivity: internalConnectivity},
+			{ClusterName: "cluster-2", Members: 1},
+		},
+	}
+	shardOverride := mdbv1.ShardOverride{
+		ShardNames: []string{"shard-0"},
+		ShardedClusterComponentOverrideSpec: mdbv1.ShardedClusterComponentOverrideSpec{
+			ClusterSpecList: []mdbv1.ClusterSpecItemOverride{
+				{ClusterName: "cluster-1", Members: new(3)},
+				{ClusterName: "cluster-3", Members: new(1)},
+			},
+		},
+	}
+
+	merged := mergeOverrideClusterSpecList(shardOverride, defaultShardConfiguration, nil, nil)
+
+	require.Len(t, merged.ClusterSpecList, 2)
+	assert.Same(t, internalConnectivity, merged.ClusterSpecList[0].InternalConnectivity)
+	assert.Same(t, externalAccess, merged.ClusterSpecList[0].ExternalAccessConfiguration)
+	// cluster-3 is added by the override and has no base configuration to salvage from.
+	assert.Nil(t, merged.ClusterSpecList[1].InternalConnectivity)
+}
+
 func TestMultiClusterShardedShardRemovalCleansUpOpsManagerAndClearsRecord(t *testing.T) {
 	memberClusters := test.NewMemberClusters(
 		test.MemberClusterDetails{

@@ -439,18 +439,21 @@ func mergeOverrideClusterSpecList(shardOverride mdbv1.ShardOverride, defaultShar
 		members := *shardOverride.ClusterSpecList[i].Members
 
 		// We need to retrieve the original ExternalAccessConfiguration because shardOverride struct doesn't contain
-		// the field
+		// the field. The same applies to InternalConnectivity.
 		var externalAccessConfiguration *mdbv1.ExternalAccessConfiguration
+		var internalConnectivity *mdbv1.InternalConnectivityConfiguration
 		foundIdx := slices.IndexFunc(defaultShardConfiguration.ClusterSpecList, func(item mdbv1.ClusterSpecItem) bool {
 			return item.ClusterName == so.ClusterName
 		})
 		if foundIdx != -1 {
 			externalAccessConfiguration = defaultShardConfiguration.ClusterSpecList[foundIdx].ExternalAccessConfiguration
+			internalConnectivity = defaultShardConfiguration.ClusterSpecList[foundIdx].InternalConnectivity
 		}
 
 		finalShardConfiguration.ClusterSpecList = append(finalShardConfiguration.ClusterSpecList, mdbv1.ClusterSpecItem{
 			ClusterName:                 so.ClusterName,
 			ExternalAccessConfiguration: externalAccessConfiguration,
+			InternalConnectivity:        internalConnectivity,
 			Members:                     members,
 			MemberConfig:                so.MemberConfig,
 			StatefulSetConfiguration:    so.StatefulSetConfiguration,
