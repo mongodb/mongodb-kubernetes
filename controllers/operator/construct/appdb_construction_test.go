@@ -167,8 +167,8 @@ func TestAppDbStatefulSet_MonitoringTrustsOpsManagerCA(t *testing.T) {
 }
 
 // TestAppDbStatefulSet_RollsOnOpsManagerCABundleChange checks that the operator-managed Ops Manager
-// CA bundle hash rolls the AppDB pods. The agent loads -httpsCAFile only at startup, so it must
-// restart on a widened bundle before Ops Manager serves its leaf on the new CA.
+// CA bundle hash rolls the AppDB pods. The monitoring connection is initialized with -httpsCAFile,
+// so it must restart on a widened bundle before Ops Manager serves its leaf on the new CA.
 func TestAppDbStatefulSet_RollsOnOpsManagerCABundleChange(t *testing.T) {
 	t.Setenv(util.OpsManagerMonitorAppDB, "true")
 	om := omv1.NewOpsManagerBuilderDefault().Build()
@@ -187,6 +187,25 @@ func TestAppDbStatefulSet_RollsOnOpsManagerCABundleChange(t *testing.T) {
 	withoutCA := &env.PodEnvVars{ProjectID: "proj-123", AgentAPIKey: "key"}
 	assert.NotContains(t, build(withoutCA, "hash-one").Spec.Template.Annotations, OpsManagerCABundleHashAnnotation,
 		"an agent that does not mount the Ops Manager CA must not roll on it")
+}
+
+// TestAppDbStatefulSet_RollsOnAppDBCABundleChange checks that the operator-managed AppDB server CA
+// bundle hash is on the pod template: a running member keeps the TLS client state it built with the
+// bundle it loaded, so a widened or pruned bundle must replace the members.
+func TestAppDbStatefulSet_RollsOnAppDBCABundleChange(t *testing.T) {
+	om := omv1.NewOpsManagerBuilderDefault().Build()
+	scaler := scalers.GetAppDBScaler(om, multicluster.LegacyCentralClusterName, 0, nil)
+	build := func(hash string) appsv1.StatefulSet {
+		sts, err := AppDbStatefulSet(*om, nil, AppDBStatefulSetOptions{ManagedServerCABundleHash: hash}, scaler, appsv1.OnDeleteStatefulSetStrategyType, architectures.NonStatic, zap.S())
+		require.NoError(t, err)
+		return sts
+	}
+
+	assert.Equal(t, "hash-one", build("hash-one").Spec.Template.Annotations[ManagedServerCABundleHashAnnotation])
+	assert.Equal(t, "hash-two", build("hash-two").Spec.Template.Annotations[ManagedServerCABundleHashAnnotation])
+	assert.NotContains(t, build("").Spec.Template.Annotations, ManagedServerCABundleHashAnnotation)
+	assert.NotEqual(t, build("hash-one").Spec.Template, build("hash-two").Spec.Template,
+		"a widened AppDB bundle must change the pod template")
 }
 
 func TestAppDbStatefulSet_NoOpsManagerCAFlagWithoutCA(t *testing.T) {

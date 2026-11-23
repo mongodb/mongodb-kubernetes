@@ -31,6 +31,7 @@ from kubetester.opsmanager import MongoDBOpsManager
 from kubetester.phase import Phase
 from tests.opsmanager.managedcert_helper import (
     CA_BUNDLE_KEY,
+    MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION,
     OM_APP_DB_CA_FILE_PATH,
     OM_CONTAINER,
     PRUNE_PREVIOUS_CA_ANNOTATION,
@@ -138,6 +139,7 @@ def _wait_for_rolled_onto_bundle(
 ) -> dict[str, tuple[str, int]]:
     """Waits until every pod of the StatefulSet was replaced by one whose template names latest_hash in annotation."""
     apps = kubernetes.client.AppsV1Api()
+    assert previous_pods, f"no {description} pods recorded before rotation"
     previous_uids = {uid for uid, _ in previous_pods.values()}
 
     def rolled() -> tuple[bool, str]:
@@ -156,7 +158,7 @@ def _wait_for_rolled_onto_bundle(
             return False, f"the {description} StatefulSet is still rolling: {status}"
         pods = statefulset_pod_states(namespace, statefulset_name)
         stale = sorted(name for name, (uid, _) in pods.items() if uid in previous_uids)
-        if len(pods) != replicas or stale:
+        if pods.keys() != previous_pods.keys() or len(pods) != replicas or stale:
             return False, f"{description} pods not replaced yet: {stale or pods}"
         return True, ""
 
@@ -227,6 +229,23 @@ def assert_pods_not_recreated(
         assert {name: restarts for name, (_, restarts) in after.items()} == {
             name: restarts for name, (_, restarts) in before.items()
         }, f"no {description} container may restart: before={before}, after={after}"
+
+
+def wait_for_appdb_rolled_onto_appdb_bundle(
+    ops_manager: MongoDBOpsManager,
+    latest_hash: str,
+    previous_pods: dict[str, tuple[str, int]],
+    timeout: int = 1800,
+) -> dict[str, tuple[str, int]]:
+    return _wait_for_rolled_onto_bundle(
+        ops_manager.namespace,
+        ops_manager.app_db_name(),
+        MANAGED_SERVER_CA_BUNDLE_HASH_ANNOTATION,
+        latest_hash,
+        previous_pods,
+        "AppDB",
+        timeout,
+    )
 
 
 # --- Mounted CA files -------------------------------------------------------------

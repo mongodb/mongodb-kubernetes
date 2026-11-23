@@ -473,8 +473,8 @@ func TestBuildAppDbAutomationConfig_ManagedCACertificatePath(t *testing.T) {
 }
 
 // TestGetAppDBConfig_ManagedCABundleHash checks that the AppDB config used to build the Ops Manager
-// and backup daemon StatefulSets carries the managed AppDB CA bundle hash. Both load the AppDB CA
-// only at startup, so a widened bundle must restart them before the AppDB leaf moves to the new CA.
+// and backup daemon StatefulSets carries the managed AppDB CA bundle hash. Both hold the AppDB CA in
+// their client setup, so a widened bundle must restart them before the AppDB leaf moves to the new CA.
 func TestGetAppDBConfig_ManagedCABundleHash(t *testing.T) {
 	ctx := context.Background()
 
@@ -533,8 +533,8 @@ func TestGetAppDBConfig_ManagedCABundleHash(t *testing.T) {
 }
 
 // TestManagedOpsManagerCABundleHash checks that the AppDB StatefulSet options carry the managed Ops
-// Manager CA bundle hash. The AppDB agent loads -httpsCAFile only at startup, so a widened bundle
-// must restart the AppDB pods before Ops Manager serves its leaf on the new CA.
+// Manager CA bundle hash. The monitoring connection is initialized with -httpsCAFile, so a widened
+// bundle must restart the AppDB pods before Ops Manager serves its leaf on the new CA.
 func TestManagedOpsManagerCABundleHash(t *testing.T) {
 	t.Setenv(util.OpsManagerMonitorAppDB, "true")
 	ctx := context.Background()
@@ -603,6 +603,82 @@ func TestManagedOpsManagerCABundleHash(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, hash)
 	})
+}
+
+func TestManagedAppDBCABundleOrdering(t *testing.T) {
+	ctx := t.Context()
+	replicas := int32(1)
+	legacyMounts := []corev1.Volume{{
+		Name:         util.SecretVolumeName,
+		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "test-omdb-cert-pem"}},
+	}}
+	managedMount := corev1.Volume{
+		Name:         util.SecretVolumeName,
+		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "test-omdb-managed-cert-pem"}},
+	}
+
+	for _, tc := range []struct {
+		name        string
+		annotations map[string]string
+		volumes     []corev1.Volume
+		serverHash  string
+		wantPublish bool
+		wantManaged bool
+	}{
+		{
+			name:        "managed AppDB CA bundle change",
+			annotations: map[string]string{construct.ManagedServerCABundleHashAnnotation: "old-server"},
+			serverHash:  "new-server",
+			wantPublish: true,
+			wantManaged: true,
+		},
+		{
+			name:        "unchanged managed AppDB CA bundle",
+			annotations: map[string]string{construct.ManagedServerCABundleHashAnnotation: "old-server"},
+			serverHash:  "old-server",
+			wantPublish: false,
+			wantManaged: false,
+		},
+		{
+			name:        "legacy AppDB adopting managed certificates",
+			volumes:     legacyMounts,
+			serverHash:  "new-server",
+			wantPublish: false,
+			wantManaged: false,
+		},
+		{
+			name:        "managed AppDB without the bundle annotation",
+			volumes:     []corev1.Volume{managedMount},
+			serverHash:  "new-server",
+			wantPublish: true,
+			wantManaged: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opsManager := DefaultOpsManagerBuilder().Build()
+			opsManager.Spec.AppDB.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+			kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(opsManager)
+			reconciler, err := newAppDbReconciler(ctx, kubeClient, opsManager, omConnectionFactory.GetConnectionFunc, zap.S())
+			require.NoError(t, err)
+
+			require.NoError(t, kubeClient.Create(ctx, &appsv1.StatefulSet{
+				ObjectMeta: metav1.ObjectMeta{Name: opsManager.Spec.AppDB.Name(), Namespace: opsManager.Namespace},
+				Spec: appsv1.StatefulSetSpec{
+					Replicas: &replicas,
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Annotations: tc.annotations},
+						Spec:       corev1.PodSpec{Volumes: tc.volumes},
+					},
+				},
+			}))
+
+			opts := construct.AppDBStatefulSetOptions{ManagedServerCABundleHash: tc.serverHash}
+			publishFirst, managedChange, err := reconciler.publishAutomationConfigFirst(ctx, opsManager, true, opts, zap.S())
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantPublish, publishFirst)
+			assert.Equal(t, tc.wantManaged, managedChange)
+		})
+	}
 }
 
 func TestMonitoringToggledOff_ClearsMonitoringVersions(t *testing.T) {

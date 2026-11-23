@@ -96,8 +96,8 @@ func TestManagedQueryableBackupConstruction(t *testing.T) {
 }
 
 // TestAppDBCABundleHashAnnotation checks that the operator-managed AppDB CA bundle hash rolls both
-// the Ops Manager and the backup daemon pods: they load the AppDB CA only at startup. Without a
-// managed bundle the pod template must not change.
+// the Ops Manager and the backup daemon pods: they hold the AppDB CA in their client setup. Without
+// a managed bundle the pod template must not change.
 func TestAppDBCABundleHashAnnotation(t *testing.T) {
 	ctx := t.Context()
 	om := omv1.NewOpsManagerBuilderDefault().SetName("test-om").SetNamespace(mock.TestNamespace).Build()

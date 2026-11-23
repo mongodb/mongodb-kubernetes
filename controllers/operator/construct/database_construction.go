@@ -62,6 +62,14 @@ const (
 	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key" //nolint
 	AgentAPIKeyVolumeName = "agent-api-key"                     //nolint
 
+	// ManagedServerCABundleHashAnnotation is the database pod template annotation holding the
+	// hash of the operator-managed server CA bundle the members trust.
+	ManagedServerCABundleHashAnnotation = "managedServerCABundleHash"
+
+	// ManagedClientCABundleHashAnnotation is the database pod template annotation holding the
+	// hash of the operator-managed client CA bundle, set only when the members mount it.
+	ManagedClientCABundleHashAnnotation = "managedClientCABundleHash"
+
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
 	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"
@@ -131,6 +139,12 @@ type DatabaseStatefulSetOptions struct {
 	MongodbImage           string
 	AgentImage             string
 	CustomAgentURL         string
+
+	// ManagedServerCABundleHash and ManagedClientCABundleHash are the hashes of the
+	// operator-managed CA bundles the members mount. A running member keeps the TLS client state
+	// it built with the bundle it loaded, so a widened or pruned bundle has to replace the pods.
+	ManagedServerCABundleHash string
+	ManagedClientCABundleHash string
 
 	Annotations map[string]string
 	VaultConfig vault.VaultConfiguration
@@ -405,6 +419,24 @@ func MongosOptions(mongosSpec *mdbv1.ShardedClusterComponentSpec, memberClusterN
 	}
 }
 
+// ApplyManagedCABundleHashAnnotations puts the effective managed CA bundle hashes on the pod
+// template. It runs after user StatefulSet/StatefulSetSpec overrides, so an override cannot remove
+// the annotation and silently disable the rollout a widened or pruned bundle requires.
+func ApplyManagedCABundleHashAnnotations(sts *appsv1.StatefulSet, serverHash, clientHash string) {
+	annotations := map[string]string{}
+	if serverHash != "" {
+		annotations[ManagedServerCABundleHashAnnotation] = serverHash
+	}
+	if clientHash != "" {
+		annotations[ManagedClientCABundleHashAnnotation] = clientHash
+	} else if serverHash != "" {
+		delete(sts.Spec.Template.Annotations, ManagedClientCABundleHashAnnotation)
+	}
+	if len(annotations) > 0 {
+		podtemplatespec.WithAnnotations(annotations)(&sts.Spec.Template)
+	}
+}
+
 func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
 	stsOptions := stsOptFunc(mdb)
 	dbSts := DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
@@ -424,6 +456,8 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 	if stsOptions.StatefulSetSpecOverride != nil {
 		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
 	}
+
+	ApplyManagedCABundleHashAnnotations(&dbSts, stsOptions.ManagedServerCABundleHash, stsOptions.ManagedClientCABundleHash)
 
 	return dbSts
 }
