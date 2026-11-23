@@ -1672,6 +1672,222 @@ func TestDatabaseInKubernetesExternalServicesShardedPerTier(t *testing.T) {
 	})
 }
 
+// TestDatabaseInKubernetesInternalServiceAnnotations covers spec.internalConnectivity.annotations
+// on the shared (headless) internal Service of single-cluster deployments: the annotations are
+// merged onto the Service with the shared-Service placeholders substituted.
+func TestDatabaseInKubernetesInternalServiceAnnotations(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+
+	newReplicaSet := func() *mdbv1.MongoDB {
+		return mdbv1.NewReplicaSetBuilder().
+			SetName(defaultResourceName).
+			SetNamespace(defaultNamespace).
+			SetMembers(2).
+			Build()
+	}
+
+	createReplicaSet := func(t *testing.T, mdb *mdbv1.MongoDB, kubeClient kubernetesClient.Client) {
+		sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
+		mutatedSts, err := DatabaseInKubernetes(ctx, kubeClient, secrets.SecretClient{KubeClient: kubeClient}, *mdb, sts, (construct.ReplicaSetOptions())(*mdb), log)
+		require.NoError(t, err)
+		require.NotNil(t, mutatedSts)
+	}
+
+	t.Run("replica set merges top-level annotations with placeholder substitution", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		mdb := newReplicaSet()
+		mdb.Spec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+			"static":       "value",
+			"placeholders": "{resourceName}-{namespace}-{statefulSetName}",
+			"domain":       "{mongodProcessDomain}",
+		}}
+
+		createReplicaSet(t, mdb, fakeClient)
+
+		svc, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-svc", Namespace: defaultNamespace})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			"static":       "value",
+			"placeholders": "mdb-my-namespace-mdb",
+			"domain":       "mdb-svc.my-namespace.svc.cluster.local",
+		}, svc.Annotations)
+	})
+
+	t.Run("annotations applied by other tools are preserved", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		require.NoError(t, fakeClient.Create(ctx, &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "mdb-svc",
+				Namespace:   defaultNamespace,
+				Annotations: map[string]string{"external": "kept"},
+			},
+		}))
+
+		mdb := newReplicaSet()
+		mdb.Spec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+			"mine": "value",
+		}}
+
+		createReplicaSet(t, mdb, fakeClient)
+
+		svc, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-svc", Namespace: defaultNamespace})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			"external": "kept",
+			"mine":     "value",
+		}, svc.Annotations)
+	})
+
+	t.Run("no internalConnectivity leaves the internal service without extra annotations", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		mdb := newReplicaSet()
+
+		createReplicaSet(t, mdb, fakeClient)
+
+		svc, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-svc", Namespace: defaultNamespace})
+		require.NoError(t, err)
+		assert.Empty(t, svc.Annotations)
+	})
+
+	t.Run("pod-scoped placeholders are omitted from the shared internal service", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		mdb := newReplicaSet()
+		mdb.Spec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+			"pod":          "{podName}",
+			"static":       "value",
+			"placeholders": "{resourceName}-{namespace}",
+		}}
+
+		createReplicaSet(t, mdb, fakeClient)
+
+		svc, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-svc", Namespace: defaultNamespace})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			"static":       "value",
+			"placeholders": "mdb-my-namespace",
+		}, svc.Annotations)
+	})
+
+	t.Run("unknown placeholder fails the internal service creation", func(t *testing.T) {
+		fakeClient, _ := mock.NewDefaultFakeClient()
+		mdb := newReplicaSet()
+		mdb.Spec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+			"typo": "{unknown}",
+		}}
+
+		sts := construct.DatabaseStatefulSet(*mdb, construct.ReplicaSetOptions(construct.GetPodEnvOptions()), log)
+		_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, sts, (construct.ReplicaSetOptions())(*mdb), log)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to process annotations in internal service")
+	})
+}
+
+// TestProcessSharedServiceAnnotations covers the shared-Service annotation processing: keys whose
+// value contains a pod-scoped placeholder are omitted, all other keys are substituted, and unknown
+// placeholders still fail loudly.
+func TestProcessSharedServiceAnnotations(t *testing.T) {
+	replacer := GetSharedServicePlaceholderReplacer("mdb", "mdb", "my-namespace", "mdb-svc", "cluster.local", mdbv1.ReplicaSet)
+
+	t.Run("omits pod-scoped keys and substitutes the rest", func(t *testing.T) {
+		processed, err := ProcessSharedServiceAnnotations(map[string]string{
+			"podName":             "{podName}",
+			"podIndex":            "{podIndex}",
+			"externalServiceName": "{externalServiceName}",
+			"mongodProcessFQDN":   "{mongodProcessFQDN}",
+			"mongosProcessFQDN":   "{mongosProcessFQDN}",
+			"embedded":            "prefix-{podName}-suffix",
+			"static":              "value",
+			"placeholders":        "{resourceName}-{namespace}-{statefulSetName}",
+			"domain":              "{mongodProcessDomain}",
+		}, replacer)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			"static":       "value",
+			"placeholders": "mdb-my-namespace-mdb",
+			"domain":       "mdb-svc.my-namespace.svc.cluster.local",
+		}, processed)
+	})
+
+	t.Run("unknown placeholder fails", func(t *testing.T) {
+		_, err := ProcessSharedServiceAnnotations(map[string]string{"typo": "{podname}"}, replacer)
+		require.Error(t, err)
+
+		_, err = ProcessSharedServiceAnnotations(map[string]string{"typo": "{foo}"}, replacer)
+		require.Error(t, err)
+
+		// {clusterName} is a multi-cluster placeholder the single-cluster shared replacer cannot resolve.
+		_, err = ProcessSharedServiceAnnotations(map[string]string{"mc-only": "{clusterName}"}, replacer)
+		require.Error(t, err)
+	})
+
+	t.Run("a braced token that merely starts with a pod-scoped name is not skipped", func(t *testing.T) {
+		// {podNameXyz} is a different token than {podName}: it is not omitted and fails as unknown.
+		_, err := ProcessSharedServiceAnnotations(map[string]string{"typo": "{podNameXyz}"}, replacer)
+		require.Error(t, err)
+	})
+}
+
+// TestDatabaseInKubernetesInternalServiceAnnotationsSharded covers the per-component level of
+// spec.internalConnectivity on a single-cluster sharded cluster: each tier's internal Service gets
+// its own component's annotations merged on top of the top-level ones.
+func TestDatabaseInKubernetesInternalServiceAnnotationsSharded(t *testing.T) {
+	ctx := context.Background()
+	log := zap.S()
+	fakeClient, _ := mock.NewDefaultFakeClient()
+
+	mdb := mdbv1.NewDefaultShardedClusterBuilder().
+		SetName("mdb").
+		SetNamespace("my-namespace").
+		SetMongosCountSpec(1).
+		SetShardCountSpec(1).
+		SetConfigServerCountSpec(1).
+		Build()
+	mdb.Spec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+		"top":  "level",
+		"tier": "top",
+	}}
+	mdb.Spec.ShardSpec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+		"tier": "shard",
+	}}
+	mdb.Spec.MongosSpec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+		"tier":     "mongos",
+		"location": "{mongosProcessDomain}",
+	}}
+
+	singleClusterSpecList := func(members int) mdbv1.ClusterSpecList {
+		return mdbv1.ClusterSpecList{{ClusterName: multicluster.LegacyCentralClusterName, Members: members}}
+	}
+
+	shardSpec := mdb.Spec.ShardSpec.DeepCopy()
+	shardSpec.ClusterSpecList = singleClusterSpecList(mdb.Spec.MongodsPerShardCount)
+	shardSts := construct.DatabaseStatefulSet(*mdb, construct.ShardOptions(0, shardSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions()), log)
+	_, err := DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, shardSts, (construct.ShardOptions(0, shardSpec, multicluster.LegacyCentralClusterName))(*mdb), log)
+	require.NoError(t, err)
+
+	mongosSpec := mdb.Spec.MongosSpec.DeepCopy()
+	mongosSpec.ClusterSpecList = singleClusterSpecList(mdb.Spec.MongosCount)
+	withReplicas := func(options *construct.DatabaseStatefulSetOptions) { options.Replicas = mdb.Spec.MongosCount }
+	mongosSts := construct.DatabaseStatefulSet(*mdb, construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, construct.GetPodEnvOptions(), withReplicas), log)
+	_, err = DatabaseInKubernetes(ctx, fakeClient, secrets.SecretClient{KubeClient: fakeClient}, *mdb, mongosSts, (construct.MongosOptions(mongosSpec, multicluster.LegacyCentralClusterName, withReplicas))(*mdb), log)
+	require.NoError(t, err)
+
+	shardService, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-sh", Namespace: "my-namespace"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"top":  "level",
+		"tier": "shard",
+	}, shardService.Annotations)
+
+	mongosService, err := fakeClient.GetService(ctx, types.NamespacedName{Name: "mdb-svc", Namespace: "my-namespace"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"top":      "level",
+		"tier":     "mongos",
+		"location": "mdb-svc.my-namespace.svc.cluster.local",
+	}, mongosService.Annotations)
+}
+
 // TestDatabaseInKubernetesSkipsServicesForMultiClusterSharded pins down that DatabaseInKubernetes
 // touches no Services at all for a multi-cluster sharded cluster: reconcileServices owns them there.
 // The per-cluster externalAccess carries multi-cluster placeholders ({clusterName}, {clusterIndex})

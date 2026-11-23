@@ -70,6 +70,17 @@ func DatabaseInKubernetes(ctx context.Context, client kubernetesClient.Client, s
 	internalService := BuildService(namespacedName, &mdb, &set.Spec.ServiceName, nil, opts.ServicePort, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	internalService.OwnerReferences = mdb.OwnerReferenceForMemberCluster()
 
+	if len(opts.InternalConnectivityAnnotations) > 0 {
+		internalService.Annotations = merge.StringToStringMap(internalService.Annotations, opts.InternalConnectivityAnnotations)
+		placeholderReplacer := GetSharedServicePlaceholderReplacer(mdb.Name, set.Name, mdb.Namespace, set.Spec.ServiceName, mdb.Spec.GetClusterDomain(), mdb.GetResourceType())
+		if processedAnnotations, err := ProcessSharedServiceAnnotations(internalService.Annotations, placeholderReplacer); err != nil {
+			return nil, xerrors.Errorf("failed to process annotations in internal service %s: %w", internalService.Name, err)
+		} else {
+			log.Debugf("Processed annotations in internal service: %s. Annotations before: %+v, annotations after: %+v", internalService.Name, internalService.Annotations, processedAnnotations)
+			internalService.Annotations = processedAnnotations
+		}
+	}
+
 	// Adds Prometheus Port if Prometheus has been enabled.
 	prom := mdb.GetPrometheus()
 	if prom != nil {
@@ -542,6 +553,33 @@ const (
 	PlaceholderClusterIndex        = "clusterIndex"
 )
 
+// podScopedPlaceholders are placeholders that only have a value on per-pod Services.
+var podScopedPlaceholders = []string{PlaceholderPodName, PlaceholderPodIndex, PlaceholderExternalServiceName, PlaceholderMongodProcessFQDN, PlaceholderMongosProcessFQDN}
+
+// ProcessSharedServiceAnnotations processes annotations for a shared (not per-pod) Service:
+// keys whose value contains a pod-scoped placeholder are omitted (they are meaningless there),
+// all other keys go through replacer.ProcessMap so unknown placeholders still fail loudly.
+func ProcessSharedServiceAnnotations(annotations map[string]string, replacer *placeholders.Replacer) (map[string]string, error) {
+	filtered := map[string]string{}
+	for k, v := range annotations {
+		podScoped := false
+		for _, p := range podScopedPlaceholders {
+			if strings.Contains(v, "{"+p+"}") {
+				podScoped = true
+				break
+			}
+		}
+		if !podScoped {
+			filtered[k] = v
+		}
+	}
+	processed, _, err := replacer.ProcessMap(filtered)
+	if err != nil {
+		return nil, err
+	}
+	return processed, nil
+}
+
 func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSetName string, namespace string, serviceName string, externalDomain *string, clusterDomain string, podIdx int, resourceType mdbv1.ResourceType) *placeholders.Replacer {
 	podName := dns.GetPodName(statefulSetName, podIdx)
 	placeholderValues := map[string]string{
@@ -565,6 +603,22 @@ func GetSingleClusterMongoDBPlaceholderReplacer(resourceName string, statefulSet
 		if externalDomain != nil {
 			placeholderValues[PlaceholderMongodProcessDomain] = *externalDomain
 		}
+	}
+
+	return placeholders.New(placeholderValues)
+}
+
+func GetSharedServicePlaceholderReplacer(resourceName, statefulSetName, namespace, serviceName, clusterDomain string, resourceType mdbv1.ResourceType) *placeholders.Replacer {
+	placeholderValues := map[string]string{
+		PlaceholderNamespace:       namespace,
+		PlaceholderResourceName:    resourceName,
+		PlaceholderStatefulSetName: statefulSetName,
+	}
+
+	if resourceType == mdbv1.ShardedCluster {
+		placeholderValues[PlaceholderMongosProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, clusterDomain)
+	} else {
+		placeholderValues[PlaceholderMongodProcessDomain] = dns.GetServiceFQDN(serviceName, namespace, clusterDomain)
 	}
 
 	return placeholders.New(placeholderValues)

@@ -2077,6 +2077,9 @@ type InternalConnectivityConfiguration struct {
 	// The operator merges these annotations onto the Services at creation and reconcile time and
 	// preserves annotations applied by other tools. Annotations support the same per-pod placeholder
 	// substitution as spec.externalAccess.externalService.annotations on per-pod Services.
+	// Annotations containing per-pod placeholders ({podName}, {podIndex}, {externalServiceName},
+	// {mongodProcessFQDN}, {mongosProcessFQDN}) apply to per-pod Services only; they are omitted
+	// from shared headless Services.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }

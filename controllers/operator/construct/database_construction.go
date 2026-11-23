@@ -121,6 +121,12 @@ type DatabaseStatefulSetOptions struct {
 	// which would be wrong for a sharded cluster's config server and shards.
 	ExternalAccessConfiguration *mdbv1.ExternalAccessConfiguration
 
+	// InternalConnectivityAnnotations are the annotations in force for this StatefulSet's internal
+	// (headless) Service. Set from MongoDbSpec.EffectiveInternalConnectivityAnnotations, which merges
+	// top-level spec.internalConnectivity.annotations with per-component and per-member-cluster
+	// entries (per key, most specific wins). Nil/empty means no custom annotations.
+	InternalConnectivityAnnotations map[string]string
+
 	InitDatabaseImage      string
 	DatabaseNonStaticImage string
 	MongodbImage           string
@@ -255,6 +261,9 @@ func StandaloneOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			// service of a standalone that configures spec.externalAccess. A standalone has no
 			// tiers, so the top-level field is the only source, as it is for a replica set.
 			ExternalAccessConfiguration: mdb.Spec.ExternalAccessConfiguration,
+			// The same applies to the internal Service annotations: with no tiers and no
+			// clusterSpecList, the top-level spec.internalConnectivity is the only source.
+			InternalConnectivityAnnotations: mdb.Spec.EffectiveInternalConnectivityAnnotations(nil, ""),
 			// Standalone deliberately leaves DownloadBase unset: it does not support configuring the
 			// download base (used only for VM migration), so GetDownloadBase falls back to the default.
 		}
@@ -291,6 +300,9 @@ func ReplicaSetOptions(additionalOpts ...func(options *DatabaseStatefulSetOption
 			StsType:                     ReplicaSet,
 			DownloadBase:                mdb.Spec.GetDownloadBase(),
 			ExternalAccessConfiguration: mdb.Spec.ExternalAccessConfiguration,
+			// A replica set has no tiers, so the top-level spec.internalConnectivity is the only
+			// source of internal Service annotations.
+			InternalConnectivityAnnotations: mdb.Spec.EffectiveInternalConnectivityAnnotations(nil, ""),
 		}
 
 		if mdb.Spec.DbCommonSpec.GetExternalDomain() != nil {
@@ -341,6 +353,7 @@ func shardedOptions(cfg shardedOptionCfg, additionalOpts ...func(options *Databa
 	}
 
 	opts.ExternalAccessConfiguration = cfg.mdb.Spec.EffectiveExternalAccessConfiguration(cfg.componentSpec, shardedClusterTierForStsType(cfg.stsType), cfg.memberClusterName)
+	opts.InternalConnectivityAnnotations = cfg.mdb.Spec.EffectiveInternalConnectivityAnnotations(cfg.componentSpec, cfg.memberClusterName)
 
 	// Multi-cluster always needs the override because processes are addressed by per-pod service
 	// FQDN rather than by pod name. Single-cluster needs it for any tier published under an external
