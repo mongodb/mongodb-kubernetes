@@ -2,6 +2,7 @@ package om
 
 import (
 	"encoding/json"
+	"maps"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
 func TestMongoDBOpsManager_AddWarningIfNotExists(t *testing.T) {
@@ -518,4 +520,146 @@ func TestUpdateStatusAppDb_ExternalAppDBRefResetsStatus(t *testing.T) {
 		assert.Equal(t, status.PhaseRunning, resource.Status.AppDbStatus.Phase)
 		assert.Equal(t, 3, resource.Status.AppDbStatus.Members)
 	})
+}
+
+func TestOpsManagerGetLastSpec(t *testing.T) {
+	legacySpec := func(t *testing.T, tlsEnabled bool) MongoDBOpsManagerSpec {
+		t.Helper()
+		security := &mdbv1.Security{CertificatesSecretsPrefix: "appdb"}
+		if tlsEnabled {
+			security.TLSConfig = &mdbv1.TLSConfig{Enabled: true}
+		}
+		return MongoDBOpsManagerSpec{
+			Version:  "8.0.26",
+			Replicas: 1,
+			AppDB: &AppDBSpec{
+				Version:  "8.0.0",
+				Members:  3,
+				Security: security,
+			},
+		}
+	}
+
+	managedSpec := func() MongoDBOpsManagerSpec {
+		return MongoDBOpsManagerSpec{
+			Version:  "8.0.26",
+			Replicas: 1,
+			AppDB: &AppDBSpec{
+				Version: "8.0.0",
+				Members: 3,
+				Security: &mdbv1.Security{
+					ManagedCertificate: &mdbv1.ManagedCertificate{},
+				},
+			},
+		}
+	}
+
+	newOpsManager := func(annotations map[string]string, spec MongoDBOpsManagerSpec) *MongoDBOpsManager {
+		return &MongoDBOpsManager{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "test-om",
+				Namespace:   "test-ns",
+				Annotations: annotations,
+			},
+			Spec: spec,
+		}
+	}
+
+	serializedLegacy := func(t *testing.T, tlsEnabled bool) string {
+		t.Helper()
+		bytes, err := json.Marshal(legacySpec(t, tlsEnabled))
+		require.NoError(t, err)
+		return string(bytes)
+	}
+
+	tests := []struct {
+		name        string
+		opsManager  *MongoDBOpsManager
+		expectedNil bool
+		expectedErr bool
+	}{
+		{
+			name:        "absent annotation decodes to nil",
+			opsManager:  newOpsManager(nil, managedSpec()),
+			expectedNil: true,
+		},
+		{
+			name:        "empty annotation decodes to nil",
+			opsManager:  newOpsManager(map[string]string{util.LastAchievedSpec: ""}, managedSpec()),
+			expectedNil: true,
+		},
+		{
+			name:        "malformed annotation is an error",
+			opsManager:  newOpsManager(map[string]string{util.LastAchievedSpec: "{not json"}, managedSpec()),
+			expectedErr: true,
+		},
+		{
+			name: "nil AppDB round trip does not invent an AppDB",
+			opsManager: newOpsManager(
+				map[string]string{util.LastAchievedSpec: mustMarshal(t, MongoDBOpsManagerSpec{Version: "8.0.26", Replicas: 1})},
+				managedSpec(),
+			),
+		},
+		{
+			name: "legacy prefix with tls.enabled round trip",
+			opsManager: newOpsManager(
+				map[string]string{util.LastAchievedSpec: serializedLegacy(t, true)},
+				managedSpec(),
+			),
+		},
+		{
+			name: "legacy prefix-only AppDB TLS round trip",
+			opsManager: newOpsManager(
+				map[string]string{util.LastAchievedSpec: serializedLegacy(t, false)},
+				managedSpec(),
+			),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			specBefore := test.opsManager.Spec.DeepCopy()
+			annotationsBefore := maps.Clone(test.opsManager.Annotations)
+
+			last, err := test.opsManager.GetLastSpec()
+
+			if test.expectedErr {
+				require.Error(t, err)
+				require.Nil(t, last)
+				return
+			}
+			require.NoError(t, err)
+			if test.expectedNil {
+				require.Nil(t, last)
+				return
+			}
+			require.NotNil(t, last)
+
+			// The accessor must not mutate the live spec or the annotations.
+			require.Equal(t, specBefore, &test.opsManager.Spec)
+			require.Equal(t, annotationsBefore, test.opsManager.Annotations)
+
+			if test.name == "nil AppDB round trip does not invent an AppDB" {
+				require.Nil(t, last.AppDB)
+				return
+			}
+
+			require.NotNil(t, last.AppDB)
+			require.Equal(t, test.opsManager.Name, last.AppDB.OpsManagerName)
+			require.Equal(t, test.opsManager.Namespace, last.AppDB.Namespace)
+			require.Equal(t, "test-om-db", last.AppDB.Name())
+			require.Equal(t, "appdb-test-om-db-cert", last.AppDB.GetSecurity().MemberCertificateSecretName(last.AppDB.Name()))
+			require.True(
+				t,
+				mdbv1.IsMigratingToManagedCertificate(last.AppDB.GetSecurity(), test.opsManager.Spec.AppDB.GetSecurity()),
+			)
+		})
+	}
+}
+
+func mustMarshal(t *testing.T, value any) string {
+	t.Helper()
+	bytes, err := json.Marshal(value)
+	require.NoError(t, err)
+	return string(bytes)
 }
