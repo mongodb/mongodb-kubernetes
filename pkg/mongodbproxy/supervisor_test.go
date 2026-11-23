@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // fakeMongod behaves according to the content of the config file passed with -f:
@@ -78,6 +80,14 @@ func newFixture(t *testing.T) *fixture {
 	return &fixture{t: t, sup: sup, dir: dir, stdout: stdout}
 }
 
+func observedFixture(t *testing.T) (*fixture, *observer.ObservedLogs) {
+	t.Helper()
+	core, logs := observer.New(zap.DebugLevel)
+	f := newFixture(t)
+	f.sup.log = zap.New(core).Sugar()
+	return f, logs
+}
+
 // config writes a config file with the given behaviour and returns its path.
 func (f *fixture) config(name, mode string) string {
 	f.t.Helper()
@@ -123,7 +133,7 @@ func TestStartWithOtherRoleWhileRunningIsRejected(t *testing.T) {
 }
 
 func TestExitIsRecordedAndProxyKeepsWorking(t *testing.T) {
-	f := newFixture(t)
+	f, logs := observedFixture(t)
 	e := f.start(RoleMain, "exit:3")
 	waitDone(t, e)
 
@@ -133,6 +143,15 @@ func TestExitIsRecordedAndProxyKeepsWorking(t *testing.T) {
 	assert.Equal(t, 3, *st.ExitCode)
 	assert.Contains(t, st.Output, "exiting with 3")
 	assert.Contains(t, f.stdout.String(), "exiting with 3", "child output must be forwarded")
+
+	entries := logs.All()
+	require.Len(t, entries, 2)
+	assert.Equal(t, "process started", entries[0].Message)
+	assert.Contains(t, entries[0].ContextMap(), "pid")
+	assert.Equal(t, "process exited", entries[1].Message)
+	exited := entries[1].ContextMap()
+	assert.EqualValues(t, 3, exited["exitCode"])
+	assert.EqualValues(t, RoleMain, exited["role"])
 
 	// the proxy is still usable: a new execution can be started
 	f.start(RoleMain, "run")
@@ -242,14 +261,21 @@ func stopCurrent(s *Supervisor, ctx context.Context, role Role, timeout time.Dur
 }
 
 func TestStopSendsSIGTERMAndWaits(t *testing.T) {
-	f := newFixture(t)
-	e := f.start(RoleMain, "run")
+	for name, force := range map[string]bool{"graceful": false, "force allowed": true} {
+		t.Run(name, func(t *testing.T) {
+			f, logs := observedFixture(t)
+			e := f.start(RoleMain, "run")
 
-	require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, 5*time.Second, false))
-	waitDone(t, e)
-	st := f.sup.Status()
-	assert.Equal(t, StateExited, st.State)
-	assert.Equal(t, 0, *st.ExitCode)
+			require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, 5*time.Second, force))
+			waitDone(t, e)
+			st := f.sup.Status()
+			assert.Equal(t, StateExited, st.State)
+			require.NotNil(t, st.ExitCode)
+			assert.Equal(t, 0, *st.ExitCode)
+			assert.Equal(t, 1, logs.FilterMessage("sending SIGTERM").Len())
+			assert.Zero(t, logs.FilterMessage("sending SIGKILL").Len())
+		})
+	}
 }
 
 func TestStopWhenDownIsNoOp(t *testing.T) {
@@ -279,7 +305,7 @@ func TestStopTimeoutWithoutForceLeavesTheChildAlive(t *testing.T) {
 }
 
 func TestStopTimeoutWithForceKills(t *testing.T) {
-	f := newFixture(t)
+	f, logs := observedFixture(t)
 	e := f.start(RoleMain, "ignoreterm")
 
 	require.NoError(t, stopCurrent(f.sup, context.Background(), RoleMain, 300*time.Millisecond, true))
@@ -288,6 +314,10 @@ func TestStopTimeoutWithForceKills(t *testing.T) {
 	assert.Equal(t, StateExited, st.State)
 	assert.Equal(t, "killed", st.Signal)
 	assert.Equal(t, -1, *st.ExitCode)
+	assert.Equal(t, 1, logs.FilterMessage("sending SIGKILL").Len())
+	exited := logs.FilterMessage("process exited").All()
+	require.Len(t, exited, 1)
+	assert.Equal(t, "killed", exited[0].ContextMap()["signal"])
 }
 
 func TestStopZeroTimeoutWithForceKillsImmediately(t *testing.T) {

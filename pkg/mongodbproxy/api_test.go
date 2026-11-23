@@ -2,12 +2,15 @@ package mongodbproxy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -173,4 +176,100 @@ func TestAPIStopDoesNotSignalReplacementExecution(t *testing.T) {
 	require.Equal(t, http.StatusConflict, code)
 	require.Equal(t, "execution_mismatch", e.Code)
 	require.False(t, second.finished())
+}
+
+func TestAPIStartLogsRequestAndExecutionIDs(t *testing.T) {
+	f, logs := observedFixture(t)
+	config := f.config("main", "run")
+	body := `{"role":"main","configPath":"` + config + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/process/start", strings.NewReader(body))
+	req.Header.Set("X-Request-Id", "start-1")
+	response := httptest.NewRecorder()
+
+	NewHandler(f.sup, f.sup.log).ServeHTTP(response, req)
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, "start-1", response.Header().Get("X-Request-Id"))
+	f.waitReady(config)
+
+	entries := logs.FilterMessage("start requested").All()
+	require.Len(t, entries, 1)
+	fields := entries[0].ContextMap()
+	assert.Equal(t, "start-1", fields["request_id"])
+	executionID := f.sup.Status().ExecutionID
+	assert.Equal(t, executionID, fields["execution_id"])
+	started := logs.FilterMessage("process started").All()
+	require.Len(t, started, 1)
+	assert.Equal(t, executionID, started[0].ContextMap()["execution_id"])
+	assert.EqualValues(t, http.StatusOK, fields["http_status"])
+	assert.Equal(t, "", fields["error_class"])
+	assert.NotContains(t, fields, "configPath")
+}
+
+func TestAPILogsRequestCorrelation(t *testing.T) {
+	const stopBody = `{"executionId":"absent","role":"main","timeoutSeconds":1}`
+	for _, tc := range []struct {
+		name, path, body, header, message string
+		status                            int
+		errorClass                        string
+		newRequestID                      bool
+	}{
+		{"stop", "/v1/process/stop", stopBody, "agent-call-1", "stop requested", http.StatusOK, "", false},
+		{"unsafe header", "/v1/process/stop", stopBody, "sensitive value", "stop requested", http.StatusOK, "", true},
+		{"long header", "/v1/process/stop", stopBody, strings.Repeat("a", 129), "stop requested", http.StatusOK, "", true},
+		{"invalid body", "/v1/process/start", `{"credential":"secret"}`, "agent-call-2", "start requested", http.StatusBadRequest, "invalid_request", false},
+		{"invalid role", "/v1/process/stop", `{"executionId":"absent","role":"secret","timeoutSeconds":1}`, "agent-call-3", "stop requested", http.StatusBadRequest, "invalid_request", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, logs := observedFixture(t)
+			handler := NewHandler(f.sup, f.sup.log)
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("X-Request-Id", tc.header)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			require.Equal(t, tc.status, response.Code)
+			id := response.Header().Get("X-Request-Id")
+			if tc.newRequestID {
+				_, err := uuid.Parse(id)
+				require.NoError(t, err)
+			} else {
+				assert.Equal(t, tc.header, id)
+			}
+			entries := logs.FilterMessage(tc.message).All()
+			require.Len(t, entries, 1)
+			fields := entries[0].ContextMap()
+			assert.Equal(t, id, fields["request_id"])
+			assert.EqualValues(t, tc.status, fields["http_status"])
+			assert.Equal(t, tc.errorClass, fields["error_class"])
+			assert.GreaterOrEqual(t, fields["duration_ms"], float64(0))
+			assert.NotContains(t, fields, "configPath")
+			for _, entry := range logs.All() {
+				assert.NotContains(t, entry.ContextMap(), "error")
+				assert.NotContains(t, entry.ContextMap(), "credential")
+				assert.NotContains(t, entry.ContextMap(), "body")
+			}
+			if tc.errorClass != "" {
+				failure := logs.FilterMessage("request failed").All()
+				require.Len(t, failure, 1)
+				assert.EqualValues(t, tc.status, failure[0].ContextMap()["http_status"])
+				assert.Equal(t, id, failure[0].ContextMap()["request_id"])
+			}
+		})
+	}
+}
+
+func TestAPILogsCanceledStartOutcome(t *testing.T) {
+	f, logs := observedFixture(t)
+	config := f.config("ephemeral", "run")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	body := `{"role":"ephemeral","waitForExit":true,"configPath":"` + config + `"}`
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/process/start", strings.NewReader(body))
+	response := httptest.NewRecorder()
+
+	NewHandler(f.sup, f.sup.log).ServeHTTP(response, req)
+	assert.Equal(t, http.StatusRequestTimeout, response.Code)
+	failed := logs.FilterMessage("request failed").All()
+	require.Len(t, failed, 1)
+	assert.Equal(t, "canceled", failed[0].ContextMap()["error_class"])
+	assert.EqualValues(t, http.StatusRequestTimeout, failed[0].ContextMap()["http_status"])
 }
