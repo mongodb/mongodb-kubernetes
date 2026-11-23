@@ -204,10 +204,10 @@ func agentSettingsConfigMap(sts appsv1.StatefulSet, settings mdbv1.StartupParame
 
 const agentHostnameOverrideEnv = "MDB_AGENT_HOSTNAME_OVERRIDE"
 
-// ApplyAgentSettings finishes the agent part of the pod template: the settings mount, the override
-// key volume, the hostname env and the rollout hash. It runs after the customer pod template merge
-// because the settings are rendered from the merged agent environment.
-func ApplyAgentSettings(sts *appsv1.StatefulSet, opts DatabaseStatefulSetOptions) {
+// applyAgentSettings finishes the agent part of the pod template: the settings mount, the override
+// key volume, the hostname env and the rollout hash. DatabaseStatefulSetHelper runs it after the
+// customer pod template merge because the settings are rendered from the merged agent environment.
+func applyAgentSettings(sts *appsv1.StatefulSet, opts DatabaseStatefulSetOptions) {
 	agent := AgentContainer(*sts)
 	if agent == nil {
 		return

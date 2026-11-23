@@ -413,26 +413,7 @@ func DatabaseStatefulSet(mdb mdbv1.MongoDB, stsOptFunc func(mdb mdbv1.MongoDB) D
 // DatabaseStatefulSetFromOptions builds the StatefulSet from options that are already final. Callers
 // that read a Secret to fill the options in build them once and pass the value here.
 func DatabaseStatefulSetFromOptions(mdb mdbv1.MongoDB, stsOptions DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
-	dbSts := DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
-
-	if len(stsOptions.Annotations) > 0 {
-		dbSts.Annotations = merge.StringToStringMap(dbSts.Annotations, stsOptions.Annotations)
-	}
-
-	if len(stsOptions.Labels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, util.StripOwnerLabels(stsOptions.Labels))
-	}
-
-	if len(stsOptions.StsLabels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.StsLabels)
-	}
-
-	if stsOptions.StatefulSetSpecOverride != nil {
-		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
-	}
-
-	ApplyAgentSettings(&dbSts, stsOptions)
-	return dbSts
+	return DatabaseStatefulSetHelper(&mdb, &stsOptions, log)
 }
 
 func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
@@ -450,6 +431,24 @@ func DatabaseStatefulSetHelper(mdb databaseStatefulSetSource, stsOpts *DatabaseS
 
 	templateFunc := buildMongoDBPodTemplateSpec(*stsOpts, mdb)
 	sts := statefulset.New(buildDatabaseStatefulSetConfigurationFunction(mdb, templateFunc, *stsOpts, log))
+
+	if len(stsOpts.Annotations) > 0 {
+		sts.Annotations = merge.StringToStringMap(sts.Annotations, stsOpts.Annotations)
+	}
+
+	if len(stsOpts.Labels) > 0 {
+		sts.Labels = merge.StringToStringMap(sts.Labels, util.StripOwnerLabels(stsOpts.Labels))
+	}
+
+	if len(stsOpts.StsLabels) > 0 {
+		sts.Labels = merge.StringToStringMap(sts.Labels, stsOpts.StsLabels)
+	}
+
+	if stsOpts.StatefulSetSpecOverride != nil {
+		sts.Spec = merge.StatefulSetSpecs(sts.Spec, *stsOpts.StatefulSetSpecOverride)
+	}
+
+	applyAgentSettings(&sts, *stsOpts)
 	return sts
 }
 

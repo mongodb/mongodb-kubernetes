@@ -84,24 +84,5 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc fun
 }
 
 func MultiClusterStatefulSetFromOptions(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptions construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
-	dbSts := construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
-
-	if len(stsOptions.Annotations) > 0 {
-		dbSts.Annotations = merge.StringToStringMap(dbSts.Annotations, stsOptions.Annotations)
-	}
-
-	if len(stsOptions.Labels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, util.StripOwnerLabels(stsOptions.Labels))
-	}
-
-	if len(stsOptions.StsLabels) > 0 {
-		dbSts.Labels = merge.StringToStringMap(dbSts.Labels, stsOptions.StsLabels)
-	}
-
-	if stsOptions.StatefulSetSpecOverride != nil {
-		dbSts.Spec = merge.StatefulSetSpecs(dbSts.Spec, *stsOptions.StatefulSetSpecOverride)
-	}
-
-	construct.ApplyAgentSettings(&dbSts, stsOptions)
-	return dbSts
+	return construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
 }
