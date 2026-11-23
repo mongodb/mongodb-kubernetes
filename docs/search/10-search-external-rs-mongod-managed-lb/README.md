@@ -59,13 +59,16 @@ graph TD
 - **kubectl** configured with access to your target Kubernetes cluster
 - **Helm 3** installed
 - **Network connectivity** from your Kubernetes cluster to the external MongoDB hosts
+- A **DNS name** for Envoy (`MDB_SEARCH_EXTERNAL_HOSTNAME`) that your mongod hosts can resolve and reach on port 27028
+
+The guide uses `search.example.com` as the Envoy hostname. Replace it with your own DNS name that points at the Envoy proxy Service (`{name}-search-0-proxy-svc`) or at the load balancer in front of it.
 
 ## Getting Started
 
 ```bash
 cd docs/search/10-search-external-rs-mongod-managed-lb
 
-# Edit env_variables.sh to set your Kubernetes context, namespace, external hosts, and TLS settings
+# Edit env_variables.sh to set your Kubernetes context, namespace, external hosts, Envoy hostname, and TLS settings
 vi env_variables.sh
 
 # Source the environment variables
@@ -152,7 +155,7 @@ RS topology uses a single mongot StatefulSet (not per-shard). The certificate co
 
 #### Step 7: Create Load Balancer TLS Certificates
 
-The managed Envoy proxy needs a **server certificate** (for incoming mongod connections) and a **client certificate** (for outgoing mongot connections). Both must be signed by the same CA.
+The managed Envoy proxy needs a **server certificate** (for incoming mongod connections) and a **client certificate** (for outgoing mongot connections). Both must be signed by the same CA. The server certificate must include `MDB_SEARCH_EXTERNAL_HOSTNAME`, because mongod checks it against the hostname it connects to.
 
 ```bash
 ./code_snippets/10_0316b_create_lb_tls_certificates.sh
@@ -160,7 +163,7 @@ The managed Envoy proxy needs a **server certificate** (for incoming mongod conn
 
 #### Step 8: Create MongoDBSearch Resource
 
-Applies the MongoDBSearch CR with `clusters[].loadBalancer.managed: {}` pointing to your external replica set:
+Applies the MongoDBSearch CR with `clusters[].loadBalancer.managed` pointing to your external replica set. `externalHostname` is the name Envoy expects in the TLS SNI. Set `mongotHost` and `searchIndexManagementHostAndPort` on each external mongod to `${MDB_PROXY_HOST}` (`search.example.com:27028` by default).
 
 ```yaml
 apiVersion: mongodb.com/v1
@@ -172,7 +175,7 @@ spec:
     - replicas: ${MDB_MONGOT_REPLICAS}
       loadBalancer:
         managed:
-          externalHostname: ${MDB_SEARCH_RESOURCE_NAME}-search-0-proxy-svc.${MDB_NS}.svc.cluster.local
+          externalHostname: ${MDB_SEARCH_EXTERNAL_HOSTNAME}
   source:
     username: search-sync-source
     passwordSecretRef:
