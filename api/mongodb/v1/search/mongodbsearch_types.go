@@ -1011,8 +1011,11 @@ func (s *MongoDBSearch) IsOIDCAuth() bool {
 }
 
 // IsSCRAMAuth returns true if SCRAM username/password authentication is used for the sync source.
+// SCRAM is the default: it also covers a search with no spec.source, which syncs from the
+// same-named MongoDB with the default sync user. x509 and OIDC are the only alternatives, and
+// both already imply a non-nil source.
 func (s *MongoDBSearch) IsSCRAMAuth() bool {
-	return s.Spec.Source != nil && !s.IsX509Auth() && !s.IsOIDCAuth()
+	return !s.IsX509Auth() && !s.IsOIDCAuth()
 }
 
 // X509ClientCertSecret returns the namespaced name of the user-provided x509 client certificate secret.

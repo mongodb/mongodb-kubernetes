@@ -2398,7 +2398,6 @@ func (r *MongoDBSearchReconcileHelper) keyFilePasswordContentHash(ctx context.Co
 
 // scramSourcePasswordContentHash folds the sync-source user password secret's content into
 // the config hash: the password is subPath-mounted, so only a pod roll applies a rotation.
-// A missing default-named secret folds nothing; an explicit passwordSecretRef must exist.
 func (r *MongoDBSearchReconcileHelper) scramSourcePasswordContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
 	if !r.mdbSearch.IsSCRAMAuth() {
 		return "", nil
@@ -2406,7 +2405,11 @@ func (r *MongoDBSearchReconcileHelper) scramSourcePasswordContentHash(ctx contex
 	ref := r.mdbSearch.SourceUserPasswordSecretRef()
 	pw, err := secret.ReadKey(ctx, kubeClient, ref.Key, types.NamespacedName{Name: ref.Name, Namespace: r.mdbSearch.Namespace})
 	if err != nil {
-		if r.mdbSearch.Spec.Source.PasswordSecretRef == nil && apierrors.IsNotFound(err) {
+		// The operator-derived <name>-<user>-password secret is created by the sync user's
+		// owner and may lag the search, so a missing one folds nothing. An explicit
+		// passwordSecretRef must exist.
+		explicitRef := r.mdbSearch.Spec.Source != nil && r.mdbSearch.Spec.Source.PasswordSecretRef != nil
+		if !explicitRef && apierrors.IsNotFound(err) {
 			return "", nil
 		}
 		return "", xerrors.Errorf("reading sync-source password secret %s: %w", ref.Name, err)
