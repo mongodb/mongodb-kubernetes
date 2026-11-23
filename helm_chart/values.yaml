@@ -12,6 +12,7 @@ operator:
 
   # Default MongoDB image type for static architecture resources and for AppDB in both architectures.
   # Values are "ubi8", "ubi9", and "ubi9-slim". When empty, static uses "ubi9" and non-static AppDB uses "ubi8".
+  # Static architecture MongoDB and MongoDBMultiCluster resources require "ubi9" or "ubi9-slim".
   mdbDefaultImageType: ''
 
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
@@ -21,7 +22,7 @@ operator:
   operator_image_name: mongodb-kubernetes
 
   # Version of mongodb-kubernetes-operator
-  version: 1.15.1
+  version: 1.16.0
 
   # The Custom Resources that will be watched by the Operator. Needs to be changed if only some of the CRDs are installed
   watchedResources:
@@ -150,11 +151,11 @@ operator:
 ## Database
 database:
   name: mongodb-kubernetes-database
-  version: 1.15.1
+  version: 1.16.0
 
 initDatabase:
   name: mongodb-kubernetes-init-database
-  version: 1.15.1
+  version: 1.16.0
 
 ## Ops Manager
 opsManager:
@@ -162,7 +163,7 @@ opsManager:
 
 initOpsManager:
   name: mongodb-kubernetes-init-ops-manager
-  version: 1.15.1
+  version: 1.16.0
 
 agent:
   name: mongodb-agent

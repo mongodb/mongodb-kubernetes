@@ -87,6 +87,15 @@ func GetImageType(annotations map[string]string, defaultArchitecture DefaultArch
 	return ImageTypeUBI8
 }
 
+// ValidateDatabaseImageType restricts static architecture to the UBI9 image family, because
+// MongoDB binaries run inside the agent container, whose image is based on UBI9.
+func ValidateDatabaseImageType(annotations map[string]string, defaultArchitecture DefaultArchitecture, defaultImageType ImageType) error {
+	if IsRunningStaticArchitecture(annotations, defaultArchitecture) && GetImageType(annotations, defaultArchitecture, defaultImageType) == ImageTypeUBI8 {
+		return fmt.Errorf("container image type %q is not supported with static architecture", ImageTypeUBI8)
+	}
+	return nil
+}
+
 func SupportedImageTypes() []ImageType {
 	return []ImageType{ImageTypeUBI8, ImageTypeUBI9, ImageTypeUBI9Slim}
 }

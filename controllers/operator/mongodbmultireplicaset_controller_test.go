@@ -60,6 +60,36 @@ func init() {
 
 var clusters = []string{"api1.kube.com", "api2.kube.com", "api3.kube.com"}
 
+func TestMultiReplicaSetContainerImageTypeRejection(t *testing.T) {
+	ctx := context.Background()
+	for _, inherited := range []bool{false, true} {
+		t.Run(fmt.Sprintf("inherited=%t", inherited), func(t *testing.T) {
+			mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+			if !inherited {
+				mrs.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi8"})
+			}
+			r, cl, members, factory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.Static)
+			if inherited {
+				r.defaultImageType = architectures.ImageTypeUBI8
+			}
+			factory.SetPostCreateHook(func(om.Connection) {
+				t.Error("invalid image type must be rejected before connecting to Ops Manager")
+			})
+			result, err := r.Reconcile(ctx, requestFromObject(mrs))
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+			require.NoError(t, cl.Get(ctx, kube.ObjectKeyFromApiObject(mrs), mrs))
+			assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
+			assert.Contains(t, mrs.Status.Message, "not supported with static architecture")
+			for name, member := range members {
+				statefulSets := &appsv1.StatefulSetList{}
+				require.NoError(t, member.List(ctx, statefulSets))
+				assert.Empty(t, statefulSets.Items, name)
+			}
+		})
+	}
+}
+
 func TestMultiReplicaSetHostnameConfigMapUsesStableClusterIndexes(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()

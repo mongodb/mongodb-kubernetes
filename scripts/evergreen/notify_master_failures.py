@@ -6,9 +6,8 @@ This script queries the Evergreen API to find failed tasks in a build version
 and sends a Slack notification to #k8s-enterprise-builds with failure details
 and author information.
 
-The script runs after the staging tasks via Evergreen's depends_on mechanism.
-It does not wait for the IBM Z variants. Their results are included when they
-finish before the report and listed as skipped otherwise.
+Evergreen dependencies determine when the notifier starts. The script reports
+available results and lists unfinished variants as skipped in the report.
 It only runs on commit builds (not patches) - see .evergreen.yml for details.
 
 Environment variables required:
@@ -43,9 +42,6 @@ from evergreen.version import BuildVariantStatus, Version
 from scripts.evergreen.notify_flaky_tests import FlakyTask, get_flaky_tasks
 from scripts.python.evergreen_api import get_evergreen_api
 
-# Terminal statuses that indicate a patch/version has completed
-COMPLETED_STATUSES = {"succeeded", "failed"}
-
 # Tasks to exclude from the report. They do not describe the build result
 # this notification reports.
 NOTIFICATION_TASKS = [
@@ -54,21 +50,6 @@ NOTIFICATION_TASKS = [
     "mckci_release_promote",
     "build_test_image_ibm_z",
 ]
-
-# Variants that do not block the notification when their tasks are still queued.
-# Their results are included when they finish before the report runs. Pending
-# tasks are reported as skipped instead of suppressing the notification.
-NON_BLOCKING_VARIANTS = {
-    "e2e_smoke_ibm_z",
-    "e2e_static_smoke_ibm_z",
-    "e2e_static_smoke_ibm_z_ubi9_slim",
-}
-
-# The notification depends on the non-IBM-Z staging tasks. The version stays
-# started while the IBM Z e2e tasks queue, so it cannot reach a terminal state.
-# Do not wait for the full version.
-VERSION_POLL_TIMEOUT = 0
-VERSION_POLL_INTERVAL = 30
 
 # Global counter for API calls
 _api_call_count = 0
@@ -134,11 +115,6 @@ class VersionInfo:
         """Get author_id from version (not exposed as property in evergreen.Version)."""
         return self.version.json.get("author_id", "")
 
-    @property
-    def is_completed(self) -> bool:
-        """Check if version has reached a terminal state."""
-        return self.version.status in COMPLETED_STATUSES
-
 
 def get_version_info(api: EvergreenApi, version_id: str) -> VersionInfo:
     """Fetch version information from Evergreen API."""
@@ -146,34 +122,6 @@ def get_version_info(api: EvergreenApi, version_id: str) -> VersionInfo:
     _api_call_count += 1
     version = api.version_by_id(version_id)
     return VersionInfo(version=version)
-
-
-def wait_for_version_completion(api: EvergreenApi, version_id: str) -> VersionInfo:
-    """Fetch the current version and proceed.
-
-    The task dependency gates on the non-IBM-Z staging tasks. The full version
-    stays started while the IBM Z e2e tasks queue, so waiting for it would add
-    the full poll timeout.
-    """
-    deadline = time.time() + VERSION_POLL_TIMEOUT
-    while True:
-        version_info = get_version_info(api, version_id)
-        if version_info.is_completed:
-            return version_info
-        remaining = deadline - time.time()
-        if remaining <= 0:
-            print(
-                f"Version still '{version_info.status}' after {VERSION_POLL_TIMEOUT}s — "
-                f"proceeding with current data",
-                file=sys.stderr,
-            )
-            return version_info
-        print(
-            f"Version status is '{version_info.status}', waiting {VERSION_POLL_INTERVAL}s "
-            f"for completion ({remaining:.0f}s remaining)...",
-            file=sys.stderr,
-        )
-        time.sleep(VERSION_POLL_INTERVAL)
 
 
 def get_build_tasks(api: EvergreenApi, build_variant_status: BuildVariantStatus) -> list[TaskInfo]:
@@ -329,7 +277,7 @@ def format_slack_message(
         prev_failed: Optional set of (task_name, variant) that also failed on the previous master
         retried_tasks: Tasks that ran more than once, reported on passing builds
         total_tasks: Total task count, used as the denominator for the retry count
-        skipped_tasks: Pending tasks in variants that did not block the notification
+        skipped_tasks: Tasks without a completed result at report time
     """
     flaky_map = flaky_map or {}
     prev_failed = prev_failed or set()
@@ -342,7 +290,7 @@ def format_slack_message(
     num_retried = len(retried_tasks)
     retry_names = _retry_task_names(retried_tasks)
     retry_summary = ""
-    if not is_failure and total_tasks:
+    if not is_failure and not skipped_tasks and total_tasks:
         if num_retried:
             retry_summary = f"{num_retried} of {total_tasks} task runs restarted before this pass"
             if len(retry_names) != num_retried:
@@ -406,7 +354,6 @@ def format_slack_message(
             }
         )
 
-    # Skipped variants: pending tasks that did not block this report.
     if skipped_tasks:
         skipped_variants = sorted({task.build_variant for task in skipped_tasks})
         skipped_lines = [f"• {variant}" for variant in skipped_variants[:5]]
@@ -417,9 +364,7 @@ def format_slack_message(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": (
-                        "*Skipped variants:*\n" + "\n".join(skipped_lines) + "\n_Completed results remain included._"
-                    ),
+                    "text": "*Skipped in this report:*\n" + "\n".join(skipped_lines),
                 },
             }
         )
@@ -593,25 +538,16 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # The task dependency gates on the non-IBM-Z staging tasks. The version stays
-    # started while the IBM Z e2e tasks queue, so do not wait for the full version.
     try:
-        version_info = wait_for_version_completion(api, version_id)
+        # ponytail: Evergreen gates startup with depends_on. Late results stay in Evergreen.
+        version_info = get_version_info(api, version_id)
+        failed_tasks, running_tasks, retried_tasks, total_tasks = get_task_summary(api, version_id, NOTIFICATION_TASKS)
     except Exception as e:
-        print(f"Error fetching version info: {e}", file=sys.stderr)
+        print(f"Error fetching version results: {e}", file=sys.stderr)
         sys.exit(1)
 
     print(f"Commit: {version_info.revision[:8]} by {version_info.author}", file=sys.stderr)
-    print(f"Final status: {version_info.status}", file=sys.stderr)
-
-    try:
-        failed_tasks, running_tasks, retried_tasks, total_tasks = get_task_summary(api, version_id, NOTIFICATION_TASKS)
-    except Exception as e:
-        print(f"Error fetching tasks: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    skipped_tasks = [task for task in running_tasks if task.build_variant in NON_BLOCKING_VARIANTS]
-    running_tasks = [task for task in running_tasks if task.build_variant not in NON_BLOCKING_VARIANTS]
+    print(f"Status at report time: {version_info.status}", file=sys.stderr)
 
     # Look up flakiness when there are failures (best-effort, non-fatal).
     flaky_map: dict[tuple[str, str], FlakyTask] = {}
@@ -653,7 +589,7 @@ def main() -> None:
         prev_failed,
         retried_tasks,
         total_tasks,
-        skipped_tasks,
+        running_tasks,
     )
 
     if use_slack_dry_run:
@@ -666,7 +602,7 @@ def main() -> None:
             flaky_map,
             retried_tasks,
         )
-        should_notify = bool(failed_tasks) or (not running_tasks and notify_on_success)
+        should_notify = bool(failed_tasks) or notify_on_success
         if should_notify and slack_webhook_url:
             send_slack_notification(slack_webhook_url, message)
 
