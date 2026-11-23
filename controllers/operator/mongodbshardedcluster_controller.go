@@ -3129,13 +3129,16 @@ func (r *ShardedClusterReconcileHelper) reconcileConfigServerServices(ctx contex
 		if configServerExternalAccess == nil || configServerExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ConfigRsName(), memberCluster.Name)
 			svc := r.getPodService(r.sc.ConfigRsName(), memberCluster, podNum, portOrDefault)
+			if err := r.applyInternalConnectivityAnnotations(&svc, r.desiredConfigServerConfiguration, memberCluster, r.sc.ConfigRsName(), podNum); err != nil {
+				return err
+			}
 			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
 			_ = append(allServices, &svc)
 		}
 	}
-	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ConfigRsName(), portOrDefault, memberCluster); err != nil {
+	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ConfigRsName(), r.desiredConfigServerConfiguration, portOrDefault, memberCluster); err != nil {
 		return err
 	}
 	return nil
@@ -3169,6 +3172,9 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		if shardsExternalAccess == nil || shardsExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.ShardName(shardIdx), memberCluster.Name)
 			svc := r.getPodService(r.sc.ShardName(shardIdx), memberCluster, podNum, portOrDefault)
+			if err := r.applyInternalConnectivityAnnotations(&svc, r.desiredShardsConfiguration[shardIdx], memberCluster, r.sc.ShardName(shardIdx), podNum); err != nil {
+				return err
+			}
 			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
@@ -3177,7 +3183,7 @@ func (r *ShardedClusterReconcileHelper) reconcileShardServices(ctx context.Conte
 		}
 	}
 
-	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardName(shardIdx), portOrDefault, memberCluster); err != nil {
+	if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.ShardName(shardIdx), r.desiredShardsConfiguration[shardIdx], portOrDefault, memberCluster); err != nil {
 		return err
 	}
 	return nil
@@ -3207,6 +3213,9 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 		if mongosExternalAccess == nil || mongosExternalAccess.ExternalDomain == nil {
 			log.Debugf("creating internal services for %s in cluster: %s", r.sc.MongosRsName(), memberCluster.Name)
 			svc := r.getPodService(r.sc.MongosRsName(), memberCluster, podNum, portOrDefault)
+			if err := r.applyInternalConnectivityAnnotations(&svc, r.desiredMongosConfiguration, memberCluster, r.sc.MongosRsName(), podNum); err != nil {
+				return err
+			}
 			if err := service.CreateOrUpdateService(ctx, memberCluster.Client, svc); err != nil && !errors.IsAlreadyExists(err) {
 				return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", svc.Name, memberCluster.Name, err)
 			}
@@ -3214,14 +3223,30 @@ func (r *ShardedClusterReconcileHelper) reconcileMongosServices(ctx context.Cont
 			_ = append(allServices, &svc)
 		}
 
-		if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.MongosRsName(), portOrDefault, memberCluster); err != nil {
+		if err := r.createHeadlessServiceForStatefulSet(ctx, r.sc.MongosRsName(), r.desiredMongosConfiguration, portOrDefault, memberCluster); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx context.Context, stsName string, port int32, memberCluster multicluster.MemberCluster) error {
+func (r *ShardedClusterReconcileHelper) applyInternalConnectivityAnnotations(svc *corev1.Service, component *mdbv1.ShardedClusterComponentSpec, memberCluster multicluster.MemberCluster, stsName string, podNum int) error {
+	annotations := r.sc.Spec.EffectiveInternalConnectivityAnnotations(component, memberCluster.Name)
+	if len(annotations) == 0 {
+		return nil
+	}
+
+	svc.Annotations = merge.StringToStringMap(svc.Annotations, annotations)
+	placeholderReplacer := create.GetMultiClusterMongoDBPlaceholderReplacer(r.sc.Name, stsName, r.sc.Namespace, memberCluster.Name, memberCluster.Index, nil, r.sc.Spec.ClusterDomain, podNum)
+	if processedAnnotations, replacedFlag, err := placeholderReplacer.ProcessMap(svc.Annotations); err != nil {
+		return xerrors.Errorf("failed to process annotations in internal service %s in cluster %s: %w", svc.Name, memberCluster.Name, err)
+	} else if replacedFlag {
+		svc.Annotations = processedAnnotations
+	}
+	return nil
+}
+
+func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx context.Context, stsName string, component *mdbv1.ShardedClusterComponentSpec, port int32, memberCluster multicluster.MemberCluster) error {
 	// If the cluster is legacy (single cluster), we don't create headless services
 	if memberCluster.Legacy {
 		return nil
@@ -3231,6 +3256,16 @@ func (r *ShardedClusterReconcileHelper) createHeadlessServiceForStatefulSet(ctx 
 	nameSpacedName := kube.ObjectKey(r.sc.Namespace, headlessServiceName)
 	headlessService := create.BuildService(nameSpacedName, r.sc, new(headlessServiceName), nil, port, omv1.MongoDBOpsManagerServiceDefinition{Type: corev1.ServiceTypeClusterIP})
 	headlessService.OwnerReferences = r.sc.OwnerReferenceForMemberCluster()
+
+	if annotations := r.sc.Spec.EffectiveInternalConnectivityAnnotations(component, memberCluster.Name); len(annotations) > 0 {
+		headlessService.Annotations = merge.StringToStringMap(headlessService.Annotations, annotations)
+		placeholderReplacer := create.GetMultiClusterSharedServicePlaceholderReplacer(r.sc.Name, stsName, r.sc.Namespace, headlessServiceName, memberCluster.Name, memberCluster.Index, r.sc.Spec.ClusterDomain, r.sc.GetResourceType())
+		if processedAnnotations, err := create.ProcessSharedServiceAnnotations(headlessService.Annotations, placeholderReplacer); err != nil {
+			return xerrors.Errorf("failed to process annotations in internal service %s in cluster %s: %w", headlessService.Name, memberCluster.Name, err)
+		} else {
+			headlessService.Annotations = processedAnnotations
+		}
+	}
 
 	if err := service.CreateOrUpdateService(ctx, memberCluster.Client, headlessService); err != nil && !errors.IsAlreadyExists(err) {
 		return xerrors.Errorf("failed to create pod service %s in cluster: %s, err: %w", headlessService.Name, memberCluster.Name, err)

@@ -165,6 +165,24 @@ func (c *clusterChecks) checkServiceExists(ctx context.Context, serviceName stri
 	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
 }
 
+func (c *clusterChecks) checkInternalServiceAnnotations(ctx context.Context, statefulSetName string, expectedMembers int, expectedAnnotations map[string]string) {
+	for podIdx := range expectedMembers {
+		svc := corev1.Service{}
+		serviceName := fmt.Sprintf("%s-%d-svc", statefulSetName, podIdx)
+		err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
+		require.NoError(c.t, err, "clusterName: %s", c.clusterName)
+		assert.Equal(c.t, expectedAnnotations, svc.Annotations, "clusterName: %s serviceName: %s", c.clusterName, serviceName)
+	}
+}
+
+func (c *clusterChecks) checkHeadlessServiceAnnotations(ctx context.Context, statefulSetName string, expectedAnnotations map[string]string) {
+	svc := corev1.Service{}
+	serviceName := fmt.Sprintf("%s-svc", statefulSetName)
+	err := c.kubeClient.Get(ctx, kube.ObjectKey(c.namespace, serviceName), &svc)
+	require.NoError(c.t, err, "clusterName: %s", c.clusterName)
+	assert.Equal(c.t, expectedAnnotations, svc.Annotations, "clusterName: %s serviceName: %s", c.clusterName, serviceName)
+}
+
 func (c *clusterChecks) checkServiceAnnotations(ctx context.Context, statefulSetName string, expectedMembers int, sc *mdbv1.MongoDB, clusterName string, clusterIdx int, externalDomain string) {
 	for podIdx := range expectedMembers {
 		svc := corev1.Service{}

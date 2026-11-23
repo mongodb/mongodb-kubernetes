@@ -1012,6 +1012,198 @@ func TestReconcileCreateMultiClusterShardedCluster(t *testing.T) {
 	}
 }
 
+// TestReconcileCreateMultiClusterShardedClusterWithInternalConnectivityAnnotations covers
+// spec.internalConnectivity.annotations on the internal Services of a multi-cluster sharded
+// cluster: the top-level value merges with per-component and per-member-cluster entries (per key,
+// most specific wins), placeholders are substituted, and the annotations land on both the per-pod
+// internal services and the shared per-tier headless services of each tier in each member cluster.
+func TestReconcileCreateMultiClusterShardedClusterWithInternalConnectivityAnnotations(t *testing.T) {
+	memberClusters := test.NewMemberClusters(
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-1",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 2,
+			NumberOfMongoses:      2,
+		},
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-2",
+			ShardMap:              []int{2, 3},
+			NumberOfConfigServers: 1,
+			NumberOfMongoses:      1,
+		},
+	)
+
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		WithMultiClusterSetup(memberClusters).
+		Build()
+
+	sc.Spec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+		"top":      "level",
+		"tier":     "top",
+		"conflict": "top",
+	}}
+	// The config server tier has no component-level configuration: it gets the top-level value as-is.
+	sc.Spec.ShardSpec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+		"tier": "shard",
+	}}
+	sc.Spec.MongosSpec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+		"tier": "mongos",
+		"sts":  "{statefulSetName}",
+	}}
+	// A per-member-cluster entry on the shard tier: it wins over the top-level value on "conflict"
+	// and exercises the clusterName/clusterIndex placeholders. ClusterSpecList[1] is member-cluster-2.
+	sc.Spec.ShardSpec.ClusterSpecList[1].InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+		"conflict": "cluster-2",
+		"cluster":  "{clusterName}-{clusterIndex}",
+	}}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	configExpected := map[string]string{"top": "level", "tier": "top", "conflict": "top"}
+
+	for clusterIdx, clusterSpecItem := range sc.Spec.ShardSpec.ClusterSpecList {
+		memberClusterChecks := newClusterChecks(t, clusterSpecItem.ClusterName, clusterIdx, sc.Namespace, memberClusterMap[clusterSpecItem.ClusterName])
+
+		configSrvStsName := fmt.Sprintf("%s-config-%d", sc.Name, clusterIdx)
+		configMembers := memberClusters.ConfigServerDistribution[clusterSpecItem.ClusterName]
+		memberClusterChecks.checkInternalServiceAnnotations(ctx, configSrvStsName, configMembers, configExpected)
+		memberClusterChecks.checkHeadlessServiceAnnotations(ctx, configSrvStsName, configExpected)
+
+		mongosStsName := fmt.Sprintf("%s-mongos-%d", sc.Name, clusterIdx)
+		mongosMembers := memberClusters.MongosDistribution[clusterSpecItem.ClusterName]
+		mongosExpected := map[string]string{"top": "level", "tier": "mongos", "conflict": "top", "sts": mongosStsName}
+		memberClusterChecks.checkInternalServiceAnnotations(ctx, mongosStsName, mongosMembers, mongosExpected)
+		memberClusterChecks.checkHeadlessServiceAnnotations(ctx, mongosStsName, mongosExpected)
+
+		shardExpected := map[string]string{"top": "level", "tier": "shard", "conflict": "top"}
+		if clusterSpecItem.ClusterName == "member-cluster-2" {
+			shardExpected = map[string]string{"top": "level", "tier": "shard", "conflict": "cluster-2", "cluster": "member-cluster-2-1"}
+		}
+		for shardIdx := 0; shardIdx < memberClusters.ShardCount(); shardIdx++ {
+			shardStsName := fmt.Sprintf("%s-%d-%d", sc.Name, shardIdx, clusterIdx)
+			shardMembers := memberClusters.ShardDistribution[shardIdx][clusterSpecItem.ClusterName]
+			memberClusterChecks.checkInternalServiceAnnotations(ctx, shardStsName, shardMembers, shardExpected)
+			memberClusterChecks.checkHeadlessServiceAnnotations(ctx, shardStsName, shardExpected)
+		}
+	}
+
+	// Annotations applied by other tools survive a reconcile: service.Merge keeps existing keys.
+	headlessServiceKey := kube.ObjectKey(sc.Namespace, fmt.Sprintf("%s-config-0-svc", sc.Name))
+	headlessService := corev1.Service{}
+	require.NoError(t, memberClusterMap["member-cluster-1"].Get(ctx, headlessServiceKey, &headlessService))
+	headlessService.Annotations["external"] = "kept"
+	require.NoError(t, memberClusterMap["member-cluster-1"].Update(ctx, &headlessService))
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	require.NoError(t, memberClusterMap["member-cluster-1"].Get(ctx, headlessServiceKey, &headlessService))
+	assert.Equal(t, map[string]string{"top": "level", "tier": "top", "conflict": "top", "external": "kept"}, headlessService.Annotations)
+}
+
+// TestReconcileMultiClusterShardedClusterPodPlaceholderSkippedOnHeadlessService pins down the
+// split handling of pod-scoped placeholders (e.g. {podName}): they are substituted on the per-pod
+// internal services, while the shared per-tier headless service - whose replacer has no pod
+// identity - simply omits the keys carrying them. The reconcile succeeds and every other
+// annotation lands on both.
+func TestReconcileMultiClusterShardedClusterPodPlaceholderSkippedOnHeadlessService(t *testing.T) {
+	memberClusters := test.NewMemberClusters(
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-1",
+			ShardMap:              []int{2},
+			NumberOfConfigServers: 1,
+			NumberOfMongoses:      1,
+		},
+	)
+
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		WithMultiClusterSetup(memberClusters).
+		Build()
+	sc.Spec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+		"pod":   "{podName}",
+		"other": "x",
+	}}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	require.NoError(t, err)
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+	// The per-pod mongos internal service carries both annotations, with {podName} substituted.
+	podService := corev1.Service{}
+	require.NoError(t, memberClusterMap["member-cluster-1"].Get(ctx, kube.ObjectKey(sc.Namespace, fmt.Sprintf("%s-mongos-0-0-svc", sc.Name)), &podService))
+	assert.Equal(t, map[string]string{"pod": fmt.Sprintf("%s-mongos-0-0", sc.Name), "other": "x"}, podService.Annotations)
+
+	// The shared mongos headless service omits the pod-scoped key and keeps the rest.
+	headlessService := corev1.Service{}
+	require.NoError(t, memberClusterMap["member-cluster-1"].Get(ctx, kube.ObjectKey(sc.Namespace, fmt.Sprintf("%s-mongos-0-svc", sc.Name)), &headlessService))
+	assert.Equal(t, map[string]string{"other": "x"}, headlessService.Annotations)
+}
+
+// TestReconcileMultiClusterShardedClusterUnknownPlaceholderFails pins down that unresolvable
+// placeholders which are not pod-scoped (e.g. a typo) still fail the reconcile loudly on the
+// shared per-tier headless service instead of being silently omitted.
+func TestReconcileMultiClusterShardedClusterUnknownPlaceholderFails(t *testing.T) {
+	memberClusters := test.NewMemberClusters(
+		test.MemberClusterDetails{
+			ClusterName:           "member-cluster-1",
+			ShardMap:              []int{2},
+			NumberOfConfigServers: 1,
+			NumberOfMongoses:      1,
+		},
+	)
+
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().
+		WithMultiClusterSetup(memberClusters).
+		Build()
+	sc.Spec.InternalConnectivity = &mdbv1.InternalConnectivityConfiguration{Annotations: map[string]string{
+		"typo": "{unknown}",
+	}}
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+
+	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(sc).WithObjects(mock.GetDefaultResources()...).Build()
+	kubeClient := kubernetesClient.NewClient(fakeClient)
+	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusters.ClusterNames, omConnectionFactory, true, true)
+
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		allHostnames, _ := generateAllHosts(sc, memberClusters.MongosDistribution, clusterMapping, memberClusters.ConfigServerDistribution, memberClusters.ShardDistribution, test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	require.NoError(t, err)
+	checkReconcileFailed(ctx, t, reconciler, sc, true, "failed to process annotations in internal service", kubeClient)
+}
+
 func TestMultiClusterShardedShardRemovalCleansUpOpsManagerAndClearsRecord(t *testing.T) {
 	memberClusters := test.NewMemberClusters(
 		test.MemberClusterDetails{
