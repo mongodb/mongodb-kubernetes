@@ -309,6 +309,21 @@ func readActiveTrustedCAs(ctx context.Context, c client.Reader, namespace, name 
 
 // readMigrationCertificate reads the certificate file the workload uses today. The whole PEM is
 // returned so the intermediates that follow the leaf can be used to connect it to a root.
+// ReadIssuedCertificate reads the leaf a cert-manager Secret holds, plus any intermediates after it.
+func ReadIssuedCertificate(ctx context.Context, c client.Reader, namespace, secretName string) ([]*x509.Certificate, workflow.Status) {
+	return readMigrationCertificate(ctx, c, namespace, "managed", secretName, nil, false)
+}
+
+// ReadLegacyCA reads the CA file the deployment trusted before the migration.
+func ReadLegacyCA(ctx context.Context, c client.Reader, namespace, name, key string) ([]*x509.Certificate, workflow.Status) {
+	return readMigrationCAConfigMap(ctx, c, namespace, name, key)
+}
+
+// CertificateValidatedBy reports whether the managed trust anchors validate the certificate.
+func CertificateValidatedBy(cert *x509.Certificate, intermediates, cas []*x509.Certificate) bool {
+	return validatedBy(cert, intermediates, cas)
+}
+
 func readMigrationCertificate(ctx context.Context, c client.Reader, namespace, role, secretName string, selectKey func(corev1.Secret) string, operatorPEM bool) ([]*x509.Certificate, workflow.Status) {
 	if secretName == "" {
 		return nil, workflow.Failed(xerrors.Errorf("the %s certificate Secret is not configured", role))

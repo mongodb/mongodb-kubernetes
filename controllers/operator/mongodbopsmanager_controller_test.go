@@ -5266,6 +5266,96 @@ func newAppDBTrustMigrationFixture(t *testing.T, lastAppDBSecurity func(*omv1.Mo
 	return ctx, om, c, r, om.Annotations[util.LastAchievedSpec]
 }
 
+func TestAppDBCAChangeNeedsOpsManagerRestart(t *testing.T) {
+	lastSecurity := func(om *omv1.MongoDBOpsManager) *mdbv1.Security {
+		return &mdbv1.Security{
+			Authentication:            om.Spec.AppDB.GetSecurity().Authentication,
+			CertificatesSecretsPrefix: "appdb",
+			TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: migrationTrustLegacyAppDBCA},
+		}
+	}
+	issuedName := func(om *omv1.MongoDBOpsManager) string {
+		return om.Spec.AppDB.GetSecurity().MemberCertificateSecretName(om.Spec.AppDB.Name())
+	}
+	readyOM := func(t *testing.T, ctx context.Context, c kubernetesClient.Client, om *omv1.MongoDBOpsManager, caConfigMap string, ready bool) {
+		t.Helper()
+		phase := corev1.PodRunning
+		conditions := []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+		if !ready {
+			conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}
+		}
+		require.NoError(t, c.Create(ctx, &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: om.Name + "-0", Namespace: om.Namespace, Labels: map[string]string{"app": om.SvcName()}},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "mongodb-ops-manager", Image: "om"}}, Volumes: []corev1.Volume{{
+				Name: "appdb-ca", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: caConfigMap}}},
+			}}},
+			Status: corev1.PodStatus{Phase: phase, Conditions: conditions},
+		}))
+	}
+
+	t.Run("the same CA does not restart Ops Manager", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		ca, issue := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, issuedName(om), ca, issue)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", ca)
+		readyOM(t, ctx, c, om, migrationTrustLegacyAppDBCA, true)
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		require.True(t, status.IsOK(), status.Message())
+		assert.False(t, needs)
+	})
+
+	t.Run("a different CA restarts Ops Manager that still mounts the legacy bundle", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		legacyCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, issuedName(om), managedCA, issueManaged)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+		readyOM(t, ctx, c, om, migrationTrustLegacyAppDBCA, true)
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		require.True(t, status.IsOK(), status.Message())
+		assert.True(t, needs)
+	})
+
+	t.Run("a ready Ops Manager mounted on the managed bundle does not restart again", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		legacyCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, issuedName(om), managedCA, issueManaged)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+		readyOM(t, ctx, c, om, om.Spec.AppDB.GetCAConfigMapName(), true)
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		require.True(t, status.IsOK(), status.Message())
+		assert.False(t, needs)
+	})
+
+	t.Run("an unready Ops Manager mounted on the managed bundle still waits", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		legacyCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationManagedLeafFromIssue(t, ctx, c, issuedName(om), managedCA, issueManaged)
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+		readyOM(t, ctx, c, om, om.Spec.AppDB.GetCAConfigMapName(), false)
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		require.True(t, status.IsOK(), status.Message())
+		assert.True(t, needs)
+	})
+
+	t.Run("a missing issued leaf fails instead of restarting", func(t *testing.T) {
+		ctx, om, c, _, _ := newAppDBTrustMigrationFixture(t, lastSecurity)
+		legacyCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+		require.NoError(t, c.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: issuedName(om), Namespace: om.Namespace}}))
+
+		needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, c, om)
+		assert.False(t, needs)
+		assert.False(t, status.IsOK())
+	})
+}
+
 // TestOpsManagerManagedCertificateTrustNonMigrationCases verifies that fresh managed resources
 // and unchanged legacy or TLS-off deployments never enter the trust preflight.
 func TestOpsManagerManagedCertificateTrustNonMigrationCases(t *testing.T) {
@@ -5387,11 +5477,11 @@ func TestManagedCertificateMigrationPreflightEligibility(t *testing.T) {
 		assert.Empty(t, managedCertificateMigrationPreflightParts(om, results))
 	})
 
-	t.Run("skips a multi-cluster AppDB", func(t *testing.T) {
+	t.Run("includes a multi-cluster AppDB", func(t *testing.T) {
 		om := newAppDBManagedCertificateTestOM()
 		om.Spec.AppDB.Topology = mdbv1.ClusterTopologyMultiCluster
 		parts := managedCertificateMigrationPreflightParts(om, []componentCertificateResult{okResult(status.AppDb)})
-		assert.Empty(t, parts)
+		assert.Equal(t, []status.Part{status.AppDb}, parts)
 	})
 
 	t.Run("skips an external AppDB", func(t *testing.T) {

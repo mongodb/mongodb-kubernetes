@@ -2,9 +2,11 @@ package operator
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,11 +26,13 @@ import (
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
+	mdbstatus "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
@@ -61,6 +65,87 @@ func newMultiClusterManagedAppDB(t *testing.T) (*omv1.MongoDBOpsManager, kuberne
 	r.memberClustersMap = map[string]client.Client{"east": newManagedCertificateKubeClient(t), "west": newManagedCertificateKubeClient(t)}
 	r.certManagerReadiness = certs.CertManagerReadiness{Ready: true}
 	return manager, c, r
+}
+
+func TestAppDBMultiClusterMigrationPreflightRefusesUntrustedMember(t *testing.T) {
+	ctx := t.Context()
+	manager, central, r := newMultiClusterManagedAppDB(t)
+	lastSecurity := &mdbv1.Security{
+		Authentication:            manager.Spec.AppDB.GetSecurity().Authentication,
+		CertificatesSecretsPrefix: "appdb",
+		TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: migrationTrustLegacyAppDBCA},
+	}
+	lastSpec, err := json.Marshal(omv1.MongoDBOpsManagerSpec{
+		Version:  manager.Spec.Version,
+		Replicas: manager.Spec.Replicas,
+		AppDB: &omv1.AppDBSpec{
+			Version:         manager.Spec.AppDB.Version,
+			Topology:        omv1.ClusterTopologyMultiCluster,
+			ClusterSpecList: manager.Spec.AppDB.ClusterSpecList,
+			Security:        lastSecurity,
+		},
+	})
+	require.NoError(t, err)
+	manager.Annotations = map[string]string{util.LastAchievedSpec: string(lastSpec)}
+
+	managedCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	_, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	legacyPEM := lastSecurity.MemberCertificateSecretName(manager.Spec.AppDB.Name()) + certs.OperatorGeneratedCertSuffix
+	writeMigrationLegacyPEM(t, ctx, central, strings.TrimSuffix(legacyPEM, certs.OperatorGeneratedCertSuffix), migrationServerCertificate(t, issueLegacy))
+	writeMigrationCAConfigMap(t, ctx, central, migrationTrustLegacyAppDBCA, "ca-pem", managedCA)
+	require.NoError(t, central.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: manager.Spec.AppDB.GetCAConfigMapName(), Namespace: manager.Namespace},
+		Data:       map[string]string{util.LatestHashSecretKey: "active", "active": string(managedCA)},
+	}))
+
+	results := []componentCertificateResult{{part: mdbstatus.AppDb, status: workflow.OK(), managed: true}}
+	r.applyManagedCertificateMigrationTrustPreflight(ctx, manager, results, zap.S())
+
+	require.False(t, results[0].status.IsOK(), "a multi-cluster AppDB uses the same trust check as a single-cluster AppDB")
+	assert.Contains(t, results[0].status.Message(), legacyPEM)
+}
+
+func TestAppDBMultiClusterCAChangeRestartsOpsManager(t *testing.T) {
+	ctx := t.Context()
+	manager, central, _ := newMultiClusterManagedAppDB(t)
+	lastSpec, err := json.Marshal(omv1.MongoDBOpsManagerSpec{
+		Version:  manager.Spec.Version,
+		Replicas: manager.Spec.Replicas,
+		AppDB: &omv1.AppDBSpec{
+			Version:         manager.Spec.AppDB.Version,
+			Topology:        omv1.ClusterTopologyMultiCluster,
+			ClusterSpecList: manager.Spec.AppDB.ClusterSpecList,
+			Security: &mdbv1.Security{
+				Authentication:            manager.Spec.AppDB.GetSecurity().Authentication,
+				CertificatesSecretsPrefix: "appdb",
+				TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: migrationTrustLegacyAppDBCA},
+			},
+		},
+	})
+	require.NoError(t, err)
+	manager.Annotations = map[string]string{util.LastAchievedSpec: string(lastSpec)}
+	require.NoError(t, central.Update(ctx, manager))
+
+	managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	legacyCA, _ := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
+	issuedName := manager.Spec.AppDB.GetSecurity().MemberCertificateSecretName(manager.Spec.AppDB.Name())
+	require.NoError(t, central.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: issuedName, Namespace: manager.Namespace},
+		Type:       corev1.SecretTypeTLS,
+	}))
+	writeMigrationManagedLeafFromIssue(t, ctx, central, issuedName, managedCA, issueManaged)
+	writeMigrationCAConfigMap(t, ctx, central, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
+	require.NoError(t, central.Create(ctx, &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: manager.Name + "-0", Namespace: manager.Namespace, Labels: map[string]string{"app": manager.SvcName()}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "mongodb-ops-manager", Image: "om"}}, Volumes: []corev1.Volume{{
+			Name: "appdb-ca", VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: migrationTrustLegacyAppDBCA}}},
+		}}},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
+	}))
+
+	needs, status := appDBCAChangeNeedsOpsManagerRestart(ctx, central, manager)
+	require.True(t, status.IsOK(), status.Message())
+	assert.True(t, needs, "a multi-cluster AppDB CA change restarts Ops Manager the same way a single-cluster one does")
 }
 
 func TestAppDBManagedCertificatesMultiClusterCoverage(t *testing.T) {

@@ -474,6 +474,23 @@ func (r *OpsManagerReconciler) Reconcile(ctx context.Context, request reconcile.
 		return result, nil
 	}
 
+	// Ops Manager reads the AppDB CA when it starts. A different AppDB CA has to be mounted
+	// before AppDB presents the new leaf, or the running Java client rejects the handshake.
+	if needsRestart, status := appDBCAChangeNeedsOpsManagerRestart(ctx, r.client, opsManager); !status.IsOK() {
+		return r.updateStatus(ctx, opsManager, status, log, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
+	} else if needsRestart {
+		appDBConfig, err := appDbReconciler.GetAppDBConfig(ctx, opsManager, log)
+		if err != nil {
+			return r.updateStatus(ctx, opsManager, workflow.Failed(err), log, opsManagerExtraStatusParams)
+		}
+		initOpsManagerImage := images.ContainerImage(r.imageUrls, util.InitOpsManagerImageUrl, r.initOpsManagerImageVersion)
+		opsManagerImage := images.ContainerImage(r.imageUrls, util.OpsManagerImageUrl, opsManager.Spec.Version)
+		if status, _ := r.reconcileOpsManager(ctx, opsManagerReconcilerHelper, opsManager, appDBConfig, initOpsManagerImage, opsManagerImage, log); !status.IsOK() {
+			return r.updateStatus(ctx, opsManager, status, log, opsManagerExtraStatusParams)
+		}
+		return r.updateStatus(ctx, opsManager, workflow.Pending("Ops Manager must restart onto the AppDB CA bundle before AppDB changes CA"), log, mdbstatus.NewOMPartOption(mdbstatus.AppDb))
+	}
+
 	// 1. Reconcile AppDB
 	result, err := appDbReconciler.ReconcileAppDB(ctx, opsManager)
 	if err != nil || (result != emptyResult && result != retryResult) {
@@ -582,7 +599,7 @@ func (r *OpsManagerReconciler) prepareManagedCertificates(ctx context.Context, o
 
 // applyManagedCertificateMigrationTrustPreflight reads the successful-spec checkpoint only when a
 // successfully prepared component can need the trust check. Pending issuance, an unmanaged
-// component, an external AppDB and a multi-cluster AppDB never cause a checkpoint read.
+// component and an external AppDB never cause a checkpoint read.
 func (r *OpsManagerReconciler) applyManagedCertificateMigrationTrustPreflight(ctx context.Context, opsManager *omv1.MongoDBOpsManager, results []componentCertificateResult, log *zap.SugaredLogger) {
 	parts := managedCertificateMigrationPreflightParts(opsManager, results)
 	if len(parts) == 0 {
@@ -617,7 +634,7 @@ func (r *OpsManagerReconciler) applyManagedCertificateMigrationTrustPreflight(ct
 }
 
 // managedCertificateMigrationPreflightParts returns the successfully prepared components that can
-// need the trust preflight: Ops Manager managed TLS and an internal single-cluster managed AppDB.
+// need the trust preflight: Ops Manager managed TLS and an internal managed AppDB.
 func managedCertificateMigrationPreflightParts(opsManager *omv1.MongoDBOpsManager, results []componentCertificateResult) []mdbstatus.Part {
 	parts := make([]mdbstatus.Part, 0, 2)
 	for _, result := range results {
@@ -631,7 +648,7 @@ func managedCertificateMigrationPreflightParts(opsManager *omv1.MongoDBOpsManage
 			}
 		case mdbstatus.AppDb:
 			appDB := opsManager.Spec.AppDB
-			if appDB != nil && opsManager.IsInternalAppDB() && !appDB.IsMultiCluster() && appDB.GetSecurity().IsManagedCertificateEnabled() {
+			if appDB != nil && opsManager.IsInternalAppDB() && appDB.GetSecurity().IsManagedCertificateEnabled() {
 				parts = append(parts, result.part)
 			}
 		}
@@ -670,11 +687,79 @@ func legacyOpsManagerCertificateKey(secret corev1.Secret) string {
 	return "server.pem"
 }
 
-// appDBMigrationTrustStatus checks the internal single-cluster AppDB of a detected migration. The
-// AppDB seeding path only supports that topology, so other AppDB forms are not gated here.
+// appDBCAChangeNeedsOpsManagerRestart reports that an internal AppDB is moving to a CA the running
+// Ops Manager process does not trust. Ops Manager reads the AppDB CA file when it starts and does
+// not reload it, so it has to restart onto the managed bundle before AppDB presents the new leaf.
+// A retry still sees the legacy last-successful spec, so completion is the ready pod's mount, not
+// the migration flag.
+func appDBCAChangeNeedsOpsManagerRestart(ctx context.Context, c client.Reader, opsManager *omv1.MongoDBOpsManager) (bool, workflow.Status) {
+	appDB := opsManager.Spec.AppDB
+	if appDB == nil || !opsManager.IsInternalAppDB() {
+		return false, workflow.OK()
+	}
+	lastSpec, err := opsManager.GetLastSpec()
+	if err != nil {
+		return false, workflow.Failed(err)
+	}
+	if lastSpec == nil || lastSpec.AppDB == nil || !mdbv1.IsMigratingToManagedCertificate(lastSpec.AppDB.GetSecurity(), appDB.GetSecurity()) {
+		return false, workflow.OK()
+	}
+	legacyCA := ""
+	if lastSpec.AppDB.GetSecurity().TLSConfig != nil {
+		legacyCA = lastSpec.AppDB.GetSecurity().TLSConfig.CA
+	}
+	if legacyCA == "" {
+		return false, workflow.OK()
+	}
+
+	issued, status := certs.ReadIssuedCertificate(ctx, c, opsManager.Namespace, appDB.GetSecurity().MemberCertificateSecretName(appDB.Name()))
+	if !status.IsOK() {
+		return false, status
+	}
+	legacyCAs, status := certs.ReadLegacyCA(ctx, c, opsManager.Namespace, legacyCA, tlspkg.CAConfigMapKey)
+	if !status.IsOK() {
+		return false, status
+	}
+	if certs.CertificateValidatedBy(issued[0], issued[1:], legacyCAs) {
+		return false, workflow.OK()
+	}
+
+	pods := &corev1.PodList{}
+	if err := c.List(ctx, pods, client.InNamespace(opsManager.Namespace), client.MatchingLabels{"app": opsManager.SvcName()}); err != nil {
+		return false, workflow.Failed(err)
+	}
+	wanted := appDB.GetCAConfigMapName()
+	for _, pod := range pods.Items {
+		if !podReady(pod) || !podMountsConfigMap(pod, wanted) {
+			return true, workflow.OK()
+		}
+	}
+	return len(pods.Items) == 0, workflow.OK()
+}
+
+func podReady(pod corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func podMountsConfigMap(pod corev1.Pod, name string) bool {
+	for _, volume := range pod.Spec.Volumes {
+		if volume.ConfigMap != nil && volume.ConfigMap.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// appDBMigrationTrustStatus checks an internal AppDB of a detected migration. Multi-cluster uses the
+// same certificate names and the same central read as single-cluster.
 func appDBMigrationTrustStatus(ctx context.Context, c client.Reader, opsManager *omv1.MongoDBOpsManager, lastSpec *omv1.MongoDBOpsManagerSpec) workflow.Status {
 	appDB := opsManager.Spec.AppDB
-	if appDB == nil || !opsManager.IsInternalAppDB() || appDB.IsMultiCluster() || lastSpec.AppDB == nil {
+	if appDB == nil || !opsManager.IsInternalAppDB() || lastSpec.AppDB == nil {
 		return workflow.OK()
 	}
 	lastSecurity := lastSpec.AppDB.GetSecurity()
