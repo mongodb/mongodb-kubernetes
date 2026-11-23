@@ -1626,6 +1626,29 @@ func managedCABundleHashChanged(sts appsv1.StatefulSet, serverHash, clientHash s
 		annotations[construct.ManagedClientCABundleHashAnnotation] != clientHash
 }
 
+// A legacy pod cannot see the new filenames until it mounts the managed Secrets. An AppDB
+// released for handover must likewise switch from headless agents before OM is configured.
+func managedCABundleChangeOnManagedStatefulSet(sts appsv1.StatefulSet, serverHash, clientHash string) bool {
+	if sts.Annotations[util.AppDBMigrationReadyAnnotation] == trueString || !managedCABundleHashChanged(sts, serverHash, clientHash) {
+		return false
+	}
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == util.SecretVolumeName && volume.Secret != nil {
+			return strings.HasSuffix(volume.Secret.SecretName, "-managed-cert"+certs.OperatorGeneratedCertSuffix)
+		}
+	}
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == tls.ConfigMapVolumeCAName && volume.ConfigMap != nil {
+			return strings.HasSuffix(volume.ConfigMap.Name, "-managed-server-ca-bundle")
+		}
+	}
+	return sts.Spec.Template.Annotations[construct.ManagedServerCABundleHashAnnotation] != ""
+}
+
+func isLegacyTLSAdoption(previous *mdbv1.MongoDbSpec, current *mdbv1.Security) bool {
+	return previous != nil && mdbv1.IsMigratingToManagedCertificate(previous.GetSecurity(), current)
+}
+
 // Old agents may never converge on a changed CA. Publish its path, roll the pods, then wait for the replacement agents.
 func reconcileDatabaseRollout(publishFirst, managedCAChanged bool, publish func(bool) workflow.Status, roll func() workflow.Status) workflow.Status {
 	if managedCAChanged {
@@ -1651,7 +1674,7 @@ func managedCABundleHashChangeRequiresAutomationConfigFirst(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
-	return managedCABundleHashChanged(currentSts, opts.ManagedServerCABundleHash, opts.ManagedClientCABundleHash), nil
+	return managedCABundleChangeOnManagedStatefulSet(currentSts, opts.ManagedServerCABundleHash, opts.ManagedClientCABundleHash), nil
 }
 
 // managedCABundlePodsRolled reports whether every pod of the StatefulSet already carries the desired
@@ -1723,6 +1746,9 @@ func managedCABundlePodsRolled(ctx context.Context, getter kubernetesClient.Clie
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
 func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
+	if isLegacyTLSAdoption(lastSpec, mdb.GetSecurity()) {
+		return false
+	}
 	opts := configFunc(mdb)
 
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())
@@ -1754,7 +1780,10 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		return true
 	}
 
-	if mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(ctx, getter, currentSts, mdb, log) {
+	// Skipped in managed-certificate mode: tls.CA is always empty there because the operator owns
+	// the CA, and during a migration the existing pods still mount the legacy CA. Publishing first
+	// would name the managed files before the pods mount them.
+	if !mdb.Spec.Security.IsManagedCertificateEnabled() && mdb.Spec.Security.TLSConfig.CA == "" && wasCAConfigMapMounted(ctx, getter, currentSts, mdb, log) {
 		log.Debug(automationConfigFirstMsg("security.tls.CA", "empty"))
 		return true
 
@@ -1781,7 +1810,7 @@ func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.C
 		}
 	}
 
-	if managedCABundleHashChanged(currentSts, opts.ManagedServerCABundleHash, opts.ManagedClientCABundleHash) {
+	if managedCABundleChangeOnManagedStatefulSet(currentSts, opts.ManagedServerCABundleHash, opts.ManagedClientCABundleHash) {
 		log.Debug("Managed CA bundle changed. automationConfig needs to be updated before the StatefulSet")
 		return true
 	}

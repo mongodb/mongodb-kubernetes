@@ -1377,7 +1377,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
-	if !order.managedCABundleChange && recovery.ShouldTriggerRecovery(r.deploymentState.Status.Phase != mdbstatus.PhaseRunning, r.deploymentState.Status.LastTransition) {
+	if !isLegacyTLSAdoption(r.deploymentState.LastAchievedSpec, sc.GetSecurity()) && !order.managedCABundleChange && recovery.ShouldTriggerRecovery(r.deploymentState.Status.Phase != mdbstatus.PhaseRunning, r.deploymentState.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", sc.Namespace, sc.Name, r.deploymentState.Status.Phase, r.deploymentState.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, true, true, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		deploymentStatus := r.createKubernetesResources(ctx, sc, opts, log)
@@ -1493,6 +1493,9 @@ type automationConfigOrder struct {
 // before the pods are replaced.
 func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configs []shardedStatefulSetConfig, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (automationConfigOrder, error) {
 	var order automationConfigOrder
+	if isLegacyTLSAdoption(lastSpec, sc.GetSecurity()) {
+		return order, nil
+	}
 	for _, cfg := range configs {
 		opts := cfg.options(sc)
 		changed, err := managedCABundleHashChangeRequiresAutomationConfigFirst(ctx, cfg.client, sc, opts)

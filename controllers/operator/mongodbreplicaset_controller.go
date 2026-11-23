@@ -355,7 +355,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		}
 		for name, hash := range files {
 			key := kube.ObjectKey(rs.Namespace, name+certs.OperatorGeneratedCertSuffix)
-			data, err := reconciler.SecretClient.ReadBinarySecret(ctx, key, databaseSecretPath)
+			data, err := reconciler.ReadBinarySecret(ctx, key, databaseSecretPath)
 			if err != nil && !errors.IsNotFound(err) {
 				return r.updateStatus(ctx, workflow.Failed(err))
 			}
@@ -413,13 +413,15 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	isDryRun := rs.IsMigrationDryRun()
 	stsOptions := r.buildStatefulSetOptions(conn, projectConfig, deploymentOpts)
 	managedCABundleChange := false
-	if !isDryRun && managedServerCABundleHash != "" {
+	adoptingManagedTLS := isLegacyTLSAdoption(r.deploymentState.LastAchievedSpec, rs.GetSecurity()) ||
+		(rs.IsRoleAppDB() && rs.GetSecurity().IsManagedCertificateEnabled() && r.deploymentState.LastAchievedSpec == nil)
+	if !isDryRun && !adoptingManagedTLS && managedServerCABundleHash != "" {
 		managedCABundleChange, err = managedCABundleHashChangeRequiresAutomationConfigFirst(ctx, reconciler.client, *rs, stsOptions(*rs))
 		if err != nil {
 			return r.updateStatus(ctx, workflow.Failed(err))
 		}
 	}
-	if !isDryRun && !managedCABundleChange && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
+	if !isDryRun && !adoptingManagedTLS && !managedCABundleChange && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
 		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
@@ -453,7 +455,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
-	publishAutomationConfigFirst := managedCABundleChange || publishAutomationConfigFirst(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, stsOptions, reconciler.defaultArchitecture, log)
+	publishAutomationConfigFirst := !adoptingManagedTLS && (managedCABundleChange || publishAutomationConfigFirst(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, stsOptions, reconciler.defaultArchitecture, log))
 
 	updateAutomationConfig := func(waitForReadyState bool) workflow.Status {
 		return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false, waitForReadyState).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")

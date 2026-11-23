@@ -239,38 +239,111 @@ func TestManagedCABundlePodsRolled(t *testing.T) {
 
 func TestPublishAutomationConfigFirstOnManagedCABundleChange(t *testing.T) {
 	ctx := t.Context()
-	rs := DefaultReplicaSetBuilder().Build()
-	rs.Name = "rs"
-	rs.Namespace = mock.TestNamespace
-	rs.Spec.Security = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
-	kubeClient, _ := mock.NewDefaultFakeClient()
-
+	const name = "rs"
 	replicas := int32(1)
-	sts := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: rs.Name, Namespace: rs.Namespace},
-		Spec: appsv1.StatefulSetSpec{
-			Replicas: &replicas,
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: "old-server"}},
-				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: util.DatabaseContainerName}}},
+	managedSecurity := &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}, TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
+
+	managedSts := func(annotations map[string]string, mounts ...corev1.Volume) *appsv1.StatefulSet {
+		sts := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: mock.TestNamespace},
+			Spec: appsv1.StatefulSetSpec{
+				Replicas: &replicas,
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Annotations: annotations},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: util.DatabaseContainerName}},
+						Volumes:    mounts,
+					},
+				},
 			},
+		}
+		return sts
+	}
+	legacyMounts := []corev1.Volume{
+		{
+			Name:         util.SecretVolumeName,
+			VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: name + "-cert-pem"}},
+		},
+		{
+			Name:         util.ConfigMapVolumeCAMountPath,
+			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "legacy-ca"}}},
 		},
 	}
-	require.NoError(t, kubeClient.Create(ctx, sts))
-
-	opts := operatorConstruct.DatabaseStatefulSetOptions{
-		Name:                      rs.Name,
-		Replicas:                  1,
-		PodVars:                   &env.PodEnvVars{},
-		ManagedServerCABundleHash: "new-server",
+	managedMount := corev1.Volume{
+		Name:         util.SecretVolumeName,
+		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: name + "-managed-cert-pem"}},
 	}
-	config := func(mdb mdbv1.MongoDB) operatorConstruct.DatabaseStatefulSetOptions { return opts }
-	assert.True(t, publishAutomationConfigFirst(ctx, kubeClient, *rs, nil, config, architectures.NonStatic, zap.S()),
-		"a managed CA bundle change must publish the automation config before replacing the pods")
 
-	opts.ManagedServerCABundleHash = "old-server"
-	assert.False(t, publishAutomationConfigFirst(ctx, kubeClient, *rs, nil, config, architectures.NonStatic, zap.S()),
-		"an unchanged managed CA bundle must keep the normal order")
+	for _, tc := range []struct {
+		name       string
+		security   *mdbv1.Security
+		sts        *appsv1.StatefulSet
+		serverHash string
+		want       bool
+	}{
+		{
+			name:       "bundle change on an already managed deployment",
+			security:   managedSecurity,
+			sts:        managedSts(map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: "old-server"}, managedMount),
+			serverHash: "new-server",
+			want:       true,
+		},
+		{
+			name:       "unchanged managed bundle",
+			security:   managedSecurity,
+			sts:        managedSts(map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: "new-server"}, managedMount),
+			serverHash: "new-server",
+			want:       false,
+		},
+		{
+			// The pods still mount the legacy Secret and the legacy CA ConfigMap, so the automation
+			// config has to keep naming their files until the StatefulSet replaces the pods.
+			name:       "legacy to managed migration",
+			security:   managedSecurity,
+			sts:        managedSts(nil, legacyMounts...),
+			serverHash: "new-server",
+			want:       false,
+		},
+		{
+			// A stale bundle annotation must not override what the pods actually mount.
+			name:       "legacy Secrets with a stale managed annotation",
+			security:   managedSecurity,
+			sts:        managedSts(map[string]string{operatorConstruct.ManagedServerCABundleHashAnnotation: "old-server"}, legacyMounts...),
+			serverHash: "new-server",
+			want:       false,
+		},
+		{
+			// An operator upgrade can find an already managed StatefulSet without the bundle
+			// annotation. The mounted managed Secret proves it is already managed, so the
+			// automation config goes first, as for any other bundle change.
+			name:       "already managed without the bundle annotation",
+			security:   managedSecurity,
+			sts:        managedSts(nil, managedMount),
+			serverHash: "new-server",
+			want:       true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			kubeClient, _ := mock.NewDefaultFakeClient()
+			require.NoError(t, kubeClient.Create(ctx, &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "legacy-ca", Namespace: mock.TestNamespace},
+			}))
+			require.NoError(t, kubeClient.Create(ctx, tc.sts))
+
+			rs := DefaultReplicaSetBuilder().Build()
+			rs.Name = name
+			rs.Namespace = mock.TestNamespace
+			rs.Spec.Security = tc.security
+			opts := operatorConstruct.DatabaseStatefulSetOptions{
+				Name:                      name,
+				Replicas:                  1,
+				PodVars:                   &env.PodEnvVars{},
+				ManagedServerCABundleHash: tc.serverHash,
+			}
+			config := func(mdb mdbv1.MongoDB) operatorConstruct.DatabaseStatefulSetOptions { return opts }
+			assert.Equal(t, tc.want, publishAutomationConfigFirst(ctx, kubeClient, *rs, nil, config, architectures.NonStatic, zap.S()))
+		})
+	}
 }
 
 func TestShardedAnyStatefulSetNeedsToPublishStateUsesMemberClusterSTS(t *testing.T) {
@@ -314,6 +387,69 @@ func TestShardedAnyStatefulSetNeedsToPublishStateUsesMemberClusterSTS(t *testing
 	require.NoError(t, err)
 	assert.False(t, order.managedCABundleChange)
 	assert.False(t, order.publishFirst)
+}
+
+func TestShardedAnyStatefulSetNeedsToPublishStateOnLegacyMigration(t *testing.T) {
+	ctx := t.Context()
+	sc := test.DefaultClusterBuilder().Build()
+	sc.Spec.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+
+	member, _ := mock.NewDefaultFakeClient(sc)
+	const stsName = "sc-0"
+	replicas := int32(1)
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: stsName, Namespace: sc.Namespace},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: &replicas,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: util.DatabaseContainerName}},
+					Volumes: []corev1.Volume{
+						{
+							Name:         util.SecretVolumeName,
+							VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: stsName + "-cert-pem"}},
+						},
+						{
+							Name:         util.ConfigMapVolumeCAMountPath,
+							VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "legacy-ca"}}},
+						},
+					},
+				},
+			},
+		},
+	}
+	require.NoError(t, member.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "legacy-ca", Namespace: sc.Namespace}}))
+	require.NoError(t, member.Create(ctx, sts))
+
+	opts := operatorConstruct.DatabaseStatefulSetOptions{
+		Name:                      stsName,
+		Replicas:                  1,
+		PodVars:                   &env.PodEnvVars{},
+		ManagedServerCABundleHash: "new-server",
+	}
+	configs := []shardedStatefulSetConfig{{
+		client:  member,
+		options: func(mdb mdbv1.MongoDB) operatorConstruct.DatabaseStatefulSetOptions { return opts },
+	}}
+	order, err := anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, nil, configs, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.False(t, order.publishFirst, "the legacy pods still mount the legacy Secret, so the StatefulSet goes first")
+	assert.False(t, order.managedCABundleChange)
+
+	// The managed mount proves the StatefulSet is already managed, even without the annotation.
+	sts.Spec.Template.Spec.Volumes[0].Secret.SecretName = stsName + "-managed-cert-pem"
+	require.NoError(t, member.Update(ctx, sts))
+	order, err = anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, nil, configs, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.True(t, order.managedCABundleChange)
+	assert.True(t, order.publishFirst)
+
+	legacy := sc.Spec.DeepCopy()
+	legacy.Security = &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true}}
+	order, err = anyStatefulSetNeedsToPublishStateToOM(ctx, *sc, legacy, configs, architectures.NonStatic, zap.S())
+	require.NoError(t, err)
+	assert.False(t, order.publishFirst, "a partially migrated template must not release new paths before adoption finishes")
+	assert.False(t, order.managedCABundleChange)
 }
 
 func TestShardedManagedCABundleRolloutGateIncludesEveryDeclaredCluster(t *testing.T) {

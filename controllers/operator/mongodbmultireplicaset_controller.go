@@ -246,15 +246,26 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 
 	agentCertSecretName := mrs.GetSecurity().AgentClientCertificateSecretName(mrs.GetName())
 	agentCertHash, agentCertPath := r.agentCertHashAndPath(ctx, log, mrs.Namespace, agentCertSecretName, "")
-	publishAutomationConfigFirst, managedCABundleChange, err := r.publishAutomationConfigFirstMultiCluster(ctx, &mrs, log)
+	lastSpec, err := mrs.ReadLastAchievedSpec()
 	if err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
+	}
+	// During handover the inherited AppDB agents still read a local config. All member
+	// clusters must switch to the new agent template before waiting for them in Ops Manager.
+	adoptingManagedTLS := mrs.GetSecurity().IsManagedCertificateEnabled() && ((lastSpec == nil && mrs.IsRoleAppDB()) ||
+		(lastSpec != nil && mdb.IsMigratingToManagedCertificate(lastSpec.GetSecurity(), mrs.GetSecurity())))
+	var publishAutomationConfigFirst, managedCABundleChange bool
+	if !adoptingManagedTLS {
+		publishAutomationConfigFirst, managedCABundleChange, err = r.publishAutomationConfigFirstMultiCluster(ctx, &mrs, log)
+		if err != nil {
+			return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
+		}
 	}
 
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
-	if !managedCABundleChange && recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
+	if !adoptingManagedTLS && !managedCABundleChange && recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", mrs.Namespace, mrs.Name, mrs.Status.Phase, mrs.Status.LastTransition)
 		automationConfigError := r.updateOmDeploymentRs(ctx, conn, &mrs, agentCertPath, tlsCertPath, internalClusterCertPath, true, true, log)
 		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
@@ -429,7 +440,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) managedCABundleHashChangedInMemberClus
 			}
 			return false, err
 		}
-		if managedCABundleHashChanged(sts, serverHash, clientHash) {
+		if managedCABundleChangeOnManagedStatefulSet(sts, serverHash, clientHash) {
 			return true, nil
 		}
 	}

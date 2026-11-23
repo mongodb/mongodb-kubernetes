@@ -1283,7 +1283,7 @@ func (r *ReconcileAppDbReplicaSet) publishAutomationConfigFirst(ctx context.Cont
 		if err != nil && !apiErrors.IsNotFound(err) {
 			return false, false, err
 		}
-		if err == nil && managedCABundleHashChanged(appDBStatefulSet, appdbOpts.ManagedServerCABundleHash, "") {
+		if err == nil && managedCABundleChangeOnManagedStatefulSet(appDBStatefulSet, appdbOpts.ManagedServerCABundleHash, "") {
 			log.Debug("Managed AppDB CA bundle changed. automationConfig needs to be updated before the StatefulSet")
 			automationConfigFirst = true
 			managedCABundleChange = true
