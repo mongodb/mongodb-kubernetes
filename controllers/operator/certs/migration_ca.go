@@ -229,15 +229,15 @@ type MigrationTrustCheck struct {
 	AdditionalTrustedCAsField string
 }
 
-// VerifyManagedCertificateMigrationTrust checks both directions of a legacy-to-managed certificate
-// migration before a workload is changed: the members that have not restarted validate the managed
-// certificate against the legacy CA, and the members that have restarted validate the legacy
-// certificate against the active managed bundle. It compares certificates and configured trust
-// only; it does not prove that a client reloaded a bundle.
+// VerifyManagedCertificateMigrationTrust checks that the active managed bundle trusts the legacy
+// certificate before a workload is changed, matching VerifyMigrationTrustsLegacyCA. It does not
+// require the legacy CA to trust the new issuer. Pods that have not restarted may reject the new
+// leaf until they roll onto the widened bundle, which is the MongoDB behavior. It compares
+// certificates and configured trust only; it does not prove that a client reloaded a bundle.
 //
-// A check that already holds the legacy PEM, and names neither the issued certificate nor the
-// legacy CA, validates only that PEM. The AppDB seeder uses that form so it checks the bytes it is
-// about to copy rather than rereading a Secret that may have changed.
+// A check that already holds the legacy PEM validates those bytes. The AppDB seeder uses that form
+// so it checks the certificate it is about to copy rather than rereading a Secret that may have
+// changed. LegacyCAConfigMapName and LegacyCAConfigMapKey are named in the refusal, not verified.
 func VerifyManagedCertificateMigrationTrust(ctx context.Context, c client.Reader, namespace string, check MigrationTrustCheck) workflow.Status {
 	withComponent := func(status workflow.Status) workflow.Status {
 		if status.IsOK() {
@@ -275,30 +275,18 @@ func VerifyManagedCertificateMigrationTrust(ctx context.Context, c client.Reader
 				check.LegacyCertificateSecretName, check.ManagedCABundleName, check.AdditionalTrustedCAsField, caRefSnippetForKey(check.LegacyCAConfigMapName, check.LegacyCAConfigMapKey)))
 		}
 	}
-	if check.IssuedCertificateSecretName != "" || check.LegacyCAConfigMapName != "" {
-		issuedCerts, status := readMigrationCertificate(ctx, c, namespace, "managed", check.IssuedCertificateSecretName, nil, false)
-		if !status.IsOK() {
+	// The legacy CA file is the reference the refusal names. A detected migration that cannot
+	// read it must not pass, even when the active bundle already trusts the legacy leaf.
+	if check.LegacyCAConfigMapName != "" {
+		if _, status := readMigrationCAConfigMap(ctx, c, namespace, check.LegacyCAConfigMapName, check.LegacyCAConfigMapKey); !status.IsOK() {
 			return withComponent(status)
-		}
-		legacyCAs, status := readMigrationCAConfigMap(ctx, c, namespace, check.LegacyCAConfigMapName, check.LegacyCAConfigMapKey)
-		if !status.IsOK() {
-			return withComponent(status)
-		}
-		if !validatedBy(issuedCerts[0], issuedCerts[1:], legacyCAs) {
-			problems = append(problems, fmt.Sprintf(
-				"the managed certificate in Secret %s is not trusted by the legacy CA ConfigMap %s (key %q); the legacy CA has to keep trusting the issuer of the managed certificate",
-				check.IssuedCertificateSecretName, check.LegacyCAConfigMapName, check.LegacyCAConfigMapKey))
 		}
 	}
 
 	if len(problems) > 0 {
-		reason := "because trust would not be preserved: "
-		if check.LegacyCAConfigMapName == "" && check.IssuedCertificateSecretName == "" {
-			reason = ""
-		}
 		return workflow.Failed(xerrors.Errorf(
-			"%s cannot migrate to operator-managed certificates: %s%s",
-			check.Component, reason, strings.Join(problems, "; ")))
+			"%s cannot migrate to operator-managed certificates: %s",
+			check.Component, strings.Join(problems, "; ")))
 	}
 	return workflow.OK()
 }

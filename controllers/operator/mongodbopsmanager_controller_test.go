@@ -4980,26 +4980,22 @@ func TestOpsManagerManagedCertificateMigrationTrustOM(t *testing.T) {
 		assert.Contains(t, condition.Message, managedBundle)
 	})
 
-	t.Run("a legacy bundle missing the managed signer blocks Ops Manager even when the managed bundle trusts both", func(t *testing.T) {
+	t.Run("a different CA passes when additionalTrustedCAs keeps the legacy signer", func(t *testing.T) {
 		ctx, om, c, r, baseline := newOMTrustMigrationFixture(t, legacySecurity(), nil)
 		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 		legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 		om.Spec.Security = managedOMTrustMigrationSecurity([]mdbv1.CARef{{Name: "legacy-signer-ca", Kind: "ConfigMap", Key: util.CaCertMMS}})
 		writeMigrationManagedLeafFromIssue(t, ctx, c, om.TLSCertificateSecretName(), managedCA, issueManaged)
 		writeMigrationTLSCertificate(t, ctx, c, migrationTrustLegacyOMCertificate, migrationServerCertificate(t, issueLegacy))
+		// The legacy ConfigMap trusts only the old signer. additionalTrustedCAs puts that signer
+		// in the managed bundle; the legacy CA does not have to trust the new issuer.
 		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyOMCA, util.CaCertMMS, legacyCA)
 		writeMigrationCAConfigMap(t, ctx, c, "legacy-signer-ca", util.CaCertMMS, legacyCA)
 
 		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
 		require.NoError(t, err)
-		require.True(t, blocked, "the legacy bundle that misses the managed signer has to block the migration")
-		persisted := getPersistedManagedCertificateOM(t, ctx, c, om)
-		assert.Equal(t, status.PhaseFailed, persisted.Status.OpsManagerStatus.Phase)
-		assert.Equal(t, baseline, persisted.Annotations[util.LastAchievedSpec])
-		condition := managedCertificateCondition(t, ctx, c, om)
-		require.NotNil(t, condition)
-		assert.Contains(t, condition.Message, "Ops Manager")
-		assert.Contains(t, condition.Message, migrationTrustLegacyOMCA)
+		assert.False(t, blocked, "a different CA passes when the managed bundle keeps the legacy signer")
+		assert.Equal(t, baseline, getPersistedManagedCertificateOM(t, ctx, c, om).Annotations[util.LastAchievedSpec])
 	})
 
 	t.Run("overlapping configured trust passes", func(t *testing.T) {
@@ -5155,7 +5151,7 @@ func TestOpsManagerManagedCertificateMigrationTrustAppDB(t *testing.T) {
 		assert.Contains(t, condition.Message, managedBundle)
 	})
 
-	t.Run("a legacy bundle missing the managed signer blocks AppDB", func(t *testing.T) {
+	t.Run("a different CA passes when additionalTrustedCAs keeps the legacy signer", func(t *testing.T) {
 		ctx, om, c, r, baseline := newAppDBTrustMigrationFixture(t, lastAppDBSecurity)
 		managedCA, issueManaged := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
 		legacyCA, issueLegacy := managedTestCAWithDNSNames(t, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
@@ -5164,19 +5160,15 @@ func TestOpsManagerManagedCertificateMigrationTrustAppDB(t *testing.T) {
 		legacyLeaf := migrationServerCertificate(t, issueLegacy)
 		writeMigrationSecret(t, ctx, c, migrationTrustLegacyAppDBCert, map[string][]byte{corev1.TLSCertKey: legacyLeaf})
 		writeMigrationLegacyPEM(t, ctx, c, migrationTrustLegacyAppDBCert, legacyLeaf)
+		// The legacy ConfigMap trusts only the old signer. additionalTrustedCAs puts that signer
+		// in the managed bundle; the legacy CA does not have to trust the new issuer.
 		writeMigrationCAConfigMap(t, ctx, c, migrationTrustLegacyAppDBCA, "ca-pem", legacyCA)
 		writeMigrationCAConfigMap(t, ctx, c, "appdb-legacy-signer-ca", "ca-pem", legacyCA)
 
 		_, blocked, err := r.prepareManagedCertificates(ctx, om, newManagedCertificateTestHelper(t, r, om), zap.S())
 		require.NoError(t, err)
-		require.True(t, blocked)
-		persisted := getPersistedManagedCertificateOM(t, ctx, c, om)
-		assert.Equal(t, status.PhaseFailed, persisted.Status.AppDbStatus.Phase)
-		assert.Equal(t, baseline, persisted.Annotations[util.LastAchievedSpec])
-		condition := managedCertificateCondition(t, ctx, c, om)
-		require.NotNil(t, condition)
-		assert.Contains(t, condition.Message, "AppDB")
-		assert.Contains(t, condition.Message, migrationTrustLegacyAppDBCA)
+		assert.False(t, blocked, "a different CA passes when the managed bundle keeps the legacy signer")
+		assert.Equal(t, baseline, getPersistedManagedCertificateOM(t, ctx, c, om).Annotations[util.LastAchievedSpec])
 	})
 
 	t.Run("the legacy -pem entry decides the AppDB legacy signer", func(t *testing.T) {

@@ -211,9 +211,9 @@ func TestVerifyMigrationTrustsLegacyCA(t *testing.T) {
 	})
 }
 
-// TestVerifyManagedCertificateMigrationTrust covers the two directions checked for Ops Manager and
+// TestVerifyManagedCertificateMigrationTrust covers the active-bundle check for Ops Manager and
 // AppDB, including intermediates carried in the PEM and older ConfigMap entries that the active
-// hash does not reference.
+// hash does not reference. The legacy CA does not have to trust the issued leaf.
 func TestVerifyManagedCertificateMigrationTrust(t *testing.T) {
 	ctx := context.Background()
 	trustCheck := func(legacySecret, managedBundle, issuedSecret, legacyCA string) MigrationTrustCheck {
@@ -229,7 +229,7 @@ func TestVerifyManagedCertificateMigrationTrust(t *testing.T) {
 		}
 	}
 
-	t.Run("the same signer passes both directions", func(t *testing.T) {
+	t.Run("the same signer passes", func(t *testing.T) {
 		ca := newTestCA(t, "migration-ca")
 		c := newMigrationCAClient(t, nil)
 		putLegacyCertificate(t, c, "legacy", ca.issueLeaf(t, "legacy"))
@@ -241,7 +241,7 @@ func TestVerifyManagedCertificateMigrationTrust(t *testing.T) {
 		assert.True(t, status.IsOK(), status.Message())
 	})
 
-	t.Run("intermediates after the leaf connect both directions", func(t *testing.T) {
+	t.Run("intermediates after the leaf connect it to the active bundle", func(t *testing.T) {
 		root := newTestCA(t, "migration-root")
 		intermediate := newIntermediateCA(t, root, "migration-intermediate")
 		withChain := func(leaf []byte) []byte { return append(leaf, intermediate.pem...) }
@@ -272,6 +272,49 @@ func TestVerifyManagedCertificateMigrationTrust(t *testing.T) {
 		require.False(t, status.IsOK())
 		assert.Contains(t, status.Message(), "managed-bundle")
 		assert.Contains(t, status.Message(), "legacy")
+	})
+
+	t.Run("an issued leaf the legacy CA does not trust passes when the managed bundle trusts the legacy leaf", func(t *testing.T) {
+		managed := newTestCA(t, "managed-ca")
+		legacy := newTestCA(t, "legacy-ca")
+		c := newMigrationCAClient(t, nil)
+		putLegacyCertificate(t, c, "legacy", legacy.issueLeaf(t, "legacy"))
+		putLegacyCertificate(t, c, "issued", managed.issueLeaf(t, "issued"))
+		putBundle(t, c, "managed-bundle", map[string]string{util.LatestHashSecretKey: "active", "active": legacy.pem})
+		putBundle(t, c, "legacy-ca", map[string]string{util.CaCertMMS: legacy.pem})
+
+		status := VerifyManagedCertificateMigrationTrust(ctx, c, resNamespace, trustCheck("legacy", "managed-bundle", "issued", "legacy-ca"))
+		assert.True(t, status.IsOK(), status.Message())
+	})
+
+	t.Run("a legacy leaf outside the active bundle still fails and names additionalTrustedCAs", func(t *testing.T) {
+		managed := newTestCA(t, "managed-ca")
+		legacy := newTestCA(t, "legacy-ca")
+		c := newMigrationCAClient(t, nil)
+		putLegacyCertificate(t, c, "legacy", legacy.issueLeaf(t, "legacy"))
+		putLegacyCertificate(t, c, "issued", managed.issueLeaf(t, "issued"))
+		putBundle(t, c, "managed-bundle", map[string]string{util.LatestHashSecretKey: "active", "active": managed.pem})
+		putBundle(t, c, "legacy-ca", map[string]string{util.CaCertMMS: legacy.pem})
+
+		status := VerifyManagedCertificateMigrationTrust(ctx, c, resNamespace, trustCheck("legacy", "managed-bundle", "issued", "legacy-ca"))
+		require.False(t, status.IsOK())
+		assert.Contains(t, status.Message(), "managed-bundle")
+		assert.Contains(t, status.Message(), "legacy")
+		assert.Contains(t, status.Message(), "managedCertificate.additionalTrustedCAs")
+		assert.NotContains(t, status.Message(), "has to keep trusting the issuer")
+	})
+
+	t.Run("a legacy CA ConfigMap that does not hold the named key still blocks", func(t *testing.T) {
+		ca := newTestCA(t, "migration-ca")
+		c := newMigrationCAClient(t, nil)
+		putLegacyCertificate(t, c, "legacy", ca.issueLeaf(t, "legacy"))
+		putBundle(t, c, "managed-bundle", map[string]string{util.LatestHashSecretKey: "active", "active": ca.pem})
+		putBundle(t, c, "legacy-ca", map[string]string{"wrong-key": ca.pem})
+
+		status := VerifyManagedCertificateMigrationTrust(ctx, c, resNamespace, trustCheck("legacy", "managed-bundle", "issued", "legacy-ca"))
+		require.False(t, status.IsOK())
+		assert.Contains(t, status.Message(), "legacy-ca")
+		assert.Contains(t, status.Message(), util.CaCertMMS)
 	})
 }
 
