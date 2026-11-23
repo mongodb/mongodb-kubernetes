@@ -100,6 +100,14 @@ func (p *Provider) Delete(ctx context.Context, clusterName, resourceName string)
 	}
 }
 
+// Get returns the entry for clusterName, or false if no such entry exists.
+func (p *Provider) Get(clusterName string) (Entry, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	entry, ok := p.entries[clusterName]
+	return entry, ok
+}
+
 // Entries returns a copy of the registry; callers may mutate the copy freely.
 func (p *Provider) Entries() map[string]Entry {
 	p.mu.RLock()

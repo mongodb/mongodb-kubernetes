@@ -30,6 +30,7 @@ const (
 
 // AllWatchedResources lists every CRD the operator can reconcile. It is the default value
 // for OperatorConfig.spec.watchedResources when the field is omitted.
+// TODO(m1kola): KUBE-645: drop watchedResources as a feature-switch mechanism; clustermongodbroles no longer gates anything.
 var AllWatchedResources = []WatchedResource{
 	WatchedResourceMongoDB,
 	WatchedResourceOpsManagers,

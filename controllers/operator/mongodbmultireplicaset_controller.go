@@ -54,6 +54,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/featuregate"
 	khandler "github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
@@ -79,10 +80,9 @@ import (
 // ReconcileMongoDbMultiReplicaSet reconciles a MongoDB ReplicaSet across multiple Kubernetes clusters
 type ReconcileMongoDbMultiReplicaSet struct {
 	*ReconcileCommonController
-	omConnectionFactory       om.ConnectionFactory
-	memberClustersProvider    *multicluster.Provider
-	forceEnterprise           bool
-	enableClusterMongoDBRoles bool
+	omConnectionFactory    om.ConnectionFactory
+	memberClustersProvider *multicluster.Provider
+	forceEnterprise        bool
 
 	imageUrls                         images.ImageUrls
 	initDatabaseNonStaticImageVersion string
@@ -100,8 +100,8 @@ type ReconcileMongoDbMultiReplicaSet struct {
 
 var _ reconcile.Reconciler = &ReconcileMongoDbMultiReplicaSet{}
 
-func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, omFunc om.ConnectionFactory, memberClustersProvider *multicluster.Provider) *ReconcileMongoDbMultiReplicaSet {
-	return &ReconcileMongoDbMultiReplicaSet{
+func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, clusterRolesGate *featuregate.RBACGate, clusterIdentity string, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, omFunc om.ConnectionFactory, memberClustersProvider *multicluster.Provider) *ReconcileMongoDbMultiReplicaSet {
+	reconciler := &ReconcileMongoDbMultiReplicaSet{
 		ReconcileCommonController:         NewReconcileCommonController(ctx, kubeClient),
 		omConnectionFactory:               omFunc,
 		memberClustersProvider:            memberClustersProvider,
@@ -109,7 +109,6 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		imageUrls:                         imageUrls,
 		initDatabaseNonStaticImageVersion: initDatabaseNonStaticImageVersion,
 		databaseNonStaticImageVersion:     databaseNonStaticImageVersion,
-		enableClusterMongoDBRoles:         enableClusterMongoDBRoles,
 		agentDebug:                        agentDebug,
 		agentDebugImage:                   agentDebugImage,
 		defaultArchitecture:               defaultArchitecture,
@@ -118,6 +117,10 @@ func newMultiClusterReplicaSetReconciler(ctx context.Context, kubeClient client.
 		automaticRecoveryBackoffSeconds:   automaticRecoveryBackoffSeconds,
 		defaultImageType:                  defaultImageType,
 	}
+	reconciler.clusterRolesGate = clusterRolesGate
+	reconciler.ReconcileCommonController.memberClustersProvider = memberClustersProvider
+	reconciler.clusterIdentity = clusterIdentity
+	return reconciler
 }
 
 // memberClusterAndSecretClients derives the per-cluster clients from a snapshot of the provider's entries.
@@ -446,7 +449,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileMemberResources(ctx context.C
 	}
 
 	// Ensure custom roles are created in OM
-	if status := r.ensureRoles(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, conn, kube.ObjectKeyFromApiObject(mrs), previousRoles, log); !status.IsOK() {
+	if status := r.ensureRoles(ctx, mrs.Spec.DbCommonSpec, conn, kube.ObjectKeyFromApiObject(mrs), previousRoles, log); !status.IsOK() {
 		return status
 	}
 
@@ -998,7 +1001,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 	}
 
 	// Set annotation and state for previously configured roles
-	roleAnnotation, _, err := r.getRoleAnnotation(ctx, mrs.Spec.DbCommonSpec, r.enableClusterMongoDBRoles, kube.ObjectKeyFromApiObject(&mrs))
+	roleAnnotation, _, err := r.getRoleAnnotation(ctx, mrs.Spec.DbCommonSpec, kube.ObjectKeyFromApiObject(&mrs))
 	if err != nil {
 		return err
 	}
@@ -1436,9 +1439,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileOMCAConfigMap(ctx context.Con
 
 // AddMultiReplicaSetController creates a new MongoDbMultiReplicaset Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, requiredHealthyStreak int, memberClusterClientTimeout int, memberClustersProvider *multicluster.Provider, maxConcurrentReconciles int) error {
+func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise bool, clusterRolesGate *featuregate.RBACGate, clusterIdentity string, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, propagateProxyEnv bool, automaticRecoveryEnabled bool, automaticRecoveryBackoffSeconds int, requiredHealthyStreak int, memberClusterClientTimeout int, memberClustersProvider *multicluster.Provider, maxConcurrentReconciles int) error {
 	// Create a new controller
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, om.NewOpsManagerConnection, memberClustersProvider)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, clusterRolesGate, clusterIdentity, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, propagateProxyEnv, automaticRecoveryEnabled, automaticRecoveryBackoffSeconds, om.NewOpsManagerConnection, memberClustersProvider)
 	c, err := controller.New(util.MongoDbMultiClusterController, mgr, controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: maxConcurrentReconciles})
 	if err != nil {
 		return err
@@ -1477,13 +1480,8 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		return err
 	}
 
-	if enableClusterMongoDBRoles {
-		err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &rolev1.ClusterMongoDBRole{},
-			&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher}))
-		if err != nil {
-			return err
-		}
-	}
+	clusterRolesGate.AddWatch(c, &rolev1.ClusterMongoDBRole{},
+		&watch.ResourcesHandler{ResourceType: watch.ClusterMongoDBRole, ResourceWatcher: reconciler.resourceWatcher})
 
 	// the operator watches the member clusters' API servers to determine whether the clusters are healthy or not
 	eventChannel := make(chan event.GenericEvent)

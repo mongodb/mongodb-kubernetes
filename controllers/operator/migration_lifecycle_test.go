@@ -18,6 +18,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
+	"github.com/mongodb/mongodb-kubernetes/pkg/featuregate"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 )
@@ -99,7 +100,7 @@ func defaultReplicaSetReconcilerWithPreloadedMembersFromVMs(ctx context.Context,
 			return nil
 		}, zap.S())
 	})
-	return newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, false, true, 1200, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
+	return newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, featuregate.NewRBACGate(ctx, "", nil, featuregate.RBACRequirement{}, zap.S()), nil, "", false, "", architectures.NonStatic, architectures.ImageTypeUBI9, false, true, 1200, omConnectionFactory.GetConnectionFunc), kubeClient, omConnectionFactory
 }
 
 // reconcileAndCheckMigratingCondition pushes the current rs spec to the fake client, runs one

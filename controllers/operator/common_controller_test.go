@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,11 +19,15 @@ import (
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/role"
@@ -39,8 +44,10 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/agentVersionManagement"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/featuregate"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
+	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -322,7 +329,7 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -331,6 +338,36 @@ func TestFailWhenRoleAndRoleRefsAreConfigured(t *testing.T) {
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.False(t, ok)
 	assert.Empty(t, roles)
+}
+
+// comparableClient wraps a fake client in a pointer type so multicluster.Entry values
+// holding it stay comparable: interceptor-based fake clients are uncomparable struct
+// values, which would panic RBACGate.EnsureWatches' entry comparison.
+type comparableClient struct{ client.Client }
+
+// enableClusterMongoDBRolesForTesting wires a real RBACGate onto the controller whose
+// own-cluster provider entry points at a member fake client that allows the gate's
+// SelfSubjectAccessReview probes. It returns the member client for seeding
+// ClusterMongoDBRole objects.
+func enableClusterMongoDBRolesForTesting(ctx context.Context, t *testing.T, controller *ReconcileCommonController) client.Client {
+	s, err := v1.SchemeBuilder.Build()
+	require.NoError(t, err)
+	require.NoError(t, authorizationv1.AddToScheme(s))
+	memberClient := &comparableClient{fake.NewClientBuilder().WithScheme(s).WithInterceptorFuncs(interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if review, ok := obj.(*authorizationv1.SelfSubjectAccessReview); ok {
+				review.Status.Allowed = true
+				return nil
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	}).Build()}
+	provider := multicluster.NewProvider()
+	controller.clusterRolesGate = featuregate.NewRBACGate(ctx, "test-own-cluster", provider, featuregate.RBACRequirement{Group: "mongodb.com", Resource: "clustermongodbroles", Verbs: []string{"get", "list", "watch"}}, zap.S())
+	controller.memberClustersProvider = provider
+	controller.clusterIdentity = "test-own-cluster"
+	provider.Set(ctx, "test-own-cluster", multicluster.Entry{Client: memberClient})
+	return memberClient
 }
 
 func TestRoleRefsAreAdded(t *testing.T) {
@@ -346,11 +383,12 @@ func TestRoleRefsAreAdded(t *testing.T) {
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
+	memberClient := enableClusterMongoDBRolesForTesting(ctx, t, controller)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	_ = kubeClient.Create(ctx, roleResource)
+	_ = memberClient.Create(ctx, roleResource)
 
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 
 	ac, err := mockOm.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
@@ -373,11 +411,12 @@ func TestErrorWhenRoleRefIsWrong(t *testing.T) {
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
+	memberClient := enableClusterMongoDBRolesForTesting(ctx, t, controller)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	_ = kubeClient.Create(ctx, roleResource)
+	_ = memberClient.Create(ctx, roleResource)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -401,9 +440,10 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
+	enableClusterMongoDBRolesForTesting(ctx, t, controller)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	assert.False(t, result.IsOK())
 	assert.Equal(t, status.PhaseFailed, result.Phase())
 
@@ -412,6 +452,83 @@ func TestErrorWhenRoleDoesNotExist(t *testing.T) {
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
 	assert.False(t, ok)
 	assert.Empty(t, roles)
+}
+
+func TestErrorWhenRoleRefsConfiguredAndGateDisabled(t *testing.T) {
+	ctx := context.Background()
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: util.ClusterMongoDBRoleKind,
+		},
+	}
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	controller.clusterRolesGate = featuregate.NewRBACGate(ctx, "", nil, featuregate.RBACRequirement{}, zap.S())
+	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
+
+	_ = kubeClient.Create(ctx, roleResource)
+
+	result := controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+	assert.False(t, result.IsOK())
+	assert.Equal(t, status.PhaseFailed, result.Phase())
+
+	_, err := controller.getRoles(ctx, rs.Spec.DbCommonSpec, kube.ObjectKeyFromApiObject(rs))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "RoleRefs are not supported because ClusterMongoDBRole support is not enabled")
+}
+
+// TestRoleRefsRealGateProbe exercises getRoles with a real RBACGate probing a member
+// cluster client: the role is resolved when the SSAR allows and the friendly error is
+// returned when it denies.
+func TestRoleRefsRealGateProbe(t *testing.T) {
+	ctx := context.Background()
+	roleResource := role.DefaultClusterMongoDBRoleBuilder().Build()
+	roleRefs := []mdbv1.MongoDBRoleRef{
+		{
+			Name: roleResource.Name,
+			Kind: util.ClusterMongoDBRoleKind,
+		},
+	}
+	rs := mdbv1.NewDefaultReplicaSetBuilder().SetRoleRefs(roleRefs).Build()
+
+	s, err := v1.SchemeBuilder.Build()
+	require.NoError(t, err)
+	require.NoError(t, authorizationv1.AddToScheme(s))
+
+	var allowed atomic.Bool
+	memberClient := &comparableClient{fake.NewClientBuilder().WithScheme(s).WithObjects(roleResource).WithInterceptorFuncs(interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			review, ok := obj.(*authorizationv1.SelfSubjectAccessReview)
+			if !ok {
+				return c.Create(ctx, obj, opts...)
+			}
+			review.Status.Allowed = allowed.Load()
+			return nil
+		},
+	}).Build()}
+
+	kubeClient, _ := mock.NewDefaultFakeClient()
+	controller := NewReconcileCommonController(ctx, kubeClient)
+	provider := multicluster.NewProvider()
+	controller.clusterRolesGate = featuregate.NewRBACGate(ctx, "test-own-cluster", provider, featuregate.RBACRequirement{Group: "mongodb.com", Resource: "clustermongodbroles", Verbs: []string{"get", "list", "watch"}}, zap.S())
+	controller.memberClustersProvider = provider
+	controller.clusterIdentity = "test-own-cluster"
+	provider.Set(ctx, "test-own-cluster", multicluster.Entry{Cluster: multicluster.New(memberClient), Client: memberClient, ResourceName: "own-cluster"})
+
+	allowed.Store(true)
+	roles, err := controller.getRoles(ctx, rs.Spec.DbCommonSpec, kube.ObjectKeyFromApiObject(rs))
+	require.NoError(t, err)
+	require.Len(t, roles, 1)
+	assert.Equal(t, roleResource.Spec.Role, roles[0].Role)
+
+	allowed.Store(false)
+	_, err = controller.getRoles(ctx, rs.Spec.DbCommonSpec, kube.ObjectKeyFromApiObject(rs))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "RoleRefs are not supported because ClusterMongoDBRole support is not enabled")
 }
 
 func TestDontSendNilPrivileges(t *testing.T) {
@@ -430,7 +547,7 @@ func TestDontSendNilPrivileges(t *testing.T) {
 	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient()
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 	ac, err := mockOm.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
 	roles, ok := ac.Deployment["roles"].([]mdbv1.MongoDBRole)
@@ -530,7 +647,7 @@ func TestCheckEmptyStringsInPrivilegesEquivalentToNotPassingFields(t *testing.T)
 	controller := NewReconcileCommonController(ctx, kubeClient)
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 
 	ac, err := mockOm.ReadAutomationConfig(ctx)
 	assert.NoError(t, err)
@@ -667,7 +784,7 @@ func TestExternalRoleIsNotRemoved(t *testing.T) {
 	mockOm, _ := prepareConnection(ctx, controller, omConnectionFactory.GetConnectionFunc, t)
 
 	// Create deployment with one embedded role
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), nil, zap.S())
 
 	roles := mockOm.GetRoles()
 	require.Len(t, roles, 1)
@@ -688,15 +805,15 @@ func TestExternalRoleIsNotRemoved(t *testing.T) {
 	require.Len(t, roles, 2)
 
 	// Reconcile again - role created from the UI should still be there
-	roleStrings, _ := controller.getRoleStrings(ctx, rs.Spec.DbCommonSpec, true, kube.ObjectKeyFromApiObject(rs))
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
+	roleStrings, _ := controller.getRoleStrings(ctx, rs.Spec.DbCommonSpec, kube.ObjectKeyFromApiObject(rs))
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
 
 	roles = mockOm.GetRoles()
 	require.Len(t, roles, 2)
 
 	// Delete embedded role, only the external should remain
 	rs.Spec.Security.Roles = nil
-	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, true, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
+	controller.ensureRoles(ctx, rs.Spec.DbCommonSpec, mockOm, kube.ObjectKeyFromApiObject(rs), roleStrings, zap.S())
 
 	roles = mockOm.GetRoles()
 	require.Len(t, roles, 1)
