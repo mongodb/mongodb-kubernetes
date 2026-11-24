@@ -46,8 +46,6 @@ const (
 	// envoyMaxAttemptCountHeader carries 1 + numRetries. mongot compares it with x-envoy-attempt-count
 	// to decide between RESOURCE_EXHAUSTED (Envoy retries) and the terminal 489 overload error.
 	envoyMaxAttemptCountHeader = "x-envoy-max-attempt-count"
-
-	envoyClusterMaxRequests = uint32(1024)
 )
 
 // buildBootstrapJSON returns the static Envoy bootstrap config JSON.
@@ -428,10 +426,8 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 					Priority:           corev3.RoutingPriority_DEFAULT,
 					MaxConnections:     wrapperspb.UInt32(1024),
 					MaxPendingRequests: wrapperspb.UInt32(1024),
-					MaxRequests:        wrapperspb.UInt32(envoyClusterMaxRequests),
-					// Raised from Envoy's default of 3, which under load skipped retries so mongot never saw the
-					// final attempt. A mitigation, not a removal: retries waiting in backoff still count here.
-					MaxRetries: wrapperspb.UInt32(envoyClusterMaxRequests),
+					MaxRequests:        wrapperspb.UInt32(1024),
+					MaxRetries:         wrapperspb.UInt32(3),
 				},
 			},
 		},
