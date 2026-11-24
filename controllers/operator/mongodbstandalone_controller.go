@@ -428,6 +428,7 @@ func (r *ReconcileMongoDbStandalone) OnDelete(ctx context.Context, obj runtime.O
 		return err
 	}
 	if conn == nil {
+		log.Debugf("Skipping Ops Manager cleanup for %s: no connection", s.Name)
 		return nil
 	}
 

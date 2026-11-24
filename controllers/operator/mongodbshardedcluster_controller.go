@@ -1801,6 +1801,7 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		return err
 	}
 	if conn == nil {
+		log.Debugf("Skipping Ops Manager cleanup for %s: no connection", sc.Name)
 		return nil
 	}
 

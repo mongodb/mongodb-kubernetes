@@ -62,8 +62,12 @@ func PrepareOpsManagerConnection(ctx context.Context, client secrets.SecretClien
 	}
 }
 
-// PrepareCleanupConnection returns a read-only Ops Manager connection for
-// deletion cleanup. A nil connection means the cleanup skips Ops Manager.
+// PrepareCleanupConnection returns an Ops Manager connection for deletion
+// cleanup. The connection is a normal connection that mutates Ops Manager
+// during cleanup. The difference from PrepareOpsManagerConnection is the
+// project lookup: it reads the project instead of creating it, so cleanup
+// cannot recreate a project that is already gone. A nil connection means the
+// cleanup skips Ops Manager.
 //
 // A missing ConfigMap or Secret also returns nil. The operator cannot clean up
 // without them, and an error would keep the CR in Terminating.

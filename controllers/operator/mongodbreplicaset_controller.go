@@ -1182,6 +1182,7 @@ func (r *ReplicaSetReconcilerHelper) cleanOpsManagerState(ctx context.Context, r
 		return err
 	}
 	if conn == nil {
+		log.Debugf("Skipping Ops Manager cleanup for %s: no connection", rs.Name)
 		return nil
 	}
 

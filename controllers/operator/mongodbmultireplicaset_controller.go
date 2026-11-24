@@ -1527,6 +1527,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) cleanOpsManagerState(ctx context.Conte
 		return err
 	}
 	if conn == nil {
+		log.Debugf("Skipping Ops Manager cleanup for %s: no connection", mrs.Name)
 		return nil
 	}
 
