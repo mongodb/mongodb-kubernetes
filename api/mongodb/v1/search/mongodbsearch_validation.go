@@ -84,6 +84,7 @@ func commonValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateJVMFlags,
 		validateClustersEnvoyResourceNames,
 		validateX509AuthConfig,
+		validateCRLFileConfig,
 		validateOIDCAuthConfig,
 		validateLBConfig,
 		validateMultipleReplicasRequireLB,
@@ -494,6 +495,19 @@ func validateX509AuthConfig(s *MongoDBSearch) v1.ValidationResult {
 		return v1.ValidationError("x509 and password authentication are mutually exclusive: spec.source.x509 and spec.source.username cannot both be set")
 	}
 
+	return v1.ValidationSuccess()
+}
+
+// validateCRLFileConfig rejects a CRL file value that is a path rather than a
+// ConfigMap key: the CRL lives in the CA ConfigMap mounted at tls.CAMountPath.
+func validateCRLFileConfig(s *MongoDBSearch) v1.ValidationResult {
+	crlFile := s.SourceCRLFile()
+	if crlFile == "" {
+		return v1.ValidationSuccess()
+	}
+	if strings.Contains(crlFile, "/") {
+		return v1.ValidationError("spec.source.crlFile must be a ConfigMap key, not a path")
+	}
 	return v1.ValidationSuccess()
 }
 

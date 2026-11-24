@@ -489,6 +489,10 @@ type MongoDBSource struct {
 	// Only applicable when using SCRAM auth (passwordSecretRef) or OIDC auth. Mutually exclusive with X509.
 	// +optional
 	TLS *SourceTLS `json:"tls,omitempty"`
+	// CRLFile names the certificate revocation list file (a key in the source
+	// MongoDB's TLS CA ConfigMap) that mongot uses to reject revoked certificates.
+	// +optional
+	CRLFile string `json:"crlFile,omitempty"`
 }
 
 // X509Auth configures x509 client certificate authentication for mongot's sync source connection.
@@ -1028,6 +1032,14 @@ func (s *MongoDBSearch) X509OperatorManagedSecret() types.NamespacedName {
 func (s *MongoDBSearch) HasScramClientCert() bool {
 	return s.Spec.Source != nil && s.Spec.Source.TLS != nil &&
 		s.Spec.Source.TLS.ClientCertificateSecret.Name != ""
+}
+
+// SourceCRLFile returns the CRL file key configured for the sync source, or "".
+func (s *MongoDBSearch) SourceCRLFile() string {
+	if s.Spec.Source == nil {
+		return ""
+	}
+	return s.Spec.Source.CRLFile
 }
 
 // ScramClientCertSecret returns the namespaced name of the user-provided SCRAM TLS client certificate secret.

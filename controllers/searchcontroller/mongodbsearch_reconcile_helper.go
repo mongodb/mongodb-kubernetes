@@ -40,6 +40,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/commoncontroller"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
@@ -829,6 +830,16 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	}
 	if oidcIdpCaHash != "" {
 		configHash = hashBytes([]byte(configHash + oidcIdpCaHash))
+	}
+
+	// Include the CRL file in the config hash: mongot reads crlFile into its trust store only at
+	// startup, so rotating the CRL must roll the mongot pods to re-read it.
+	crlHash, err := r.crlContentHash(ctx, unitClient)
+	if err != nil {
+		return nil, nil, err
+	}
+	if crlHash != "" {
+		configHash = hashBytes([]byte(configHash + crlHash))
 	}
 
 	configHashModification := statefulset.WithPodSpecTemplate(podtemplatespec.WithAnnotations(
@@ -1970,11 +1981,14 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 		hasKeyPassword = true
 	}
 
+	crlFile := r.crlFilePath()
+
 	mongotModification := func(config *mongot.Config) {
 		config.SyncSource.ReplicaSet.ScramAuth = nil
 		config.SyncSource.ReplicaSet.X509 = &mongot.ConfigX509{
 			TLSCertificateKeyFile:    new(certPath),
 			CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
+			CRLFile:                  crlFile,
 		}
 		if hasKeyPassword {
 			config.SyncSource.ReplicaSet.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
@@ -1985,6 +1999,7 @@ func (r *MongoDBSearchReconcileHelper) ensureX509ClientCertConfig(ctx context.Co
 			config.SyncSource.Router.X509 = &mongot.ConfigX509{
 				TLSCertificateKeyFile:    new(certPath),
 				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
+				CRLFile:                  crlFile,
 			}
 			if hasKeyPassword {
 				config.SyncSource.Router.X509.TLSCertificateKeyFilePasswordFile = new(TempX509KeyPasswordPath)
@@ -2175,11 +2190,59 @@ func (p *perShardTLSResource) TLSOperatorSecretNamespacedName() types.Namespaced
 	return p.TLSOperatorSecretForClusterShard(p.clusterIndex, p.shardName)
 }
 
+// crlFilePath returns the mounted CRL path for the sync source CA, or nil when
+// no CRL is configured. The CRL is a key in the CA ConfigMap/Secret that MCK
+// already mounts at tls.CAMountPath.
+func (r *MongoDBSearchReconcileHelper) crlFilePath() *string {
+	crlFile := r.mdbSearch.SourceCRLFile()
+	if crlFile == "" {
+		return nil
+	}
+	return new(tls.CAMountPath + crlFile)
+}
+
+// crlFileContent returns the configured CRL file's content from the object that provides the
+// source CA, or "" when no CRL is configured.
+func (r *MongoDBSearchReconcileHelper) crlFileContent(ctx context.Context, kubeClient kubernetesClient.Client, tlsSourceConfig *TLSSourceConfig) (string, error) {
+	crlFile := r.mdbSearch.SourceCRLFile()
+	if crlFile == "" {
+		return "", nil
+	}
+
+	objectKey := types.NamespacedName{Namespace: r.mdbSearch.Namespace}
+	caVolume := tlsSourceConfig.CAVolume
+	switch {
+	case caVolume.ConfigMap != nil:
+		objectKey.Name = caVolume.ConfigMap.Name
+		content, err := configmap.ReadKey(ctx, kubeClient, crlFile, objectKey)
+		if err != nil {
+			return "", xerrors.Errorf("reading the CRL file from the source CA ConfigMap: %w", err)
+		}
+		return content, nil
+	case caVolume.Secret != nil:
+		objectKey.Name = caVolume.Secret.SecretName
+		content, err := secret.ReadKey(ctx, kubeClient, crlFile, objectKey)
+		if err != nil {
+			return "", xerrors.Errorf("reading the CRL file from the source CA Secret: %w", err)
+		}
+		return content, nil
+	}
+	return "", nil
+}
+
 func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context, kubeClient kubernetesClient.Client, labels map[string]string, ownerReferences []metav1.OwnerReference) (mongot.Modification, statefulset.Modification, error) {
 	removeScramClientVolumes := removeMongotVolumesAndMounts("scram-client-cert", "scram-key-password")
+	crlFile := r.crlFilePath()
 	sourceTLSConfig := r.db.TLSConfig()
 	if sourceTLSConfig == nil {
+		if crlFile != nil {
+			return nil, nil, xerrors.New("spec.source.crlFile requires TLS with a CA on the source MongoDB")
+		}
 		return mongot.NOOP(), removeScramClientVolumes, nil
+	}
+
+	if _, err := r.crlFileContent(ctx, kubeClient, sourceTLSConfig); err != nil {
+		return nil, nil, err
 	}
 
 	// Process optional SCRAM client certificate for mTLS
@@ -2208,6 +2271,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		scramTLS := &mongot.ScramAuthTLS{
 			Enabled:                  true,
 			CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
+			CRLFile:                  crlFile,
 		}
 		if scramCertPath != "" {
 			scramTLS.TLSCertificateKeyFile = new(scramCertPath)
@@ -2223,6 +2287,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 			routerScramTLS := &mongot.ScramAuthTLS{
 				Enabled:                  true,
 				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
+				CRLFile:                  crlFile,
 			}
 			if scramCertPath != "" {
 				routerScramTLS.TLSCertificateKeyFile = new(scramCertPath)
@@ -2237,6 +2302,7 @@ func (r *MongoDBSearchReconcileHelper) ensureEgressTlsConfig(ctx context.Context
 		if config.Server.Grpc.TLS.Mode == mongot.ConfigTLSModeTLS {
 			config.Server.Grpc.TLS.Mode = mongot.ConfigTLSModeMTLS
 			config.Server.Grpc.TLS.CertificateAuthorityFile = new(tls.CAMountPath + sourceTLSConfig.CAFileName)
+			config.Server.Grpc.TLS.CRLFile = crlFile
 		}
 	}
 
@@ -2379,6 +2445,24 @@ func (r *MongoDBSearchReconcileHelper) oidcIdpCaContentHash(ctx context.Context,
 		return "", xerrors.Errorf("reading OIDC IdP CA configMap %s: %w", nn.Name, err)
 	}
 	return hashBytes([]byte(nn.Name + ":" + configMap.Data[OIDCIdPCAConfigMapKey])), nil
+}
+
+// crlContentHash returns a hash of the configured CRL file's content, or "" when no CRL is
+// configured. mongot reads crlFile into its trust store only at startup, so a rotated CRL has
+// to roll the mongot pods to take effect.
+func (r *MongoDBSearchReconcileHelper) crlContentHash(ctx context.Context, kubeClient kubernetesClient.Client) (string, error) {
+	sourceTLSConfig := r.db.TLSConfig()
+	if sourceTLSConfig == nil {
+		return "", nil
+	}
+	content, err := r.crlFileContent(ctx, kubeClient, sourceTLSConfig)
+	if err != nil {
+		return "", err
+	}
+	if content == "" {
+		return "", nil
+	}
+	return hashBytes([]byte(r.mdbSearch.SourceCRLFile() + ":" + content)), nil
 }
 
 // baseMongotConfig sets up the common mongot configuration fields shared by all deployment types:

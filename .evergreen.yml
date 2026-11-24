@@ -1047,6 +1047,7 @@ task_groups:
       - e2e_search_replicaset_external_mongodb_single_mongot
       - e2e_search_sharded_internal_mongodb_single_mongot
       - e2e_search_enterprise_enc_mtls
+      - e2e_search_enterprise_crl
       - e2e_search_enterprise_x509_cluster_auth
       - e2e_search_sharded_external_mongodb_single_mongot
       - e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
@@ -1132,6 +1133,7 @@ task_groups:
       - e2e_search_replicaset_external_mongodb_single_mongot
       - e2e_search_sharded_internal_mongodb_single_mongot
       - e2e_search_enterprise_enc_mtls
+      - e2e_search_enterprise_crl
       - e2e_search_enterprise_x509_cluster_auth
       - e2e_search_sharded_external_mongodb_single_mongot
       - e2e_search_sharded_external_mongodb_multi_mongot_unmanaged_lb
