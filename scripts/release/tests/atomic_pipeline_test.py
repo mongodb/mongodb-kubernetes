@@ -12,14 +12,9 @@ from scripts.release.agent.validation import (
     get_working_agent_filename,
     get_working_tools_filename,
 )
-
-from scripts.release.atomic_pipeline import (
-    agent_version_from_custom_url,
-    build_agent_pipeline,
-)
+from scripts.release.atomic_pipeline import agent_version_from_custom_url, build_agent_pipeline
 from scripts.release.build.build_scenario import BuildScenario
 from scripts.release.build.image_build_configuration import ImageBuildConfiguration
-
 
 
 class TestBuildArgumentGeneration(unittest.TestCase):

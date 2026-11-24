@@ -56,6 +56,7 @@ def _args(image: str, scenario: str = "patch", **overrides) -> argparse.Namespac
         architecture_suffix=None,
         agent_tools_version="100.13.0" if image == "agent" else None,
         custom_agent_url="",
+        om_download_url="",
         isolated_namespace="",
     )
     values.update(overrides)
