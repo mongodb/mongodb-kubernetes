@@ -813,7 +813,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumesToAdd = append(volumesToAdd, internalClusterAuthVolume)
 	}
 
-	if !databaseOpts.VaultInjectsAgentAPIKey {
+	if !databaseOpts.VaultInjectsAgentAPIKey && databaseOpts.PodVars != nil {
 		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, mdbv1.AgentAPIKeySecretName(databaseOpts.PodVars.ProjectID)))
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}
