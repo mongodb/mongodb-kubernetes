@@ -1,13 +1,17 @@
-# Summary
+# Contributing to MongoDB Controllers for Kubernetes (MCK)
 
-Contributing to the Mongodb Controllers for Kubernetes (MCK) project
-Pull requests are always welcome, and the MCK dev team appreciates any help the community can give to help make MongoDB
-better.
+MCK is developed and maintained by a dedicated MongoDB engineering team. We are not accepting pull requests from
+external contributors at this time.
 
-## PR Prerequisites
+Bug reports, questions, and ideas for changes are welcome as
+[GitHub issues](https://github.com/mongodb/mongodb-kubernetes/issues/new/choose). We read every issue, and an issue is
+the best place to discuss a change with the team.
 
-* Please ensure you have signed our Contributor Agreement. You can find
-  it [here](https://www.mongodb.com/legal/contributor-agreement).
+The rest of this document describes the development and release process for MongoDB engineers working in this
+repository.
+
+## PR Prerequisites (MongoDB engineers)
+
 * Please ensure that all commits are signed.
 * Create a changelog file that will describe the changes you made. Use the `skip-changelog` label if your changes do not
   require a changelog entry.

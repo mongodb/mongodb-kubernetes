@@ -142,6 +142,33 @@ func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
 }
 
+// The credential hash is computed before the options are built, so rotating the key must reach the
+// applied pod template through the WithAgentCredentialHash option.
+func TestStandaloneAgentCredentialHashTracksKeySecret(t *testing.T) {
+	ctx := context.Background()
+	st := DefaultStandaloneBuilder().Build()
+	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, st, architectures.NonStatic)
+
+	appliedHash := func() string {
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, st.ObjectKey(), sts))
+		hash := sts.Spec.Template.Annotations[construct.AgentSettingsHash]
+		require.NotEmpty(t, hash)
+		return hash
+	}
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
+	original := appliedHash()
+
+	keySecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(st.Namespace, mdbv1.AgentAPIKeySecretName(om.TestGroupID)))
+	require.NoError(t, err)
+	keySecret.Data[util.OmAgentApiKey] = []byte("rotated-key")
+	require.NoError(t, kubeClient.UpdateSecret(ctx, keySecret))
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
+	assert.NotEqual(t, original, appliedHash())
+}
+
 func TestStandaloneClusterReconcileContainerImageType(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -440,10 +467,13 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, s, architectures.NonStatic)
 
 	checkReconcileSuccessful(ctx, t, reconciler, s, kubeClient)
+	require.NoError(t, kubeClient.Get(ctx, s.ObjectKey(), s))
+	require.NotEmpty(t, s.Status.ProjectId)
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, s.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:               {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}:   {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:                 {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Status.ProjectId+"-group-secret")}: {s.ObjectKey()},
 	}
 
 	actual := reconciler.resourceWatcher.GetWatchedResources()

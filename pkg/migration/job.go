@@ -11,6 +11,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
@@ -122,6 +123,9 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 	// mountpoint. A Job has no init container, so the container fails to start with exit code 128.
 	volumes, volumeMounts := volumesAndMountsFromStatefulSet(sts, map[string]struct{}{
 		rs.GetHostNameOverrideConfigmapName(): {},
+		// The validator is not an agent, and the settings ConfigMap and override key Secret may not exist yet.
+		construct.AgentSettingsVolume:   {},
+		construct.AgentAPIKeyVolumeName: {},
 	})
 
 	security := rs.GetSecurity()
