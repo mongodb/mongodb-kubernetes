@@ -140,7 +140,23 @@ func newDefaultHTTPClient() *retryablehttp.Client {
 		// We don't need Jitter here as we're the only client to the OM, so there's no risk
 		// of overwhelming it in a peek.
 		Backoff: retryablehttp.DefaultBackoff,
+		// Return the last response when the retries are exhausted on an error
+		// status, so sendRequest turns the status into an *apierror.Error. The
+		// cleanup path classifies the backup-anchor refusal by status, and the
+		// retryablehttp default drops the response and returns a generic retry
+		// error that hides the status.
+		ErrorHandler: keepResponseErrorHandler,
 	}
+}
+
+// keepResponseErrorHandler returns the last HTTP response when the retries are
+// exhausted on an error status. A transport error returns no response, so it
+// keeps the error path.
+func keepResponseErrorHandler(resp *http.Response, err error, _ int) (*http.Response, error) {
+	if resp != nil && err == nil {
+		return resp, nil
+	}
+	return nil, err
 }
 
 func applyOptions(client *Client, options ...func(*Client) error) (*Client, error) {
