@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -19,8 +20,9 @@ import (
 // reports that refusal as a generic 500, so the response cannot identify it.
 // maxRemainingHosts is the number of hosts that must stay for the operation to
 // be complete: one per backed-up replica set on deletion, and zero otherwise.
-// When a removal fails, a matching count is the intended end state, not a
-// failure.
+// When a removal fails, the remaining hosts must all be refused backup anchors
+// and their count must match maxRemainingHosts. That is the intended end state,
+// not a failure. A permission, transport, or other error always fails.
 func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []string, maxRemainingHosts int, log *zap.SugaredLogger) error {
 	if len(hostnames) == 0 {
 		return nil
@@ -46,10 +48,12 @@ func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []stri
 		}
 	}
 
+	failed := make(map[string]error, len(matched))
 	var errs []error
 	for _, h := range matched {
 		if err := getRemover.RemoveHost(ctx, h.Id); err != nil {
 			log.Warnf("Failed to remove host %s from monitoring in Ops Manager: %s", h.Hostname, err)
+			failed[h.Hostname] = err
 			errs = append(errs, fmt.Errorf("host %s: %w", h.Hostname, err))
 			continue
 		}
@@ -67,7 +71,7 @@ func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []stri
 	case len(remaining) == 0:
 		// A removal can fail after Ops Manager applied it.
 		return nil
-	case len(remaining) <= maxRemainingHosts:
+	case len(remaining) <= maxRemainingHosts && allRefusedAsBackupAnchors(failed, remaining):
 		log.Warnf("Host removal finished with %d of %d hosts still monitored: %v", len(remaining), len(hostnames), remaining)
 		return nil
 	default:
@@ -76,6 +80,31 @@ func StopMonitoring(ctx context.Context, getRemover GetRemover, hostnames []stri
 	}
 
 	return fmt.Errorf("failed to remove some hosts from monitoring in Ops manager: %w", errors.Join(errs...))
+}
+
+// allRefusedAsBackupAnchors reports whether every remaining host failed its
+// removal with a backup-anchor refusal. A remaining host with another error
+// keeps the cleanup failing, so a permission or transport error cannot pass as
+// a kept backup.
+func allRefusedAsBackupAnchors(failed map[string]error, remaining []string) bool {
+	for _, hostname := range remaining {
+		err, ok := failed[hostname]
+		if !ok || !isBackupAnchorRefusal(err) {
+			return false
+		}
+	}
+	return true
+}
+
+// isBackupAnchorRefusal reports whether Ops Manager refused the host removal
+// because the host anchors an active backup. Ops Manager answers that refusal
+// with the generic 500 response and keeps the host-specific code in its server
+// log only, so a server error is the current signal. CLOUDP-482571 asks Ops
+// Manager to return the code in the response. When it ships, accept only
+// CannotDeleteHostBackupEnabled and drop the server-error case.
+func isBackupAnchorRefusal(err error) bool {
+	apiErr := apierror.NewNonNil(err)
+	return apiErr.ErrorCode == apierror.CannotDeleteHostBackupEnabled || apiErr.IsServerError()
 }
 
 // stillMonitored returns the requested hostnames that Ops Manager still

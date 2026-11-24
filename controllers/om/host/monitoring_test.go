@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"net/http"
 	"slices"
 	"testing"
 
@@ -76,14 +77,45 @@ func TestStopMonitoring_RemovesAllHosts(t *testing.T) {
 	assert.Empty(t, f.hosts)
 }
 
-// Ops Manager reports its refusal as a generic 500, so the remaining host count
-// decides, not the error.
+// Ops Manager reports its refusal as a generic 500, so the remaining hosts
+// must both match the expected count and carry a backup-anchor refusal.
 func TestStopMonitoring_AcceptsTheExpectedRemainingHosts(t *testing.T) {
 	f := newFake(rejectLastHost)
 
 	require.NoError(t, StopMonitoring(context.Background(), f, allHostnames, 1, zap.S()))
 	require.Len(t, f.hosts, 1)
 	assert.Equal(t, "c", f.hosts[0].Hostname)
+}
+
+// Ops Manager answers the anchor refusal with a generic 500 today.
+func TestStopMonitoring_AcceptsTheGenericServerErrorRefusal(t *testing.T) {
+	status := http.StatusInternalServerError
+	f := newFake(func(remaining int, _ string) error {
+		if remaining == 1 {
+			return &apierror.Error{Status: &status, Detail: "Unexpected error."}
+		}
+		return nil
+	})
+
+	require.NoError(t, StopMonitoring(context.Background(), f, allHostnames, 1, zap.S()))
+	assert.Len(t, f.hosts, 1)
+}
+
+// A permission error must fail even when the count matches. The count alone
+// cannot prove that Ops Manager kept a backup anchor.
+func TestStopMonitoring_RejectsUnrelatedErrorsWithinTheAllowance(t *testing.T) {
+	status := http.StatusForbidden
+	f := newFake(func(remaining int, _ string) error {
+		if remaining == 1 {
+			return &apierror.Error{Status: &status, Detail: "forbidden"}
+		}
+		return nil
+	})
+
+	err := StopMonitoring(context.Background(), f, allHostnames, 1, zap.S())
+	require.Error(t, err)
+	assert.Len(t, f.hosts, 1)
+	assert.Contains(t, err.Error(), "c")
 }
 
 // A sharded cluster keeps one host per replica set.

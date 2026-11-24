@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -663,7 +664,9 @@ func (oc *MockedOmConnection) ReadHostCluster(ctx context.Context, clusterId str
 	if hostCluster, ok := oc.BackupHostClusters[clusterId]; ok {
 		return hostCluster, nil
 	}
-	return nil, apierror.New(errors.New("Failed to find host cluster"))
+	// Ops Manager answers the missing-cluster lookup with a 404 and CLUSTER_NOT_FOUND.
+	status := http.StatusNotFound
+	return nil, &apierror.Error{Status: &status, ErrorCode: apierror.ClusterNotFound}
 }
 
 func (oc *MockedOmConnection) UpdateBackupStatus(ctx context.Context, clusterId string, newStatus backup.Status) error {

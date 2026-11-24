@@ -692,6 +692,29 @@ func TestAddDeleteShardedCluster(t *testing.T) {
 		reflect.ValueOf(mockedOmConnection.GetHosts), reflect.ValueOf(mockedOmConnection.RemoveHost))
 }
 
+// TestDeleteShardedClusterDoesNotRecreateTheStateConfigMap verifies that the
+// deletion path reads the deployment state without writing it. A write would
+// recreate the state ConfigMap, and Kubernetes rejects that create in a
+// terminating namespace, which would keep the finalizer.
+func TestDeleteShardedClusterDoesNotRecreateTheStateConfigMap(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+
+	reconciler, _, clusterClient, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
+
+	stateConfigMapKey := kube.ObjectKey(sc.Namespace, sc.Name+"-state")
+	require.NoError(t, clusterClient.Get(ctx, stateConfigMapKey, &corev1.ConfigMap{}))
+	require.NoError(t, clusterClient.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: stateConfigMapKey.Name, Namespace: stateConfigMapKey.Namespace}}))
+
+	require.NoError(t, reconciler.OnDelete(ctx, sc, zap.S()))
+
+	err = clusterClient.Get(ctx, stateConfigMapKey, &corev1.ConfigMap{})
+	require.True(t, errors.IsNotFound(err), "the deletion path must not recreate the state config map")
+}
+
 // TestDeleteShardedClusterWithExternalMembers verifies that deleting a hybrid (mid-migration)
 // sharded cluster leaves the Ops Manager automation config and monitored hosts intact, so the
 // still-running VM deployment survives. Only feature controls are cleared.

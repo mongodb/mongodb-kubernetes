@@ -812,8 +812,12 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 				return err
 			}
 			// This will migrate the deployment state to the new structure and this branch of code won't be executed again.
-			if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
-				return err
+			// A read-only helper skips the write. Deletion uses it, and a create
+			// in a terminating namespace fails, which would keep the finalizer.
+			if !r.readOnly {
+				if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
+					return err
+				}
 			}
 		} else {
 			return err
@@ -880,7 +884,10 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
 		return nil
 	}
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	// The deletion path reads the deployment state without writing it. A write
+	// would recreate the <name>-state ConfigMap. Kubernetes rejects that create
+	// in a terminating namespace and the finalizer would never complete.
+	reconcilerHelper, err := newShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, true, r.backupEnableDelay)
 	if err != nil {
 		return err
 	}
