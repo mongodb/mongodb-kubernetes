@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/blang/semver"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -229,18 +230,19 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 	// Parse Ops Manager version for Immutable Backup validation
 	// We can ignore errors since they are already caught in validOmVersion validation
 	v, _ := versionutil.StringToSemverVersion(os.Version)
+	portableBackupSupported := versionutil.OpsManagerUsesBucketDerivedObjectLockSettings(os.Version)
 
 	// Snapshot and OpLog S3 stores enforce the same rules and differ only in the
 	// version floors and the label used for error messages: OpLog stores support
 	// object lock (and therefore retention) only since 8.0.28.
 	for _, config := range backup.S3Configs {
-		if res := validateS3StoreConfig(config, v, "S3 Store", util.MinimumVersionImmutableBackup, util.MinimumVersionS3ObjectLockRetention); res.Level != v1.SuccessLevel {
+		if res := validateS3StoreConfig(config, v, portableBackupSupported, "S3 Store", util.MinimumVersionImmutableBackup, util.MinimumVersionS3ObjectLockRetention); res.Level != v1.SuccessLevel {
 			return res
 		}
 	}
 
 	for _, oplogStoreConfig := range backup.S3OplogStoreConfigs {
-		if res := validateS3StoreConfig(oplogStoreConfig, v, "S3 OpLog Store", util.MinimumVersionS3OpLogObjectLock, util.MinimumVersionS3OpLogObjectLock); res.Level != v1.SuccessLevel {
+		if res := validateS3StoreConfig(oplogStoreConfig, v, portableBackupSupported, "S3 OpLog Store", util.MinimumVersionS3OpLogObjectLock, util.MinimumVersionS3OpLogObjectLock); res.Level != v1.SuccessLevel {
 			return res
 		}
 	}
@@ -251,7 +253,7 @@ func validateBackupS3Stores(os MongoDBOpsManagerSpec) v1.ValidationResult {
 // validateS3StoreConfig validates a single S3 store config (snapshot or OpLog — both
 // enforce identical rules under different Ops Manager version floors). storeLabel is
 // used in error messages, e.g. "S3 Store" or "S3 OpLog Store".
-func validateS3StoreConfig(config S3Config, v semver.Version, storeLabel string, objectLockMinVersion string, retentionMinVersion string) v1.ValidationResult {
+func validateS3StoreConfig(config S3Config, v semver.Version, portableBackupSupported bool, storeLabel string, objectLockMinVersion string, retentionMinVersion string) v1.ValidationResult {
 	objectLockVersion := semver.MustParse(objectLockMinVersion)
 	objectLockRetentionVersion := semver.MustParse(retentionMinVersion)
 
@@ -265,12 +267,46 @@ func validateS3StoreConfig(config S3Config, v semver.Version, storeLabel string,
 		return v1.OpsManagerResourceValidationError("'objectLockEnabled' can be configured only for Ops Manager versions >= %s (%s: %s)", status.OpsManager, objectLockMinVersion, storeLabel, config.Name)
 	} else if hasObjectLockRetention(config) && v.LT(objectLockRetentionVersion) {
 		return v1.OpsManagerResourceValidationError("'objectRetentionDays' and 'objectRetentionMode' can be configured only for Ops Manager versions >= %s (%s: %s)", status.OpsManager, retentionMinVersion, storeLabel, config.Name)
+	} else if config.PortableBackupEnabled != nil && !portableBackupSupported {
+		return v1.OpsManagerResourceValidationError("'portableBackupEnabled' can be configured only for Ops Manager versions >= %s (8.0.x) or >= %s (%s: %s)", status.OpsManager, util.MinimumVersionS3BucketDerivedObjectLock80, util.MinimumVersionS3BucketDerivedObjectLock90, storeLabel, config.Name)
 	}
 	return v1.ValidationSuccess()
 }
 
 func hasObjectLockRetention(config S3Config) bool {
 	return config.ObjectRetentionDays != nil || config.ObjectRetentionMode != nil
+}
+
+func hasDeprecatedObjectLockSettings(config S3Config) bool {
+	return config.ObjectLockEnabled != nil || hasObjectLockRetention(config)
+}
+
+// warnBucketDerivedObjectLockSettings warns that the Object Lock fields are not sent to
+// Ops Manager versions that read these settings from the bucket instead.
+func warnBucketDerivedObjectLockSettings(os MongoDBOpsManagerSpec) v1.ValidationResult {
+	if os.Backup == nil || !os.Backup.Enabled || !versionutil.OpsManagerUsesBucketDerivedObjectLockSettings(os.Version) {
+		return v1.ValidationSuccess()
+	}
+
+	var storeNames []string
+	for _, config := range os.Backup.S3Configs {
+		if hasDeprecatedObjectLockSettings(config) {
+			storeNames = append(storeNames, "s3Stores/"+config.Name)
+		}
+	}
+	for _, config := range os.Backup.S3OplogStoreConfigs {
+		if hasDeprecatedObjectLockSettings(config) {
+			storeNames = append(storeNames, "s3OpLogStores/"+config.Name)
+		}
+	}
+	if len(storeNames) == 0 {
+		return v1.ValidationSuccess()
+	}
+
+	return v1.OpsManagerResourceValidationWarning(
+		"objectLockEnabled, objectRetentionDays, and objectRetentionMode are deprecated and ignored for Ops Manager %s, which reads the S3 Object Lock settings from the bucket; they are not sent to Ops Manager for %s. Set portableBackupEnabled: true to opt into portable backups, which require S3 Object Lock to be enabled on the bucket",
+		status.Backup, os.Version, strings.Join(storeNames, ", "),
+	)
 }
 
 func warnMonitoringAgentStartupParameters(os MongoDBOpsManagerSpec) v1.ValidationResult {
@@ -300,6 +336,7 @@ func (om *MongoDBOpsManager) RunValidations() []v1.ValidationResult {
 		validateTopologyIsSpecified,
 		validateClusterSpecList,
 		validateBackupS3Stores,
+		warnBucketDerivedObjectLockSettings,
 	}
 
 	// AppDB validators apply only to an internal AppDB
@@ -379,4 +416,15 @@ func (om *MongoDBOpsManager) ProcessValidationsOnReconcile() (status.Part, error
 	}
 
 	return status.None, nil
+}
+
+// ValidationWarnings returns the validation warnings that belong to the given status part.
+func (om *MongoDBOpsManager) ValidationWarnings(part status.Part) []status.Warning {
+	warnings := status.Warnings{}
+	for _, res := range om.RunValidations() {
+		if res.Level == v1.WarningLevel && res.OmStatusPart == part {
+			warnings = warnings.AddIfNotExists(status.Warning(res.Msg))
+		}
+	}
+	return warnings
 }

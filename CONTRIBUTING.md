@@ -1,16 +1,27 @@
-# Summary
+# Contributing to MongoDB Controllers for Kubernetes (MCK)
 
-Contributing to the Mongodb Controllers for Kubernetes (MCK) project
-Pull requests are always welcome, and the MCK dev team appreciates any help the community can give to help make MongoDB
-better.
+MCK is developed and maintained by a dedicated MongoDB engineering team. We are not accepting pull requests from
+external contributors at this time.
 
-## PR Prerequisites
+Bug reports, questions, and ideas for changes are welcome as
+[GitHub issues](https://github.com/mongodb/mongodb-kubernetes/issues/new/choose). We read every issue, and an issue is
+the best place to discuss a change with the team.
 
-* Please ensure you have signed our Contributor Agreement. You can find
-  it [here](https://www.mongodb.com/legal/contributor-agreement).
+The rest of this document describes the development and release process for MongoDB engineers working in this
+repository.
+
+## PR Prerequisites (MongoDB engineers)
+
 * Please ensure that all commits are signed.
 * Create a changelog file that will describe the changes you made. Use the `skip-changelog` label if your changes do not
   require a changelog entry.
+
+## Stale Pull Requests
+
+A daily workflow marks pull requests with no activity for 30 days as `stale` and adds a comment. If there is still no
+activity 30 days later, the pull request is closed; it can be reopened at any time. Any comment or push removes the
+`stale` label and restarts the clock. Drafts and stacked pull requests are included. To keep a long-running pull request
+open, add the `do-not-stale` label, or ask a maintainer to add it.
 
 ## Kubernetes and OpenShift versions (maintainers)
 

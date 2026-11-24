@@ -59,7 +59,7 @@ def find_previous_version(repo: Repo, initial_commit_sha: str = None, initial_ve
 
 
 def find_previous_version_tag(repo: Repo) -> VersionTag | None:
-    """Find the most recent version tag on remote origin that is an ancestor of the current HEAD commit."""
+    """Find the most recent valid SemVer tag on remote origin that is an ancestor of HEAD."""
 
     head_commit = repo.head.commit
 
@@ -68,9 +68,7 @@ def find_previous_version_tag(repo: Repo) -> VersionTag | None:
         lambda t: repo.is_ancestor(t.commit, head_commit) and t.commit != head_commit, get_remote_tags(repo)
     )
 
-    # Filter valid SemVer tags and sort them
-    valid_tags = filter(lambda t: semver.VersionInfo.is_valid(t.name), ancestor_tags)
-    sorted_tags = sorted(valid_tags, key=lambda t: semver.VersionInfo.parse(t.name), reverse=True)
+    sorted_tags = sorted(ancestor_tags, key=lambda t: semver.VersionInfo.parse(t.name), reverse=True)
 
     if not sorted_tags:
         return None
@@ -110,6 +108,8 @@ def get_remote_tags(repo: Repo) -> list[VersionTag]:
 
     tags = []
     for name, sha in resolved.items():
+        if not semver.VersionInfo.is_valid(name):
+            continue
         try:
             tags.append(VersionTag(name=name, commit=repo.commit(sha)))
         except BadName:

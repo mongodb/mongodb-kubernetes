@@ -12,6 +12,7 @@ operator:
 
   # Default MongoDB image type for static architecture resources and for AppDB in both architectures.
   # Values are "ubi8", "ubi9", and "ubi9-slim". When empty, static uses "ubi9" and non-static AppDB uses "ubi8".
+  # Static architecture MongoDB and MongoDBMultiCluster resources require "ubi9" or "ubi9-slim".
   mdbDefaultImageType: ''
 
   # Name that will be assigned to most internal Kubernetes objects like Deployment, ServiceAccount, Role etc.
@@ -166,7 +167,7 @@ initOpsManager:
 
 agent:
   name: mongodb-agent
-  version: 109.0.1.9310-1
+  version: 109.0.2.9380-1
 
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
@@ -217,7 +218,7 @@ community:
     imageType: ubi8
   agent:
     name: mongodb-agent
-    version: 109.0.1.9310-1
+    version: 109.0.2.9380-1
   registry:
     agent: quay.io/mongodb
   resource:
@@ -241,11 +242,11 @@ community:
 search:
   # Full Search container image url used for the MongoDB Search container will be constructed as {search.repo}/{search.name}:{search.version}
   repo: quay.io/mongodb
-  name: mongodb-search
+  name: mongodb-enterprise-search
   # default MongoDB Search version used; can be overridden by setting MongoDBSearch.spec.version field.
   version: 1.70.1
   envoyImage: envoyproxy/envoy:v1.37.11
-  metricsForwarderImage: otel/opentelemetry-collector-contrib:0.163.2
+  metricsForwarderImage: otel/opentelemetry-collector-contrib:0.165.0
 
 # VoyageAI settings
 voyageai:

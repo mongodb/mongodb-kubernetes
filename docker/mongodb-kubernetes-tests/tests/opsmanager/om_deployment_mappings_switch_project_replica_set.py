@@ -1,0 +1,7 @@
+from pytest import mark
+from tests.common.ops_manager.deployment_mappings import DeploymentMappingsSwitchProject, ReplicaSetTopology
+
+
+@mark.e2e_om_deployment_mappings_switch_project_replica_set
+class TestReplicaSetDeploymentMappingsSwitchProject(ReplicaSetTopology, DeploymentMappingsSwitchProject):
+    pass

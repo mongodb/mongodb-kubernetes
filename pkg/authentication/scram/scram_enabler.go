@@ -3,8 +3,6 @@ package scram
 import (
 	"errors"
 
-	"github.com/hashicorp/go-multierror"
-
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
@@ -70,13 +68,13 @@ func enableClientAuthentication(auth *automationconfig.Auth, opts authtypes.Opti
 func validateAgentOptions(opts authtypes.Options) error {
 	var errs error
 	if opts.AutoAuthMechanism == "" {
-		errs = multierror.Append(errs, errors.New("AutoAuthMechanism must not be empty"))
+		errs = errors.Join(errs, errors.New("AutoAuthMechanism must not be empty"))
 	}
 	if opts.AgentName == "" {
-		errs = multierror.Append(errs, errors.New("AgentName must be specified"))
+		errs = errors.Join(errs, errors.New("AgentName must be specified"))
 	}
 	if opts.KeyFile == "" {
-		errs = multierror.Append(errs, errors.New("KeyFile must be specified"))
+		errs = errors.Join(errs, errors.New("KeyFile must be specified"))
 	}
 	return errs
 }
@@ -86,7 +84,7 @@ func validateAgentOptions(opts authtypes.Options) error {
 func validateClientOptions(opts authtypes.Options) error {
 	var errs error
 	if len(opts.AuthMechanisms) == 0 {
-		errs = multierror.Append(errs, errors.New("at least one AuthMechanism must be specified"))
+		errs = errors.Join(errs, errors.New("at least one AuthMechanism must be specified"))
 	}
 	return errs
 }
