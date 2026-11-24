@@ -202,8 +202,13 @@ spec:
                 - voyage-4-lite
                 - rerank-2.5
                 - rerank-2.5-lite
+                - rerank-3
+                - rerank-3-lite
+                - rerank-3-pubsec
                 - voyage-context-4
                 - voyage-code-3
+                - voyage-code-4
+                - voyage-multimodal-3.5
                 type: string
               nodeAffinity:
                 description: NodeAffinity configures node affinity scheduling rules
