@@ -77,6 +77,14 @@ PY
     [ "$(cat "${CAPTURE_FILE}")" = $'-f\n/etc/mongodb-agent/automation-agent.conf' ]
 }
 
+@test "static-ga passes the proxy address with native settings" {
+    export MDB_STATIC_CONTAINERS_ARCHITECTURE=static-ga
+    export MDB_MONGODB_PROXY_ADDRESS=unix:///var/run/mongodb-proxy/proxy.sock
+    run bash "${FIXTURE_ROOT}/scripts/agent-launcher.sh"
+    [ "${status}" -eq 0 ]
+    [ "$(cat "${CAPTURE_FILE}")" = $'-f\n/etc/mongodb-agent/automation-agent.conf\n-mongodProxyAddress=unix:///var/run/mongodb-proxy/proxy.sock' ]
+}
+
 @test "static shim bootstraps the launcher without positional arguments" {
     export MDB_STATIC_CONTAINERS_ARCHITECTURE=true
     export MDB_AGENT_HOSTNAME_OVERRIDE="pod-0.example.com"

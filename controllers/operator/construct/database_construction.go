@@ -6,7 +6,6 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"go.uber.org/zap"
 
