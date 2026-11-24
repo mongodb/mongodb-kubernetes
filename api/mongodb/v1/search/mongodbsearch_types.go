@@ -418,6 +418,7 @@ type EnvoyRetryPolicy struct {
 	// Defaults to 2 if not specified (3 total attempts including the original).
 	// +optional
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=2147483646
 	NumRetries *uint32 `json:"numRetries,omitempty"`
 	// PerTryTimeout is the timeout for each retry attempt (including the original).
 	// Specified as a Go duration string (e.g., "60s", "30s").

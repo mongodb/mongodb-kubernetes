@@ -429,8 +429,8 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 					MaxConnections:     wrapperspb.UInt32(1024),
 					MaxPendingRequests: wrapperspb.UInt32(1024),
 					MaxRequests:        wrapperspb.UInt32(envoyClusterMaxRequests),
-					// Retries count toward MaxRequests, so this removes the separate cap (unset defaults to 3).
-					// Under load a lower cap skips retries and mongot never sees the final attempt.
+					// Raised from Envoy's default of 3, which under load skipped retries so mongot never saw the
+					// final attempt. A mitigation, not a removal: retries waiting in backoff still count here.
 					MaxRetries: wrapperspb.UInt32(envoyClusterMaxRequests),
 				},
 			},
