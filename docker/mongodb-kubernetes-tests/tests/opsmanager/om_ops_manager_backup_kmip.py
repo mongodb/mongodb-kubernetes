@@ -214,10 +214,13 @@ class TestBackupForMongodb:
         for member in members:
             assert member["health"] == 1, f"{member['name']} is not healthy"
             # ponytail: The Agent writes this unreplicated note only after restarting the member.
+            # The recorded value is the requested timestamp, or the later instant at which the Agent rotated the key.
             with pymongo.MongoClient(
                 member["name"], directConnection=True, serverSelectionTimeoutMS=120000, tz_aware=True
             ) as client:
                 note = client.local.clustermanager.find_one()
-            assert note and note.get("lastKmipMasterKeyRotation") == rotation_request, member["name"]
+            assert note, member["name"]
+            recorded = note.get("lastKmipMasterKeyRotation")
+            assert recorded is not None and recorded >= rotation_request, f"{member['name']}: {recorded}"
 
         assert mdb_latest_test_collection.find_one({"_id": TEST_DATA["_id"]}) == TEST_DATA
