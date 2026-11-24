@@ -85,6 +85,30 @@ func TestIsRunningStaticArchitecture(t *testing.T) {
 	}
 }
 
+func TestIsRunningStaticGAArchitecture(t *testing.T) {
+	tests := []struct {
+		name                string
+		annotations         map[string]string
+		defaultArchitecture DefaultArchitecture
+		want                bool
+	}{
+		{name: "no annotation and no default"},
+		{name: "default static-ga", defaultArchitecture: StaticGA, want: true},
+		{name: "default static", defaultArchitecture: Static},
+		{name: "annotation static-ga", annotations: map[string]string{ArchitectureAnnotation: string(StaticGA)}, want: true},
+		{name: "annotation static-ga over non-static default", annotations: map[string]string{ArchitectureAnnotation: string(StaticGA)}, defaultArchitecture: NonStatic, want: true},
+		{name: "annotation static over static-ga default", annotations: map[string]string{ArchitectureAnnotation: string(Static)}, defaultArchitecture: StaticGA},
+		{name: "annotation non-static over static-ga default", annotations: map[string]string{ArchitectureAnnotation: string(NonStatic)}, defaultArchitecture: StaticGA},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsRunningStaticGAArchitecture(tt.annotations, tt.defaultArchitecture); got != tt.want {
+				t.Errorf("IsRunningStaticGAArchitecture() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetImageType(t *testing.T) {
 	tests := []struct {
 		name                string
