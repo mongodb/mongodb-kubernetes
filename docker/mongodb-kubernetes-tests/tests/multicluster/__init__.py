@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from kubetester.create_or_replace_from_yaml import create_or_replace_from_yaml
 from kubetester.helm import helm_template
@@ -17,6 +17,7 @@ def prepare_multi_cluster_namespaces(
     central_cluster_name: str,
     skip_central_cluster: bool = True,
     helm_chart_path=LOCAL_HELM_CHART_DIR,
+    helm_chart_version: Optional[str] = None,
 ):
     """create a new namespace and configures all necessary service accounts there"""
 
@@ -27,6 +28,7 @@ def prepare_multi_cluster_namespaces(
         templates="templates/database-roles.yaml",
         helm_options=[f"--namespace {namespace}"],
         helm_chart_path=helm_chart_path,
+        version=helm_chart_version,
     )
     # create database roles in member clusters.
     for mcc in member_cluster_clients:
