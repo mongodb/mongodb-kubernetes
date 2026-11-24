@@ -232,30 +232,32 @@ def test_configure_ac(
     custom_mdb_version: str,
 ):
     mdb_version = ensure_ent_version(custom_mdb_version)
-    ac = om_tester.api_get_automation_config()
-    if len(ac.get("processes", [])) > 0:
-        return
 
-    ac = build_sharded_cluster_ac(
-        om_tester,
-        configsrv_sts_name=CONFIGSRV_STS_NAME,
-        shard_sts_name=SHARD_STS_NAME,
-        mongos_sts_name=MONGOS_STS_NAME,
-        configsrv_service_name=CONFIGSRV_SVC_NAME,
-        shard_service_name=SHARD_SVC_NAME,
-        mongos_service_name=MONGOS_SVC_NAME,
-        namespace=namespace,
-        mongodb_version=mdb_version,
-        config_rs_name=VM_CONFIG_RS_NAME,
-        shard_rs_name=VM_SHARD_RS_NAME,
-        config_server_count=MIN_VM_CONFIGSRV,
-        shard_count=MIN_VM_SHARD,
-        mongos_count=MIN_VM_MONGOS,
-        cluster_name=VM_MONGOS_NAME,
-        compressors="snappy,zstd",
-        directory_per_db=True,
-    )
-    om_tester.api_put_automation_config(ac)
+    def mutate(ac: dict) -> None:
+        if len(ac.get("processes", [])) > 0:
+            return
+        build_sharded_cluster_ac(
+            om_tester,
+            configsrv_sts_name=CONFIGSRV_STS_NAME,
+            shard_sts_name=SHARD_STS_NAME,
+            mongos_sts_name=MONGOS_STS_NAME,
+            configsrv_service_name=CONFIGSRV_SVC_NAME,
+            shard_service_name=SHARD_SVC_NAME,
+            mongos_service_name=MONGOS_SVC_NAME,
+            namespace=namespace,
+            mongodb_version=mdb_version,
+            config_rs_name=VM_CONFIG_RS_NAME,
+            shard_rs_name=VM_SHARD_RS_NAME,
+            config_server_count=MIN_VM_CONFIGSRV,
+            shard_count=MIN_VM_SHARD,
+            mongos_count=MIN_VM_MONGOS,
+            cluster_name=VM_MONGOS_NAME,
+            compressors="snappy,zstd",
+            directory_per_db=True,
+            ac=ac,
+        )
+
+    om_tester.update_automation_config(mutate)
     om_tester.wait_agents_ready(timeout=600)
 
 

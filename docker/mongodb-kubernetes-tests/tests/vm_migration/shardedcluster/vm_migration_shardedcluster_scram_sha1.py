@@ -102,13 +102,13 @@ def vm_sharded_mongos_service(namespace: str):
     return deploy_vm_sharded_mongos_service(namespace)
 
 
-def _configure_ac_scram_sha1(namespace: str, om_tester: OMTester, mdb_version: str):
+def _configure_ac_scram_sha1(ac: dict, namespace: str, om_tester: OMTester, mdb_version: str):
     """SCRAM-SHA-1 sharded cluster. SCRAM-SHA-1 is deprecated and requires MONGODB-CR in agent mode for
     legacy support, otherwise Ops Manager rejects it with "Cannot configure SCRAM-SHA-1 without using
     MONGODB-CR in the Agent Mode". The agent authenticates with MONGODB-CR while the deployment accepts
     both SCRAM-SHA-1 and MONGODB-CR. Credentials are computed from the passwords so the agent and app
     user can authenticate before migration."""
-    ac = build_sharded_cluster_ac(
+    build_sharded_cluster_ac(
         om_tester,
         configsrv_sts_name=CONFIGSRV_STS_NAME,
         shard_sts_name=SHARD_STS_NAME,
@@ -124,6 +124,7 @@ def _configure_ac_scram_sha1(namespace: str, om_tester: OMTester, mdb_version: s
         shard_count=MIN_VM_SHARD,
         mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
+        ac=ac,
     )
 
     ac["auth"] = {
@@ -153,8 +154,6 @@ def _configure_ac_scram_sha1(namespace: str, om_tester: OMTester, mdb_version: s
         "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
     }
-
-    om_tester.api_put_automation_config(ac)
 
 
 @fixture(scope="module")
@@ -230,7 +229,9 @@ def test_configure_ac(namespace: str, om_tester: OMTester, custom_mdb_version: s
     ac = om_tester.api_get_automation_config()
     if len(ac.get("processes", [])) > 0:
         return
-    _configure_ac_scram_sha1(namespace, om_tester, ensure_ent_version(custom_mdb_version))
+    om_tester.update_automation_config(
+        lambda ac: _configure_ac_scram_sha1(ac, namespace, om_tester, ensure_ent_version(custom_mdb_version))
+    )
     om_tester.wait_agents_ready(timeout=600)
 
 

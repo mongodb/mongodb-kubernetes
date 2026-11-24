@@ -430,25 +430,29 @@ def test_vm_sharded_ac_no_auth(
     vm_sharded_mongos_service,
 ):
     """Put the initial AC with no auth so agents are able to reach goal state."""
-    if len(om_tester.api_get_automation_config().get("processes", [])) > 0:
-        return
-    ac = build_sharded_cluster_ac(
-        om_tester,
-        configsrv_sts_name=CONFIGSRV_STS_NAME,
-        shard_sts_name=SHARD_STS_NAME,
-        mongos_sts_name=MONGOS_STS_NAME,
-        configsrv_service_name=CONFIGSRV_SVC_NAME,
-        shard_service_name=SHARD_SVC_NAME,
-        mongos_service_name=MONGOS_SVC_NAME,
-        namespace=namespace,
-        mongodb_version=MONGODB_VERSION,
-        config_rs_name=VM_CONFIG_RS_NAME,
-        shard_rs_name=VM_SHARD_RS_NAME,
-        config_server_count=MIN_VM_CONFIGSRV,
-        shard_count=MIN_VM_SHARD,
-        mongos_count=MIN_VM_MONGOS,
-    )
-    om_tester.api_put_automation_config(ac)
+
+    def mutate(ac: dict) -> None:
+        if len(ac.get("processes", [])) > 0:
+            return
+        build_sharded_cluster_ac(
+            om_tester,
+            configsrv_sts_name=CONFIGSRV_STS_NAME,
+            shard_sts_name=SHARD_STS_NAME,
+            mongos_sts_name=MONGOS_STS_NAME,
+            configsrv_service_name=CONFIGSRV_SVC_NAME,
+            shard_service_name=SHARD_SVC_NAME,
+            mongos_service_name=MONGOS_SVC_NAME,
+            namespace=namespace,
+            mongodb_version=MONGODB_VERSION,
+            config_rs_name=VM_CONFIG_RS_NAME,
+            shard_rs_name=VM_SHARD_RS_NAME,
+            config_server_count=MIN_VM_CONFIGSRV,
+            shard_count=MIN_VM_SHARD,
+            mongos_count=MIN_VM_MONGOS,
+            ac=ac,
+        )
+
+    om_tester.update_automation_config(mutate)
     om_tester.wait_agents_ready(timeout=1800)
 
 
@@ -457,28 +461,32 @@ def test_vm_sharded_ac_tls(
     namespace: str, om_tester: OMTester, vm_sharded_configsrv_sts, vm_sharded_shard_sts, vm_sharded_mongos_sts
 ):
     """Enable TLS on all VM sharded cluster processes."""
-    ac = build_sharded_cluster_ac(
-        om_tester,
-        configsrv_sts_name=CONFIGSRV_STS_NAME,
-        shard_sts_name=SHARD_STS_NAME,
-        mongos_sts_name=MONGOS_STS_NAME,
-        configsrv_service_name=CONFIGSRV_SVC_NAME,
-        shard_service_name=SHARD_SVC_NAME,
-        mongos_service_name=MONGOS_SVC_NAME,
-        namespace=namespace,
-        mongodb_version=MONGODB_VERSION,
-        config_rs_name=VM_CONFIG_RS_NAME,
-        shard_rs_name=VM_SHARD_RS_NAME,
-        config_server_count=MIN_VM_CONFIGSRV,
-        shard_count=MIN_VM_SHARD,
-        mongos_count=MIN_VM_MONGOS,
-        tls=True,
-        mongod_cert_path=MONGOD_SERVER_PEM_PATH,
-        mongos_cert_path=MONGOS_SERVER_PEM_PATH,
-        ca_cert_path=CUSTOM_CA_PEM_PATH,
-        agent_cert_path=CUSTOM_AGENT_CERT_PATH,
-    )
-    om_tester.api_put_automation_config(ac)
+
+    def mutate(ac: dict) -> None:
+        build_sharded_cluster_ac(
+            om_tester,
+            configsrv_sts_name=CONFIGSRV_STS_NAME,
+            shard_sts_name=SHARD_STS_NAME,
+            mongos_sts_name=MONGOS_STS_NAME,
+            configsrv_service_name=CONFIGSRV_SVC_NAME,
+            shard_service_name=SHARD_SVC_NAME,
+            mongos_service_name=MONGOS_SVC_NAME,
+            namespace=namespace,
+            mongodb_version=MONGODB_VERSION,
+            config_rs_name=VM_CONFIG_RS_NAME,
+            shard_rs_name=VM_SHARD_RS_NAME,
+            config_server_count=MIN_VM_CONFIGSRV,
+            shard_count=MIN_VM_SHARD,
+            mongos_count=MIN_VM_MONGOS,
+            tls=True,
+            mongod_cert_path=MONGOD_SERVER_PEM_PATH,
+            mongos_cert_path=MONGOS_SERVER_PEM_PATH,
+            ca_cert_path=CUSTOM_CA_PEM_PATH,
+            agent_cert_path=CUSTOM_AGENT_CERT_PATH,
+            ac=ac,
+        )
+
+    om_tester.update_automation_config(mutate)
     om_tester.wait_agents_ready(timeout=1800)
 
 
@@ -486,29 +494,33 @@ def test_vm_sharded_ac_tls(
 def test_vm_sharded_ac_x509(namespace: str, om_tester: OMTester, vm_agent_combined_pem: tuple):
     """Switch the VM sharded cluster AC to X509 client auth."""
     _, agent_subject_dn = vm_agent_combined_pem
-    ac = build_sharded_cluster_ac(
-        om_tester,
-        configsrv_sts_name=CONFIGSRV_STS_NAME,
-        shard_sts_name=SHARD_STS_NAME,
-        mongos_sts_name=MONGOS_STS_NAME,
-        configsrv_service_name=CONFIGSRV_SVC_NAME,
-        shard_service_name=SHARD_SVC_NAME,
-        mongos_service_name=MONGOS_SVC_NAME,
-        namespace=namespace,
-        mongodb_version=MONGODB_VERSION,
-        config_rs_name=VM_CONFIG_RS_NAME,
-        shard_rs_name=VM_SHARD_RS_NAME,
-        config_server_count=MIN_VM_CONFIGSRV,
-        shard_count=MIN_VM_SHARD,
-        mongos_count=MIN_VM_MONGOS,
-        tls=True,
-        mongod_cert_path=MONGOD_SERVER_PEM_PATH,
-        mongos_cert_path=MONGOS_SERVER_PEM_PATH,
-        ca_cert_path=CUSTOM_CA_PEM_PATH,
-        agent_cert_path=CUSTOM_AGENT_CERT_PATH,
-        x509_agent_subject_dn=agent_subject_dn,
-    )
-    om_tester.api_put_automation_config(ac)
+
+    def mutate(ac: dict) -> None:
+        build_sharded_cluster_ac(
+            om_tester,
+            configsrv_sts_name=CONFIGSRV_STS_NAME,
+            shard_sts_name=SHARD_STS_NAME,
+            mongos_sts_name=MONGOS_STS_NAME,
+            configsrv_service_name=CONFIGSRV_SVC_NAME,
+            shard_service_name=SHARD_SVC_NAME,
+            mongos_service_name=MONGOS_SVC_NAME,
+            namespace=namespace,
+            mongodb_version=MONGODB_VERSION,
+            config_rs_name=VM_CONFIG_RS_NAME,
+            shard_rs_name=VM_SHARD_RS_NAME,
+            config_server_count=MIN_VM_CONFIGSRV,
+            shard_count=MIN_VM_SHARD,
+            mongos_count=MIN_VM_MONGOS,
+            tls=True,
+            mongod_cert_path=MONGOD_SERVER_PEM_PATH,
+            mongos_cert_path=MONGOS_SERVER_PEM_PATH,
+            ca_cert_path=CUSTOM_CA_PEM_PATH,
+            agent_cert_path=CUSTOM_AGENT_CERT_PATH,
+            x509_agent_subject_dn=agent_subject_dn,
+            ac=ac,
+        )
+
+    om_tester.update_automation_config(mutate)
     om_tester.wait_agents_ready(timeout=1800)
 
 

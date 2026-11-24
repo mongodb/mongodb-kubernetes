@@ -573,6 +573,7 @@ def build_sharded_cluster_ac(
     x509_agent_subject_dn: str = "",
     compressors: Optional[str] = None,
     directory_per_db: bool = False,
+    ac: Optional[dict] = None,
 ) -> dict:
     """Build an automation config dict for a pseudo-VM sharded cluster.
 
@@ -583,11 +584,15 @@ def build_sharded_cluster_ac(
     The config server replica set uses pods 0..(config_server_count-1) from the
     config server StatefulSet. The shard replica set uses pods
     0..(shard_count-1) from the shard StatefulSet.
+
+    Pass `ac` to fill a config the caller already read, so a retried
+    automation-config PUT re-applies this change to the fresh config.
     """
     if cluster_name is None:
         cluster_name = config_rs_name[: -len("-config")] if config_rs_name.endswith("-config") else config_rs_name
 
-    ac = om_tester.api_get_automation_config()
+    if ac is None:
+        ac = om_tester.api_get_automation_config()
     ac["processes"] = []
     ac["replicaSets"] = []
     ac["sharding"] = []

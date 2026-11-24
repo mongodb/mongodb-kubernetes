@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import json
-import time
 from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
 import kubernetes
-import requests
 import yaml
 from kubernetes.client import CoreV1Api
 from kubetester import create_or_update_configmap, create_or_update_secret, decode_secret, read_secret
@@ -479,7 +477,6 @@ def patch_mongot_host_via_ac(
     operator reconciles never clobber them.
     """
     om_tester = mdb.get_om_tester()
-    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
 
     def wire(ac: dict) -> None:
         patched: List[str] = []
@@ -494,7 +491,7 @@ def patch_mongot_host_via_ac(
         assert patched, f"{no_match_detail}; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
         log.info(f"patched {len(patched)} processes: {patched}")
 
-    update_automation_config_past_lock(om_tester, ac_path, wire)
+    om_tester.update_automation_config(wire)
     log.info("PUT automation config with per-cluster mongotHost")
     om_tester.wait_agents_ready(timeout=timeout)
 
@@ -508,7 +505,6 @@ def remove_mongot_host_via_ac(mdb, log=logger, timeout: int = 900) -> None:
     with the customer removing them.
     """
     om_tester = mdb.get_om_tester()
-    ac_path = f"/groups/{om_tester.context.project_id}/automationConfig"
 
     routing_keys_found = False
 
@@ -528,33 +524,9 @@ def remove_mongot_host_via_ac(mdb, log=logger, timeout: int = 900) -> None:
         ), f"no AC process carried mongot routing keys; AC contained {[p.get('name') for p in ac.get('processes', [])]}"
         log.info(f"unwired {len(unwired)} processes: {unwired}")
 
-    update_automation_config_past_lock(om_tester, ac_path, unwire)
+    om_tester.update_automation_config(unwire)
     log.info("PUT automation config without mongot routing keys")
     om_tester.wait_agents_ready(timeout=timeout)
-
-
-def update_automation_config_past_lock(
-    om_tester, ac_path: str, mutate: Callable[[dict], None], attempts: int = 5
-) -> None:
-    """GET, mutate and PUT the automation config past EXTERNALLY_MANAGED_LOCK, retried on 401 and 409.
-    The PUT keeps the version from the GET, Ops Manager rejects any other version with 409.
-    Skips the PUT when mutate changes nothing, so a retry after a lost response is a no-op."""
-    for attempt in range(1, attempts + 1):
-        ac = om_tester.om_request("get", ac_path).json()
-        original = json.dumps(ac, sort_keys=True)
-        mutate(ac)
-        if json.dumps(ac, sort_keys=True) == original:
-            logger.info("automation config already up to date, skipping the PUT")
-            return
-        om_tester.clear_feature_controls()
-        try:
-            om_tester.om_request("put", ac_path, json_object=ac)
-            return
-        except requests.HTTPError as e:
-            if e.response is None or e.response.status_code not in (401, 409) or attempt == attempts:
-                raise
-            logger.warning(f"automationConfig PUT got {e.response.status_code}; retry {attempt}/{attempts - 1}")
-            time.sleep(attempt)
 
 
 def patch_per_cluster_mongot_host_via_om(

@@ -175,18 +175,17 @@ def mongot_host(namespace: str) -> str:
     return search_resource_names.shard_pod_fqdn(MDBS_RESOURCE_NAME, K8S_SHARD_NAME, namespace, MONGOT_PORT)
 
 
-def _configure_ac_with_search(namespace: str, om_tester: OMTester, mongot_host: str):
+def _configure_ac_with_search(ac: dict, namespace: str, om_tester: OMTester, mongot_host: str):
     """SCRAM sharded cluster with the mongot sync-source user and the mongot setParameters.
 
     The setParameters go on the shard mongods and on the mongos, which is where the operator puts
     them for a sharded cluster. The config server never gets them: mongot neither syncs from nor
     routes through it.
     """
-    existing = om_tester.api_get_automation_config()
-    if len(existing.get("processes", [])) > 0:
+    if len(ac.get("processes", [])) > 0:
         return
 
-    ac = build_sharded_cluster_ac(
+    build_sharded_cluster_ac(
         om_tester,
         configsrv_sts_name=CONFIGSRV_STS_NAME,
         shard_sts_name=SHARD_STS_NAME,
@@ -202,6 +201,7 @@ def _configure_ac_with_search(namespace: str, om_tester: OMTester, mongot_host: 
         shard_count=MIN_VM_SHARD,
         mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
+        ac=ac,
     )
 
     search_params = dict(SEARCH_SET_PARAMETER)
@@ -254,8 +254,6 @@ def _configure_ac_with_search(namespace: str, om_tester: OMTester, mongot_host: 
         "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
         "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
     }
-
-    om_tester.api_put_automation_config(ac)
 
 
 @fixture(scope="module")
@@ -358,7 +356,7 @@ def test_deploy_vm_sharded_cluster(
     vm_mongos_service,
     mongot_host: str,
 ):
-    _configure_ac_with_search(namespace, om_tester, mongot_host)
+    om_tester.update_automation_config(lambda ac: _configure_ac_with_search(ac, namespace, om_tester, mongot_host))
     om_tester.wait_agents_ready()
 
 

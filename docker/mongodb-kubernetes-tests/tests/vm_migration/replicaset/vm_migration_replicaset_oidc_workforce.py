@@ -83,8 +83,8 @@ def vm_service(namespace: str):
 
 
 def _configure_ac(
+    ac: dict,
     namespace: str,
-    om_tester: OMTester,
     vm_sts: dict,
     vm_service: dict,
     cognito: dict,
@@ -95,7 +95,6 @@ def _configure_ac(
     MongoDB resolves the cognito:groups claim from the JWT and grants the matching admin role.
     """
     mdb_version = MDB_VERSION
-    ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
 
@@ -196,8 +195,6 @@ def _configure_ac(
             }
         )
 
-    om_tester.api_put_automation_config(ac)
-
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
@@ -240,7 +237,7 @@ def test_configure_ac(
     vm_service,
     cognito: dict,
 ):
-    _configure_ac(namespace, om_tester, vm_sts, vm_service, cognito)
+    om_tester.update_automation_config(lambda ac: _configure_ac(ac, namespace, vm_sts, vm_service, cognito))
     om_tester.wait_agents_ready(timeout=1200)
 
 

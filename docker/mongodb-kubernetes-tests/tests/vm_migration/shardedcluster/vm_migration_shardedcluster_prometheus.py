@@ -112,11 +112,10 @@ def vm_sharded_mongos_service(namespace: str):
     return deploy_vm_sharded_mongos_service(namespace)
 
 
-def _configure_ac(namespace: str, om_tester: OMTester, mdb_version: str) -> None:
-    ac_existing = om_tester.api_get_automation_config()
-    if len(ac_existing.get("processes", [])) > 0:
+def _configure_ac(ac: dict, namespace: str, om_tester: OMTester, mdb_version: str) -> None:
+    if len(ac.get("processes", [])) > 0:
         return
-    ac = build_sharded_cluster_ac(
+    build_sharded_cluster_ac(
         om_tester,
         configsrv_sts_name=CONFIGSRV_STS_NAME,
         shard_sts_name=SHARD_STS_NAME,
@@ -132,6 +131,7 @@ def _configure_ac(namespace: str, om_tester: OMTester, mdb_version: str) -> None
         shard_count=MIN_VM_SHARD,
         mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
+        ac=ac,
     )
     ac["auth"] = {"disabled": True, "authoritativeSet": False}
     prom_hash, prom_salt = _build_prometheus_hash(PROM_PASSWORD)
@@ -144,7 +144,6 @@ def _configure_ac(namespace: str, om_tester: OMTester, mdb_version: str) -> None
         "listenAddress": f"0.0.0.0:{PROM_PORT}",
         "metricsPath": "/metrics",
     }
-    om_tester.api_put_automation_config(ac)
 
 
 @fixture(scope="module")
@@ -225,7 +224,9 @@ def test_configure_ac(
     vm_sharded_mongos_service,
     custom_mdb_version: str,
 ):
-    _configure_ac(namespace, om_tester, ensure_ent_version(custom_mdb_version))
+    om_tester.update_automation_config(
+        lambda ac: _configure_ac(ac, namespace, om_tester, ensure_ent_version(custom_mdb_version))
+    )
     om_tester.wait_agents_ready(timeout=600)
 
 
