@@ -165,7 +165,7 @@ kind: ServiceAccount
 metadata:
   labels:
     multi-cluster: "true"
-  name: mongodb-kubernetes-ops-manager
+  name: mongodb-kubernetes-metrics-forwarder
   namespace: member-namespace
 
 ---
@@ -174,7 +174,7 @@ kind: ServiceAccount
 metadata:
   labels:
     multi-cluster: "true"
-  name: mongodb-kubernetes-metrics-forwarder
+  name: mongodb-kubernetes-ops-manager
   namespace: member-namespace
 
 ---
