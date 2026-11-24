@@ -2896,41 +2896,24 @@ func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRe
 		return nil
 	}
 
-	// The switch stays until #1799 folds it onto sourceAuthModes, which must carry the
-	// enabled check across with it.
-	var authModes []string
-	switch src := db.(type) {
-	case EnterpriseResourceSearchSource:
-		authModes = src.Spec.GetSecurityAuthenticationModes()
-	case *ShardedInternalSearchSource:
-		authModes = src.Spec.GetSecurityAuthenticationModes()
-	case *CommunitySearchSource:
-		for _, authMode := range src.Spec.Security.Authentication.Modes {
-			authModes = append(authModes, string(authMode))
-		}
-	default:
-		// External sources are unverifiable from the operator — no check.
+	modes, enabled, checkable := sourceAuthModes(db)
+	if !checkable {
 		return nil
 	}
-
-	// A source with authentication disabled configures none of the modes it lists, so the
-	// check below would read a mode the source would silently drop.
-	if _, enabled, _ := sourceAuthModes(db); !enabled {
+	if !enabled {
 		return xerrors.New(scramAuthRequiredMsg)
 	}
-
-	for _, authMode := range authModes {
-		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
-		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
-			return nil
-		}
+	// An enabled source with no configured modes is not this validator's concern: the
+	// adapters' former len(modes) > 0 guard, kept here for the same reason.
+	if len(modes) == 0 {
+		return nil
 	}
-
-	if len(authModes) > 0 {
-		return xerrors.New(scramAuthRequiredMsg)
+	if slices.ContainsFunc(modes, func(mode string) bool {
+		return strings.HasPrefix(strings.ToUpper(mode), util.SCRAM)
+	}) {
+		return nil
 	}
-
-	return nil
+	return xerrors.New(scramAuthRequiredMsg)
 }
 
 func (r *MongoDBSearchReconcileHelper) getMongotVersion() string {
