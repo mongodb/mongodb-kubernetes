@@ -41,6 +41,8 @@ const (
 	// SearchEnvoyMetadata{routed_from_another_shard: true}.
 	// Proto wire: field 1 (varint) = true → bytes [0x08, 0x01] → base64 "CAE="
 	searchEnvoyMetadataRoutedValue = "CAE="
+
+	envoyClusterMaxRequests = uint32(1024)
 )
 
 // buildBootstrapJSON returns the static Envoy bootstrap config JSON.
@@ -418,8 +420,10 @@ func buildCluster(route envoyRoute, tlsEnabled bool, caKeyName string) (*cluster
 					Priority:           corev3.RoutingPriority_DEFAULT,
 					MaxConnections:     wrapperspb.UInt32(1024),
 					MaxPendingRequests: wrapperspb.UInt32(1024),
-					MaxRequests:        wrapperspb.UInt32(1024),
-					MaxRetries:         wrapperspb.UInt32(3),
+					MaxRequests:        wrapperspb.UInt32(envoyClusterMaxRequests),
+					// Raised from Envoy's default of 3, which under load skipped retries so mongot never saw the
+					// final attempt. A mitigation, not a removal: retries waiting in backoff still count here.
+					MaxRetries: wrapperspb.UInt32(envoyClusterMaxRequests),
 				},
 			},
 		},
