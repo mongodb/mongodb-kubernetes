@@ -41,8 +41,8 @@ var (
 	ErrRoleConflict = errors.New("a process with a different role is already running")
 	// ErrRoleMismatch is returned by stop when the selected child has a different role than requested.
 	ErrRoleMismatch = errors.New("running process has a different role")
-	// ErrExecutionMismatch reports that stop did not select the observed execution.
-	ErrExecutionMismatch = errors.New("requested execution is no longer current")
+	// ErrPIDMismatch reports that stop did not select the current child.
+	ErrPIDMismatch = errors.New("requested PID does not match the current process")
 	// ErrStopTimeout is returned by stop when the child is still alive after the timeout and force is not set.
 	ErrStopTimeout = errors.New("timed out waiting for the process to exit")
 	// ErrShuttingDown is returned by start once the proxy has received a termination signal.
@@ -77,7 +77,8 @@ type StartRequest struct {
 
 // StopRequest is the body of POST /v1/process/stop.
 type StopRequest struct {
-	ExecutionID string `json:"executionId"`
+	// PID is the positive PID of the child to stop.
+	PID int `json:"pid"`
 	// TimeoutSeconds is how long to wait for the child to exit after SIGTERM. Must be > 0 unless Force is set.
 	TimeoutSeconds float64 `json:"timeoutSeconds"`
 	// Force sends SIGKILL after the timeout (immediately when the timeout is 0).
@@ -94,17 +95,17 @@ type LaunchEnvironment struct {
 
 // Status is the response of GET /v1/process and of start/stop.
 type Status struct {
-	State       State  `json:"state"`
-	Role        Role   `json:"role,omitempty"`
-	ConfigPath  string `json:"configPath,omitempty"`
-	ExecutionID string `json:"executionId,omitempty"`
+	State      State  `json:"state"`
+	Role       Role   `json:"role,omitempty"`
+	ConfigPath string `json:"configPath,omitempty"`
 	// ExitCode is set once the child has exited. It is -1 when the child was killed by a signal.
 	ExitCode *int `json:"exitCode,omitempty"`
 	// Signal is the name of the signal that terminated the child, if any.
 	Signal string `json:"signal,omitempty"`
 	// Output is the tail of the child's stdout/stderr, available after exit.
 	Output string `json:"output,omitempty"`
-	// PID and LaunchEnvironment are present together only for a running child.
-	PID               *int               `json:"pid,omitempty"`
+	// PID identifies the running or last exited child and is absent when idle.
+	PID *int `json:"pid,omitempty"`
+	// LaunchEnvironment is present only while the child is running.
 	LaunchEnvironment *LaunchEnvironment `json:"launchEnvironment,omitempty"`
 }

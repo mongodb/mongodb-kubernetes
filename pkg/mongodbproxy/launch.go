@@ -71,8 +71,8 @@ func envValue(env []string, key string) string {
 }
 
 func (r StopRequest) validate() error {
-	if r.ExecutionID == "" {
-		return fmt.Errorf("%w: executionId is required", ErrInvalidRequest)
+	if r.PID <= 0 {
+		return fmt.Errorf("%w: pid must be positive", ErrInvalidRequest)
 	}
 	if r.Role != RoleMain && r.Role != RoleEphemeral {
 		return fmt.Errorf("%w: role must be %q or %q", ErrInvalidRequest, RoleMain, RoleEphemeral)

@@ -256,7 +256,11 @@ func stopCurrent(s *Supervisor, ctx context.Context, role Role, timeout time.Dur
 	if role == "" {
 		role = status.Role
 	}
-	_, err := s.stopExecution(ctx, status.ExecutionID, role, timeout, force)
+	pid := 0
+	if status.PID != nil {
+		pid = *status.PID
+	}
+	_, err := s.stopExecution(ctx, pid, role, timeout, force)
 	return err
 }
 
@@ -387,7 +391,8 @@ func TestStatusCarriesLaunchMetadataWhileRunning(t *testing.T) {
 	waitDone(t, e)
 
 	st = f.sup.Status()
-	assert.Nil(t, st.PID, "pid is only present while the child runs")
+	require.NotNil(t, st.PID)
+	assert.Equal(t, e.pid, *st.PID)
 	assert.Nil(t, st.LaunchEnvironment, "launch environment is only present while the child runs")
 }
 

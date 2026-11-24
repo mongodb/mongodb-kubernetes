@@ -44,12 +44,12 @@ type handler struct {
 // so that a caller can correlate its request with the proxy's answer without the proxy logging request bodies.
 type requestLog struct {
 	http.ResponseWriter
-	started     time.Time
-	requestID   string
-	executionID string
-	role        Role
-	status      int
-	errorClass  string
+	started    time.Time
+	requestID  string
+	pid        int
+	role       Role
+	status     int
+	errorClass string
 }
 
 func (h *handler) request(w http.ResponseWriter, r *http.Request) *requestLog {
@@ -67,7 +67,7 @@ func (r *requestLog) fields() []any {
 		role = ""
 	}
 	return []any{
-		"request_id", r.requestID, "execution_id", r.executionID,
+		"request_id", r.requestID, "pid", r.pid,
 		"role", role, "http_status", r.status, "error_class", r.errorClass,
 		"duration_ms", float64(time.Since(r.started).Microseconds()) / 1000,
 	}
@@ -77,7 +77,9 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 	call := h.request(w, r)
 	status := h.s.Status()
 	call.role = status.Role
-	call.executionID = status.ExecutionID
+	if status.PID != nil {
+		call.pid = *status.PID
+	}
 	writeJSON(call, http.StatusOK, status)
 	h.log.Debugw("status requested", append(call.fields(), "state", status.State)...)
 }
@@ -99,7 +101,7 @@ func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 		h.fail(call, err)
 		return
 	}
-	call.executionID = e.id
+	call.pid = e.pid
 
 	if req.WaitForExit {
 		// If the client goes away we stop waiting but leave the child alone.
@@ -126,15 +128,13 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	call.role = req.Role
+	call.pid = req.PID
 	if err := req.validate(); err != nil {
 		h.fail(call, err)
 		return
 	}
 	timeout = time.Duration(req.TimeoutSeconds * float64(time.Second))
-	e, err := h.s.stopExecution(r.Context(), req.ExecutionID, req.Role, timeout, req.Force)
-	if e != nil {
-		call.executionID = e.id
-	}
+	e, err := h.s.stopExecution(r.Context(), req.PID, req.Role, timeout, req.Force)
 	if err != nil {
 		h.fail(call, err)
 		return
@@ -152,8 +152,8 @@ func (h *handler) fail(w *requestLog, err error) {
 		status, code = http.StatusConflict, "role_conflict"
 	case errors.Is(err, ErrRoleMismatch):
 		status, code = http.StatusConflict, "role_mismatch"
-	case errors.Is(err, ErrExecutionMismatch):
-		status, code = http.StatusConflict, "execution_mismatch"
+	case errors.Is(err, ErrPIDMismatch):
+		status, code = http.StatusConflict, "pid_mismatch"
 	case errors.Is(err, ErrShuttingDown):
 		status, code = http.StatusServiceUnavailable, "shutting_down"
 	case errors.Is(err, ErrStopTimeout):

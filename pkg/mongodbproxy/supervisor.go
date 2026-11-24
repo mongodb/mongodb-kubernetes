@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -47,7 +46,6 @@ func NewSupervisor(env []string, log *zap.SugaredLogger) *Supervisor {
 
 // Execution is one launched child.
 type Execution struct {
-	id         string
 	role       Role
 	configPath string
 	pid        int
@@ -100,16 +98,15 @@ func (s *Supervisor) statusLocked(e *Execution) Status {
 	if e == nil {
 		return Status{State: StateIdle}
 	}
-	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath, ExecutionID: e.id}
+	pid := e.pid
+	st := Status{State: StateRunning, Role: e.role, ConfigPath: e.configPath, PID: &pid}
 	if e.finished() {
 		st.State = StateExited
 		st.ExitCode = &e.exitCode
 		st.Signal = e.signal
 		st.Output = e.output.String()
 	} else {
-		pid := e.pid
 		launchEnv := e.launchEnv
-		st.PID = &pid
 		st.LaunchEnvironment = &launchEnv
 	}
 	return st
@@ -149,7 +146,6 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 	}
 
 	e := &Execution{
-		id:         uuid.NewString(),
 		role:       req.Role,
 		configPath: req.ConfigPath,
 		pid:        cmd.Process.Pid,
@@ -163,7 +159,7 @@ func (s *Supervisor) Start(req StartRequest) (*Execution, error) {
 		done:   make(chan struct{}),
 	}
 	s.current = e
-	s.log.Infow("process started", "execution_id", e.id, "role", e.role, "configPath", e.configPath, "pid", e.pid)
+	s.log.Infow("process started", "role", e.role, "configPath", e.configPath, "pid", e.pid)
 	go s.wait(e)
 	return e, nil
 }
@@ -177,17 +173,17 @@ func (s *Supervisor) wait(e *Execution) {
 	if ws, ok := e.cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
 		e.signal = ws.Signal().String()
 	}
-	s.log.Infow("process exited", "execution_id", e.id, "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitCode, "signal", e.signal, "uptime_s", time.Since(e.startedAt).Seconds())
+	s.log.Infow("process exited", "role", e.role, "configPath", e.configPath, "pid", e.pid, "exitCode", e.exitCode, "signal", e.signal, "uptime_s", time.Since(e.startedAt).Seconds())
 	close(e.done)
 }
 
 // stopExecution stops the selected child and returns it for the response.
 //   - already down: success
-//   - execution ID or role does not match: no signal
+//   - PID or role does not match: no signal
 //   - timeout elapsed without force: ErrStopTimeout, the child is left alone
 //   - timeout elapsed with force: SIGKILL, then wait for exit
 //   - timeout 0 with force: SIGKILL right away
-func (s *Supervisor) stopExecution(ctx context.Context, executionID string, role Role, timeout time.Duration, force bool) (*Execution, error) {
+func (s *Supervisor) stopExecution(ctx context.Context, pid int, role Role, timeout time.Duration, force bool) (*Execution, error) {
 	s.mu.Lock()
 	e := s.current
 	s.mu.Unlock()
@@ -195,8 +191,8 @@ func (s *Supervisor) stopExecution(ctx context.Context, executionID string, role
 	if e == nil {
 		return nil, nil
 	}
-	if executionID != e.id {
-		return nil, ErrExecutionMismatch
+	if pid != e.pid {
+		return nil, ErrPIDMismatch
 	}
 	if role != e.role {
 		return nil, ErrRoleMismatch
@@ -211,7 +207,7 @@ func (s *Supervisor) stopExecution(ctx context.Context, executionID string, role
 		return e, s.kill(ctx, e)
 	}
 
-	s.log.Infow("sending SIGTERM", "execution_id", e.id, "role", e.role, "pid", e.pid, "timeout", timeout.String(), "force", force)
+	s.log.Infow("sending SIGTERM", "role", e.role, "pid", e.pid, "timeout", timeout.String(), "force", force)
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
 		return e, fmt.Errorf("signalling the process: %w", err)
 	}
@@ -231,7 +227,7 @@ func (s *Supervisor) stopExecution(ctx context.Context, executionID string, role
 }
 
 func (s *Supervisor) kill(ctx context.Context, e *Execution) error {
-	s.log.Warnw("sending SIGKILL", "execution_id", e.id, "role", e.role, "pid", e.pid)
+	s.log.Warnw("sending SIGKILL", "role", e.role, "pid", e.pid)
 	if err := e.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("killing the process: %w", err)
 	}
@@ -255,7 +251,7 @@ func (s *Supervisor) Terminate(ctx context.Context) error {
 	if e == nil || e.finished() {
 		return nil
 	}
-	s.log.Infow("forwarding SIGTERM to the child", "execution_id", e.id, "role", e.role, "pid", e.pid)
+	s.log.Infow("forwarding SIGTERM to the child", "role", e.role, "pid", e.pid)
 	if err := e.signalProcess(syscall.SIGTERM); err != nil {
 		return fmt.Errorf("forwarding SIGTERM: %w", err)
 	}

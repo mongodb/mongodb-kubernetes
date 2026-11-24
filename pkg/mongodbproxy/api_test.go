@@ -63,13 +63,20 @@ func TestAPIStartGetStop(t *testing.T) {
 	assert.Equal(t, RoleMain, running.Role)
 	assert.Nil(t, running.ExitCode)
 
-	id := st.ExecutionID
-	require.NotEmpty(t, id)
-	code = post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: id, TimeoutSeconds: 5, Role: RoleMain}, &st)
+	require.NotNil(t, st.PID)
+	pid := *st.PID
+	require.NotNil(t, running.LaunchEnvironment)
+	st = Status{}
+	code = post(t, srv.URL+"/v1/process/stop", StopRequest{PID: pid, TimeoutSeconds: 5, Role: RoleMain}, &st)
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, StateExited, st.State)
-	assert.Equal(t, id, st.ExecutionID)
-	assert.Equal(t, StateExited, getStatus(t, srv).State)
+	require.NotNil(t, st.PID)
+	assert.Equal(t, pid, *st.PID)
+	exited := getStatus(t, srv)
+	assert.Equal(t, StateExited, exited.State)
+	require.NotNil(t, exited.PID)
+	assert.Equal(t, pid, *exited.PID)
+	assert.Nil(t, exited.LaunchEnvironment)
 }
 
 func TestAPIStartWaitForExitReturnsExitStatus(t *testing.T) {
@@ -80,6 +87,9 @@ func TestAPIStartWaitForExitReturnsExitStatus(t *testing.T) {
 		StartRequest{ConfigPath: f.config("eph", "exit:7"), Role: RoleEphemeral, WaitForExit: true}, &st)
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, StateExited, st.State)
+	require.NotNil(t, st.PID)
+	assert.Positive(t, *st.PID)
+	assert.Nil(t, st.LaunchEnvironment)
 	require.NotNil(t, st.ExitCode)
 	assert.Equal(t, 7, *st.ExitCode)
 }
@@ -98,9 +108,10 @@ func TestAPIGetAndStopAnswerWhileStartWaits(t *testing.T) {
 	f.waitReady(cfg)
 	running := getStatus(t, srv)
 	assert.Equal(t, StateRunning, running.State)
+	require.NotNil(t, running.PID)
 
 	var st Status
-	assert.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: running.ExecutionID, TimeoutSeconds: 5, Role: RoleEphemeral}, &st))
+	assert.Equal(t, http.StatusOK, post(t, srv.URL+"/v1/process/stop", StopRequest{PID: *running.PID, TimeoutSeconds: 5, Role: RoleEphemeral}, &st))
 
 	select {
 	case waited := <-done:
@@ -124,9 +135,11 @@ func TestAPIErrors(t *testing.T) {
 		"start with unknown json":   {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "shell": "rm -rf /"}, http.StatusBadRequest, "invalid_request"},
 		"start with a reserved arg": {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "other": map[string]any{"args": []string{"--fork"}}}, http.StatusBadRequest, "invalid_request"},
 		"start with env as object":  {"/v1/process/start", map[string]any{"configPath": main, "role": "main", "other": map[string]any{"env": map[string]string{"LD_PRELOAD": "/x"}}}, http.StatusBadRequest, "invalid_request"},
-		"stop without timeout":      {"/v1/process/stop", StopRequest{ExecutionID: "id", Role: RoleMain}, http.StatusBadRequest, "invalid_request"},
-		"stop without execution":    {"/v1/process/stop", StopRequest{TimeoutSeconds: 1, Role: RoleMain}, http.StatusBadRequest, "invalid_request"},
-		"stop with bad role":        {"/v1/process/stop", StopRequest{ExecutionID: "id", TimeoutSeconds: 1, Role: "other"}, http.StatusBadRequest, "invalid_request"},
+		"stop without timeout":      {"/v1/process/stop", StopRequest{PID: 1, Role: RoleMain}, http.StatusBadRequest, "invalid_request"},
+		"stop without pid":          {"/v1/process/stop", StopRequest{TimeoutSeconds: 1, Role: RoleMain}, http.StatusBadRequest, "invalid_request"},
+		"force stop without pid":    {"/v1/process/stop", StopRequest{Force: true, Role: RoleMain}, http.StatusBadRequest, "invalid_request"},
+		"stop with negative pid":    {"/v1/process/stop", StopRequest{PID: -1, Force: true, Role: RoleMain}, http.StatusBadRequest, "invalid_request"},
+		"stop with bad role":        {"/v1/process/stop", StopRequest{PID: 1, TimeoutSeconds: 1, Role: "other"}, http.StatusBadRequest, "invalid_request"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -144,8 +157,9 @@ func TestAPIErrors(t *testing.T) {
 		assert.Equal(t, http.StatusConflict, post(t, srv.URL+"/v1/process/start", StartRequest{ConfigPath: main, Role: RoleEphemeral}, &e))
 		assert.Equal(t, "role_conflict", e.Code)
 
-		id := getStatus(t, srv).ExecutionID
-		assert.Equal(t, http.StatusConflict, post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: id, TimeoutSeconds: 1, Role: RoleEphemeral}, &e))
+		pid := getStatus(t, srv).PID
+		require.NotNil(t, pid)
+		assert.Equal(t, http.StatusConflict, post(t, srv.URL+"/v1/process/stop", StopRequest{PID: *pid, TimeoutSeconds: 1, Role: RoleEphemeral}, &e))
 		assert.Equal(t, "role_mismatch", e.Code)
 	})
 
@@ -156,29 +170,32 @@ func TestAPIErrors(t *testing.T) {
 		f.waitReady(stubborn)
 
 		var e errorResponse
-		id := getStatus(t, srv).ExecutionID
-		assert.Equal(t, http.StatusGatewayTimeout, post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: id, TimeoutSeconds: 0.3, Role: RoleMain}, &e))
+		pid := getStatus(t, srv).PID
+		require.NotNil(t, pid)
+		assert.Equal(t, http.StatusGatewayTimeout, post(t, srv.URL+"/v1/process/stop", StopRequest{PID: *pid, TimeoutSeconds: 0.3, Role: RoleMain}, &e))
 		assert.Equal(t, "stop_timeout", e.Code)
 	})
 }
 
-func TestAPIStopDoesNotSignalReplacementExecution(t *testing.T) {
+func TestAPIStopDoesNotSignalReplacementProcess(t *testing.T) {
 	f, srv := newServer(t)
 	first := f.start(RoleMain, "exit:0")
 	waitDone(t, first)
 	old := getStatus(t, srv)
 	second := f.start(RoleMain, "run")
 	current := getStatus(t, srv)
-	require.NotEqual(t, current.ExecutionID, old.ExecutionID)
+	require.NotNil(t, old.PID)
+	require.NotNil(t, current.PID)
+	require.NotEqual(t, *current.PID, *old.PID)
 
 	var e errorResponse
-	code := post(t, srv.URL+"/v1/process/stop", StopRequest{ExecutionID: old.ExecutionID, Role: RoleMain, Force: true}, &e)
+	code := post(t, srv.URL+"/v1/process/stop", StopRequest{PID: *old.PID, Role: RoleMain, Force: true}, &e)
 	require.Equal(t, http.StatusConflict, code)
-	require.Equal(t, "execution_mismatch", e.Code)
+	require.Equal(t, "pid_mismatch", e.Code)
 	require.False(t, second.finished())
 }
 
-func TestAPIStartLogsRequestAndExecutionIDs(t *testing.T) {
+func TestAPIStartLogsRequestIDAndPID(t *testing.T) {
 	f, logs := observedFixture(t)
 	config := f.config("main", "run")
 	body := `{"role":"main","configPath":"` + config + `"}`
@@ -195,18 +212,19 @@ func TestAPIStartLogsRequestAndExecutionIDs(t *testing.T) {
 	require.Len(t, entries, 1)
 	fields := entries[0].ContextMap()
 	assert.Equal(t, "start-1", fields["request_id"])
-	executionID := f.sup.Status().ExecutionID
-	assert.Equal(t, executionID, fields["execution_id"])
+	pid := f.sup.Status().PID
+	require.NotNil(t, pid)
+	assert.EqualValues(t, *pid, fields["pid"])
 	started := logs.FilterMessage("process started").All()
 	require.Len(t, started, 1)
-	assert.Equal(t, executionID, started[0].ContextMap()["execution_id"])
+	assert.EqualValues(t, *pid, started[0].ContextMap()["pid"])
 	assert.EqualValues(t, http.StatusOK, fields["http_status"])
 	assert.Equal(t, "", fields["error_class"])
 	assert.NotContains(t, fields, "configPath")
 }
 
 func TestAPILogsRequestCorrelation(t *testing.T) {
-	const stopBody = `{"executionId":"absent","role":"main","timeoutSeconds":1}`
+	const stopBody = `{"pid":1,"role":"main","timeoutSeconds":1}`
 	for _, tc := range []struct {
 		name, path, body, header, message string
 		status                            int
@@ -217,7 +235,7 @@ func TestAPILogsRequestCorrelation(t *testing.T) {
 		{"unsafe header", "/v1/process/stop", stopBody, "sensitive value", "stop requested", http.StatusOK, "", true},
 		{"long header", "/v1/process/stop", stopBody, strings.Repeat("a", 129), "stop requested", http.StatusOK, "", true},
 		{"invalid body", "/v1/process/start", `{"credential":"secret"}`, "agent-call-2", "start requested", http.StatusBadRequest, "invalid_request", false},
-		{"invalid role", "/v1/process/stop", `{"executionId":"absent","role":"secret","timeoutSeconds":1}`, "agent-call-3", "stop requested", http.StatusBadRequest, "invalid_request", false},
+		{"invalid role", "/v1/process/stop", `{"pid":1,"role":"secret","timeoutSeconds":1}`, "agent-call-3", "stop requested", http.StatusBadRequest, "invalid_request", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, logs := observedFixture(t)
