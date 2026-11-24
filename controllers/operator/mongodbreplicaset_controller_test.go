@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -44,6 +46,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/mock"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/watch"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/images"
@@ -56,6 +59,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
+	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
 )
 
 type ReplicaSetBuilder struct {
@@ -116,6 +120,33 @@ func TestReplicaSetRace(t *testing.T) {
 	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs, rs2, rs3)
+}
+
+// The credential hash is computed before the options are built, so rotating the key must reach the
+// applied pod template through the WithAgentCredentialHash option.
+func TestReplicaSetAgentCredentialHashTracksKeySecret(t *testing.T) {
+	ctx := context.Background()
+	rs := DefaultReplicaSetBuilder().Build()
+	reconciler, kubeClient, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
+
+	appliedHash := func() string {
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, rs.ObjectKey(), sts))
+		hash := sts.Spec.Template.Annotations[construct.AgentSettingsHash]
+		require.NotEmpty(t, hash)
+		return hash
+	}
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+	original := appliedHash()
+
+	keySecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, mdbv1.AgentAPIKeySecretName(om.TestGroupID)))
+	require.NoError(t, err)
+	keySecret.Data[util.OmAgentApiKey] = []byte("rotated-key")
+	require.NoError(t, kubeClient.UpdateSecret(ctx, keySecret))
+
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+	assert.NotEqual(t, original, appliedHash())
 }
 
 func TestReplicaSetClusterReconcileContainerImages(t *testing.T) {
@@ -979,10 +1010,13 @@ func TestReplicaSet_ConfigMapAndSecretWatched(t *testing.T) {
 	reconciler, client, _ := defaultReplicaSetReconciler(ctx, nil, "", "", rs, architectures.NonStatic)
 
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+	require.NoError(t, client.Get(ctx, rs.ObjectKey(), rs))
+	require.NotEmpty(t, rs.Status.ProjectId)
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}:    {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:                 {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Status.ProjectId+"-group-secret")}: {rs.ObjectKey()},
 	}
 
 	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
@@ -998,12 +1032,14 @@ func TestTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 
 	addKubernetesTlsResources(ctx, client, rs)
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
+	require.NoError(t, client.Get(ctx, rs.ObjectKey(), rs))
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "custom-ca")}:                   {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.GetName()+"-cert")}:             {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}:    {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:                 {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, "custom-ca")}:                      {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.GetName()+"-cert")}:                {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Status.ProjectId+"-group-secret")}: {rs.ObjectKey()},
 	}
 
 	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
@@ -1012,8 +1048,9 @@ func TestTLSResourcesAreWatchedAndUnwatched(t *testing.T) {
 	checkReconcileSuccessful(ctx, t, reconciler, rs, client)
 
 	expected = map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, rs.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}:    {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Spec.Credentials)}:                 {kube.ObjectKey(mock.TestNamespace, rs.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, rs.Status.ProjectId+"-group-secret")}: {rs.ObjectKey()},
 	}
 
 	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
@@ -1329,6 +1366,32 @@ func TestReplicaSetAnnotations_PreservedOnSubsequentFailure(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, lastSpec.Members,
 		"Should still reflect previous successful state (3 members, not 5)")
+}
+
+func TestVaultAnnotationsIncludeResolvedAgentProject(t *testing.T) {
+	t.Setenv("SECRET_BACKEND", vault.VaultBackend)
+	for _, oldProjectID := range []string{"", "old-project"} {
+		t.Run("status project="+oldProjectID, func(t *testing.T) {
+			rs := DefaultReplicaSetBuilder().Build()
+			rs.Status.ProjectId = oldProjectID
+			keyPath := "/v1/secret/metadata/custom-database/" + rs.Namespace + "/resolved-project-group-secret"
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.URL.Path != keyPath {
+					http.NotFound(w, req)
+					return
+				}
+				_, _ = w.Write([]byte(`{"data":{"current_version":7}}`))
+			}))
+			t.Cleanup(server.Close)
+			vaultClient, err := vault.NewVaultClientForTesting(server.URL, "test-token", vault.VaultConfiguration{DatabaseSecretPath: "custom-database"})
+			require.NoError(t, err)
+			helper := ReplicaSetReconcilerHelper{
+				resource:   rs,
+				reconciler: &ReconcileMongoDbReplicaSet{ReconcileCommonController: &ReconcileCommonController{SecretClient: secrets.SecretClient{VaultClient: vaultClient}}},
+			}
+			assert.Equal(t, map[string]string{"resolved-project-group-secret": "7"}, helper.getVaultAnnotations("resolved-project"))
+		})
+	}
 }
 
 // TestVaultAnnotations_NotWrittenWhenDisabled verifies that vault annotations are NOT
@@ -1947,7 +2010,7 @@ func TestPublishAutomationConfigFirst(t *testing.T) {
 						},
 					},
 				}
-			}, architectures.NonStatic, zap.S())
+			}(tc.mdb), architectures.NonStatic, zap.S())
 
 			assert.Equal(t, tc.expectedPublishACFirst, result)
 		})
