@@ -2334,6 +2334,11 @@ func hashBytes(bytes []byte) string {
 	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hashBytes[:])
 }
 
+const (
+	x509AuthRequiredMsg  = "x509 search authentication requires an X509 auth mode enabled on the source MongoDB (mongod disables the MONGODB-X509 mechanism otherwise)"
+	scramAuthRequiredMsg = "MongoDBSearch requires SCRAM authentication to be enabled on the source MongoDB when using SCRAM sync-source authentication"
+)
+
 // sourceAuthModes returns the source's configured authentication modes and
 // whether the operator can inspect them. External sources and unknown
 // implementations are not checkable.
@@ -2354,6 +2359,26 @@ func sourceAuthModes(db SearchSourceDBResource) ([]string, bool) {
 	}
 }
 
+// sourceAuthEnabled reports whether authentication is enabled on the source and whether the
+// operator can inspect it. Community sources have no enabled flag: a non-empty mode list is
+// the only signal. External sources are unverifiable. sourceAuthModes stays mode-only on
+// purpose: a disabled enterprise source still lists its modes, and the auth gates compare the
+// two to tell a mode the source would honour from one it would silently drop.
+func sourceAuthEnabled(db SearchSourceDBResource) (enabled, checkable bool) {
+	switch src := db.(type) {
+	case EnterpriseResourceSearchSource:
+		auth := src.Spec.GetSecurity().Authentication
+		return auth != nil && auth.Enabled, true
+	case *ShardedInternalSearchSource:
+		auth := src.Spec.GetSecurity().Authentication
+		return auth != nil && auth.Enabled, true
+	case *CommunitySearchSource:
+		return true, true
+	default:
+		return false, false
+	}
+}
+
 // ValidateX509AuthSource enforces the x509 source requirement at reconcile time: a search
 // authenticating with x509 needs an X509 auth mode on the source MongoDB, because mongod
 // disables the MONGODB-X509 SASL mechanism otherwise and the deployment would only fail at
@@ -2367,10 +2392,13 @@ func ValidateX509AuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRes
 	if !checkable {
 		return nil
 	}
+	if enabled, _ := sourceAuthEnabled(db); !enabled {
+		return xerrors.New(x509AuthRequiredMsg)
+	}
 	if slices.Contains(modes, util.X509) {
 		return nil
 	}
-	return xerrors.New("x509 search authentication requires an X509 auth mode enabled on the source MongoDB (mongod disables the MONGODB-X509 mechanism otherwise)")
+	return xerrors.New(x509AuthRequiredMsg)
 }
 
 // keyFilePasswordContentHash returns a hash of every configured keyFilePassword secret's content
@@ -2911,6 +2939,13 @@ func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRe
 		return nil
 	}
 
+	// A source with authentication disabled configures none of the modes it lists, so the
+	// check below would read a mode the source would silently drop. An enterprise source
+	// that lists no modes keeps its own verdict.
+	if enabled, _ := sourceAuthEnabled(db); !enabled && len(authModes) > 0 {
+		return xerrors.New(scramAuthRequiredMsg)
+	}
+
 	for _, authMode := range authModes {
 		// Check for SCRAM, SCRAM-SHA-1, or SCRAM-SHA-256
 		if strings.HasPrefix(strings.ToUpper(authMode), util.SCRAM) {
@@ -2919,7 +2954,7 @@ func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRe
 	}
 
 	if len(authModes) > 0 {
-		return xerrors.New("MongoDBSearch requires SCRAM authentication to be enabled on the source MongoDB when using SCRAM sync-source authentication")
+		return xerrors.New(scramAuthRequiredMsg)
 	}
 
 	return nil

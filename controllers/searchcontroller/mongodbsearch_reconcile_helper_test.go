@@ -3815,6 +3815,13 @@ func TestValidateSCRAMAuthSource(t *testing.T) {
 			}
 		})
 	}
+	// newEnterpriseMongoDBAuthDisabled is newEnterpriseMongoDB with authentication turned off:
+	// the modes stay in the spec, but the enterprise controller configures none of them.
+	newEnterpriseMongoDBAuthDisabled := func(authModes ...mdbv1.AuthMode) *mdbv1.MongoDB {
+		mdb := newEnterpriseMongoDB(authModes...)
+		mdb.Spec.Security.Authentication.Enabled = false
+		return mdb
+	}
 
 	t.Run("no-op when the search uses x509 auth", func(t *testing.T) {
 		assert.NoError(t, newHelper(newX509Search(),
@@ -3841,6 +3848,13 @@ func TestValidateSCRAMAuthSource(t *testing.T) {
 	t.Run("SCRAM-auth search with an enterprise source with SCRAM modes passes", func(t *testing.T) {
 		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"),
 			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("X509")))).validateSCRAMAuthSource())
+	})
+
+	t.Run("SCRAM-auth search with an enterprise source with authentication disabled rejected", func(t *testing.T) {
+		err := newHelper(newTestMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDBAuthDisabled(mdbv1.AuthMode("SCRAM-SHA-256")))).validateSCRAMAuthSource()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
 	})
 
 	t.Run("SCRAM-auth search with a sharded internal source without SCRAM modes rejected", func(t *testing.T) {
@@ -3870,8 +3884,8 @@ func TestValidateSCRAMAuthSource(t *testing.T) {
 	})
 
 	t.Run("SCRAM-auth search with an empty-modes source passes", func(t *testing.T) {
-		// Mirrors the adapters' former len(modes) > 0 guard: auth not enabled on the
-		// source is not this validator's concern.
+		// Mirrors the adapters' former len(modes) > 0 guard: an enabled source with no
+		// configured modes is not this validator's concern.
 		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"),
 			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB())).validateSCRAMAuthSource())
 	})
@@ -3881,6 +3895,71 @@ func TestValidateSCRAMAuthSource(t *testing.T) {
 		external := NewExternalSearchSource("test-ns", &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mdb.example.com:27017"}})
 		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"), external).validateSCRAMAuthSource())
 	})
+}
+
+// TestValidateX509AuthSource covers the x509 source-auth gate. A disabled enterprise source
+// is the case where modes alone are not enough: the modes stay in the spec, but the enterprise
+// controller configures no mechanism, so the search cannot authenticate at runtime.
+func TestValidateX509AuthSource(t *testing.T) {
+	newEnterpriseSource := func(enabled bool, authModes ...mdbv1.AuthMode) SearchSourceDBResource {
+		return NewEnterpriseResourceSearchSource(&mdbv1.MongoDB{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-mongodb", Namespace: "test-ns"},
+			Spec: mdbv1.MongoDbSpec{
+				DbCommonSpec: mdbv1.DbCommonSpec{
+					Security: &mdbv1.Security{
+						Authentication: &mdbv1.Authentication{
+							Enabled: enabled,
+							Modes:   authModes,
+						},
+					},
+				},
+			},
+		})
+	}
+	newX509Search := func() *searchv1.MongoDBSearch {
+		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.X509 = &searchv1.X509Auth{
+				ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+			}
+		})
+	}
+
+	tests := []struct {
+		name        string
+		search      *searchv1.MongoDBSearch
+		source      SearchSourceDBResource
+		expectedErr string
+	}{
+		{
+			name:   "x509 search with authentication enabled",
+			search: newX509Search(),
+			source: newEnterpriseSource(true, mdbv1.AuthMode("X509")),
+		},
+		{
+			name:        "x509 search with authentication disabled",
+			search:      newX509Search(),
+			source:      newEnterpriseSource(false, mdbv1.AuthMode("X509")),
+			expectedErr: x509AuthRequiredMsg,
+		},
+		{
+			name:        "x509 search with authentication disabled and no modes",
+			search:      newX509Search(),
+			source:      newEnterpriseSource(false),
+			expectedErr: x509AuthRequiredMsg,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateX509AuthSource(tc.search, tc.source)
+			if tc.expectedErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.expectedErr)
+		})
+	}
 }
 
 // newBaseMongotStatefulSet creates a minimal StatefulSet with a mongot container for testing modifications.
@@ -4154,10 +4233,8 @@ func TestReconcile_RemovingLegacyClientCertificateSecretsUpdatesStatefulSet(t *t
 	}
 }
 
-// Rotating the SCRAM sync-source password must change the mongotConfigHash so the mongot
-// pods roll and stage the new value: the password is subPath-mounted and staged to /tmp at
-// pod start, so a running pod never sees a rotated value without a roll. The accessor covers
-// the explicit ref, the operator-default <name>-<user>-password secret, and an omitted key.
+// The password is subPath-mounted, so only a pod restart applies a rotation.
+// Covers the explicit ref, the default <name>-<user>-password secret, and an omitted key.
 func TestReconcile_RotatingSCRAMSourcePasswordRollsStatefulSet(t *testing.T) {
 	tests := []struct {
 		name       string
