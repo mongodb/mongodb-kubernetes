@@ -534,6 +534,16 @@ type OIDCAuth struct {
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Scope *string `json:"scope,omitempty"`
+	// Audience is an optional OAuth2 audience requested at the token endpoint. IdPs that mint an
+	// access token with an aud claim only when the request asks for one (Auth0, Okta) require it.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Audience *string `json:"audience,omitempty"`
+	// Resource is an optional RFC 8707 resource indicator, sent as the `resource` form parameter
+	// for IdPs that scope the token's aud claim to the target resource (Entra v1 style).
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Resource *string `json:"resource,omitempty"`
 }
 
 // SourceTLS configures TLS transport settings for the sync source connection.

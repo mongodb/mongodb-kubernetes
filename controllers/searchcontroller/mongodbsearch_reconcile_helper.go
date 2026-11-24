@@ -2082,6 +2082,14 @@ func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Contex
 		if oidc.Scope != nil {
 			scope = new(*oidc.Scope)
 		}
+		audience := (*string)(nil)
+		if oidc.Audience != nil {
+			audience = new(*oidc.Audience)
+		}
+		resource := (*string)(nil)
+		if oidc.Resource != nil {
+			resource = new(*oidc.Resource)
+		}
 		oidcConfig := &mongot.ConfigOIDC{
 			Environment:      mongot.ConfigOIDCEnvironmentCustom,
 			TokenEndpoint:    oidc.TokenEndpoint,
@@ -2089,6 +2097,8 @@ func (r *MongoDBSearchReconcileHelper) ensureOIDCClientConfig(ctx context.Contex
 			ClientSecretFile: TempOIDCClientSecretPath,
 			IDPCaFile:        OIDCIdPCaMountPath + "/" + OIDCIdPCAConfigMapKey,
 			Scope:            scope,
+			Audience:         audience,
+			Resource:         resource,
 			TLS: &mongot.ConfigOIDCTLS{
 				CertificateAuthorityFile: new(tls.CAMountPath + sourceTLSConfig.CAFileName),
 			},

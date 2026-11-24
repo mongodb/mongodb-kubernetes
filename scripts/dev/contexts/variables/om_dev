@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+# The dev image is tagged <major>.0.0-dev-<OPERATOR_VERSION>. Semver allows no underscores, so they become dashes.
+export OM_DEV_RELEASE_LINE="9"
+export OM_VERSION="dev-${OPERATOR_VERSION//_/-}"
+export ops_manager_version="${OM_VERSION}"
+export CUSTOM_OM_VERSION="${OM_DEV_RELEASE_LINE}.0.0-${OM_VERSION}"
+
+# Build from the unreleased Ops Manager builds instead of the released ones.
+export OM_DEV_BUILD=true

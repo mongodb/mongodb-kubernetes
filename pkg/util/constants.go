@@ -1,7 +1,6 @@
 package util
 
 import (
-	"strings"
 	"time"
 )
 
@@ -262,15 +261,17 @@ const (
 	DefaultS3MaxConnections = 50
 
 	// Ops Manager related constants
-	OmPropertyPrefix           = "OM_PROP_"
-	MmsJvmParamEnvVar          = "CUSTOM_JAVA_MMS_UI_OPTS"
-	BackupDaemonJvmParamEnvVar = "CUSTOM_JAVA_DAEMON_OPTS"
-	GenKeyPath                 = "/mongodb-ops-manager/.mongodb-mms"
-	LatestOmVersion            = "5.0"
-	AppDBAutomationConfigKey   = "cluster-config.json"
-	DefaultAppDbPasswordKey    = "password"
-	AppDbConnectionStringKey   = "connectionString"
-	AppDbProjectIdKey          = "projectId"
+	OmPropertyPrefix                   = "OM_PROP_"
+	MmsJvmParamEnvVar                  = "CUSTOM_JAVA_MMS_UI_OPTS"
+	BackupDaemonJvmParamEnvVar         = "CUSTOM_JAVA_DAEMON_OPTS"
+	GenKeyPath                         = "/mongodb-ops-manager/.mongodb-mms"
+	LatestOmVersion                    = "5.0"
+	AppDBAutomationConfigKey           = "cluster-config.json"
+	DefaultAppDbPasswordKey            = "password"
+	DefaultOpsManagerLicenseKey        = "license"
+	DefaultOpsManagerReleaseReceiptKey = "release-receipt"
+	AppDbConnectionStringKey           = "connectionString"
+	AppDbProjectIdKey                  = "projectId"
 	// Immutable backups were introduced in 8.0.19
 	// This variable is used for validating the OM version when an s3 store with object lock is configured
 	MinimumVersionImmutableBackup = "8.0.19"
@@ -334,9 +335,11 @@ const (
 	TLSCaMountPath   = PvcMmsHomeMountPath + "/tls/ca"
 
 	// Annotation keys used by the operator
-	LastAchievedSpec        = "mongodb.com/v1.lastSuccessfulConfiguration"
-	LastAchievedRsMemberIds = "mongodb.com/v1.lastAchievedRsMemberIds"
-	LastConfiguredRoles     = "mongodb.com/v1.lastConfiguredRoles"
+	LastAchievedSpec                = "mongodb.com/v1.lastSuccessfulConfiguration"
+	LastAchievedRsMemberIds         = "mongodb.com/v1.lastAchievedRsMemberIds"
+	LastConfiguredRoles             = "mongodb.com/v1.lastConfiguredRoles"
+	LicenseRotateIdentityAnnotation = "mongodb.com/license-rotate-identity"
+	LicenseRecomputeAnnotation      = "mongodb.com/license-recompute"
 
 	// Migration annotation keys. MigrationDryRunAnnotation triggers migration dry-run mode: when set to "true"
 	// on a MongoDB CR, the operator launches a connectivity validation Job instead of performing the
@@ -394,6 +397,8 @@ const (
 	UserFinalizer = "mongodb.com/v1.userRemovalFinalizer"
 
 	SearchMetricsForwarderFinalizer = "mongodb.com/v1.searchMongotHostsRemovalFinalizer"
+
+	OpsManagerLicenseFinalizer = "mongodb.com/v1.opsManagerLicenseRemovalFinalizer"
 )
 
 const (
@@ -427,13 +432,7 @@ const (
 // "operator specific" part of the version tag
 var OperatorVersion string
 
-var LogAutomationConfigDiff string
-
 var OfficialMongodbRepoUrls = []string{"docker.io/mongodb", "quay.io/mongodb"}
-
-func ShouldLogAutomationConfigDiff() bool {
-	return strings.EqualFold(LogAutomationConfigDiff, "true")
-}
 
 const (
 	TWENTY_FOUR_HOURS = 24 * time.Hour
