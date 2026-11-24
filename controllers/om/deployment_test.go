@@ -173,6 +173,49 @@ func TestConfigureTLS_ManagedCertificate(t *testing.T) {
 		assert.Equal(t, serverCAPath, tlsConfig["CAFilePath"])
 		assert.NotContains(t, tlsConfig, "clusterCAFilePath")
 	})
+
+	t.Run("a new client CA path replaces the previous one", func(t *testing.T) {
+		d := Deployment{"tls": map[string]any{"clusterCAFilePath": util.TLSClusterCaMountPath + "/OLDHASH"}}
+		d.ConfigureTLS(managed, serverCAPath, clientCAPath)
+		assert.Equal(t, clientCAPath, d["tls"].(map[string]any)["clusterCAFilePath"])
+	})
+}
+
+// TestConfigureTLS_RemovesTheManagedClientCAPath covers a deployment that stops using the
+// operator-managed client CA, for example when managedCertificate is removed to go back to legacy
+// TLS. The automation config read from Ops Manager still has the path, and it has to go, because
+// the pods no longer mount that CA.
+func TestConfigureTLS_RemovesTheManagedClientCAPath(t *testing.T) {
+	legacy := &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true, CA: "issuer-ca"}}
+	legacyCAPath := util.TLSCaMountPath + "/ca-pem"
+
+	t.Run("the path the operator wrote is removed", func(t *testing.T) {
+		d := Deployment{"tls": map[string]any{
+			"CAFilePath":            util.TLSCaMountPath + "/SERVERHASH",
+			"clusterCAFilePath":     util.TLSClusterCaMountPath + "/CLIENTHASH",
+			"clientCertificateMode": "REQUIRE",
+		}}
+		d.ConfigureTLS(legacy, legacyCAPath, "")
+		assert.Equal(t, map[string]any{"CAFilePath": legacyCAPath, "clientCertificateMode": "REQUIRE"}, d["tls"])
+	})
+
+	t.Run("a managed deployment that no longer needs client certificates", func(t *testing.T) {
+		d := Deployment{"tls": map[string]any{"clusterCAFilePath": util.TLSClusterCaMountPath + "/CLIENTHASH"}}
+		d.ConfigureTLS(&mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}, util.TLSCaMountPath+"/SERVERHASH", "")
+		assert.NotContains(t, d["tls"], "clusterCAFilePath")
+	})
+
+	t.Run("a path the operator did not write is kept", func(t *testing.T) {
+		d := Deployment{"tls": map[string]any{"clusterCAFilePath": "/etc/custom/client-ca.pem"}}
+		d.ConfigureTLS(legacy, legacyCAPath, "")
+		assert.Equal(t, "/etc/custom/client-ca.pem", d["tls"].(map[string]any)["clusterCAFilePath"])
+	})
+
+	t.Run("a deployment without the path is unchanged", func(t *testing.T) {
+		d := Deployment{"tls": map[string]any{"CAFilePath": legacyCAPath}}
+		d.ConfigureTLS(legacy, legacyCAPath, "")
+		assert.Equal(t, map[string]any{"CAFilePath": legacyCAPath}, d["tls"])
+	})
 }
 
 // TestMergeDeployment_BigReplicaset ensures that adding a big replica set (> 7 members) works correctly and no more than

@@ -1649,6 +1649,36 @@ func isLegacyTLSAdoption(previous *mdbv1.MongoDbSpec, current *mdbv1.Security) b
 	return previous != nil && mdbv1.IsMigratingToManagedCertificate(previous.GetSecurity(), current)
 }
 
+// isUnfinishedMigrationRollback reports whether the customer removed managedCertificate (from resource spec) before the
+// migration from legacy TLS to managed certificates finished. That is the case when all of these are true:
+//   - the spec asks for legacy TLS again: TLS is enabled and managedCertificate is not set,
+//   - the deployment last reached Running with legacy TLS, so the migration never finished,
+//   - the StatefulSet still mounts the managed certificates, so the migration had already started.
+//
+// The automation config is then updated before the pods, because a restarted pod only has the
+// legacy files. The pods that haven't restarted yet find the legacy files in their managed -pem
+// secrets, where they were copied at the start of the migration.
+func isUnfinishedMigrationRollback(lastAchieved, current *mdbv1.Security, sts appsv1.StatefulSet) bool {
+	if !current.IsTLSEnabled() || current.IsManagedCertificateEnabled() {
+		return false
+	}
+	if !lastAchieved.IsTLSEnabled() || lastAchieved.IsManagedCertificateEnabled() {
+		return false
+	}
+	return mountsManagedCertificates(sts)
+}
+
+// mountsManagedCertificates reports whether the StatefulSet's pods mount the operator-managed
+// member certificate.
+func mountsManagedCertificates(sts appsv1.StatefulSet) bool {
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == util.SecretVolumeName && volume.Secret != nil {
+			return strings.HasSuffix(volume.Secret.SecretName, "-managed-cert"+certs.OperatorGeneratedCertSuffix)
+		}
+	}
+	return false
+}
+
 // Old agents may never converge on a changed CA. Publish its path, roll the pods, then wait for the replacement agents.
 func reconcileDatabaseRollout(publishFirst, managedCAChanged bool, publish func(bool) workflow.Status, roll func() workflow.Status) workflow.Status {
 	if managedCAChanged {

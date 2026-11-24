@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
@@ -42,6 +43,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/configmap"
 	"github.com/mongodb/mongodb-kubernetes/pkg/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/pkg/test"
+	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
@@ -1243,4 +1245,318 @@ func TestMultiReplicaSetManagedCertificate_DisallowedIssuerFailsReconcile(t *tes
 
 	assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
 	assert.Contains(t, mrs.Status.Message, "issuerRef security.managedCertificate.server.issuerRef points at ClusterIssuer/prod-ca")
+}
+
+// TestReplicaSetManagedCertificate_RollbackToLegacyRemovesTheClientCAPath checks that removing
+// managedCertificate to go back to legacy TLS also removes the operator-managed client CA path from
+// the automation config. Legacy pods don't mount that CA, so a path left behind would make mongod
+// fail to start on every pod that has been switched back.
+func TestReplicaSetManagedCertificate_RollbackToLegacyRemovesTheClientCAPath(t *testing.T) {
+	ctx := context.Background()
+	x509Auth := &mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{mdbv1.AuthMode(util.X509)}, InternalCluster: util.X509}
+	rs := DefaultReplicaSetBuilder().SetMembers(1).SetSecurity(mdbv1.Security{
+		ManagedCertificate: &mdbv1.ManagedCertificate{},
+		Authentication:     x509Auth,
+	}).Build()
+
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{Ready: true})
+	addKubernetesTlsResources(ctx, kubeClient, rs)
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	issueManagedCertificates(ctx, t, kubeClient, rs.Namespace)
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	require.Equal(t, status.PhaseRunning, rs.Status.Phase, rs.Status.Message)
+	require.Contains(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS(), "clusterCAFilePath")
+
+	// Go back to legacy TLS: the user's certificates and CA, the same authentication.
+	rs.Spec.Security = &mdbv1.Security{
+		TLSConfig:      &mdbv1.TLSConfig{Enabled: true, CA: "custom-ca"},
+		Authentication: x509Auth,
+	}
+	require.NoError(t, kubeClient.Update(ctx, rs))
+
+	_, err = reconciler.Reconcile(ctx, requestFromObject(rs))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+	require.Equal(t, status.PhaseRunning, rs.Status.Phase, rs.Status.Message)
+
+	tlsConfig := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
+	assert.NotContains(t, tlsConfig, "clusterCAFilePath", "the legacy pods don't mount the managed client CA")
+	assert.Equal(t, util.TLSCaMountPath+"/"+tls.CAConfigMapKey, tlsConfig["CAFilePath"])
+}
+
+// halfMigratedReplicaSet deploys a legacy x509 replica set, then puts it in the state a migration to
+// managed certificates leaves behind when it fails before reaching Running: the pods mount the managed
+// member -pem secret, and the automation config already names the managed client CA. memberPEM is
+// what that managed -pem secret holds, given the hash of the legacy member certificate.
+func halfMigratedReplicaSet(ctx context.Context, t *testing.T, memberPEM func(legacyHash string) map[string]string) (*mdbv1.MongoDB, kubernetesClient.Client, *ReconcileMongoDbReplicaSet, *om.CachedOMConnectionFactory) {
+	t.Helper()
+	rs := DefaultReplicaSetBuilder().EnableTLS().EnableX509().SetTLSCA("custom-ca").Build()
+	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(rs)
+	addKubernetesTlsResources(ctx, kubeClient, rs)
+	reconciler := newReplicaSetReconciler(ctx, kubeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{Ready: true})
+	checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+	legacyPEM, err := kubeClient.GetSecret(ctx, kube.ObjectKey(rs.Namespace, rs.Name+"-cert-pem"))
+	require.NoError(t, err)
+	legacyHash := string(legacyPEM.Data[util.LatestHashSecretKey])
+	require.NotEmpty(t, legacyHash)
+
+	data := map[string][]byte{}
+	for k, v := range memberPEM(legacyHash) {
+		data[k] = []byte(v)
+	}
+	require.NoError(t, kubeClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: rs.Name + "-managed-cert-pem", Namespace: rs.Namespace}, Data: data}))
+
+	sts := &appsv1.StatefulSet{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts))
+	for i, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == util.SecretVolumeName {
+			sts.Spec.Template.Spec.Volumes[i].Secret.SecretName = rs.Name + "-managed-cert-pem"
+		}
+	}
+	require.NoError(t, kubeClient.Update(ctx, sts))
+
+	require.NoError(t, omConnectionFactory.GetConnection().ReadUpdateDeployment(ctx, func(d om.Deployment) error {
+		d["tls"].(map[string]any)["clusterCAFilePath"] = util.TLSClusterCaMountPath + "/CLIENTHASH"
+		return nil
+	}, zap.S()))
+	return rs, kubeClient, reconciler, omConnectionFactory
+}
+
+func memberSecretVolume(ctx context.Context, t *testing.T, kubeClient kubernetesClient.Client, rs *mdbv1.MongoDB) string {
+	t.Helper()
+	sts := &appsv1.StatefulSet{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts))
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == util.SecretVolumeName {
+			return volume.Secret.SecretName
+		}
+	}
+	return ""
+}
+
+// TestReplicaSetManagedCertificate_UnfinishedMigrationRollback covers a customer who removes
+// managedCertificate because the migration from legacy TLS did not finish.
+func TestReplicaSetManagedCertificate_UnfinishedMigrationRollback(t *testing.T) {
+	t.Run("goes back to the legacy certificates", func(t *testing.T) {
+		ctx := context.Background()
+		// the managed -pem secret holds the legacy certificate next to the managed one, as the
+		// migration left it
+		rs, kubeClient, reconciler, omConnectionFactory := halfMigratedReplicaSet(ctx, t, func(legacyHash string) map[string]string {
+			return map[string]string{
+				util.LatestHashSecretKey: "MANAGEDHASH", util.PreviousHashSecretKey: legacyHash,
+				"MANAGEDHASH": "managed member cert", legacyHash: "legacy member cert",
+			}
+		})
+
+		checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+		assert.Equal(t, rs.Name+"-cert-pem", memberSecretVolume(ctx, t, kubeClient, rs), "the pods go back to the legacy -pem secret")
+		tlsConfig := omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS()
+		assert.NotContains(t, tlsConfig, "clusterCAFilePath")
+		assert.Equal(t, util.TLSCaMountPath+"/"+tls.CAConfigMapKey, tlsConfig["CAFilePath"])
+	})
+
+	t.Run("goes back even when the agents are stuck on the managed files", func(t *testing.T) {
+		ctx := context.Background()
+		rs, kubeClient, reconciler, omConnectionFactory := halfMigratedReplicaSet(ctx, t, func(legacyHash string) map[string]string {
+			return map[string]string{
+				util.LatestHashSecretKey: "MANAGEDHASH", util.PreviousHashSecretKey: legacyHash,
+				"MANAGEDHASH": "managed member cert", legacyHash: "legacy member cert",
+			}
+		})
+		// The agents can't reach goal state while the automation config names the managed client CA,
+		// like a migration that failed because of the managed files. Only the update that names the
+		// legacy files gets them going, so the operator must not wait for them before it.
+		conn := omConnectionFactory.GetConnection().(*om.MockedOmConnection)
+		conn.ReadAutomationStatusFunc = func() (*om.AutomationStatus, error) {
+			_, stuck := conn.GetTLS()["clusterCAFilePath"]
+			reached := 1
+			if stuck {
+				reached = 0
+			}
+			var processes []om.ProcessStatus
+			for _, p := range conn.GetProcesses() {
+				processes = append(processes, om.ProcessStatus{Name: p.Name(), LastGoalVersionAchieved: reached})
+			}
+			return &om.AutomationStatus{GoalVersion: 1, Processes: processes}, nil
+		}
+
+		checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+		assert.Equal(t, rs.Name+"-cert-pem", memberSecretVolume(ctx, t, kubeClient, rs))
+		assert.NotContains(t, conn.GetTLS(), "clusterCAFilePath")
+	})
+
+	t.Run("refuses when a renewal dropped the legacy certificate", func(t *testing.T) {
+		ctx := context.Background()
+		rs, kubeClient, reconciler, omConnectionFactory := halfMigratedReplicaSet(ctx, t, func(string) map[string]string {
+			return map[string]string{
+				util.LatestHashSecretKey: "RENEWEDHASH", util.PreviousHashSecretKey: "MANAGEDHASH",
+				"RENEWEDHASH": "renewed member cert", "MANAGEDHASH": "managed member cert",
+			}
+		})
+
+		_, err := reconciler.Reconcile(ctx, requestFromObject(rs))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(rs), rs))
+
+		assert.Equal(t, status.PhaseFailed, rs.Status.Phase)
+		assert.Contains(t, rs.Status.Message, rs.Name+"-managed-cert-pem no longer has the legacy certificate")
+		assert.Equal(t, rs.Name+"-managed-cert-pem", memberSecretVolume(ctx, t, kubeClient, rs), "the pods must not be restarted")
+		assert.Contains(t, omConnectionFactory.GetConnection().(*om.MockedOmConnection).GetTLS(), "clusterCAFilePath", "the automation config must not change")
+	})
+}
+
+func TestIsUnfinishedMigrationRollback(t *testing.T) {
+	legacy := &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true, CA: "issuer-ca"}}
+	managed := &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+	stsMounting := func(secretName string) appsv1.StatefulSet {
+		return appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Volumes: []corev1.Volume{
+			{Name: util.SecretVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: secretName}}},
+		}}}}}
+	}
+	onManaged := stsMounting("my-rs-managed-cert-pem")
+	onLegacy := stsMounting("my-rs-cert-pem")
+
+	for name, tc := range map[string]struct {
+		lastAchieved, current *mdbv1.Security
+		sts                   appsv1.StatefulSet
+		want                  bool
+	}{
+		"managedCertificate removed while the pods mount managed certificates": {legacy, legacy, onManaged, true},
+		"the pods are back on the legacy certificates":                         {legacy, legacy, onLegacy, false},
+		"the migration is still going":                                         {legacy, managed, onManaged, false},
+		"a finished migration is reverted":                                     {managed, legacy, onManaged, false},
+		"the deployment never ran with TLS":                                    {&mdbv1.Security{}, legacy, onManaged, false},
+		"TLS is turned off":                                                    {legacy, &mdbv1.Security{}, onManaged, false},
+		"no StatefulSet yet":                                                   {legacy, legacy, appsv1.StatefulSet{}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isUnfinishedMigrationRollback(tc.lastAchieved, tc.current, tc.sts))
+		})
+	}
+}
+
+// TestShardedClusterManagedCertificate_UnfinishedMigrationRollback checks that the sharded cluster
+// refuses to go back to the legacy certificates when a component's managed -pem secret no longer has
+// the legacy certificate, and goes back when it does. Shard 0 is the component left half-migrated.
+func TestShardedClusterManagedCertificate_UnfinishedMigrationRollback(t *testing.T) {
+	setup := func(ctx context.Context, t *testing.T, memberPEM func(legacyHash string) map[string]string) (*mdbv1.MongoDB, kubernetesClient.Client, reconcile.Reconciler) {
+		t.Helper()
+		sc := test.DefaultClusterBuilder().EnableTLS().EnableX509().SetTLSCA("custom-ca").Build()
+		reconciler, _, kubeClient, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+		require.NoError(t, err)
+		addKubernetesTlsResources(ctx, kubeClient, sc)
+		checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+
+		shard := sc.ShardName(0)
+		legacyPEM, err := kubeClient.GetSecret(ctx, kube.ObjectKey(sc.Namespace, shard+"-cert-pem"))
+		require.NoError(t, err)
+		legacyHash := string(legacyPEM.Data[util.LatestHashSecretKey])
+		require.NotEmpty(t, legacyHash)
+		data := map[string][]byte{}
+		for k, v := range memberPEM(legacyHash) {
+			data[k] = []byte(v)
+		}
+		require.NoError(t, kubeClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: shard + "-managed-cert-pem", Namespace: sc.Namespace}, Data: data}))
+
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, shard), sts))
+		for i, volume := range sts.Spec.Template.Spec.Volumes {
+			if volume.Name == util.SecretVolumeName {
+				sts.Spec.Template.Spec.Volumes[i].Secret.SecretName = shard + "-managed-cert-pem"
+			}
+		}
+		require.NoError(t, kubeClient.Update(ctx, sts))
+		return sc, kubeClient, reconciler
+	}
+	shardSecretVolume := func(ctx context.Context, t *testing.T, kubeClient kubernetesClient.Client, sc *mdbv1.MongoDB) string {
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, sc.ShardName(0)), sts))
+		for _, volume := range sts.Spec.Template.Spec.Volumes {
+			if volume.Name == util.SecretVolumeName {
+				return volume.Secret.SecretName
+			}
+		}
+		return ""
+	}
+
+	t.Run("goes back to the legacy certificates", func(t *testing.T) {
+		ctx := context.Background()
+		sc, kubeClient, reconciler := setup(ctx, t, func(legacyHash string) map[string]string {
+			return map[string]string{
+				util.LatestHashSecretKey: "MANAGEDHASH", util.PreviousHashSecretKey: legacyHash,
+				"MANAGEDHASH": "managed member cert", legacyHash: "legacy member cert",
+			}
+		})
+		checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+		assert.Equal(t, sc.ShardName(0)+"-cert-pem", shardSecretVolume(ctx, t, kubeClient, sc))
+	})
+
+	t.Run("refuses when a renewal dropped the legacy certificate", func(t *testing.T) {
+		ctx := context.Background()
+		sc, kubeClient, reconciler := setup(ctx, t, func(string) map[string]string {
+			return map[string]string{util.LatestHashSecretKey: "RENEWEDHASH", "RENEWEDHASH": "renewed member cert"}
+		})
+		_, err := reconciler.Reconcile(ctx, requestFromObject(sc))
+		require.NoError(t, err)
+		require.NoError(t, kubeClient.Get(ctx, mock.ObjectKeyFromApiObject(sc), sc))
+
+		assert.Equal(t, status.PhaseFailed, sc.Status.Phase)
+		assert.Contains(t, sc.Status.Message, sc.ShardName(0)+"-managed-cert-pem no longer has the legacy certificate")
+		assert.Equal(t, sc.ShardName(0)+"-managed-cert-pem", shardSecretVolume(ctx, t, kubeClient, sc), "the pods must not be restarted")
+	})
+}
+
+// TestMultiReplicaSetManagedCertificate_UnfinishedMigrationRollbackRefused checks that a multi-cluster
+// replica set refuses to go back to the legacy certificates when the managed -pem secret in a member
+// cluster no longer has the legacy certificate. The legacy install uses certsSecretPrefix, so the check
+// also has to work out the managed names from the prefixed legacy ones.
+func TestMultiReplicaSetManagedCertificate_UnfinishedMigrationRollbackRefused(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).SetSecurity(&mdbv1.Security{
+		TLSConfig:                 &mdbv1.TLSConfig{Enabled: true, CA: "some-ca"},
+		CertificatesSecretsPrefix: "some-prefix",
+	}).Build()
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
+	createMultiClusterReplicaSetTLSData(t, ctx, kubeClient, mrs, "some-ca")
+	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, kubeClient, false)
+
+	// the first member cluster is left half-migrated, with a managed -pem secret a renewal emptied
+	clusterName := clusters[0]
+	memberClient := reconciler.memberClusterClientsMap[clusterName]
+	managedPEM := mrs.Name + "-managed-cert-pem"
+	require.NoError(t, memberClient.Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: managedPEM, Namespace: mrs.Namespace},
+		Data:       map[string][]byte{util.LatestHashSecretKey: []byte("RENEWEDHASH"), "RENEWEDHASH": []byte("renewed member cert")},
+	}))
+	stsKey := kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(clusterName)))
+	sts := &appsv1.StatefulSet{}
+	require.NoError(t, memberClient.Get(ctx, stsKey, sts))
+	for i, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == util.SecretVolumeName {
+			sts.Spec.Template.Spec.Volumes[i].Secret.SecretName = managedPEM
+		}
+	}
+	require.NoError(t, memberClient.Update(ctx, sts))
+
+	_, err := reconciler.Reconcile(ctx, requestFromObject(mrs))
+	require.NoError(t, err)
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(mrs.Namespace, mrs.Name), mrs))
+
+	assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
+	assert.Contains(t, mrs.Status.Message, "Member cluster "+clusterName)
+	assert.Contains(t, mrs.Status.Message, managedPEM+" no longer has the legacy certificate of some-prefix-"+mrs.Name+"-cert")
+	require.NoError(t, memberClient.Get(ctx, stsKey, sts))
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name == util.SecretVolumeName {
+			assert.Equal(t, managedPEM, volume.Secret.SecretName, "the pods must not be restarted")
+		}
+	}
 }

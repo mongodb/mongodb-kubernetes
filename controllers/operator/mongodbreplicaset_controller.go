@@ -427,7 +427,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	}
 	if !isDryRun && !adoptingManagedTLS && !managedCABundleChange && recovery.ShouldTriggerRecovery(rs.Status.Phase != mdbstatus.PhaseRunning, rs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", rs.Namespace, rs.Name, rs.Status.Phase, rs.Status.LastTransition)
-		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true, true).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
+		automationConfigStatus := r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, true, true, false).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 		reconcileStatus := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -458,11 +458,22 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return r.updateStatus(ctx, status)
 	}
 
+	// Going back from an unfinished migration to managed certificates changes the order of the
+	// updates below, and is refused when it isn't safe.
+	rollingBackMigration, rollbackStatus := r.unfinishedMigrationRollback(ctx, stsOptions(*rs).GetStatefulSetName())
+	if !rollbackStatus.IsOK() {
+		return r.updateStatus(ctx, rollbackStatus)
+	}
+
 	// 5. Actual reconciliation execution, Ops Manager and kubernetes resources update
 	publishAutomationConfigFirst := !adoptingManagedTLS && (managedCABundleChange || publishAutomationConfigFirst(ctx, reconciler.client, *rs, r.deploymentState.LastAchievedSpec, stsOptions, reconciler.defaultArchitecture, log))
 
 	updateAutomationConfig := func(waitForReadyState bool) workflow.Status {
-		return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false, waitForReadyState).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
+		// Going back from an unfinished migration, the first update doesn't fail when the agents don't reach
+		// goal state: they may be stuck on the managed files, and only this update, which names the legacy
+		// files again, gets them going. Like recovery, it waits the usual time and then writes anyway.
+		skipAgentWaits := rollingBackMigration && !waitForReadyState
+		return r.updateOmDeploymentRs(ctx, conn, r.deploymentState.LastReconcileMemberCount, tlsCertPath, internalClusterCertPath, deploymentOpts, shouldMirrorKeyfileForMongot, false, waitForReadyState, skipAgentWaits).OnErrorPrepend("failed to create/update (Ops Manager reconciliation phase):")
 	}
 	reconcileStatefulSet := func() workflow.Status {
 		st := r.reconcileMemberResources(ctx, conn, projectConfig, deploymentOpts, r.deploymentState.LastConfiguredRoles)
@@ -472,7 +483,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		return st
 	}
 
-	status := reconcileDatabaseRollout(publishAutomationConfigFirst, managedCABundleChange, updateAutomationConfig, reconcileStatefulSet)
+	// Going back from an unfinished migration takes the same steps as a managed CA change: update the
+	// automation config without waiting, roll the pods, then update it again and wait.
+	status := reconcileDatabaseRollout(publishAutomationConfigFirst, managedCABundleChange || rollingBackMigration, updateAutomationConfig, reconcileStatefulSet)
 
 	if !status.IsOK() {
 		return r.updateStatus(ctx, status)
@@ -682,6 +695,31 @@ func (r *ReplicaSetReconcilerHelper) reconcileMemberResources(ctx context.Contex
 	}
 
 	return r.reconcileStatefulSet(ctx, conn, projectConfig, deploymentOptions)
+}
+
+// unfinishedMigrationRollback reports whether the customer removed managedCertificate before the
+// migration from legacy TLS reached Running, and if so makes sure it is safe to go back.
+func (r *ReplicaSetReconcilerHelper) unfinishedMigrationRollback(ctx context.Context, stsName string) (bool, workflow.Status) {
+	rs := r.resource
+	lastSpec := r.deploymentState.LastAchievedSpec
+	if lastSpec == nil {
+		return false, workflow.OK()
+	}
+	sts, err := r.reconciler.client.GetStatefulSet(ctx, kube.ObjectKey(rs.Namespace, stsName))
+	if errors.IsNotFound(err) {
+		return false, workflow.OK()
+	} else if err != nil {
+		return false, workflow.Failed(err)
+	}
+	if !isUnfinishedMigrationRollback(lastSpec.GetSecurity(), rs.GetSecurity(), sts) {
+		return false, workflow.OK()
+	}
+
+	r.log.Info("managedCertificate was removed before the migration finished: going back to the legacy certificates, updating the automation config before the pods")
+	if err := certs.VerifyManagedPEMSecretsKeepLegacy(ctx, r.reconciler.SecretClient, rs.Namespace, stsName, rs.Name, rs.GetSecurity()); err != nil {
+		return true, workflow.Failed(err)
+	}
+	return true, workflow.OK()
 }
 
 func (r *ReplicaSetReconcilerHelper) ensureReplicaSetPEMs(ctx context.Context, currentAgentAuthMode string) workflow.Status {
@@ -929,7 +967,7 @@ func AddReplicaSetController(
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool, waitForReadyState bool) workflow.Status {
+func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, conn om.Connection, membersNumberBefore int, tlsCertPath, internalClusterCertPath string, deploymentOptions deploymentOptionsRS, shouldMirrorKeyfileForMongot bool, isRecovering bool, waitForReadyState bool, skipAgentWaits bool) workflow.Status {
 	rs := r.resource
 	log := r.log
 	reconciler := r.reconciler
@@ -956,7 +994,10 @@ func (r *ReplicaSetReconcilerHelper) updateOmDeploymentRs(ctx context.Context, c
 	replicaSet := replicaset.BuildFromMongoDBWithReplicas(reconciler.imageUrls[util.MongodbImageEnv], reconciler.forceEnterprise, rs, replicasTarget, rs.CalculateFeatureCompatibilityVersion(), tlsCertPath, reconciler.defaultArchitecture, processIds)
 	processNames := replicaSet.GetProcessNames()
 
-	status, additionalReconciliationRequired := reconciler.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, rs.Spec.GetDownloadBase(), isRecovering, log)
+	// Inside the authentication update, skipAgentWaits works like isRecovering: agents that don't reach
+	// goal state don't fail it, and the clusterFile path is always written, which here is the legacy path
+	// anyway. Unlike isRecovering, errors still fail the reconcile.
+	status, additionalReconciliationRequired := reconciler.updateOmAuthentication(ctx, conn, processNames, rs, deploymentOptions.agentCertPath, caFilePath, internalClusterCertPath, rs.Spec.GetDownloadBase(), isRecovering || skipAgentWaits, log)
 	if !status.IsOK() && !isRecovering {
 		return status
 	}

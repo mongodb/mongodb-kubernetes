@@ -265,13 +265,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 			return r.updateStatus(ctx, &mrs, workflow.Failed(err), log)
 		}
 	}
+	rollingBackMigration, status := r.unfinishedMigrationRollback(ctx, &mrs, lastSpec, log)
+	if !status.IsOK() {
+		return r.updateStatus(ctx, &mrs, status, log)
+	}
 
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
 	// See CLOUDP-189433 and CLOUDP-229222 for more details.
 	if !adoptingManagedTLS && !managedCABundleChange && recovery.ShouldTriggerRecovery(mrs.Status.Phase != mdbstatus.PhaseRunning, mrs.Status.LastTransition) {
 		log.Warnf("Triggering Automatic Recovery. The MongoDB resource %s/%s is in %s state since %s", mrs.Namespace, mrs.Name, mrs.Status.Phase, mrs.Status.LastTransition)
-		automationConfigError := r.updateOmDeploymentRs(ctx, conn, &mrs, agentCertPath, tlsCertPath, internalClusterCertPath, true, true, log)
+		automationConfigError := r.updateOmDeploymentRs(ctx, conn, &mrs, agentCertPath, tlsCertPath, internalClusterCertPath, true, true, false, log)
 		reconcileStatus := r.reconcileMemberResources(ctx, &mrs, log, conn, projectConfig, agentCertHash, agentCertPath)
 		if !reconcileStatus.IsOK() {
 			log.Errorf("Recovery failed because of reconcile errors, %v", reconcileStatus)
@@ -282,7 +286,11 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	updateAutomationConfig := func(waitForReadyState bool) workflow.Status {
-		if err := r.updateOmDeploymentRs(ctx, conn, &mrs, agentCertPath, tlsCertPath, internalClusterCertPath, false, waitForReadyState, log); err != nil {
+		// Going back from an unfinished migration, the first update doesn't fail when the agents don't reach
+		// goal state: they may be stuck on the managed files, and only this update, which names the legacy
+		// files again, gets them going. Like recovery, it waits the usual time and then writes anyway.
+		skipAgentWaits := rollingBackMigration && !waitForReadyState
+		if err := r.updateOmDeploymentRs(ctx, conn, &mrs, agentCertPath, tlsCertPath, internalClusterCertPath, false, waitForReadyState, skipAgentWaits, log); err != nil {
 			return workflow.Failed(err)
 		}
 		return workflow.OK()
@@ -295,7 +303,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 		return st
 	}
 
-	status := reconcileDatabaseRollout(publishAutomationConfigFirst, managedCABundleChange, updateAutomationConfig, reconcileStatefulSets)
+	// Going back from an unfinished migration takes the same steps as a managed CA change: update the
+	// automation config without waiting, roll the pods, then update it again and wait.
+	status = reconcileDatabaseRollout(publishAutomationConfigFirst, managedCABundleChange || rollingBackMigration, updateAutomationConfig, reconcileStatefulSets)
 
 	if !status.IsOK() {
 		return r.updateStatus(ctx, &mrs, status, log)
@@ -412,6 +422,57 @@ func (r *ReconcileMongoDbMultiReplicaSet) publishAutomationConfigFirstMultiClust
 	}
 
 	return false, false, nil
+}
+
+// unfinishedMigrationRollback reports whether the customer removed managedCertificate before the
+// migration from legacy TLS reached Running, which is the case when the StatefulSet in any reachable
+// member cluster still mounts operator-managed certificates. If so, it makes sure it is safe to go
+// back in every reachable member cluster, where the -pem secrets are.
+func (r *ReconcileMongoDbMultiReplicaSet) unfinishedMigrationRollback(ctx context.Context, mrs *mdbmultiv1.MongoDBMultiCluster, lastSpec *mdbmultiv1.MongoDBMultiSpec, log *zap.SugaredLogger) (bool, workflow.Status) {
+	if lastSpec == nil {
+		return false, workflow.OK()
+	}
+	clusterSpecList, err := mrs.GetClusterSpecItems()
+	if err != nil {
+		return false, workflow.Failed(err)
+	}
+	failed, err := mrs.GetFailedClusterNames()
+	if err != nil {
+		return false, workflow.Failed(err)
+	}
+
+	var reachable []string
+	rollingBack := false
+	for _, item := range clusterSpecList {
+		if stringutil.Contains(failed, item.ClusterName) {
+			continue
+		}
+		clusterClient, ok := r.memberClusterClientsMap[item.ClusterName]
+		if !ok {
+			continue
+		}
+		reachable = append(reachable, item.ClusterName)
+		sts, err := clusterClient.GetStatefulSet(ctx, kube.ObjectKey(mrs.Namespace, mrs.MultiStatefulsetName(mrs.ClusterNum(item.ClusterName))))
+		if apiErrors.IsNotFound(err) {
+			continue
+		} else if err != nil {
+			return false, workflow.Failed(err)
+		}
+		if isUnfinishedMigrationRollback(lastSpec.GetSecurity(), mrs.GetSecurity(), sts) {
+			rollingBack = true
+		}
+	}
+	if !rollingBack {
+		return false, workflow.OK()
+	}
+
+	log.Info("managedCertificate was removed before the migration finished: going back to the legacy certificates, updating the automation config before the pods")
+	for _, clusterName := range reachable {
+		if err := certs.VerifyManagedPEMSecretsKeepLegacy(ctx, r.memberClusterSecretClientsMap[clusterName], mrs.Namespace, mrs.Name, mrs.Name, mrs.GetSecurity()); err != nil {
+			return true, workflow.Failed(xerrors.Errorf("member cluster %s: %w", clusterName, err))
+		}
+	}
+	return true, workflow.OK()
 }
 
 // managedCABundleHashChangedInMemberClusters reports whether any reachable member-cluster
@@ -1176,7 +1237,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) saveLastAchievedSpec(ctx context.Conte
 
 // updateOmDeploymentRs performs OM registration operation for the replicaset. So the changes will be finally propagated
 // to automation agents in containers
-func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs *mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, waitForReadyState bool, log *zap.SugaredLogger) error {
+func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Context, conn om.Connection, mrs *mdbmultiv1.MongoDBMultiCluster, agentCertPath, tlsCertPath, internalClusterCertPath string, isRecovering bool, waitForReadyState bool, skipAgentWaits bool, log *zap.SugaredLogger) error {
 	reachableHostnames := make([]string, 0)
 
 	clusterSpecList, err := mrs.GetClusterSpecItems()
@@ -1241,7 +1302,10 @@ func (r *ReconcileMongoDbMultiReplicaSet) updateOmDeploymentRs(ctx context.Conte
 		return err
 	}
 
-	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), mrs, agentCertPath, caFilePath, internalClusterCertPath, mrs.Spec.GetDownloadBase(), isRecovering, log)
+	// Inside the authentication update, skipAgentWaits works like isRecovering: agents that don't reach
+	// goal state don't fail it, and the clusterFile path is always written, which here is the legacy path
+	// anyway. Unlike isRecovering, errors still fail the reconcile.
+	status, additionalReconciliationRequired := r.updateOmAuthentication(ctx, conn, rs.GetProcessNames(), mrs, agentCertPath, caFilePath, internalClusterCertPath, mrs.Spec.GetDownloadBase(), isRecovering || skipAgentWaits, log)
 	if !status.IsOK() && !isRecovering {
 		return xerrors.Errorf("failed to enable Authentication for MongoDB Multi Replicaset")
 	}

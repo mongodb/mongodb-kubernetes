@@ -674,3 +674,61 @@ func TestSeedManagedPEMSecretsFromLegacy_LeavesAnExistingManagedSecretAlone(t *t
 	assert.NoError(t, err)
 	assert.Equal(t, existing, pem)
 }
+
+// When managedCertificate is removed before the migration finished, the operator names the legacy
+// files in the automation config before it restarts the pods. The pods that already mount the managed
+// -pem secrets then read the legacy files from there, so going back is only safe while each managed
+// -pem secret still has them.
+func TestVerifyManagedPEMSecretsKeepLegacy(t *testing.T) {
+	legacy := &mdbv1.Security{TLSConfig: &mdbv1.TLSConfig{Enabled: true, CA: "issuer-ca"}}
+	legacyPEMs := func(ctx context.Context, t *testing.T, client secrets.SecretClient) {
+		putPEMSecret(ctx, t, client, "my-rs-cert-pem", map[string]string{util.LatestHashSecretKey: "legacy_member", "legacy_member": "legacy member cert"})
+		putPEMSecret(ctx, t, client, "agent-certs-pem", map[string]string{util.LatestHashSecretKey: "legacy_agent", "legacy_agent": "legacy agent cert"})
+	}
+
+	t.Run("the managed -pem secrets still have the legacy files", func(t *testing.T) {
+		ctx := context.Background()
+		client := newFakeSecretClient()
+		legacyPEMs(ctx, t, client)
+		putPEMSecret(ctx, t, client, "my-rs-managed-cert-pem", map[string]string{
+			util.LatestHashSecretKey: "managed_member", util.PreviousHashSecretKey: "legacy_member",
+			"managed_member": "managed member cert", "legacy_member": "legacy member cert",
+		})
+		putPEMSecret(ctx, t, client, "my-rs-managed-agent-certs-pem", map[string]string{util.LatestHashSecretKey: "legacy_agent", "legacy_agent": "legacy agent cert"})
+
+		assert.NoError(t, VerifyManagedPEMSecretsKeepLegacy(ctx, client, mock.TestNamespace, "my-rs", "my-rs", legacy))
+	})
+
+	t.Run("a renewal dropped the legacy file", func(t *testing.T) {
+		ctx := context.Background()
+		client := newFakeSecretClient()
+		legacyPEMs(ctx, t, client)
+		putPEMSecret(ctx, t, client, "my-rs-managed-cert-pem", map[string]string{
+			util.LatestHashSecretKey: "renewed_member", util.PreviousHashSecretKey: "managed_member",
+			"renewed_member": "renewed member cert", "managed_member": "managed member cert",
+		})
+
+		err := VerifyManagedPEMSecretsKeepLegacy(ctx, client, mock.TestNamespace, "my-rs", "my-rs", legacy)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "my-rs-managed-cert-pem no longer has the legacy certificate of my-rs-cert")
+	})
+
+	t.Run("a managed -pem secret that was never created is not mounted", func(t *testing.T) {
+		ctx := context.Background()
+		client := newFakeSecretClient()
+		legacyPEMs(ctx, t, client)
+
+		assert.NoError(t, VerifyManagedPEMSecretsKeepLegacy(ctx, client, mock.TestNamespace, "my-rs", "my-rs", legacy))
+	})
+
+	t.Run("a prefixed legacy install is compared with the managed names", func(t *testing.T) {
+		ctx := context.Background()
+		client := newFakeSecretClient()
+		putPEMSecret(ctx, t, client, "prefix-my-rs-cert-pem", map[string]string{util.LatestHashSecretKey: "legacy_member", "legacy_member": "legacy member cert"})
+		putPEMSecret(ctx, t, client, "my-rs-managed-cert-pem", map[string]string{util.LatestHashSecretKey: "managed_member", "managed_member": "managed member cert"})
+
+		err := VerifyManagedPEMSecretsKeepLegacy(ctx, client, mock.TestNamespace, "my-rs", "my-rs", &mdbv1.Security{CertificatesSecretsPrefix: "prefix"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "my-rs-managed-cert-pem no longer has the legacy certificate of prefix-my-rs-cert")
+	})
+}
