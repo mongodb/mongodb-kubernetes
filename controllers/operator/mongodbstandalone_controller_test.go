@@ -142,6 +142,33 @@ func TestStandaloneClusterReconcileContainerImagesWithStaticArchitecture(t *test
 	VerifyStaticContainers(t, sts.Spec.Template.Spec.Containers)
 }
 
+// The credential hash is computed before the options are built, so rotating the key must reach the
+// applied pod template through the WithAgentCredentialHash option.
+func TestStandaloneAgentCredentialHashTracksKeySecret(t *testing.T) {
+	ctx := context.Background()
+	st := DefaultStandaloneBuilder().Build()
+	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, st, architectures.NonStatic)
+
+	appliedHash := func() string {
+		sts := &appsv1.StatefulSet{}
+		require.NoError(t, kubeClient.Get(ctx, st.ObjectKey(), sts))
+		hash := sts.Spec.Template.Annotations[construct.AgentSettingsHash]
+		require.NotEmpty(t, hash)
+		return hash
+	}
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
+	original := appliedHash()
+
+	keySecret, err := kubeClient.GetSecret(ctx, kube.ObjectKey(st.Namespace, mdbv1.AgentAPIKeySecretName(om.TestGroupID)))
+	require.NoError(t, err)
+	keySecret.Data[util.OmAgentApiKey] = []byte("rotated-key")
+	require.NoError(t, kubeClient.UpdateSecret(ctx, keySecret))
+
+	checkReconcileSuccessful(ctx, t, reconciler, st, kubeClient)
+	assert.NotEqual(t, original, appliedHash())
+}
+
 func TestStandaloneClusterReconcileContainerImageType(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -185,6 +212,63 @@ func TestStandaloneClusterReconcileContainerImageType(t *testing.T) {
 			err := kubeClient.Get(ctx, kube.ObjectKey(st.Namespace, st.Name), sts)
 			require.NoError(t, err)
 			assert.Equal(t, imageUrlsMock[relatedImageEnv], findContainerImage(sts.Spec.Template.Spec.Containers, util.DatabaseContainerName))
+		})
+	}
+}
+
+func TestStandaloneContainerImageTypeRejection(t *testing.T) {
+	ctx := context.Background()
+	imageURLs := images.ImageUrls{
+		util.AgentImageUrlEnv: "quay.io/mongodb/mongodb-agent",
+		util.MongodbImageEnv:  "quay.io/mongodb/mongodb-enterprise-server",
+	}
+	for _, inherited := range []bool{false, true} {
+		t.Run(fmt.Sprintf("inherited=%t", inherited), func(t *testing.T) {
+			st := DefaultStandaloneBuilder().SetVersion("8.0.23").Build()
+			reconciler, cl, factory := defaultStandaloneReconciler(ctx, imageURLs, "", "", om.NewEmptyMockedOmConnection, st, architectures.Static)
+			reconciler.defaultImageType = architectures.ImageTypeUBI9
+			if inherited {
+				reconciler.defaultImageType = architectures.ImageTypeUBI8
+			}
+			if !inherited {
+				st.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi8"})
+				require.NoError(t, cl.Update(ctx, st))
+			}
+			connections := 0
+			factory.SetPostCreateHook(func(connection om.Connection) {
+				connections++
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+			checkReconcileFailed(ctx, t, reconciler, st, false, "not supported with static architecture", cl)
+			assert.Zero(t, connections, "validation must run before connecting to Ops Manager")
+			statefulSets := &appsv1.StatefulSetList{}
+			require.NoError(t, cl.List(ctx, statefulSets))
+			require.Empty(t, statefulSets.Items)
+
+			st.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi9-slim"})
+			require.NoError(t, cl.Update(ctx, st))
+			checkReconcileSuccessful(ctx, t, reconciler, st, cl)
+			require.NoError(t, cl.List(ctx, statefulSets))
+			require.NotEmpty(t, statefulSets.Items)
+			before := statefulSets.DeepCopy()
+			deployment, err := factory.GetConnection().ReadDeployment(ctx)
+			require.NoError(t, err)
+			beforeDeployment, err := json.Marshal(deployment)
+			require.NoError(t, err)
+
+			st.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi8"})
+			require.NoError(t, cl.Update(ctx, st))
+			checkReconcileFailed(ctx, t, reconciler, st, false, "not supported with static architecture", cl)
+			for _, previous := range before.Items {
+				current := &appsv1.StatefulSet{}
+				require.NoError(t, cl.Get(ctx, client.ObjectKeyFromObject(&previous), current))
+				assert.Equal(t, previous.Spec, current.Spec, previous.Name)
+			}
+			deployment, err = factory.GetConnection().ReadDeployment(ctx)
+			require.NoError(t, err)
+			afterDeployment, err := json.Marshal(deployment)
+			require.NoError(t, err)
+			assert.JSONEq(t, string(beforeDeployment), string(afterDeployment))
 		})
 	}
 }
@@ -383,10 +467,13 @@ func TestStandalone_ConfigMapAndSecretWatched(t *testing.T) {
 	reconciler, kubeClient, _ := defaultStandaloneReconciler(ctx, nil, "", "", om.NewEmptyMockedOmConnection, s, architectures.NonStatic)
 
 	checkReconcileSuccessful(ctx, t, reconciler, s, kubeClient)
+	require.NoError(t, kubeClient.Get(ctx, s.ObjectKey(), s))
+	require.NotEmpty(t, s.Status.ProjectId)
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, s.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:               {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}:   {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Spec.Credentials)}:                 {kube.ObjectKey(mock.TestNamespace, s.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, s.Status.ProjectId+"-group-secret")}: {s.ObjectKey()},
 	}
 
 	actual := reconciler.resourceWatcher.GetWatchedResources()

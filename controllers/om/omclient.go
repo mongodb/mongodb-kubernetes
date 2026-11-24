@@ -15,7 +15,6 @@ import (
 	"sync"
 
 	"github.com/blang/semver"
-	"github.com/r3labs/diff/v3"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -27,7 +26,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/controlledfeature"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
-	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/versionutil"
@@ -453,19 +451,6 @@ func (oc *HTTPOmConnection) ReadUpdateDeployment(ctx context.Context, changeDepl
 	}
 
 	_, err = oc.UpdateDeployment(ctx, deployment)
-	if util.ShouldLogAutomationConfigDiff() {
-		originalDeployment, err := oc.ReadDeployment(ctx)
-		if err != nil {
-			return apierror.New(err)
-		}
-
-		changelog, err := diff.Diff(originalDeployment, deployment, diff.AllowTypeMismatch(true))
-		if err != nil {
-			return apierror.New(err)
-		}
-
-		log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
-	}
 	if err != nil {
 		return apierror.New(err)
 	}
@@ -517,14 +502,6 @@ func (oc *HTTPOmConnection) ReadUpdateAutomationConfig(ctx context.Context, modi
 
 	// we are using UpdateAutomationConfig since we need to apply our changes.
 	err = oc.UpdateAutomationConfig(ctx, ac, log)
-	if util.ShouldLogAutomationConfigDiff() {
-		changelog, err := diff.Diff(original.Deployment, ac.Deployment, diff.AllowTypeMismatch(true))
-		if err != nil {
-			return apierror.New(err)
-		}
-
-		log.Debug("Deployment diff (%d changes): %+v", len(changelog), changelog)
-	}
 	if err != nil {
 		log.Errorf("error updating automation config. %s", err)
 		return apierror.New(err)

@@ -116,6 +116,11 @@ deploy_test_app() {
         "--set" "cognito_user_password=${cognito_user_password}"
         "--set" "cognito_workload_url=${cognito_workload_url}"
         "--set" "cognito_workload_user_id=${cognito_workload_user_id}"
+        "--set" "oidc_provider=${oidc_provider:-cognito}"
+        "--set" "auth0_issuer=${auth0_issuer:-}"
+        "--set" "auth0_client_id=${auth0_client_id:-}"
+        "--set" "auth0_client_secret=${auth0_client_secret:-}"
+        "--set" "auth0_audience=${auth0_audience:-}"
         "--set" "helm.oci.version=${helm_oci_version}"
         "--set" "helm.oci.registry=${helm_oci_registry}"
         "--set" "helm.oci.repository=${helm_oci_repository}"
@@ -247,14 +252,6 @@ run_tests() {
 
     echo "Operator running in cluster ${operator_context}"
     echo "Test pod running in cluster ${test_pod_context}"
-
-    # The in-cluster collector is reachable from the cluster that hosts it.
-    # A multi-cluster test pod or a local run keeps the configured endpoint.
-    if kubectl --context "${test_pod_context}" -n honeycomb get service otel-collector-opentelemetry-collector >/dev/null 2>&1; then
-        OTEL_COLLECTOR_ENDPOINT="http://otel-collector-opentelemetry-collector.honeycomb.svc.cluster.local:4317"
-        otel_collector_endpoint="${OTEL_COLLECTOR_ENDPOINT}"
-        export otel_collector_endpoint
-    fi
 
     TEST_APP_PODNAME=mongodb-enterprise-operator-tests
 

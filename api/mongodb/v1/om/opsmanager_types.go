@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -174,6 +175,70 @@ type MongoDBOpsManagerSpec struct {
 	// When not set, the operator is using FQDN of Ops Manager's headless service `{name}-svc.{namespace}.svc.cluster.local` to connect to the instance. If that URL cannot be used, then URL in this field should be provided for the operator to connect to Ops Manager instances.
 	// +optional
 	OpsManagerURL string `json:"opsManagerURL,omitempty"`
+
+	// License manages the Ops Manager license and its release receipts.
+	// +optional
+	License *MongoDBOpsManagerLicense `json:"license,omitempty"`
+}
+
+// MongoDBOpsManagerLicense configures the Enterprise Advanced license and its release receipts.
+// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || !has(self.releasedLicenses) || !self.releasedLicenses.exists(r, r.secretRef.name == self.secretRef.name)",message="secretRef must not also be listed in releasedLicenses"
+// +kubebuilder:validation:XValidation:rule="!has(self.secretRef) || size(self.secretRef.name) > 0",message="spec.license.secretRef.name must not be empty"
+type MongoDBOpsManagerLicense struct {
+	// SecretRef names the Secret that holds the signed license under the "license" key.
+	// The operator installs it, and releases it when secretRef is removed.
+	// +optional
+	SecretRef *SecretRef `json:"secretRef,omitempty"`
+
+	// ReleaseReceiptsPolicy picks which released licenses get a receipt.
+	// OnlyListed covers the licenses in releasedLicenses.
+	// Automatic also covers every license the operator releases.
+	// +optional
+	// +kubebuilder:default=OnlyListed
+	ReleaseReceiptsPolicy ReleaseReceiptsPolicy `json:"releaseReceiptsPolicy,omitempty"`
+
+	// ReleasedLicenses lists the Secrets of released licenses to write a receipt for,
+	// into a Secret named <licenseSecret>-<artifactId>-release-receipt. Listing a license never releases it.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.secretRef.name == x.secretRef.name).size() == 1)",message="releasedLicenses secretRef names must be unique"
+	ReleasedLicenses []ReleasedLicense `json:"releasedLicenses,omitempty"`
+}
+
+// ReleaseReceiptsPolicy picks which released licenses get a receipt.
+// +kubebuilder:validation:Enum=OnlyListed;Automatic
+type ReleaseReceiptsPolicy string
+
+// ReleaseReceiptsOnlyListed covers only the licenses listed in releasedLicenses.
+const ReleaseReceiptsOnlyListed ReleaseReceiptsPolicy = "OnlyListed"
+
+// ReleaseReceiptsAutomatic also covers every license the operator releases.
+const ReleaseReceiptsAutomatic ReleaseReceiptsPolicy = "Automatic"
+
+// +kubebuilder:validation:XValidation:rule="size(self.secretRef.name) > 0",message="spec.license.releasedLicenses[].secretRef.name must not be empty"
+type ReleasedLicense struct {
+	// SecretRef names a Secret that holds the released license.
+	// +kubebuilder:validation:Required
+	SecretRef SecretRef `json:"secretRef"`
+}
+
+// LicenseProvided reports whether secretRef names a license Secret.
+func (l *MongoDBOpsManagerLicense) LicenseProvided() bool {
+	return l != nil && l.SecretRef != nil && l.SecretRef.Name != ""
+}
+
+// GetReleasedLicenses returns the released licenses the operator writes a receipt for.
+func (l *MongoDBOpsManagerLicense) GetReleasedLicenses() []ReleasedLicense {
+	if l == nil {
+		return nil
+	}
+	return l.ReleasedLicenses
+}
+
+// AutoReleaseReceiptsRequested reports whether ReleaseReceiptsPolicy is Automatic.
+func (l *MongoDBOpsManagerLicense) AutoReleaseReceiptsRequested() bool {
+	return l != nil && l.ReleaseReceiptsPolicy == ReleaseReceiptsAutomatic
 }
 
 // ExternalAppDBRef references an MongoDB resource
@@ -508,6 +573,11 @@ type OpsManagerStatus struct {
 	Url               string                       `json:"url,omitempty"`
 	Warnings          []status.Warning             `json:"warnings,omitempty"`
 	ClusterStatusList []status.OMClusterStatusItem `json:"clusterStatusList,omitempty"`
+	// Conditions holds the latest available observations of Ops Manager reconciliation state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type AgentVersion struct {
@@ -553,6 +623,7 @@ func (f DataStoreConfig) Identifier() any {
 }
 
 type SecretRef struct {
+	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
 }
 
@@ -590,18 +661,30 @@ type S3Config struct {
 	CustomCertificateSecretRefs []corev1.SecretKeySelector `json:"customCertificateSecretRefs"`
 	// ObjectLockEnabled indicates whether S3 Object Lock is enabled for the bucket.
 	// This should be enabled to leverage Immutable Backups.
+	// Deprecated: Ops Manager 8.0.28+ (8.0.x) and 9.0.2+ read the S3 Object Lock settings
+	// from the bucket, so this field is not sent to those versions. Use portableBackupEnabled instead.
 	// +optional
 	ObjectLockEnabled *bool `json:"objectLockEnabled"`
 	// ObjectRetentionDays is the number of days backup objects must be retained in S3
 	// before deletion is allowed. Requires ObjectLockEnabled.
+	// Deprecated: Ops Manager 8.0.28+ (8.0.x) and 9.0.2+ read the retention settings
+	// from the bucket's default retention rule, so this field is not sent to those versions.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	ObjectRetentionDays *int `json:"objectRetentionDays,omitempty"`
 	// ObjectRetentionMode is the S3 Object Lock retention mode applied to backup objects.
 	// Requires ObjectLockEnabled.
+	// Deprecated: Ops Manager 8.0.28+ (8.0.x) and 9.0.2+ read the retention settings
+	// from the bucket's default retention rule, so this field is not sent to those versions.
 	// +optional
 	// +kubebuilder:validation:Enum=GOVERNANCE;COMPLIANCE
 	ObjectRetentionMode *string `json:"objectRetentionMode,omitempty"`
+	// PortableBackupEnabled opts this store into portable backups, which replace Immutable
+	// Backups. Portable backups require S3 Object Lock to be enabled on the bucket and the
+	// brs.immutableBackupEnabled Ops Manager setting. Once enabled, it cannot be disabled.
+	// Can be configured only for Ops Manager 8.0.28+ (8.0.x) or 9.0.2+.
+	// +optional
+	PortableBackupEnabled *bool `json:"portableBackupEnabled,omitempty"`
 }
 
 func (s S3Config) Identifier() any {
@@ -829,6 +912,12 @@ func (om *MongoDBOpsManager) updateStatusOpsManager(phase status.Phase, statusOp
 
 	if option, exists := status.GetOption(statusOptions, status.WarningsOption{}); exists {
 		om.Status.OpsManagerStatus.Warnings = append(om.Status.OpsManagerStatus.Warnings, option.(status.WarningsOption).Warnings...)
+	}
+
+	if option, exists := status.GetOption(statusOptions, status.LicenseStatusOption{}); exists {
+		c := option.(status.LicenseStatusOption).Condition
+		c.ObservedGeneration = om.GetGeneration()
+		_ = meta.SetStatusCondition(&om.Status.OpsManagerStatus.Conditions, c)
 	}
 
 	if phase == status.PhaseRunning {
@@ -1085,6 +1174,10 @@ func (om *MongoDBOpsManager) GetSecretsMountedIntoPod() []string {
 		}
 	}
 
+	if om.Spec.License.LicenseProvided() {
+		secretNames = append(secretNames, om.Spec.License.SecretRef.Name)
+	}
+
 	return secretNames
 }
 
@@ -1205,4 +1298,14 @@ func (m *AppDBConfigurable) GetOwnerReferences() []metav1.OwnerReference {
 
 func (om *MongoDBOpsManager) IsReconciliationDisabled() bool {
 	return om.Annotations[util.DisableReconciliationAnnotation] == "true"
+}
+
+func (om *MongoDBOpsManager) LicenseRotateIdentityDue() bool {
+	due, _ := strconv.ParseBool(om.Annotations[util.LicenseRotateIdentityAnnotation])
+	return due
+}
+
+func (om *MongoDBOpsManager) LicenseRecomputeDue() bool {
+	due, _ := strconv.ParseBool(om.Annotations[util.LicenseRecomputeAnnotation])
+	return due
 }

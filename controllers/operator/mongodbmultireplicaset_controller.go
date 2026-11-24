@@ -44,6 +44,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/authentication"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connection"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	mconstruct "github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/multicluster"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/create"
 	enterprisepem "github.com/mongodb/mongodb-kubernetes/controllers/operator/pem"
@@ -153,6 +154,9 @@ func (r *ReconcileMongoDbMultiReplicaSet) Reconcile(ctx context.Context, request
 	}
 
 	if err := mrs.ProcessValidationsOnReconcile(nil); err != nil {
+		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
+	}
+	if err := architectures.ValidateDatabaseImageType(mrs.GetAnnotations(), r.defaultArchitecture, r.defaultImageType); err != nil {
 		return r.updateStatus(ctx, &mrs, workflow.Invalid("%s", err.Error()), log)
 	}
 	if warning := databaseContainerImageTypeAnnotationWarning(mrs.GetAnnotations(), r.defaultArchitecture); warning != "" {
@@ -764,23 +768,17 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			return status
 		}
 
-		// copy the agent api key to the member cluster.
-		apiKeySecretName := agents.ApiKeySecretName(conn.GroupID())
-		secretByte, err := secret.ReadByteData(ctx, r.client, types.NamespacedName{Name: apiKeySecretName, Namespace: mrs.Namespace})
-		if err != nil {
-			return workflow.Failed(err)
-		}
-
+		// Copy the agent API key to the member cluster. Skip a no-op update so the member
+		// Secret watch does not trigger another reconciliation for data that is already present.
+		apiKeySecretName := mdb.AgentAPIKeySecretName(conn.GroupID())
 		secretObject := corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      apiKeySecretName,
 				Namespace: mrs.Namespace,
 				Labels:    mrs.GetOwnerLabels(),
 			},
-			Data: secretByte,
 		}
-
-		if err := secret.CreateOrUpdate(ctx, memberClient, secretObject); err != nil {
+		if err := syncAgentAPIKeySecret(ctx, r.client, memberClient, secretObject); err != nil {
 			return workflow.Failed(err)
 		}
 
@@ -805,12 +803,31 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			}
 		}
 
+		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
+		}
+
+		podVars := newPodVars(conn, projectConfig, mrs.Spec.LogLevel)
+		// The delete path only needs the StatefulSet name, so it skips the credential read.
+		var credentialHash string
+		if !deleteSts {
+			credentialHash, err = create.AgentCredentialHash(ctx, secretMemberClient, mrs.Namespace, mconstruct.MultiClusterAgentSettingsSource(*mrs, &stsOverride), podVars.BaseURL, podVars.ProjectID)
+			if err != nil {
+				return create.AgentCredentialStatus(err, fmt.Sprintf("failed to prepare StatefulSet in cluster: %s", item.ClusterName))
+			}
+		}
+
+		vaultInjectsAgentAPIKey := secretMemberClient.VaultClient != nil
+
 		opts := mconstruct.MultiClusterReplicaSetOptions(
 			mconstruct.WithClusterNum(clusterNum),
 			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
-			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
+			PodEnvVars(podVars),
+			WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
+			WithAgentCredentialHash(credentialHash),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
 			AgentCertHash(agentCertHash),
@@ -829,17 +846,22 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithDefaultArchitecture(r.defaultArchitecture),
 		)
 
-		sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
-		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
-		}
-
 		if deleteSts {
+			sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
 			if err := memberClient.Delete(ctx, &sts); err != nil && !apiErrors.IsNotFound(err) {
 				return workflow.Failed(xerrors.Errorf("failed to delete StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
 			}
 			continue
+		}
+
+		stsOptions := opts(*mrs)
+		sts := mconstruct.MultiClusterStatefulSetFromOptions(*mrs, stsOptions)
+		if err := create.ReconcileDatabaseAgentSettings(ctx, memberClient, secretMemberClient, sts, stsOptions); err != nil {
+			return workflow.Failed(xerrors.Errorf("cannot render agent settings for cluster %s: %w", item.ClusterName, err))
+		}
+		mcNN := types.NamespacedName{Name: mrs.Name, Namespace: mrs.Namespace}
+		if secretName := construct.MountedAgentAPIKeySecretName(sts); secretName != "" {
+			r.resourceWatcher.RegisterWatchedMongodbResources(mcNN, construct.AgentSettingsConfigMapName(sts), secretName)
 		}
 
 		pvcResizeStatus := create.HandlePVCResize(ctx, memberClient, &sts, log)
@@ -1320,6 +1342,23 @@ func ensureServices(ctx context.Context, client service.GetUpdateCreator, client
 	return nil
 }
 
+// syncAgentAPIKeySecret copies the central agent key Secret to the member cluster when the data
+// differs. The member cluster Secret watch must not observe a no-op update on every reconcile.
+func syncAgentAPIKeySecret(ctx context.Context, centralClient, memberClient kubernetesClient.Client, target corev1.Secret) error {
+	data, err := secret.ReadByteData(ctx, centralClient, kube.ObjectKey(target.Namespace, target.Name))
+	if err != nil {
+		return err
+	}
+	target.Data = data
+	if err := secret.CreateOrUpdateIfNeeded(ctx, memberClient, target); err != nil {
+		if apiErrors.IsNotFound(err) {
+			return secret.CreateOrUpdate(ctx, memberClient, target)
+		}
+		return err
+	}
+	return nil
+}
+
 func ensureHeadlessService(ctx context.Context, client service.GetUpdateCreator, svc corev1.Service, clusterName string) error {
 	err := service.CreateOrUpdateService(ctx, client, svc)
 	if err != nil && !apiErrors.IsAlreadyExists(err) {
@@ -1466,6 +1505,14 @@ func AddMultiReplicaSetController(ctx context.Context, mgr manager.Manager, imag
 		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &appsv1.StatefulSet{}, &khandler.EnqueueRequestForOwnerMultiCluster{}, watch.PredicatesForMultiStatefulSet()))
 		if err != nil {
 			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
+		}
+
+		// The agent key Secret lives in the member cluster. Watch it there so key rotation
+		// recomputes AgentSettingsHash and rolls the member-cluster pods.
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &corev1.Secret{},
+			&watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
+		if err != nil {
+			return xerrors.Errorf("failed to set Secret watch on member cluster %s: %w", clusterName, err)
 		}
 	}
 

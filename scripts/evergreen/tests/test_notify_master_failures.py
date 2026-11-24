@@ -7,6 +7,7 @@ import pytest
 
 from scripts.evergreen.notify_flaky_tests import FlakyTask
 from scripts.evergreen.notify_master_failures import (
+    NOTIFICATION_TASKS,
     TaskInfo,
     VersionInfo,
     format_slack_message,
@@ -269,6 +270,54 @@ class TestFormatSlackMessage:
         )
         assert "Tasks: e2e_00, e2e_01, e2e_02, e2e_03, e2e_04 and 5 more" in text
 
+    def test_partial_pass_lists_skipped_variants(self):
+        skipped = [make_mock_task("e2e_replica_set", "e2e_smoke_ibm_z", "undispatched")]
+        version_info = make_mock_version(status="started")
+        message = format_slack_message(version_info, skipped_tasks=skipped)
+        text = " ".join(
+            b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
+        )
+        assert "Master Build Passed" in message["blocks"][0]["text"]["text"]
+        assert "Partial" not in message["blocks"][0]["text"]["text"]
+        assert "Skipped in this report" in text
+        assert "e2e_smoke_ibm_z" in text
+
+    def test_partial_pass_caps_and_sorts_skipped_variants(self):
+        variant_names = [
+            "e2e_variant_3",
+            "e2e_variant_1",
+            "e2e_variant_2",
+            "e2e_variant_5",
+            "e2e_variant_4",
+            "e2e_variant_7",
+            "e2e_variant_6",
+        ]
+        skipped = [make_mock_task("e2e_replica_set", name, "undispatched") for name in variant_names]
+        version_info = make_mock_version(status="started")
+        message = format_slack_message(version_info, skipped_tasks=skipped)
+        text = " ".join(
+            b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
+        )
+        for i in range(1, 6):
+            assert f"e2e_variant_{i}" in text
+        positions = [text.index(f"e2e_variant_{i}") for i in range(1, 6)]
+        assert positions == sorted(positions)
+        assert "e2e_variant_6" not in text
+        assert "e2e_variant_7" not in text
+        assert "and 2 more" in text
+        assert "task(s)" not in text
+
+    def test_failure_includes_skipped_variants(self):
+        skipped = [make_mock_task("e2e_replica_set", "e2e_smoke_ibm_z", "undispatched")]
+        version_info = make_mock_version(status="failed")
+        message = format_slack_message(version_info, FEW_TASKS, skipped_tasks=skipped)
+        text = " ".join(
+            b["text"]["text"] for b in message["blocks"] if b["type"] == "section" and isinstance(b.get("text"), dict)
+        )
+        assert "Master Build Failures" in message["blocks"][0]["text"]["text"]
+        assert "Skipped in this report" in text
+        assert "e2e_smoke_ibm_z" in text
+
 
 class TestPrintStdoutReport:
     def _report(self, failed_tasks=None, running_tasks=None, **kwargs):
@@ -412,6 +461,28 @@ class TestGetTaskSummary:
         assert total == 0
         assert retried == []
 
+    @patch("scripts.evergreen.notify_master_failures.get_build_tasks")
+    @patch("scripts.evergreen.notify_master_failures.get_version_info")
+    def test_excludes_ignored_tasks(self, mock_version, mock_tasks):
+        mock_bv = MagicMock()
+        mock_bv.build_id = "b1"
+        mock_bv.build_variant = "mckci_release_promote"
+        mock_bv.json = {"build_variant": "mckci_release_promote", "build_id": "b1"}
+        mock_ver = make_mock_version()
+        mock_ver.version.build_variants_status = [mock_bv]
+        mock_version.return_value = mock_ver
+        mock_tasks.return_value = [
+            make_mock_task("mckci_release_promote", "mckci_release_promote", "undispatched"),
+            make_mock_task("build_test_image_ibm_z", "init_test_run_ibm_z", "started"),
+        ]
+
+        failed, running, retried, total = get_task_summary(MagicMock(), "v1", NOTIFICATION_TASKS)
+
+        assert failed == []
+        assert running == []
+        assert retried == []
+        assert total == 0
+
 
 class TestGetPreviousVersionFailures:
     @patch("scripts.evergreen.notify_master_failures.get_task_summary")
@@ -464,7 +535,7 @@ class TestMainOutputBehavior:
     def mocks(self, monkeypatch):
         with (
             patch("scripts.evergreen.notify_master_failures.get_evergreen_api") as api,
-            patch("scripts.evergreen.notify_master_failures.wait_for_version_completion") as wait,
+            patch("scripts.evergreen.notify_master_failures.get_version_info") as version,
             patch("scripts.evergreen.notify_master_failures.get_task_summary") as tasks,
             patch("scripts.evergreen.notify_master_failures.get_previous_version_failures") as prev_failed,
             patch("scripts.evergreen.notify_master_failures.send_slack_notification") as slack,
@@ -477,26 +548,28 @@ class TestMainOutputBehavior:
             monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
             monkeypatch.delenv("NOTIFY_ON_SUCCESS", raising=False)
             yield {
-                "wait": wait,
+                "version": version,
                 "tasks": tasks,
                 "slack": slack,
                 "stdout": stdout,
                 "prev_failed": prev_failed,
             }
 
-    def _run(self, mocks, status, failed=None, running=None, retried=None, total=None, args=None):
-        mocks["wait"].return_value = make_mock_version(
+    def _run(self, mocks, status, failed=None, running=None, retried=None, skipped=None, total=None, args=None):
+        mocks["version"].return_value = make_mock_version(
             revision="abc", status=status, author="X", author_id="x", message="m"
         )
         # Convert dict tasks to TaskInfo if provided as dicts
         failed_tasks = [make_mock_task(t["display_name"], t["build_variant"]) for t in (failed or [])]
-        running_tasks = [make_mock_task(t["display_name"], t["build_variant"], "started") for t in (running or [])]
+        pending_tasks = [make_mock_task(t["display_name"], t["build_variant"], "started") for t in (running or [])] + [
+            make_mock_task(t["display_name"], t["build_variant"], "undispatched") for t in (skipped or [])
+        ]
         retried_tasks = [
             make_mock_task(t["display_name"], t["build_variant"], "success", t["execution"]) for t in (retried or [])
         ]
         if total is None:
-            total = len(failed_tasks) + len(running_tasks) + len(retried_tasks)
-        mocks["tasks"].return_value = (failed_tasks, running_tasks, retried_tasks, total)
+            total = len(failed_tasks) + len(pending_tasks) + len(retried_tasks)
+        mocks["tasks"].return_value = (failed_tasks, pending_tasks, retried_tasks, total)
         sys.argv = ["test.py"] + (args or [])
         from scripts.evergreen.notify_master_failures import main
 
@@ -512,10 +585,21 @@ class TestMainOutputBehavior:
         self._run(mocks, "failed", failed=[{"build_variant": "v", "display_name": "e2e_t"}])
         assert mocks["slack"].called
 
-    def test_no_slack_for_running_only(self, mocks, monkeypatch):
+    def test_slack_reports_unfinished_variants_as_skipped(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")
-        self._run(mocks, "started", running=[{"build_variant": "v", "display_name": "e2e_t"}])
-        assert not mocks["slack"].called
+        self._run(
+            mocks,
+            "started",
+            running=[{"build_variant": "cloudqa_active", "display_name": "e2e_task"}],
+            skipped=[{"build_variant": "cloudqa_queued", "display_name": "e2e_task"}],
+        )
+
+        mocks["slack"].assert_called_once()
+        message = mocks["slack"].call_args.args[1]
+        assert "Build Passed" in message["blocks"][0]["text"]["text"]
+        assert "Skipped in this report" in str(message["blocks"])
+        assert "cloudqa_active" in str(message["blocks"])
+        assert "cloudqa_queued" in str(message["blocks"])
 
     def test_slack_on_success_by_default(self, mocks, monkeypatch):
         monkeypatch.setenv("SLACK_WEBHOOK_URL", "http://x")

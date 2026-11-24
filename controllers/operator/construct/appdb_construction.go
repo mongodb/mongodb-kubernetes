@@ -11,8 +11,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
@@ -253,7 +253,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 	if vault.IsVaultSecretBackend() {
 		appDBSecretsToInject := vault.AppDBSecretsToInject{Config: opts.VaultConfig}
 		if ShouldEnableMonitoring(podVars) {
-			appDBSecretsToInject.AgentApiKey = agents.ApiKeySecretName(podVars.ProjectID)
+			appDBSecretsToInject.AgentApiKey = mdbv1.AgentAPIKeySecretName(podVars.ProjectID)
 		}
 		if appDB.GetSecurity().IsTLSEnabled() {
 			secretName := appDB.GetSecurity().MemberCertificateSecretName(appDB.Name()) + certs.OperatorGeneratedCertSuffix
@@ -279,7 +279,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 		if ShouldEnableMonitoring(podVars) {
 			modification = podtemplatespec.Apply(
 				modification,
-				podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(podVars.ProjectID))),
+				podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, mdbv1.AgentAPIKeySecretName(podVars.ProjectID))),
 			)
 		}
 	}

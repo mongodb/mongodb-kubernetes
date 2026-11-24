@@ -19,6 +19,8 @@ tasks:
       - func: cleanup_aws
 
   - name: periodic_teardown_cloudqa
+    # a backstop for a stalled run: above TIME_BUDGET_MINUTES in setup_cloud_qa.py, below the 2 hours between runs
+    exec_timeout_secs: 6600
     commands:
       - func: teardown_cloud_qa_all
 
@@ -48,6 +50,8 @@ tasks:
 task_groups:
   - name: periodic_teardown_task_group
     <<: *setup_group
+    # a host per task: a failed task stops the rest of a single-host task group
+    max_hosts: -1
     tasks:
       - periodic_teardown_aws
       - periodic_teardown_cloudqa
