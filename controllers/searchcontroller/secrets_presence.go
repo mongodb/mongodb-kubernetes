@@ -79,14 +79,16 @@ func expectedSecretNamesForCluster(search *searchv1.MongoDBSearch, clusterIndex 
 
 func expectedClusterInvariantSecretNames(search *searchv1.MongoDBSearch) []string {
 	var names []string
-	// The SCRAM password secret is always expected (defaulted name) except under OIDC
-	// auth, which replaces password auth entirely: then only the OIDC client secret is.
-	// (The IdP CA is a ConfigMap — not checkable here; the reconcile-time read in
+	// The source password secret applies to SCRAM auth only: OIDC replaces password auth
+	// with its client secret, and an x509 search has no default-named password secret to
+	// expect. (The IdP CA is a ConfigMap — not checkable here; the reconcile-time read in
 	// ensureOIDCClientConfig covers it.)
 	if search.IsOIDCAuth() {
 		names = append(names, search.Spec.Source.OIDC.ClientSecretRef.Name)
-	} else if ref := search.SourceUserPasswordSecretRef(); ref != nil && ref.Name != "" {
-		names = append(names, ref.Name)
+	} else if search.IsSCRAMAuth() {
+		if ref := search.SourceUserPasswordSecretRef(); ref != nil && ref.Name != "" {
+			names = append(names, ref.Name)
+		}
 	}
 	if search.IsExternalMongoDBSource() {
 		ext := search.Spec.Source.ExternalMongoDBSource

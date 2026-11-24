@@ -872,7 +872,6 @@ func TestMongoDBSearchReconcile_RegistersSourceAuthSecretWatches(t *testing.T) {
 				return []client.Object{
 					newEnterpriseSearchSourceDB("mdb", mock.TestNamespace, "SCRAM", "X509"),
 					tlsSecret("x509-cert"),
-					passwordSecret(s.SourceUserPasswordSecretRef().Name),
 				}
 			},
 			expected: func(s *searchv1.MongoDBSearch) map[watch.Object][]types.NamespacedName {
@@ -1009,10 +1008,6 @@ func TestMongoDBSearchReconcile_FailsX509SearchWhenSourceLacksX509Mode(t *testin
 		&corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: "x509-cert", Namespace: mock.TestNamespace},
 			Data:       map[string][]byte{"tls.crt": []byte("cert-data"), "tls.key": []byte("key-data")},
-		},
-		&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: search.SourceUserPasswordSecretRef().Name, Namespace: mock.TestNamespace},
-			Data:       map[string][]byte{"password": []byte("source-password")},
 		},
 	).Build()
 	reconciler := newMongoDBSearchReconciler(c, operatorConfig, map[string]client.Client{}, "")

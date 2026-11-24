@@ -2339,63 +2339,43 @@ const (
 	scramAuthRequiredMsg = "MongoDBSearch requires SCRAM authentication to be enabled on the source MongoDB when using SCRAM sync-source authentication"
 )
 
-// sourceAuthModes returns the source's configured authentication modes and
-// whether the operator can inspect them. External sources and unknown
-// implementations are not checkable.
-func sourceAuthModes(db SearchSourceDBResource) ([]string, bool) {
+// sourceAuthModes returns the source's configured authentication modes, whether
+// authentication is enabled on it, and whether the operator can inspect either. Community
+// sources have no enabled flag, so a non-empty mode list is their only signal. External
+// sources and unknown implementations are not checkable.
+func sourceAuthModes(db SearchSourceDBResource) (modes []string, enabled, checkable bool) {
 	switch src := db.(type) {
 	case EnterpriseResourceSearchSource:
-		return src.Spec.GetSecurityAuthenticationModes(), true
+		auth := src.Spec.GetSecurity().Authentication
+		return src.Spec.GetSecurityAuthenticationModes(), auth != nil && auth.Enabled, true
 	case *ShardedInternalSearchSource:
-		return src.Spec.GetSecurityAuthenticationModes(), true
+		auth := src.Spec.GetSecurity().Authentication
+		return src.Spec.GetSecurityAuthenticationModes(), auth != nil && auth.Enabled, true
 	case *CommunitySearchSource:
-		modes := make([]string, 0, len(src.Spec.Security.Authentication.Modes))
+		communityModes := make([]string, 0, len(src.Spec.Security.Authentication.Modes))
 		for _, mode := range src.Spec.Security.Authentication.Modes {
-			modes = append(modes, string(mode))
+			communityModes = append(communityModes, string(mode))
 		}
-		return modes, true
+		return communityModes, true, true
 	default:
-		return nil, false
+		return nil, false, false
 	}
 }
 
-// sourceAuthEnabled reports whether authentication is enabled on the source and whether the
-// operator can inspect it. Community sources have no enabled flag: a non-empty mode list is
-// the only signal. External sources are unverifiable. sourceAuthModes stays mode-only on
-// purpose: a disabled enterprise source still lists its modes, and the auth gates compare the
-// two to tell a mode the source would honour from one it would silently drop.
-func sourceAuthEnabled(db SearchSourceDBResource) (enabled, checkable bool) {
-	switch src := db.(type) {
-	case EnterpriseResourceSearchSource:
-		auth := src.Spec.GetSecurity().Authentication
-		return auth != nil && auth.Enabled, true
-	case *ShardedInternalSearchSource:
-		auth := src.Spec.GetSecurity().Authentication
-		return auth != nil && auth.Enabled, true
-	case *CommunitySearchSource:
-		return true, true
-	default:
-		return false, false
-	}
-}
-
-// ValidateX509AuthSource enforces the x509 source requirement at reconcile time: a search
+// validateX509AuthSource enforces the x509 source requirement at reconcile time: a search
 // authenticating with x509 needs an X509 auth mode on the source MongoDB, because mongod
 // disables the MONGODB-X509 SASL mechanism otherwise and the deployment would only fail at
-// runtime. External sources are unverifiable from the operator and get no check.
-func ValidateX509AuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
+// runtime.
+func validateX509AuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
 	if !search.IsX509Auth() {
 		return nil
 	}
 
-	modes, checkable := sourceAuthModes(db)
+	modes, enabled, checkable := sourceAuthModes(db)
 	if !checkable {
 		return nil
 	}
-	if enabled, _ := sourceAuthEnabled(db); !enabled {
-		return xerrors.New(x509AuthRequiredMsg)
-	}
-	if slices.Contains(modes, util.X509) {
+	if enabled && slices.Contains(modes, util.X509) {
 		return nil
 	}
 	return xerrors.New(x509AuthRequiredMsg)
@@ -2433,9 +2413,9 @@ func (r *MongoDBSearchReconcileHelper) scramSourcePasswordContentHash(ctx contex
 	ref := r.mdbSearch.SourceUserPasswordSecretRef()
 	pw, err := secret.ReadKey(ctx, kubeClient, ref.Key, types.NamespacedName{Name: ref.Name, Namespace: r.mdbSearch.Namespace})
 	if err != nil {
-		// The operator-derived <name>-<user>-password secret is created by the sync user's
-		// owner and may lag the search, so a missing one folds nothing. An explicit
-		// passwordSecretRef must exist.
+		// A missing default-named secret is tolerated so an operator upgrade does not flip
+		// existing searches to Failed; CheckSecretsPresence already reports the gap and
+		// requeues. An explicit passwordSecretRef must exist.
 		explicitRef := r.mdbSearch.Spec.Source != nil && r.mdbSearch.Spec.Source.PasswordSecretRef != nil
 		if !explicitRef && apierrors.IsNotFound(err) {
 			return "", nil
@@ -2867,7 +2847,7 @@ func ValidateSearchSourceAuth(search *searchv1.MongoDBSearch, db SearchSourceDBR
 	if err := validateSCRAMAuthSource(search, db); err != nil {
 		return err
 	}
-	if err := ValidateX509AuthSource(search, db); err != nil {
+	if err := validateX509AuthSource(search, db); err != nil {
 		return err
 	}
 	return validateOIDCSource(search, db)
@@ -2880,10 +2860,6 @@ func ValidateSearchSourceAuth(search *searchv1.MongoDBSearch, db SearchSourceDBR
 // MongoDB server rejects tokens its OIDC provider configuration does not accept.
 // No mongod version check either: the adapters' 8.2.0 floor already exceeds the
 // 7.0 requirement for MONGODB-OIDC.
-func (r *MongoDBSearchReconcileHelper) validateOIDCSource() error {
-	return validateOIDCSource(r.mdbSearch, r.db)
-}
-
 func validateOIDCSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
 	if !search.IsOIDCAuth() {
 		return nil
@@ -2915,15 +2891,13 @@ func validateOIDCSource(search *searchv1.MongoDBSearch, db SearchSourceDBResourc
 // validateSCRAMAuthSource requires a SCRAM mode on the source for a SCRAM search. The
 // adapters cannot see the search resource, so the pairing lives here where both are visible;
 // x509 and OIDC searches are exempt, and external sources are unverifiable and unchecked.
-func (r *MongoDBSearchReconcileHelper) validateSCRAMAuthSource() error {
-	return validateSCRAMAuthSource(r.mdbSearch, r.db)
-}
-
 func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBResource) error {
 	if search.IsX509Auth() || search.IsOIDCAuth() {
 		return nil
 	}
 
+	// The switch stays until #1799 folds it onto sourceAuthModes, which must carry the
+	// enabled check across with it.
 	var authModes []string
 	switch src := db.(type) {
 	case EnterpriseResourceSearchSource:
@@ -2940,9 +2914,8 @@ func validateSCRAMAuthSource(search *searchv1.MongoDBSearch, db SearchSourceDBRe
 	}
 
 	// A source with authentication disabled configures none of the modes it lists, so the
-	// check below would read a mode the source would silently drop. An enterprise source
-	// that lists no modes keeps its own verdict.
-	if enabled, _ := sourceAuthEnabled(db); !enabled && len(authModes) > 0 {
+	// check below would read a mode the source would silently drop.
+	if _, enabled, _ := sourceAuthModes(db); !enabled {
 		return xerrors.New(scramAuthRequiredMsg)
 	}
 
