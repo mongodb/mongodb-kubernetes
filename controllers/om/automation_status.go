@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
@@ -19,6 +20,15 @@ import (
 
 const automationAgentKubeUpgradeMove = "ChangeVersionKube"
 
+const (
+	ExecutionStepWaitCanUpdate       = "WaitCanUpdate"
+	ExecutionStepWaitNodeReplacement = "WaitNodeReplacement"
+)
+
+// StaleProcessDuration is how old an agent report can be before it is considered stale.
+// It sits between waitForAgentsToRegister's 1 minute and Ops Manager's own 5 minutes.
+const StaleProcessDuration = 2 * time.Minute
+
 // AutomationStatus represents the status of automation agents registered with Ops Manager
 type AutomationStatus struct {
 	GoalVersion int             `json:"goalVersion"`
@@ -27,12 +37,36 @@ type AutomationStatus struct {
 
 // ProcessStatus status of the process and what's the last version achieved
 type ProcessStatus struct {
-	Hostname                string   `json:"hostname"`
-	Name                    string   `json:"name"`
-	LastGoalVersionAchieved int      `json:"lastGoalVersionAchieved"`
-	Plan                    []string `json:"plan"`
-	ErrorCode               int      `json:"errorCode"`
-	ErrorString             string   `json:"errorString"`
+	Hostname                string            `json:"hostname"`
+	Name                    string            `json:"name"`
+	LastGoalVersionAchieved int               `json:"lastGoalVersionAchieved"`
+	Plan                    []string          `json:"plan"`
+	ErrorCode               int               `json:"errorCode"`
+	ErrorString             string            `json:"errorString"`
+	Execution               *ProcessExecution `json:"execution,omitempty"`
+}
+
+// ProcessExecution is the last automation plan move reported by the process's agent.
+type ProcessExecution struct {
+	AutomationConfigVersion int       `json:"automationConfigVersion"`
+	Move                    string    `json:"move"`
+	Step                    string    `json:"step"`
+	ReportedAt              time.Time `json:"reportedAt"`
+}
+
+// isCurrent returns true if the report is for the goal version and is not stale.
+func (e *ProcessExecution) isCurrent(goalVersion int, now time.Time) bool {
+	return e != nil && e.AutomationConfigVersion == goalVersion && now.Sub(e.ReportedAt) <= StaleProcessDuration
+}
+
+// IsParked returns true if the agent is waiting for the operator to act on its process.
+func (e *ProcessExecution) IsParked(goalVersion int, now time.Time) bool {
+	return e.isCurrent(goalVersion, now) && (e.Step == ExecutionStepWaitCanUpdate || e.Step == ExecutionStepWaitNodeReplacement)
+}
+
+// IsWaitingForNodeReplacement returns true if the agent has prepared its process and waits for the pod to be replaced.
+func (e *ProcessExecution) IsWaitingForNodeReplacement(goalVersion int, now time.Time) bool {
+	return e.isCurrent(goalVersion, now) && e.Step == ExecutionStepWaitNodeReplacement
 }
 
 func buildAutomationStatusFromBytes(b []byte) (*AutomationStatus, error) {
@@ -125,6 +159,10 @@ func checkAutomationStatusIsGoal(as *AutomationStatus, relevantProcesses []strin
 		return true, ""
 	}
 
+	if areAnyProcessesParked(as, relevantProcesses, log) {
+		return true, ""
+	}
+
 	goalsNotAchievedMap := map[string]int{}
 	goalsAchievedMap := map[string]int{}
 	authTransitionsInProgress := map[string]string{}
@@ -203,6 +241,21 @@ func areAnyAgentsInKubeUpgradeMode(as *AutomationStatus, relevantProcesses []str
 		// - this can only happen if the statefulset is ready, therefore we are returning ready here
 		if slices.Contains(p.Plan, automationAgentKubeUpgradeMove) {
 			log.Debug("cluster is in changeVersionKube mode, returning the agent is ready.")
+			return true
+		}
+	}
+	return false
+}
+
+func areAnyProcessesParked(as *AutomationStatus, relevantProcesses []string, log *zap.SugaredLogger) bool {
+	now := time.Now()
+	for _, p := range as.Processes {
+		if !stringutil.Contains(relevantProcesses, p.Name) {
+			continue
+		}
+		// the agent is waiting for the operator to replace its pod, so there is nothing left for the agents to reach
+		if p.Execution.IsParked(as.GoalVersion, now) {
+			log.Debugw("process is parked waiting for the operator, returning the agent is ready.", "process", p.Name, "step", p.Execution.Step)
 			return true
 		}
 	}
