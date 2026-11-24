@@ -1417,19 +1417,6 @@ func TestTriggerOmChangedEventIfNeeded(t *testing.T) {
 
 const stuckTerminatingFinalizer = "test.mongodb.com/keep-terminating"
 
-// deleteAllOfRecorder records the options DeleteAllOf is called with.
-type deleteAllOfRecorder struct {
-	kubernetesClient.Client
-	calls []*client.DeleteAllOfOptions
-}
-
-func (c *deleteAllOfRecorder) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
-	options := &client.DeleteAllOfOptions{}
-	options.ApplyOptions(opts)
-	c.calls = append(c.calls, options)
-	return c.Client.DeleteAllOf(ctx, obj, opts...)
-}
-
 func backupDaemonPod(om *omv1.MongoDBOpsManager, finalizers ...string) *corev1.Pod {
 	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 		Name:       om.BackupDaemonStatefulSetName() + "-0",
@@ -1443,13 +1430,10 @@ func TestStopBackupDaemonIfNeeded(t *testing.T) {
 	tests := []struct {
 		name                  string
 		statusVersion         string
-		force                 bool
 		podFinalizers         []string
 		expectedStopped       bool
 		expectedReplicas      int32
 		expectedPodsRemaining int
-		expectedDeleteCalls   int
-		expectedGracePeriod   *int64
 	}{
 		{
 			name:                  "version did not change",
@@ -1466,11 +1450,10 @@ func TestStopBackupDaemonIfNeeded(t *testing.T) {
 			expectedPodsRemaining: 1,
 		},
 		{
-			name:                "upgrade stops the daemon",
-			statusVersion:       "6.0.0",
-			expectedStopped:     true,
-			expectedReplicas:    0,
-			expectedDeleteCalls: 1,
+			name:             "upgrade stops the daemon",
+			statusVersion:    "6.0.0",
+			expectedStopped:  true,
+			expectedReplicas: 0,
 		},
 		{
 			name:                  "upgrade waits for a terminating daemon pod",
@@ -1479,27 +1462,6 @@ func TestStopBackupDaemonIfNeeded(t *testing.T) {
 			expectedStopped:       false,
 			expectedReplicas:      0,
 			expectedPodsRemaining: 1,
-			expectedDeleteCalls:   1,
-		},
-		{
-			name:                "forced upgrade stops the daemon with a short grace period",
-			statusVersion:       "6.0.0",
-			force:               true,
-			expectedStopped:     true,
-			expectedReplicas:    0,
-			expectedDeleteCalls: 1,
-			expectedGracePeriod: new(int64(1)),
-		},
-		{
-			name:                  "forced upgrade waits for a terminating daemon pod",
-			statusVersion:         "6.0.0",
-			force:                 true,
-			podFinalizers:         []string{stuckTerminatingFinalizer},
-			expectedStopped:       false,
-			expectedReplicas:      0,
-			expectedPodsRemaining: 1,
-			expectedDeleteCalls:   1,
-			expectedGracePeriod:   new(int64(1)),
 		},
 	}
 	for _, tt := range tests {
@@ -1507,8 +1469,6 @@ func TestStopBackupDaemonIfNeeded(t *testing.T) {
 			ctx := context.Background()
 			testOm := DefaultOpsManagerBuilder().SetOMStatusVersion(tt.statusVersion).Build()
 			reconciler, kubeClient, _ := defaultTestOmReconciler(ctx, t, nil, "", "", testOm, nil, om.NewDefaultCachedOMConnectionFactory(), architectures.NonStatic)
-			recorder := &deleteAllOfRecorder{Client: kubeClient}
-			reconciler.client = recorder
 
 			require.NoError(t, kubeClient.Create(ctx, &appsv1.StatefulSet{
 				ObjectMeta: metav1.ObjectMeta{Name: testOm.BackupDaemonStatefulSetName(), Namespace: testOm.Namespace},
@@ -1519,7 +1479,7 @@ func TestStopBackupDaemonIfNeeded(t *testing.T) {
 			helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
 			require.NoError(t, err)
 
-			stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper, tt.force)
+			stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper)
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedStopped, stopped)
@@ -1531,11 +1491,6 @@ func TestStopBackupDaemonIfNeeded(t *testing.T) {
 			pods := corev1.PodList{}
 			require.NoError(t, kubeClient.List(ctx, &pods))
 			assert.Len(t, pods.Items, tt.expectedPodsRemaining)
-
-			require.Len(t, recorder.calls, tt.expectedDeleteCalls)
-			for _, call := range recorder.calls {
-				assert.Equal(t, tt.expectedGracePeriod, call.GracePeriodSeconds)
-			}
 		})
 	}
 }
@@ -1543,73 +1498,69 @@ func TestStopBackupDaemonIfNeeded(t *testing.T) {
 // TestStopBackupDaemonIfNeeded_MultiCluster verifies that a Backup Daemon pod stuck terminating in one member cluster
 // does not prevent the Backup Daemon from being stopped in the others.
 func TestStopBackupDaemonIfNeeded_MultiCluster(t *testing.T) {
-	for _, force := range []bool{false, true} {
-		t.Run(fmt.Sprintf("force=%t", force), func(t *testing.T) {
-			ctx := context.Background()
-			clusterNames := []string{"cluster-a", "cluster-b"}
-			testOm := DefaultOpsManagerBuilder().
-				SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
-				SetOpsManagerClusterSpecList([]omv1.ClusterSpecOMItem{
-					{ClusterName: clusterNames[0], Members: 1},
-					{ClusterName: clusterNames[1], Members: 1},
-				}).
-				SetOMStatusVersion("6.0.0").
-				Build()
+	ctx := context.Background()
+	clusterNames := []string{"cluster-a", "cluster-b"}
+	testOm := DefaultOpsManagerBuilder().
+		SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+		SetOpsManagerClusterSpecList([]omv1.ClusterSpecOMItem{
+			{ClusterName: clusterNames[0], Members: 1},
+			{ClusterName: clusterNames[1], Members: 1},
+		}).
+		SetOMStatusVersion("6.0.0").
+		Build()
 
-			omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
-			memberClients := map[string]client.Client{}
-			for _, name := range clusterNames {
-				memberClients[name] = mock.NewEmptyFakeClientBuilder().
-					WithInterceptorFuncs(interceptor.Funcs{Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)}).
-					Build()
-			}
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	memberClients := map[string]client.Client{}
+	for _, name := range clusterNames {
+		memberClients[name] = mock.NewEmptyFakeClientBuilder().
+			WithInterceptorFuncs(interceptor.Funcs{Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)}).
+			Build()
+	}
 
-			centralClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().
-				WithObjects(testOm.DeepCopy()).
-				WithInterceptorFuncs(interceptor.Funcs{Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)}).
-				Build())
-			reconciler := NewOpsManagerReconciler(ctx, centralClient, memberClients, images.ImageUrls{}, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
-				return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
-			})
+	centralClient := kubernetesClient.NewClient(mock.NewEmptyFakeClientBuilder().
+		WithObjects(testOm.DeepCopy()).
+		WithInterceptorFuncs(interceptor.Funcs{Get: mock.GetFakeClientInterceptorGetFunc(omConnectionFactory, true, true)}).
+		Build())
+	reconciler := NewOpsManagerReconciler(ctx, centralClient, memberClients, images.ImageUrls{}, "", "", architectures.NonStatic, omConnectionFactory.GetConnectionFunc, &MockedInitializer{expectedOmURL: testOm.CentralURL(), t: t}, func(baseUrl string, user string, publicApiKey string, ca *string) api.OpsManagerAdmin {
+		return api.NewMockedAdminProvider(baseUrl, user, publicApiKey, true).(*api.MockedOmAdmin)
+	})
 
-			helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, memberClients, zap.S())
-			require.NoError(t, err)
-			require.Len(t, helper.getHealthyMemberClusters(), len(clusterNames))
+	helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, memberClients, zap.S())
+	require.NoError(t, err)
+	require.Len(t, helper.getHealthyMemberClusters(), len(clusterNames))
 
-			// the first cluster is stuck terminating, the second one stops right away
-			for i, memberCluster := range helper.getHealthyMemberClusters() {
-				require.NoError(t, memberCluster.Client.Create(ctx, &appsv1.StatefulSet{
-					ObjectMeta: metav1.ObjectMeta{Name: helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), Namespace: testOm.Namespace},
-					Spec:       appsv1.StatefulSetSpec{Replicas: new(int32(1))},
-				}))
+	// the first cluster is stuck terminating, the second one stops right away
+	for i, memberCluster := range helper.getHealthyMemberClusters() {
+		require.NoError(t, memberCluster.Client.Create(ctx, &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster), Namespace: testOm.Namespace},
+			Spec:       appsv1.StatefulSetSpec{Replicas: new(int32(1))},
+		}))
 
-				pod := backupDaemonPod(testOm)
-				pod.Name = helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster) + "-0"
-				pod.Labels = map[string]string{"app": helper.BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster)}
-				if i == 0 {
-					pod.Finalizers = []string{stuckTerminatingFinalizer}
-				}
-				require.NoError(t, memberCluster.Client.Create(ctx, pod))
-			}
+		pod := backupDaemonPod(testOm)
+		pod.Name = helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster) + "-0"
+		pod.Labels = map[string]string{"app": helper.BackupDaemonHeadlessServiceNameForMemberCluster(memberCluster)}
+		if i == 0 {
+			pod.Finalizers = []string{stuckTerminatingFinalizer}
+		}
+		require.NoError(t, memberCluster.Client.Create(ctx, pod))
+	}
 
-			stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper, force)
-			require.NoError(t, err)
-			assert.False(t, stopped)
+	stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper)
+	require.NoError(t, err)
+	assert.False(t, stopped)
 
-			for i, memberCluster := range helper.getHealthyMemberClusters() {
-				sts := appsv1.StatefulSet{}
-				require.NoError(t, memberCluster.Client.Get(ctx, kube.ObjectKey(testOm.Namespace, helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)), &sts))
-				assert.Zero(t, *sts.Spec.Replicas, "Backup Daemon must be scaled down in %s", memberCluster.Name)
+	for i, memberCluster := range helper.getHealthyMemberClusters() {
+		sts := appsv1.StatefulSet{}
+		require.NoError(t, memberCluster.Client.Get(ctx, kube.ObjectKey(testOm.Namespace, helper.BackupDaemonStatefulSetNameForMemberCluster(memberCluster)), &sts))
+		assert.Zero(t, *sts.Spec.Replicas, "Backup Daemon must be scaled down in %s", memberCluster.Name)
 
-				pods := corev1.PodList{}
-				require.NoError(t, memberCluster.Client.List(ctx, &pods, client.InNamespace(testOm.Namespace)))
-				if i == 0 {
-					assert.Len(t, pods.Items, 1, "the pod with a finalizer stays terminating in %s", memberCluster.Name)
-				} else {
-					assert.Empty(t, pods.Items, "Backup Daemon pods must be deleted in %s", memberCluster.Name)
-				}
-			}
-		})
+		pods := corev1.PodList{}
+		require.NoError(t, memberCluster.Client.List(ctx, &pods, client.InNamespace(testOm.Namespace)))
+		if i == 0 {
+			assert.Len(t, pods.Items, 1, "the pod with a finalizer stays terminating in %s", memberCluster.Name)
+		} else {
+			assert.Empty(t, pods.Items, "Backup Daemon pods must be deleted in %s", memberCluster.Name)
+		}
 	}
 }
 
@@ -1620,7 +1571,7 @@ func TestStopBackupDaemonIfNeeded_NoBackupDaemon(t *testing.T) {
 	helper, err := NewOpsManagerReconcilerHelper(ctx, reconciler, testOm, nil, zap.S())
 	require.NoError(t, err)
 
-	stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper, false)
+	stopped, err := reconciler.stopBackupDaemonIfNeeded(ctx, helper)
 	require.NoError(t, err)
 	assert.True(t, stopped)
 }
