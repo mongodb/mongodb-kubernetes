@@ -321,7 +321,7 @@ def test_proxy_stop_request_kills_a_mongod_that_does_not_exit(replica_set: Mongo
 
     The stop endpoint is what the agent calls when the shutdown command times out (StopProcess with force). No normal
     planner move gets there on an MCK deployment, so the test makes the request itself, with the same fields as the
-    agent: role, executionId of the running process, a timeout and force. SIGSTOP makes mongod ignore SIGTERM (the
+    agent: role, PID of the running process, a timeout and force. SIGSTOP makes mongod ignore SIGTERM (the
     signal stays pending), which is a mongod that does not stop. The proxy must not kill it without force, must kill it
     with force, and the agent must then start mongod again.
     """
@@ -331,7 +331,7 @@ def test_proxy_stop_request_kills_a_mongod_that_does_not_exit(replica_set: Mongo
     assert identity
     status = query_proxy(pod, namespace)
     assert status["state"] == "running"
-    request = {"timeoutSeconds": 2, "role": status["role"], "executionId": status["executionId"]}
+    request = {"timeoutSeconds": 2, "role": status["role"], "pid": status["pid"]}
     kills_before = len(proxy_events(pod, namespace, "sending SIGKILL"))
 
     KubernetesTester.run_command_in_pod_container(
@@ -351,7 +351,7 @@ def test_proxy_stop_request_kills_a_mongod_that_does_not_exit(replica_set: Mongo
     code, body = post_to_proxy(pod, namespace, "/v1/process/stop", {**request, "force": True})
     assert code == 200, (code, body)
     assert body["state"] == "exited", body
-    assert body["executionId"] == request["executionId"], body
+    assert body["pid"] == request["pid"], body
     assert body.get("signal") == "killed", body
     assert len(proxy_events(pod, namespace, "sending SIGKILL")) == kills_before + 1
 
@@ -425,9 +425,9 @@ def test_agent_stops_a_leftover_ephemeral_mongod_when_it_starts(replica_set: Mon
     restarts = restart_counts(pod, namespace)
     assert identity
     # the proxy runs one process: the member leaves, the ephemeral one takes its place
-    execution_id = query_proxy(pod, namespace)["executionId"]
+    pid = query_proxy(pod, namespace)["pid"]
     status, body = post_to_proxy(
-        pod, namespace, "/v1/process/stop", {"timeoutSeconds": 60, "role": "main", "executionId": execution_id}
+        pod, namespace, "/v1/process/stop", {"timeoutSeconds": 60, "role": "main", "pid": pid}
     )
     assert status == 200 and body["state"] == "exited", (status, body)
     status, body = post_to_proxy(
