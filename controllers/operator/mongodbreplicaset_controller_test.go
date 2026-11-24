@@ -2046,6 +2046,45 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 	assert.Contains(t, applyOverrides(t, c), "rs-search-search-7-")
 }
 
+func TestApplySearchOverrides_SetsCRLFile(t *testing.T) {
+	ctx := context.Background()
+
+	run := func(t *testing.T, tlsEnabled bool) *mdbv1.MongoDB {
+		t.Helper()
+		search := &searchv1.MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "rs-search", Namespace: mock.TestNamespace},
+			Spec: searchv1.MongoDBSearchSpec{
+				Clusters: []searchv1.ClusterSpec{{}},
+				Source: &searchv1.MongoDBSource{
+					MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "temple"},
+					CRLFile:            "crl.pem",
+				},
+			},
+		}
+
+		c := mock.NewEmptyFakeClientBuilder().WithObjects(search).Build()
+		rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").Build()
+		rs.Spec.Security.TLSConfig.Enabled = tlsEnabled
+		reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c, nil)}
+		helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
+		applied, err := helper.applySearchOverrides(ctx)
+		require.NoError(t, err)
+		require.True(t, applied, "search overrides must be applied")
+		return rs
+	}
+
+	t.Run("TLS enabled wires net.tls.CRLFile", func(t *testing.T) {
+		rs := run(t, true)
+		assert.Equal(t, util.TLSCaMountPath+"/crl.pem",
+			maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "net", "tls", "CRLFile"))
+	})
+
+	t.Run("TLS disabled leaves net.tls.CRLFile unset", func(t *testing.T) {
+		rs := run(t, false)
+		assert.Empty(t, maputil.ReadMapValueAsString(rs.Spec.AdditionalMongodConfig.ToMap(), "net", "tls", "CRLFile"))
+	})
+}
+
 func TestReplicaSetReconcile_PublishesConnectionStringSecret(t *testing.T) {
 	ctx := context.Background()
 	rs := mdbv1.NewDefaultReplicaSetBuilder().

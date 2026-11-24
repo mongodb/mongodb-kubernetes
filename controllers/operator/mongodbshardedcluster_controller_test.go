@@ -51,6 +51,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
 )
 
 const (
@@ -3318,5 +3319,64 @@ func TestApplySearchParametersForShards_AuthGateAllRoutingModes(t *testing.T) {
 
 	t.Run("SCRAM search on the same source is wired", func(t *testing.T) {
 		assert.True(t, wired(run(t, sc, newSearch(nil, false))))
+	})
+}
+
+func TestApplySearchParametersForShards_SetsCRLFile(t *testing.T) {
+	ctx := context.Background()
+
+	run := func(t *testing.T, tlsEnabled bool) *ShardedClusterReconcileHelper {
+		t.Helper()
+		builder := test.DefaultClusterBuilder()
+		if tlsEnabled {
+			builder.EnableTLS()
+		}
+		sc := builder.Build()
+		search := &searchv1.MongoDBSearch{
+			ObjectMeta: metav1.ObjectMeta{Name: "search", Namespace: mock.TestNamespace},
+			Spec: searchv1.MongoDBSearchSpec{
+				Clusters: []searchv1.ClusterSpec{{}},
+				Source: &searchv1.MongoDBSource{
+					MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: test.SCBuilderDefaultName},
+					CRLFile:            "crl.pem",
+				},
+			},
+		}
+
+		kubeClient, _ := mock.NewDefaultFakeClient(sc)
+		require.NoError(t, kubeClient.Create(ctx, search))
+		shards := make(map[int]*mdbv1.ShardedClusterComponentSpec)
+		for i := 0; i < sc.Spec.ShardCount; i++ {
+			shards[i] = &mdbv1.ShardedClusterComponentSpec{}
+		}
+		helper := &ShardedClusterReconcileHelper{
+			sc:                         sc,
+			commonController:           NewReconcileCommonController(ctx, kubeClient, nil),
+			desiredShardsConfiguration: shards,
+			desiredMongosConfiguration: &mdbv1.ShardedClusterComponentSpec{},
+		}
+		require.NoError(t, helper.applySearchParametersForShards(ctx, zap.S()))
+		return helper
+	}
+
+	t.Run("TLS enabled wires net.tls.CRLFile on every shard and mongos", func(t *testing.T) {
+		helper := run(t, true)
+		wantCRL := util.TLSCaMountPath + "/crl.pem"
+		for i, cfg := range helper.desiredShardsConfiguration {
+			require.NotNil(t, cfg.AdditionalMongodConfig)
+			assert.Equal(t, wantCRL, maputil.ReadMapValueAsString(cfg.AdditionalMongodConfig.ToMap(), "net", "tls", "CRLFile"), "shard %d", i)
+		}
+		require.NotNil(t, helper.desiredMongosConfiguration.AdditionalMongodConfig)
+		assert.Equal(t, wantCRL, maputil.ReadMapValueAsString(helper.desiredMongosConfiguration.AdditionalMongodConfig.ToMap(), "net", "tls", "CRLFile"))
+	})
+
+	t.Run("TLS disabled leaves net.tls.CRLFile unset", func(t *testing.T) {
+		helper := run(t, false)
+		for i, cfg := range helper.desiredShardsConfiguration {
+			require.NotNil(t, cfg.AdditionalMongodConfig)
+			assert.Empty(t, maputil.ReadMapValueAsString(cfg.AdditionalMongodConfig.ToMap(), "net", "tls", "CRLFile"), "shard %d", i)
+		}
+		require.NotNil(t, helper.desiredMongosConfiguration.AdditionalMongodConfig)
+		assert.Empty(t, maputil.ReadMapValueAsString(helper.desiredMongosConfiguration.AdditionalMongodConfig.ToMap(), "net", "tls", "CRLFile"))
 	})
 }

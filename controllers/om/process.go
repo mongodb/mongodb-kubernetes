@@ -63,11 +63,11 @@ var infrastructureFieldPaths = [][]string{
 	{"sharding", "clusterRole"},
 }
 
-// infrastructureTLSCertKeys lists TLS/SSL certificate-related keys under
+// infrastructureTLSCertKeys lists TLS/SSL certificate- and CRL-related keys under
 // net.{tls,ssl} that are set by the operator, not by the arguments present
 // on the mongod config level. Stripped by AdditionalMongodConfig when
 // extracting user config.
-var infrastructureTLSCertKeys = []string{"certificateKeyFile", "PEMKeyFile", "clusterFile"}
+var infrastructureTLSCertKeys = []string{"certificateKeyFile", "PEMKeyFile", "clusterFile", "CRLFile"}
 
 /*
 This is a class for all types of processes.

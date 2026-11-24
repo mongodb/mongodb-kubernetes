@@ -1,5 +1,6 @@
 import tempfile
 
+import yaml
 from kubetester import create_or_update_configmap, get_pod_when_ready, read_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_tls_certs, generate_cert
 from kubetester.kubetester import KubernetesTester
@@ -46,6 +47,8 @@ USER_PASSWORD = f"{USER_NAME}-password"
 CRL_CA_CONFIGMAP_NAME = "crl-ca"
 CRL_CONFIGMAP_KEY = "crl.pem"
 CRL_MOUNT_PATH = f"/var/lib/tls/ca/{CRL_CONFIGMAP_KEY}"
+# Source mongod mounts the same CA ConfigMap as a directory here, so the CRL key lands beside the CA.
+MONGOD_CRL_PATH = f"/var/lib/mongodb-automation/tls/ca/{CRL_CONFIGMAP_KEY}"
 MONGOT_CONTAINER = "mongot"
 MONGOT_GRPC_PORT = 27028
 
@@ -304,6 +307,26 @@ def test_wait_for_agents_ready(mdb: MongoDB):
 def test_wait_for_mongod_parameters(mdb: MongoDB):
     expected_host = search_resource_names.mongot_pod_fqdn(mdb.name, mdb.namespace, MONGOT_GRPC_PORT)
     verify_rs_mongod_parameters(mdb.namespace, mdb.name, mdb.get_members(), expected_host)
+
+
+@mark.e2e_search_enterprise_crl
+def test_mongod_net_tls_crl_file_configured(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
+    # The operator sets net.tls.CRLFile on every source mongod so it enforces the same CRL
+    # as mongot. The MongoDB agent writes the option into /data/automation-mongod.conf.
+    def check() -> tuple:
+        for idx in range(mdb.get_members()):
+            pod_name = f"{mdb.name}-{idx}"
+            mongod_config = yaml.safe_load(
+                KubernetesTester.run_command_in_pod_container(
+                    pod_name, namespace, ["cat", "/data/automation-mongod.conf"]
+                )
+            )
+            crl_file = (mongod_config.get("net") or {}).get("tls", {}).get("CRLFile")
+            if crl_file != MONGOD_CRL_PATH:
+                return False, f"{pod_name}: net.tls.CRLFile={crl_file!r}, expected {MONGOD_CRL_PATH!r}"
+        return True, f"all {mdb.get_members()} mongod members have net.tls.CRLFile={MONGOD_CRL_PATH}"
+
+    run_periodically(check, timeout=600, msg="mongod net.tls.CRLFile")
 
 
 @fixture(scope="module")

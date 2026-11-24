@@ -1149,6 +1149,11 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 	}
 
 	// Apply search configuration to each shard (all modes: no-LB, unmanaged LB, managed LB)
+	caFilePath := sc.Spec.GetSecurity().GetTLSCAFilePath(path.Join(util.TLSCaMountPath, tls.CAConfigMapKey))
+	crlPath, err := searchcontroller.MongodCRLFilePath(search, caFilePath, sc.Spec.GetSecurity().IsTLSEnabled())
+	if err != nil {
+		return err
+	}
 	for shardIdx := 0; shardIdx < sc.Spec.ShardCount; shardIdx++ {
 		shardName := shardNames[shardIdx]
 		shardConfig := r.desiredShardsConfiguration[shardIdx]
@@ -1159,6 +1164,9 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 
 		searchMongodConfig := searchcontroller.GetMongodConfigParametersForShard(search, shardName, sc.Spec.GetClusterDomain(), searchClusterIndex)
 		shardConfig.AdditionalMongodConfig.AddOption("setParameter", searchMongodConfig["setParameter"])
+		if crlPath != "" {
+			shardConfig.AdditionalMongodConfig.AddOption(mongodCRLFileOption, crlPath)
+		}
 
 		log.Debugf("Applied search config for shard %s: mongotHost=%v", shardName, searchMongodConfig["setParameter"])
 	}
@@ -1173,6 +1181,9 @@ func (r *ShardedClusterReconcileHelper) applySearchParametersForShards(ctx conte
 	// Q1-MC sharded would need per-cluster mongos config (gated on ShardOverrides API redesign).
 	searchMongosConfig := searchcontroller.GetMongosConfigParametersForSharded(search, searchClusterIndex, "", shardNames, sc.Spec.GetClusterDomain())
 	r.desiredMongosConfiguration.AdditionalMongodConfig.AddOption("setParameter", searchMongosConfig["setParameter"])
+	if crlPath != "" {
+		r.desiredMongosConfiguration.AdditionalMongodConfig.AddOption(mongodCRLFileOption, crlPath)
+	}
 
 	log.Infof("Applied search config for mongos: mongotHost=%v", searchMongosConfig["setParameter"])
 	return nil
