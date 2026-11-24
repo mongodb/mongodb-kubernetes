@@ -1970,7 +1970,9 @@ func TestApplySearchOverrides_ResolvesPinnedClusterIndex(t *testing.T) {
 		}
 	}
 	applyOverrides := func(t *testing.T, c client.Client) string {
-		rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").Build()
+		rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").
+			SetAuthentication(&mdbv1.Authentication{Enabled: true, Modes: []mdbv1.AuthMode{mdbv1.AuthMode("SCRAM")}}).
+			Build()
 		reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c, nil)}
 		helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
 		applied, err := helper.applySearchOverrides(ctx)
@@ -2035,7 +2037,8 @@ func TestApplySearchOverrides_GatesOnSourceAuthMode(t *testing.T) {
 			}
 			c := mock.NewEmptyFakeClientBuilder().WithObjects(search).Build()
 
-			rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").SetAuthModes(tc.authModes).Build()
+			rs := DefaultReplicaSetBuilder().SetVersion("8.2.0").
+				SetAuthentication(&mdbv1.Authentication{Enabled: true, Modes: tc.authModes}).Build()
 			reconciler := &ReconcileMongoDbReplicaSet{ReconcileCommonController: NewReconcileCommonController(ctx, c, nil)}
 			helper := &ReplicaSetReconcilerHelper{resource: rs, reconciler: reconciler, log: zap.S()}
 
