@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -44,7 +45,7 @@ import (
 )
 
 func newShardedClusterReconcilerForMultiCluster(ctx context.Context, forceEnterprise bool, sc *mdbv1.MongoDB, globalMemberClustersMap map[string]client.Client, kubeClient kubernetesClient.Client, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbShardedCluster, *ShardedClusterReconcileHelper, error) {
-	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	r := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
 	reconcileHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", forceEnterprise, false, false, "", architectures.NonStatic, r.defaultImageType, sc, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, zap.S(), testBackupEnableDelay)
 	if err != nil {
 		return nil, nil, err
@@ -1663,6 +1664,51 @@ func TestMongosExpectedConfigFromSingleClusterYaml(t *testing.T) {
 	testDesiredConfigurationFromYAML[*mdbv1.ShardedClusterComponentSpec](t, "testdata/mdb-sharded-single-cluster-configsrv-mongos.yaml", "testdata/mdb-sharded-single-cluster-configsrv-mongos-expected-config.yaml", "mongos")
 }
 
+// TestMultiClusterShardedStatefulSetStatus is the multi-cluster counterpart of TestShardedClusterStatefulSetStatus: the
+// StatefulSets of all member clusters of a component are reported together, and their names carry the cluster index.
+func TestMultiClusterShardedStatefulSetStatus(t *testing.T) {
+	ctx := context.Background()
+	cluster1, cluster2, cluster3 := "member-cluster-1", "member-cluster-2", "member-cluster-3"
+	clusterNames := []string{cluster1, cluster2, cluster3}
+	shardCount := 2
+	shardDistribution := map[string]int{cluster1: 1, cluster2: 1, cluster3: 1}
+	configServerDistribution := map[string]int{cluster2: 1, cluster3: 1}
+	mongosDistribution := map[string]int{cluster1: 1, cluster2: 1}
+	sc := test.DefaultClusterBuilder().
+		SetTopology(mdbv1.ClusterTopologyMultiCluster).
+		SetShardCountSpec(shardCount).
+		SetMongodsPerShardCountSpec(0).
+		SetConfigServerCountSpec(0).
+		SetMongosCountSpec(0).
+		SetShardClusterSpec(test.CreateClusterSpecList(clusterNames, shardDistribution)).
+		SetConfigSrvClusterSpec(test.CreateClusterSpecList(clusterNames, configServerDistribution)).
+		SetMongosClusterSpec(test.CreateClusterSpecList(clusterNames, mongosDistribution)).
+		Build()
+
+	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory()
+	ready := map[string]bool{}
+	kubeClient := newStatefulSetReadinessClient(omConnectionFactory, ready, append(mock.GetDefaultResources(), sc)...)
+	memberClusterMap := map[string]client.Client{}
+	for _, clusterName := range clusterNames {
+		memberClusterMap[clusterName] = newStatefulSetReadinessClient(omConnectionFactory, ready)
+	}
+	reconciler, reconcilerHelper, err := newShardedClusterReconcilerForMultiCluster(ctx, false, sc, memberClusterMap, kubeClient, omConnectionFactory)
+	require.NoError(t, err)
+	clusterMapping := reconcilerHelper.deploymentState.ClusterMapping
+	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+		allHostnames, _ := generateAllHosts(sc, mongosDistribution, clusterMapping, configServerDistribution, slices.Repeat([]map[string]int{shardDistribution}, shardCount), test.ClusterLocalDomains, test.NoneExternalClusterDomains)
+		connection.(*om.MockedOmConnection).AddHosts(allHostnames)
+	})
+
+	steps := [][]status.ResourceNotReady{
+		{statefulSetNotReady(sc.Name+"-config-1", 1), statefulSetNotReady(sc.Name+"-config-2", 1)},
+		{statefulSetNotReady(sc.Name+"-0-0", 1), statefulSetNotReady(sc.Name+"-0-1", 1), statefulSetNotReady(sc.Name+"-0-2", 1)},
+		{statefulSetNotReady(sc.Name+"-1-0", 1), statefulSetNotReady(sc.Name+"-1-1", 1), statefulSetNotReady(sc.Name+"-1-2", 1)},
+		{statefulSetNotReady(sc.Name+"-mongos-0", 1), statefulSetNotReady(sc.Name+"-mongos-1", 1)},
+	}
+	checkStatefulSetStatusInSteps(ctx, t, reconciler, sc, kubeClient, ready, steps)
+}
+
 func TestMultiClusterShardedSetRace(t *testing.T) {
 	cluster1 := "cluster-member-1"
 	cluster2 := "cluster-member-2"
@@ -1709,7 +1755,7 @@ func TestMultiClusterShardedSetRace(t *testing.T) {
 	globalMemberClustersMap := getFakeMultiClusterMapWithConfiguredInterceptor(memberClusterNames, omConnectionFactory, true, false)
 
 	ctx := context.Background()
-	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, kubeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, globalMemberClustersMap, omConnectionFactory.GetConnectionFunc, testBackupEnableDelay, nil)
 
 	allHostnames := generateHostsForCluster(ctx, reconciler, false, sc, mongosDistribution, configSrvDistribution, shardDistribution)
 	allHostnames1 := generateHostsForCluster(ctx, reconciler, false, sc1, mongosDistribution, configSrvDistribution, shardDistribution)

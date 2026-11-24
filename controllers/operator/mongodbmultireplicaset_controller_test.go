@@ -61,6 +61,36 @@ func init() {
 
 var clusters = []string{"api1.kube.com", "api2.kube.com", "api3.kube.com"}
 
+func TestMultiReplicaSetContainerImageTypeRejection(t *testing.T) {
+	ctx := context.Background()
+	for _, inherited := range []bool{false, true} {
+		t.Run(fmt.Sprintf("inherited=%t", inherited), func(t *testing.T) {
+			mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+			if !inherited {
+				mrs.SetAnnotations(map[string]string{architectures.ContainerImageTypeAnnotation: "ubi8"})
+			}
+			r, cl, members, factory := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.Static)
+			if inherited {
+				r.defaultImageType = architectures.ImageTypeUBI8
+			}
+			factory.SetPostCreateHook(func(om.Connection) {
+				t.Error("invalid image type must be rejected before connecting to Ops Manager")
+			})
+			result, err := r.Reconcile(ctx, requestFromObject(mrs))
+			require.NoError(t, err)
+			assert.Equal(t, reconcile.Result{}, result)
+			require.NoError(t, cl.Get(ctx, kube.ObjectKeyFromApiObject(mrs), mrs))
+			assert.Equal(t, status.PhaseFailed, mrs.Status.Phase)
+			assert.Contains(t, mrs.Status.Message, "not supported with static architecture")
+			for name, member := range members {
+				statefulSets := &appsv1.StatefulSetList{}
+				require.NoError(t, member.List(ctx, statefulSets))
+				assert.Empty(t, statefulSets.Items, name)
+			}
+		})
+	}
+}
+
 func TestMultiReplicaSetHostnameConfigMapUsesStableClusterIndexes(t *testing.T) {
 	ctx := context.Background()
 	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
@@ -132,6 +162,15 @@ func TestCreateMultiReplicaSet(t *testing.T) {
 
 	reconciler, client, _, _ := defaultMultiReplicaSetReconciler(ctx, nil, "", "", mrs, architectures.NonStatic)
 	checkMultiReconcileSuccessful(ctx, t, reconciler, mrs, client, false)
+}
+
+func TestMultiReplicaSetReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
+	ctx := context.Background()
+	mrs := mdbmulti.DefaultMultiReplicaSetBuilder().SetClusterSpecList(clusters).Build()
+	mrs.SetUID(types.UID("multi-replica-set-uid"))
+	reconciler, kubeClient, _, _ := defaultMultiReplicaSetReconcilerWithConnectionFactory(ctx, nil, "", "", mrs, architectures.NonStatic, monitoringMappingConnectionFactory())
+
+	runMultiReconcileAndRequireMonitoringMapping(ctx, t, reconciler, reconciler.ReconcileCommonController, kubeClient, mrs, mrs.GetResourceName())
 }
 
 func TestMultiReplicaSetClusterReconcileContainerImages(t *testing.T) {
@@ -1022,7 +1061,7 @@ func TestMultiReplicaSetRace(t *testing.T) {
 
 	omConnectionFactory := om.NewDefaultCachedOMConnectionFactory().WithResourceToProjectMapping(resourceToProjectMapping)
 	memberClusterMap := getFakeMultiClusterMapWithConfiguredInterceptor(clusters, omConnectionFactory, true, true)
-	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap)
+	reconciler := newMultiClusterReplicaSetReconciler(ctx, fakeClient, nil, "fake-initDatabaseNonStaticImageVersion", "fake-databaseNonStaticImageVersion", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil)
 
 	testConcurrentReconciles(ctx, t, fakeClient, reconciler, rs1, rs2, rs3)
 }
@@ -2384,13 +2423,19 @@ func specsAreEqual(spec1, spec2 mdbmulti.MongoDBMultiSpec) (bool, error) {
 	return bytes.Equal(spec1Bytes, spec2Bytes), nil
 }
 
-func defaultMultiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
-	multiReplicaSetController, client, clusterMap, omConnectionFactory := multiReplicaSetReconciler(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, m, arch)
+func defaultMultiReplicaSetReconcilerWithConnectionFactory(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture, omConnectionFactory *om.CachedOMConnectionFactory) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
+	kubeClient := mock.NewDefaultFakeClientWithOMConnectionFactory(omConnectionFactory, m)
+	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
+	multiReplicaSetController := newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap, nil)
 	omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
 		connection.(*om.MockedOmConnection).Hostnames = calculateHostNamesForExternalDomains(m)
 	})
 
-	return multiReplicaSetController, client, clusterMap, omConnectionFactory
+	return multiReplicaSetController, kubeClient, memberClusterMap, omConnectionFactory
+}
+
+func defaultMultiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
+	return defaultMultiReplicaSetReconcilerWithConnectionFactory(ctx, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, m, arch, om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection))
 }
 
 func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []string {
@@ -2411,12 +2456,6 @@ func calculateHostNamesForExternalDomains(m *mdbmulti.MongoDBMultiCluster) []str
 		}
 	}
 	return expectedHostnames
-}
-
-func multiReplicaSetReconciler(ctx context.Context, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, m *mdbmulti.MongoDBMultiCluster, arch architectures.DefaultArchitecture) (*ReconcileMongoDbMultiReplicaSet, kubernetesClient.Client, map[string]client.Client, *om.CachedOMConnectionFactory) {
-	kubeClient, omConnectionFactory := mock.NewDefaultFakeClient(m)
-	memberClusterMap := getFakeMultiClusterMap(omConnectionFactory)
-	return newMultiClusterReplicaSetReconciler(ctx, kubeClient, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, false, false, false, "", arch, architectures.ImageTypeUBI9, omConnectionFactory.GetConnectionFunc, memberClusterMap), kubeClient, memberClusterMap, omConnectionFactory
 }
 
 func getFakeMultiClusterMap(omConnectionFactory *om.CachedOMConnectionFactory) map[string]client.Client {

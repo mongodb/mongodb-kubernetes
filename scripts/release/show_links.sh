@@ -3,26 +3,28 @@
 # summary. Usage: show_links.sh {evergreen|redhat-prs}
 #
 # Called from .github/workflows/release.yml, which exports the needed env
-# vars (VERSION, COMMIT_SHA for evergreen; VERSION, DRY_RUN for redhat-prs).
+# vars (VERSION, COMMIT_SHA, EVERGREEN_PROJECT for evergreen; VERSION, DRY_RUN
+# for redhat-prs). EVERGREEN_PROJECT is required in evergreen mode.
 #
 # Locally testable, e.g.:
-#   VERSION=1.2.3 COMMIT_SHA=<sha> scripts/release/show_links.sh evergreen
+#   VERSION=1.2.3 COMMIT_SHA=<sha> EVERGREEN_PROJECT=mongodb-kubernetes scripts/release/show_links.sh evergreen
 set -Eeou pipefail
 MODE="${1:-}"
 case "${MODE}" in
 evergreen)
     VERSION="${VERSION:?VERSION must be set}"
     COMMIT_SHA="${COMMIT_SHA:?COMMIT_SHA must be set}"
+    EVERGREEN_PROJECT="${EVERGREEN_PROJECT:?EVERGREEN_PROJECT must be set}"
     echo "## 🔗 Evergreen Links"
     echo ""
     echo "The tag has been pushed. Check Evergreen for the triggered build:"
     echo ""
-    echo "- **[Tag-triggered builds (waterfall)](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/waterfall?requesters=git_tag_request)**"
-    echo "- **[All project patches](https://spruce.corp.mongodb.com/project/mongodb-kubernetes/patches)**"
+    echo "- **[Tag-triggered builds (waterfall)](https://spruce.corp.mongodb.com/project/${EVERGREEN_PROJECT}/waterfall?requesters=git_tag_request)**"
+    echo "- **[All project patches](https://spruce.corp.mongodb.com/project/${EVERGREEN_PROJECT}/patches)**"
     echo ""
     echo "Once the Evergreen publish pipeline completes successfully, approve the next job to continue."
     echo "In case you need to kick the patch manually:"
-    echo "  evergreen patch -p mongodb-kubernetes -v release_decider_patch \\"
+    echo "  evergreen patch -p ${EVERGREEN_PROJECT} -v release_decider_patch \\"
     echo "    -t decide_release_process -d \"Release version ${VERSION}\" \\"
     echo "    -f -y -u --path .evergreen.yml \\"
     echo "    --param BUILD_SCENARIO=release --param triggered_by_git_tag=${VERSION} \\"

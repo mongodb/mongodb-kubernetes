@@ -101,9 +101,9 @@ type ReconcileMongoDbShardedCluster struct {
 	defaultImageType    architectures.ImageType
 }
 
-func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration) *ReconcileMongoDbShardedCluster {
+func newShardedClusterReconciler(ctx context.Context, kubeClient client.Client, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterMap map[string]client.Client, omFunc om.ConnectionFactory, backupEnableDelay time.Duration, omMetrics OMMetricsMultiplexer) *ReconcileMongoDbShardedCluster {
 	return &ReconcileMongoDbShardedCluster{
-		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient),
+		ReconcileCommonController: NewReconcileCommonController(ctx, kubeClient, omMetrics),
 		omConnectionFactory:       omFunc,
 		memberClustersMap:         memberClusterMap,
 		forceEnterprise:           forceEnterprise,
@@ -874,6 +874,7 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 // OnDelete tries to complete a Deletion reconciliation event
 func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runtime.Object, log *zap.SugaredLogger) error {
 	sc := obj.(*mdbv1.MongoDB)
+	r.ReleaseOtelExporter(sc.Status.Link, log)
 	if sc.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s OnDelete skipped due to %s annotation",
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
@@ -889,6 +890,9 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) (res reconcile.Result, e error) {
 	sc := r.sc
 	if err := sc.ProcessValidationsOnReconcile(nil); err != nil {
+		return r.commonController.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
+	}
+	if err := architectures.ValidateDatabaseImageType(sc.GetAnnotations(), r.defaultArchitecture, r.defaultImageType); err != nil {
 		return r.commonController.updateStatus(ctx, sc, workflow.Invalid("%s", err.Error()), log)
 	}
 	if warning := databaseContainerImageTypeAnnotationWarning(sc.GetAnnotations(), r.defaultArchitecture); warning != "" {
@@ -1002,6 +1006,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err := connection.EnsureTargetAutomationConfigSeeded(ctx, conn, sc.Status.ProjectId, projectConfig, credsConfig, r.omConnectionFactory, log); err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
+	r.commonController.EnsureOtelExporterForDeployment(conn, agentAPIKey, sc.Status.Link, sc, log)
 
 	workflowStatus := r.doShardedClusterProcessing(ctx, sc, conn, projectConfig, log)
 	if !workflowStatus.IsOK() || workflowStatus.Phase() == mdbstatus.PhaseUnsupported || workflowStatus.Phase() == mdbstatus.PhaseConnectivityValidation {
@@ -1893,9 +1898,9 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	}
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration) error {
+func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration, omMetrics OMMetricsMultiplexer) error {
 	// Create a new controller
-	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay)
+	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, omMetrics)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)
 	if err != nil {

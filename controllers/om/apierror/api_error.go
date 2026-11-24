@@ -3,6 +3,7 @@ package apierror
 import (
 	"errors"
 	"fmt"
+	"net/http"
 )
 
 const (
@@ -15,6 +16,7 @@ const (
 	// CannotDeleteHostBackupEnabled is returned when removing the last monitored host of a replica set
 	// whose backup is still active. Ops Manager keeps that host for the backup.
 	CannotDeleteHostBackupEnabled = "CANNOT_DELETE_HOST_BACKUP_ENABLED"
+	LicenseArtifactOutdated       = "ARTIFACT_OUTDATED"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the
@@ -96,4 +98,21 @@ func (e *Error) ErrorBackupDaemonConfigIsNotFound() bool {
 	}
 
 	return false
+}
+
+// IsNotFound returns whether Ops Manager answered with a 404.
+func (e *Error) IsNotFound() bool {
+	return e != nil && e.Status != nil && *e.Status == http.StatusNotFound
+}
+
+// IsConflict returns whether Ops Manager rejected the request with a 409.
+func (e *Error) IsConflict() bool {
+	return e != nil && e.Status != nil && *e.Status == http.StatusConflict
+}
+
+// IsLicenseArtifactOutdated returns whether Ops Manager rejected a license install because an
+// artifact this new or newer was already installed at some point, or the install lost a race with
+// a concurrent one.
+func (e *Error) IsLicenseArtifactOutdated() bool {
+	return e.IsConflict() && e.ErrorCode == LicenseArtifactOutdated
 }

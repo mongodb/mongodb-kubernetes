@@ -58,6 +58,15 @@ starts with "[new]"; the CLI patch below runs the same variants. See .evergreen-
 evergreen patch -p mongodb-kubernetes -a release-publish -d "Test release-publish build" -f -y -u --path .evergreen.yml --param BUILD_SCENARIO=release --param OPERATOR_VERSION=1.3.0-rc
 ```
 
+### Evergreen project isolation for major releases
+
+Each Evergreen project tracks a different GitHub branch. Before the first release of a new major version, bump the
+tracking project's `git_tag` major-version regex in `.evergreen.yml` on the soon-to-be-next-major branch (for example,
+from `^1\.\d+\.\d+$` to `^2\.\d+\.\d+$`). This prevents the previous-major and next-major projects from both
+triggering on the same release tags. Also add the corresponding release-branch selector and full Evergreen project
+mapping to `.github/workflows/release.yml` so the release workflow targets the matching project. Make these updates on
+every major version bump.
+
 ### Release-style preflight only (no image push, no Pyxis submit)
 
 Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, but **does not** run *
@@ -116,6 +125,29 @@ The image is pushed to `268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb
   tarball.
 - `om_version` without a URL rebuilds the image of that released OM version, for example after a Dockerfile-only change.
 
+### Unreleased Ops Manager build
+
+The `build_om_dev_images` and `e2e_om_dev_kind_ubi` variants build the Ops Manager image from an unreleased
+Ops Manager build and run the licensing tests against it on every merge to master. PR patches run them with the
+`evergreen:e2e-license` label. To run them on a branch without a PR, use the patch below. The build task builds the image for the Ops Manager
+line in `OM_DEV_RELEASE_LINE` (`scripts/dev/contexts/variables/om_dev`), from the latest build of its release branch with the dev EA environment compiled in, which the
+`PACKAGE_OPS_MANAGER_EA` task publishes to the private `evg-mms-testing2` bucket. The image is tagged
+`<major>.0.0-dev-<OPERATOR_VERSION>`, the evergreen id of the run, for example `9.0.0-dev-<version_id>` in a patch. The
+`om_dev` context exports that tag as `CUSTOM_OM_VERSION` for `single_e2e.sh`.
+
+```shell
+evergreen patch -p mongodb-kubernetes -d "Test unreleased Ops Manager" -f -y -u --path .evergreen.yml \
+  -v build_om_dev_images -v e2e_om_dev_kind_ubi
+```
+
+The licensing tests are split in two tasks. `e2e_om_ops_manager_license` runs against one connected Ops
+Manager, and `e2e_om_ops_manager_license_air_gapped` runs against an Ops Manager whose proxy cannot reach EA.
+The two tasks need the Evergreen project expansions `ea_license_secret_role_arn`, `om_dev_tarball_role_arn` and
+`ea_license_gsa_secret_arn` to be set on the project, their setup steps fail without them.
+
+To test a different build, point `OPS_MANAGER_DEV_TARBALL_KEY` at the commit keyed object
+`ea/<branch>/<revision>/mongodb-mms-<version>-ea-dev.tar.gz` of that build.
+
 ## E2E Test Path Filtering on PRs
 
 Evergreen uses two levels of file-based filtering on PRs:
@@ -141,24 +173,50 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 
 | Label                      | Variant tag(s)       | What runs                                                                                                      |
 |----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
-| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1000 tasks, complete e2e set (excludes multi-arch smoke tests)                                                |
-| `evergreen:e2e-default`    | `e2e_test_suite`     | ~540 tasks, e2e-all minus static, OM7 and race variants; close to the former default PR set                    |
-| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~250 tasks tagged `e2e_medium`: subset of e2e-all across static/non-static, OM 7/8/9, multi-cluster         |
-| `evergreen:e2e-light`      | `e2e_test_suite`     | ~125 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
-| `evergreen:e2e-static`     | `static`             | Static-container e2e variants + shared init/build (`init_test_run`, `init_tests_with_olm`, `build_om*_images`) |
+| `evergreen:e2e-all`        | `e2e_test_suite`     | ~1320 tasks, every e2e variant; It **MUST** only be applied manually by a human engineer because it's extremely expensive (see "Choosing a label") |
+| `evergreen:e2e-default`    | `e2e_test_suite`     | ~540 tasks, e2e suite minus static, OM7 and race variants; close to the former default PR set                  |
+| `evergreen:e2e-medium`     | `e2e_test_suite`     | ~320 tasks tagged `e2e_medium` across static/non-static, OM 7/8/9, multi-cluster                               |
+| `evergreen:e2e-light`      | `e2e_test_suite`     | ~170 tasks tagged `e2e_light`: smallest subset (strict subset of `e2e-medium`) for most PRs                    |
+| `evergreen:e2e-static`     | `static`             | Full static matrix. Seldom used: `evergreen:e2e-static-light` is almost always the better choice; apply it only when deliberately chosen |
+| `evergreen:e2e-static-light` | `static_light`       | ~230 tasks: one static run per scenario (MDB, OM9, operator, OLM, custom domain, multi-cluster) + shared init/build; the default static choice for PRs |
 | `evergreen:e2e-non-static` | `non_static`         | Non-static e2e variants + shared init/build                                                                    |
 | `evergreen:multi-cluster`  | `multi_cluster`      | Non-static multi-cluster variants only (kind, 2 clusters, OM AppDB, OM70 upgrade, OM80 search, operator-not-in-mesh) |
 | `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (excluding OpenShift)                                                                        |
 | `evergreen:e2e-community`  | `e2e_mco_test_suite` | Community suites (`e2e_mdb_community`, `e2e_mco_tests`)                                                        |
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
+| `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
+| `evergreen:e2e-search-images` | `e2e_test_suite !static !om7 !om9 !race !cloudqa` | 8 Envoy/OTel Search tasks tagged `e2e_search_images`; added automatically to the Search image bump PR |
+| `evergreen:e2e-license`    | `ops_manager_license` | The licensing tests against an unreleased Ops Manager build (`build_om_dev_images`, `e2e_om_dev_kind_ubi`)     |
+
+Task counts are rounded PR patch sizes: the tasks selected by the label, their dependencies and the always-on checks.
+They change as tasks are added or removed.
 
 OpenShift variants (`e2e_openshift_test_suite`) are not selected by any PR label; they run on master commits and via
 the `staging` alias.
 
+`evergreen:e2e-static-light` selects the `static_light` tag and is the default static choice for a PR. `evergreen:e2e-static`
+selects the full `static` tag set. Use it only when you deliberately need every static variant: it is seldom used, and
+`evergreen:e2e-static-light` is almost always the better choice. Master runs the full set through `staging`, and
+`--alias static` runs it on demand.
+
 Labels are evaluated when the PR patch is created; adding one afterwards injects the newly-satisfied tasks into the
 existing patch in place. Removing a label is a no-op and never cancels running tasks. Variant `paths:` filtering still
 applies on top — a labeled variant whose paths don't match the PR's changed files is skipped.
+
+### Choosing a label
+
+Start with `evergreen:e2e-light` and add `e2e-medium`, `e2e-default` or a dimension label (`e2e-static-light`, `om7`, `om9`,
+`race`, ...) only when the change touches that area. For static coverage use `evergreen:e2e-static-light`. Apply
+`evergreen:e2e-static` only when you deliberately need the full static matrix: it is seldom used, and the light set is
+almost always the better choice.
+
+**Do not use `evergreen:e2e-all`.** It MUST only be applied manually by a human engineer: it schedules ~1370 tasks
+(about 2.5x `e2e-default`), runs again on every push while the label is on, and master already runs the full suite on
+every merge (plus variants `e2e-all` does not select: OpenShift, multi-arch smoke, release). AI agents and automation
+must never apply it. A human who needs the full result before merge (for example for core reconcile logic or a shared
+library used by every resource type) applies it by hand and removes it once the run has finished, so later pushes do
+not schedule the whole set again.
 
 ## Manual Variant Aliases
 
@@ -169,11 +227,12 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 
 | Alias        | Description                                                   | Runs on PRs                           |
 |--------------|---------------------------------------------------------------|---------------------------------------|
-| `static`     | Static container variants (`e2e_static_*`, shared init/build) | With `evergreen:e2e-static` label     |
+| `static_light` | Light static set: one run per scenario + shared init/build   | With `evergreen:e2e-static-light` label (default) |
+| `static`       | Full static matrix (`e2e_static_*`, shared init/build)        | With `evergreen:e2e-static` label (seldom used) |
 | `non_static` | Non-static container variants (shared init/build)             | With `evergreen:e2e-non-static` label |
 | `om7`        | Ops Manager 7.0 variants (static and non-static)              | With `evergreen:om7` label            |
 | `om9`        | Ops Manager 9.0 variants                                      | With `evergreen:om9` label            |
-| `race`       | Race detector variant                                         | With `evergreen:e2e-all` label        |
+| `race`       | Race detector variant                                         | With `evergreen:race` label           |
 | `smoke_test` | Smoke e2e suite (`patch-run` tasks)                           | No                                    |
 | `cloudqa`    | Cloud QA non-static variants                                  | With `evergreen:e2e-cloudqa` label    |
 
