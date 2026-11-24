@@ -159,7 +159,7 @@ initDatabase:
 
 mongodbProxy:
   name: mongodb-kubernetes-mongodb-proxy
-  version: 1.16.0
+  version: 1.17.0
 
 ## Ops Manager
 opsManager:
