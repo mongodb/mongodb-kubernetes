@@ -212,10 +212,9 @@ def test_configure_ac(
     vm_sharded_mongos_service,
     custom_mdb_version: str,
 ):
-    def mutate(ac: dict) -> None:
-        if len(ac.get("processes", [])) > 0:
-            return
-        build_sharded_cluster_ac(
+    ac = om_tester.api_get_automation_config()
+    if len(ac.get("processes", [])) == 0:
+        ac = build_sharded_cluster_ac(
             om_tester,
             configsrv_sts_name=CONFIGSRV_STS_NAME,
             shard_sts_name=SHARD_STS_NAME,
@@ -231,10 +230,8 @@ def test_configure_ac(
             shard_count=MIN_VM_SHARD,
             mongos_count=MIN_VM_MONGOS,
             cluster_name=VM_MONGOS_NAME,
-            ac=ac,
         )
-
-    om_tester.update_automation_config(mutate)
+        om_tester.api_put_automation_config(ac)
 
     # Runs even when a previous run already pushed the config: that run may have died before the
     # agents converged, and the migration tests below assume goal state.

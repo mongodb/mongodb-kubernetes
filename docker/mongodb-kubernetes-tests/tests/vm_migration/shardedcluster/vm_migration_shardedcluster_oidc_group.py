@@ -123,7 +123,6 @@ def vm_sharded_mongos_service(namespace: str):
 
 
 def _configure_ac(
-    ac: dict,
     namespace: str,
     om_tester: OMTester,
     vm_sharded_configsrv_sts: dict,
@@ -141,10 +140,11 @@ def _configure_ac(
     user in $external. MongoDB resolves the cognito:groups claim from the JWT, then
     grants the matching admin role to the connection.
     """
-    if len(ac.get("processes", [])) > 0:
+    ac_existing = om_tester.api_get_automation_config()
+    if len(ac_existing.get("processes", [])) > 0:
         return
 
-    build_sharded_cluster_ac(
+    ac = build_sharded_cluster_ac(
         om_tester,
         configsrv_sts_name=CONFIGSRV_STS_NAME,
         shard_sts_name=SHARD_STS_NAME,
@@ -160,7 +160,6 @@ def _configure_ac(
         shard_count=MIN_VM_SHARD,
         mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
-        ac=ac,
     )
 
     ac["auth"] = {
@@ -230,6 +229,7 @@ def _configure_ac(
             "authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}",
             "oidcIdentityProviders": oidc_providers,
         }
+    om_tester.api_put_automation_config(ac)
 
 
 @fixture(scope="module")
@@ -302,20 +302,17 @@ def test_configure_ac(
     vm_sharded_mongos_service,
     cognito: dict,
 ):
-    om_tester.update_automation_config(
-        lambda ac: _configure_ac(
-            ac,
-            namespace,
-            om_tester,
-            vm_sharded_configsrv_sts,
-            vm_sharded_shard_sts,
-            vm_sharded_mongos_sts,
-            vm_sharded_configsrv_service,
-            vm_sharded_shard_service,
-            vm_sharded_mongos_service,
-            MDB_VERSION,
-            cognito,
-        )
+    _configure_ac(
+        namespace,
+        om_tester,
+        vm_sharded_configsrv_sts,
+        vm_sharded_shard_sts,
+        vm_sharded_mongos_sts,
+        vm_sharded_configsrv_service,
+        vm_sharded_shard_service,
+        vm_sharded_mongos_service,
+        MDB_VERSION,
+        cognito,
     )
     om_tester.wait_agents_ready(timeout=600)
 

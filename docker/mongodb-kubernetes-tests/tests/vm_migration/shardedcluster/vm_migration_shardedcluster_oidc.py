@@ -123,16 +123,16 @@ def vm_sharded_mongos_service(namespace: str):
 
 
 def _configure_ac(
-    ac: dict,
     namespace: str,
     om_tester: OMTester,
     mdb_version: str,
     cognito: dict,
     oidc_username: str,
 ) -> None:
-    if len(ac.get("processes", [])) > 0:
+    ac_existing = om_tester.api_get_automation_config()
+    if len(ac_existing.get("processes", [])) > 0:
         return
-    build_sharded_cluster_ac(
+    ac = build_sharded_cluster_ac(
         om_tester,
         configsrv_sts_name=CONFIGSRV_STS_NAME,
         shard_sts_name=SHARD_STS_NAME,
@@ -148,7 +148,6 @@ def _configure_ac(
         shard_count=MIN_VM_SHARD,
         mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
-        ac=ac,
     )
     ac["auth"] = {
         "usersWanted": [
@@ -213,6 +212,7 @@ def _configure_ac(
             "authenticationMechanisms": f"{SCRAM_MECHANISM},{OIDC_MECHANISM}",
             "oidcIdentityProviders": oidc_providers,
         }
+    om_tester.api_put_automation_config(ac)
 
 
 @fixture(scope="module")
@@ -293,9 +293,7 @@ def test_configure_ac(
     cognito: dict,
     oidc_username: str,
 ):
-    om_tester.update_automation_config(
-        lambda ac: _configure_ac(ac, namespace, om_tester, MDB_VERSION, cognito, oidc_username)
-    )
+    _configure_ac(namespace, om_tester, MDB_VERSION, cognito, oidc_username)
     om_tester.wait_agents_ready(timeout=600)
 
 

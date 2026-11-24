@@ -125,7 +125,6 @@ def vm_sharded_mongos_service(namespace: str):
 
 
 def _configure_ac(
-    ac: dict,
     namespace: str,
     om_tester: OMTester,
     mdb_version: str,
@@ -133,9 +132,10 @@ def _configure_ac(
     agent_dn: str,
     app_user_dn: str,
 ) -> None:
-    if len(ac.get("processes", [])) > 0:
+    ac_existing = om_tester.api_get_automation_config()
+    if len(ac_existing.get("processes", [])) > 0:
         return
-    build_sharded_cluster_ac(
+    ac = build_sharded_cluster_ac(
         om_tester,
         configsrv_sts_name=CONFIGSRV_STS_NAME,
         shard_sts_name=SHARD_STS_NAME,
@@ -151,7 +151,6 @@ def _configure_ac(
         shard_count=MIN_VM_SHARD,
         mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
-        ac=ac,
     )
     ac["ldap"] = {
         "servers": openldap.servers,
@@ -186,6 +185,7 @@ def _configure_ac(
         ],
         "usersDeleted": [],
     }
+    om_tester.api_put_automation_config(ac)
 
 
 @fixture(scope="module")
@@ -267,16 +267,13 @@ def test_configure_ac(
     ldap_agent_user: LDAPUser,
     ldap_app_user: LDAPUser,
 ):
-    om_tester.update_automation_config(
-        lambda ac: _configure_ac(
-            ac,
-            namespace,
-            om_tester,
-            ensure_ent_version(custom_mdb_version),
-            openldap,
-            agent_dn=ldap_agent_user.username,
-            app_user_dn=ldap_app_user.username,
-        )
+    _configure_ac(
+        namespace,
+        om_tester,
+        ensure_ent_version(custom_mdb_version),
+        openldap,
+        agent_dn=ldap_agent_user.username,
+        app_user_dn=ldap_app_user.username,
     )
     om_tester.wait_agents_ready(timeout=600)
 

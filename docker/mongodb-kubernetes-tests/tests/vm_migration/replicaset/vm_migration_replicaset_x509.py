@@ -364,18 +364,17 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 @mark.e2e_vm_migration_replicaset_x509
 def test_vm_ac_no_auth(om_tester: OMTester, vm_sts: dict, vm_service: dict, namespace: str, custom_mdb_version: str):
     """Start the VM replica set without auth or TLS so agents can register."""
+    ac = om_tester.api_get_automation_config()
+    if len(ac["processes"]) > 0:
+        return
+
     processes, monitoring_versions, members = _build_processes(
         vm_sts, vm_service, namespace, custom_mdb_version, tls=False
     )
-
-    def mutate(ac: dict) -> None:
-        if len(ac["processes"]) > 0:
-            return
-        ac["processes"] = processes
-        ac["monitoringVersions"] = monitoring_versions
-        ac["replicaSets"] = [{"_id": VM_RS_NAME, "members": members, "protocolVersion": "1"}]
-
-    om_tester.update_automation_config(mutate)
+    ac["processes"] = processes
+    ac["monitoringVersions"] = monitoring_versions
+    ac["replicaSets"] = [{"_id": VM_RS_NAME, "members": members, "protocolVersion": "1"}]
+    om_tester.api_put_automation_config(ac)
     om_tester.wait_agents_ready(timeout=600)
 
 
@@ -391,22 +390,21 @@ def test_vm_ac_tls(
 
     Ops Manager rejects simultaneous TLS and auth changes, so TLS is configured first.
     """
+    ac = om_tester.api_get_automation_config()
+    tls_mode = ac.get("processes", [{}])[0].get("args2_6", {}).get("net", {}).get("tls", {}).get("mode")
+    if tls_mode == "requireTLS":
+        return
+
+    # VM agents use CUSTOM_AGENT_CERT_PATH; the MDB CR sets the same path via agents.autoPEMKeyFilePath.
+    ac["tls"] = {
+        "CAFilePath": CUSTOM_CA_PEM_PATH,
+        "autoPEMKeyFilePath": CUSTOM_AGENT_CERT_PATH,
+        "clientCertificateMode": "REQUIRE",
+    }
     processes, monitoring_versions, _ = _build_processes(vm_sts, vm_service, namespace, custom_mdb_version, tls=True)
-
-    def mutate(ac: dict) -> None:
-        tls_mode = ac.get("processes", [{}])[0].get("args2_6", {}).get("net", {}).get("tls", {}).get("mode")
-        if tls_mode == "requireTLS":
-            return
-        # VM agents use CUSTOM_AGENT_CERT_PATH; the MDB CR sets the same path via agents.autoPEMKeyFilePath.
-        ac["tls"] = {
-            "CAFilePath": CUSTOM_CA_PEM_PATH,
-            "autoPEMKeyFilePath": CUSTOM_AGENT_CERT_PATH,
-            "clientCertificateMode": "REQUIRE",
-        }
-        ac["processes"] = processes
-        ac["monitoringVersions"] = monitoring_versions
-
-    om_tester.update_automation_config(mutate)
+    ac["processes"] = processes
+    ac["monitoringVersions"] = monitoring_versions
+    om_tester.api_put_automation_config(ac)
     om_tester.wait_agents_ready(timeout=1200)
 
 
@@ -425,38 +423,37 @@ def test_vm_ac_x509_auth(
     The automation user is referenced only by auth.autoUser; Ops Manager provisions it, so it has no
     usersWanted entry (matching what the operator writes). Internal cluster auth continues to use keyFile (SCRAM-SHA-256 for __system@local).
     """
+    ac = om_tester.api_get_automation_config()
+    if ac.get("auth", {}).get("disabled", True) is False:
+        return
+
     _, agent_subject_dn = vm_agent_combined_pem
     _, app_user_subject_dn = vm_app_user
-
-    def mutate(ac: dict) -> None:
-        if ac.get("auth", {}).get("disabled", True) is False:
-            return
-        ac["auth"] = {
-            "disabled": False,
-            "authoritativeSet": True,
-            "autoUser": agent_subject_dn,
-            "autoAuthMechanism": "MONGODB-X509",
-            "autoAuthMechanisms": ["MONGODB-X509"],
-            "autoAuthRestrictions": [],
-            "deploymentAuthMechanisms": ["MONGODB-X509"],
-            "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
-            "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
-            "key": "dGVzdC1rZXlmaWxlLWNvbnRlbnQtZm9yLXZtLW1pZ3JhdGlvbi14NTA5",
-            "usersWanted": [
-                {
-                    "user": app_user_subject_dn,
-                    "db": "$external",
-                    "roles": [{"role": "readWrite", "db": "admin"}],
-                    "mechanisms": [],
-                    "scramSha256Creds": None,
-                    "scramSha1Creds": None,
-                    "authenticationRestrictions": [],
-                },
-            ],
-            "usersDeleted": [],
-        }
-
-    om_tester.update_automation_config(mutate)
+    ac["auth"] = {
+        "disabled": False,
+        "authoritativeSet": True,
+        "autoUser": agent_subject_dn,
+        "autoAuthMechanism": "MONGODB-X509",
+        "autoAuthMechanisms": ["MONGODB-X509"],
+        "autoAuthRestrictions": [],
+        "deploymentAuthMechanisms": ["MONGODB-X509"],
+        "keyfile": "/var/lib/mongodb-mms-automation/keyfile",
+        "keyfileWindows": "%SystemDrive%\\MMSAutomation\\versions\\keyfile",
+        "key": "dGVzdC1rZXlmaWxlLWNvbnRlbnQtZm9yLXZtLW1pZ3JhdGlvbi14NTA5",
+        "usersWanted": [
+            {
+                "user": app_user_subject_dn,
+                "db": "$external",
+                "roles": [{"role": "readWrite", "db": "admin"}],
+                "mechanisms": [],
+                "scramSha256Creds": None,
+                "scramSha1Creds": None,
+                "authenticationRestrictions": [],
+            },
+        ],
+        "usersDeleted": [],
+    }
+    om_tester.api_put_automation_config(ac)
     om_tester.wait_agents_ready(timeout=1800)
 
 

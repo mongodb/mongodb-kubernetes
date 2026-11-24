@@ -99,9 +99,9 @@ def vm_sharded_mongos_service(namespace: str):
     return deploy_vm_sharded_mongos_service(namespace)
 
 
-def _configure_ac_scram_sha256(ac: dict, namespace: str, om_tester: OMTester, mdb_version: str):
+def _configure_ac_scram_sha256(namespace: str, om_tester: OMTester, mdb_version: str):
     """Set up a SCRAM-SHA-256 authenticated sharded cluster with users and custom roles."""
-    build_sharded_cluster_ac(
+    ac = build_sharded_cluster_ac(
         om_tester,
         configsrv_sts_name=CONFIGSRV_STS_NAME,
         shard_sts_name=SHARD_STS_NAME,
@@ -117,7 +117,6 @@ def _configure_ac_scram_sha256(ac: dict, namespace: str, om_tester: OMTester, md
         shard_count=MIN_VM_SHARD,
         mongos_count=MIN_VM_MONGOS,
         cluster_name=VM_MONGOS_NAME,
-        ac=ac,
     )
 
     ac["auth"] = {
@@ -184,6 +183,8 @@ def _configure_ac_scram_sha256(ac: dict, namespace: str, om_tester: OMTester, md
             "roles": [],
         },
     ]
+
+    om_tester.api_put_automation_config(ac)
 
 
 @fixture(scope="module")
@@ -263,9 +264,7 @@ def test_configure_ac(namespace: str, om_tester: OMTester, custom_mdb_version: s
     ac = om_tester.api_get_automation_config()
     if len(ac.get("processes", [])) > 0:
         return
-    om_tester.update_automation_config(
-        lambda ac: _configure_ac_scram_sha256(ac, namespace, om_tester, ensure_ent_version(custom_mdb_version))
-    )
+    _configure_ac_scram_sha256(namespace, om_tester, ensure_ent_version(custom_mdb_version))
     om_tester.wait_agents_ready(timeout=600)
 
 

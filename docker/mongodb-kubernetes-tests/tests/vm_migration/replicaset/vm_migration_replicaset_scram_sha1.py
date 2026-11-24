@@ -66,7 +66,7 @@ def vm_service(namespace: str):
     return deploy_vm_service(namespace)
 
 
-def _configure_ac(ac: dict, namespace: str, vm_sts: dict, vm_service: dict, mdb_version: str):
+def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str):
     """SCRAM-SHA-1 replica set. SCRAM-SHA-1 is deprecated and requires MONGODB-CR in agent mode for legacy
     support, otherwise Ops Manager rejects it with "Cannot configure SCRAM-SHA-1 without using MONGODB-CR
     in the Agent Mode". The agent therefore authenticates with MONGODB-CR while the deployment accepts both
@@ -74,6 +74,7 @@ def _configure_ac(ac: dict, namespace: str, vm_sts: dict, vm_service: dict, mdb_
     authenticate before migration. Internal cluster auth uses the keyfile, so authenticationMechanisms keeps
     SCRAM-SHA-256 alongside SCRAM-SHA-1."""
     mdb_version = ensure_ent_version(mdb_version)
+    ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
 
@@ -151,6 +152,8 @@ def _configure_ac(ac: dict, namespace: str, vm_sts: dict, vm_service: dict, mdb_
             }
         )
 
+    om_tester.api_put_automation_config(ac)
+
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
@@ -195,7 +198,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 
 @mark.e2e_vm_migration_replicaset_scram_sha1
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
-    om_tester.update_automation_config(lambda ac: _configure_ac(ac, namespace, vm_sts, vm_service, custom_mdb_version))
+    _configure_ac(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
     om_tester.wait_agents_ready(timeout=600)
 
 

@@ -76,9 +76,10 @@ def vm_service(namespace: str):
     return deploy_vm_service(namespace)
 
 
-def _configure_ac(ac: dict, namespace: str, vm_sts: dict, vm_service: dict, mdb_version: str):
+def _configure_ac(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str):
     """Auth disabled on the database, with an HTTP Prometheus endpoint on port 9216."""
     mdb_version = ensure_ent_version(mdb_version)
+    ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
 
@@ -140,6 +141,8 @@ def _configure_ac(ac: dict, namespace: str, vm_sts: dict, vm_service: dict, mdb_
             }
         )
 
+    om_tester.api_put_automation_config(ac)
+
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
@@ -191,7 +194,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 
 @mark.e2e_vm_migration_replicaset_prometheus
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
-    om_tester.update_automation_config(lambda ac: _configure_ac(ac, namespace, vm_sts, vm_service, custom_mdb_version))
+    _configure_ac(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
     om_tester.wait_agents_ready(timeout=600)
 
 

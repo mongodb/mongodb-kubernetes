@@ -82,9 +82,10 @@ def vm_service(namespace: str):
     return deploy_vm_service(namespace)
 
 
-def _configure_ac_no_auth(ac: dict, namespace: str, vm_sts: dict, vm_service: dict, mdb_version: str):
+def _configure_ac_no_auth(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mdb_version: str):
     """Set up a replica set with auth DISABLED, port 27017, and compression."""
     mdb_version = ensure_ent_version(mdb_version)
+    ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
 
@@ -149,6 +150,8 @@ def _configure_ac_no_auth(ac: dict, namespace: str, vm_sts: dict, vm_service: di
             }
         )
 
+    om_tester.api_put_automation_config(ac)
+
 
 @fixture(scope="module")
 def generated_cr_yaml(namespace: str) -> str:
@@ -209,9 +212,7 @@ def test_deploy_vm(namespace: str, vm_sts, vm_service):
 
 @mark.e2e_vm_migration_replicaset_external_access
 def test_configure_ac(namespace: str, om_tester: OMTester, vm_sts, vm_service, custom_mdb_version):
-    om_tester.update_automation_config(
-        lambda ac: _configure_ac_no_auth(ac, namespace, vm_sts, vm_service, custom_mdb_version)
-    )
+    _configure_ac_no_auth(namespace, om_tester, vm_sts, vm_service, custom_mdb_version)
     om_tester.wait_agents_ready(timeout=600)
 
 

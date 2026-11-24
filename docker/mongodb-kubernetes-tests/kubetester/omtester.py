@@ -904,17 +904,17 @@ class OMTester(object):
     def api_put_automation_config(self, config: dict):
         self.om_request("put", f"/groups/{self.context.project_id}/automationConfig", json_object=config)
 
-    def update_automation_config(self, mutate: Callable[[dict], None], attempts: int = 5) -> dict:
+    def update_automation_config(self, mutate: Callable[[dict], None]) -> dict:
         """GET, mutate and PUT the automation config, retrying when another writer publishes first.
 
         Ops Manager treats the body `version` as a write precondition, so a PUT that lost a race
         gets 409 AUTOMATION_CONFIG_CONCURRENT_MODIFICATION. Each attempt re-reads the config and
         re-applies `mutate`, because replaying the stale body can never succeed. A 401 means the
         operator re-asserted EXTERNALLY_MANAGED_LOCK, so the feature controls are cleared before
-        the retry. Skips the PUT when `mutate` changes nothing, so a retry after a lost response
-        is a no-op. Returns the config that was accepted.
+        the retry. Skips the PUT when `mutate` changes nothing. Returns the config that was accepted.
         """
-        path = f"/groups/{self.context.project_id}/automationConfig"
+        # The conflict clears on the next publish. Five attempts span 1+2+3+4 seconds of backoff.
+        attempts = 5
         for attempt in range(1, attempts + 1):
             config = self.api_get_automation_config()
             original = json.dumps(config, sort_keys=True)
@@ -923,7 +923,7 @@ class OMTester(object):
                 logger.info("automation config already up to date, skipping the PUT")
                 return config
             try:
-                self.om_request("put", path, json_object=config)
+                self.api_put_automation_config(config)
                 return config
             except requests.HTTPError as e:
                 status = e.response.status_code if e.response is not None else None
@@ -987,6 +987,8 @@ class OMTester(object):
         This simulates an OM-originated user (i.e. one that exists in the AC before a
         MongoDBUser CR is created), which is needed to test mechanism-preservation logic.
         """
+        config = self.api_get_automation_config()
+
         user_entry: Dict = {
             "user": username,
             "db": database,
@@ -999,14 +1001,13 @@ class OMTester(object):
         if "MONGODB-CR" in mechanisms or "SCRAM-SHA-1" in mechanisms:
             user_entry["scramSha1Creds"] = build_sha1_creds(username, password)
 
-        def mutate(config: dict) -> None:
-            # Replace any existing entry for this user/db pair.
-            config["auth"]["usersWanted"] = [
-                u for u in config["auth"]["usersWanted"] if not (u["user"] == username and u["db"] == database)
-            ]
-            config["auth"]["usersWanted"].append(user_entry)
+        # Replace any existing entry for this user/db pair.
+        config["auth"]["usersWanted"] = [
+            u for u in config["auth"]["usersWanted"] if not (u["user"] == username and u["db"] == database)
+        ]
+        config["auth"]["usersWanted"].append(user_entry)
 
-        self.update_automation_config(mutate)
+        self.api_put_automation_config(config)
         self.wait_agents_ready()
 
     def wait_agents_ready(self, timeout: Optional[int] = 600):

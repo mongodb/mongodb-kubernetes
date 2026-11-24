@@ -96,8 +96,9 @@ def mongot_host(namespace: str) -> str:
     return search_resource_names.mongot_pod_fqdn(MDBS_RESOURCE_NAME, namespace, 27028)
 
 
-def _configure_ac_with_search(ac: dict, namespace: str, vm_sts: dict, vm_service: dict, mongot_host: str):
+def _configure_ac_with_search(namespace: str, om_tester: OMTester, vm_sts: dict, vm_service: dict, mongot_host: str):
     """SCRAM replica set with the mongot sync-source user and the mongot setParameters."""
+    ac = om_tester.api_get_automation_config()
     if len(ac["processes"]) > 0:
         return
 
@@ -198,6 +199,8 @@ def _configure_ac_with_search(ac: dict, namespace: str, vm_sts: dict, vm_service
             }
         )
 
+    om_tester.api_put_automation_config(ac)
+
 
 def _vm_host_seeds(namespace: str, vm_sts: dict, vm_service: dict) -> list[str]:
     sts_name = vm_sts["metadata"]["name"]
@@ -251,9 +254,7 @@ def test_install_operator(operator: Operator):
 
 @mark.e2e_vm_migration_replicaset_search
 def test_deploy_vm_replicaset(namespace: str, om_tester: OMTester, vm_sts, vm_service, mongot_host: str):
-    om_tester.update_automation_config(
-        lambda ac: _configure_ac_with_search(ac, namespace, vm_sts, vm_service, mongot_host)
-    )
+    _configure_ac_with_search(namespace, om_tester, vm_sts, vm_service, mongot_host)
     om_tester.wait_agents_ready()
 
 
