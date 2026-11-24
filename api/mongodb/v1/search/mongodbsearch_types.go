@@ -1010,6 +1010,12 @@ func (s *MongoDBSearch) IsOIDCAuth() bool {
 	return s.Spec.Source != nil && s.Spec.Source.OIDC != nil
 }
 
+// IsSCRAMAuth returns true unless the source uses x509 or OIDC. SCRAM is the default,
+// including a search with no spec.source, which syncs from the same-named MongoDB.
+func (s *MongoDBSearch) IsSCRAMAuth() bool {
+	return !s.IsX509Auth() && !s.IsOIDCAuth()
+}
+
 // X509ClientCertSecret returns the namespaced name of the user-provided x509 client certificate secret.
 func (s *MongoDBSearch) X509ClientCertSecret() types.NamespacedName {
 	if !s.IsX509Auth() {

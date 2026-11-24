@@ -3302,6 +3302,10 @@ func TestApplySearchParametersForShards_AuthGateAllRoutingModes(t *testing.T) {
 	}
 
 	sc := test.DefaultClusterBuilder().Build()
+	// The source must have authentication enabled for a SCRAM search to be wired: a
+	// disabled source configures none of the modes it lists.
+	sc.Spec.Security.Authentication.Enabled = true
+	sc.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{mdbv1.AuthMode("SCRAM")}
 	oidcModes := []struct {
 		name string
 		lb   *searchv1.LoadBalancerConfig
