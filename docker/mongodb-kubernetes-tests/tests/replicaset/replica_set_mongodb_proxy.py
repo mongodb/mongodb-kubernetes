@@ -426,9 +426,7 @@ def test_agent_stops_a_leftover_ephemeral_mongod_when_it_starts(replica_set: Mon
     assert identity
     # the proxy runs one process: the member leaves, the ephemeral one takes its place
     pid = query_proxy(pod, namespace)["pid"]
-    status, body = post_to_proxy(
-        pod, namespace, "/v1/process/stop", {"timeoutSeconds": 60, "role": "main", "pid": pid}
-    )
+    status, body = post_to_proxy(pod, namespace, "/v1/process/stop", {"timeoutSeconds": 60, "role": "main", "pid": pid})
     assert status == 200 and body["state"] == "exited", (status, body)
     status, body = post_to_proxy(
         pod, namespace, "/v1/process/start", {"configPath": MEMBER_CONFIG, "role": "ephemeral"}
