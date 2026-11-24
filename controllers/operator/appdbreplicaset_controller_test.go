@@ -53,6 +53,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	envtestlib "github.com/mongodb/mongodb-kubernetes/test/envtest/env"
 )
 
 func init() {
@@ -83,8 +84,7 @@ func TestMain(m *testing.M) {
 	defer func(key string) {
 		_ = os.Unsetenv(key) // nolint:forbidigo
 	}(agentVersionManagement.MappingFilePathEnv)
-	code := m.Run()
-	os.Exit(code)
+	os.Exit(envtestlib.RunShared(m, envtestlib.WithCRDs("mongodb.com_opsmanagers.yaml")))
 }
 
 func TestMongoDB_ConnectionURL_DefaultCluster_AppDB(t *testing.T) {

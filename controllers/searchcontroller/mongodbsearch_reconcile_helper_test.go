@@ -3117,6 +3117,8 @@ func newOIDCMongoDBSearch(name, namespace string, modifications ...func(*searchv
 			ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
 			IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
 			Scope:             new("openid"),
+			Audience:          new("https://mongot-search"),
+			Resource:          new("https://resource.example.com"),
 		}
 	})...)
 }
@@ -3237,6 +3239,10 @@ func TestEnsureOIDCClientConfig_MongotAndStsModification(t *testing.T) {
 	assert.Equal(t, OIDCIdPCaMountPath+"/"+OIDCIdPCAConfigMapKey, config.SyncSource.ReplicaSet.OIDC.IDPCaFile)
 	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Scope)
 	assert.Equal(t, "openid", *config.SyncSource.ReplicaSet.OIDC.Scope)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Audience)
+	assert.Equal(t, "https://mongot-search", *config.SyncSource.ReplicaSet.OIDC.Audience)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Resource)
+	assert.Equal(t, "https://resource.example.com", *config.SyncSource.ReplicaSet.OIDC.Resource)
 	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.TLS)
 	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile)
 	assert.Equal(t, tls.CAMountPath+"ca-pem", *config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile)
@@ -3246,6 +3252,8 @@ func TestEnsureOIDCClientConfig_MongotAndStsModification(t *testing.T) {
 	assert.Nil(t, config.SyncSource.Router.ScramAuth)
 	require.NotNil(t, config.SyncSource.Router.OIDC)
 	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Scope, *config.SyncSource.Router.OIDC.Scope)
+	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Audience, *config.SyncSource.Router.OIDC.Audience)
+	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Resource, *config.SyncSource.Router.OIDC.Resource)
 	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile, *config.SyncSource.Router.OIDC.TLS.CertificateAuthorityFile)
 
 	// Apply STS modification and verify volumes
@@ -3469,45 +3477,70 @@ func TestEnsureOIDCClientConfig_MissingResourceErrors(t *testing.T) {
 // TestEnsureMongotConfig_OIDCRenderedBlock pins the exact rendered oidc mongot
 // config block: camelCase keys, no username/password leak.
 func TestEnsureMongotConfig_OIDCRenderedBlock(t *testing.T) {
-	search := newOIDCMongoDBSearch("test-search", "test-ns")
+	// renderOIDCMongotConfig renders the mongot config for search and returns it read
+	// back from the ConfigMap, so each case asserts on the bytes mongot actually gets.
+	renderOIDCMongotConfig := func(t *testing.T, search *searchv1.MongoDBSearch) map[string]any {
+		t.Helper()
 
-	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
 
-	clientSecret, idpCaConfigMap := oidcTestFixtures()
-	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+		clientSecret, idpCaConfigMap := oidcTestFixtures()
+		fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap)
+		helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
 
-	oidcMod, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
-	require.NoError(t, err)
+		oidcMod, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
+		require.NoError(t, err)
 
-	// Mirror the applyReconcileUnit mod order: base config (username/password), then OIDC
-	// clearing it.
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient,
-		search.MongotConfigConfigMapNamespacedName(),
-		search.StatefulSetNamespacedName().Name, "", search.GetOwnerReferences(), 1,
-		mongot.Apply(
-			baseMongotConfig(search, []string{"mongod-0.mongod-svc.test-ns.svc.cluster.local:27017"}),
-			oidcMod,
-		),
-	)
-	require.NoError(t, err)
+		// Mirror the applyReconcileUnit mod order: base config (username/password), then OIDC
+		// clearing it.
+		_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient,
+			search.MongotConfigConfigMapNamespacedName(),
+			search.StatefulSetNamespacedName().Name, "", search.GetOwnerReferences(), 1,
+			mongot.Apply(
+				baseMongotConfig(search, []string{"mongod-0.mongod-svc.test-ns.svc.cluster.local:27017"}),
+				oidcMod,
+			),
+		)
+		require.NoError(t, err)
 
-	cm, err := fakeClient.GetConfigMap(t.Context(), search.MongotConfigConfigMapNamespacedName())
-	require.NoError(t, err)
+		cm, err := fakeClient.GetConfigMap(t.Context(), search.MongotConfigConfigMapNamespacedName())
+		require.NoError(t, err)
 
-	rendered := map[string]any{}
-	require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFilename]), &rendered))
+		rendered := map[string]any{}
+		require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFilename]), &rendered))
+		return rendered
+	}
 
-	assert.Equal(t, mongot.ConfigOIDCEnvironmentCustom, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "environment"))
-	assert.Equal(t, "https://idp.example.com/token", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tokenEndpoint"))
-	assert.Equal(t, "mongot-client", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientId"))
-	assert.Equal(t, TempOIDCClientSecretPath, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientSecretFile"))
-	assert.Equal(t, OIDCIdPCaMountPath+"/"+OIDCIdPCAConfigMapKey, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "idpCaFile"))
-	assert.Equal(t, "openid", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "scope"))
-	assert.Equal(t, tls.CAMountPath+"ca-pem", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tls", "caFile"))
-	assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "oidc", "tls", "tlsCertificateKeyFile"))
-	assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "scramAuth"),
-		"oidc must replace the scramAuth block, not leak the username/password")
+	t.Run("all optional fields set", func(t *testing.T) {
+		rendered := renderOIDCMongotConfig(t, newOIDCMongoDBSearch("test-search", "test-ns"))
+
+		assert.Equal(t, mongot.ConfigOIDCEnvironmentCustom, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "environment"))
+		assert.Equal(t, "https://idp.example.com/token", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tokenEndpoint"))
+		assert.Equal(t, "mongot-client", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientId"))
+		assert.Equal(t, TempOIDCClientSecretPath, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientSecretFile"))
+		assert.Equal(t, OIDCIdPCaMountPath+"/"+OIDCIdPCAConfigMapKey, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "idpCaFile"))
+		assert.Equal(t, "openid", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "scope"))
+		assert.Equal(t, "https://mongot-search", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "audience"))
+		assert.Equal(t, "https://resource.example.com", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "resource"))
+		assert.Equal(t, tls.CAMountPath+"ca-pem", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tls", "caFile"))
+		assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "oidc", "tls", "tlsCertificateKeyFile"))
+		assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "scramAuth"),
+			"oidc must replace the scramAuth block, not leak the username/password")
+	})
+
+	t.Run("optional fields unset", func(t *testing.T) {
+		// mongot rejects unknown oidc fields, so an unset audience/resource must be absent
+		// from the rendered block rather than rendered empty.
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		search.Spec.Source.OIDC.Audience = nil
+		search.Spec.Source.OIDC.Resource = nil
+
+		rendered := renderOIDCMongotConfig(t, search)
+
+		assert.Equal(t, "openid", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "scope"))
+		assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "oidc", "audience"))
+		assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "oidc", "resource"))
+	})
 }
 
 // TestReferencedResourceContentHash covers the config-hash fold for every user-referenced

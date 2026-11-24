@@ -38,10 +38,11 @@ run_setup_step() {
     fi
 }
 
-# Install libsodium from source on s390x — RHEL9 ships 1.0.18 which is too old for pynacl>=1.6
-if [[ "$(uname -m)" == "s390x" ]]; then
+# PyNaCl's bundled libsodium build fails on IBM workers with Python 3.13.
+# RHEL9 ships libsodium 1.0.18, which is too old for PyNaCl >= 1.6.
+if [[ "$(uname -m)" =~ ^(s390x|ppc64le)$ ]]; then
     echo ""
-    echo ">>> Running: libsodium installation (s390x only)"
+    echo ">>> Running: libsodium installation"
     LIBSODIUM_VERSION="1.0.20"
     if pkg-config --exists libsodium 2>/dev/null && [[ "$(pkg-config --modversion libsodium)" == "${LIBSODIUM_VERSION}" ]]; then
         echo "✅ libsodium ${LIBSODIUM_VERSION} already installed, skipping installation"
@@ -58,6 +59,7 @@ if [[ "$(uname -m)" == "s390x" ]]; then
         rm -rf "${tmp_dir}"
         echo "✅ libsodium ${LIBSODIUM_VERSION} installed successfully"
     fi
+    export SODIUM_INSTALL="${SODIUM_INSTALL:-system}"
 fi
 
 # Install Rust/Cargo on s390x — system Cargo is too old to parse Cargo.lock v4
