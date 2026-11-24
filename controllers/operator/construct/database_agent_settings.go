@@ -48,7 +48,7 @@ func newAgentRuntime(variables map[string]string) agentRuntime {
 }
 
 func databaseAgentSettings(opts DatabaseStatefulSetOptions, runtime agentRuntime) mdbv1.StartupParameters {
-	return resolveAgentSettings(databaseAgentBaseSettings(opts, runtime), opts.AgentConfig)
+	return resolveAgentSettings(databaseAgentBaseSettings(opts, runtime), opts.AgentSettingsSource())
 }
 
 func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, runtime agentRuntime) mdbv1.StartupParameters {
@@ -99,20 +99,18 @@ func AgentSettingsOverrides(parameters mdbv1.StartupParameters) mdbv1.StartupPar
 // resolveAgentSettings returns base with the customer startupOptions applied and the credential
 // delivery settled. The credential step has to run after the merge because it depends on which
 // options the customer set.
-func resolveAgentSettings(base mdbv1.StartupParameters, agentConfig *mdbv1.AgentConfig) mdbv1.StartupParameters {
+func resolveAgentSettings(base mdbv1.StartupParameters, source AgentSettingsSource) mdbv1.StartupParameters {
 	settings := maps.Clone(base)
 	hasAPIKeyOverride := false
-	if agentConfig != nil {
-		// Mode selection in databaseAgentBaseSettings runs on the environment, before this merge.
-		// An empty mmsBaseUrl must not leave the settings file with neither mmsBaseUrl nor the
-		// headless cluster/serveStatusPort keys, because the agent would have no usable mode.
-		for key, value := range AgentSettingsOverrides(agentConfig.StartupParameters) {
-			if value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec" || key == "mmsApiKey") {
-				continue
-			}
-			settings[key] = value
-			hasAPIKeyOverride = hasAPIKeyOverride || key == "mmsApiKey"
+	// Mode selection in databaseAgentBaseSettings runs on the environment, before this merge.
+	// An empty mmsBaseUrl must not leave the settings file with neither mmsBaseUrl nor the
+	// headless cluster/serveStatusPort keys, because the agent would have no usable mode.
+	for key, value := range source.startupParameters() {
+		if value == "" && (key == "mmsBaseUrl" || key == "mmsApiKeyExec" || key == "mmsApiKey") {
+			continue
 		}
+		settings[key] = value
+		hasAPIKeyOverride = hasAPIKeyOverride || key == "mmsApiKey"
 	}
 	delete(settings, "mmsApiKey")
 	delete(settings, "overrideLocalHost")
@@ -212,7 +210,7 @@ func applyAgentSettings(sts *appsv1.StatefulSet, opts DatabaseStatefulSetOptions
 	if agent == nil {
 		return
 	}
-	if _, ok := AgentAPIKeyOverride(opts); ok && !vault.IsVaultSecretBackend() {
+	if _, ok := opts.AgentSettingsSource().APIKeyOverride(); ok && !vault.IsVaultSecretBackend() {
 		upsertAgentAPIKeyVolume(sts, agent, AgentAPIKeyOverrideSecretName(sts.Name))
 	}
 	podtemplatespec.WithVolume(statefulset.CreateVolumeFromConfigMap(AgentSettingsVolume, AgentSettingsConfigMapName(*sts)))(&sts.Spec.Template)
@@ -227,17 +225,41 @@ func applyAgentSettings(sts *appsv1.StatefulSet, opts DatabaseStatefulSetOptions
 	sts.Spec.Template.Annotations = merge.StringToStringMap(sts.Spec.Template.Annotations, map[string]string{AgentSettingsHash: fmt.Sprintf("%x", digest)})
 }
 
-// AgentAPIKeyOverride returns the customer's raw mmsApiKey, unless their own mmsApiKeyExec reads the key.
-func AgentAPIKeyOverride(opts DatabaseStatefulSetOptions) (string, bool) {
-	if opts.AgentConfig == nil {
+// AgentSettingsSource is the agent config and StatefulSet override a StatefulSet's options are built from.
+type AgentSettingsSource struct {
+	Config   *mdbv1.AgentConfig
+	Override *appsv1.StatefulSetSpec
+}
+
+// startupParameters returns the customer startup options with the optional leading dash dropped.
+func (s AgentSettingsSource) startupParameters() mdbv1.StartupParameters {
+	if s.Config == nil {
+		return nil
+	}
+	return AgentSettingsOverrides(s.Config.StartupParameters)
+}
+
+// CustomerAPIKeyExec returns the customer's mmsApiKeyExec, or "" when they set none.
+func (s AgentSettingsSource) CustomerAPIKeyExec() string {
+	return s.startupParameters()["mmsApiKeyExec"]
+}
+
+// APIKeyOverride returns the customer's raw mmsApiKey, unless their own mmsApiKeyExec reads the key.
+func (s AgentSettingsSource) APIKeyOverride() (string, bool) {
+	if s.CustomerAPIKeyExec() != "" {
 		return "", false
 	}
-	parameters := AgentSettingsOverrides(opts.AgentConfig.StartupParameters)
-	if parameters["mmsApiKeyExec"] != "" {
-		return "", false
-	}
-	key, ok := parameters["mmsApiKey"]
+	key, ok := s.startupParameters()["mmsApiKey"]
 	return key, ok && key != ""
+}
+
+// ReadsCredential reports whether the agent must have the API key to start, judged from the
+// customer's mmsBaseUrl override or else the configured base URL.
+func (s AgentSettingsSource) ReadsCredential(baseURL string) bool {
+	if override, ok := s.startupParameters()["mmsBaseUrl"]; ok {
+		return override != ""
+	}
+	return baseURL != ""
 }
 
 // AgentAPIKeyOverrideSecretName returns the generated Secret that holds the customer's raw mmsApiKey.
@@ -245,20 +267,21 @@ func AgentAPIKeyOverrideSecretName(stsName string) string {
 	return stsName + "-agent-api-key"
 }
 
-// AgentReadsMountedAPIKey reports whether the settings file makes the agent read the key from the
-// mounted Secret. The answer does not depend on the container environment.
-func AgentReadsMountedAPIKey(opts DatabaseStatefulSetOptions) bool {
-	return databaseAgentSettings(opts, agentRuntime{})["mmsApiKeyExec"] == agentAPIKeyExecCommand()
+// ReadsMountedAPIKey reports whether the settings file makes the agent read the key from the
+// mounted Secret. It depends only on the customer startup options and the base URL.
+func (s AgentSettingsSource) ReadsMountedAPIKey(baseURL string) bool {
+	base := mdbv1.StartupParameters{}
+	if trimmed := strings.TrimSuffix(baseURL, "/"); trimmed != "" {
+		base["mmsBaseUrl"] = trimmed
+	}
+	return resolveAgentSettings(base, s)["mmsApiKeyExec"] == agentAPIKeyExecCommand()
 }
 
 // setAgentHostnameEnv passes a customer overrideLocalHost to the launcher. It is appended last
 // because Kubernetes expands references using the entries that precede them.
 func setAgentHostnameEnv(agent *corev1.Container, opts DatabaseStatefulSetOptions) {
 	agent.Env = slices.DeleteFunc(agent.Env, func(variable corev1.EnvVar) bool { return variable.Name == agentHostnameOverrideEnv })
-	if opts.AgentConfig == nil {
-		return
-	}
-	if hostname, ok := AgentSettingsOverrides(opts.AgentConfig.StartupParameters)["overrideLocalHost"]; ok {
+	if hostname, ok := opts.AgentSettingsSource().startupParameters()["overrideLocalHost"]; ok {
 		agent.Env = append(agent.Env, corev1.EnvVar{Name: agentHostnameOverrideEnv, Value: hostname})
 	}
 }

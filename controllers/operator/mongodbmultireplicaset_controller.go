@@ -800,12 +800,31 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			}
 		}
 
+		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
+		if err != nil {
+			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
+		}
+
+		podVars := newPodVars(conn, projectConfig, mrs.Spec.LogLevel)
+		// The delete path only needs the StatefulSet name, so it skips the credential read.
+		var credentialHash string
+		if !deleteSts {
+			credentialHash, err = create.AgentCredentialHash(ctx, secretMemberClient, mrs.Namespace, mconstruct.MultiClusterAgentSettingsSource(*mrs, &stsOverride), podVars.BaseURL, podVars.ProjectID)
+			if err != nil {
+				return create.AgentCredentialStatus(err, fmt.Sprintf("failed to prepare StatefulSet in cluster: %s", item.ClusterName))
+			}
+		}
+
+		mountAgentAPIKeySecret := secretMemberClient.VaultClient == nil
+
 		opts := mconstruct.MultiClusterReplicaSetOptions(
 			mconstruct.WithClusterNum(clusterNum),
 			Replicas(replicasThisReconciliation),
 			mconstruct.WithStsOverride(&stsOverride),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
-			PodEnvVars(newPodVars(conn, projectConfig, mrs.Spec.LogLevel)),
+			PodEnvVars(podVars),
+			WithAgentAPIKeySecretMounted(mountAgentAPIKeySecret),
+			WithAgentCredentialHash(credentialHash),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),
 			AgentCertHash(agentCertHash),
@@ -824,11 +843,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			WithDefaultArchitecture(r.defaultArchitecture),
 		)
 
-		deleteSts, err := shouldDeleteStatefulSet(*mrs, item)
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("failed to create StatefulSet in cluster: %s, err: %w", item.ClusterName, err))
-		}
-
 		if deleteSts {
 			sts := mconstruct.MultiClusterStatefulSet(*mrs, opts)
 			if err := memberClient.Delete(ctx, &sts); err != nil && !apiErrors.IsNotFound(err) {
@@ -838,9 +852,6 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		}
 
 		stsOptions := opts(*mrs)
-		if err := create.SetAgentCredential(ctx, secretMemberClient, mrs.Namespace, &stsOptions); err != nil {
-			return create.AgentCredentialStatus(err, fmt.Sprintf("failed to prepare StatefulSet in cluster: %s", item.ClusterName))
-		}
 		sts := mconstruct.MultiClusterStatefulSetFromOptions(*mrs, stsOptions)
 		if err := create.ReconcileDatabaseAgentSettings(ctx, memberClient, secretMemberClient, sts, stsOptions); err != nil {
 			return workflow.Failed(xerrors.Errorf("cannot render agent settings for cluster %s: %w", item.ClusterName, err))

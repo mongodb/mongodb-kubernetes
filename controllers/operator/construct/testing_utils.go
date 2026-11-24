@@ -7,5 +7,6 @@ import (
 func GetPodEnvOptions() func(options *DatabaseStatefulSetOptions) {
 	return func(options *DatabaseStatefulSetOptions) {
 		options.PodVars = &env.PodEnvVars{ProjectID: "abcd"}
+		options.MountAgentAPIKeySecret = true
 	}
 }

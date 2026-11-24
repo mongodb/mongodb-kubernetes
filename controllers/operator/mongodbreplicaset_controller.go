@@ -320,11 +320,18 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 
 	agentCertPath := EffectiveAgentCertPEMPath(defaultAgentCertPath, rs.Spec.GetSecurity())
 
+	podVars := newPodVars(conn, projectConfig, rs.Spec.LogLevel)
+	agentCredentialHash, err := create.AgentCredentialHash(ctx, reconciler.SecretClient, rs.Namespace, construct.DatabaseAgentSettingsSource(*rs), podVars.BaseURL, podVars.ProjectID)
+	if err != nil {
+		return r.updateStatus(ctx, create.AgentCredentialStatus(err, "failed to prepare StatefulSet"))
+	}
+
 	deploymentOpts := deploymentOptionsRS{
 		prometheusCertHash:   prometheusCertHash,
 		agentCertPath:        agentCertPath,
 		agentCertHash:        agentCertHash,
 		currentAgentAuthMode: currentAgentAuthMode,
+		agentCredentialHash:  agentCredentialHash,
 	}
 
 	// 3. Search Overrides
@@ -451,6 +458,7 @@ func newReplicaSetReconciler(ctx context.Context, kubeClient client.Client, imag
 type deploymentOptionsRS struct {
 	agentCertPath        string
 	agentCertHash        string
+	agentCredentialHash  string
 	prometheusCertHash   string
 	currentAgentAuthMode string
 	// externalAgentVersion is set during OM reconcile when len(spec.GetExternalMembers()) > 0.
@@ -577,9 +585,6 @@ func (r *ReplicaSetReconcilerHelper) reconcileStatefulSet(ctx context.Context, c
 
 	// Build the replica set config
 	rsConfig := r.buildStatefulSetOptions(ctx, conn, projectConfig, deploymentOptions)(*rs)
-	if err := create.SetAgentCredential(ctx, reconciler.SecretClient, rs.Namespace, &rsConfig); err != nil {
-		return create.AgentCredentialStatus(err, "failed to prepare StatefulSet")
-	}
 	sts := construct.DatabaseStatefulSetFromOptions(*rs, rsConfig, log)
 
 	// Handle PVC resize if needed
@@ -627,9 +632,11 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
+	mountAgentAPIKeySecret := true
 	if reconciler.VaultClient != nil {
 		vaultConfig = reconciler.VaultClient.VaultConfig
 		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
+		mountAgentAPIKeySecret = false
 	}
 
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
@@ -642,9 +649,11 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
+		WithAgentAPIKeySecretMounted(mountAgentAPIKeySecret),
 		CurrentAgentAuthMechanism(deploymentOptions.currentAgentAuthMode),
 		CertificateHash(tlsCertHash),
 		AgentCertHash(deploymentOptions.agentCertHash),
+		WithAgentCredentialHash(deploymentOptions.agentCredentialHash),
 		InternalClusterHash(internalClusterCertHash),
 		PrometheusTLSCertHash(deploymentOptions.prometheusCertHash),
 		WithVaultConfig(vaultConfig),

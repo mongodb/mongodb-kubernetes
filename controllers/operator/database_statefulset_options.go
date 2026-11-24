@@ -37,6 +37,21 @@ func WithAgentCertPath(path string) func(options *construct.DatabaseStatefulSetO
 	}
 }
 
+// WithAgentCredentialHash sets the hash of the key the agent reads at startup, so rotating it rolls the pods.
+func WithAgentCredentialHash(hash string) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.AgentCredentialHash = hash
+	}
+}
+
+// WithAgentAPIKeySecretMounted mounts the Kubernetes key Secret. Controllers turn it off when a Vault
+// client injects the key instead.
+func WithAgentAPIKeySecretMounted(mount bool) func(options *construct.DatabaseStatefulSetOptions) {
+	return func(options *construct.DatabaseStatefulSetOptions) {
+		options.MountAgentAPIKeySecret = mount
+	}
+}
+
 // Replicas will set the given number of replicas when building a StatefulSet.
 func Replicas(replicas int) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {

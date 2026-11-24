@@ -57,6 +57,42 @@ func getMultiClusterMongoDB() mdbmulti.MongoDBMultiCluster {
 	return mdbmulti.MongoDBMultiCluster{Spec: spec, ObjectMeta: metav1.ObjectMeta{Name: "pod-aff", Namespace: mock.TestNamespace}}
 }
 
+func TestMultiClusterAgentSettingsSourceMatchesOptions(t *testing.T) {
+	specLevel := &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{
+		Spec: appsv1.StatefulSetSpec{Replicas: new(int32(2))},
+	}}
+	clusterOverride := &appsv1.StatefulSetSpec{Replicas: new(int32(4))}
+
+	tests := map[string]struct {
+		config          *v1.StatefulSetConfiguration
+		clusterOverride *appsv1.StatefulSetSpec
+	}{
+		"no override":           {},
+		"cluster override only": {clusterOverride: clusterOverride},
+		"spec-level only":       {config: specLevel},
+		"spec-level and cluster override": {
+			config:          specLevel,
+			clusterOverride: clusterOverride,
+		},
+	}
+
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			mdbm := getMultiClusterMongoDB()
+			mdbm.Spec.StatefulSetConfiguration = testCase.config
+
+			optsFunc := MultiClusterReplicaSetOptions(construct.GetPodEnvOptions())
+			if testCase.clusterOverride != nil {
+				optsFunc = MultiClusterReplicaSetOptions(construct.GetPodEnvOptions(), WithStsOverride(testCase.clusterOverride))
+			}
+
+			source := MultiClusterAgentSettingsSource(mdbm, testCase.clusterOverride)
+			assert.Equal(t, &mdbm.Spec.Agent, source.Config)
+			assert.Equal(t, optsFunc(mdbm).StatefulSetSpecOverride, source.Override)
+		})
+	}
+}
+
 func TestMultiClusterStatefulSet(t *testing.T) {
 	t.Run("No override provided", func(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()

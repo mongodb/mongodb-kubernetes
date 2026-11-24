@@ -249,8 +249,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	standaloneCertSecretName := certs.StandaloneConfig(*s).CertSecretName
 
 	var databaseSecretPath string
+	mountAgentAPIKeySecret := true
 	if r.VaultClient != nil {
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+		mountAgentAPIKeySecret = false
 	}
 
 	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
@@ -279,12 +281,19 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 	}
 
+	credentialHash, err := create.AgentCredentialHash(ctx, r.SecretClient, s.Namespace, construct.DatabaseAgentSettingsSource(*s), podVars.BaseURL, podVars.ProjectID)
+	if err != nil {
+		return r.updateStatus(ctx, s, create.AgentCredentialStatus(err, "Failed to prepare StatefulSet"), log)
+	}
+
 	standaloneOptsFunc := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
 		AgentCertHash(agentCertHash),
+		WithAgentCredentialHash(credentialHash),
 		WithAgentCertPath(agentCertPath),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
+		WithAgentAPIKeySecretMounted(mountAgentAPIKeySecret),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(s.Spec.GetAdditionalMongodConfig()),
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
@@ -300,9 +309,6 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	)
 
 	standaloneOpts := standaloneOptsFunc(*s)
-	if err := create.SetAgentCredential(ctx, r.SecretClient, s.Namespace, &standaloneOpts); err != nil {
-		return r.updateStatus(ctx, s, create.AgentCredentialStatus(err, "Failed to prepare StatefulSet"), log)
-	}
 	sts := construct.DatabaseStatefulSetFromOptions(*s, standaloneOpts, log)
 
 	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)

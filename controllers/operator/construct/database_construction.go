@@ -156,10 +156,10 @@ type DatabaseStatefulSetOptions struct {
 	DownloadBase string
 
 	// AgentCredentialHash covers the API key the agent reads at startup, so rotating the key rolls
-	// the pods. The controller reads the key and sets it before the StatefulSet is built.
+	// the pods. The controller sets it with the WithAgentCredentialHash option.
 	AgentCredentialHash string
-	// MountAgentAPIKeySecret mounts the Kubernetes key Secret with the Vault backend, for member
-	// clusters that have no Vault client.
+	// MountAgentAPIKeySecret mounts the Kubernetes key Secret. It is off when Vault injects the key.
+	// The WithAgentAPIKeySecretMounted option sets it.
 	MountAgentAPIKeySecret bool
 }
 
@@ -167,6 +167,11 @@ func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitectu
 	return func(options *DatabaseStatefulSetOptions) {
 		options.DefaultArchitecture = defaultArchitecture
 	}
+}
+
+// AgentSettingsSource returns the agent config and StatefulSet override the options carry.
+func (d DatabaseStatefulSetOptions) AgentSettingsSource() AgentSettingsSource {
+	return AgentSettingsSource{Config: d.AgentConfig, Override: d.StatefulSetSpecOverride}
 }
 
 func (d DatabaseStatefulSetOptions) IsMongos() bool {
@@ -205,6 +210,24 @@ type databaseStatefulSetSource interface {
 	GetDownloadBase() string
 
 	IsRoleAppDB() bool
+}
+
+// DatabaseAgentSettingsSource returns the agent settings source of a single-cluster database.
+func DatabaseAgentSettingsSource(mdb mdbv1.MongoDB) AgentSettingsSource {
+	source := AgentSettingsSource{Config: &mdb.Spec.Agent}
+	if mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate != nil {
+		source.Override = &appsv1.StatefulSetSpec{Template: *mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate}
+	}
+	return source
+}
+
+// ShardedAgentSettingsSource returns the agent settings source of a sharded cluster component in a member cluster.
+func ShardedAgentSettingsSource(componentSpec *mdbv1.ShardedClusterComponentSpec, memberClusterName string) AgentSettingsSource {
+	source := AgentSettingsSource{Config: componentSpec.GetAgentConfig()}
+	if configuration := componentSpec.GetClusterSpecItem(memberClusterName).StatefulSetConfiguration; configuration != nil {
+		source.Override = &configuration.SpecWrapper.Spec
+	}
+	return source
 }
 
 // StandaloneOptions returns a set of options which will configure a Standalone StatefulSet
@@ -481,7 +504,7 @@ func buildVaultDatabaseSecretsToInject(mdb databaseStatefulSetSource, opts Datab
 
 	// add vault specific annotations
 	secretsToInject.AgentApiKey = mdbv1.AgentAPIKeySecretName(opts.PodVars.ProjectID)
-	if _, ok := AgentAPIKeyOverride(opts); ok {
+	if _, ok := opts.AgentSettingsSource().APIKeyOverride(); ok {
 		secretsToInject.AgentApiKey = AgentAPIKeyOverrideSecretName(opts.GetStatefulSetName())
 	}
 	if mdb.GetSecurity().IsTLSEnabled() {
@@ -790,7 +813,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumesToAdd = append(volumesToAdd, internalClusterAuthVolume)
 	}
 
-	if !vault.IsVaultSecretBackend() || databaseOpts.MountAgentAPIKeySecret {
+	if databaseOpts.MountAgentAPIKeySecret {
 		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, mdbv1.AgentAPIKeySecretName(databaseOpts.PodVars.ProjectID)))
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}

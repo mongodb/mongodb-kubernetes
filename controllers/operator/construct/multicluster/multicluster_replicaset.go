@@ -13,6 +13,19 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
+// MultiClusterAgentSettingsSource returns the agent settings source of a multi-cluster member: the spec-level
+// StatefulSetConfiguration merged with the cluster-level override, as WithStsOverride merges it.
+func MultiClusterAgentSettingsSource(mdbm mdbmultiv1.MongoDBMultiCluster, clusterOverride *appsv1.StatefulSetSpec) construct.AgentSettingsSource {
+	stsSpec := appsv1.StatefulSetSpec{}
+	if mdbm.Spec.StatefulSetConfiguration != nil {
+		stsSpec = mdbm.Spec.StatefulSetConfiguration.SpecWrapper.Spec
+	}
+	if clusterOverride != nil {
+		stsSpec = merge.StatefulSetSpecs(stsSpec, *clusterOverride)
+	}
+	return construct.AgentSettingsSource{Config: &mdbm.Spec.Agent, Override: &stsSpec}
+}
+
 func MultiClusterReplicaSetOptions(additionalOpts ...func(options *construct.DatabaseStatefulSetOptions)) func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
 	return func(mdbm mdbmultiv1.MongoDBMultiCluster) construct.DatabaseStatefulSetOptions {
 		stsSpec := appsv1.StatefulSetSpec{}
@@ -63,8 +76,7 @@ func WithMemberCount(memberCount int) func(options *construct.DatabaseStatefulSe
 
 func WithStsOverride(stsOverride *appsv1.StatefulSetSpec) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
-		finalSpec := merge.StatefulSetSpecs(*options.StatefulSetSpecOverride, *stsOverride)
-		options.StatefulSetSpecOverride = &finalSpec
+		options.StatefulSetSpecOverride = new(merge.StatefulSetSpecs(*options.StatefulSetSpecOverride, *stsOverride))
 	}
 }
 
