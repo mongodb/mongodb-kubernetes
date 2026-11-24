@@ -44,11 +44,10 @@ func WithAgentCredentialHash(hash string) func(options *construct.DatabaseStatef
 	}
 }
 
-// WithAgentAPIKeySecretMounted mounts the Kubernetes key Secret. Controllers turn it off when a Vault
-// client injects the key instead.
-func WithAgentAPIKeySecretMounted(mount bool) func(options *construct.DatabaseStatefulSetOptions) {
+// WithVaultInjectedAgentAPIKey leaves out the Kubernetes key Secret volume when a Vault client injects the key.
+func WithVaultInjectedAgentAPIKey(injected bool) func(options *construct.DatabaseStatefulSetOptions) {
 	return func(options *construct.DatabaseStatefulSetOptions) {
-		options.MountAgentAPIKeySecret = mount
+		options.VaultInjectsAgentAPIKey = injected
 	}
 }
 

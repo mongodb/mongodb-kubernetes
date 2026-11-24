@@ -1001,17 +1001,17 @@ func TestMountAgentAPIKeySecretWithVaultBackend(t *testing.T) {
 	t.Setenv("SECRET_BACKEND", "VAULT_BACKEND")
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
 	tests := map[string]struct {
-		mount         bool
+		vaultInjects  bool
 		expectedMount bool
 	}{
-		"Vault injects the key, so no Kubernetes Secret volume":              {mount: false, expectedMount: false},
-		"member clusters without a Vault client mount the Kubernetes Secret": {mount: true, expectedMount: true},
+		"Vault injects the key, so no Kubernetes Secret volume":              {vaultInjects: true, expectedMount: false},
+		"member clusters without a Vault client mount the Kubernetes Secret": {vaultInjects: false, expectedMount: true},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(
 				func(opts *DatabaseStatefulSetOptions) { opts.PodVars = &env.PodEnvVars{ProjectID: "abcd"} },
-				func(opts *DatabaseStatefulSetOptions) { opts.MountAgentAPIKeySecret = test.mount },
+				func(opts *DatabaseStatefulSetOptions) { opts.VaultInjectsAgentAPIKey = test.vaultInjects },
 			), zap.S())
 			assert.Equal(t, test.expectedMount, MountedAgentAPIKeySecretName(sts) != "")
 		})

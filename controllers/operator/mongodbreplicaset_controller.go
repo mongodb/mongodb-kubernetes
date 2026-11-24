@@ -632,11 +632,11 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
-	mountAgentAPIKeySecret := true
+	vaultInjectsAgentAPIKey := false
 	if reconciler.VaultClient != nil {
 		vaultConfig = reconciler.VaultClient.VaultConfig
 		databaseSecretPath = reconciler.VaultClient.DatabaseSecretPath()
-		mountAgentAPIKeySecret = false
+		vaultInjectsAgentAPIKey = true
 	}
 
 	tlsCertHash := enterprisepem.ReadHashFromSecret(ctx, reconciler.SecretClient, rs.Namespace, rsCertsConfig.CertSecretName, databaseSecretPath, log)
@@ -649,7 +649,7 @@ func (r *ReplicaSetReconcilerHelper) buildStatefulSetOptions(ctx context.Context
 
 	rsConfig := construct.ReplicaSetOptions(
 		PodEnvVars(newPodVars(conn, projectConfig, rs.Spec.LogLevel)),
-		WithAgentAPIKeySecretMounted(mountAgentAPIKeySecret),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		CurrentAgentAuthMechanism(deploymentOptions.currentAgentAuthMode),
 		CertificateHash(tlsCertHash),
 		AgentCertHash(deploymentOptions.agentCertHash),

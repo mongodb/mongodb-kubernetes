@@ -815,7 +815,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			}
 		}
 
-		mountAgentAPIKeySecret := secretMemberClient.VaultClient == nil
+		vaultInjectsAgentAPIKey := secretMemberClient.VaultClient != nil
 
 		opts := mconstruct.MultiClusterReplicaSetOptions(
 			mconstruct.WithClusterNum(clusterNum),
@@ -823,7 +823,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 			mconstruct.WithStsOverride(&stsOverride),
 			mconstruct.WithServiceName(mrs.MultiHeadlessServiceName(clusterNum)),
 			PodEnvVars(podVars),
-			WithAgentAPIKeySecretMounted(mountAgentAPIKeySecret),
+			WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 			WithAgentCredentialHash(credentialHash),
 			CurrentAgentAuthMechanism(currentAgentAuthMode),
 			CertificateHash(certHash),

@@ -2635,11 +2635,11 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
-	mountAgentAPIKeySecret := true
+	vaultInjectsAgentAPIKey := false
 	if r.commonController.VaultClient != nil {
 		vaultConfig = r.commonController.VaultClient.VaultConfig
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
-		mountAgentAPIKeySecret = false
+		vaultInjectsAgentAPIKey = true
 	}
 
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
@@ -2647,7 +2647,7 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		StatefulSetNameOverride(r.GetConfigSrvStsName(memberCluster)),
 		ServiceName(r.GetConfigSrvServiceName(memberCluster)),
 		PodEnvVars(opts.podEnvVars),
-		WithAgentAPIKeySecretMounted(mountAgentAPIKeySecret),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
 		AgentCertHash(opts.agentCertHash),
@@ -2682,17 +2682,17 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.MongosRsName())
 
 	var vaultConfig vault.VaultConfiguration
-	mountAgentAPIKeySecret := true
+	vaultInjectsAgentAPIKey := false
 	if r.commonController.VaultClient != nil {
 		vaultConfig = r.commonController.VaultClient.VaultConfig
-		mountAgentAPIKeySecret = false
+		vaultInjectsAgentAPIKey = true
 	}
 
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetMongosStsName(memberCluster)),
 		PodEnvVars(opts.podEnvVars),
-		WithAgentAPIKeySecretMounted(mountAgentAPIKeySecret),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
 		AgentCertHash(opts.agentCertHash),
@@ -2727,18 +2727,18 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
-	mountAgentAPIKeySecret := true
+	vaultInjectsAgentAPIKey := false
 	if r.commonController.VaultClient != nil {
 		vaultConfig = r.commonController.VaultClient.VaultConfig
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
-		mountAgentAPIKeySecret = false
+		vaultInjectsAgentAPIKey = true
 	}
 
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetShardScaler(shardNum, memberCluster))),
 		StatefulSetNameOverride(r.GetShardStsName(shardNum, memberCluster)),
 		PodEnvVars(opts.podEnvVars),
-		WithAgentAPIKeySecretMounted(mountAgentAPIKeySecret),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
 		AgentCertHash(opts.agentCertHash),

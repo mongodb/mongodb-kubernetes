@@ -158,9 +158,9 @@ type DatabaseStatefulSetOptions struct {
 	// AgentCredentialHash covers the API key the agent reads at startup, so rotating the key rolls
 	// the pods. The controller sets it with the WithAgentCredentialHash option.
 	AgentCredentialHash string
-	// MountAgentAPIKeySecret mounts the Kubernetes key Secret. It is off when Vault injects the key.
-	// The WithAgentAPIKeySecretMounted option sets it.
-	MountAgentAPIKeySecret bool
+	// VaultInjectsAgentAPIKey leaves out the Kubernetes key Secret volume because Vault injects the key.
+	// The WithVaultInjectedAgentAPIKey option sets it, so the zero value keeps the volume.
+	VaultInjectsAgentAPIKey bool
 }
 
 func WithDefaultArchitecture(defaultArchitecture architectures.DefaultArchitecture) func(options *DatabaseStatefulSetOptions) {
@@ -813,7 +813,7 @@ func getVolumesAndVolumeMounts(mdb databaseStatefulSetSource, databaseOpts Datab
 		volumesToAdd = append(volumesToAdd, internalClusterAuthVolume)
 	}
 
-	if databaseOpts.MountAgentAPIKeySecret {
+	if !databaseOpts.VaultInjectsAgentAPIKey {
 		volumesToAdd = append(volumesToAdd, statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, mdbv1.AgentAPIKeySecretName(databaseOpts.PodVars.ProjectID)))
 		volumeMounts = append(volumeMounts, statefulset.CreateVolumeMount(AgentAPIKeyVolumeName, AgentAPIKeySecretPath))
 	}

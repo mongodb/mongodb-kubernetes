@@ -249,10 +249,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	standaloneCertSecretName := certs.StandaloneConfig(*s).CertSecretName
 
 	var databaseSecretPath string
-	mountAgentAPIKeySecret := true
+	vaultInjectsAgentAPIKey := false
 	if r.VaultClient != nil {
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
-		mountAgentAPIKeySecret = false
+		vaultInjectsAgentAPIKey = true
 	}
 
 	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
@@ -293,7 +293,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithAgentCertPath(agentCertPath),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
-		WithAgentAPIKeySecretMounted(mountAgentAPIKeySecret),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(s.Spec.GetAdditionalMongodConfig()),
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
