@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from kubetester.kubetester import run_periodically
 from kubetester.mongodb_search import MongoDBSearch
 from pytest import fixture
 from tests import test_logger
@@ -89,12 +90,13 @@ class TestSampleData(SearchSampleDataAndIndexTests):
         return rs_search_tester(MDBS_NAME, namespace, MDB.user_name, MDB.user_password)
 
 
+@fixture(scope="module")
+def search_tools_pod(namespace: str, custom_mdb_version: str) -> mongodb_tools_pod.ToolsPod:
+    return get_tools_pod(namespace, custom_mdb_version)
+
+
 class TestEnvoyRetryPolicy:
     """Kill one mongot pod, burst requests, verify all succeed via retries."""
-
-    @fixture(scope="module")
-    def search_tools_pod(self, namespace: str, custom_mdb_version: str) -> mongodb_tools_pod.ToolsPod:
-        return get_tools_pod(namespace, custom_mdb_version)
 
     def test_retry_on_pod_kill(
         self,
@@ -174,9 +176,10 @@ class TestEnvoyRetryPolicy:
 class TestEnvoyMaxAttemptCountHeader:
     """Envoy sends x-envoy-max-attempt-count = 1 + numRetries on every mongot route."""
 
-    def test_header_follows_num_retries(self, namespace: str):
+    def test_header_follows_num_retries(self, namespace: str, search_tools_pod: mongodb_tools_pod.ToolsPod):
         num_retries = 3
         expected = str(num_retries + 1)
+        lds_before = {ip: _get_lds_update_stats(search_tools_pod, ip) for ip in _get_envoy_pod_ips(namespace)}
 
         mdbs = MongoDBSearch(name=MDBS_NAME, namespace=namespace).load()
         mdbs["spec"]["clusters"][0]["loadBalancer"]["managed"].setdefault("retryPolicy", {})["numRetries"] = num_retries
@@ -187,6 +190,17 @@ class TestEnvoyMaxAttemptCountHeader:
             return bool(values) and all(v == expected for v in values), f"{MAX_ATTEMPT_COUNT_HEADER} values {values}"
 
         wait_for_envoy_mounted_lds(namespace, MDBS_NAME, header_set, msg=f"{MAX_ATTEMPT_COUNT_HEADER}={expected}")
+
+        # The file can be mounted even if Envoy rejects it, so also require each pod to accept the new LDS.
+        def lds_accepted():
+            for ip, (success_before, rejected_before) in lds_before.items():
+                success, rejected = _get_lds_update_stats(search_tools_pod, ip)
+                assert rejected == rejected_before, f"envoy {ip} rejected the new lds.json"
+                if success <= success_before:
+                    return False, f"envoy {ip} has not loaded the new lds.json yet"
+            return True, f"all {len(lds_before)} envoy pods accepted the new lds.json"
+
+        run_periodically(lds_accepted, timeout=120, sleep_time=5, msg="envoy pods to accept the new lds.json")
 
 
 def _get_envoy_pod_ip(namespace: str, search_name: str) -> str:
@@ -199,6 +213,26 @@ def _get_envoy_pod_ip(namespace: str, search_name: str) -> str:
     pod = pods.items[0]
     logger.info(f"Envoy pod: {pod.metadata.name} (IP: {pod.status.pod_ip})")
     return pod.status.pod_ip
+
+
+def _get_envoy_pod_ips(namespace: str) -> list[str]:
+    from kubetester.kubetester import KubernetesTester
+
+    deployment_name = search_resource_names.lb_deployment_name(MDBS_NAME)
+    pods = KubernetesTester.read_pod_labels(namespace, label_selector=f"app={deployment_name}")
+    assert pods.items, f"no envoy pods found with label app={deployment_name}"
+    return [p.status.pod_ip for p in pods.items]
+
+
+def _get_lds_update_stats(tools_pod: mongodb_tools_pod.ToolsPod, envoy_pod_ip: str) -> tuple[int, int]:
+    """Return envoy's (listener_manager.lds.update_success, listener_manager.lds.update_rejected)."""
+    output = tools_pod.run_command(
+        ["wget", "-qO-", f"http://{envoy_pod_ip}:9901/stats?filter=listener_manager.lds.update_"]
+    )
+    stats = dict(line.split(": ", 1) for line in output.splitlines() if ": " in line)
+    return int(stats.get("listener_manager.lds.update_success", 0)), int(
+        stats.get("listener_manager.lds.update_rejected", 0)
+    )
 
 
 def _list_mongot_pods(namespace: str):

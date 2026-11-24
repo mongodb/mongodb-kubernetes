@@ -594,7 +594,11 @@ def wait_for_envoy_mounted_lds(
                 )
             except Exception as e:
                 return False, f"{pod.metadata.name}: exec failed: {e}"
-            ok, reason = check(_exec_output_as_json(content))
+            try:
+                lds = _exec_output_as_json(content)
+            except (SyntaxError, ValueError) as e:
+                return False, f"{pod.metadata.name}: unreadable lds.json: {e}"
+            ok, reason = check(lds)
             if not ok:
                 return False, f"{pod.metadata.name}: mounted lds.json: {reason}"
         return True, f"all {len(pods)} envoy pods mounted {msg}"
