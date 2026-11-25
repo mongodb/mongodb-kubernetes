@@ -203,6 +203,59 @@ func seedPEMSecret(ctx context.Context, secretClient secrets.SecretClient, names
 	}, nil, nil, Database)
 }
 
+// VerifyManagedPEMSecretsKeepLegacy makes sure that the -pem secrets the operator created for the
+// managed certificates still contain the legacy certificate before a rollback starts. This is needed
+// for the same reason the managed -pem secrets are seeded with the legacy certificate when a legacy
+// deployment is migrated to managed certificates: until a pod restarts, it still mounts the managed
+// -pem secret, but the automation config already names the legacy file. If a reissue of a managed
+// certificate pushed the legacy file out, the rollback is refused.
+func VerifyManagedPEMSecretsKeepLegacy(ctx context.Context, secretClient secrets.SecretClient, namespace, stsName, resourceName string, legacy *mdbv1.Security) error {
+	// The names the managed secrets have: certsSecretPrefix and managedCertificate can't be set
+	// together, and the prefix would win when the names are worked out.
+	managed := legacy.DeepCopy()
+	managed.CertificatesSecretsPrefix = ""
+	managed.ManagedCertificate = &mdbv1.ManagedCertificate{}
+
+	pairs := []struct{ legacy, managed string }{
+		{legacy.MemberCertificateSecretName(stsName), managed.MemberCertificateSecretName(stsName)},
+		{legacy.InternalClusterAuthSecretName(stsName), managed.InternalClusterAuthSecretName(stsName)},
+		{legacy.AgentClientCertificateSecretName(resourceName), managed.AgentClientCertificateSecretName(resourceName)},
+	}
+	path, err := getVaultBasePath(secretClient, Database)
+	if err != nil {
+		return err
+	}
+	for _, p := range pairs {
+		if p.legacy == p.managed {
+			continue
+		}
+		legacyData, err := secretClient.ReadSecret(ctx, getOperatorGeneratedSecret(kube.ObjectKey(namespace, p.legacy)), path)
+		if secret.SecretNotExist(err) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		legacyHash := currentHashOfPEMSecret(legacyData)
+		if legacyHash == "" {
+			continue
+		}
+
+		managedPEM := getOperatorGeneratedSecret(kube.ObjectKey(namespace, p.managed))
+		managedData, err := secretClient.ReadSecret(ctx, managedPEM, path)
+		if secret.SecretNotExist(err) {
+			// no pod mounts it, so nothing can be missing
+			continue
+		} else if err != nil {
+			return err
+		}
+		if managedData[legacyHash] == "" {
+			return xerrors.Errorf("cannot go back to the legacy certificates safely: %s no longer has the legacy certificate of %s, so the pods that already use operator-managed certificates would not find the files the automation config names. This happens when cert-manager issued that certificate again after the migration started, for example after a renewal or a change that adds hostnames. Put managedCertificate back to finish the migration",
+				managedPEM.Name, p.legacy)
+		}
+	}
+	return nil
+}
+
 func currentHashOfPEMSecret(data map[string]string) string {
 	if hash, ok := data[util.LatestHashSecretKey]; ok {
 		return hash

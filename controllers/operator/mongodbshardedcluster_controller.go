@@ -1377,6 +1377,10 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	if err != nil {
 		return workflow.Failed(err)
 	}
+	rollingBackMigration, status := r.unfinishedMigrationRollback(ctx, sc, allConfigs, log)
+	if !status.IsOK() {
+		return status
+	}
 
 	// Recovery prevents some deadlocks that can occur during reconciliation, e.g. the setting of an incorrect automation
 	// configuration and a subsequent attempt to overwrite it later, the operator would be stuck in Pending phase.
@@ -1394,7 +1398,12 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	updateAutomationConfig := func(waitForReadyState bool) workflow.Status {
-		return r.updateOmDeploymentShardedCluster(ctx, conn, sc, opts, false, waitForReadyState, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
+		// Going back from an unfinished migration, the first update doesn't fail when the agents don't reach
+		// goal state: they may be stuck on the managed files, and only this update, which names the legacy
+		// files again, gets them going. Like recovery, it waits the usual time and then writes anyway.
+		updateOpts := opts
+		updateOpts.skipAgentWaits = rollingBackMigration && !waitForReadyState
+		return r.updateOmDeploymentShardedCluster(ctx, conn, sc, updateOpts, false, waitForReadyState, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 	}
 	reconcileStatefulSets := func() workflow.Status {
 		st := r.createKubernetesResources(ctx, sc, opts, log).OnErrorPrepend("Failed to create/update (Kubernetes reconciliation phase):")
@@ -1404,7 +1413,9 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		return st
 	}
 
-	workflowStatus = reconcileDatabaseRollout(order.publishFirst, order.managedCABundleChange, updateAutomationConfig, reconcileStatefulSets)
+	// Going back from an unfinished migration takes the same steps as a managed CA change: update the
+	// automation config without waiting, roll the pods, then update it again and wait.
+	workflowStatus = reconcileDatabaseRollout(order.publishFirst, order.managedCABundleChange || rollingBackMigration, updateAutomationConfig, reconcileStatefulSets)
 
 	if !workflowStatus.IsOK() {
 		return workflowStatus
@@ -1625,6 +1636,55 @@ func (r *ShardedClusterReconcileHelper) removeUnusedStatefulsets(ctx context.Con
 			log.Infof("Removed statefulset %s in cluster %s as it's was removed from sharded cluster", key, memberCluster.Name)
 		}
 	}
+}
+
+// unfinishedMigrationRollback reports whether the customer removed managedCertificate before the
+// migration from legacy TLS reached Running, which is the case when any component's StatefulSet still
+// mounts operator-managed certificates. If so, it makes sure it is safe to go back in every component
+// and member cluster.
+func (r *ShardedClusterReconcileHelper) unfinishedMigrationRollback(ctx context.Context, sc *mdbv1.MongoDB, configs []shardedStatefulSetConfig, log *zap.SugaredLogger) (bool, workflow.Status) {
+	lastSpec := r.deploymentState.LastAchievedSpec
+	if lastSpec == nil {
+		return false, workflow.OK()
+	}
+	rollingBack := false
+	for _, cfg := range configs {
+		sts, err := cfg.client.GetStatefulSet(ctx, kube.ObjectKey(sc.Namespace, cfg.options(*sc).GetStatefulSetName()))
+		if errors.IsNotFound(err) {
+			continue
+		} else if err != nil {
+			return false, workflow.Failed(err)
+		}
+		if isUnfinishedMigrationRollback(lastSpec.GetSecurity(), sc.GetSecurity(), sts) {
+			rollingBack = true
+			break
+		}
+	}
+	if !rollingBack {
+		return false, workflow.OK()
+	}
+
+	log.Info("managedCertificate was removed before the migration finished: going back to the legacy certificates, updating the automation config before the pods")
+	verify := func(memberClusters []multicluster.MemberCluster, stsName string) error {
+		for _, memberCluster := range getHealthyMemberClusters(memberClusters) {
+			if err := certs.VerifyManagedPEMSecretsKeepLegacy(ctx, memberCluster.SecretClient, sc.Namespace, stsName, sc.Name, sc.GetSecurity()); err != nil {
+				return xerrors.Errorf("member cluster %s: %w", memberCluster.Name, err)
+			}
+		}
+		return nil
+	}
+	if err := verify(r.mongosMemberClusters, sc.MongosRsName()); err != nil {
+		return true, workflow.Failed(err)
+	}
+	if err := verify(r.configSrvMemberClusters, sc.ConfigRsName()); err != nil {
+		return true, workflow.Failed(err)
+	}
+	for i := 0; i < sc.Spec.ShardCount; i++ {
+		if err := verify(r.shardsMemberClustersMap[i], sc.ShardName(i)); err != nil {
+			return true, workflow.Failed(err)
+		}
+	}
+	return true, workflow.OK()
 }
 
 // seedManagedPEMSecretsFromLegacy keeps the legacy certificate files of every component in its new
@@ -2394,6 +2454,10 @@ type deploymentOptions struct {
 	finalizing         bool
 	processNames       []string
 	prometheusCertHash string
+	// skipAgentWaits makes the authentication update go on when the agents don't reach goal state,
+	// without ignoring errors the way isRecovering does. Only the first automation config update of a
+	// rollback from an unfinished migration sets it.
+	skipAgentWaits bool
 	// externalAgentVersion is set from OM when spec.externalMembers is non-empty (see updateOmDeploymentShardedCluster).
 	externalAgentVersion string
 }
@@ -2565,7 +2629,7 @@ func (r *ShardedClusterReconcileHelper) publishDeployment(ctx context.Context, c
 
 	logDiffOfProcessNames(opts.processNames, healthyProcessesToWaitForReadyState, log.With("ctx", "updateOmAuthentication"))
 
-	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertPath, opts.caFilePath, "", sc.Spec.GetDownloadBase(), isRecovering, log)
+	workflowStatus, additionalReconciliationRequired := r.commonController.updateOmAuthentication(ctx, conn, healthyProcessesToWaitForReadyState, sc, opts.agentCertPath, opts.caFilePath, "", sc.Spec.GetDownloadBase(), isRecovering || opts.skipAgentWaits, log)
 	if !workflowStatus.IsOK() {
 		if !isRecovering {
 			return nil, false, workflowStatus
