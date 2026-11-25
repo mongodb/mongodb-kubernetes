@@ -10,6 +10,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
+from tests.common.search.connectivity import MongotPVCResize, resizable_persistence
 from tests.common.search.search_deployment_helper import SearchDeploymentHelper
 from tests.common.search.sharded_search_helper import *
 from tests.conftest import get_default_operator
@@ -24,6 +25,8 @@ SHARD_COUNT = 2
 MONGODS_PER_SHARD = 1
 MONGOS_COUNT = 1
 CONFIG_SERVER_COUNT = 1
+INITIAL_STORAGE = "1Gi"
+RESIZED_STORAGE = "2Gi"
 
 ADMIN_USER_NAME = "mdb-admin-user"
 ADMIN_USER_PASSWORD = "mdb-admin-user-pass"
@@ -70,6 +73,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
         return resource
     resource["spec"]["source"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
     resource["spec"]["clusters"][0]["advancedMongotConfigs"] = ADVANCED_MONGOT_CONFIGS
+    resource["spec"]["clusters"][0]["persistence"] = resizable_persistence(INITIAL_STORAGE)
     return resource
 
 
@@ -229,3 +233,21 @@ def test_vector_search_before_and_after_sharding(mdb: MongoDB):
     search_tester = get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True)
     admin_search_tester = get_search_tester(mdb, ADMIN_USER_NAME, ADMIN_USER_PASSWORD, use_ssl=True)
     verify_vector_search_before_and_after_sharding(search_tester, admin_search_tester)
+
+
+@mark.e2e_search_sharded_internal_mongodb_single_mongot
+def test_storage_increase_resizes_every_shard(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
+    resizes = [
+        MongotPVCResize(namespace, search_resource_names.shard_statefulset_name(mdbs.name, f"{MDB_RESOURCE_NAME}-{i}"))
+        for i in range(SHARD_COUNT)
+    ]
+
+    mdbs.load()
+    mdbs["spec"]["clusters"][0]["persistence"] = resizable_persistence(RESIZED_STORAGE)
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+
+    assert "pvc" not in mdbs["status"]
+    for resize in resizes:
+        resize.assert_resized(RESIZED_STORAGE)
+    verify_text_search_query(get_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True))

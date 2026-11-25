@@ -22,7 +22,7 @@ from pytest import fixture, mark
 from tests import test_logger
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import rotate_envoy_certificates
+from tests.common.search.connectivity import MongotPVCResize, resizable_persistence, rotate_envoy_certificates
 from tests.common.search.rs_search_helper import (
     create_rs_lb_certificates,
     create_rs_search_tls_cert,
@@ -58,6 +58,8 @@ ENVOY_PROXY_PORT = 27028
 MDB_RESOURCE_NAME = "mdb-rs-managed-lb"
 MDBS_RESOURCE_NAME = MDB_RESOURCE_NAME
 RS_MEMBERS = 3
+INITIAL_STORAGE = "1Gi"
+RESIZED_STORAGE = "2Gi"
 
 # TLS configuration
 MDBS_TLS_CERT_PREFIX = "certs"
@@ -96,6 +98,7 @@ def mdbs(namespace: str) -> MongoDBSearch:
         return resource
 
     resource["spec"]["source"]["mongodbResourceRef"]["name"] = MDB_RESOURCE_NAME
+    resource["spec"]["clusters"][0]["persistence"] = resizable_persistence(INITIAL_STORAGE)
 
     return resource
 
@@ -288,3 +291,21 @@ def test_verify_envoy_deployment_override(namespace: str):
         expected_container_names=["envoy", "envoy-sidecar"],
         expected_labels={"test-override": "deployment-config"},
     )
+
+
+@mark.e2e_search_replicaset_internal_mongodb_multi_mongot_managed_lb
+def test_storage_increase_with_scale_down_in_one_edit(namespace: str, mdb: MongoDB, mdbs: MongoDBSearch):
+    sts_name = search_resource_names.mongot_statefulset_name(MDBS_RESOURCE_NAME)
+    resize = MongotPVCResize(namespace, sts_name)
+
+    mdbs.load()
+    mdbs["spec"]["clusters"][0]["persistence"] = resizable_persistence(RESIZED_STORAGE)
+    mdbs["spec"]["clusters"][0]["replicas"] = 1
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+
+    assert "pvc" not in mdbs["status"]
+    assert client.AppsV1Api().read_namespaced_stateful_set(sts_name, namespace).spec.replicas == 1
+    resize.assert_resized(RESIZED_STORAGE)
+    mdbs.assert_lb_status()
+    verify_text_search_query(get_rs_search_tester(mdb, USER_NAME, USER_PASSWORD, use_ssl=True))

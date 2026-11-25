@@ -11,7 +11,7 @@ from kubetester.phase import Phase
 from pytest import fixture, mark
 from tests.common.mongodb_tools_pod import mongodb_tools_pod
 from tests.common.search import search_resource_names
-from tests.common.search.connectivity import MongotPVCResize, resizable_persistence
+from tests.common.search.connectivity import MongotPVCResize, resizable_persistence, wait_for_pvc_resize_pending
 from tests.common.search.movies_search_helper import SampleMoviesSearchHelper
 from tests.common.search.search_tester import SearchTester
 from tests.conftest import get_default_operator
@@ -29,6 +29,7 @@ MDBC_RESOURCE_NAME = "mdbc-rs"
 
 INITIAL_STORAGE = "1Gi"
 RESIZED_STORAGE = "2Gi"
+RESIZED_AGAIN_STORAGE = "3Gi"
 
 
 @fixture(scope="function")
@@ -62,16 +63,6 @@ def set_storage(mdbs: MongoDBSearch, storage: str):
     mdbs.load()
     mdbs["spec"]["clusters"][0]["persistence"] = resizable_persistence(storage)
     mdbs.update()
-
-
-def wait_for_pvc_resize_pending(mdbs: MongoDBSearch, sts_name: str):
-    def pending() -> tuple[bool, str]:
-        mdbs.load()
-        status = mdbs["status"]
-        resizing = {p["statefulsetName"] for p in status.get("pvc") or []}
-        return status["phase"] == "Pending" and sts_name in resizing, f"status={status}"
-
-    run_periodically(pending, timeout=300, sleep_time=2, msg=f"PVC resize of {sts_name} to be reported")
 
 
 def example_search_titles(movies: SampleMoviesSearchHelper) -> list[str]:
@@ -129,21 +120,28 @@ def test_search_create_search_index(sample_movies_helper: SampleMoviesSearchHelp
     sample_movies_helper.assert_search_query(retry_timeout=300)
 
 
+def assert_index_kept(movies: SampleMoviesSearchHelper, baseline: list[str]):
+    """The index is served from the resized volume right away: a rebuild would not be READY this soon."""
+    movies.search_tester.wait_for_search_indexes_ready(movies.db_name, movies.col_name, timeout=30)
+    assert example_search_titles(movies) == baseline
+
+
 @mark.e2e_search_pvc_resize
+@mark.parametrize("storage", [RESIZED_STORAGE, RESIZED_AGAIN_STORAGE])
 def test_storage_increase_resizes_pvcs_in_place(
-    namespace: str, mdbs: MongoDBSearch, sample_movies_helper: SampleMoviesSearchHelper
+    namespace: str, mdbs: MongoDBSearch, sample_movies_helper: SampleMoviesSearchHelper, storage: str
 ):
     sts_name = search_resource_names.mongot_statefulset_name(mdbs.name)
     resize = MongotPVCResize(namespace, sts_name)
     baseline = example_search_titles(sample_movies_helper)
 
-    set_storage(mdbs, RESIZED_STORAGE)
+    set_storage(mdbs, storage)
     wait_for_pvc_resize_pending(mdbs, sts_name)
     mdbs.assert_reaches_phase(Phase.Running, timeout=900)
 
     assert "pvc" not in mdbs["status"]
-    resize.assert_resized(RESIZED_STORAGE)
-    assert example_search_titles(sample_movies_helper) == baseline
+    resize.assert_resized(storage)
+    assert_index_kept(sample_movies_helper, baseline)
     assert_new_document_indexed(sample_movies_helper)
 
 
@@ -156,10 +154,12 @@ def test_storage_decrease_is_rejected(
 
     set_storage(mdbs, INITIAL_STORAGE)
     mdbs.assert_reaches_phase(
-        Phase.Failed, msg_regexp="Can't update pvc and statefulset to a smaller storage", timeout=300
+        Phase.Failed,
+        msg_regexp=f"StatefulSet {sts_name}: can't update pvc and statefulset to a smaller storage",
+        timeout=300,
     )
     assert client.AppsV1Api().read_namespaced_stateful_set(sts_name, namespace).metadata.uid == sts_uid
 
-    set_storage(mdbs, RESIZED_STORAGE)
+    set_storage(mdbs, RESIZED_AGAIN_STORAGE)
     mdbs.assert_reaches_phase(Phase.Running, timeout=300)
     sample_movies_helper.assert_search_query(retry_timeout=60)

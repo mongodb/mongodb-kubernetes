@@ -31,9 +31,12 @@ from tests.common.multicluster.multicluster_utils import (
 from tests.common.search import search_resource_names
 from tests.common.search.connectivity import (
     CLUSTER_LOCATION_TAG_KEY,
+    MongotPVCResize,
     mongot_data_pvc_names,
     protected_search_input_uids,
+    resizable_persistence,
     wait_for_mongot_pvcs_deleted,
+    wait_for_pvc_resize_pending,
     wait_for_resource_deleted,
     wait_for_search_owned_resources_deleted,
 )
@@ -59,6 +62,8 @@ MONGOS_PER_CLUSTER: List[int | None] = [1, 1]
 CONFIG_SRV_PER_CLUSTER: List[int | None] = [1, 1]
 
 MONGOT_REPLICAS_PER_CLUSTER = 1
+INITIAL_STORAGE = "1Gi"
+RESIZED_STORAGE = "2Gi"
 ENVOY_PROXY_PORT = 27028
 
 ADMIN_USER_NAME = "mdb-admin-user"
@@ -266,6 +271,7 @@ def mdbs(
                     },
                 },
                 "syncSourceSelector": {"matchTagSets": [{CLUSTER_LOCATION_TAG_KEY: mcc.cluster_name}]},
+                "persistence": resizable_persistence(INITIAL_STORAGE),
             }
         )
     resource["spec"]["clusters"] = clusters
@@ -639,6 +645,36 @@ def test_per_cluster_search_query(
     paths return results. Mongos→mongot uses the cluster-local proxy Service (M3), so a
     per-cluster non-empty result is what validates the (cluster × shard) data path.
     """
+    _assert_per_cluster_search(namespace, member_cluster_clients)
+
+
+@mark.e2e_search_q3_mc_sharded_external_mtls
+def test_storage_increase_resizes_pvcs_in_place_per_cluster_and_shard(
+    namespace: str,
+    mdbs: MongoDBSearch,
+    member_cluster_clients: List[MultiClusterClient],
+):
+    """One spec edit resizes every (cluster, shard) mongot StatefulSet through that member cluster's client."""
+    resizes = [
+        MongotPVCResize(namespace, sts_name, mcc.api_client)
+        for mcc in member_cluster_clients
+        for sts_name in _shard_sts_names(_idx(mcc))
+    ]
+
+    mdbs.load()
+    for cluster in mdbs["spec"]["clusters"]:
+        cluster["persistence"] = resizable_persistence(RESIZED_STORAGE)
+    mdbs.update()
+    wait_for_pvc_resize_pending(mdbs, *(resize.sts_name for resize in resizes))
+    mdbs.assert_reaches_phase(Phase.Running, timeout=1200)
+
+    assert "pvc" not in mdbs["status"]
+    for resize in resizes:
+        resize.assert_resized(RESIZED_STORAGE)
+    _assert_per_cluster_search(namespace, member_cluster_clients)
+
+
+def _assert_per_cluster_search(namespace: str, member_cluster_clients: List[MultiClusterClient]) -> None:
     for cluster_index in range(len(member_cluster_clients)):
         tester = _per_cluster_mongos_search_tester(namespace, cluster_index, USER_NAME, USER_PASSWORD)
         movies = SampleMoviesSearchHelper(search_tester=tester)

@@ -52,6 +52,7 @@ from tests.common.search.connectivity import (
     rotate_member_envoy_certificates,
     search_artifact_uids,
     wait_for_deployment_recreated,
+    wait_for_pvc_resize_pending,
     wait_for_search_artifacts_deleted,
     wait_for_search_deleted,
 )
@@ -1246,6 +1247,7 @@ def test_storage_increase_resizes_pvcs_in_place_per_cluster(
     for cluster in mdbs["spec"]["clusters"]:
         cluster["persistence"] = resizable_persistence(RESIZED_STORAGE)
     mdbs.update()
+    wait_for_pvc_resize_pending(mdbs, *(resize.sts_name for resize in resizes))
     mdbs.assert_reaches_phase(Phase.Running, timeout=1200)
 
     assert "pvc" not in mdbs["status"]

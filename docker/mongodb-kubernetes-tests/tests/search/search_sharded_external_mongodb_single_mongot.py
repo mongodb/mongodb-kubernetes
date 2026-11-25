@@ -308,3 +308,20 @@ def test_storage_increase_resizes_each_shard_to_its_own_size(
     for shard, resize in resizes.items():
         resize.assert_resized(storage_by_shard[shard])
     sample_movies_helper.assert_search_query(retry_timeout=300)
+
+    # A statefulSet volumeClaimTemplates override takes precedence over the shard's persistence.
+    resize = MongotPVCResize(namespace, search_resource_names.shard_statefulset_name(mdbs.name, OVERRIDDEN_SHARD))
+    mdbs.load()
+    mdbs["spec"]["clusters"][0]["shardOverrides"][0]["statefulSet"] = {
+        "spec": {
+            "volumeClaimTemplates": [
+                {"metadata": {"name": "data"}, "spec": {"resources": {"requests": {"storage": "4Gi"}}}}
+            ]
+        }
+    }
+    mdbs.update()
+    mdbs.assert_reaches_phase(Phase.Running, timeout=900)
+
+    assert "pvc" not in mdbs["status"]
+    resize.assert_resized("4Gi")
+    sample_movies_helper.assert_search_query(retry_timeout=300)
