@@ -172,6 +172,22 @@ def ready_router_pods(router: VoyageRouter) -> list[client.V1Pod]:
     return [pod for pod in router_pods(router) if pod.metadata.deletion_timestamp is None and pod_is_ready(pod)]
 
 
+def wait_for_router_rollout(router: VoyageRouter, timeout: int = 600):
+    def rollout_complete() -> bool:
+        deployment = router.read_deployment()
+        desired = deployment.spec.replicas or 1
+        status = deployment.status
+        return bool(
+            status
+            and status.observed_generation == deployment.metadata.generation
+            and status.replicas == desired
+            and status.updated_replicas == desired
+            and status.available_replicas == desired
+        )
+
+    run_periodically(rollout_complete, timeout=timeout, sleep_time=3, msg="VoyageRouter Deployment rollout")
+
+
 def envoy_stats(pod: client.V1Pod, prefix: str) -> dict[str, int]:
     response = requests.get(
         f"http://{pod.status.pod_ip}:{ENVOY_ADMIN_PORT}/stats",
