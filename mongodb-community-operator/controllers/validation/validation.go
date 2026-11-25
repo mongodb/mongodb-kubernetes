@@ -214,13 +214,12 @@ func validateStatefulSet(mdb mdbv1.MongoDBCommunity) error {
 
 // validateAgentSettings rejects values that would add extra lines to the agent settings file.
 func validateAgentSettings(mdb mdbv1.MongoDBCommunity) error {
-	fields := map[string]string{
-		"spec.agent.logFile":  mdb.Spec.AgentConfiguration.LogFile,
-		"spec.agent.logLevel": string(mdb.Spec.AgentConfiguration.LogLevel),
-	}
-	for _, field := range []string{"spec.agent.logFile", "spec.agent.logLevel"} {
-		if strings.ContainsAny(fields[field], "\r\n\x00") {
-			return fmt.Errorf("%s must not contain a line break or NUL byte", field)
+	for _, field := range []struct{ name, value string }{
+		{"spec.agent.logFile", mdb.Spec.AgentConfiguration.LogFile},
+		{"spec.agent.logLevel", string(mdb.Spec.AgentConfiguration.LogLevel)},
+	} {
+		if strings.ContainsAny(field.value, "\r\n\x00") {
+			return fmt.Errorf("%s must not contain a line break or NUL byte", field.name)
 		}
 	}
 	return nil
