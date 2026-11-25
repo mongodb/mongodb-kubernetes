@@ -262,7 +262,44 @@ func createHTTPRequest(ctx context.Context, method string, url string, v any) (*
 func (client *Client) sendRequest(method, url, path string, req *retry.Request) ([]byte, http.Header, error) {
 	// we need to limit size of request/response dump, because automation config request can't have over 1MB size
 	const maxDumpSize = 10000 // 1 MB
-	req.RequestLogHook = func(_ retry.Logger, request *http.Request, attempt int) {
+
+	// retry.Send runs the same retry loop as Client.Do but returns the last
+	// response when the retries exhaust on an error status. Client.Do drains
+	// that response and returns a generic error instead, which would hide the
+	// status that the deletion cleanup classifies.
+	ctx := req.Context()
+	checkRetry := client.CheckRetry
+	if checkRetry == nil {
+		checkRetry = retry.DefaultRetryPolicy
+	}
+	backoff := client.Backoff
+	if backoff == nil {
+		backoff = retry.DefaultBackoff
+	}
+	minDelay, maxDelay := client.RetryWaitMin, client.RetryWaitMax
+	if maxDelay < minDelay {
+		maxDelay = minDelay
+	}
+
+	cfg := retry.Config{
+		MaxRetries: client.RetryMax,
+		Policy: retry.PolicyFunc(func(err error, resp *http.Response) bool {
+			shouldRetry, _ := checkRetry(ctx, resp, err)
+			return shouldRetry
+		}),
+		// Config.Backoff numbers retries from 1, DefaultBackoff from 0.
+		Backoff: func(attempt int, _, _ time.Duration, resp *http.Response) time.Duration {
+			return backoff(minDelay, maxDelay, attempt-1, resp)
+		},
+	}
+
+	httpClient := client.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	attempt := 0
+	resp, err := retry.Send(ctx, req.Request, cfg, func(request *http.Request) (*http.Response, error) {
 		if client.debug {
 			dumpRequest, _ := httputil.DumpRequest(request, true)
 			if len(dumpRequest) > maxDumpSize {
@@ -272,19 +309,27 @@ func (client *Client) sendRequest(method, url, path string, req *retry.Request) 
 		} else {
 			zap.S().Debugf("Ops Manager request: %s %s", method, url)
 		}
-	}
+		attempt++
 
-	req.ResponseLogHook = func(_ retry.Logger, response *http.Response) {
-		if client.debug {
+		response, err := httpClient.Do(request)
+		if client.debug && response != nil {
 			dumpResponse, _ := httputil.DumpResponse(response, true)
 			if len(dumpResponse) > maxDumpSize {
 				dumpResponse = dumpResponse[:maxDumpSize]
 			}
 			zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpResponse)
 		}
+		return response, err
+	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		// A response that arrives after the context is canceled is
+		// discarded, so the caller observes the cancellation.
+		if resp != nil && resp.Body != nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+			_ = resp.Body.Close()
+		}
+		return nil, nil, apierror.New(xerrors.Errorf("error sending %s request to %s: %w", method, url, ctxErr))
 	}
-
-	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, apierror.New(xerrors.Errorf("error sending %s request to %s: %w", method, url, err))
 	}

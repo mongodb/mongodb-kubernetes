@@ -812,8 +812,12 @@ func (r *ShardedClusterReconcileHelper) initializeStateStore(ctx context.Context
 				return err
 			}
 			// This will migrate the deployment state to the new structure and this branch of code won't be executed again.
-			if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
-				return err
+			// A read-only helper skips the write. Deletion uses it, and a create
+			// in a terminating namespace fails, which would keep the finalizer.
+			if !r.readOnly {
+				if err := r.stateStore.WriteState(ctx, r.deploymentState, log); err != nil {
+					return err
+				}
 			}
 		} else {
 			return err
@@ -854,6 +858,10 @@ func (r *ReconcileMongoDbShardedCluster) Reconcile(ctx context.Context, request 
 		return reconcileResult, err
 	}
 
+	if !sc.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, sc, util.MongoDBFinalizer, r, log)
+	}
+
 	if sc.IsReconciliationDisabled() {
 		log.Infof("MongoDB %s/%s reconciliation disabled by %s annotation; skipping",
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
@@ -876,11 +884,14 @@ func (r *ReconcileMongoDbShardedCluster) OnDelete(ctx context.Context, obj runti
 			sc.Namespace, sc.Name, util.DisableReconciliationAnnotation)
 		return nil
 	}
-	reconcilerHelper, err := NewShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, r.backupEnableDelay)
+	// The deletion path reads the deployment state without writing it. A write
+	// would recreate the <name>-state ConfigMap. Kubernetes rejects that create
+	// in a terminating namespace and the finalizer would never complete.
+	reconcilerHelper, err := newShardedClusterReconcilerHelper(ctx, r.ReconcileCommonController, r.imageUrls, r.initDatabaseNonStaticImageVersion, r.databaseNonStaticImageVersion, r.forceEnterprise, r.enableClusterMongoDBRoles, r.agentDebug, r.agentDebugImage, r.defaultArchitecture, r.defaultImageType, sc, r.memberClustersMap, r.omConnectionFactory, log, true, r.backupEnableDelay)
 	if err != nil {
 		return err
 	}
-	return reconcilerHelper.OnDelete(ctx, obj, log)
+	return reconcilerHelper.OnDelete(ctx, sc, log)
 }
 
 func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.SugaredLogger) (res reconcile.Result, e error) {
@@ -930,6 +941,10 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
 	}
+	if err := r.commonController.ensureFinalizer(ctx, sc, util.MongoDBFinalizer, log); err != nil {
+		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
+	}
+
 	conn, agentAPIKey, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, true, log)
 	if err != nil {
 		return r.updateStatus(ctx, sc, workflow.Failed(err), log)
@@ -1217,10 +1232,6 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	var databaseSecretPath string
 	if r.commonController.VaultClient != nil {
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
-	}
-
-	if workflowStatus := ensureSupportedOpsManagerVersion(conn); workflowStatus.Phase() != mdbstatus.PhaseRunning {
-		return workflowStatus
 	}
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
@@ -1811,14 +1822,13 @@ func (r *ShardedClusterReconcileHelper) OnDelete(ctx context.Context, obj runtim
 }
 
 func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context, sc *mdbv1.MongoDB, log *zap.SugaredLogger) error {
-	projectConfig, credsConfig, err := project.ReadConfigAndCredentials(ctx, r.commonController.client, r.commonController.SecretClient, sc, log)
+	conn, err := connection.PrepareCleanupConnection(ctx, r.commonController.client, r.commonController.SecretClient, sc, r.omConnectionFactory, log)
 	if err != nil {
 		return err
 	}
-
-	conn, _, err := connection.PrepareOpsManagerConnection(ctx, r.commonController.SecretClient, projectConfig, credsConfig, r.omConnectionFactory, sc.Namespace, true, log)
-	if err != nil {
-		return err
+	if conn == nil {
+		log.Debugf("Skipping Ops Manager cleanup for %s: no connection", sc.Name)
+		return nil
 	}
 
 	// A resource that still declares externalMembers is mid-migration from VMs: the sharded cluster in
@@ -1836,6 +1846,8 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 		}
 		return nil
 	}
+
+	keepBackup := sc.Spec.Backup != nil && !sc.Spec.Backup.AutoTerminateOnDeletion
 
 	// Read before removing for legacy naming detection. Deletion is a single attempt with no retry,
 	// so a failed read only skips the wait for ready state instead of aborting the cleanup.
@@ -1878,7 +1890,13 @@ func (r *ShardedClusterReconcileHelper) cleanOpsManagerState(ctx context.Context
 	hostsToRemove := r.getAllHosts(false)
 	log.Infow("Stop monitoring removed hosts in Ops Manager", "hostsToBeRemoved", hostsToRemove)
 
-	if err := host.StopMonitoring(ctx, conn, hostsToRemove, log); err != nil {
+	maxRemainingHosts := 0
+	if keepBackup {
+		// Ops Manager keeps the last host of every replica set: the config
+		// servers and every shard.
+		maxRemainingHosts = 1 + r.maxShardCount()
+	}
+	if err := host.StopMonitoring(ctx, conn, hostsToRemove, maxRemainingHosts, log); err != nil {
 		// StopMonitoring may fail with 401 if hosts are already removed or auth is misconfigured.
 		errs = stdErrors.Join(errs, xerrors.Errorf("failed to stop monitoring for hosts %v. Continuing with cleanup: %w", hostsToRemove, err))
 	}
@@ -1917,8 +1935,7 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 	}
 
 	// watch for changes to sharded cluster MongoDB resources
-	eventHandler := ResourceEventHandler{deleter: reconciler}
-	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &eventHandler, watch.PredicatesForMongoDB(mdbv1.ShardedCluster)))
+	err = c.Watch(source.Kind[client.Object](mgr.GetCache(), &mdbv1.MongoDB{}, &handler.EnqueueRequestForObject{}, watch.PredicatesForMongoDB(mdbv1.ShardedCluster)))
 	if err != nil {
 		return err
 	}

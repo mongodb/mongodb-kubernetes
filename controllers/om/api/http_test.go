@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
 	"github.com/mongodb/mongodb-kubernetes/internal/retry"
 )
 
@@ -122,4 +123,50 @@ func TestRequest_DeadlineAbortsHangingServer(t *testing.T) {
 			assert.Equal(t, int32(1), requests.Load(), tt.requestsMsg)
 		})
 	}
+}
+
+// Retries that exhaust on an error status must return the response with its
+// status: the cleanup path classifies the backup-anchor refusal by status, so
+// the client must hand the last response to sendRequest instead of a generic
+// retry error.
+func TestRequest_ServerErrorAfterRetries_ReturnsStatus(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"detail":"Unexpected error.","error":500,"errorCode":"UNEXPECTED_ERROR","parameters":[],"reason":"Internal Server Error"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := NewHTTPClient()
+	require.NoError(t, err)
+	// Retry without waiting, to keep the test fast.
+	client.RetryMax = 1
+	client.RetryWaitMin = 0
+	client.RetryWaitMax = 0
+
+	_, _, err = client.Request(context.Background(), "DELETE", srv.URL, "/api/public/v1.0/groups/group/hosts/host", nil)
+
+	require.Error(t, err)
+	assert.True(t, apierror.NewNonNil(err).IsServerError(), "the 500 status must reach the caller, got: %v", err)
+	assert.Equal(t, int32(2), requests.Load())
+}
+
+// A transport error returns no response, so the retries keep the error path.
+func TestRequest_TransportErrorAfterRetries_KeepsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	// Close the server before the request so every attempt is refused.
+	srv.Close()
+
+	client, err := NewHTTPClient()
+	require.NoError(t, err)
+	client.RetryMax = 0
+	client.RetryWaitMin = 0
+	client.RetryWaitMax = 0
+
+	_, _, err = client.Request(context.Background(), "GET", srv.URL, "/api/public/v1.0/groups", nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused")
+	assert.False(t, apierror.NewNonNil(err).IsServerError())
 }

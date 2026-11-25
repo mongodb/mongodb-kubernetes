@@ -13,7 +13,14 @@ const (
 	BackupDaemonConfigNotFound = "DAEMON_MACHINE_CONFIG_NOT_FOUND"
 	UserAlreadyExists          = "USER_ALREADY_EXISTS"
 	DuplicateWhitelistEntry    = "DUPLICATE_GLOBAL_WHITELIST_ENTRY"
-	LicenseArtifactOutdated    = "ARTIFACT_OUTDATED"
+	// CannotDeleteHostBackupEnabled is returned when removing the last monitored host of a replica set
+	// whose backup is still active. Ops Manager keeps that host for the backup. The response carries
+	// the generic UNEXPECTED_ERROR code today, so callers must also accept a server error.
+	// CLOUDP-482571 asks Ops Manager to return this code in the response.
+	CannotDeleteHostBackupEnabled = "CANNOT_DELETE_HOST_BACKUP_ENABLED"
+	// ClusterNotFound is returned by the host cluster lookup when the cluster does not exist.
+	ClusterNotFound         = "CLUSTER_NOT_FOUND"
+	LicenseArtifactOutdated = "ARTIFACT_OUTDATED"
 )
 
 // Error is the error extension that contains the details of OM error if OM returned the error. This allows the
@@ -105,6 +112,11 @@ func (e *Error) IsNotFound() bool {
 // IsConflict returns whether Ops Manager rejected the request with a 409.
 func (e *Error) IsConflict() bool {
 	return e != nil && e.Status != nil && *e.Status == http.StatusConflict
+}
+
+// IsServerError returns whether Ops Manager answered with a 5xx status.
+func (e *Error) IsServerError() bool {
+	return e != nil && e.Status != nil && *e.Status >= http.StatusInternalServerError
 }
 
 // IsLicenseArtifactOutdated returns whether Ops Manager rejected a license install because an
