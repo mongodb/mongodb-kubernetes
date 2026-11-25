@@ -33,6 +33,19 @@ const (
 	VoyageAIModelVoyageMultimodal35 VoyageAIModel = "voyage-multimodal-3.5"
 )
 
+// SupportedVoyageAIModels returns the models accepted by the VoyageAI API.
+func SupportedVoyageAIModels() []VoyageAIModel {
+	return []VoyageAIModel{
+		VoyageAIModelVoyage4Large,
+		VoyageAIModelVoyage4,
+		VoyageAIModelVoyage4Lite,
+		VoyageAIModelRerank25,
+		VoyageAIModelRerank25Lite,
+		VoyageAIModelVoyageContext4,
+		VoyageAIModelVoyageCode3,
+	}
+}
+
 // +k8s:deepcopy-gen=true
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true

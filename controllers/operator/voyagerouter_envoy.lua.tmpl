@@ -1,0 +1,53 @@
+local models = {
+{{range .Models}}  [{{printf "%q" .Name}}] = {{printf "%q" .Cluster}},
+{{end}}}
+
+local paths = {
+{{range .Paths}}  [{{printf "%q" .}}] = true,
+{{end}}}
+
+local function respond(handle, status, message)
+	handle:respond({[":status"] = tostring(status), ["content-type"] = "application/json"},
+		message)
+end
+
+function envoy_on_request(handle)
+  local headers = handle:headers()
+  headers:remove({{printf "%q" .InternalHeader}})
+  local path = headers:get(":path") or ""
+  if not paths[path] then
+    respond(handle, 404, "unknown path")
+    return
+  end
+  if headers:get(":method") ~= "POST" then
+    respond(handle, 405, "method not allowed")
+    return
+  end
+  local contentType = string.lower(headers:get("content-type") or "")
+  local mediaType = string.match(contentType, "^%s*([^;%s]+)")
+  if mediaType ~= "application/json" then
+    respond(handle, 415, "content type must be application/json")
+    return
+  end
+  local contentEncoding = string.lower(headers:get("content-encoding") or "identity")
+  if contentEncoding ~= "identity" then
+    respond(handle, 415, "compressed request bodies are not supported")
+    return
+  end
+  local metadata = handle:streamInfo():dynamicMetadata():get({{printf "%q" .MetadataNamespace}})
+  local model = metadata and metadata["model"] or nil
+  if type(model) ~= "string" or model == "" then
+    respond(handle, 400, "request body requires a string model")
+    return
+  end
+  local cluster = models[model]
+  if cluster == nil then
+    respond(handle, 404, "model is not selected")
+    return
+  end
+  if cluster == "" then
+    respond(handle, 503, "model is unavailable")
+    return
+  end
+  headers:replace({{printf "%q" .InternalHeader}}, cluster)
+end

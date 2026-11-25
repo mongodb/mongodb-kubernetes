@@ -50,6 +50,11 @@ const (
 	voyageAIReadinessPath = "/health/readiness"
 	voyageAILivenessPath  = "/health/liveness"
 
+	voyageAIEmbeddingsPath               = "/v1/embeddings"
+	voyageAIContextualizedEmbeddingsPath = "/v1/contextualizedembeddings"
+	voyageAIMultimodalEmbeddingsPath     = "/v1/multimodalembeddings"
+	voyageAIRerankPath                   = "/v1/rerank"
+
 	// voyageAITLSCertSecretIndex lets the cache find VoyageAI resources that
 	// reference a given Secret, so the map-func can look up dependents in O(1)
 	// when a watched Secret changes.
@@ -321,10 +326,10 @@ func buildEnvVars(spec *vaiv1.VoyageAISpec, tlsEnabled bool) []corev1.EnvVar {
 		{Name: "SERVER__READINESS_PATH", Value: voyageAIReadinessPath},
 		{Name: "SERVER__LIVENESS_PATH", Value: voyageAILivenessPath},
 		{Name: "SERVER__OPENAPI_PATH", Value: "/openapi.json"},
-		{Name: "SERVER__EMBEDDINGS_PATH", Value: "/v1/embeddings"},
-		{Name: "SERVER__CONTEXTUALIZED_EMBEDDINGS_PATH", Value: "/v1/contextualizedembeddings"},
-		{Name: "SERVER__MULTIMODAL_EMBEDDINGS_PATH", Value: "/v1/multimodalembeddings"},
-		{Name: "SERVER__RERANK_PATH", Value: "/v1/rerank"},
+		{Name: "SERVER__EMBEDDINGS_PATH", Value: voyageAIEmbeddingsPath},
+		{Name: "SERVER__CONTEXTUALIZED_EMBEDDINGS_PATH", Value: voyageAIContextualizedEmbeddingsPath},
+		{Name: "SERVER__MULTIMODAL_EMBEDDINGS_PATH", Value: voyageAIMultimodalEmbeddingsPath},
+		{Name: "SERVER__RERANK_PATH", Value: voyageAIRerankPath},
 		{Name: "SERVER__TLS__ENABLED", Value: strconv.FormatBool(tlsEnabled)},
 	}
 
