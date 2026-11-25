@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
-	"k8s.io/utils/ptr"
 
 	bootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -395,23 +394,23 @@ func TestBuildCircuitBreakerThresholds_Overrides(t *testing.T) {
 		connections, pending, requests, budgetPercent, minRetryConcy uint32
 	}{
 		"only retry budget percent": {
-			cb:          &searchv1.EnvoyCircuitBreaker{RetryBudget: &searchv1.EnvoyRetryBudget{BudgetPercent: ptr.To(uint32(0))}},
+			cb:          &searchv1.EnvoyCircuitBreaker{RetryBudget: &searchv1.EnvoyRetryBudget{BudgetPercent: new(uint32(0))}},
 			connections: 1024, pending: 1024, requests: 1024, budgetPercent: 0, minRetryConcy: 256,
 		},
 		"retry floor follows maxRequests": {
-			cb:          &searchv1.EnvoyCircuitBreaker{MaxRequests: ptr.To(uint32(30))},
+			cb:          &searchv1.EnvoyCircuitBreaker{MaxRequests: new(uint32(30))},
 			connections: 1024, pending: 1024, requests: 30, budgetPercent: 20, minRetryConcy: 7,
 		},
 		"retry floor is at least 1": {
-			cb:          &searchv1.EnvoyCircuitBreaker{MaxRequests: ptr.To(uint32(1))},
+			cb:          &searchv1.EnvoyCircuitBreaker{MaxRequests: new(uint32(1))},
 			connections: 1024, pending: 1024, requests: 1, budgetPercent: 20, minRetryConcy: 1,
 		},
 		"all limits": {
 			cb: &searchv1.EnvoyCircuitBreaker{
-				MaxConnections:     ptr.To(uint32(10)),
-				MaxPendingRequests: ptr.To(uint32(20)),
-				MaxRequests:        ptr.To(uint32(30)),
-				RetryBudget:        &searchv1.EnvoyRetryBudget{BudgetPercent: ptr.To(uint32(50)), MinRetryConcurrency: ptr.To(uint32(40))},
+				MaxConnections:     new(uint32(10)),
+				MaxPendingRequests: new(uint32(20)),
+				MaxRequests:        new(uint32(30)),
+				RetryBudget:        &searchv1.EnvoyRetryBudget{BudgetPercent: new(uint32(50)), MinRetryConcurrency: new(uint32(40))},
 			},
 			connections: 10, pending: 20, requests: 30, budgetPercent: 50, minRetryConcy: 40,
 		},
