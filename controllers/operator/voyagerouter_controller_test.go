@@ -87,6 +87,23 @@ func TestVoyageRouterSelectedModelsHonorsSelectorsAndAvailability(t *testing.T) 
 	assert.False(t, byModel[vaiv1.VoyageAIModelVoyage4Large].Selected)
 }
 
+func TestVoyageRouterSelectsBackendsForSupportedModels(t *testing.T) {
+	for _, model := range vaiv1.SupportedVoyageAIModels() {
+		t.Run(string(model), func(t *testing.T) {
+			router := newVoyageRouter("router", mock.TestNamespace)
+			backend := newRouterVoyageAI("backend", router.Namespace, model, status.PhaseRunning, nil)
+			reconciler, _ := newVoyageRouterReconcilerForTest(router, backend)
+
+			models, _, err := reconciler.selectedModels(t.Context(), router)
+			require.NoError(t, err)
+			assert.Contains(t, models, voyageRouterModel{
+				Model: model, Selected: true,
+				Backends: []voyageRouterBackend{{ServiceFQDN: "backend-svc.my-namespace.svc.router.test", Port: 8088}},
+			})
+		})
+	}
+}
+
 func TestVoyageRouterSelectedModelsRequireCAForPendingTLSBackend(t *testing.T) {
 	ctx := context.Background()
 	router := newVoyageRouter("router", mock.TestNamespace)

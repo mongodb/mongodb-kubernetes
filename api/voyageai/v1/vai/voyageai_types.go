@@ -41,8 +41,13 @@ func SupportedVoyageAIModels() []VoyageAIModel {
 		VoyageAIModelVoyage4Lite,
 		VoyageAIModelRerank25,
 		VoyageAIModelRerank25Lite,
+		VoyageAIModelRerank3,
+		VoyageAIModelRerank3Lite,
+		VoyageAIModelRerank3PubSec,
 		VoyageAIModelVoyageContext4,
 		VoyageAIModelVoyageCode3,
+		VoyageAIModelVoyageCode4,
+		VoyageAIModelVoyageMultimodal35,
 	}
 }
 
