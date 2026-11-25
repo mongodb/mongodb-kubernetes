@@ -9,6 +9,7 @@ import (
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/mongodb-community-operator/api/v1"
 	"github.com/mongodb/mongodb-kubernetes/pkg/authentication/authtypes"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
@@ -218,7 +219,7 @@ func validateAgentSettings(mdb mdbv1.MongoDBCommunity) error {
 		{"spec.agent.logFile", mdb.Spec.AgentConfiguration.LogFile},
 		{"spec.agent.logLevel", string(mdb.Spec.AgentConfiguration.LogLevel)},
 	} {
-		if strings.ContainsAny(field.value, "\r\n\x00") {
+		if util.ContainsLineBreakOrNUL(field.value) {
 			return fmt.Errorf("%s must not contain a line break or NUL byte", field.name)
 		}
 	}

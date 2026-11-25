@@ -385,3 +385,11 @@ func TestIsPOSIXAbsolutePath(t *testing.T) {
 func pair(left, right identifiable.Identifiable) []identifiable.Identifiable {
 	return []identifiable.Identifiable{left, right}
 }
+
+func TestContainsLineBreakOrNUL(t *testing.T) {
+	assert.False(t, ContainsLineBreakOrNUL(""))
+	assert.False(t, ContainsLineBreakOrNUL(" /var/log/agent log "))
+	assert.True(t, ContainsLineBreakOrNUL("a\nb"))
+	assert.True(t, ContainsLineBreakOrNUL("a\rb"))
+	assert.True(t, ContainsLineBreakOrNUL("a\x00b"))
+}
