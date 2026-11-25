@@ -12,14 +12,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct/scalers/interfaces"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/handler"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
+	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/tls"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -272,7 +273,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 	if vault.IsVaultSecretBackend() {
 		appDBSecretsToInject := vault.AppDBSecretsToInject{Config: opts.VaultConfig}
 		if ShouldEnableMonitoring(podVars) {
-			appDBSecretsToInject.AgentApiKey = agents.ApiKeySecretName(podVars.ProjectID)
+			appDBSecretsToInject.AgentApiKey = mdbv1.AgentAPIKeySecretName(podVars.ProjectID)
 		}
 		if appDB.GetSecurity().IsTLSEnabled() {
 			secretName := appDB.GetSecurity().MemberCertificateSecretName(appDB.Name()) + certs.OperatorGeneratedCertSuffix
@@ -298,7 +299,7 @@ func vaultModification(appDB om.AppDBSpec, podVars *env.PodEnvVars, opts AppDBSt
 		if ShouldEnableMonitoring(podVars) {
 			modification = podtemplatespec.Apply(
 				modification,
-				podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, agents.ApiKeySecretName(podVars.ProjectID))),
+				podtemplatespec.WithVolume(statefulset.CreateVolumeFromSecret(AgentAPIKeyVolumeName, mdbv1.AgentAPIKeySecretName(podVars.ProjectID))),
 			)
 		}
 	}
@@ -401,6 +402,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		if len(podSpec.Spec.Containers) < originalLen {
 			log.Warnf("Removed deprecated container %q from user-supplied podTemplateSpec; monitoring is now handled by the single automation agent", monitoringAgentContainerName)
 		}
+		podSpec.Spec = WithoutHolderContainer(appsv1.StatefulSetSpec{Template: *podSpec}, log).Template.Spec
 	}
 
 	// We copy the Automation Agent command from community and add the agent startup parameters
@@ -477,8 +479,11 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 		upgradeInitContainer = podtemplatespec.WithInitContainer(appdbVersionUpgradeHookName, appdbVersionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount}, ""))
 		readinessInitContainer = podtemplatespec.WithInitContainer(AppDBReadinessProbeContainerName, appdbReadinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount}, ""))
 	} else {
-		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount}
-		withStaticContainerModification = podtemplatespec.WithContainer(util.AgentContainerUtilitiesName, appdbMongodbAgentUtilitiesContainer(staticMounts, opts.InitAppDBImage))
+		staticMounts := []corev1.VolumeMount{hooksVolumeMount, scriptsVolumeMount, tmpVolumeMount, initDatabaseImageVolumeMount()}
+		withStaticContainerModification = podtemplatespec.Apply(
+			podtemplatespec.WithVolume(initDatabaseImageVolume(opts.InitAppDBImage)),
+			podtemplatespec.WithContainer(util.AgentContainerName, container.WithReadinessProbe(probes.WithExecCommand([]string{staticDatabaseReadinessProbeCmd}))),
+		)
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, staticMounts...)
 		shareProcessNs = func(sts *appsv1.StatefulSet) {
 			sts.Spec.Template.Spec.ShareProcessNamespace = new(true)
@@ -558,7 +563,7 @@ func AppDbStatefulSet(opsManager om.MongoDBOpsManager, podVars *env.PodEnvVars, 
 	if appDb.IsMultiCluster() {
 		clusterSpecItem := appDb.GetMemberClusterSpecByName(scaler.MemberClusterName())
 		if clusterSpecItem.StatefulSetConfiguration != nil {
-			sts.Spec = merge.StatefulSetSpecs(sts.Spec, clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec)
+			sts.Spec = merge.StatefulSetSpecs(sts.Spec, WithoutHolderContainer(clusterSpecItem.StatefulSetConfiguration.SpecWrapper.Spec, log))
 		}
 		sts.Annotations = merge.StringToStringMap(sts.Annotations, handler.MultiClusterStatefulSetAnnotations(opsManager.Name))
 	}

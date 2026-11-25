@@ -2315,7 +2315,7 @@ func (r *ReconcileAppDbReplicaSet) readExistingPodVars(ctx context.Context, om *
 	}
 
 	agentAPIKey, err := r.helper.getMemberCluster(r.helper.getNameOfFirstMemberCluster()).SecretClient.ReadSecretKey(
-		ctx, kube.ObjectKey(om.Namespace, agents.ApiKeySecretName(projectId)), appdbSecretPath, util.OmAgentApiKey)
+		ctx, kube.ObjectKey(om.Namespace, mdbv1.AgentAPIKeySecretName(projectId)), appdbSecretPath, util.OmAgentApiKey)
 	if err != nil {
 		log.Warnf("Agent API key for project %s not readable yet (%v); AppDB monitoring will be configured once it is available", projectId, err)
 		return podVars, nil

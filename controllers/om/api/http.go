@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
 	// mongodb-forks/digest implements RFC 7616 digest auth (MD5 and SHA-256) and
 	// replays request bodies. It replaces the hand-rolled MD5 client that ignored
 	// the stale=true challenge parameter.
@@ -24,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/internal/retry"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 )
 
@@ -66,7 +66,7 @@ const (
 )
 
 type Client struct {
-	*retryablehttp.Client
+	*retry.Client
 
 	// Digest username and password
 	username string
@@ -107,8 +107,8 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 			}
 			if req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host {
 				// Hand the 3xx response to sendRequest instead of failing the
-				// request: an error here makes retryablehttp replay a request that
-				// may not be idempotent.
+				// request: an error here could cause the retry loop to replay a
+				// request that may not be idempotent.
 				return http.ErrUseLastResponse
 			}
 			return nil
@@ -128,18 +128,14 @@ func NewHTTPClient(options ...func(*Client) error) (*Client, error) {
 	return client, nil
 }
 
-func newDefaultHTTPClient() *retryablehttp.Client {
-	return &retryablehttp.Client{
+func newDefaultHTTPClient() *retry.Client {
+	return &retry.Client{
 		HTTPClient:   &http.Client{Transport: http.DefaultTransport, Timeout: defaultRequestTimeout},
+		RetryMax:     defaultRetryMax,
 		RetryWaitMin: defaultRetryWaitMin,
 		RetryWaitMax: defaultRetryWaitMax,
-		RetryMax:     defaultRetryMax,
-		// Will retry on all errors
-		CheckRetry: retryablehttp.DefaultRetryPolicy,
-		// Exponential backoff based on the attempt number and limited by the provided minimum and maximum durations.
-		// We don't need Jitter here as we're the only client to the OM, so there's no risk
-		// of overwhelming it in a peek.
-		Backoff: retryablehttp.DefaultBackoff,
+		CheckRetry:   retry.DefaultRetryPolicy,
+		Backoff:      retry.DefaultBackoff,
 	}
 }
 
@@ -240,16 +236,21 @@ func (client *Client) RequestWithAgentAuth(ctx context.Context, method, hostname
 	return client.sendRequest(method, url, path, req)
 }
 
-// createHTTPRequest builds a retryable request bound to ctx, with 'v' serialized to JSON as the body.
-func createHTTPRequest(ctx context.Context, method string, url string, v any) (*retryablehttp.Request, error) {
+// createHTTPRequest builds a request bound to ctx, with 'v' serialized to JSON as the body.
+func createHTTPRequest(ctx context.Context, method string, url string, v any) (*retry.Request, error) {
 	buffer, err := serializeToBuffer(v)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := retryablehttp.NewRequestWithContext(ctx, method, url, buffer)
+	req, err := retry.NewRequestWithContext(ctx, method, url, buffer)
 	if err != nil {
 		return nil, err
+	}
+	// Preserve http.NewRequestWithContext's nil-body representation for callers
+	// that inspect the request before it is sent.
+	if buffer == nil {
+		req.Body = nil
 	}
 
 	req.Header.Add("Content-Type", "application/json; charset=UTF-8")
@@ -258,42 +259,82 @@ func createHTTPRequest(ctx context.Context, method string, url string, v any) (*
 	return req, nil
 }
 
-func (client *Client) sendRequest(method, url, path string, req *retryablehttp.Request) ([]byte, http.Header, error) {
+func (client *Client) sendRequest(method, url, path string, req *retry.Request) ([]byte, http.Header, error) {
 	// we need to limit size of request/response dump, because automation config request can't have over 1MB size
 	const maxDumpSize = 10000 // 1 MB
-	client.RequestLogHook = func(logger retryablehttp.Logger, request *http.Request, i int) {
+
+	// retry.Send runs the same retry loop as Client.Do but returns the last
+	// response when the retries exhaust on an error status. Client.Do drains
+	// that response and returns a generic error instead, which would hide the
+	// status that the deletion cleanup classifies.
+	ctx := req.Context()
+	checkRetry := client.CheckRetry
+	if checkRetry == nil {
+		checkRetry = retry.DefaultRetryPolicy
+	}
+	backoff := client.Backoff
+	if backoff == nil {
+		backoff = retry.DefaultBackoff
+	}
+	minDelay, maxDelay := client.RetryWaitMin, client.RetryWaitMax
+	if maxDelay < minDelay {
+		maxDelay = minDelay
+	}
+
+	cfg := retry.Config{
+		MaxRetries: client.RetryMax,
+		Policy: retry.PolicyFunc(func(err error, resp *http.Response) bool {
+			shouldRetry, _ := checkRetry(ctx, resp, err)
+			return shouldRetry
+		}),
+		// Config.Backoff numbers retries from 1, DefaultBackoff from 0.
+		Backoff: func(attempt int, _, _ time.Duration, resp *http.Response) time.Duration {
+			return backoff(minDelay, maxDelay, attempt-1, resp)
+		},
+	}
+
+	httpClient := client.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	attempt := 0
+	resp, err := retry.Send(ctx, req.Request, cfg, func(request *http.Request) (*http.Response, error) {
 		if client.debug {
 			dumpRequest, _ := httputil.DumpRequest(request, true)
 			if len(dumpRequest) > maxDumpSize {
 				dumpRequest = dumpRequest[:maxDumpSize]
 			}
-			zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", i, method, path, dumpRequest)
+			zap.S().Debugf("Ops Manager request (%d): %s %s\n \n %s", attempt, method, path, dumpRequest)
 		} else {
 			zap.S().Debugf("Ops Manager request: %s %s", method, url)
 		}
-	}
+		attempt++
 
-	client.ResponseLogHook = func(logger retryablehttp.Logger, response *http.Response) {
-		if client.debug {
+		response, err := httpClient.Do(request)
+		if client.debug && response != nil {
 			dumpResponse, _ := httputil.DumpResponse(response, true)
 			if len(dumpResponse) > maxDumpSize {
 				dumpResponse = dumpResponse[:maxDumpSize]
 			}
 			zap.S().Debugf("Ops Manager response: %s %s\n \n %s", method, path, dumpResponse)
 		}
+		return response, err
+	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		// A response that arrives after the context is canceled is
+		// discarded, so the caller observes the cancellation.
+		if resp != nil && resp.Body != nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+			_ = resp.Body.Close()
+		}
+		return nil, nil, apierror.New(xerrors.Errorf("error sending %s request to %s: %w", method, url, ctxErr))
 	}
-
-	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, apierror.New(xerrors.Errorf("error sending %s request to %s: %w", method, url, err))
 	}
 
 	omClient.WithLabelValues(strconv.Itoa(resp.StatusCode), method, path).Inc()
-
-	// Clear the hooks, because otherwise they persist for the subsequent calls and log
-	// requests and responses that belong to other call sites.
-	client.RequestLogHook = nil
-	client.ResponseLogHook = nil
 
 	// It is required for the body to be read completely for the connection to be reused.
 	// https://stackoverflow.com/a/17953506/75928

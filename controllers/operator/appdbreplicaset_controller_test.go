@@ -34,7 +34,6 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status/pvc"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om/host"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/connectionstring"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
@@ -807,7 +806,7 @@ func TestEnsureAppDbAgentApiKey(t *testing.T) {
 	_, err = reconciler.ensureAppDbAgentApiKey(ctx, opsManager, omConnectionFactory.GetConnection(), omConnectionFactory.GetConnection().GroupID(), zap.S())
 	assert.NoError(t, err)
 
-	secretName := agents.ApiKeySecretName(omConnectionFactory.GetConnection().GroupID())
+	secretName := mdbv1.AgentAPIKeySecretName(omConnectionFactory.GetConnection().GroupID())
 	apiKey, err := secret.ReadKey(ctx, reconciler.client, util.OmAgentApiKey, kube.ObjectKey(opsManager.Namespace, secretName))
 	assert.NoError(t, err)
 	assert.Equal(t, "my-api-key", apiKey)
@@ -1123,7 +1122,7 @@ func TestReadExistingPodVars_ReturnsAgentAPIKey(t *testing.T) {
 	// 3. Create agent API key secret
 	agentKeySecret := secret.Builder().
 		SetNamespace(opsManager.Namespace).
-		SetName(agents.ApiKeySecretName(projectID)).
+		SetName(mdbv1.AgentAPIKeySecretName(projectID)).
 		SetStringMapToData(map[string]string{util.OmAgentApiKey: agentKey}).
 		Build()
 	err = reconciler.client.CreateSecret(ctx, agentKeySecret)

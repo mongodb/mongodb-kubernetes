@@ -202,8 +202,13 @@ spec:
                 - voyage-4-lite
                 - rerank-2.5
                 - rerank-2.5-lite
+                - rerank-3
+                - rerank-3-lite
+                - rerank-3-pubsec
                 - voyage-context-4
                 - voyage-code-3
+                - voyage-code-4
+                - voyage-multimodal-3.5
                 type: string
               nodeAffinity:
                 description: NodeAffinity configures node affinity scheduling rules
@@ -7269,6 +7274,12 @@ spec:
                       mongot mints an access token at the IdP token endpoint and authenticates to the source with it via
                       MONGODB-OIDC. Requires source TLS. Mutually exclusive with PasswordSecretRef, Username, and X509.
                     properties:
+                      audience:
+                        description: |-
+                          Audience is an optional OAuth2 audience requested at the token endpoint. IdPs that mint an
+                          access token with an aud claim only when the request asks for one (Auth0, Okta) require it.
+                        minLength: 1
+                        type: string
                       clientId:
                         description: ClientID is the OAuth2 client id mongot authenticates
                           as at the token endpoint.
@@ -7304,6 +7315,12 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
+                      resource:
+                        description: |-
+                          Resource is an optional RFC 8707 resource indicator, sent as the `resource` form parameter
+                          for IdPs that scope the token's aud claim to the target resource (Entra v1 style).
+                        minLength: 1
+                        type: string
                       scope:
                         description: Scope is an optional OAuth2 scope requested at
                           the token endpoint (e.g. "openid").

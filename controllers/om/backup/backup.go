@@ -100,10 +100,14 @@ func StopBackupIfEnabled(ctx context.Context, readUpdater ConfigHostReadUpdater,
 		if config.Status != Inactive {
 			cluster, err := hostClusterReader.ReadHostCluster(ctx, config.ClusterId)
 			if err != nil {
-				l.Errorf("Failed to read information about HostCluster: %s", err)
-			} else {
-				l.Debugw("Read cluster information", "details", cluster)
+				if apierror.NewNonNil(err).IsNotFound() {
+					// The host cluster is gone, so this config cannot match.
+					l.Debugf("Host cluster %s is gone; skipping its backup config", config.ClusterId)
+					continue
+				}
+				return xerrors.Errorf("failed to read host cluster %s: %w", config.ClusterId, err)
 			}
+			l.Debugw("Read cluster information", "details", cluster)
 			// We need to compare the returned backup type with the given type because for sharded_clusters we
 			// have 4 configs.
 			// Three replica_sets and one sharded_replica_set.

@@ -343,7 +343,8 @@ func TestExpectedSecretNamesForCluster_Table(t *testing.T) {
 				}
 				return s
 			},
-			wantKeys: []string{"search-sync-password", "x509-client"},
+			// An x509 search has no password secret to expect: it authenticates with the cert.
+			wantKeys: []string{"x509-client"},
 		},
 		{
 			name: "oidc auth",

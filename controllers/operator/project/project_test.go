@@ -1,13 +1,17 @@
 package project
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
 	"github.com/mongodb/mongodb-kubernetes/controllers/om"
+	"github.com/mongodb/mongodb-kubernetes/controllers/om/apierror"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 func testLogger() *zap.SugaredLogger {
@@ -94,4 +98,74 @@ func TestFindProjectInsideOrganization_MultipleMatches(t *testing.T) {
 	_, err := FindProjectInsideOrganization(ctx, conn, "dup-project", org, testLogger())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "found more than one project")
+}
+
+func TestReadProject_Found(t *testing.T) {
+	ctx := t.Context()
+	org := &om.Organization{ID: "org-123", Name: "my-org"}
+	proj := &om.Project{ID: "proj-123", Name: "my-project", OrgID: "org-123"}
+	conn := newMockConnection(map[*om.Organization][]*om.Project{org: {proj}})
+
+	var captured *om.OMContext
+	factory := func(omContext *om.OMContext) om.Connection {
+		captured = omContext
+		return conn
+	}
+
+	projectConfig := mdbv1.ProjectConfig{
+		ProjectName: "my-project",
+		OrgID:       "org-123",
+		SSLProjectConfig: env.SSLProjectConfig{
+			SSLRequireValidMMSServerCertificates: true,
+			SSLMMSCAConfigMapContents:            "ca-pem",
+		},
+	}
+	credentials := mdbv1.Credentials{PublicAPIKey: "public", PrivateAPIKey: "private"}
+
+	gotConn, err := ReadProject(ctx, projectConfig, credentials, factory, testLogger())
+	require.NoError(t, err)
+	require.NotNil(t, gotConn)
+	assert.Equal(t, "proj-123", gotConn.GroupID())
+	require.NotNil(t, captured)
+	assert.False(t, captured.AllowInvalidSSLCertificate)
+	assert.Equal(t, "ca-pem", captured.CACertificate)
+}
+
+func TestReadProject_NotFound(t *testing.T) {
+	ctx := t.Context()
+	conn := newMockConnection(map[*om.Organization][]*om.Project{})
+
+	projectConfig := mdbv1.ProjectConfig{ProjectName: "my-project"}
+	credentials := mdbv1.Credentials{PublicAPIKey: "public", PrivateAPIKey: "private"}
+	factory := func(*om.OMContext) om.Connection { return conn }
+
+	gotConn, err := ReadProject(ctx, projectConfig, credentials, factory, testLogger())
+	require.NoError(t, err)
+	assert.Nil(t, gotConn)
+}
+
+type readOrganizationErrorConnection struct {
+	*om.MockedOmConnection
+	err error
+}
+
+func (c *readOrganizationErrorConnection) ReadOrganization(_ context.Context, _ string) (*om.Organization, error) {
+	return nil, c.err
+}
+
+func TestReadProject_UnclassifiedNotFoundIsError(t *testing.T) {
+	ctx := t.Context()
+	status := 404
+	base := newMockConnection(map[*om.Organization][]*om.Project{})
+	conn := &readOrganizationErrorConnection{
+		MockedOmConnection: base,
+		err:                &apierror.Error{Status: &status, Detail: "proxy returned 404"},
+	}
+	factory := func(*om.OMContext) om.Connection { return conn }
+
+	projectConfig := mdbv1.ProjectConfig{ProjectName: "my-project", OrgID: "org-123"}
+	credentials := mdbv1.Credentials{PublicAPIKey: "public", PrivateAPIKey: "private"}
+
+	_, err := ReadProject(ctx, projectConfig, credentials, factory, testLogger())
+	require.Error(t, err, "an unclassified 404 must not look like an absent project")
 }

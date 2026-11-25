@@ -312,8 +312,8 @@ Checks that the operator created the expected resources:
 | ConfigMap | `{name}-search-lb-0-config` | Envoy bootstrap configuration |
 | Deployment | `{name}-search-lb-0` | Envoy proxy pods |
 | Service | `{name}-search-0-proxy-svc` | Proxy service for mongod traffic (port 27028) |
-| StatefulSet | `{name}-search` | mongot pods |
-| Service (headless) | `{name}-search-svc` | Stable DNS for mongot pods |
+| StatefulSet | `{name}-search-0` | mongot pods |
+| Service (headless) | `{name}-search-0-svc` | Stable DNS for mongot pods |
 
 ```bash
 ./code_snippets/11_0326_internal_verify_envoy_deployment.sh
@@ -355,7 +355,7 @@ Look at the resource phase, conditions, and events for issues like missing secre
 Connectivity errors between mongot and MongoDB (auth failures, TLS mismatches, unreachable hosts) are visible here:
 
 ```bash
-kubectl logs ${MDB_RESOURCE_NAME}-search-0 -n ${MDB_NS}
+kubectl logs -l app=${MDB_RESOURCE_NAME}-search-0-svc -n ${MDB_NS}
 ```
 
 ### Get Envoy Proxy Logs

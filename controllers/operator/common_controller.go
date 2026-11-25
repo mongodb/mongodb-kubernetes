@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -528,6 +529,46 @@ func (r *ReconcileCommonController) prepareResourceForReconciliation(ctx context
 	return reconcile.Result{}, nil
 }
 
+func (r *ReconcileCommonController) ensureFinalizer(ctx context.Context, obj client.Object, finalizer string, log *zap.SugaredLogger) error {
+	if controllerutil.ContainsFinalizer(obj, finalizer) {
+		return nil
+	}
+	// We use Patch to only add the finalizer. A full Update drops zero-valued
+	// fields such as members=0. The optimistic lock makes a concurrent
+	// metadata write fail the patch instead of replacing its finalizer list.
+	base := obj.DeepCopyObject().(client.Object)
+	patched := obj.DeepCopyObject().(client.Object)
+	controllerutil.AddFinalizer(patched, finalizer)
+	if err := r.client.Patch(ctx, patched, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return xerrors.Errorf("failed to add finalizer %s: %w", finalizer, err)
+	}
+	obj.SetFinalizers(patched.GetFinalizers())
+	obj.SetResourceVersion(patched.GetResourceVersion())
+	log.Infof("Added finalizer %s to %s", finalizer, obj.GetName())
+	return nil
+}
+
+// finalize runs cleanup and releases the finalizer only after cleanup succeeds.
+// Reconcile calls it, so the workqueue serializes it with other changes for the
+// same resource.
+func (r *ReconcileCommonController) finalize(ctx context.Context, obj client.Object, finalizer string, deleter Deleter, log *zap.SugaredLogger) (reconcile.Result, error) {
+	if !controllerutil.ContainsFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := deleter.OnDelete(ctx, obj, log); err != nil {
+		return reconcile.Result{}, err
+	}
+	base := obj.DeepCopyObject().(client.Object)
+	if !controllerutil.RemoveFinalizer(obj, finalizer) {
+		return reconcile.Result{}, nil
+	}
+	if err := r.client.Patch(ctx, obj, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return reconcile.Result{}, xerrors.Errorf("failed to remove finalizer %s: %w", finalizer, err)
+	}
+	log.Infof("Removed finalizer %s from %s", finalizer, obj.GetName())
+	return reconcile.Result{}, nil
+}
+
 // removeFulfilledPruneAnnotation removes the prune-previous-ca annotation once the operator has
 // applied it. The CA bundles are published before this runs, so a reconcile interrupted between the
 // two steps just finds nothing left to prune and removes the annotation next time.
@@ -969,20 +1010,6 @@ func validateMongoDBResource(ctx context.Context, mdb *mdbv1.MongoDB, conn om.Co
 		return status
 	}
 
-	return workflow.OK()
-}
-
-func ensureSupportedOpsManagerVersion(conn om.Connection) workflow.Status {
-	omVersionString := conn.OpsManagerVersion()
-	if !omVersionString.IsCloudManager() {
-		omVersion, err := omVersionString.Semver()
-		if err != nil {
-			return workflow.Failed(xerrors.Errorf("Failed when trying to parse Ops Manager version"))
-		}
-		if omVersion.LT(semver.MustParse(oldestSupportedOpsManagerVersion)) {
-			return workflow.Unsupported("This MongoDB ReplicaSet is managed by Ops Manager version %s, which is not supported by this version of the operator. Please upgrade it to a version >=%s", omVersion, oldestSupportedOpsManagerVersion)
-		}
-	}
 	return workflow.OK()
 }
 
@@ -1775,12 +1802,10 @@ func managedCABundlePodsRolled(ctx context.Context, getter kubernetesClient.Clie
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
+func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, opts construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	if isLegacyTLSAdoption(lastSpec, mdb.GetSecurity()) {
 		return false
 	}
-	opts := configFunc(mdb)
-
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {

@@ -3117,6 +3117,8 @@ func newOIDCMongoDBSearch(name, namespace string, modifications ...func(*searchv
 			ClientSecretRef:   userv1.SecretKeyRef{Name: "oidc-client-secret", Key: "clientSecret"},
 			IdPCAConfigMapRef: corev1.LocalObjectReference{Name: "oidc-idp-ca"},
 			Scope:             new("openid"),
+			Audience:          new("https://mongot-search"),
+			Resource:          new("https://resource.example.com"),
 		}
 	})...)
 }
@@ -3237,6 +3239,10 @@ func TestEnsureOIDCClientConfig_MongotAndStsModification(t *testing.T) {
 	assert.Equal(t, OIDCIdPCaMountPath+"/"+OIDCIdPCAConfigMapKey, config.SyncSource.ReplicaSet.OIDC.IDPCaFile)
 	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Scope)
 	assert.Equal(t, "openid", *config.SyncSource.ReplicaSet.OIDC.Scope)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Audience)
+	assert.Equal(t, "https://mongot-search", *config.SyncSource.ReplicaSet.OIDC.Audience)
+	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.Resource)
+	assert.Equal(t, "https://resource.example.com", *config.SyncSource.ReplicaSet.OIDC.Resource)
 	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.TLS)
 	require.NotNil(t, config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile)
 	assert.Equal(t, tls.CAMountPath+"ca-pem", *config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile)
@@ -3246,6 +3252,8 @@ func TestEnsureOIDCClientConfig_MongotAndStsModification(t *testing.T) {
 	assert.Nil(t, config.SyncSource.Router.ScramAuth)
 	require.NotNil(t, config.SyncSource.Router.OIDC)
 	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Scope, *config.SyncSource.Router.OIDC.Scope)
+	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Audience, *config.SyncSource.Router.OIDC.Audience)
+	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.Resource, *config.SyncSource.Router.OIDC.Resource)
 	assert.Equal(t, *config.SyncSource.ReplicaSet.OIDC.TLS.CertificateAuthorityFile, *config.SyncSource.Router.OIDC.TLS.CertificateAuthorityFile)
 
 	// Apply STS modification and verify volumes
@@ -3469,45 +3477,70 @@ func TestEnsureOIDCClientConfig_MissingResourceErrors(t *testing.T) {
 // TestEnsureMongotConfig_OIDCRenderedBlock pins the exact rendered oidc mongot
 // config block: camelCase keys, no username/password leak.
 func TestEnsureMongotConfig_OIDCRenderedBlock(t *testing.T) {
-	search := newOIDCMongoDBSearch("test-search", "test-ns")
+	// renderOIDCMongotConfig renders the mongot config for search and returns it read
+	// back from the ConfigMap, so each case asserts on the bytes mongot actually gets.
+	renderOIDCMongotConfig := func(t *testing.T, search *searchv1.MongoDBSearch) map[string]any {
+		t.Helper()
 
-	dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
+		dbSource := &mockShardedSource{tlsConfig: &TLSSourceConfig{CAFileName: "ca-pem"}}
 
-	clientSecret, idpCaConfigMap := oidcTestFixtures()
-	fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap)
-	helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
+		clientSecret, idpCaConfigMap := oidcTestFixtures()
+		fakeClient := newTestFakeClient(search, clientSecret, idpCaConfigMap)
+		helper := NewMongoDBSearchReconcileHelper(fakeClient, search, dbSource, newTestOperatorSearchConfig(), nil, "", nil)
 
-	oidcMod, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
-	require.NoError(t, err)
+		oidcMod, _, err := helper.ensureOIDCClientConfig(t.Context(), fakeClient, mongotOwnerLabels(search), search.GetOwnerReferences())
+		require.NoError(t, err)
 
-	// Mirror the applyReconcileUnit mod order: base config (username/password), then OIDC
-	// clearing it.
-	_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient,
-		search.MongotConfigConfigMapNamespacedName(),
-		search.StatefulSetNamespacedName().Name, "", search.GetOwnerReferences(), 1,
-		mongot.Apply(
-			baseMongotConfig(search, []string{"mongod-0.mongod-svc.test-ns.svc.cluster.local:27017"}),
-			oidcMod,
-		),
-	)
-	require.NoError(t, err)
+		// Mirror the applyReconcileUnit mod order: base config (username/password), then OIDC
+		// clearing it.
+		_, err = helper.ensureMongotConfig(t.Context(), zap.S(), fakeClient,
+			search.MongotConfigConfigMapNamespacedName(),
+			search.StatefulSetNamespacedName().Name, "", search.GetOwnerReferences(), 1,
+			mongot.Apply(
+				baseMongotConfig(search, []string{"mongod-0.mongod-svc.test-ns.svc.cluster.local:27017"}),
+				oidcMod,
+			),
+		)
+		require.NoError(t, err)
 
-	cm, err := fakeClient.GetConfigMap(t.Context(), search.MongotConfigConfigMapNamespacedName())
-	require.NoError(t, err)
+		cm, err := fakeClient.GetConfigMap(t.Context(), search.MongotConfigConfigMapNamespacedName())
+		require.NoError(t, err)
 
-	rendered := map[string]any{}
-	require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFilename]), &rendered))
+		rendered := map[string]any{}
+		require.NoError(t, yaml.Unmarshal([]byte(cm.Data[MongotConfigFilename]), &rendered))
+		return rendered
+	}
 
-	assert.Equal(t, mongot.ConfigOIDCEnvironmentCustom, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "environment"))
-	assert.Equal(t, "https://idp.example.com/token", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tokenEndpoint"))
-	assert.Equal(t, "mongot-client", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientId"))
-	assert.Equal(t, TempOIDCClientSecretPath, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientSecretFile"))
-	assert.Equal(t, OIDCIdPCaMountPath+"/"+OIDCIdPCAConfigMapKey, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "idpCaFile"))
-	assert.Equal(t, "openid", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "scope"))
-	assert.Equal(t, tls.CAMountPath+"ca-pem", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tls", "caFile"))
-	assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "oidc", "tls", "tlsCertificateKeyFile"))
-	assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "scramAuth"),
-		"oidc must replace the scramAuth block, not leak the username/password")
+	t.Run("all optional fields set", func(t *testing.T) {
+		rendered := renderOIDCMongotConfig(t, newOIDCMongoDBSearch("test-search", "test-ns"))
+
+		assert.Equal(t, mongot.ConfigOIDCEnvironmentCustom, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "environment"))
+		assert.Equal(t, "https://idp.example.com/token", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tokenEndpoint"))
+		assert.Equal(t, "mongot-client", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientId"))
+		assert.Equal(t, TempOIDCClientSecretPath, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "clientSecretFile"))
+		assert.Equal(t, OIDCIdPCaMountPath+"/"+OIDCIdPCAConfigMapKey, maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "idpCaFile"))
+		assert.Equal(t, "openid", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "scope"))
+		assert.Equal(t, "https://mongot-search", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "audience"))
+		assert.Equal(t, "https://resource.example.com", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "resource"))
+		assert.Equal(t, tls.CAMountPath+"ca-pem", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "tls", "caFile"))
+		assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "oidc", "tls", "tlsCertificateKeyFile"))
+		assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "scramAuth"),
+			"oidc must replace the scramAuth block, not leak the username/password")
+	})
+
+	t.Run("optional fields unset", func(t *testing.T) {
+		// mongot rejects unknown oidc fields, so an unset audience/resource must be absent
+		// from the rendered block rather than rendered empty.
+		search := newOIDCMongoDBSearch("test-search", "test-ns")
+		search.Spec.Source.OIDC.Audience = nil
+		search.Spec.Source.OIDC.Resource = nil
+
+		rendered := renderOIDCMongotConfig(t, search)
+
+		assert.Equal(t, "openid", maputil.ReadMapValueAsString(rendered, "syncSource", "replicaSet", "oidc", "scope"))
+		assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "oidc", "audience"))
+		assert.Nil(t, maputil.ReadMapValueAsInterface(rendered, "syncSource", "replicaSet", "oidc", "resource"))
+	})
 }
 
 // TestReferencedResourceContentHash covers the config-hash fold for every user-referenced
@@ -3645,31 +3678,25 @@ func TestValidateOIDCSource(t *testing.T) {
 
 	t.Run("no-op when not OIDC", func(t *testing.T) {
 		search := newTestMongoDBSearch("test-search", "test-ns")
-		helper := NewMongoDBSearchReconcileHelper(nil, search,
-			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(nil, "SCRAM")),
-			newTestOperatorSearchConfig(), nil, "", nil)
+		source := NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(nil, "SCRAM"))
 
-		assert.NoError(t, helper.validateOIDCSource())
+		assert.NoError(t, validateOIDCSource(search, source))
 	})
 
 	t.Run("community source rejected", func(t *testing.T) {
 		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper := NewMongoDBSearchReconcileHelper(nil, search,
-			NewCommunityResourceSearchSource(newTestMongoDBCommunity("test-mongodb", "test-ns")),
-			newTestOperatorSearchConfig(), nil, "", nil)
+		source := NewCommunityResourceSearchSource(newTestMongoDBCommunity("test-mongodb", "test-ns"))
 
-		err := helper.validateOIDCSource()
+		err := validateOIDCSource(search, source)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "community MongoDB does not support MONGODB-OIDC")
 	})
 
 	t.Run("enterprise source without OIDC rejected", func(t *testing.T) {
 		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper := NewMongoDBSearchReconcileHelper(nil, search,
-			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"))),
-			newTestOperatorSearchConfig(), nil, "", nil)
+		source := NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM")))
 
-		err := helper.validateOIDCSource()
+		err := validateOIDCSource(search, source)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "requires OIDC to be enabled on the source MongoDB")
 	})
@@ -3678,11 +3705,9 @@ func TestValidateOIDCSource(t *testing.T) {
 		// IsOIDCEnabled() only checks the enabled flag + modes; without an oidcProviderConfigs
 		// entry mongod cannot validate any token.
 		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper := NewMongoDBSearchReconcileHelper(nil, search,
-			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(nil, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC"))),
-			newTestOperatorSearchConfig(), nil, "", nil)
+		source := NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(nil, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC")))
 
-		err := helper.validateOIDCSource()
+		err := validateOIDCSource(search, source)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "requires OIDC to be enabled on the source MongoDB")
 		assert.Contains(t, err.Error(), "non-empty oidcProviderConfigs")
@@ -3690,44 +3715,36 @@ func TestValidateOIDCSource(t *testing.T) {
 
 	t.Run("enterprise source with OIDC enabled passes", func(t *testing.T) {
 		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper := NewMongoDBSearchReconcileHelper(nil, search,
-			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC"))),
-			newTestOperatorSearchConfig(), nil, "", nil)
+		source := NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC")))
 
-		assert.NoError(t, helper.validateOIDCSource())
+		assert.NoError(t, validateOIDCSource(search, source))
 	})
 
 	t.Run("enterprise source without TLS rejected", func(t *testing.T) {
 		search := newOIDCMongoDBSearch("test-search", "test-ns")
 		noTLSSource := newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC"))
 		noTLSSource.Spec.Security.TLSConfig = nil
-		helper := NewMongoDBSearchReconcileHelper(nil, search,
-			NewEnterpriseResourceSearchSource(noTLSSource),
-			newTestOperatorSearchConfig(), nil, "", nil)
+		source := NewEnterpriseResourceSearchSource(noTLSSource)
 
-		err := helper.validateOIDCSource()
+		err := validateOIDCSource(search, source)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "requires TLS to be enabled on the source MongoDB")
 	})
 
 	t.Run("sharded internal source without OIDC rejected", func(t *testing.T) {
 		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper := NewMongoDBSearchReconcileHelper(nil, search,
-			NewShardedInternalSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM")), search),
-			newTestOperatorSearchConfig(), nil, "", nil)
+		source := NewShardedInternalSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM")), search)
 
-		err := helper.validateOIDCSource()
+		err := validateOIDCSource(search, source)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "requires OIDC to be enabled on the source MongoDB")
 	})
 
 	t.Run("sharded internal source with OIDC modes but no providers rejected", func(t *testing.T) {
 		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper := NewMongoDBSearchReconcileHelper(nil, search,
-			NewShardedInternalSearchSource(newEnterpriseMongoDB(nil, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC")), search),
-			newTestOperatorSearchConfig(), nil, "", nil)
+		source := NewShardedInternalSearchSource(newEnterpriseMongoDB(nil, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC")), search)
 
-		err := helper.validateOIDCSource()
+		err := validateOIDCSource(search, source)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "requires OIDC to be enabled on the source MongoDB")
 		assert.Contains(t, err.Error(), "non-empty oidcProviderConfigs")
@@ -3735,11 +3752,9 @@ func TestValidateOIDCSource(t *testing.T) {
 
 	t.Run("sharded internal source with OIDC enabled passes", func(t *testing.T) {
 		search := newOIDCMongoDBSearch("test-search", "test-ns")
-		helper := NewMongoDBSearchReconcileHelper(nil, search,
-			NewShardedInternalSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC")), search),
-			newTestOperatorSearchConfig(), nil, "", nil)
+		source := NewShardedInternalSearchSource(newEnterpriseMongoDB(providerConfigs, mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("OIDC")), search)
 
-		assert.NoError(t, helper.validateOIDCSource())
+		assert.NoError(t, validateOIDCSource(search, source))
 	})
 }
 
@@ -3772,8 +3787,120 @@ func TestValidateSCRAMAuthSource(t *testing.T) {
 			},
 		}
 	}
-	newHelper := func(search *searchv1.MongoDBSearch, db SearchSourceDBResource) *MongoDBSearchReconcileHelper {
-		return NewMongoDBSearchReconcileHelper(nil, search, db, newTestOperatorSearchConfig(), nil, "", nil)
+	newX509Search := func() *searchv1.MongoDBSearch {
+		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.X509 = &searchv1.X509Auth{
+				ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"},
+			}
+		})
+	}
+	// newEnterpriseMongoDBAuthDisabled is newEnterpriseMongoDB with authentication turned off:
+	// the modes stay in the spec, but the enterprise controller configures none of them.
+	newEnterpriseMongoDBAuthDisabled := func(authModes ...mdbv1.AuthMode) *mdbv1.MongoDB {
+		mdb := newEnterpriseMongoDB(authModes...)
+		mdb.Spec.Security.Authentication.Enabled = false
+		return mdb
+	}
+
+	t.Run("no-op when the search uses x509 auth", func(t *testing.T) {
+		assert.NoError(t, validateSCRAMAuthSource(newX509Search(),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("X509")))))
+	})
+
+	t.Run("no-op when the search uses OIDC auth", func(t *testing.T) {
+		assert.NoError(t, validateSCRAMAuthSource(newOIDCMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("OIDC")))))
+	})
+
+	t.Run("no-op when the search uses x509 auth with a community source", func(t *testing.T) {
+		assert.NoError(t, validateSCRAMAuthSource(newX509Search(),
+			newCommunitySearchSource(mdbcv1.AuthMode("X509"))))
+	})
+
+	t.Run("SCRAM-auth search with an enterprise source without SCRAM modes rejected", func(t *testing.T) {
+		err := validateSCRAMAuthSource(newTestMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("X509"))))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
+	})
+
+	t.Run("SCRAM-auth search with an enterprise source with SCRAM modes passes", func(t *testing.T) {
+		assert.NoError(t, validateSCRAMAuthSource(newTestMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("X509")))))
+	})
+
+	t.Run("SCRAM-auth search with an enterprise source with authentication disabled rejected", func(t *testing.T) {
+		err := validateSCRAMAuthSource(newTestMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDBAuthDisabled(mdbv1.AuthMode("SCRAM-SHA-256"))))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
+	})
+
+	t.Run("SCRAM-auth search with an enterprise source with authentication disabled and no modes rejected", func(t *testing.T) {
+		err := validateSCRAMAuthSource(newTestMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDBAuthDisabled()))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
+	})
+
+	t.Run("SCRAM-auth search with a sharded internal source without SCRAM modes rejected", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns")
+		err := validateSCRAMAuthSource(search,
+			NewShardedInternalSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("OIDC")), search))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
+	})
+
+	t.Run("SCRAM-auth search with a sharded internal source with SCRAM modes passes", func(t *testing.T) {
+		search := newTestMongoDBSearch("test-search", "test-ns")
+		assert.NoError(t, validateSCRAMAuthSource(search,
+			NewShardedInternalSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("SCRAM-SHA-256")), search)))
+	})
+
+	t.Run("SCRAM-auth search with a community source without SCRAM modes rejected", func(t *testing.T) {
+		err := validateSCRAMAuthSource(newTestMongoDBSearch("test-search", "test-ns"),
+			newCommunitySearchSource(mdbcv1.AuthMode("X509")))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
+	})
+
+	t.Run("SCRAM-auth search with a community source with SCRAM modes passes", func(t *testing.T) {
+		assert.NoError(t, validateSCRAMAuthSource(newTestMongoDBSearch("test-search", "test-ns"),
+			newCommunitySearchSource(mdbcv1.AuthMode("SCRAM-SHA-256"))))
+	})
+
+	t.Run("SCRAM-auth search with an empty-modes source passes", func(t *testing.T) {
+		// Mirrors the adapters' former len(modes) > 0 guard: an enabled source with no
+		// configured modes is not this validator's concern.
+		assert.NoError(t, validateSCRAMAuthSource(newTestMongoDBSearch("test-search", "test-ns"),
+			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB())))
+	})
+
+	t.Run("SCRAM-auth search with an external source is not checked", func(t *testing.T) {
+		// External sources were never checked by the adapters — unverifiable from the operator.
+		external := NewExternalSearchSource("test-ns", &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mdb.example.com:27017"}})
+		assert.NoError(t, validateSCRAMAuthSource(newTestMongoDBSearch("test-search", "test-ns"), external))
+	})
+}
+
+// TestValidateX509AuthSource covers the x509 source-auth gate. A disabled enterprise source
+// is the case where modes alone are not enough: the modes stay in the spec, but the enterprise
+// controller configures no mechanism, so the search cannot authenticate at runtime.
+func TestValidateX509AuthSource(t *testing.T) {
+	newEnterpriseSource := func(enabled bool, authModes ...mdbv1.AuthMode) SearchSourceDBResource {
+		return NewEnterpriseResourceSearchSource(&mdbv1.MongoDB{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-mongodb", Namespace: "test-ns"},
+			Spec: mdbv1.MongoDbSpec{
+				DbCommonSpec: mdbv1.DbCommonSpec{
+					Security: &mdbv1.Security{
+						Authentication: &mdbv1.Authentication{
+							Enabled: enabled,
+							Modes:   authModes,
+						},
+					},
+				},
+			},
+		})
 	}
 	newX509Search := func() *searchv1.MongoDBSearch {
 		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
@@ -3783,71 +3910,42 @@ func TestValidateSCRAMAuthSource(t *testing.T) {
 		})
 	}
 
-	t.Run("no-op when the search uses x509 auth", func(t *testing.T) {
-		assert.NoError(t, newHelper(newX509Search(),
-			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("X509")))).validateSCRAMAuthSource())
-	})
+	tests := []struct {
+		name        string
+		search      *searchv1.MongoDBSearch
+		source      SearchSourceDBResource
+		expectedErr string
+	}{
+		{
+			name:   "x509 search with authentication enabled",
+			search: newX509Search(),
+			source: newEnterpriseSource(true, mdbv1.AuthMode("X509")),
+		},
+		{
+			name:        "x509 search with authentication disabled",
+			search:      newX509Search(),
+			source:      newEnterpriseSource(false, mdbv1.AuthMode("X509")),
+			expectedErr: x509AuthRequiredMsg,
+		},
+		{
+			name:        "x509 search with authentication disabled and no modes",
+			search:      newX509Search(),
+			source:      newEnterpriseSource(false),
+			expectedErr: x509AuthRequiredMsg,
+		},
+	}
 
-	t.Run("no-op when the search uses OIDC auth", func(t *testing.T) {
-		assert.NoError(t, newHelper(newOIDCMongoDBSearch("test-search", "test-ns"),
-			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("OIDC")))).validateSCRAMAuthSource())
-	})
-
-	t.Run("no-op when the search uses x509 auth with a community source", func(t *testing.T) {
-		assert.NoError(t, newHelper(newX509Search(),
-			newCommunitySearchSource(mdbcv1.AuthMode("X509"))).validateSCRAMAuthSource())
-	})
-
-	t.Run("SCRAM-auth search with an enterprise source without SCRAM modes rejected", func(t *testing.T) {
-		err := newHelper(newTestMongoDBSearch("test-search", "test-ns"),
-			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("X509")))).validateSCRAMAuthSource()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
-	})
-
-	t.Run("SCRAM-auth search with an enterprise source with SCRAM modes passes", func(t *testing.T) {
-		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"),
-			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("SCRAM"), mdbv1.AuthMode("X509")))).validateSCRAMAuthSource())
-	})
-
-	t.Run("SCRAM-auth search with a sharded internal source without SCRAM modes rejected", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns")
-		err := newHelper(search,
-			NewShardedInternalSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("OIDC")), search)).validateSCRAMAuthSource()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
-	})
-
-	t.Run("SCRAM-auth search with a sharded internal source with SCRAM modes passes", func(t *testing.T) {
-		search := newTestMongoDBSearch("test-search", "test-ns")
-		assert.NoError(t, newHelper(search,
-			NewShardedInternalSearchSource(newEnterpriseMongoDB(mdbv1.AuthMode("SCRAM-SHA-256")), search)).validateSCRAMAuthSource())
-	})
-
-	t.Run("SCRAM-auth search with a community source without SCRAM modes rejected", func(t *testing.T) {
-		err := newHelper(newTestMongoDBSearch("test-search", "test-ns"),
-			newCommunitySearchSource(mdbcv1.AuthMode("X509"))).validateSCRAMAuthSource()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "MongoDBSearch requires SCRAM authentication to be enabled")
-	})
-
-	t.Run("SCRAM-auth search with a community source with SCRAM modes passes", func(t *testing.T) {
-		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"),
-			newCommunitySearchSource(mdbcv1.AuthMode("SCRAM-SHA-256"))).validateSCRAMAuthSource())
-	})
-
-	t.Run("SCRAM-auth search with an empty-modes source passes", func(t *testing.T) {
-		// Mirrors the adapters' former len(modes) > 0 guard: auth not enabled on the
-		// source is not this validator's concern.
-		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"),
-			NewEnterpriseResourceSearchSource(newEnterpriseMongoDB())).validateSCRAMAuthSource())
-	})
-
-	t.Run("SCRAM-auth search with an external source is not checked", func(t *testing.T) {
-		// External sources were never checked by the adapters — unverifiable from the operator.
-		external := NewExternalSearchSource("test-ns", &searchv1.ExternalMongoDBSource{HostAndPorts: []string{"mdb.example.com:27017"}})
-		assert.NoError(t, newHelper(newTestMongoDBSearch("test-search", "test-ns"), external).validateSCRAMAuthSource())
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateX509AuthSource(tc.search, tc.source)
+			if tc.expectedErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.expectedErr)
+		})
+	}
 }
 
 // newBaseMongotStatefulSet creates a minimal StatefulSet with a mongot container for testing modifications.
@@ -4117,6 +4215,57 @@ func TestReconcile_RemovingLegacyClientCertificateSecretsUpdatesStatefulSet(t *t
 			assert.Contains(t, configMap.Data[MongotConfigFilename], TempSourceUserPasswordPath)
 			assert.NotContains(t, configMap.Data[MongotConfigFilename], X509ClientCertOperatorMountPath)
 			assert.NotContains(t, configMap.Data[MongotConfigFilename], ScramClientCertOperatorMountPath)
+		})
+	}
+}
+
+// The password is subPath-mounted, so only a pod restart applies a rotation.
+// Covers the explicit ref, the default <name>-<user>-password secret, and an omitted key.
+func TestReconcile_RotatingSCRAMSourcePasswordRollsStatefulSet(t *testing.T) {
+	tests := []struct {
+		name       string
+		ref        *userv1.SecretKeyRef
+		secretName string
+	}{
+		{name: "explicit ref", ref: &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}, secretName: "source-user-password"},
+		{name: "default-named secret", ref: nil, secretName: "test-search-search-user-password"},
+		{name: "empty key defaults to password", ref: &userv1.SecretKeyRef{Name: "source-user-password"}, secretName: "source-user-password"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			search := newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+				s.UID = "search-uid"
+				s.Spec.Source.Username = new("search-user")
+				s.Spec.Source.PasswordSecretRef = tc.ref
+			})
+			mdbc := newTestMongoDBCommunity("test-mongodb", search.Namespace)
+			passwordSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: tc.secretName, Namespace: search.Namespace},
+				Data:       map[string][]byte{"password": []byte("source-password")},
+			}
+			fakeClient := newTestFakeClient(search, mdbc, passwordSecret)
+
+			reconcileMongoDBSearch(ctx, fakeClient, search, mdbc, newTestOperatorSearchConfig())
+
+			stsName := search.StatefulSetNamespacedNameForCluster(0)
+			sts, err := fakeClient.GetStatefulSet(ctx, stsName)
+			require.NoError(t, err)
+			initialHash := sts.Spec.Template.Annotations["mongotConfigHash"]
+			require.NotEmpty(t, initialHash, "mongot config hash annotation must be set")
+
+			current := &corev1.Secret{}
+			require.NoError(t, fakeClient.Get(ctx, client.ObjectKeyFromObject(passwordSecret), current))
+			current.Data["password"] = []byte("rotated-password")
+			require.NoError(t, fakeClient.Update(ctx, current))
+
+			reconcileMongoDBSearch(ctx, fakeClient, search, mdbc, newTestOperatorSearchConfig())
+
+			sts, err = fakeClient.GetStatefulSet(ctx, stsName)
+			require.NoError(t, err)
+			assert.NotEqual(t, initialHash, sts.Spec.Template.Annotations["mongotConfigHash"],
+				"rotating the sync-source password must change the config hash so the mongot pods roll")
 		})
 	}
 }
@@ -6250,4 +6399,104 @@ func TestReconcileRSMC_FailingClusterDoesNotBlockOthers(t *testing.T) {
 	// cluster-b's unit was still applied despite cluster-a failing first.
 	require.NoError(t, clusterB.Get(t.Context(),
 		types.NamespacedName{Name: "mdb-search-search-1", Namespace: "ns"}, &appsv1.StatefulSet{}))
+}
+
+// ValidateSearchSourceAuth pairs the search's auth mode with the source's: a SCRAM search
+// needs a SCRAM mode on the source, an x509 search needs the X509 mode, and external sources
+// are unverifiable from the operator.
+func TestValidateSearchSourceAuth(t *testing.T) {
+	enterpriseSource := func(modes ...mdbv1.AuthMode) SearchSourceDBResource {
+		return NewEnterpriseResourceSearchSource(&mdbv1.MongoDB{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-mongodb", Namespace: "test-ns"},
+			Spec: mdbv1.MongoDbSpec{
+				DbCommonSpec: mdbv1.DbCommonSpec{
+					Security: &mdbv1.Security{
+						Authentication: &mdbv1.Authentication{Enabled: true, Modes: modes},
+					},
+				},
+			},
+		})
+	}
+	communitySource := func(modes ...mdbcv1.AuthMode) SearchSourceDBResource {
+		return NewCommunityResourceSearchSource(&mdbcv1.MongoDBCommunity{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-mongodb", Namespace: "test-ns"},
+			Spec: mdbcv1.MongoDBCommunitySpec{
+				Security: mdbcv1.Security{
+					Authentication: mdbcv1.Authentication{Modes: modes},
+				},
+			},
+		})
+	}
+	scramSearch := func() *searchv1.MongoDBSearch {
+		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.Username = new("search-user")
+			s.Spec.Source.PasswordSecretRef = &userv1.SecretKeyRef{Name: "source-user-password", Key: "password"}
+		})
+	}
+	x509Search := func() *searchv1.MongoDBSearch {
+		return newTestMongoDBSearch("test-search", "test-ns", func(s *searchv1.MongoDBSearch) {
+			s.Spec.Source.X509 = &searchv1.X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}}
+		})
+	}
+
+	tests := []struct {
+		name            string
+		search          func() *searchv1.MongoDBSearch
+		source          func() SearchSourceDBResource
+		errorContains   string
+		errorNotContain string
+	}{
+		{
+			name:          "SCRAM search with x509-only source",
+			search:        scramSearch,
+			source:        func() SearchSourceDBResource { return enterpriseSource("X509") },
+			errorContains: "MongoDBSearch requires SCRAM authentication to be enabled",
+		},
+		{
+			name:   "x509 search with x509-only source",
+			search: x509Search,
+			source: func() SearchSourceDBResource { return enterpriseSource("X509") },
+		},
+		{
+			name:          "x509 search with SCRAM-only source",
+			search:        x509Search,
+			source:        func() SearchSourceDBResource { return enterpriseSource("SCRAM-SHA-256") },
+			errorContains: "x509 search authentication requires an X509 auth mode",
+		},
+		{
+			name:          "x509 search with modeless source",
+			search:        x509Search,
+			source:        func() SearchSourceDBResource { return enterpriseSource() },
+			errorContains: "x509 search authentication requires an X509 auth mode",
+		},
+		{
+			name:          "x509 search with SCRAM-only community source",
+			search:        x509Search,
+			source:        func() SearchSourceDBResource { return communitySource("SCRAM-SHA-256") },
+			errorContains: "x509 search authentication requires an X509 auth mode",
+		},
+		{
+			// The SCRAM leg is exempt for OIDC, so only the OIDC leg may fail.
+			name:            "OIDC search with SCRAM-only source",
+			search:          func() *searchv1.MongoDBSearch { return newOIDCMongoDBSearch("test-search", "test-ns") },
+			source:          func() SearchSourceDBResource { return enterpriseSource("SCRAM-SHA-256") },
+			errorContains:   "OIDC sync-source authentication requires TLS to be enabled on the source MongoDB",
+			errorNotContain: "requires SCRAM authentication",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateSearchSourceAuth(tc.search(), tc.source())
+			if tc.errorContains == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.errorContains)
+			if tc.errorNotContain != "" {
+				assert.NotContains(t, err.Error(), tc.errorNotContain)
+			}
+		})
+	}
 }
