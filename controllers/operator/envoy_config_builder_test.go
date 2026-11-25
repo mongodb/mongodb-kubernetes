@@ -130,7 +130,7 @@ func TestBuildCDSJSON_SingleShard_NoTLS(t *testing.T) {
 	assert.Nil(t, thresholds.MaxRetries, "Envoy ignores max_retries when a retry budget is set")
 	require.NotNil(t, thresholds.RetryBudget)
 	assert.Equal(t, float64(20), thresholds.RetryBudget.BudgetPercent.GetValue())
-	assert.Equal(t, uint32(1024), thresholds.RetryBudget.MinRetryConcurrency.GetValue())
+	assert.Equal(t, uint32(256), thresholds.RetryBudget.MinRetryConcurrency.GetValue(), "25% of maxRequests")
 
 	// TCP keepalive
 	require.NotNil(t, cluster.UpstreamConnectionOptions)
@@ -396,7 +396,15 @@ func TestBuildCircuitBreakerThresholds_Overrides(t *testing.T) {
 	}{
 		"only retry budget percent": {
 			cb:          &searchv1.EnvoyCircuitBreaker{RetryBudget: &searchv1.EnvoyRetryBudget{BudgetPercent: ptr.To(uint32(0))}},
-			connections: 1024, pending: 1024, requests: 1024, budgetPercent: 0, minRetryConcy: 1024,
+			connections: 1024, pending: 1024, requests: 1024, budgetPercent: 0, minRetryConcy: 256,
+		},
+		"retry floor follows maxRequests": {
+			cb:          &searchv1.EnvoyCircuitBreaker{MaxRequests: ptr.To(uint32(30))},
+			connections: 1024, pending: 1024, requests: 30, budgetPercent: 20, minRetryConcy: 7,
+		},
+		"retry floor is at least 1": {
+			cb:          &searchv1.EnvoyCircuitBreaker{MaxRequests: ptr.To(uint32(1))},
+			connections: 1024, pending: 1024, requests: 1, budgetPercent: 20, minRetryConcy: 1,
 		},
 		"all limits": {
 			cb: &searchv1.EnvoyCircuitBreaker{

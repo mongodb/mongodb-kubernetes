@@ -177,7 +177,7 @@ spec:
                                     minRetryConcurrency:
                                       description: |-
                                         MinRetryConcurrency is the number of concurrent retries always allowed, whatever the percentage gives.
-                                        Defaults to 1024.
+                                        Defaults to 25% of maxRequests (at least 1).
                                       format: int32
                                       minimum: 1
                                       type: integer

@@ -49,9 +49,9 @@ const (
 	defaultEnvoyClusterMaxPendingRequests = uint32(1024)
 	defaultEnvoyClusterMaxRequests        = uint32(1024)
 	defaultEnvoyRetryBudgetPercent        = uint32(20)
-	// A high floor keeps retries flowing when most requests wait in retry backoff, where they do not count
-	// as active requests and the percentage alone would fall back towards Envoy's default floor of 3.
-	defaultEnvoyMinRetryConcurrency = uint32(1024)
+	// The default retry floor is this share of maxRequests. Requests waiting in retry backoff do not count
+	// as active, so under heavy load shedding the budget percentage alone falls towards the floor.
+	defaultEnvoyMinRetryConcurrencyDivisor = uint32(4)
 )
 
 // buildBootstrapJSON returns the static Envoy bootstrap config JSON.
@@ -391,14 +391,15 @@ func buildCircuitBreakerThresholds(cb *searchv1.EnvoyCircuitBreaker) *clusterv3.
 	if budget == nil {
 		budget = &searchv1.EnvoyRetryBudget{}
 	}
+	maxRequests := ptr.Deref(cb.MaxRequests, defaultEnvoyClusterMaxRequests)
 	return &clusterv3.CircuitBreakers_Thresholds{
 		Priority:           corev3.RoutingPriority_DEFAULT,
 		MaxConnections:     wrapperspb.UInt32(ptr.Deref(cb.MaxConnections, defaultEnvoyClusterMaxConnections)),
 		MaxPendingRequests: wrapperspb.UInt32(ptr.Deref(cb.MaxPendingRequests, defaultEnvoyClusterMaxPendingRequests)),
-		MaxRequests:        wrapperspb.UInt32(ptr.Deref(cb.MaxRequests, defaultEnvoyClusterMaxRequests)),
+		MaxRequests:        wrapperspb.UInt32(maxRequests),
 		RetryBudget: &clusterv3.CircuitBreakers_Thresholds_RetryBudget{
 			BudgetPercent:       &typev3.Percent{Value: float64(ptr.Deref(budget.BudgetPercent, defaultEnvoyRetryBudgetPercent))},
-			MinRetryConcurrency: wrapperspb.UInt32(ptr.Deref(budget.MinRetryConcurrency, defaultEnvoyMinRetryConcurrency)),
+			MinRetryConcurrency: wrapperspb.UInt32(ptr.Deref(budget.MinRetryConcurrency, max(maxRequests/defaultEnvoyMinRetryConcurrencyDivisor, 1))),
 		},
 	}
 }

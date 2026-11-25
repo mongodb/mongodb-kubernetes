@@ -443,7 +443,7 @@ type EnvoyRetryBudget struct {
 	// +kubebuilder:validation:Maximum=100
 	BudgetPercent *uint32 `json:"budgetPercent,omitempty"`
 	// MinRetryConcurrency is the number of concurrent retries always allowed, whatever the percentage gives.
-	// Defaults to 1024.
+	// Defaults to 25% of maxRequests (at least 1).
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MinRetryConcurrency *uint32 `json:"minRetryConcurrency,omitempty"`
