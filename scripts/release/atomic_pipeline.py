@@ -339,13 +339,6 @@ def build_agent(build_configuration: ImageBuildConfiguration):
     else:
         raise ValueError("No agent selection provided - this should be caught by pipeline.py validation")
 
-    if build_configuration.custom_agent_url:
-        tools_version = build_configuration.agent_tools_version or extract_tools_version_from_release(
-            load_release_file()
-        )
-        agent_versions_to_build = [(agent_version_from_custom_url(build_configuration.custom_agent_url), tools_version)]
-        logger.info(f"building only the custom Agent from {build_configuration.custom_agent_url}")
-
     if build_configuration.custom_agent_tarball:
         tools_version = build_configuration.agent_tools_version or extract_tools_version_from_release(
             load_release_file()
@@ -354,6 +347,12 @@ def build_agent(build_configuration: ImageBuildConfiguration):
             (agent_version_from_custom_url(build_configuration.custom_agent_tarball), tools_version)
         ]
         logger.info(f"building only the custom Agent from {build_configuration.custom_agent_tarball}")
+    elif build_configuration.custom_agent_url:
+        tools_version = build_configuration.agent_tools_version or extract_tools_version_from_release(
+            load_release_file()
+        )
+        agent_versions_to_build = [(agent_version_from_custom_url(build_configuration.custom_agent_url), tools_version)]
+        logger.info(f"building only the custom Agent from {build_configuration.custom_agent_url}")
 
     if not agent_versions_to_build:
         logger.warning("No agent versions found to build")

@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from functools import partial
@@ -193,23 +194,47 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         architecture_suffix=architecture_suffix,
         agent_tools_version=agent_tools_version,
         custom_agent_url=args.custom_agent_url,
-        custom_agent_tarball=args.custom_agent_tarball,
         om_download_url=args.om_download_url,
     )
 
 
 # Local Agent builds (--local). The tarball comes from an mms-automation checkout and the image tag from its pull request.
 
-LOCAL_AGENT_TARGEN_IMAGE = "mck-local-agent-targen:latest"
 LOCAL_AGENT_TARGEN_BASE_IMAGE = "registry.access.redhat.com/ubi8/ubi:latest"
 LOCAL_AGENT_PLATFORM = "linux/amd64"
+LOCAL_AGENT_TARBALL_GLOB = "mongodb-mms-automation-agent-*.tar.gz"
+# Appended to the checkout's Dockerfile so BuildKit exports only the agent tarball.
+LOCAL_AGENT_EXPORT_STAGE = f"""
+FROM scratch
+COPY --from=0 /src/build/build/{LOCAL_AGENT_TARBALL_GLOB} /
+"""
+
+
+def default_agent_source() -> Path:
+    """Return the mms-automation checkout beside the worktree or the main repository."""
+    worktree_root = Path(__file__).resolve().parents[2]
+    candidates = [worktree_root.parent / "mms-automation"]
+    if not (candidates[0] / "docker" / "Dockerfile.targen").is_file():
+        common_dir = subprocess.check_output(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=worktree_root,
+            text=True,
+        ).strip()
+        candidates.append(Path(common_dir).parent.parent / "mms-automation")
+    for candidate in candidates:
+        if (candidate / "docker" / "Dockerfile.targen").is_file():
+            return candidate
+    tried = ", ".join(str(candidate) for candidate in candidates)
+    raise ValueError(f"cannot find an mms-automation checkout; pass --agent-source (tried {tried})")
 
 
 def local_agent_source(explicit: str) -> Path:
     """Return the mms-automation checkout: --agent-source, else the sibling directory."""
-    source = Path(explicit).expanduser() if explicit else Path(__file__).resolve().parents[2].parent / "mms-automation"
+    source = Path(explicit).expanduser() if explicit else default_agent_source()
     if not (source / "docker" / "Dockerfile.targen").is_file():
         raise ValueError(f"'{source}' is not an mms-automation checkout; pass --agent-source")
+    if (source / ".git").is_file():
+        raise ValueError(f"'{source}' is a linked worktree; pass a normal mms-automation checkout")
     return source
 
 
@@ -224,56 +249,59 @@ def local_agent_tag(source: Path, explicit: str) -> str:
         if pr["state"] != "OPEN":
             raise ValueError(f"no open pull request for '{source}'; pass --tag")
         tag = f"{pr['number']}-{pr['headRefName']}"
-    return re.sub(r"[^A-Za-z0-9_.-]", "-", tag).lstrip(".-")[:128].rstrip(".-")
+    tag = re.sub(r"[^A-Za-z0-9_.-]", "-", tag).lstrip(".-")[:128].rstrip(".-")
+    if not tag:
+        raise ValueError("--tag is empty after normalization")
+    if tag == "latest" or tag.startswith("latest-"):
+        raise ValueError(f"refusing to push the shared tag '{tag}'; pass a branch-specific tag")
+    return tag
 
 
-def local_agent_tarball(source: Path) -> Path:
-    """Build the agent tarball from the checkout in a Linux container and return its path."""
+def github_token() -> str:
+    """Return a token for the private 10gen Go modules used by the agent build."""
+    token = os.environ.get("GITHUB_TOKEN")
+    if not token:
+        try:
+            token = subprocess.check_output(["gh", "auth", "token", "--hostname", "github.com"], text=True).strip()
+        except (subprocess.CalledProcessError, FileNotFoundError) as err:
+            raise ValueError("no GitHub token: set GITHUB_TOKEN or run 'gh auth login --hostname github.com'") from err
+    if not token:
+        raise ValueError("no GitHub token: set GITHUB_TOKEN or run 'gh auth login --hostname github.com'")
+    return token
+
+
+def local_agent_tarball(source: Path, workdir: Path) -> Path:
+    """Build the agent tarball from the checkout and return its path inside workdir."""
     logger.info(f"Building the agent tarball from {source} (this takes several minutes)")
-    workdir = Path(tempfile.mkdtemp(prefix="mck-local-agent-"))
-    token = os.environ.get("GITHUB_TOKEN") or subprocess.check_output(["gh", "auth", "token"], text=True).strip()
+    dockerfile = workdir / "Dockerfile"
+    dockerfile.write_text((source / "docker" / "Dockerfile.targen").read_text() + LOCAL_AGENT_EXPORT_STAGE)
+    shutil.copy2(source / "docker" / "Dockerfile.targen.dockerignore", workdir / "Dockerfile.dockerignore")
+    output = workdir / "out"
     subprocess.run(
         [
             "docker",
             "buildx",
             "build",
-            "--load",
-            "--provenance=false",
+            "--output",
+            f"type=local,dest={output}",
             "-f",
-            str(source / "docker" / "Dockerfile.targen"),
+            str(dockerfile),
             "--secret",
             "id=github_token,env=GITHUB_TOKEN",
             "--build-arg",
             f"BASE_IMAGE={LOCAL_AGENT_TARGEN_BASE_IMAGE}",
-            "--build-arg",
-            "TAR_PATH=/agent.tar.gz",
             "--platform",
             LOCAL_AGENT_PLATFORM,
-            "-t",
-            LOCAL_AGENT_TARGEN_IMAGE,
             str(source),
         ],
         check=True,
-        env={**os.environ, "GITHUB_TOKEN": token},
+        env={**os.environ, "GITHUB_TOKEN": github_token()},
     )
-    subprocess.run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--entrypoint",
-            "sh",
-            "-v",
-            f"{workdir}:/out",
-            LOCAL_AGENT_TARGEN_IMAGE,
-            "-c",
-            "cp /src/build/build/mongodb-mms-automation-agent-*.tar.gz /out/",
-        ],
-        check=True,
-    )
-    tarball = next(workdir.glob("mongodb-mms-automation-agent-*.tar.gz"))
-    logger.info(f"Agent tarball: {tarball}")
-    return tarball
+    matches = sorted(output.glob(LOCAL_AGENT_TARBALL_GLOB))
+    if len(matches) != 1:
+        raise ValueError(f"expected one agent tarball in '{output}', found {matches}")
+    logger.info(f"Agent tarball: {matches[0]}")
+    return matches[0]
 
 
 def _setup_tracing():
@@ -449,25 +477,42 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
 
     args = parser.parse_args()
 
-    args.custom_agent_tarball = None
+    local_source = None
+    local_workdir = None
     if args.local:
         if args.image != "agent":
             raise ValueError("--local is only supported for the agent image")
-        source = local_agent_source(args.agent_source)
-        args.custom_agent_tarball = str(local_agent_tarball(source))
-        args.version = local_agent_tag(source, args.tag)
+        if args.custom_agent_url:
+            raise ValueError("--local cannot be combined with --custom-agent-url")
+        local_source = local_agent_source(args.agent_source)
+        args.version = local_agent_tag(local_source, args.tag)
         args.agent_tools_version = extract_tools_version_from_release(load_release_file())
 
-    build_config = image_build_config_from_args(args)
-    logger.info(f"Building image: {args.image}")
-    logger.info(f"Build configuration: {build_config}")
+    try:
+        build_config = image_build_config_from_args(args)
+        if local_source is not None:
+            if build_config.platforms != [LOCAL_AGENT_PLATFORM]:
+                raise ValueError(f"--local builds {LOCAL_AGENT_PLATFORM} only; got {', '.join(build_config.platforms)}")
+            # A local build pushes only the branch tag: no shared aliases, suffixes, or signatures.
+            build_config.latest_tag = False
+            build_config.branch_latest_tag = None
+            build_config.olm_tag = False
+            build_config.architecture_suffix = False
+            build_config.sign = False
+            local_workdir = tempfile.TemporaryDirectory(prefix="mck-local-agent-")
+            build_config.custom_agent_tarball = str(local_agent_tarball(local_source, Path(local_workdir.name)))
 
-    # Create buildx builder
-    # It must be initialized here as opposed to in build_images.py so that parallel calls (such as agent builds) can access it
-    # and not face race conditions. For IBM Z and Power we use podman and cannot set docker buildx builder
-    build_config.builder.prepare_builder()
+        logger.info(f"Building image: {args.image}")
+        logger.info(f"Build configuration: {build_config}")
 
-    build_image(args.image, build_config)
+        # Create buildx builder
+        # It must be initialized here as opposed to in build_images.py so that parallel calls (such as agent builds) can access it
+        # and not face race conditions. For IBM Z and Power we use podman and cannot set docker buildx builder
+        build_config.builder.prepare_builder()
+        build_image(args.image, build_config)
+    finally:
+        if local_workdir is not None:
+            local_workdir.cleanup()
 
 
 if __name__ == "__main__":
