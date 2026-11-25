@@ -7,15 +7,22 @@ the listener they were accepted by, so a pooled connection could keep observing 
 from __future__ import annotations
 
 import json
+import threading
 from typing import Callable, Optional, Sequence, Union
 
 import requests
+from kubernetes import client
+from kubetester import list_matching_pods, pod_is_ready
 from kubetester.kubetester import run_periodically
 from kubetester.voyageai import VoyageRouter
 from requests.adapters import HTTPAdapter
+from tests import test_logger
 from urllib3.util.retry import Retry
 
+logger = test_logger.get_test_logger(__name__)
+
 ROUTER_PORT = 8080
+ENVOY_ADMIN_PORT = 9901
 CLUSTER_DOMAIN = "cluster.local"
 REQUEST_TIMEOUT_SECONDS = 30
 # The kubelet refreshes ConfigMap volumes, which carry the Router's xDS files, on its sync period of up to a minute or two.
@@ -155,3 +162,71 @@ def wait_for_response(
 
     run_periodically(check, timeout=timeout, sleep_time=3, msg=msg)
     return last["response"]
+
+
+def router_pods(router: VoyageRouter) -> list[client.V1Pod]:
+    return list_matching_pods(router.namespace, label_selector=router.pod_label_selector())
+
+
+def ready_router_pods(router: VoyageRouter) -> list[client.V1Pod]:
+    return [pod for pod in router_pods(router) if pod.metadata.deletion_timestamp is None and pod_is_ready(pod)]
+
+
+def envoy_stats(pod: client.V1Pod, prefix: str) -> dict[str, int]:
+    response = requests.get(
+        f"http://{pod.status.pod_ip}:{ENVOY_ADMIN_PORT}/stats",
+        params={"filter": f"^{prefix}"},
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    stats = {}
+    for line in response.text.splitlines():
+        name, separator, value = line.partition(": ")
+        if separator and value.strip().isdigit():
+            stats[name] = int(value)
+    return stats
+
+
+def xds_update_counts(pod: client.V1Pod) -> tuple[int, int]:
+    """Returns how many CDS and LDS updates the pod's Envoy accepted."""
+    cds = envoy_stats(pod, "cluster_manager.cds.update_success")
+    lds = envoy_stats(pod, "listener_manager.lds.update_success")
+    return cds["cluster_manager.cds.update_success"], lds["listener_manager.lds.update_success"]
+
+
+class TrafficProbe:
+    """Sends a request every ``interval`` seconds from a background thread, each on a new connection and without
+    retries, and records every response other than ``expected_status``."""
+
+    def __init__(self, request: Callable[[], requests.Response], expected_status: int = 200, interval: float = 0.2):
+        self._request = request
+        self._expected_status = expected_status
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="voyage-traffic-probe", daemon=True)
+        self.attempts = 0
+        self.failures: list[str] = []
+
+    def __enter__(self) -> "TrafficProbe":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc_info):
+        self._stop.set()
+        self._thread.join()
+
+    def _run(self):
+        while not self._stop.is_set():
+            self.attempts += 1
+            try:
+                response = self._request()
+                if response.status_code != self._expected_status:
+                    self.failures.append(f"{response.status_code}: {response.text[:200]}")
+            except requests.RequestException as e:
+                self.failures.append(f"{type(e).__name__}: {e}")
+            self._stop.wait(self._interval)
+
+    def assert_no_failures(self, min_attempts: int = 20):
+        logger.info(f"Traffic probe sent {self.attempts} requests, {len(self.failures)} failed")
+        assert self.attempts >= min_attempts, f"traffic probe sent only {self.attempts} requests"
+        assert not self.failures, f"{len(self.failures)}/{self.attempts} requests failed: {self.failures[:10]}"
