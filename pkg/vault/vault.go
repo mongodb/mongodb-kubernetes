@@ -8,13 +8,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hashicorp/vault/api"
 	"golang.org/x/xerrors"
 	"k8s.io/client-go/kubernetes"
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	api "github.com/mongodb/mongodb-kubernetes/internal/hsvault"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/maputil"
@@ -163,27 +163,7 @@ func setTLSConfig(ctx context.Context, config *api.Config, client *kubernetes.Cl
 
 	// Read the secret and write ca.crt to a temporary file
 	caData := secret.Data["ca.crt"]
-	f, err := os.CreateTemp("/tmp", "VaultCAData")
-	if err != nil {
-		return xerrors.Errorf("can't create temporary file for CA data: %w", err)
-	}
-	defer func(f *os.File) {
-		_ = f.Close()
-	}(f)
-
-	_, err = f.Write(caData)
-	if err != nil {
-		return xerrors.Errorf("can't write caData to file %s: %w", f.Name(), err)
-	}
-	if err = f.Sync(); err != nil {
-		return xerrors.Errorf("can't call Sync on file %s: %w", f.Name(), err)
-	}
-
-	return config.ConfigureTLS(
-		&api.TLSConfig{
-			CACert: f.Name(),
-		},
-	)
+	return config.ConfigureTLS(caData)
 }
 
 func InitVaultClient(ctx context.Context, client *kubernetes.Clientset) (*VaultClient, error) {
