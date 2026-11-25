@@ -42,38 +42,6 @@ setup() {
     [[ "${output}" == *"pod my-replica-set-0 not found"* ]]
 }
 
-@test "proxy state is collected only for Pods with the socket volume" {
-    kubectl() {
-        case "$*" in
-            *".status.containerStatuses"*) echo 0 ;;
-            *" get pod "*"proxy-pod"*) printf 'mongodb-agent|mongodb-proxy-socket' ;;
-            *" get pod "*"other-pod"*) printf 'sidecar|' ;;
-            *" exec "*"curl "*) echo '{"state":"running"}' ;;
-            *" exec "*) return 1 ;;
-        esac
-    }
-
-    dump_pod_logs "ctx" "proxy-pod" "ns" "test_"
-    dump_pod_logs "ctx" "other-pod" "ns" "test_"
-
-    [ "$(cat logs/test_proxy-pod-proxy-state.json)" = '{"state":"running"}' ]
-    [ ! -e logs/test_other-pod-proxy-state.json ]
-}
-
-@test "Pod spec lookup failure is reported without creating proxy state" {
-    kubectl() {
-        case "$*" in
-            *" get pod "*) return 1 ;;
-            *" exec "*) return 1 ;;
-        esac
-    }
-
-    run dump_pod_logs "ctx" "missing-pod" "ns" "test_"
-
-    [[ "${output}" == *"WARNING: could not read Pod spec for ns/missing-pod"* ]]
-    [ ! -e logs/test_missing-pod-proxy-state.json ]
-}
-
 @test "credential values are redacted and usernames and certificates stay" {
     run redact_secret_values <<< '{"publicApiKey":"pub-0000","password":"hunter2","connectionString.standard":"mongodb://user:pass@host","user":"mongo-user","ca-pem":"-----BEGIN CERTIFICATE-----MIIB-----END CERTIFICATE-----"}'
 
