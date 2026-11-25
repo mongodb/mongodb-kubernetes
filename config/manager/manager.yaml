@@ -33,6 +33,7 @@ spec:
             - -watch-resource=mongodbcommunity
             - -watch-resource=mongodbsearch
             - -watch-resource=voyageais
+            - -watch-resource=voyagerouters
             - -watch-resource=clustermongodbroles
           command:
             - /usr/local/bin/mongodb-kubernetes-operator

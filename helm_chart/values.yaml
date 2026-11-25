@@ -32,6 +32,7 @@ operator:
   - mongodbcommunity
   - mongodbsearch
   - voyageais
+  - voyagerouters
 
   # Scopes MongoDBSearch reconciliation only. When clusterName is set, this operator
   # reconciles only MongoDBSearch resources whose spec.clusters[i].name matches this
