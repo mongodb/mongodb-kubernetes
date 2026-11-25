@@ -955,13 +955,13 @@ func TestStandaloneOptionsWithoutExternalAccess(t *testing.T) {
 	assert.Nil(t, opts.ExternalAccessConfiguration)
 }
 
-func TestStaticAgentContainerRunsLauncherShim(t *testing.T) {
+func TestStaticAgentContainerRunsLauncherFromInitImage(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().Build()
 	sts := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
 
 	agent := AgentContainer(sts)
 	require.NotNil(t, agent)
-	assert.Equal(t, []string{"/usr/local/bin/agent-launcher-shim.sh"}, agent.Command)
+	assert.Equal(t, staticAgentLauncherCommand, agent.Command)
 	assert.Empty(t, agent.Args)
 }
 
