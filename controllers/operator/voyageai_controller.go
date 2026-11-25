@@ -37,6 +37,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 )
 
 const (
@@ -275,6 +276,16 @@ func (r *VoyageAIReconciler) ensureDeployment(ctx context.Context, vai *vaiv1.Vo
 		// spec authoritative.
 		dep.Spec.Template = corev1.PodTemplateSpec{}
 		deployment.Apply(modifications...)(dep)
+		if vai.Spec.Deployment != nil {
+			dep.Spec = merge.DeploymentSpecs(dep.Spec, vai.Spec.Deployment.SpecWrapper.Spec)
+			dep.Labels = merge.StringToStringMap(dep.Labels, vai.Spec.Deployment.MetadataWrapper.Labels)
+			dep.Annotations = merge.StringToStringMap(dep.Annotations, vai.Spec.Deployment.MetadataWrapper.Annotations)
+			// Identity labels are re-applied after the user overrides so they cannot
+			// detach the Deployment from the VoyageAI or its pods from the Service.
+			dep.Labels = merge.StringToStringMap(dep.Labels, labels)
+			dep.Spec.Template.Labels = merge.StringToStringMap(dep.Spec.Template.Labels, podLabels)
+			deployment.WithMatchLabels(podLabels)(dep)
+		}
 		return controllerutil.SetOwnerReference(vai, dep, r.kubeClient.Scheme())
 	})
 	if err != nil {

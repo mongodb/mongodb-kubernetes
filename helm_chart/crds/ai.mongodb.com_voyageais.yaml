@@ -166,6 +166,29 @@ spec:
                     format: int32
                     type: integer
                 type: object
+              deployment:
+                description: Deployment holds overrides merged into the operator-created
+                  Deployment.
+                properties:
+                  metadata:
+                    description: DeploymentMetadataWrapper is a wrapper around Labels
+                      and Annotations
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
+                  spec:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                required:
+                - spec
+                type: object
               metrics:
                 description: Metrics configures the Prometheus metrics endpoint exposed
                   by the server.

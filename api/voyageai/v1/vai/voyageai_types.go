@@ -6,6 +6,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 )
 
@@ -101,6 +102,10 @@ type VoyageAISpec struct {
 	// NodeAffinity configures node affinity scheduling rules for VoyageAI pods.
 	// +optional
 	NodeAffinity *corev1.NodeAffinity `json:"nodeAffinity,omitempty"`
+
+	// Deployment holds overrides merged into the operator-created Deployment.
+	// +optional
+	Deployment *mdbv1.DeploymentConfiguration `json:"deployment,omitempty"`
 }
 type ServerConfig struct {
 	// Port is the port the VoyageAI server listens on.
