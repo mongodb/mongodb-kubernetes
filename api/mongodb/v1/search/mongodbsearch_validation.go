@@ -82,6 +82,7 @@ func commonValidators() []func(*MongoDBSearch) v1.ValidationResult {
 		validateClustersNonEmpty,
 		validateClustersUniqueClusterName,
 		validateJVMFlags,
+		validatePersistence,
 		validateClustersEnvoyResourceNames,
 		validateX509AuthConfig,
 		validateOIDCAuthConfig,
@@ -416,6 +417,23 @@ func validateJVMFlags(s *MongoDBSearch) v1.ValidationResult {
 		}
 	}
 
+	return v1.ValidationSuccess()
+}
+
+// validatePersistence rejects persistence.multiple: mongot has a single data volume, so its sizes
+// would never be applied.
+func validatePersistence(s *MongoDBSearch) v1.ValidationResult {
+	const msg = "MongoDBSearch resource is invalid, %s.persistence.multiple is not supported, use persistence.single"
+	for ci, c := range s.Spec.Clusters {
+		if c.Persistence != nil && c.Persistence.MultipleConfig != nil {
+			return v1.ValidationError(msg, fmt.Sprintf("spec.clusters[%d]", ci))
+		}
+		for oi, o := range c.ShardOverrides {
+			if o.Persistence != nil && o.Persistence.MultipleConfig != nil {
+				return v1.ValidationError(msg, fmt.Sprintf("spec.clusters[%d].shardOverrides[%d]", ci, oi))
+			}
+		}
+	}
 	return v1.ValidationSuccess()
 }
 

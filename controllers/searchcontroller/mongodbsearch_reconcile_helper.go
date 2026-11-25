@@ -735,7 +735,8 @@ func (m reconcileUnitMods) withDefaults() reconcileUnitMods {
 
 // applyReconcileUnit reconciles all per-unit resources against the unit's
 // cluster client. Returns the mutated StatefulSet for the readiness check and the
-// PVC resize status; while that status is not OK the StatefulSet is not applied.
+// PVC resize status; while that status is Pending the StatefulSet is not applied, and a
+// failed resize is returned as the error.
 func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	ctx context.Context,
 	log *zap.SugaredLogger,
@@ -875,6 +876,13 @@ func (r *MongoDBSearchReconcileHelper) applyReconcileUnit(
 	desiredSts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: unit.stsName.Name, Namespace: unit.stsName.Namespace}}
 	statefulset.Apply(stsModifications...)(desiredSts)
 	pvcStatus := create.HandlePVCResize(ctx, unitClient, desiredSts, log)
+	if pvcStatus.Phase() == status.PhaseFailed {
+		target := "StatefulSet " + unit.stsName.Name
+		if unit.clusterName != "" {
+			target += fmt.Sprintf(" on cluster %q", unit.clusterName)
+		}
+		return nil, nil, xerrors.Errorf("%s: %s", target, MessageFromStatus(pvcStatus))
+	}
 	if !pvcStatus.IsOK() {
 		return nil, pvcStatus, nil
 	}
