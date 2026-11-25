@@ -183,6 +183,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:multi-cluster`  | `multi_cluster`      | Non-static multi-cluster variants only (kind, 2 clusters, OM AppDB, OM70 upgrade, OM80 search, operator-not-in-mesh) |
 | `evergreen:e2e-cloudqa`    | `cloudqa`            | Cloud QA variants (excluding OpenShift)                                                                        |
 | `evergreen:e2e-community`  | `e2e_mco_test_suite` | Community suites (`e2e_mdb_community`, `e2e_mco_tests`)                                                        |
+| `evergreen:e2e-voyage`     | `e2e_voyage_test_suite` | Voyage tests (`e2e_voyage_kind`), without MongoDB, Ops Manager or GPU                                      |
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
 | `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
@@ -233,6 +234,7 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 | `om7`        | Ops Manager 7.0 variants (static and non-static)              | With `evergreen:om7` label            |
 | `om9`        | Ops Manager 9.0 variants                                      | With `evergreen:om9` label            |
 | `race`       | Race detector variant                                         | With `evergreen:race` label           |
+| `voyage`     | Voyage tests variant (`e2e_voyage_kind`)                       | With `evergreen:e2e-voyage` label     |
 | `smoke_test` | Smoke e2e suite (`patch-run` tasks)                           | No                                    |
 | `cloudqa`    | Cloud QA non-static variants                                  | With `evergreen:e2e-cloudqa` label    |
 

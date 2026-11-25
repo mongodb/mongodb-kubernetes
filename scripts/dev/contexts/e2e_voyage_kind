@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -Eeou pipefail
+
+script_name=$(readlink -f "${BASH_SOURCE[0]}")
+script_dir=$(dirname "${script_name}")
+
+source "${script_dir}/root-context"
+
+# Voyage tests deploy no MongoDB or Ops Manager resources, so skip the Ops Manager connection setup in fetch_om_information.sh.
+export OM_EXTERNALLY_CONFIGURED="true"
