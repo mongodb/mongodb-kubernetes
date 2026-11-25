@@ -667,7 +667,7 @@ func (r *MongoDBSearchReconcileHelper) reconcile(ctx context.Context, log *zap.S
 	// Mark routing-ready shards across ALL units before the worst-of readiness
 	// return, so one not-ready unit does not block the routing switch for the others.
 	for _, res := range applied {
-		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit, res.unit.client); err != nil {
+		if err := r.markRoutingReadyIfThresholdMet(ctx, log, res.unit); err != nil {
 			reconcileErrs = errors.Join(reconcileErrs, err)
 		}
 	}
@@ -1069,12 +1069,12 @@ func (r *MongoDBSearchReconcileHelper) deploymentReadiness(ctx context.Context, 
 // markRoutingReadyIfThresholdMet flips a shard's routing-ready switch once its
 // mongot STS first meets the routing-readiness threshold. The switch is one-way:
 // a later STS delete/recreate does not put the shard back into fallback routing.
-func (r *MongoDBSearchReconcileHelper) markRoutingReadyIfThresholdMet(ctx context.Context, log *zap.SugaredLogger, unit reconcileUnit, unitClient kubernetesClient.Client) error {
+func (r *MongoDBSearchReconcileHelper) markRoutingReadyIfThresholdMet(ctx context.Context, log *zap.SugaredLogger, unit reconcileUnit) error {
 	if unit.shardName == "" || !r.mdbSearch.IsLBModeManaged() || slices.Contains(r.state.RoutingReadyMongotGroups, unit.shardName) {
 		return nil
 	}
 
-	sts, err := unitClient.GetStatefulSet(ctx, unit.stsName)
+	sts, err := unit.client.GetStatefulSet(ctx, unit.stsName)
 	if err != nil {
 		// Just-created STS not yet in the informer cache: not ready to flip the
 		// switch this pass, but not a failure — re-evaluated every reconcile.

@@ -1283,12 +1283,7 @@ func TestMongoDBSearchReconcile_Success_MultiCluster(t *testing.T) {
 			// another cluster mid-resize neither blocks nor restarts the resize.
 			westStsName := search.StatefulSetNamespacedNameForCluster(1)
 			require.NoError(t, centralClient.Get(ctx, search.NamespacedName(), live))
-			live.Spec.Clusters[1].StatefulSetConfiguration = &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{Spec: appsv1.StatefulSetSpec{
-				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
-					ObjectMeta: metav1.ObjectMeta{Name: "data"},
-					Spec:       corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("20G")}}},
-				}},
-			}}}
+			live.Spec.Clusters[1].StatefulSetConfiguration = dataVolumeClaimOverride("20G")
 			require.NoError(t, centralClient.Update(ctx, live))
 			_, err = reconciler.Reconcile(ctx, requestFromObject(search))
 			require.NoError(t, err)
@@ -1327,6 +1322,16 @@ func assertPVCStorageRequests(t *testing.T, c client.Client, pvcs []corev1.Persi
 		require.NoError(t, c.Get(t.Context(), client.ObjectKeyFromObject(&p), live))
 		assert.Equal(t, storage, live.Spec.Resources.Requests.Storage().String(), "PVC %s", p.Name)
 	}
+}
+
+// dataVolumeClaimOverride is a statefulSet override sizing the mongot data volume claim.
+func dataVolumeClaimOverride(storage string) *v1.StatefulSetConfiguration {
+	return &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{Spec: appsv1.StatefulSetSpec{
+		VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
+			ObjectMeta: metav1.ObjectMeta{Name: "data"},
+			Spec:       corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(storage)}}},
+		}},
+	}}}
 }
 
 // newSearchReconcilerWithMembers builds a MongoDBSearchReconciler that is pre-wired
@@ -1925,12 +1930,7 @@ func TestReconcile_OperatorPerCluster_ShardedSource_ProjectedReconcilesLocalOnly
 				// Both shards resize at once, sh-1 sized by a shardOverrides statefulSet volumeClaimTemplates override.
 				require.NoError(t, c.Get(ctx, search.NamespacedName(), live))
 				live.Spec.Clusters[opIdx].Persistence = &v1.Persistence{SingleConfig: &v1.PersistenceConfig{Storage: "20G"}}
-				live.Spec.Clusters[opIdx].ShardOverrides[0].StatefulSetConfiguration = &v1.StatefulSetConfiguration{SpecWrapper: v1.StatefulSetSpecWrapper{Spec: appsv1.StatefulSetSpec{
-					VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{
-						ObjectMeta: metav1.ObjectMeta{Name: "data"},
-						Spec:       corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("40G")}}},
-					}},
-				}}}
+				live.Spec.Clusters[opIdx].ShardOverrides[0].StatefulSetConfiguration = dataVolumeClaimOverride("40G")
 				require.NoError(t, c.Update(ctx, live))
 				_, err = reconciler.Reconcile(ctx, requestFromObject(search))
 				require.NoError(t, err)
