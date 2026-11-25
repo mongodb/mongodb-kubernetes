@@ -3707,6 +3707,59 @@ func newAppDBManagedCertificateTestOM() *omv1.MongoDBOpsManager {
 	return om
 }
 
+// TestOpsManagerManagedCertificate_DisallowedIssuerFailsEveryComponent checks that every Ops
+// Manager component whose issuerRef points at an issuer the operator is not configured to allow
+// fails with a message that names the component's field path, and that nothing is issued for it.
+func TestOpsManagerManagedCertificate_DisallowedIssuerFailsEveryComponent(t *testing.T) {
+	ctx := t.Context()
+	disallowedIssuer := &mdbv1.IssuerRef{Name: "prod-ca", Kind: "ClusterIssuer"}
+	readiness := certspkg.CertManagerReadiness{Ready: true, AllowedIssuers: certspkg.ParseAllowedIssuers("Issuer/mdb-certs")}
+
+	t.Run("Ops Manager app server", func(t *testing.T) {
+		om := newManagedCertificateTestOM()
+		om.Spec.Security.ManagedCertificate.IssuerRef = disallowedIssuer
+		c := newManagedCertificateKubeClient(t, om)
+		r := newManagedCertificateTestReconciler(ctx, c)
+		r.certManagerReadiness = readiness
+
+		result := r.ensureOpsManagerCertificateAndCA(ctx, om, zap.S())
+		assert.Equal(t, status.PhaseFailed, result.status.Phase())
+		assert.Contains(t, result.status.Message(), "issuerRef spec.security.managedCertificate.issuerRef points at ClusterIssuer/prod-ca")
+		require.NotNil(t, result.condition)
+		assert.Contains(t, result.condition.Message, "points at ClusterIssuer/prod-ca")
+		assert.Empty(t, listManagedCertificateObjects(t, ctx, c))
+	})
+
+	t.Run("queryable backup", func(t *testing.T) {
+		om := newManagedCertificateTestOM()
+		om.Spec.Security = nil
+		om.Spec.Backup.ManagedCertificate = &omv1.ManagedCertificate{CertificateConfig: mdbv1.CertificateConfig{IssuerRef: disallowedIssuer}}
+		c := newManagedCertificateKubeClient(t, om)
+		r := newManagedCertificateTestReconciler(ctx, c)
+		r.certManagerReadiness = readiness
+		helper, err := NewOpsManagerReconcilerHelper(ctx, r, om, nil, zap.S())
+		require.NoError(t, err)
+
+		result := r.ensureBackupCertAndCA(ctx, om, helper, zap.S())
+		assert.Equal(t, status.PhaseFailed, result.status.Phase())
+		assert.Contains(t, result.status.Message(), "issuerRef spec.backup.managedCertificate.issuerRef points at ClusterIssuer/prod-ca")
+		assert.Empty(t, listManagedCertificateObjects(t, ctx, c))
+	})
+
+	t.Run("internal AppDB", func(t *testing.T) {
+		om := newAppDBManagedCertificateTestOM()
+		om.Spec.AppDB.Security.ManagedCertificate.Server = &mdbv1.CertificateConfig{IssuerRef: disallowedIssuer}
+		c := newManagedCertificateKubeClient(t, om)
+		r := newManagedCertificateTestReconciler(ctx, c)
+		r.certManagerReadiness = readiness
+
+		result := r.ensureAppDBCertAndCA(ctx, om, zap.S())
+		assert.Equal(t, status.PhaseFailed, result.status.Phase())
+		assert.Contains(t, result.status.Message(), "issuerRef spec.applicationDatabase.security.managedCertificate.server.issuerRef points at ClusterIssuer/prod-ca")
+		assert.Empty(t, listManagedCertificateObjects(t, ctx, c))
+	})
+}
+
 func TestAppDBManagedCertificatePreparationOwnership(t *testing.T) {
 	otherOwner := metav1.OwnerReference{APIVersion: "mongodb.com/v1", Kind: "MongoDB", Name: "other", UID: types.UID("other-uid")}
 

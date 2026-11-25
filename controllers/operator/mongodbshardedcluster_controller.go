@@ -1291,6 +1291,10 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 		if !r.certManagerReadiness.Ready {
 			return workflow.Failed(xerrors.New(r.certManagerReadiness.UnavailableMessage()))
 		}
+		// make sure the operator is configured to allow the issuers the resource points at.
+		if err := r.certManagerReadiness.ValidateManagedCertificateIssuers(sc.GetSecurity(), ""); err != nil {
+			return workflow.Failed(err)
+		}
 
 		status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(ctx, r.commonController.client, sc, r.managedCertOptions(), log)
 		sc.SetStatusCondition(certsCondition)
@@ -2112,12 +2116,28 @@ func logDiffOfProcessNames(acProcesses []string, healthyProcesses []string, log 
 	}
 }
 
-func AddShardedClusterController(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClustersMap map[string]cluster.Cluster, backupEnableDelay time.Duration, omMetrics OMMetricsMultiplexer) error {
+func AddShardedClusterController(
+	ctx context.Context,
+	mgr manager.Manager,
+	imageUrls images.ImageUrls,
+	initDatabaseNonStaticImageVersion,
+	databaseNonStaticImageVersion string,
+	forceEnterprise,
+	enableClusterMongoDBRoles,
+	agentDebug bool,
+	agentDebugImage string,
+	defaultArchitecture architectures.DefaultArchitecture,
+	defaultImageType architectures.ImageType,
+	memberClustersMap map[string]cluster.Cluster,
+	backupEnableDelay time.Duration,
+	omMetrics OMMetricsMultiplexer,
+	allowedIssuers certs.AllowedIssuers,
+) error {
 	// Create a new controller
 	// Make sure cert-manager is installed and the operator has the RBAC the managed-certificate
 	// feature needs. It is checked once here, at startup, and the reconcile path fails with a clear
 	// message when it is false.
-	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace(), allowedIssuers)
 	reconciler := newShardedClusterReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, multicluster.ClustersMapToClientMap(memberClustersMap), om.NewOpsManagerConnection, backupEnableDelay, omMetrics, certManagerReadiness)
 	options := controller.Options{Reconciler: reconciler, MaxConcurrentReconciles: env.ReadIntOrDefault(util.MaxConcurrentReconcilesEnv, 1)} // nolint:forbidigo
 	c, err := controller.New(util.MongoDbShardedClusterController, mgr, options)

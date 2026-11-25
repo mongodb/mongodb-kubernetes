@@ -307,6 +307,10 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 			return r.updateStatus(ctx, workflow.Failed(xerrors.New(
 				r.reconciler.certManagerReadiness.UnavailableMessage())))
 		}
+		// make sure the operator is configured to allow the issuers the resource points at.
+		if err := r.reconciler.certManagerReadiness.ValidateManagedCertificateIssuers(rs.GetSecurity(), ""); err != nil {
+			return r.updateStatus(ctx, workflow.Failed(err))
+		}
 
 		status, certsCondition, pruneApplied := certs.EnsureCertificatesAndCA(
 			ctx,
@@ -818,10 +822,11 @@ func AddReplicaSetController(
 	defaultArchitecture architectures.DefaultArchitecture,
 	defaultImageType architectures.ImageType,
 	omMetrics OMMetricsMultiplexer,
+	allowedIssuers certs.AllowedIssuers,
 ) error {
 	// make sure cert-manager resources are registered and operator has authz to access them, before actually registering
 	// watches or doing anything with cert-manager resources.
-	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace())
+	certManagerReadiness := certs.CertManagerReady(ctx, kubernetesClient.NewClient(mgr.GetClient()), mgr.GetRESTMapper(), GetWatchedNamespace(), allowedIssuers)
 
 	// Create a new controller
 	reconciler := newReplicaSetReconciler(ctx, mgr.GetClient(), imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, om.NewOpsManagerConnection, omMetrics, certManagerReadiness)

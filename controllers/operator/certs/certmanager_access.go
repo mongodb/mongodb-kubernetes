@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -13,13 +14,18 @@ import (
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
 )
 
-// CertManagerReadiness is the result of the startup check: whether the operator may use
-// cert-manager, and the reason to report on a MongoDB or other resources when it may not.
+// CertManagerReadiness is the operator's cert-manager policy, decided once at startup: whether the
+// operator may use cert-manager, the reason to report on a MongoDB or other resources when it may
+// not, and which issuers resources may point at from a security.managedCertificate issuerRef.
 type CertManagerReadiness struct {
 	// Ready is true when the operator may use cert-manager.
 	Ready bool
 	// NotReadyReason says what is missing when Ready is false. It is empty when Ready is true.
 	NotReadyReason string
+	// AllowedIssuers restricts the issuers that security.managedCertificate issuerRef blocks may
+	// point at, as configured on the operator (helm value
+	// security.managedCertificate.allowedIssuers). The zero value allows any issuer.
+	AllowedIssuers AllowedIssuers
 }
 
 // CertManagerReady reports whether this operator can use cert-manager to manage the certificates:
@@ -31,15 +37,22 @@ type CertManagerReadiness struct {
 // never reaches cert-manager.
 // watchedNamespaces are the namespaces the operator watches, as returned by GetWatchedNamespace:
 // []string{""} when it watches the whole cluster, otherwise the list of namespaces.
-func CertManagerReady(ctx context.Context, c kubernetesClient.Client, restMapper apimeta.RESTMapper, watchedNamespaces []string) CertManagerReadiness {
+// allowedIssuers is the operator's allowed-issuer list, read from the environment in main.
+func CertManagerReady(ctx context.Context, c kubernetesClient.Client, restMapper apimeta.RESTMapper, watchedNamespaces []string, allowedIssuers AllowedIssuers) CertManagerReadiness {
+	if allowedIssuers.err != "" {
+		// A restriction that cannot be read fails every resource that points at an issuer, so say
+		// here what is wrong with the operator's configuration.
+		zap.S().Errorf("The allowed-issuer list of operator-managed certificates could not be read: %s. No issuer is allowed until this is fixed.", allowedIssuers.err)
+	}
+
 	if !CertManagerCRDsInstalled(restMapper) {
-		return CertManagerReadiness{NotReadyReason: "It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC (e.g. Helm value security.managedCertificate.enabled=true), then restart the operator."}
+		return CertManagerReadiness{NotReadyReason: "It seems cert-manager is not installed. Install it, grant the operator the cert-manager RBAC (e.g. Helm value security.managedCertificate.enabled=true), then restart the operator.", AllowedIssuers: allowedIssuers}
 	}
 
 	if allowed, reason := certManagerAccessAllowed(ctx, c, watchedNamespaces); !allowed {
-		return CertManagerReadiness{NotReadyReason: reason}
+		return CertManagerReadiness{NotReadyReason: reason, AllowedIssuers: allowedIssuers}
 	}
-	return CertManagerReadiness{Ready: true}
+	return CertManagerReadiness{Ready: true, AllowedIssuers: allowedIssuers}
 }
 
 func CertManagerCRDsInstalled(restMapper apimeta.RESTMapper) bool {

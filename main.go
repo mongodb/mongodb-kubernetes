@@ -47,6 +47,7 @@ import (
 	omv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/om"
 	vaiv1 "github.com/mongodb/mongodb-kubernetes/api/voyageai/v1/vai"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/certs"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	opMigration "github.com/mongodb/mongodb-kubernetes/controllers/operator/migration"
 	"github.com/mongodb/mongodb-kubernetes/controllers/searchcontroller"
@@ -506,6 +507,7 @@ func setupMongoDBCRD(
 		defaultArchitecture,
 		defaultImageType,
 		omMetrics,
+		managedCertificateAllowedIssuers(),
 	); err != nil {
 		return err
 	}
@@ -524,6 +526,7 @@ func setupMongoDBCRD(
 		memberClusterObjectsMap,
 		backupEnableDelay,
 		omMetrics,
+		managedCertificateAllowedIssuers(),
 	); err != nil {
 		return err
 	}
@@ -533,7 +536,7 @@ func setupMongoDBCRD(
 }
 
 func setupMongoDBOpsManagerCRD(ctx context.Context, mgr manager.Manager, memberClusterObjectsMap map[string]runtime_cluster.Cluster, imageUrls images.ImageUrls, initDatabaseVersion, initOpsManagerImageVersion string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType) error {
-	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType); err != nil {
+	if err := operator.AddOpsManagerController(ctx, mgr, memberClusterObjectsMap, imageUrls, initDatabaseVersion, initOpsManagerImageVersion, defaultArchitecture, defaultImageType, managedCertificateAllowedIssuers()); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&omv1.MongoDBOpsManager{}).
@@ -547,7 +550,7 @@ func setupMongoDBUserCRD(ctx context.Context, mgr manager.Manager, memberCluster
 
 func setupMongoDBMultiClusterCRD(ctx context.Context, mgr manager.Manager, imageUrls images.ImageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion string, forceEnterprise, enableClusterMongoDBRoles, agentDebug bool, agentDebugImage string, defaultArchitecture architectures.DefaultArchitecture, defaultImageType architectures.ImageType, memberClusterObjectsMap map[string]runtime_cluster.Cluster, omMetrics operator.OMMetricsMultiplexer) error {
 	requiredHealthyStreak := env.ReadIntOrDefault(util.RequiredHealthyStreakEnv, util.DefaultRequiredHealthyStreak)
-	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, requiredHealthyStreak, memberClusterObjectsMap, omMetrics); err != nil {
+	if err := operator.AddMultiReplicaSetController(ctx, mgr, imageUrls, initDatabaseNonStaticImageVersion, databaseNonStaticImageVersion, forceEnterprise, enableClusterMongoDBRoles, agentDebug, agentDebugImage, defaultArchitecture, defaultImageType, requiredHealthyStreak, memberClusterObjectsMap, omMetrics, managedCertificateAllowedIssuers()); err != nil {
 		return err
 	}
 	return ctrl.NewWebhookManagedBy(mgr).For(&mdbmultiv1.MongoDBMultiCluster{}).
@@ -736,6 +739,13 @@ func printEnvVariables() {
 
 	// Only env variables with one of these prefixes will be printed
 	env.PrintWithPrefix(printableEnvPrefixes)
+}
+
+// managedCertificateAllowedIssuers reads the issuers that resources may point at from a
+// security.managedCertificate issuerRef (helm value security.managedCertificate.allowedIssuers).
+// An empty value allows any issuer.
+func managedCertificateAllowedIssuers() certs.AllowedIssuers {
+	return certs.ParseAllowedIssuers(env.ReadOrDefault(util.ManagedCertificateAllowedIssuersEnv, ""))
 }
 
 func getOperatorEnv() util.OperatorEnvironment {
