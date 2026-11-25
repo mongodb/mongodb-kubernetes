@@ -186,7 +186,7 @@ Without any label only the always-on checks run: unit tests, pre-commit, and the
 | `evergreen:om7`            | `om7`                | Ops Manager 7.0 variants                                                                                       |
 | `evergreen:om9`            | `om9`                | Ops Manager 9.0 variants                                                                                       |
 | `evergreen:race`           | `race`               | Race detector variant + shared init/build                                                                      |
-| `evergreen:e2e-search-images` | `e2e_test_suite !static !om7 !om9 !race !cloudqa` | 8 Envoy/OTel Search tasks tagged `e2e_search_images`; added automatically to the Search image bump PR |
+| `evergreen:e2e-search-images` | `e2e_test_suite !static !om7 !om9 !race !cloudqa` | 9 Envoy/OTel Search tasks tagged `e2e_search_images`; added automatically to the Search image bump PR |
 | `evergreen:e2e-license`    | `ops_manager_license` | The licensing tests against an unreleased Ops Manager build (`build_om_dev_images`, `e2e_om_dev_kind_ubi`)     |
 
 Task counts are rounded PR patch sizes: the tasks selected by the label, their dependencies and the always-on checks.
