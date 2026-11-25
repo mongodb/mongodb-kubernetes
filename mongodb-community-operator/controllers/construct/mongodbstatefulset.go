@@ -59,10 +59,10 @@ const (
 	automationMongodConfFileName = "automation-mongod.conf"
 	keyfileFilePath              = "/var/lib/mongodb-mms-automation/authentication/keyfile"
 
-	AgentSettingsFileName       = "automation-agent.conf"
-	agentSettingsVolumeName     = "agent-settings"
-	agentSettingsPath           = "/etc/mongodb-agent"
-	agentSettingsHashAnnotation = "mongodb.com/agent-startup-config-hash"
+	AgentSettingsFileName       = util.AgentSettingsFileName
+	agentSettingsVolumeName     = util.AgentSettingsVolume
+	agentSettingsPath           = util.AgentSettingsPath
+	agentSettingsHashAnnotation = util.AgentSettingsHash
 
 	MongodbUserCommand = `current_uid=$(id -u)
 declare -r current_uid

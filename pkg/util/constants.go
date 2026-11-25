@@ -128,6 +128,12 @@ const (
 	// AgentCertMountPath defines where in the Pod the ca cert will be mounted.
 	AgentCertMountPath = PvcMmsHomeMountPath + "/" + AgentSecretName
 
+	// Agent startup settings file, shared by the Enterprise and Community operators.
+	AgentSettingsFileName = "automation-agent.conf"
+	AgentSettingsVolume   = "agent-settings"
+	AgentSettingsPath     = "/etc/mongodb-agent"
+	AgentSettingsHash     = "mongodb.com/agent-startup-config-hash"
+
 	// Key used in concatenated pem secrets to denote the hash of the latest certificate
 	LatestHashSecretKey   = "latestHash"
 	PreviousHashSecretKey = "previousHash"
