@@ -100,7 +100,6 @@ def update_operator_related_versions(release: dict, version: str):
 
     keys_to_update_with_current_version = [
         "initDatabaseVersion",
-        "mongodbProxyVersion",
         "initOpsManagerVersion",
         "databaseImageVersion",
     ]

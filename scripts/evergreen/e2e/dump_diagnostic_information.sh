@@ -208,7 +208,18 @@ dump_pod_logs() {
     local namespace="${3}"
     local prefix="${4}"
 
-    dump_pod_proxy_state "${context}" "${pod}" "${namespace}" "${prefix}"
+    local pod_info containers proxy_volume
+    if pod_info=$(run_with_timeout kubectl --context="${context}" get pod -n "${namespace}" "${pod}" \
+        -o 'jsonpath={.spec.containers[*].name}{"|"}{.spec.volumes[?(@.name=="mongodb-proxy-socket")].name}'); then
+        containers="${pod_info%%|*}"
+        proxy_volume="${pod_info#*|}"
+        if [[ "${proxy_volume}" == "mongodb-proxy-socket" ]]; then
+            dump_pod_proxy_state "${context}" "${pod}" "${namespace}" "${prefix}"
+        fi
+    else
+        echo "WARNING: could not read Pod spec for ${namespace}/${pod}" >&2
+        containers=""
+    fi
 
     if is_mdb_resource_pod "${context}" "${pod}" "${namespace}"; then
         # for MDB resource Pods, we dump the log files from the file system
@@ -226,7 +237,7 @@ dump_pod_logs() {
         run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" | jq -c -r 'select( .logType == "agent-launcher-script") | .contents' 2> /dev/null > "logs/${prefix}${pod}-launcher.log"
     fi
 
-    for container in $(kubectl --context="${context}" get pods -n "${namespace}" "${pod}" -o jsonpath='{.spec.containers[*].name}'); do
+    for container in ${containers}; do
         echo "Writing log file for pod ${pod} - container ${container} to logs/${prefix}${pod}-${container}.log"
         run_with_timeout kubectl --context="${context}" logs -n "${namespace}" "${pod}" -c "${container}" > "logs/${prefix}${pod}-${container}.log"
 

@@ -157,10 +157,6 @@ initDatabase:
   name: mongodb-kubernetes-init-database
   version: 1.17.0
 
-mongodbProxy:
-  name: mongodb-kubernetes-mongodb-proxy
-  version: 1.17.0
-
 ## Ops Manager
 opsManager:
   name: mongodb-enterprise-ops-manager-ubi
@@ -196,7 +192,6 @@ registry:
   operator: quay.io/mongodb
   database: quay.io/mongodb
   initDatabase: quay.io/mongodb
-  mongodbProxy: 268558157000.dkr.ecr.us-east-1.amazonaws.com
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
   agent: quay.io/mongodb

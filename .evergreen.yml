@@ -741,8 +741,8 @@ tasks:
         vars:
           image_name: upgrade-hook
 
-  # The process proxy of the database container, mounted as an OCI image volume. It is built next to the other
-  # images, so that a patch has an image in the dev registry for e2e_replica_set_mongodb_proxy.
+  # The process proxy of the database container, mounted as an OCI image volume. Builds push it only to the
+  # dev and staging registries. It is not part of a release yet.
   - name: build_mongodb_proxy_image
     commands:
       - func: clone

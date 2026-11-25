@@ -120,7 +120,7 @@ func TestLoadReleaseImages(t *testing.T) {
 
 func TestLoadReleaseImagesRealFiles(t *testing.T) {
 	// Guards against drift between the checked-in build_info.json and release.json:
-	// the product images must load and version-resolve cleanly.
+	// the six product images must load and version-resolve cleanly.
 	biPath := filepath.Join("..", "..", "..", "build_info.json")
 	rjPath := filepath.Join("..", "..", "..", "release.json")
 

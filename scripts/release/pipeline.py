@@ -17,9 +17,10 @@ from scripts.release.argparse_utils import (
     get_scenario_from_arg,
     str2bool,
 )
-from scripts.release.atomic_pipeline import build_agent, build_database_image
-from scripts.release.atomic_pipeline import build_image as build_mongodb_proxy_image
 from scripts.release.atomic_pipeline import (
+    build_agent,
+    build_database_image,
+    build_image,
     build_init_database_image,
     build_init_om_image,
     build_mco_tests_image,
@@ -82,7 +83,7 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         # Ops Manager image
         OPS_MANAGER_IMAGE: build_om_image,
         # mongodb-proxy, mounted into the database container as an OCI image volume
-        MONGODB_PROXY_IMAGE: build_mongodb_proxy_image,
+        MONGODB_PROXY_IMAGE: build_image,
     }
 
     return image_builders
