@@ -1509,9 +1509,7 @@ func wasCAConfigMapMounted(ctx context.Context, configMapGetter configmap.Getter
 // needs to be updated first. In the case of unmounting certs, for instance, the certs should be not
 // required anymore before we unmount them, or the automation-agent and readiness probe will never
 // reach goal state.
-func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configFunc func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
-	opts := configFunc(mdb)
-
+func publishAutomationConfigFirst(ctx context.Context, getter kubernetesClient.Client, mdb mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, opts construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	namespacedName := kube.ObjectKey(mdb.Namespace, opts.GetStatefulSetName())
 	currentSts, err := getter.GetStatefulSet(ctx, namespacedName)
 	if err != nil {

@@ -198,6 +198,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	}
 
 	r.SetupCommonWatchers(s, nil, nil, s.Name)
+	r.resourceWatcher.AddWatchedResourceIfNotAdded(mdbv1.AgentAPIKeySecretName(conn.GroupID()), s.Namespace, watch.Secret, s.ObjectKey())
 
 	reconcileResult := checkIfHasExcessProcesses(ctx, conn, s.Name, nil, log)
 	if !reconcileResult.IsOK() {
@@ -253,8 +254,10 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	standaloneCertSecretName := certs.StandaloneConfig(*s).CertSecretName
 
 	var databaseSecretPath string
+	vaultInjectsAgentAPIKey := false
 	if r.VaultClient != nil {
 		databaseSecretPath = r.VaultClient.DatabaseSecretPath()
+		vaultInjectsAgentAPIKey = true
 	}
 
 	agentCertSecretName := s.GetSecurity().AgentClientCertificateSecretName(s.Name)
@@ -283,12 +286,19 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		}
 	}
 
-	standaloneOpts := construct.StandaloneOptions(
+	credentialHash, err := create.AgentCredentialHash(ctx, r.SecretClient, s.Namespace, construct.DatabaseAgentSettingsSource(*s), podVars.BaseURL, podVars.ProjectID)
+	if err != nil {
+		return r.updateStatus(ctx, s, create.AgentCredentialStatus(err, "Failed to prepare StatefulSet"), log)
+	}
+
+	standaloneOptsFunc := construct.StandaloneOptions(
 		CertificateHash(pem.ReadHashFromSecret(ctx, r.SecretClient, s.Namespace, standaloneCertSecretName, databaseSecretPath, log)),
 		AgentCertHash(agentCertHash),
+		WithAgentCredentialHash(credentialHash),
 		WithAgentCertPath(agentCertPath),
 		CurrentAgentAuthMechanism(currentAgentAuthMode),
 		PodEnvVars(podVars),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		WithVaultConfig(vaultConfig),
 		WithAdditionalMongodConfig(s.Spec.GetAdditionalMongodConfig()),
 		WithInitDatabaseNonStaticImage(images.ContainerImage(r.imageUrls, util.InitDatabaseImageUrlEnv, r.initDatabaseNonStaticImageVersion)),
@@ -303,7 +313,8 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 		WithExternalAgentVersion(externalAgentVersion),
 	)
 
-	sts := construct.DatabaseStatefulSet(*s, standaloneOpts, log)
+	standaloneOpts := standaloneOptsFunc(*s)
+	sts := construct.DatabaseStatefulSetFromOptions(*s, standaloneOpts, log)
 
 	workflowStatus := create.HandlePVCResize(ctx, r.client, &sts, log)
 	if !workflowStatus.IsOK() {
@@ -320,7 +331,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 			return r.updateOmDeployment(ctx, conn, s, sts, false, agentCertPath, log).OnErrorPrepend("Failed to create/update (Ops Manager reconciliation phase):")
 		},
 		func() workflow.Status {
-			mutatedSts, err := create.DatabaseInKubernetes(ctx, r.client, *s, sts, standaloneOpts, log)
+			mutatedSts, err := create.DatabaseInKubernetes(ctx, r.client, r.SecretClient, *s, sts, standaloneOpts, log)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create/update (Kubernetes reconciliation phase): %w", err))
 			}
@@ -344,7 +355,7 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	}
 
 	if vault.IsVaultSecretBackend() {
-		secrets := s.GetSecretsMountedIntoDBPod()
+		secrets := s.GetSecretsMountedIntoDBPod(conn.GroupID())
 		vaultMap := make(map[string]string)
 		for _, secret := range secrets {
 			path := fmt.Sprintf("%s/%s/%s", r.VaultClient.DatabaseSecretMetadataPath(), s.Namespace, secret)

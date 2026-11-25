@@ -1057,7 +1057,7 @@ func (r *ShardedClusterReconcileHelper) Reconcile(ctx context.Context, log *zap.
 	}
 
 	if vault.IsVaultSecretBackend() {
-		secrets := sc.GetSecretsMountedIntoDBPod()
+		secrets := sc.GetSecretsMountedIntoDBPod(conn.GroupID())
 		vaultMap := make(map[string]string)
 		for _, s := range secrets {
 			path := fmt.Sprintf("%s/%s/%s", r.commonController.VaultClient.DatabaseSecretMetadataPath(), sc.Namespace, s)
@@ -1235,6 +1235,7 @@ func (r *ShardedClusterReconcileHelper) doShardedClusterProcessing(ctx context.C
 	}
 
 	r.commonController.SetupCommonWatchers(sc, getTLSSecretNames(sc), getInternalAuthSecretNames(sc), sc.Name)
+	r.commonController.resourceWatcher.AddWatchedResourceIfNotAdded(mdbv1.AgentAPIKeySecretName(conn.GroupID()), sc.Namespace, watch.Secret, sc.ObjectKey())
 
 	reconcileResult := checkIfHasExcessProcessesWithShardsInRemoval(ctx, conn, sc.GetShardedClusterName(), sc.Spec.GetExternalMemberProcessNames(), r.deploymentState.ShardsInRemoval, log)
 	if !reconcileResult.IsOK() {
@@ -1415,7 +1416,7 @@ func getInternalAuthSecretNames(sc *mdbv1.MongoDB) func() []string {
 // of the given sharded cluster needs to publish state to Ops Manager before updating Kubernetes resources
 func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, kubeClient kubernetesClient.Client, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) bool {
 	for _, cf := range configs {
-		if publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cf, defaultArchitecture, log) {
+		if publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cf(sc), defaultArchitecture, log) {
 			return true
 		}
 	}
@@ -1565,10 +1566,16 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateMongos(ctx context.Context
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.mongosMemberClusters) {
-		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)
-		mongosSts := construct.DatabaseStatefulSet(*s, mongosOpts, log)
+		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
+		credentialHash, err := create.AgentCredentialHash(ctx, secretClient, s.Namespace, construct.ShardedAgentSettingsSource(r.desiredMongosConfiguration, memberCluster.Name), opts.podEnvVars.BaseURL, opts.podEnvVars.ProjectID)
+		if err != nil {
+			return create.AgentCredentialStatus(err, "Failed to prepare Mongos Stateful Set")
+		}
+		opts.agentCredentialHash = credentialHash
+		mongosOpts := r.getMongosOptions(ctx, *s, opts, log, memberCluster)(*s)
+		mongosSts := construct.DatabaseStatefulSetFromOptions(*s, mongosOpts, log)
 
-		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, mongosSts, mongosOpts, log)
+		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, mongosSts, mongosOpts, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Mongos Stateful Set: %w", err))
 		}
@@ -1607,14 +1614,20 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateShards(ctx context.Context
 			// in single cluster sts name == shard name
 			// in multi cluster sts name contains cluster index, but shard name does not (it's a replicaset name)
 			shardsNames[shardIdx] = s.ShardName(shardIdx)
-			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)
-			shardSts := construct.DatabaseStatefulSet(*s, shardOpts, log)
+			secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
+			credentialHash, err := create.AgentCredentialHash(ctx, secretClient, s.Namespace, construct.ShardedAgentSettingsSource(r.desiredShardsConfiguration[shardIdx], memberCluster.Name), opts.podEnvVars.BaseURL, opts.podEnvVars.ProjectID)
+			if err != nil {
+				return create.AgentCredentialStatus(err, fmt.Sprintf("Failed to prepare StatefulSet for shard %d", shardIdx))
+			}
+			opts.agentCredentialHash = credentialHash
+			shardOpts := r.getShardOptions(ctx, *s, shardIdx, opts, log, memberCluster)(*s)
+			shardSts := construct.DatabaseStatefulSetFromOptions(*s, shardOpts, log)
 
 			if pvcStatus := r.handlePVCResize(ctx, memberCluster, &shardSts, log); !pvcStatus.IsOK() {
 				return pvcStatus
 			}
 
-			mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, shardSts, shardOpts, log)
+			mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, shardSts, shardOpts, log)
 			if err != nil {
 				return workflow.Failed(xerrors.Errorf("Failed to create StatefulSet for shard %s: %w", shardSts.Name, err))
 			}
@@ -1655,14 +1668,20 @@ func (r *ShardedClusterReconcileHelper) createOrUpdateConfigServers(ctx context.
 
 	var workflowStatus workflow.Status = workflow.OK()
 	for _, memberCluster := range getHealthyMemberClusters(r.configSrvMemberClusters) {
-		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)
-		configSrvSts := construct.DatabaseStatefulSet(*s, configSrvOpts, log)
+		secretClient := memberCluster.SecretClient.WithVaultClient(r.commonController.VaultClient)
+		credentialHash, err := create.AgentCredentialHash(ctx, secretClient, s.Namespace, construct.ShardedAgentSettingsSource(r.desiredConfigServerConfiguration, memberCluster.Name), opts.podEnvVars.BaseURL, opts.podEnvVars.ProjectID)
+		if err != nil {
+			return create.AgentCredentialStatus(err, "Failed to prepare Config Server Stateful Set")
+		}
+		opts.agentCredentialHash = credentialHash
+		configSrvOpts := r.getConfigServerOptions(ctx, *s, opts, log, memberCluster)(*s)
+		configSrvSts := construct.DatabaseStatefulSetFromOptions(*s, configSrvOpts, log)
 
 		if pvcStatus := r.handlePVCResize(ctx, memberCluster, &configSrvSts, log); !pvcStatus.IsOK() {
 			return pvcStatus
 		}
 
-		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, *s, configSrvSts, configSrvOpts, log)
+		mutatedSts, err := create.DatabaseInKubernetes(ctx, memberCluster.Client, secretClient, *s, configSrvSts, configSrvOpts, log)
 		if err != nil {
 			return workflow.Failed(xerrors.Errorf("Failed to create Config Server Stateful Set: %w", err))
 		}
@@ -1986,6 +2005,10 @@ func AddShardedClusterController(ctx context.Context, mgr manager.Manager, image
 		if err != nil {
 			return xerrors.Errorf("failed to set StatefulSet watch on member cluster %s: %w", clusterName, err)
 		}
+		err = c.Watch(source.Kind[client.Object](memberCluster.GetCache(), &corev1.Secret{}, &watch.ResourcesHandler{ResourceType: watch.Secret, ResourceWatcher: reconciler.resourceWatcher}))
+		if err != nil {
+			return xerrors.Errorf("failed to set Secret watch on member cluster %s: %w", clusterName, err)
+		}
 	}
 
 	err = c.Watch(
@@ -2039,6 +2062,7 @@ type deploymentOptions struct {
 	caFilePath           string
 	agentCertPath        string
 	agentCertHash        string
+	agentCredentialHash  string
 
 	finalizing         bool
 	processNames       []string
@@ -2631,9 +2655,11 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
+	vaultInjectsAgentAPIKey := false
 	if r.commonController.VaultClient != nil {
 		vaultConfig = r.commonController.VaultClient.VaultConfig
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
+		vaultInjectsAgentAPIKey = true
 	}
 
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
@@ -2641,9 +2667,11 @@ func (r *ShardedClusterReconcileHelper) getConfigServerOptions(ctx context.Conte
 		StatefulSetNameOverride(r.GetConfigSrvStsName(memberCluster)),
 		ServiceName(r.GetConfigSrvServiceName(memberCluster)),
 		PodEnvVars(opts.podEnvVars),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
 		AgentCertHash(opts.agentCertHash),
+		WithAgentCredentialHash(opts.agentCredentialHash),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
@@ -2674,17 +2702,21 @@ func (r *ShardedClusterReconcileHelper) getMongosOptions(ctx context.Context, sc
 	internalClusterSecretName := sc.GetSecurity().InternalClusterAuthSecretName(sc.MongosRsName())
 
 	var vaultConfig vault.VaultConfiguration
+	vaultInjectsAgentAPIKey := false
 	if r.commonController.VaultClient != nil {
 		vaultConfig = r.commonController.VaultClient.VaultConfig
+		vaultInjectsAgentAPIKey = true
 	}
 
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetMongosScaler(memberCluster))),
 		StatefulSetNameOverride(r.GetMongosStsName(memberCluster)),
 		PodEnvVars(opts.podEnvVars),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, vaultConfig.DatabaseSecretPath, log)),
 		AgentCertHash(opts.agentCertHash),
+		WithAgentCredentialHash(opts.agentCredentialHash),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, vaultConfig.DatabaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),
@@ -2715,18 +2747,22 @@ func (r *ShardedClusterReconcileHelper) getShardOptions(ctx context.Context, sc 
 
 	var vaultConfig vault.VaultConfiguration
 	var databaseSecretPath string
+	vaultInjectsAgentAPIKey := false
 	if r.commonController.VaultClient != nil {
 		vaultConfig = r.commonController.VaultClient.VaultConfig
 		databaseSecretPath = r.commonController.VaultClient.DatabaseSecretPath()
+		vaultInjectsAgentAPIKey = true
 	}
 
 	opts2 := []func(*construct.DatabaseStatefulSetOptions){
 		Replicas(scale.ReplicasThisReconciliation(r.GetShardScaler(shardNum, memberCluster))),
 		StatefulSetNameOverride(r.GetShardStsName(shardNum, memberCluster)),
 		PodEnvVars(opts.podEnvVars),
+		WithVaultInjectedAgentAPIKey(vaultInjectsAgentAPIKey),
 		CurrentAgentAuthMechanism(opts.currentAgentAuthMode),
 		CertificateHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, certSecretName, databaseSecretPath, log)),
 		AgentCertHash(opts.agentCertHash),
+		WithAgentCredentialHash(opts.agentCredentialHash),
 		InternalClusterHash(enterprisepem.ReadHashFromSecret(ctx, r.commonController.SecretClient, sc.Namespace, internalClusterSecretName, databaseSecretPath, log)),
 		PrometheusTLSCertHash(opts.prometheusCertHash),
 		WithVaultConfig(vaultConfig),

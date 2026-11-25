@@ -109,6 +109,43 @@ func TestReconcileCreateShardedCluster(t *testing.T) {
 	mockedConn.CheckOperationsDidntHappen(t, reflect.ValueOf(mockedConn.GetHosts), reflect.ValueOf(mockedConn.RemoveHost))
 }
 
+// The credential hash is computed per tier before its options are built, so rotating the key must
+// reach the config server, mongos and shard pod templates through the WithAgentCredentialHash option.
+func TestShardedClusterAgentCredentialHashTracksKeySecret(t *testing.T) {
+	ctx := context.Background()
+	sc := test.DefaultClusterBuilder().Build()
+	reconciler, _, kubeClient, _, err := defaultShardedClusterReconciler(ctx, nil, "", "", sc, nil, testBackupEnableDelay, architectures.NonStatic)
+	require.NoError(t, err)
+	statefulSets := []string{sc.ConfigRsName(), sc.MongosRsName(), sc.ShardName(0)}
+
+	appliedHashes := func() map[string]string {
+		hashes := map[string]string{}
+		for _, name := range statefulSets {
+			sts := &appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, name), sts))
+			hash := sts.Spec.Template.Annotations[construct.AgentSettingsHash]
+			require.NotEmpty(t, hash, name)
+			hashes[name] = hash
+		}
+		return hashes
+	}
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	before := appliedHashes()
+
+	keySecret := &corev1.Secret{}
+	require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, mdbv1.AgentAPIKeySecretName(om.TestGroupID)), keySecret))
+	keySecret.Data[util.OmAgentApiKey] = []byte("rotated-key")
+	require.NoError(t, kubeClient.UpdateSecret(ctx, *keySecret))
+
+	checkReconcileSuccessful(ctx, t, reconciler, sc, kubeClient)
+	after := appliedHashes()
+
+	for _, name := range statefulSets {
+		assert.NotEqual(t, before[name], after[name], name)
+	}
+}
+
 func TestShardedClusterReconcileRegistersDeploymentTelemetryMapping(t *testing.T) {
 	ctx := context.Background()
 	sc := test.DefaultClusterBuilder().Build()
@@ -1542,10 +1579,13 @@ func TestShardedCluster_ConfigMapAndSecretWatched(t *testing.T) {
 	require.NoError(t, err)
 
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
+	require.NoError(t, clusterClient.Get(ctx, sc.ObjectKey(), sc))
+	require.NotEmpty(t, sc.Status.ProjectId)
 
 	expected := map[watch.Object][]types.NamespacedName{
-		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}: {kube.ObjectKey(mock.TestNamespace, sc.Name)},
-		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, sc.Spec.Credentials)}:              {kube.ObjectKey(mock.TestNamespace, sc.Name)},
+		{ResourceType: watch.ConfigMap, Resource: kube.ObjectKey(mock.TestNamespace, mock.TestProjectConfigMapName)}:    {kube.ObjectKey(mock.TestNamespace, sc.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, sc.Spec.Credentials)}:                 {kube.ObjectKey(mock.TestNamespace, sc.Name)},
+		{ResourceType: watch.Secret, Resource: kube.ObjectKey(mock.TestNamespace, sc.Status.ProjectId+"-group-secret")}: {sc.ObjectKey()},
 	}
 
 	assert.Equal(t, reconciler.resourceWatcher.GetWatchedResources(), expected)
@@ -1562,6 +1602,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 
 	addKubernetesTlsResources(ctx, clusterClient, sc)
 	checkReconcileSuccessful(ctx, t, reconciler, sc, clusterClient)
+	require.NoError(t, clusterClient.Get(ctx, sc.ObjectKey(), sc))
 
 	expectedWatchedResources := []watch.Object{
 		getWatch(sc.Namespace, sc.Name+"-config-cert", watch.Secret),
@@ -1573,6 +1614,7 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 		getWatch(sc.Namespace, "custom-ca", watch.ConfigMap),
 		getWatch(sc.Namespace, "my-credentials", watch.Secret),
 		getWatch(sc.Namespace, "my-project", watch.ConfigMap),
+		getWatch(sc.Namespace, sc.Status.ProjectId+"-group-secret", watch.Secret),
 	}
 
 	var actual []watch.Object
@@ -1592,7 +1634,11 @@ func TestShardedClusterTLSAndInternalAuthResourcesWatched(t *testing.T) {
 	res, err := reconciler.Reconcile(ctx, requestFromObject(sc))
 	assert.Equal(t, reconcile.Result{RequeueAfter: 10 * time.Second}, res)
 	assert.NoError(t, err)
-	assert.Len(t, reconciler.resourceWatcher.GetWatchedResources(), 2)
+	assert.Equal(t, map[watch.Object][]types.NamespacedName{
+		getWatch(sc.Namespace, "my-credentials", watch.Secret):                    {sc.ObjectKey()},
+		getWatch(sc.Namespace, "my-project", watch.ConfigMap):                     {sc.ObjectKey()},
+		getWatch(sc.Namespace, sc.Status.ProjectId+"-group-secret", watch.Secret): {sc.ObjectKey()},
+	}, reconciler.resourceWatcher.GetWatchedResources())
 }
 
 func TestBackupConfiguration_ShardedCluster(t *testing.T) {
@@ -3279,6 +3325,10 @@ func TestApplySearchParametersForShards_AuthGateAllRoutingModes(t *testing.T) {
 	}
 
 	sc := test.DefaultClusterBuilder().Build()
+	// The source must have authentication enabled for a SCRAM search to be wired: a
+	// disabled source configures none of the modes it lists.
+	sc.Spec.Security.Authentication.Enabled = true
+	sc.Spec.Security.Authentication.Modes = []mdbv1.AuthMode{mdbv1.AuthMode("SCRAM")}
 	oidcModes := []struct {
 		name string
 		lb   *searchv1.LoadBalancerConfig
