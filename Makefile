@@ -315,14 +315,14 @@ undeploy:
 # Generate manifests e.g. CRD etc.
 # Uses a sentinel file so Make skips regeneration when api/ sources are unchanged. (the step takes a few second)
 CRD_SENTINEL := .generated/crd.sentinel
-API_SOURCES := $(shell find api -name "*.go")
+API_SOURCES := $(shell find api mongodb-community-operator/api -name "*.go")
 
 manifests: $(CRD_SENTINEL)
 
 $(CRD_SENTINEL): $(API_SOURCES) | controller-gen
 	@echo "API sources changed. Regenerating CRDs..."
 	@mkdir -p .generated
-	export PATH="$(PATH)"; export GOROOT=$(GOROOT); $(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./api/... output:crd:artifacts:config=config/crd/bases
+	export PATH="$(PATH)"; export GOROOT=$(GOROOT); $(CONTROLLER_GEN) $(CRD_OPTIONS) paths="{./api/...,./mongodb-community-operator/api/...}" output:crd:artifacts:config=config/crd/bases
 	cp config/crd/bases/* helm_chart/crds/
 	cat "helm_chart/crds/"* > public/crds.yaml
 	@touch $(CRD_SENTINEL)
