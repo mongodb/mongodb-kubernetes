@@ -1,4 +1,12 @@
-from scripts.release.pipeline import branch_latest_tag_for
+from scripts.release import atomic_pipeline
+from scripts.release.build.build_info import MONGODB_PROXY_IMAGE
+from scripts.release.pipeline import branch_latest_tag_for, get_builder_function_for_image_name
+
+
+class TestGetBuilderFunctionForImageName:
+    def test_mongodb_proxy_uses_the_atomic_builder(self):
+        builders = get_builder_function_for_image_name()
+        assert builders[MONGODB_PROXY_IMAGE] is atomic_pipeline.build_image
 
 
 class TestBranchLatestTagFor:
