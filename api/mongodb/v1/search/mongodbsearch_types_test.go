@@ -11,6 +11,7 @@ import (
 
 	v1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
+	userv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/user"
 )
 
 func TestReplicasOrDefault(t *testing.T) {
@@ -762,6 +763,48 @@ func TestIsMetricsForwarderEnabled(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.search.IsMetricsForwarderEnabled())
+		})
+	}
+}
+
+func TestIsSCRAMAuth(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   *MongoDBSource
+		expected bool
+	}{
+		{
+			name:     "no source: POC fallback syncs from the same-named MongoDB with the default sync user",
+			source:   nil,
+			expected: true,
+		},
+		{
+			name:     "source with no explicit auth block",
+			source:   &MongoDBSource{MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb"}},
+			expected: true,
+		},
+		{
+			name: "x509 auth",
+			source: &MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb"},
+				X509:               &X509Auth{ClientCertificateSecret: corev1.LocalObjectReference{Name: "x509-cert"}},
+			},
+			expected: false,
+		},
+		{
+			name: "oidc auth",
+			source: &MongoDBSource{
+				MongoDBResourceRef: &userv1.MongoDBResourceRef{Name: "mdb"},
+				OIDC:               &OIDCAuth{ClientSecretRef: userv1.SecretKeyRef{Name: "oidc-client-secret"}},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			search := MongoDBSearch{Spec: MongoDBSearchSpec{Source: tt.source}}
+			assert.Equal(t, tt.expected, search.IsSCRAMAuth())
 		})
 	}
 }

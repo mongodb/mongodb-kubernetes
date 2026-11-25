@@ -230,6 +230,20 @@ func (r *MongoDBSearchReconciler) Reconcile(ctx context.Context, request reconci
 		}
 	}
 
+	// Reconcile when the SCRAM sync-source password changes.
+	if mdbSearch.IsSCRAMAuth() {
+		ref := mdbSearch.SourceUserPasswordSecretRef()
+		r.watch.AddWatchedResourceIfNotAdded(ref.Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
+
+	// Reconcile when a user-provided client certificate rotates.
+	if mdbSearch.IsX509Auth() {
+		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.X509ClientCertSecret().Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
+	if mdbSearch.HasScramClientCert() {
+		r.watch.AddWatchedResourceIfNotAdded(mdbSearch.ScramClientCertSecret().Name, mdbSearch.Namespace, watch.Secret, mdbSearch.NamespacedName())
+	}
+
 	// Watch the user-provided OIDC client secret and IdP CA ConfigMap so rotating either
 	// triggers a reconcile: both are mounted directly, and only a reconcile recomputes their
 	// content hashes to roll the mongot pods (the callback reads idpCaFile once at startup).

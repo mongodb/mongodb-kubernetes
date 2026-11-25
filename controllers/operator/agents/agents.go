@@ -43,7 +43,7 @@ const RollingChangeArgs = "RollingChangeArgs"
 // We need to return the key, because in case it was generated here it has to be passed back on an agentKey argument when we're executing the
 // function over multiple clusters.
 func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.SecretClient, agentKeyGenerator om.AgentKeyGenerator, namespace, agentKey, projectId, basePath string, log *zap.SugaredLogger) (string, error) {
-	secretName := ApiKeySecretName(projectId)
+	secretName := mdbv1.AgentAPIKeySecretName(projectId)
 	log = log.With("secret", secretName)
 	agentKeySecret, err := secretClient.ReadSecret(ctx, kube.ObjectKey(namespace, secretName), basePath)
 	if err != nil {
@@ -76,12 +76,6 @@ func EnsureAgentKeySecretExists(ctx context.Context, secretClient secrets.Secret
 	}
 
 	return agentKeySecret[util.OmAgentApiKey], nil
-}
-
-// ApiKeySecretName for a given ProjectID (`project`) returns the name of
-// the secret associated with it.
-func ApiKeySecretName(project string) string {
-	return fmt.Sprintf("%s-group-secret", project)
 }
 
 // WaitForRsAgentsToRegister waits until all the agents associated with the given StatefulSet have registered with Ops Manager.

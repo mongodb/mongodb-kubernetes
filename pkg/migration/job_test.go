@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	mdbv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/mdb"
+	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/container"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
@@ -571,4 +572,23 @@ func TestBuildJobFromStatefulSet_SecurityContext(t *testing.T) {
 	podSpec = job.Spec.Template.Spec
 	assert.Nil(t, podSpec.SecurityContext)
 	assert.Nil(t, podSpec.Containers[0].SecurityContext)
+}
+
+func TestBuildJobFromStatefulSet_ExcludesAgentStartupVolumes(t *testing.T) {
+	sts := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+		Volumes: []corev1.Volume{
+			{Name: util.ClusterFileName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-clusterfile"}}},
+			{Name: construct.AgentSettingsVolume, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "my-rs-agent-settings"}}}},
+			{Name: construct.AgentAPIKeyVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "my-rs-agent-api-key"}}},
+		},
+		Containers: []corev1.Container{{VolumeMounts: []corev1.VolumeMount{
+			{Name: util.ClusterFileName, MountPath: "/var/run/credentials", ReadOnly: true},
+			{Name: construct.AgentSettingsVolume, MountPath: construct.AgentSettingsPath, ReadOnly: true},
+			{Name: construct.AgentAPIKeyVolumeName, MountPath: construct.AgentAPIKeySecretPath},
+		}}},
+	}}}}
+	rs := &mdbv1.MongoDB{ObjectMeta: metav1.ObjectMeta{Name: "my-rs", Namespace: "default"}}
+	job := BuildJobFromStatefulSet(rs, sts, "img", "mongodb://host:27017/?replicaSet=my-rs", nil, util.AutomationConfigScramSha256Option, "", "")
+	require.Len(t, job.Spec.Template.Spec.Volumes, 1)
+	assert.Equal(t, util.ClusterFileName, job.Spec.Template.Spec.Volumes[0].Name)
 }
