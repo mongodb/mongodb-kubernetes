@@ -143,6 +143,11 @@ agent-image:
 agent-image-slow:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py --parallel-factor 1 agent -b patch -v current
 
+# builds the Agent image from a local mms-automation checkout, tagged with its PR.
+# Override the checkout with SOURCE= and the tag with TAG=.
+agent-image-local:
+	@ scripts/dev/run_python.sh scripts/release/pipeline.py agent -b patch --local --tag "$(TAG)" --agent-source "$(SOURCE)"
+
 operator-image:
 	@ scripts/dev/run_python.sh scripts/release/pipeline.py operator -b patch -v $(DEV_VERSION)
 

@@ -34,19 +34,26 @@ ARG mongodb_agent_version_s390x
 ARG mongodb_agent_version_ppc64le
 ARG mongodb_agent_version_amd64
 ARG mongodb_agent_version_arm64
+# Optional path (relative to the build context) of a local agent tarball. When set, the download is skipped.
+ARG mongodb_agent_local_tarball=""
 
 RUN microdnf -y update --nodocs \
   && microdnf -y install --nodocs tar gzip \
   && microdnf clean all
 
-RUN case ${TARGETPLATFORM} in \
+RUN --mount=type=bind,source=.,target=/mnt/build-context,ro \
+    case ${TARGETPLATFORM} in \
      "linux/amd64")   export MONGODB_AGENT_VERSION=${mongodb_agent_version_amd64}    ;; \
      "linux/arm64")   export MONGODB_AGENT_VERSION=${mongodb_agent_version_arm64}    ;; \
      "linux/s390x")   export MONGODB_AGENT_VERSION=${mongodb_agent_version_s390x}    ;; \
      "linux/ppc64le") export MONGODB_AGENT_VERSION=${mongodb_agent_version_ppc64le}  ;; \
   esac \
     && mkdir -p /agent \
-    && curl -o /agent/mongodb_agent.tgz "${mongodb_agent_url}/${MONGODB_AGENT_VERSION}"
+    && if [ -f "/mnt/build-context/${mongodb_agent_local_tarball}" ]; then \
+         cp "/mnt/build-context/${mongodb_agent_local_tarball}" /agent/mongodb_agent.tgz; \
+       else \
+         curl -o /agent/mongodb_agent.tgz "${mongodb_agent_url}/${MONGODB_AGENT_VERSION}"; \
+       fi
 
 RUN tar xfz /agent/mongodb_agent.tgz \
     && mv mongodb-mms-automation-agent-*/mongodb-mms-automation-agent /agent/mongodb-agent \

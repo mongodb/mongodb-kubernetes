@@ -1,7 +1,11 @@
 import argparse
+import json
 import os
 import re
+import subprocess
+import tempfile
 from functools import partial
+from pathlib import Path
 from typing import Callable, Dict, Optional
 
 from opentelemetry import context, trace
@@ -28,6 +32,8 @@ from scripts.release.atomic_pipeline import (
     build_operator_image,
     build_readiness_probe_image,
     build_upgrade_hook_image,
+    extract_tools_version_from_release,
+    load_release_file,
 )
 from scripts.release.build.build_info import (
     AGENT_IMAGE,
@@ -187,8 +193,87 @@ def image_build_config_from_args(args) -> ImageBuildConfiguration:
         architecture_suffix=architecture_suffix,
         agent_tools_version=agent_tools_version,
         custom_agent_url=args.custom_agent_url,
+        custom_agent_tarball=args.custom_agent_tarball,
         om_download_url=args.om_download_url,
     )
+
+
+# Local Agent builds (--local). The tarball comes from an mms-automation checkout and the image tag from its pull request.
+
+LOCAL_AGENT_TARGEN_IMAGE = "mck-local-agent-targen:latest"
+LOCAL_AGENT_TARGEN_BASE_IMAGE = "registry.access.redhat.com/ubi8/ubi:latest"
+LOCAL_AGENT_PLATFORM = "linux/amd64"
+
+
+def local_agent_source(explicit: str) -> Path:
+    """Return the mms-automation checkout: --agent-source, else the sibling directory."""
+    source = Path(explicit).expanduser() if explicit else Path(__file__).resolve().parents[2].parent / "mms-automation"
+    if not (source / "docker" / "Dockerfile.targen").is_file():
+        raise ValueError(f"'{source}' is not an mms-automation checkout; pass --agent-source")
+    return source
+
+
+def local_agent_tag(source: Path, explicit: str) -> str:
+    """Return the image tag: --tag, else <pr-number>-<branch> from the checkout's open pull request."""
+    if explicit:
+        tag = explicit
+    else:
+        pr = json.loads(
+            subprocess.check_output(["gh", "pr", "view", "--json", "number,headRefName,state"], cwd=source, text=True)
+        )
+        if pr["state"] != "OPEN":
+            raise ValueError(f"no open pull request for '{source}'; pass --tag")
+        tag = f"{pr['number']}-{pr['headRefName']}"
+    return re.sub(r"[^A-Za-z0-9_.-]", "-", tag).lstrip(".-")[:128].rstrip(".-")
+
+
+def local_agent_tarball(source: Path) -> Path:
+    """Build the agent tarball from the checkout in a Linux container and return its path."""
+    logger.info(f"Building the agent tarball from {source} (this takes several minutes)")
+    workdir = Path(tempfile.mkdtemp(prefix="mck-local-agent-"))
+    token = os.environ.get("GITHUB_TOKEN") or subprocess.check_output(["gh", "auth", "token"], text=True).strip()
+    subprocess.run(
+        [
+            "docker",
+            "buildx",
+            "build",
+            "--load",
+            "--provenance=false",
+            "-f",
+            str(source / "docker" / "Dockerfile.targen"),
+            "--secret",
+            "id=github_token,env=GITHUB_TOKEN",
+            "--build-arg",
+            f"BASE_IMAGE={LOCAL_AGENT_TARGEN_BASE_IMAGE}",
+            "--build-arg",
+            "TAR_PATH=/agent.tar.gz",
+            "--platform",
+            LOCAL_AGENT_PLATFORM,
+            "-t",
+            LOCAL_AGENT_TARGEN_IMAGE,
+            str(source),
+        ],
+        check=True,
+        env={**os.environ, "GITHUB_TOKEN": token},
+    )
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--entrypoint",
+            "sh",
+            "-v",
+            f"{workdir}:/out",
+            LOCAL_AGENT_TARGEN_IMAGE,
+            "-c",
+            "cp /src/build/build/mongodb-mms-automation-agent-*.tar.gz /out/",
+        ],
+        check=True,
+    )
+    tarball = next(workdir.glob("mongodb-mms-automation-agent-*.tar.gz"))
+    logger.info(f"Agent tarball: {tarball}")
+    return tarball
 
 
 def _setup_tracing():
@@ -333,6 +418,27 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
         help="Custom agent URL for testing. Overrides the prod agent download URL.",
     )
     parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Build the Agent image from a local mms-automation checkout, tagged with its pull request.",
+    )
+    parser.add_argument(
+        "--tag",
+        metavar="",
+        action="store",
+        type=str,
+        default="",
+        help="Image tag for --local builds (default: <pr-number>-<branch> of the checkout).",
+    )
+    parser.add_argument(
+        "--agent-source",
+        metavar="",
+        action="store",
+        type=str,
+        default="",
+        help="mms-automation checkout for --local builds (default: ../mms-automation).",
+    )
+    parser.add_argument(
         "--om-download-url",
         metavar="",
         action="store",
@@ -342,6 +448,15 @@ Options: {", ".join(SUPPORTED_SCENARIOS)}. For '{BuildScenario.DEVELOPMENT}' the
     )
 
     args = parser.parse_args()
+
+    args.custom_agent_tarball = None
+    if args.local:
+        if args.image != "agent":
+            raise ValueError("--local is only supported for the agent image")
+        source = local_agent_source(args.agent_source)
+        args.custom_agent_tarball = str(local_agent_tarball(source))
+        args.version = local_agent_tag(source, args.tag)
+        args.agent_tools_version = extract_tools_version_from_release(load_release_file())
 
     build_config = image_build_config_from_args(args)
     logger.info(f"Building image: {args.image}")

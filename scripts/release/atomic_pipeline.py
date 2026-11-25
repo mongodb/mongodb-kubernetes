@@ -6,8 +6,10 @@ and where to fetch and calculate parameters."""
 import datetime
 import json
 import os
+import shutil
 from concurrent.futures import ProcessPoolExecutor
 from copy import copy
+from pathlib import Path
 from queue import Queue
 from typing import Dict, Optional, Tuple
 
@@ -344,6 +346,15 @@ def build_agent(build_configuration: ImageBuildConfiguration):
         agent_versions_to_build = [(agent_version_from_custom_url(build_configuration.custom_agent_url), tools_version)]
         logger.info(f"building only the custom Agent from {build_configuration.custom_agent_url}")
 
+    if build_configuration.custom_agent_tarball:
+        tools_version = build_configuration.agent_tools_version or extract_tools_version_from_release(
+            load_release_file()
+        )
+        agent_versions_to_build = [
+            (agent_version_from_custom_url(build_configuration.custom_agent_tarball), tools_version)
+        ]
+        logger.info(f"building only the custom Agent from {build_configuration.custom_agent_tarball}")
+
     if not agent_versions_to_build:
         logger.warning("No agent versions found to build")
         return
@@ -394,6 +405,31 @@ def build_agent_pipeline(
     print(
         f"======== Building agent pipeline for version {agent_version}, build configuration version: {build_configuration.version}"
     )
+
+    custom_agent_tarball = build_configuration_copy.custom_agent_tarball or ""
+    if custom_agent_tarball:
+        # The tarball version labels the image; the caller's version is the image tag.
+        build_configuration_copy.version = build_configuration.version
+        build_configuration_copy.skip_if_exists = False
+        tag = f"{build_configuration_copy.get_registries()[0]}:{build_configuration_copy.version}"
+        if build_configuration_copy.builder.check_if_image_exists(tag):
+            logger.warning(f"Image {tag} already exists; overwriting it")
+        context_tarball = Path(".local-agent-tarball.tar.gz")
+        shutil.copy2(custom_agent_tarball, context_tarball)
+        try:
+            build_image(
+                build_configuration=build_configuration_copy,
+                build_args={
+                    "version": agent_version,
+                    "agent_version": agent_version,
+                    "mongodb_agent_local_tarball": context_tarball.name,
+                    "mongodb_tools_url": "https://fastdl.mongodb.org/tools/db",
+                    **generate_tools_build_args(build_configuration_copy.platforms, tools_version),
+                },
+            )
+        finally:
+            context_tarball.unlink(missing_ok=True)
+        return
 
     custom_agent_url = build_configuration_copy.custom_agent_url or ""
     if custom_agent_url:
