@@ -19,7 +19,6 @@ include:
   - filename: .evergreen-tasks.yml
   - filename: .evergreen-mco.yml
   - filename: .evergreen-snippets.yml
-  - filename: .evergreen-release.yml
   - filename: .evergreen-release-publish.yml
 
 variables:
@@ -30,7 +29,7 @@ variables:
     paths:
       - "**"
       - "!ci/**" # CI tooling that is fully unit-tests covered and should not affect prod
-      - "!.evergreen-release.yml" # Prevent the release config itself from triggering E2E on PR
+      - "!.evergreen-release-publish.yml" # Prevent the release config itself from triggering E2E on PR
 
   - &ops_manager_60_latest 6.0.27 # The order/index is important, since these are anchors. Please do not change
 
@@ -366,10 +365,6 @@ patch_aliases:
     description: "Run race detector variants"
     variant_tags: [ "race" ]
     task: ".*"
-  - alias: "deprecated-release"
-    description: "Legacy release process (rebuilds and retests before publishing)"
-    variant_tags: [ "deprecated-release" ]
-    task: ".*"
   - alias: "release-publish"
     description: "New release process (publishes already-promoted images without rebuilding)"
     variant_tags: [ "release-publish" ]
@@ -452,12 +447,10 @@ github_checks_aliases:
   - variant: ".*"
     task: ".*"
 
-# Triggered on git tag. A decider task inspects the tag annotation:
-# "[new]" → release-publish pipeline, otherwise → deprecated-release.
-# The decider creates an Evergreen patch via the matching alias.
+# Triggered on version git tags; run the publish-only release pipeline.
 git_tag_aliases:
   - git_tag: "^1\\.\\d+\\.\\d+$" # Bump with major releases
-    variant_tags: [ "release-decider" ]
+    variant_tags: [ "release-publish" ]
     task: ".*"
 
 tasks:

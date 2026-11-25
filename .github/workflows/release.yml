@@ -1,7 +1,6 @@
 # Release process: publishes the images already promoted for a given commit.
 #
-# The annotation message prefix "[new]... " signals that this tag should be
-# processed by the new release-publish pipeline.
+# Matching version tags trigger the publish-only release pipeline.
 name: Release MCK version (publish-only)
 
 permissions:
@@ -91,7 +90,7 @@ jobs:
             TAG_NAME="test-$VERSION"
             latest_args=()
           fi
-          annotation="[new] Release of MCK $VERSION"
+          annotation="Release of MCK $VERSION"
           git tag -a "$TAG_NAME" -m "${annotation}" "$COMMIT_SHA"
           git push origin "$TAG_NAME"
           gh release create "$TAG_NAME" --target "$COMMIT_SHA" --verify-tag --draft "${latest_args[@]}" --notes-file release_notes_final.md --title "Release of MCK $VERSION"

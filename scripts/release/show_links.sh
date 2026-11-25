@@ -24,9 +24,8 @@ evergreen)
     echo ""
     echo "Once the Evergreen publish pipeline completes successfully, approve the next job to continue."
     echo "In case you need to kick the patch manually:"
-    echo "  evergreen patch -p ${EVERGREEN_PROJECT} -v release_decider_patch \\"
-    echo "    -t decide_release_process -d \"Release version ${VERSION}\" \\"
-    echo "    -f -y -u --path .evergreen.yml \\"
+    echo "  evergreen patch -p ${EVERGREEN_PROJECT} -a release-publish --path .evergreen.yml \\"
+    echo "    -d \"Release version ${VERSION}\" -f -y -u \\"
     echo "    --param BUILD_SCENARIO=release --param triggered_by_git_tag=${VERSION} \\"
     echo "    --param target_commit=${COMMIT_SHA}"
     ;;

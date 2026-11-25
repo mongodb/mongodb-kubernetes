@@ -38,7 +38,6 @@ variables:
       - REGISTRY  # patch param: dryrun-release destination override, consumed by scripts/dev/contexts/evg-private-context
       - requester
       - task_name
-      - tag_description_override  # only used for "[new]" pipeline selection by decide_release_process
       - triggered_by_git_tag
       - version_id
       - workdir
