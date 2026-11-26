@@ -403,6 +403,22 @@ def om_pod_uids(ops_manager: MongoDBOpsManager) -> dict[str, str]:
     return {pod.metadata.name: pod.metadata.uid for _, pod in ops_manager.read_om_pods()}
 
 
+def backup_pod_uids(ops_manager: MongoDBOpsManager) -> dict[str, str]:
+    return {pod.metadata.name: pod.metadata.uid for _, pod in ops_manager.read_backup_pods()}
+
+
+def _pods_replaced(pods: list, previous_uids: dict[str, str], kind: str) -> tuple[bool, str]:
+    for pod in pods:
+        if pod.metadata.deletion_timestamp is not None:
+            return False, f"{pod.metadata.name} is terminating"
+        if pod.metadata.uid == previous_uids.get(pod.metadata.name):
+            return False, f"{pod.metadata.name} was not recreated yet"
+        statuses = pod.status.container_statuses or []
+        if not statuses or not all(status.ready for status in statuses):
+            return False, f"{pod.metadata.name} is not ready"
+    return True, f"every {kind} pod was recreated"
+
+
 def wait_for_om_pods_replaced(ops_manager: MongoDBOpsManager, previous_uids: dict[str, str], timeout: int = 1800):
     """Waits until every Ops Manager pod was recreated and is ready."""
 
@@ -413,15 +429,29 @@ def wait_for_om_pods_replaced(ops_manager: MongoDBOpsManager, previous_uids: dic
             if exception.status == 404:
                 return False, "an Ops Manager pod is being recreated"
             raise
-        for pod in pods:
-            if pod.metadata.uid == previous_uids.get(pod.metadata.name):
-                return False, f"{pod.metadata.name} was not recreated yet"
-            statuses = pod.status.container_statuses or []
-            if not statuses or not all(status.ready for status in statuses):
-                return False, f"{pod.metadata.name} is not ready"
-        return True, "every Ops Manager pod was recreated"
+        return _pods_replaced(pods, previous_uids, "Ops Manager")
 
     run_periodically(replaced, timeout=timeout, sleep_time=10, msg="Ops Manager pods to roll")
+
+
+def wait_for_backup_pods_replaced(ops_manager: MongoDBOpsManager, previous_uids: dict[str, str], timeout: int = 1800):
+    """Waits until every backup daemon pod was recreated and is ready.
+
+    A queryable.pem change rolls the backup daemon too, and its termination grace period is 70
+    minutes. The snapshot mount runs on the daemon, so a query issued while the old pod is still
+    terminating never leaves the mounting state.
+    """
+
+    def replaced() -> tuple[bool, str]:
+        try:
+            pods = [pod for _, pod in ops_manager.read_backup_pods()]
+        except ApiException as exception:
+            if exception.status == 404:
+                return False, "a backup daemon pod is being recreated"
+            raise
+        return _pods_replaced(pods, previous_uids, "backup daemon")
+
+    run_periodically(replaced, timeout=timeout, sleep_time=10, msg="backup daemon pods to roll")
 
 
 def wait_for_om_pem_key_file(ops_manager: MongoDBOpsManager, pem_hash: str, timeout: int = 900):

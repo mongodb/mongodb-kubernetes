@@ -6,8 +6,8 @@ queryable.pem Secret (leaf, key and the CA bundle) that Ops Manager and the back
 
 After taking a snapshot it:
 - renews the leaf on the same CA, and checks queryable.pem and the snapshot query follow;
-  Ops Manager loads queryable.pem into its query proxy only at startup, so every queryable.pem
-  change must roll the Ops Manager pods;
+  Ops Manager loads queryable.pem into its query proxy only at startup, and the backup daemon
+  mounts the snapshot, so every queryable.pem change must roll both before the next query;
 - rotates the self-signed CA, and checks the bundle and queryable.pem keep the previous CA while
   the old leaf is still served, without touching the Ops Manager or AppDB bundles;
 - waits for the operator to re-issue the leaf on the new CA, and checks the query is then trusted
@@ -31,6 +31,7 @@ from tests.opsmanager.managedcert_backup_rotation_helper import (
     assert_issued_after_bundle_propagation,
     assert_snapshot_query_rejected,
     backup_ca_bundle,
+    backup_pod_uids,
     leaf_issuance,
     om_pod_uids,
     other_component_bundles,
@@ -38,6 +39,7 @@ from tests.opsmanager.managedcert_backup_rotation_helper import (
     queryable_backup_ops_manager,
     queryable_pem,
     unrelated_ca_pem,
+    wait_for_backup_pods_replaced,
     wait_for_leaf_reissued,
     wait_for_om_pods_replaced,
     wait_for_queryable_pem,
@@ -189,6 +191,7 @@ class TestQueryableBackupManagedCertificateRotation:
         renewal_before = wait_for_renewal_status_matching_certificate(ops_manager, "backup", names.leaf_certificate)
         ca = read_secret(namespace, names.ca_certificate)["tls.crt"]
         om_pods_before = om_pod_uids(ops_manager)
+        backup_pods_before = backup_pod_uids(ops_manager)
 
         trigger_certificate_renewal(namespace, names.leaf_certificate)
         _, renewed_leaf = wait_for_leaf_reissued(namespace, names.leaf_certificate, revision, leaf)
@@ -206,7 +209,10 @@ class TestQueryableBackupManagedCertificateRotation:
             ops_manager, "backup", names.leaf_certificate, newer_than=renewal_before["notAfter"]
         )
         # The query proxy keeps the queryable.pem it loaded at startup, the renewed leaf needs new pods.
+        # The snapshot mount runs on the backup daemon, which rolls on the same hash and takes its
+        # 70-minute termination grace period to exit.
         wait_for_om_pods_replaced(ops_manager, om_pods_before)
+        wait_for_backup_pods_replaced(ops_manager, backup_pods_before)
         ops_manager.backup_status().assert_reaches_phase(Phase.Running, timeout=900)
         ops_manager.om_status().assert_reaches_phase(Phase.Running, timeout=900)
 
@@ -227,6 +233,7 @@ class TestQueryableBackupManagedCertificateRotation:
         rotation["pem"] = queryable_pem(namespace, names)
         bundle = ca_bundle_snapshot(namespace, names.ca_bundle_config_map, CA_BUNDLE_KEY)
         om_pods_before = om_pod_uids(ops_manager)
+        backup_pods_before = backup_pod_uids(ops_manager)
 
         rotation["old_ca"] = begin_ca_rotation(namespace, names.ca_certificate)
         rotation["new_ca"] = wait_for_ca_rotated(namespace, names.ca_certificate, rotation["old_ca"])
@@ -250,6 +257,7 @@ class TestQueryableBackupManagedCertificateRotation:
             assert other_component_bundles(namespace, ops_manager) == rotation["other_bundles"]
             wait_for_component_certificates_ready_message(ops_manager, "Backup", PREVIOUS_SERVER_CA_RETAINED)
             wait_for_om_pods_replaced(ops_manager, om_pods_before)
+            wait_for_backup_pods_replaced(ops_manager, backup_pods_before)
             _query(ops_manager, project_name, backed_up_mongodb, rotation["old_ca"])
 
             # Pausing issuance must not hide an operator that requested reissue too early.
@@ -318,6 +326,7 @@ class TestQueryableBackupManagedCertificateRotation:
     ):
         """Pruning the backup CA drops the old root from the bundle and from queryable.pem."""
         om_pods_before = om_pod_uids(ops_manager)
+        backup_pods_before = backup_pod_uids(ops_manager)
         request_prune_previous_ca(ops_manager, "backup")
         wait_for_prune_annotation_removed(ops_manager)
 
@@ -339,8 +348,10 @@ class TestQueryableBackupManagedCertificateRotation:
             ops_manager, "Backup", PREVIOUS_SERVER_CA_RETAINED, present=False, timeout=900
         )
         wait_for_certificates_ready(ops_manager)
-        # The pruned queryable.pem rolls the Ops Manager pods; the rejection below must not meet a roll.
+        # The pruned queryable.pem rolls the Ops Manager and backup daemon pods; the query below must
+        # not meet a roll.
         wait_for_om_pods_replaced(ops_manager, om_pods_before)
+        wait_for_backup_pods_replaced(ops_manager, backup_pods_before)
 
         _query(ops_manager, project_name, backed_up_mongodb, backup_ca_bundle(namespace, names))
         _assert_query_rejected(ops_manager, project_name, backed_up_mongodb, rotation["old_ca"])
