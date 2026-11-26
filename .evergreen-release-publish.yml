@@ -21,7 +21,7 @@ tasks:
           args:
             - scripts/evergreen/publish_images.sh
 
-  - name: run_conditionally_prepare_and_upload_openshift_bundles
+  - name: prepare_and_upload_openshift_bundles
     tags: [ "openshift_bundles" ]
     allowed_requesters: [ "patch", "github_tag" ]
     commands:
@@ -29,23 +29,14 @@ tasks:
       - func: setup_aws
       - func: configure_docker_auth
       - func: setup_prepare_openshift_bundles
-      - func: prepare_openshift_bundles
-      - func: update_evergreen_expansions
-      - func: upload_openshift_bundle
-        vars:
-          # mongoDbOperator expansion is added in update_evergreen_expansions func from release.json
-          bundle_file_name: "mck-operator-certified-${mongodbOperator}.tgz"
-
-  - name: run_conditionally_prepare_and_upload_openshift_bundles
-    tags: [ "openshift_bundles" ]
-    allowed_requesters: [ "patch", "github_tag" ]
-    commands:
-      - func: clone
-      - func: run_task_conditionally
-        vars:
-          condition_script: scripts/evergreen/should_prepare_openshift_bundles.sh
-          variant: prepare_openshift_bundles
-          task: prepare_and_upload_openshift_bundles
+      - command: shell.exec
+        params:
+          shell: bash
+          working_dir: src/github.com/mongodb/mongodb-kubernetes
+          include_expansions_in_env:
+            - enterprise_aws_access_key_id
+            - enterprise_aws_secret_access_key
+          script: scripts/evergreen/ensure_openshift_bundle_ready.sh
 
   - name: publish_openshift_bundles_to_rh
     tags: [ "openshift_bundles" ]
@@ -114,8 +105,8 @@ buildvariants:
       - name: preflight_release_operator_images_task_group
 
   # Prepares the OpenShift bundle for this version if it doesn't already
-  # exist in S3 (see should_prepare_openshift_bundles.sh). No image rebuild:
-  # reads the version from release.json.
+  # exist in S3. This is a single statically scheduled task: it only succeeds
+  # after the bundle is present, so the RH publisher cannot race an upload.
   - name: prepare_openshift_bundles
     display_name: prepare_openshift_bundles
     tags: [ "release-publish" ]
@@ -128,7 +119,7 @@ buildvariants:
       - name: "*"
         variant: preflight_released_images
     tasks:
-      - name: run_conditionally_prepare_and_upload_openshift_bundles
+      - name: prepare_and_upload_openshift_bundles
 
   # Opens a PR against the Red Hat forks with the bundle prepared above. The
   # code only pushes branches to forks; the PR to Red Hat is manually created by the release operator.
