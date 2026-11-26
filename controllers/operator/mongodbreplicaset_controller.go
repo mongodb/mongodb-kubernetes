@@ -405,7 +405,7 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 		currentAgentAuthMode:      currentAgentAuthMode,
 		managedServerCABundleHash: managedServerCABundleHash,
 		managedClientCABundleHash: managedClientCABundleHash,
-		agentCredentialHash:  agentCredentialHash,
+		agentCredentialHash:       agentCredentialHash,
 	}
 
 	// 3. Search Overrides
@@ -589,7 +589,7 @@ type deploymentOptionsRS struct {
 	internalClusterCertHash string
 	agentCertPath           string
 	agentCertHash           string
-	agentCredentialHash  string
+	agentCredentialHash     string
 	prometheusCertHash      string
 	currentAgentAuthMode    string
 	// managedServerCABundleHash and managedClientCABundleHash are the hashes of the managed CA

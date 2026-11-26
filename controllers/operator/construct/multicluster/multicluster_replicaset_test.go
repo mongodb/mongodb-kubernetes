@@ -109,7 +109,7 @@ func TestMultiClusterStatefulSet(t *testing.T) {
 	})
 	t.Run("agent settings are applied after the override merge", func(t *testing.T) {
 		mdbm := getMultiClusterMongoDB()
-		sts := MultiClusterStatefulSet(mdbm, MultiClusterReplicaSetOptions(WithClusterNum(0), WithMemberCount(3), construct.GetPodEnvOptions()))
+		sts := MultiClusterStatefulSet(mdbm, MultiClusterReplicaSetOptions(WithClusterNum(0), WithMemberCount(3), construct.GetPodEnvOptions()), zap.NewNop().Sugar())
 		agent := construct.AgentContainer(sts)
 		require.NotNil(t, agent)
 		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: construct.AgentSettingsVolume, MountPath: construct.AgentSettingsPath, ReadOnly: true})

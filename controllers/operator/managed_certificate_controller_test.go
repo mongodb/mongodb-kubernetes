@@ -344,7 +344,7 @@ func TestPublishAutomationConfigFirstOnManagedCABundleChange(t *testing.T) {
 				ManagedServerCABundleHash: tc.serverHash,
 			}
 			config := func(mdb mdbv1.MongoDB) operatorConstruct.DatabaseStatefulSetOptions { return opts }
-			assert.Equal(t, tc.want, publishAutomationConfigFirst(ctx, kubeClient, *rs, nil, config, architectures.NonStatic, zap.S()))
+			assert.Equal(t, tc.want, publishAutomationConfigFirst(ctx, kubeClient, *rs, nil, config(*rs), architectures.NonStatic, zap.S()))
 		})
 	}
 }

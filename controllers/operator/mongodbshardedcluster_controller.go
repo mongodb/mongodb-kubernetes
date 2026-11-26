@@ -1518,20 +1518,21 @@ type automationConfigOrder struct {
 // the automation config published before Kubernetes resources are updated. It also reports whether
 // that need comes from a managed CA bundle change, which requires a publish-without-waiting pass
 // before the pods are replaced.
-func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, kubeClient kubernetesClient.Client, lastSpec *mdbv1.MongoDbSpec, configs []func(mdb mdbv1.MongoDB) construct.DatabaseStatefulSetOptions, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (automationConfigOrder, error) {
+func anyStatefulSetNeedsToPublishStateToOM(ctx context.Context, sc mdbv1.MongoDB, lastSpec *mdbv1.MongoDbSpec, configs []shardedStatefulSetConfig, defaultArchitecture architectures.DefaultArchitecture, log *zap.SugaredLogger) (automationConfigOrder, error) {
 	var order automationConfigOrder
 	if isLegacyTLSAdoption(lastSpec, sc.GetSecurity()) {
 		return order, nil
 	}
 	for _, cfg := range configs {
-		changed, err := managedCABundleHashChangeRequiresAutomationConfigFirst(ctx, kubeClient, sc, cfg(sc))
+		opts := cfg.options(sc)
+		changed, err := managedCABundleHashChangeRequiresAutomationConfigFirst(ctx, cfg.client, sc, opts)
 		if err != nil {
 			return order, err
 		}
 		if changed {
 			return automationConfigOrder{publishFirst: true, managedCABundleChange: true}, nil
 		}
-		if !order.publishFirst && publishAutomationConfigFirst(ctx, kubeClient, sc, lastSpec, cfg(sc), defaultArchitecture, log) {
+		if !order.publishFirst && publishAutomationConfigFirst(ctx, cfg.client, sc, lastSpec, opts, defaultArchitecture, log) {
 			order.publishFirst = true
 		}
 	}

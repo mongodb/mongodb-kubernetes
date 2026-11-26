@@ -3060,7 +3060,7 @@ func TestReplicaSetMissingInputsDoesNotAddFinalizer(t *testing.T) {
 	rs := DefaultReplicaSetBuilder().SetName("missing-inputs").Build()
 	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(rs).Build()
 	omFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omFactory.GetConnectionFunc, nil)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{})
 
 	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})
 	require.NoError(t, err)
@@ -3103,7 +3103,7 @@ func TestReplicaSetFinalizerReleasesFinalizerWhenInputsMissing(t *testing.T) {
 	rs.Finalizers = []string{util.MongoDBFinalizer}
 	fakeClient := mock.NewEmptyFakeClientBuilder().WithObjects(rs).Build()
 	omFactory := om.NewCachedOMConnectionFactory(om.NewEmptyMockedOmConnection)
-	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omFactory.GetConnectionFunc, nil)
+	reconciler := newReplicaSetReconciler(ctx, fakeClient, nil, "", "", false, false, false, "", architectures.NonStatic, architectures.ImageTypeUBI9, omFactory.GetConnectionFunc, nil, certs.CertManagerReadiness{})
 
 	require.NoError(t, fakeClient.Delete(ctx, rs))
 	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: rs.ObjectKey()})

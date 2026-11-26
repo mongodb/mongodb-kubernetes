@@ -1224,7 +1224,7 @@ func TestMultiReplicaSetAgentCredentialHashTracksKeySecret(t *testing.T) {
 			require.NoError(t, memberClient.List(ctx, sets))
 			require.NotEmpty(t, sets.Items)
 			for _, set := range sets.Items {
-				hash := set.Spec.Template.Annotations[construct.AgentSettingsHash]
+				hash := set.Spec.Template.Annotations[operatorConstruct.AgentSettingsHash]
 				require.NotEmpty(t, hash)
 				hashes[clusterName] = append(hashes[clusterName], hash)
 			}
@@ -1255,7 +1255,7 @@ func TestMultiReplicaSetAgentCredentialHashTracksKeySecret(t *testing.T) {
 func TestMultiReplicaSetRemovedClusterIsDeletedWithoutItsKeySecret(t *testing.T) {
 	ctx := context.Background()
 	customerKeyVolume := corev1.Volume{
-		Name: construct.AgentAPIKeyVolumeName,
+		Name: operatorConstruct.AgentAPIKeyVolumeName,
 		VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
 			SecretName: "customer-credential",
 			Items:      []corev1.KeyToPath{{Key: "custom-key", Path: util.OmAgentApiKey}},
