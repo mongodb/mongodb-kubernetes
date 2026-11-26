@@ -413,6 +413,194 @@ func TestOpsManagerReconciler_removeWatchedResources(t *testing.T) {
 // TestOpsManagerReconciler_OnDeleteClusterResourceCleanup verifies the DeleteAllOf behavior:
 // - In single-cluster mode: DeleteAllOf should NOT be called (OwnerReferences handle cleanup)
 // - In multi-cluster mode: DeleteAllOf SHOULD be called (can't use OwnerReferences cross-cluster)
+func TestOpsManagerOnDelete_RemovesManagedCertificateObjects(t *testing.T) {
+	ctx := context.Background()
+
+	seed := func(t *testing.T, c client.Client, namespace, prefix string, deletedLabels, recreatedLabels, nameLabels map[string]string) {
+		t.Helper()
+		require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-leaf", Namespace: namespace, Labels: deletedLabels}}))
+		require.NoError(t, c.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-ca", Namespace: namespace, Labels: deletedLabels}}))
+		require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-recreated", Namespace: namespace, Labels: recreatedLabels}}))
+		require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-named", Namespace: namespace, Labels: nameLabels}}))
+		require.NoError(t, c.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-user", Namespace: namespace}}))
+	}
+	gone := func(t *testing.T, c client.Client, obj client.Object) {
+		t.Helper()
+		err := c.Get(ctx, client.ObjectKeyFromObject(obj), obj.DeepCopyObject().(client.Object))
+		assert.True(t, apiErrors.IsNotFound(err), "%s/%s", obj.GetNamespace(), obj.GetName())
+	}
+	stays := func(t *testing.T, c client.Client, obj client.Object) {
+		t.Helper()
+		assert.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(obj), obj.DeepCopyObject().(client.Object)))
+	}
+
+	for _, tc := range []struct {
+		name        string
+		multi       bool
+		managed     bool
+		disabled    bool
+		missingWest bool
+	}{
+		{name: "single-cluster managed app"},
+		{name: "multi-cluster managed app", multi: true},
+		{name: "multi-cluster skips an unreachable member", multi: true, missingWest: true},
+		{name: "nothing managed", managed: false},
+		{name: "reconciliation disabled", managed: true, multi: true, disabled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "single-cluster managed app" || tc.name == "multi-cluster managed app" || tc.name == "multi-cluster skips an unreachable member" {
+				tc.managed = true
+			}
+			omBuilder := DefaultOpsManagerBuilder().SetName("cleanup-om").SetNamespace(mock.TestNamespace)
+			if tc.managed {
+				omBuilder.SetTLSConfig(omv1.MongoDBOpsManagerTLS{})
+			}
+			var memberClustersMap map[string]client.Client
+			if tc.multi {
+				omBuilder.SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+					SetOpsManagerClusterSpecList([]omv1.ClusterSpecOMItem{{ClusterName: "east", Members: 1}, {ClusterName: "west", Members: 1}})
+				memberClustersMap = map[string]client.Client{}
+			}
+			opsManager := omBuilder.Build()
+			if tc.managed {
+				opsManager.Spec.Security = &omv1.MongoDBOpsManagerSecurity{ManagedCertificate: &omv1.ManagedCertificate{}}
+			}
+			opsManager.SetUID("deleted-uid")
+			if tc.disabled {
+				opsManager.Annotations = map[string]string{util.DisableReconciliationAnnotation: "true"}
+			}
+
+			deletedLabels := certspkg.ManagedCertificateOwnerLabels(opsManager)
+			recreatedLabels := certspkg.ManagedCertificateOwnerLabels(&metav1.ObjectMeta{UID: "recreated-uid"})
+			nameLabels := opsManager.GetOwnerLabels()
+
+			centralBuilder := mock.NewEmptyFakeClientBuilder().WithObjects(opsManager.DeepCopy())
+			central := centralBuilder.Build()
+			seed(t, central, opsManager.Namespace, "central", deletedLabels, recreatedLabels, nameLabels)
+
+			var east client.Client
+			if tc.multi {
+				east = mock.NewEmptyFakeClientBuilder().Build()
+				seed(t, east, opsManager.Namespace, "east", deletedLabels, recreatedLabels, nameLabels)
+				memberClustersMap["east"] = east
+				if !tc.missingWest {
+					memberClustersMap["west"] = mock.NewEmptyFakeClientBuilder().Build()
+					seed(t, memberClustersMap["west"], opsManager.Namespace, "west", deletedLabels, recreatedLabels, nameLabels)
+				}
+			}
+
+			reconciler := NewOpsManagerReconciler(ctx, kubernetesClient.NewClient(central), memberClustersMap, images.ImageUrls{}, "", "", architectures.NonStatic, "", om.NewOpsManagerConnection, nil, nil)
+			reconciler.OnDelete(ctx, opsManager, zap.S())
+
+			centralLeaf := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "central-leaf", Namespace: opsManager.Namespace}}
+			centralCA := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "central-ca", Namespace: opsManager.Namespace}}
+			centralRecreated := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "central-recreated", Namespace: opsManager.Namespace}}
+			centralNamed := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "central-named", Namespace: opsManager.Namespace}}
+			centralUser := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "central-user", Namespace: opsManager.Namespace}}
+			if tc.managed && !tc.disabled {
+				gone(t, central, centralLeaf)
+				gone(t, central, centralCA)
+			} else {
+				stays(t, central, centralLeaf)
+				stays(t, central, centralCA)
+			}
+			stays(t, central, centralRecreated)
+			stays(t, central, centralNamed)
+			stays(t, central, centralUser)
+
+			if !tc.multi {
+				return
+			}
+			for clusterName, member := range memberClustersMap {
+				leaf := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-leaf", Namespace: opsManager.Namespace}}
+				ca := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-ca", Namespace: opsManager.Namespace}}
+				if tc.managed && !tc.disabled {
+					gone(t, member, leaf)
+					gone(t, member, ca)
+				} else {
+					stays(t, member, leaf)
+					stays(t, member, ca)
+				}
+				stays(t, member, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-recreated", Namespace: opsManager.Namespace}})
+			}
+		})
+	}
+}
+
+func TestOpsManagerOnDelete_AppDB(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("internal multi-cluster AppDB member copies are removed", func(t *testing.T) {
+		opsManager := DefaultOpsManagerBuilder().
+			SetName("cleanup-om").
+			SetNamespace(mock.TestNamespace).
+			SetOpsManagerTopology(omv1.ClusterTopologyMultiCluster).
+			SetOpsManagerClusterSpecList([]omv1.ClusterSpecOMItem{{ClusterName: "east", Members: 1}}).
+			Build()
+		opsManager.Spec.AppDB.Topology = omv1.ClusterTopologyMultiCluster
+		opsManager.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{{ClusterName: "east", Members: 1}}
+		opsManager.Spec.AppDB.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+		opsManager.SetUID("deleted-uid")
+
+		labels := certspkg.ManagedCertificateOwnerLabels(opsManager)
+		pemName := opsManager.Spec.AppDB.Name() + "-managed-cert-pem"
+		bundleName := opsManager.Spec.AppDB.Name() + "-managed-server-ca-bundle"
+		east := mock.NewEmptyFakeClientBuilder().Build()
+		require.NoError(t, east.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: pemName, Namespace: opsManager.Namespace, Labels: labels}}))
+		require.NoError(t, east.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: bundleName, Namespace: opsManager.Namespace, Labels: labels}}))
+		require.NoError(t, east.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "recreated-pem", Namespace: opsManager.Namespace, Labels: certspkg.ManagedCertificateOwnerLabels(&metav1.ObjectMeta{UID: "recreated-uid"})}}))
+
+		central := mock.NewEmptyFakeClientBuilder().WithObjects(opsManager.DeepCopy()).Build()
+		reconciler := NewOpsManagerReconciler(ctx, kubernetesClient.NewClient(central), map[string]client.Client{"east": east}, images.ImageUrls{}, "", "", architectures.NonStatic, "", om.NewOpsManagerConnection, nil, nil)
+		reconciler.OnDelete(ctx, opsManager, zap.S())
+
+		assert.True(t, apiErrors.IsNotFound(east.Get(ctx, kube.ObjectKey(opsManager.Namespace, pemName), &corev1.Secret{})))
+		assert.True(t, apiErrors.IsNotFound(east.Get(ctx, kube.ObjectKey(opsManager.Namespace, bundleName), &corev1.ConfigMap{})))
+		assert.NoError(t, east.Get(ctx, kube.ObjectKey(opsManager.Namespace, "recreated-pem"), &corev1.Secret{}))
+	})
+
+	t.Run("AppDB-only member cluster is swept", func(t *testing.T) {
+		opsManager := DefaultOpsManagerBuilder().
+			SetName("cleanup-om").
+			SetNamespace(mock.TestNamespace).
+			Build()
+		opsManager.Spec.AppDB.Topology = omv1.ClusterTopologyMultiCluster
+		opsManager.Spec.AppDB.ClusterSpecList = mdbv1.ClusterSpecList{{ClusterName: "appdb-east", Members: 1}}
+		opsManager.Spec.AppDB.Security = &mdbv1.Security{ManagedCertificate: &mdbv1.ManagedCertificate{}}
+		opsManager.SetUID("deleted-uid")
+
+		labels := certspkg.ManagedCertificateOwnerLabels(opsManager)
+		east := mock.NewEmptyFakeClientBuilder().Build()
+		require.NoError(t, east.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "appdb-pem", Namespace: opsManager.Namespace, Labels: labels}}))
+		central := mock.NewEmptyFakeClientBuilder().WithObjects(opsManager.DeepCopy()).Build()
+		reconciler := NewOpsManagerReconciler(ctx, kubernetesClient.NewClient(central), map[string]client.Client{"appdb-east": east}, images.ImageUrls{}, "", "", architectures.NonStatic, "", om.NewOpsManagerConnection, nil, nil)
+		reconciler.OnDelete(ctx, opsManager, zap.S())
+
+		assert.True(t, apiErrors.IsNotFound(east.Get(ctx, kube.ObjectKey(opsManager.Namespace, "appdb-pem"), &corev1.Secret{})))
+	})
+
+	t.Run("external AppDB certificates stay", func(t *testing.T) {
+		opsManager := DefaultOpsManagerBuilder().SetName("cleanup-om").SetNamespace(mock.TestNamespace).Build()
+		withExternalAppDBRef(opsManager, &omv1.ExternalAppDBRef{Name: "external-appdb", Kind: omv1.ExternalAppDBRefKindMongoDB})
+		opsManager.Spec.Security = nil
+		opsManager.SetUID("deleted-uid")
+
+		databaseLabels := certspkg.ManagedCertificateOwnerLabels(&metav1.ObjectMeta{UID: "database-uid"})
+		opsManagerLabels := certspkg.ManagedCertificateOwnerLabels(opsManager)
+		central := mock.NewEmptyFakeClientBuilder().WithObjects(
+			opsManager.DeepCopy(),
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "external-appdb-cert", Namespace: opsManager.Namespace, Labels: databaseLabels}},
+			&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "om-uid-secret", Namespace: opsManager.Namespace, Labels: opsManagerLabels}},
+		).Build()
+		reconciler := NewOpsManagerReconciler(ctx, kubernetesClient.NewClient(central), nil, images.ImageUrls{}, "", "", architectures.NonStatic, "", om.NewOpsManagerConnection, nil, nil)
+		reconciler.OnDelete(ctx, opsManager, zap.S())
+
+		assert.NoError(t, central.Get(ctx, kube.ObjectKey(opsManager.Namespace, "external-appdb-cert"), &corev1.Secret{}))
+		assert.NoError(t, central.Get(ctx, kube.ObjectKey(opsManager.Namespace, "om-uid-secret"), &corev1.Secret{}),
+			"neither the app nor backup is managed, so an Ops Manager UID label is not swept")
+	})
+}
+
 func TestOpsManagerReconciler_OnDeleteClusterResourceCleanup(t *testing.T) {
 	multiClusterSpecItems := []omv1.ClusterSpecOMItem{
 		{ClusterName: "cluster-a", Members: 1},
@@ -2663,8 +2851,58 @@ func TestOpsManagerManagedQueryableConsumers(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, data, copied.Data)
+			assert.Equal(t, certspkg.ManagedCertificateOwnerLabels(om), copied.Labels)
 		})
 	}
+}
+
+func TestOpsManagerManagedQueryableCopyLabelsAnExistingSecret(t *testing.T) {
+	ctx := t.Context()
+	om := newManagedCertificateTestOM()
+	om.Spec.Security = nil
+	om.Spec.Backup.Enabled = true
+	om.Spec.Backup.ManagedCertificate = &omv1.ManagedCertificate{}
+	om.Spec.Topology = mdbv1.ClusterTopologyMultiCluster
+	data := map[string][]byte{"queryable.pem": []byte("managed PEM")}
+	c := newManagedCertificateKubeClient(t, om, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "managed-om-managed-backup-pem", Namespace: om.Namespace}, Data: data})
+	member := newManagedCertificateKubeClient(t, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "managed-om-managed-backup-pem", Namespace: om.Namespace}, Data: data})
+	r := newManagedCertificateTestReconciler(ctx, c)
+	helper := &OpsManagerReconcilerHelper{opsManager: om, memberClusters: []multicluster.MemberCluster{{Name: "member-a", Healthy: true, Client: member, SecretClient: secrets.SecretClient{KubeClient: member}}}}
+
+	require.NoError(t, r.replicateQueryableBackupTLSSecretInMemberClusters(ctx, helper))
+
+	copied := &corev1.Secret{}
+	require.NoError(t, member.Get(ctx, kube.ObjectKey(om.Namespace, "managed-om-managed-backup-pem"), copied))
+	assert.Equal(t, certspkg.ManagedCertificateOwnerLabels(om), copied.Labels)
+	assert.Equal(t, data, copied.Data)
+}
+
+func TestOpsManagerUserSuppliedCertificateCopiesHaveNoOwnerUIDLabel(t *testing.T) {
+	ctx := t.Context()
+	om := newManagedCertificateTestOM()
+	om.Spec.Security = &omv1.MongoDBOpsManagerSecurity{TLS: omv1.MongoDBOpsManagerTLS{CA: "user-om-ca"}}
+	om.Spec.Backup.Enabled = true
+	om.Spec.Backup.QueryableBackupSecretRef = omv1.SecretRef{Name: "user-queryable"}
+	om.Spec.Topology = mdbv1.ClusterTopologyMultiCluster
+	om.SetUID("user-supplied-uid")
+
+	ca := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "user-om-ca", Namespace: om.Namespace, UID: "user-ca"}, Data: map[string]string{"mms-ca.crt": "user ca"}}
+	pem := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "user-queryable", Namespace: om.Namespace, UID: "user-pem"}, Data: map[string][]byte{"queryable.pem": []byte("user pem")}}
+	c := newManagedCertificateKubeClient(t, om, ca, pem)
+	member := newManagedCertificateKubeClient(t)
+	r := newManagedCertificateTestReconciler(ctx, c)
+	helper := &OpsManagerReconcilerHelper{opsManager: om, memberClusters: []multicluster.MemberCluster{{Name: "member-a", Healthy: true, Client: member, SecretClient: secrets.SecretClient{KubeClient: member}}}}
+
+	require.NoError(t, r.replicateTLSCAInMemberClusters(ctx, helper))
+	require.NoError(t, r.replicateQueryableBackupTLSSecretInMemberClusters(ctx, helper))
+
+	copiedCA := &corev1.ConfigMap{}
+	require.NoError(t, member.Get(ctx, kube.ObjectKey(om.Namespace, "user-om-ca"), copiedCA))
+	assert.NotContains(t, copiedCA.Labels, util.ManagedCertificateOwnerUIDLabel)
+
+	copiedPEM := &corev1.Secret{}
+	require.NoError(t, member.Get(ctx, kube.ObjectKey(om.Namespace, "user-queryable"), copiedPEM))
+	assert.NotContains(t, copiedPEM.Labels, util.ManagedCertificateOwnerUIDLabel)
 }
 
 func TestOpsManagerQueryableReplicationPreservesSourceAndRolloutHash(t *testing.T) {
@@ -4410,6 +4648,10 @@ func TestAppDBManagedCertificatesDelivery(t *testing.T) {
 	sourceBefore := source.DeepCopy()
 
 	pemSecret, hash := deliverAppDBManagedPEM(t, ctx, c, r, om)
+	assert.Equal(t, certspkg.ManagedCertificateOwnerLabels(certspkg.AppDBManagedCertificateOwner(om)), pemSecret.Labels,
+		"the AppDB -pem secret has to carry the UID label the delete sweep matches")
+	assert.Equal(t, om.AppDBOwnerReferenceForMemberCluster(), pemSecret.OwnerReferences,
+		"a single-cluster AppDB -pem secret is in the cluster that holds the Ops Manager, so garbage collection can remove it")
 	expectedPEM := append(append([]byte{}, source.Data["tls.crt"]...), source.Data["tls.key"]...)
 	assert.Equal(t, expectedPEM, pemSecret.Data[hash], "the delivered PEM is the exact tls.crt + tls.key concatenation")
 	assert.Equal(t, hash, string(pemSecret.Data[util.LatestHashSecretKey]))
@@ -4603,7 +4845,7 @@ func TestOpsManagerReplicateConfigMapPreservesSourceAndUpdatesMembers(t *testing
 			}
 
 			for _, wantMemberData := range []string{"before-rotation", "after-rotation"} {
-				require.NoError(t, r.replicateConfigMapInMemberClusters(ctx, helper, testOm.Namespace, tt.name))
+				require.NoError(t, r.replicateConfigMapInMemberClusters(ctx, helper, testOm.Namespace, tt.name, testOm.GetOwnerLabels()))
 				persistedSource, err := central.GetConfigMap(ctx, kube.ObjectKey(testOm.Namespace, tt.name))
 				require.NoError(t, err)
 				assert.Equal(t, map[string]string{tt.key: "after-rotation"}, persistedSource.Data, "copying must not revert a concurrently updated source")
@@ -4647,7 +4889,7 @@ func TestOpsManagerReplicateConfigMapLeavesExternalManagedBundleToTheDatabase(t 
 		},
 	}
 
-	require.NoError(t, r.replicateConfigMapInMemberClusters(ctx, helper, testOm.Namespace, source.Name))
+	require.NoError(t, r.replicateConfigMapInMemberClusters(ctx, helper, testOm.Namespace, source.Name, testOm.GetOwnerLabels()))
 
 	persisted, err := shared.GetConfigMap(ctx, kube.ObjectKey(testOm.Namespace, source.Name))
 	require.NoError(t, err)

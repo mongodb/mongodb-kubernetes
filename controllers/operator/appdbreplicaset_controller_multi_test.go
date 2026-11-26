@@ -38,6 +38,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/workflow"
 	"github.com/mongodb/mongodb-kubernetes/pkg/automationconfig"
 	"github.com/mongodb/mongodb-kubernetes/pkg/dns"
+	"github.com/mongodb/mongodb-kubernetes/pkg/images"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/annotations"
 	kubernetesClient "github.com/mongodb/mongodb-kubernetes/pkg/kube/client"
@@ -50,6 +51,24 @@ import (
 )
 
 const opsManagerUserPassword = "MBPYfkAj5ZM0l9uw6C7ggw" //nolint
+
+func TestAppDBManagedCABundleCopyCarriesOwnerUID(t *testing.T) {
+	ctx := t.Context()
+	manager, central, r := newMultiClusterManagedAppDB(t)
+	bundleName := manager.Spec.AppDB.GetCAConfigMapName()
+	require.NoError(t, central.Create(ctx, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: bundleName, Namespace: manager.Namespace, UID: "central-bundle"},
+		Data:       map[string]string{"ca-pem": "issued"},
+	}))
+
+	appDB, err := NewAppDBReplicaSetReconciler(ctx, images.ImageUrls{}, "", manager, r.ReconcileCommonController, om.NewOpsManagerConnection, r.memberClustersMap, architectures.NonStatic, "", zap.S())
+	require.NoError(t, err)
+	require.True(t, appDB.replicateTLSCAConfigMap(ctx, manager, zap.S()).IsOK())
+
+	copied := &corev1.ConfigMap{}
+	require.NoError(t, r.memberClustersMap["west"].Get(ctx, kube.ObjectKey(manager.Namespace, bundleName), copied))
+	assert.Equal(t, certs.ManagedCertificateOwnerLabels(manager), copied.Labels)
+}
 
 func TestAppDBManagedCertificatesMultiClusterDelivery(t *testing.T) {
 	ctx := t.Context()
@@ -116,10 +135,13 @@ func TestAppDBManagedCertificatesMultiClusterDelivery(t *testing.T) {
 	remoteBundle := &corev1.ConfigMap{}
 	require.NoError(t, returning.Get(ctx, kube.ObjectKey(manager.Namespace, bundleBefore.Name), remoteBundle))
 	assert.Equal(t, bundleBefore.Data, remoteBundle.Data)
-	assert.Equal(t, manager.Spec.AppDB.GetOwnerLabels(), remoteBundle.Labels, "remote managed trust must be discoverable for cleanup")
+	assert.Equal(t, certs.ManagedCertificateOwnerLabels(manager), remoteBundle.Labels, "remote managed trust must be discoverable for cleanup")
 	assert.Empty(t, remoteBundle.OwnerReferences, "central ownership must not be copied to another cluster")
 	remotePEM := &corev1.Secret{}
 	require.NoError(t, returning.Get(ctx, kube.ObjectKey(manager.Namespace, pemName), remotePEM))
+	assert.Equal(t, certs.ManagedCertificateOwnerLabels(certs.AppDBManagedCertificateOwner(manager)), remotePEM.Labels,
+		"a member-cluster AppDB -pem copy has to carry the UID label the delete sweep matches")
+	assert.Empty(t, remotePEM.OwnerReferences, "a reference to an owner in another cluster makes Kubernetes delete the secret")
 	assert.Equal(t, renewedHash, string(remotePEM.Data[util.LatestHashSecretKey]), "returning clusters receive the renewed leaf")
 	assert.Equal(t, renewed.Data[renewedHash], remotePEM.Data[renewedHash])
 	assert.True(t, apiErrors.IsNotFound(returning.Get(ctx, kube.ObjectKey(manager.Namespace, source.Name), &corev1.Secret{})), "raw issued TLS secrets stay central")
@@ -178,11 +200,11 @@ func TestAppDBManagedMultiClusterOpsManagerTrust(t *testing.T) {
 	copy, err := remote.GetConfigMap(ctx, client.ObjectKeyFromObject(source))
 	require.NoError(t, err)
 	assert.Equal(t, source.Data, copy.Data)
-	assert.Equal(t, manager.GetOwnerLabels(), copy.Labels, "AppDB-only member clusters need labels for OM trust cleanup")
+	assert.Equal(t, certs.ManagedCertificateOwnerLabels(manager), copy.Labels, "AppDB-only member clusters need the UID label the certificate sweep matches")
 	assert.Empty(t, copy.OwnerReferences)
-	require.NoError(t, deleteOwnedClusterResources(ctx, remote, "west", manager, zap.S()))
+	require.NoError(t, deleteManagedCertificateObjectsInCluster(ctx, remote, "west", certs.NewServerCertificateOwner(manager, manager.Spec.Security.ManagedCertificate, certs.ServerCertificateOptions{NamingBase: manager.Name + "-managed-om"}), zap.S()))
 	err = remote.Get(ctx, client.ObjectKeyFromObject(source), &corev1.ConfigMap{})
-	assert.True(t, apiErrors.IsNotFound(err), "the existing label-based cleanup must remove replicated OM trust")
+	assert.True(t, apiErrors.IsNotFound(err), "the certificate sweep must remove replicated OM trust")
 }
 
 func TestAppDB_MultiCluster(t *testing.T) {

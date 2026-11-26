@@ -240,6 +240,22 @@ func TestCreateOrUpdateIfNeededEqual(t *testing.T) {
 	}
 }
 
+func TestCreateOrUpdateIfNeededUpdatesWhenOnlyLabelsDiffer(t *testing.T) {
+	ctx := context.Background()
+	mock := &mockSecretGetUpdateCreateDeleter{secrets: map[client.ObjectKey]corev1.Secret{}}
+	existing := getDefaultSecret()
+	assert.NoError(t, mock.CreateSecret(ctx, existing))
+
+	desired := getDefaultSecret()
+	desired.Labels = map[string]string{"owner": "my-rs"}
+	assert.NoError(t, CreateOrUpdateIfNeeded(ctx, mock, desired))
+
+	stored, err := mock.GetSecret(ctx, client.ObjectKey{Name: existing.Name, Namespace: existing.Namespace})
+	assert.NoError(t, err)
+	assert.Equal(t, desired.Labels, stored.Labels)
+	assert.Equal(t, existing.Data, stored.Data)
+}
+
 // A create can lose the race against another writer: the read that decided the secret was missing comes
 // from the operator's cache, which can miss a secret written a moment ago. The create then answers
 // AlreadyExists, which is not a failure, and the secret has to be updated instead.

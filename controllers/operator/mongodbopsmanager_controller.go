@@ -2020,10 +2020,14 @@ func (r *OpsManagerReconciler) replicateQueryableBackupTLSSecretInMemberClusters
 	if !reconcileHelper.opsManager.IsQueryableBackupTLSConfigured() {
 		return nil
 	}
-	return r.replicateSecretInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.QueryableBackupTLSSecretName())
+	labels := map[string]string{}
+	if reconcileHelper.opsManager.IsBackupManagedCertificateEnabled() {
+		labels = certs.ManagedCertificateOwnerLabels(reconcileHelper.opsManager)
+	}
+	return r.replicateSecretInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.QueryableBackupTLSSecretName(), labels)
 }
 
-func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, namespace string, secretName string) error {
+func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, namespace string, secretName string, labels map[string]string) error {
 	objectKey := kube.ObjectKey(namespace, secretName)
 	opsManagerSecretPath := r.VaultClient.OpsManagerSecretPathOrEmpty()
 	var source corev1.Secret
@@ -2040,7 +2044,7 @@ func (r *OpsManagerReconciler) replicateSecretInMemberClusters(ctx context.Conte
 	newSecret := secret.Builder().
 		SetName(objectKey.Name).
 		SetNamespace(objectKey.Namespace).
-		SetLabels(map[string]string{}).
+		SetLabels(labels).
 		SetByteData(source.Data).
 		Build()
 
@@ -2064,7 +2068,11 @@ func (r *OpsManagerReconciler) replicateTLSCAInMemberClusters(ctx context.Contex
 		return nil
 	}
 
-	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.GetOpsManagerCA())
+	labels := reconcileHelper.opsManager.GetOwnerLabels()
+	if reconcileHelper.opsManager.IsManagedCertificateEnabled() {
+		labels = certs.ManagedCertificateOwnerLabels(reconcileHelper.opsManager)
+	}
+	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.GetOpsManagerCA(), labels)
 }
 
 func (r *OpsManagerReconciler) replicateLogBackInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
@@ -2073,12 +2081,12 @@ func (r *OpsManagerReconciler) replicateLogBackInMemberClusters(ctx context.Cont
 	}
 
 	if reconcileHelper.opsManager.Spec.Logging.LogBackRef != nil {
-		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Logging.LogBackRef.Name); err != nil {
+		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Logging.LogBackRef.Name, reconcileHelper.opsManager.GetOwnerLabels()); err != nil {
 			return err
 		}
 	}
 	if reconcileHelper.opsManager.Spec.Logging.LogBackAccessRef != nil {
-		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Logging.LogBackAccessRef.Name); err != nil {
+		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Logging.LogBackAccessRef.Name, reconcileHelper.opsManager.GetOwnerLabels()); err != nil {
 			return err
 		}
 	}
@@ -2088,12 +2096,12 @@ func (r *OpsManagerReconciler) replicateLogBackInMemberClusters(ctx context.Cont
 	}
 
 	if reconcileHelper.opsManager.Spec.Backup.Logging.LogBackRef != nil {
-		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.Logging.LogBackRef.Name); err != nil {
+		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.Logging.LogBackRef.Name, reconcileHelper.opsManager.GetOwnerLabels()); err != nil {
 			return err
 		}
 	}
 	if reconcileHelper.opsManager.Spec.Backup.Logging.LogBackAccessRef != nil {
-		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.Logging.LogBackAccessRef.Name); err != nil {
+		if err := r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.Logging.LogBackAccessRef.Name, reconcileHelper.opsManager.GetOwnerLabels()); err != nil {
 			return err
 		}
 	}
@@ -2112,7 +2120,7 @@ func (r *OpsManagerReconciler) replicateAppDBTLSCAInMemberClusters(ctx context.C
 		return nil
 	}
 
-	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, appDBConfig.CAConfigMapName)
+	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, appDBConfig.CAConfigMapName, reconcileHelper.opsManager.GetOwnerLabels())
 }
 
 func (r *OpsManagerReconciler) replicateKMIPCAInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper) error {
@@ -2120,10 +2128,10 @@ func (r *OpsManagerReconciler) replicateKMIPCAInMemberClusters(ctx context.Conte
 		return nil
 	}
 
-	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.Encryption.Kmip.Server.CA)
+	return r.replicateConfigMapInMemberClusters(ctx, reconcileHelper, reconcileHelper.opsManager.Namespace, reconcileHelper.opsManager.Spec.Backup.Encryption.Kmip.Server.CA, reconcileHelper.opsManager.GetOwnerLabels())
 }
 
-func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, namespace string, configMapName string) error {
+func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Context, reconcileHelper *OpsManagerReconcilerHelper, namespace string, configMapName string, labels map[string]string) error {
 	if !reconcileHelper.opsManager.Spec.IsMultiCluster() || configMapName == "" {
 		return nil
 	}
@@ -2135,7 +2143,7 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 	}
 
 	caConfigMap := configmap.Builder().
-		SetLabels(reconcileHelper.opsManager.GetOwnerLabels()).
+		SetLabels(labels).
 		SetName(configMapNSName.Name).
 		SetNamespace(configMapNSName.Namespace).
 		SetData(source.Data).
@@ -2156,7 +2164,8 @@ func (r *OpsManagerReconciler) replicateConfigMapInMemberClusters(ctx context.Co
 			// An external multi-cluster AppDB publishes its managed CA bundle into the member clusters too.
 			// That copy belongs to the database, which keeps it current and removes it on deletion; writing
 			// it here would replace its labels and make the two controllers fight over the same object.
-			if existing.Labels[util.ManagedCertificateOwnerUIDLabel] != "" {
+			// A copy this controller already owns keeps its UID label, and a rotation has to refresh it.
+			if existing.Labels[util.ManagedCertificateOwnerUIDLabel] != "" && existing.Labels[util.ManagedCertificateOwnerUIDLabel] != labels[util.ManagedCertificateOwnerUIDLabel] {
 				continue
 			}
 		}
@@ -2969,6 +2978,26 @@ func newUserFromSecret(data map[string]string) (api.User, error) {
 	return newUser, nil
 }
 
+// managedCertificateCleanupOwners returns the issuance owners whose UID labels the
+// delete sweep matches. An external AppDB is omitted: its database controller owns those certificates.
+func managedCertificateCleanupOwners(opsManager *omv1.MongoDBOpsManager) []certs.CertificateOwner {
+	var owners []certs.CertificateOwner
+	if opsManager.IsManagedCertificateEnabled() {
+		owners = append(owners, certs.NewServerCertificateOwner(opsManager, opsManager.Spec.Security.ManagedCertificate, certs.ServerCertificateOptions{
+			NamingBase: opsManager.Name + "-managed-om",
+		}))
+	}
+	if opsManager.IsInternalAppDB() && opsManager.Spec.AppDB.GetSecurity().IsManagedCertificateEnabled() {
+		owners = append(owners, certs.AppDBManagedCertificateOwner(opsManager))
+	}
+	if opsManager.IsBackupManagedCertificateEnabled() {
+		owners = append(owners, certs.NewServerCertificateOwner(opsManager, opsManager.Spec.Backup.ManagedCertificate, certs.ServerCertificateOptions{
+			NamingBase: opsManager.Name + "-managed-backup",
+		}))
+	}
+	return owners
+}
+
 // OnDelete cleans up Ops Manager related resources on CR removal.
 // it's used in MongoDBOpsManagerEventHandler
 func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj any, log *zap.SugaredLogger) {
@@ -2978,6 +3007,16 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj any, log *zap.S
 			opsManager.Namespace, opsManager.Name, util.DisableReconciliationAnnotation)
 		return
 	}
+
+	// Before the helper: a failure to read member-cluster state must not leave the operator-cluster secrets behind.
+	owners := managedCertificateCleanupOwners(opsManager)
+	var sweepErr error
+	for _, owner := range owners {
+		if err := deleteManagedCertificateObjectsInCluster(ctx, r.client, multicluster.LegacyCentralClusterName, owner, log); err != nil {
+			sweepErr = errors.Join(sweepErr, err)
+		}
+	}
+
 	helper, err := NewOpsManagerReconcilerHelper(ctx, r, opsManager, r.memberClustersMap, log)
 	if err != nil {
 		log.Errorf("Error initializing OM reconciler helper: %s", err)
@@ -2994,18 +3033,42 @@ func (r *OpsManagerReconciler) OnDelete(ctx context.Context, obj any, log *zap.S
 		}
 	}
 
+	// AppDB members are not a subset of the OM members: a single-cluster OM can have a multi-cluster AppDB.
+	memberClusters := helper.getHealthyMemberClusters()
 	if opsManager.IsInternalAppDB() && opsManager.Spec.AppDB.IsMultiCluster() {
 		appDbHelper, err := NewReadOnlyAppDBReconcilerHelper(ctx, opsManager, r.ReconcileCommonController, r.memberClustersMap, log)
 		if err != nil {
 			log.Errorf("Error initializing AppDB reconciler helper: %s", err)
-			return
-		}
-
-		for _, memberCluster := range appDbHelper.GetHealthyMemberClusters() {
-			if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
-				log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
+		} else {
+			appDBMembers := appDbHelper.GetHealthyMemberClusters()
+			memberClusters = append(memberClusters, appDBMembers...)
+			for _, memberCluster := range appDBMembers {
+				if err := r.deleteClusterResources(ctx, memberCluster.Client, memberCluster.Name, opsManager, log); err != nil {
+					log.Warnf("Failed to delete dependant AppDB resources in cluster %s: %s", memberCluster.Name, err.Error())
+				}
 			}
 		}
+	}
+
+	// After the StatefulSets are gone: this removes the secrets their pods mount.
+	seen := map[string]bool{}
+	for _, memberCluster := range memberClusters {
+		if memberCluster.Legacy || seen[memberCluster.Name] {
+			continue
+		}
+		seen[memberCluster.Name] = true
+		if memberCluster.Client == nil {
+			log.Warnf("Skipping managed certificate cleanup in unreachable cluster %s", memberCluster.Name)
+			continue
+		}
+		for _, owner := range owners {
+			if err := deleteManagedCertificateObjectsInCluster(ctx, memberCluster.Client, memberCluster.Name, owner, log); err != nil {
+				sweepErr = errors.Join(sweepErr, err)
+			}
+		}
+	}
+	if sweepErr != nil {
+		log.Warnf("Managed certificate cleanup completed with errors: %s", sweepErr)
 	}
 
 	r.resourceWatcher.RemoveDependentWatchedResources(opsManager.ObjectKey())

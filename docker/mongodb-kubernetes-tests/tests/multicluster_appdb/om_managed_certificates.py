@@ -48,7 +48,7 @@ from tests.opsmanager.managedcert_helper import (
 from tests.tls.managedcert_helper import bundle_fingerprints, member_cert_issuance
 
 OM_NAME = "om-managedcert-mc"
-OWNER_LABEL = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
+OWNER_UID_LABEL = "mongodb.com/v1.managedCertificateOwnerUID"
 BACKUP_PROJECT = "managedcert-mc-backup"
 BACKUP_DATABASE = "managed_queryable"
 BACKUP_COLLECTION = "documents"
@@ -227,8 +227,8 @@ def _assert_ca_bundle_ownership(
         return
 
     labels = bundle.metadata.labels or {}
-    assert labels.get(OWNER_LABEL) == ops_manager.name, (
-        f"{bundle.metadata.name} on member cluster {cluster_name} must carry the {OWNER_LABEL} "
+    assert labels.get(OWNER_UID_LABEL) == ops_manager["metadata"]["uid"], (
+        f"{bundle.metadata.name} on member cluster {cluster_name} must carry the {OWNER_UID_LABEL} "
         f"label for {ops_manager.name}, got {labels}"
     )
     assert not owner_references, (

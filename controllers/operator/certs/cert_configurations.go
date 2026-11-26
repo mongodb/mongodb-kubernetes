@@ -170,6 +170,13 @@ type appDBManagedCertificateOwner struct {
 
 var _ CertificateOwner = appDBManagedCertificateOwner{}
 
+// AppDBManagedCertificateOwner returns the owner issuance uses for the internal AppDB. Cleanup
+// passes the same value so it matches the UID labels issuance stamped. The caller must not pass an
+// external AppDB: GetSecurity reads Spec.AppDB.
+func AppDBManagedCertificateOwner(om *omv1.MongoDBOpsManager) appDBManagedCertificateOwner {
+	return appDBManagedCertificateOwner{om}
+}
+
 func (o appDBManagedCertificateOwner) GetName() string { return o.AppDBName() }
 func (o appDBManagedCertificateOwner) GetSecurity() *mdbv1.Security {
 	return o.Spec.AppDB.GetSecurity()
