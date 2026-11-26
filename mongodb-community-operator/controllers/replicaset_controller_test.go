@@ -36,6 +36,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/secret"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/constants"
 )
 
@@ -182,7 +183,7 @@ func TestAgentSettingsConfigMap_IsCreated(t *testing.T) {
 	cm := corev1.ConfigMap{}
 	err = mgr.GetClient().Get(ctx, types.NamespacedName{Name: construct.AgentSettingsConfigMapName(mdb.Name), Namespace: mdb.Namespace}, &cm)
 	assert.NoError(t, err)
-	assert.Equal(t, construct.AgentSettings(&mdb), cm.Data[construct.AgentSettingsFileName])
+	assert.Equal(t, construct.AgentSettings(&mdb), cm.Data[util.AgentSettingsFileName])
 	assert.Equal(t, mdb.GetOwnerReferences(), cm.OwnerReferences)
 }
 

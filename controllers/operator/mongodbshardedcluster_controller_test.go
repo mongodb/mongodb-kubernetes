@@ -123,7 +123,7 @@ func TestShardedClusterAgentCredentialHashTracksKeySecret(t *testing.T) {
 		for _, name := range statefulSets {
 			sts := &appsv1.StatefulSet{}
 			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(sc.Namespace, name), sts))
-			hash := sts.Spec.Template.Annotations[construct.AgentSettingsHash]
+			hash := sts.Spec.Template.Annotations[util.AgentSettingsHash]
 			require.NotEmpty(t, hash, name)
 			hashes[name] = hash
 		}

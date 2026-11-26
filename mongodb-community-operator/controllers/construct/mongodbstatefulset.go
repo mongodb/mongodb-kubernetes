@@ -59,11 +59,6 @@ const (
 	automationMongodConfFileName = "automation-mongod.conf"
 	keyfileFilePath              = "/var/lib/mongodb-mms-automation/authentication/keyfile"
 
-	AgentSettingsFileName       = util.AgentSettingsFileName
-	agentSettingsVolumeName     = util.AgentSettingsVolume
-	agentSettingsPath           = util.AgentSettingsPath
-	agentSettingsHashAnnotation = util.AgentSettingsHash
-
 	MongodbUserCommand = `current_uid=$(id -u)
 declare -r current_uid
 if ! grep -q "${current_uid}" /etc/passwd ; then
@@ -139,8 +134,8 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 	keyFileVolumeVolumeMount := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
 	keyFileVolumeVolumeMountMongod := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
 
-	agentSettingsVolume := statefulset.CreateVolumeFromConfigMap(agentSettingsVolumeName, AgentSettingsConfigMapName(mdb.GetName()))
-	agentSettingsVolumeMount := statefulset.CreateVolumeMount(agentSettingsVolume.Name, agentSettingsPath, statefulset.WithReadOnly(true))
+	agentSettingsVolume := statefulset.CreateVolumeFromConfigMap(util.AgentSettingsVolume, AgentSettingsConfigMapName(mdb.GetName()))
+	agentSettingsVolumeMount := statefulset.CreateVolumeMount(agentSettingsVolume.Name, util.AgentSettingsPath, statefulset.WithReadOnly(true))
 
 	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, keyFileVolumeVolumeMount, tmpVolumeMount, agentSettingsVolumeMount}
 
@@ -206,7 +201,7 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 			podtemplatespec.Apply(
 				podSecurityContext,
 				podtemplatespec.WithPodLabels(labels),
-				podtemplatespec.WithAnnotations(map[string]string{agentSettingsHashAnnotation: agentSettingsHash}),
+				podtemplatespec.WithAnnotations(map[string]string{util.AgentSettingsHash: agentSettingsHash}),
 				podtemplatespec.WithVolume(healthStatusVolume),
 				podtemplatespec.WithVolume(agentSettingsVolume),
 				automationConfigVolumeFunc,
@@ -270,7 +265,7 @@ func AgentSettings(mdb MongoDBStatefulSetOwner) string {
 
 // AutomationAgentCommand returns the full command array for the automation agent container.
 func AutomationAgentCommand() []string {
-	return []string{"/bin/bash", "-c", MongodbUserCommand + "agent/mongodb-agent -f " + path.Join(agentSettingsPath, AgentSettingsFileName)}
+	return []string{"/bin/bash", "-c", MongodbUserCommand + "agent/mongodb-agent -f " + path.Join(util.AgentSettingsPath, util.AgentSettingsFileName)}
 }
 
 func mongodbAgentContainer(automationConfigSecretName string, volumeMounts []corev1.VolumeMount, agentImage string) container.Modification {

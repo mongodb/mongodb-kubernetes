@@ -124,7 +124,7 @@ func BuildJobFromStatefulSet(rs *mdbv1.MongoDB, sts *appsv1.StatefulSet, operato
 	volumes, volumeMounts := volumesAndMountsFromStatefulSet(sts, map[string]struct{}{
 		rs.GetHostNameOverrideConfigmapName(): {},
 		// The validator is not an agent, and the settings ConfigMap and override key Secret may not exist yet.
-		construct.AgentSettingsVolume:   {},
+		util.AgentSettingsVolume:        {},
 		construct.AgentAPIKeyVolumeName: {},
 	})
 

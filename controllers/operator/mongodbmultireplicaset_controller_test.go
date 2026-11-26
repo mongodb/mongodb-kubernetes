@@ -1073,7 +1073,7 @@ func TestMultiReplicaSetAgentCredentialHashTracksKeySecret(t *testing.T) {
 			require.NoError(t, memberClient.List(ctx, sets))
 			require.NotEmpty(t, sets.Items)
 			for _, set := range sets.Items {
-				hash := set.Spec.Template.Annotations[construct.AgentSettingsHash]
+				hash := set.Spec.Template.Annotations[util.AgentSettingsHash]
 				require.NotEmpty(t, hash)
 				hashes[clusterName] = append(hashes[clusterName], hash)
 			}

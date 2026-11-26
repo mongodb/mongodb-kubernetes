@@ -507,7 +507,7 @@ func (r *ReplicaSetReconciler) ensureAgentSettings(ctx context.Context, mdb mdbv
 	cm := configmap.Builder().
 		SetName(construct.AgentSettingsConfigMapName(mdb.Name)).
 		SetNamespace(mdb.Namespace).
-		SetDataField(construct.AgentSettingsFileName, construct.AgentSettings(&mdb)).
+		SetDataField(util.AgentSettingsFileName, construct.AgentSettings(&mdb)).
 		SetOwnerReferences(mdb.GetOwnerReferences()).
 		Build()
 	return configmap.CreateOrUpdate(ctx, r.client, cm)

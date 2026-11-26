@@ -152,7 +152,7 @@ func TestStandaloneAgentCredentialHashTracksKeySecret(t *testing.T) {
 	appliedHash := func() string {
 		sts := &appsv1.StatefulSet{}
 		require.NoError(t, kubeClient.Get(ctx, st.ObjectKey(), sts))
-		hash := sts.Spec.Template.Annotations[construct.AgentSettingsHash]
+		hash := sts.Spec.Template.Annotations[util.AgentSettingsHash]
 		require.NotEmpty(t, hash)
 		return hash
 	}

@@ -408,7 +408,7 @@ func TestDatabaseAgentSettingsConfigMap(t *testing.T) {
 			assert.Equal(t, sts.Labels, cm.Labels)
 			assert.Equal(t, sts.OwnerReferences, cm.OwnerReferences)
 			require.Len(t, cm.Data, 1)
-			content := cm.Data[AgentSettingsFileName]
+			content := cm.Data[util.AgentSettingsFileName]
 			assert.Contains(t, content, "logLevel=DEBUG\n")
 			assert.Contains(t, content, "mmsApiKeyExec=cat '/mongodb-automation/agent-api-key/agentApiKey'\n")
 			assert.NotContains(t, content, "secret-api-key-value")
@@ -461,7 +461,7 @@ func TestDatabaseAgentBootstrapCA(t *testing.T) {
 			}))
 			cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 			require.NoError(t, err)
-			assert.Contains(t, cm.Data[AgentSettingsFileName], "httpsCAFile="+caPath+"\n")
+			assert.Contains(t, cm.Data[util.AgentSettingsFileName], "httpsCAFile="+caPath+"\n")
 		})
 	}
 }
@@ -489,7 +489,7 @@ func TestDatabaseAgentSettingsPreservesLiteralVariables(t *testing.T) {
 				container.WithEnvs(tc.env...)(agent)
 				cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 				require.NoError(t, err)
-				assert.Contains(t, cm.Data[AgentSettingsFileName], "logFile="+tc.value+"\n")
+				assert.Contains(t, cm.Data[util.AgentSettingsFileName], "logFile="+tc.value+"\n")
 			})
 		}
 	}
@@ -552,7 +552,7 @@ func TestDatabaseAgentSettingsUseOperatorPodVars(t *testing.T) {
 
 	cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 	require.NoError(t, err)
-	settings := cm.Data[AgentSettingsFileName]
+	settings := cm.Data[util.AgentSettingsFileName]
 	assert.Contains(t, settings, "mmsBaseUrl=https://operator.example.com\n")
 	assert.NotContains(t, settings, "pod-template.example.com")
 }
@@ -568,7 +568,7 @@ func TestDatabaseAgentCredentialCommandUsesFixedKeyPath(t *testing.T) {
 	cm, err := DatabaseAgentSettingsConfigMap(sts, *AgentContainer(sts), options(*mdb))
 	require.NoError(t, err)
 	var command string
-	for line := range strings.SplitSeq(cm.Data[AgentSettingsFileName], "\n") {
+	for line := range strings.SplitSeq(cm.Data[util.AgentSettingsFileName], "\n") {
 		if value, ok := strings.CutPrefix(line, "mmsApiKeyExec="); ok {
 			command = value
 		}
@@ -968,7 +968,7 @@ func TestStaticAgentContainerRunsLauncherFromInitImage(t *testing.T) {
 func TestDatabaseLauncherSettingsPath(t *testing.T) {
 	script, err := os.ReadFile("../../../docker/mongodb-kubernetes-init-database/content/agent-launcher.sh")
 	require.NoError(t, err)
-	assert.Contains(t, string(script), "agentOpts=(-f "+path.Join(AgentSettingsPath, AgentSettingsFileName)+")")
+	assert.Contains(t, string(script), "agentOpts=(-f "+path.Join(util.AgentSettingsPath, util.AgentSettingsFileName)+")")
 }
 
 // The non-static architecture execs the launcher script directly, so its command has no bash wrapper.
@@ -989,8 +989,8 @@ func TestApplyAgentSettingsHashTracksCredential(t *testing.T) {
 		}), zap.S())
 		agent := AgentContainer(sts)
 		require.NotNil(t, agent)
-		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: AgentSettingsVolume, MountPath: AgentSettingsPath, ReadOnly: true})
-		return sts.Spec.Template.Annotations[AgentSettingsHash]
+		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: util.AgentSettingsVolume, MountPath: util.AgentSettingsPath, ReadOnly: true})
+		return sts.Spec.Template.Annotations[util.AgentSettingsHash]
 	}
 	assert.Len(t, build("one"), 64)
 	assert.Equal(t, build("one"), build("one"))

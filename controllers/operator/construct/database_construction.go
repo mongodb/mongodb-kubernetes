@@ -58,11 +58,6 @@ const (
 	AgentAPIKeySecretPath = "/mongodb-automation/agent-api-key" //nolint
 	AgentAPIKeyVolumeName = "agent-api-key"                     //nolint
 
-	AgentSettingsFileName = util.AgentSettingsFileName
-	AgentSettingsVolume   = util.AgentSettingsVolume
-	AgentSettingsPath     = util.AgentSettingsPath
-	AgentSettingsHash     = util.AgentSettingsHash
-
 	LogFileAutomationAgentEnv        = "MDB_LOG_FILE_AUTOMATION_AGENT"
 	LogFileAutomationAgentVerboseEnv = "MDB_LOG_FILE_AUTOMATION_AGENT_VERBOSE"
 	LogFileMongoDBAuditEnv           = "MDB_LOG_FILE_MONGODB_AUDIT"

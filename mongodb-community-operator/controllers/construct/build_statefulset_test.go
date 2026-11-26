@@ -16,6 +16,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/probes"
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/resourcerequirements"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
@@ -124,13 +125,13 @@ func TestAgentSettingsChangeRollsPods(t *testing.T) {
 	mdb := newTestReplicaSet()
 	sts := &appsv1.StatefulSet{}
 	BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")(sts)
-	before := sts.Spec.Template.Annotations[agentSettingsHashAnnotation]
+	before := sts.Spec.Template.Annotations[util.AgentSettingsHash]
 	assert.NotEmpty(t, before)
 
 	mdb.Spec.AgentConfiguration.LogLevel = v1.LogLevelDebug
 	sts = &appsv1.StatefulSet{}
 	BuildMongoDBReplicaSetStatefulSetModificationFunction(&mdb, &mdb, "fake-mongodbImage", "fake-agentImage", "fake-versionUpgradeHookImage", "fake-readinessProbeImage")(sts)
-	assert.NotEqual(t, before, sts.Spec.Template.Annotations[agentSettingsHashAnnotation])
+	assert.NotEqual(t, before, sts.Spec.Template.Annotations[util.AgentSettingsHash])
 }
 
 func assertStatefulSetIsBuiltCorrectly(t *testing.T, mdb mdbv1.MongoDBCommunity, sts *appsv1.StatefulSet) {
