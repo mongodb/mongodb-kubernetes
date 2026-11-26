@@ -170,6 +170,14 @@ def get_migration_target_architecture() -> str:
     raise ValueError(f"unsupported default architecture: {architecture}")
 
 
+def get_static_ga_migration_target() -> str:
+    """The target of a legacy-static to static-ga migration.
+
+    get_migration_target_architecture never selects this pair, so a test that covers it names the target.
+    """
+    return "static-ga"
+
+
 def get_default_image_type() -> str:
     return os.getenv("MDB_DEFAULT_IMAGE_TYPE") or "ubi9"
 

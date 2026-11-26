@@ -395,6 +395,51 @@ func buildReplicaSetWithCustomProjectName(rsName string) (*mdbv1.MongoDB, *corev
 		mock.GetProjectConfigMap(configMapName, projectName, ""), projectName
 }
 
+// TestReplicaSetStaticToStaticGAMigration covers a resource that starts on legacy static and moves to
+// static-ga. The variant default never selects this pair, so the annotation is set explicitly.
+func TestReplicaSetStaticToStaticGAMigration(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing=%t", existing), func(t *testing.T) {
+			ctx := context.Background()
+			imageURLs := images.ImageUrls{
+				util.AgentImageUrlEnv:        "registry.example/agent",
+				util.MongodbImageEnv:         "registry.example/mongodb",
+				util.InitDatabaseImageUrlEnv: "registry.example/init",
+				util.MongodbProxyImageEnv:    "registry.example/proxy:test",
+			}
+			rs := DefaultReplicaSetBuilder().Build()
+			rs.SetAnnotations(map[string]string{architectures.ArchitectureAnnotation: string(architectures.Static)})
+			reconciler, kubeClient, omConnectionFactory := defaultReplicaSetReconciler(ctx, imageURLs, "test", "test", rs, architectures.Static)
+			omConnectionFactory.SetPostCreateHook(func(connection om.Connection) {
+				connection.(*om.MockedOmConnection).SetAgentVersion("12.0.30.7791-1", "")
+			})
+
+			if existing {
+				checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+			}
+
+			rs.SetAnnotations(map[string]string{architectures.ArchitectureAnnotation: string(architectures.StaticGA)})
+			checkReconcileSuccessful(ctx, t, reconciler, rs, kubeClient)
+
+			sts := &appsv1.StatefulSet{}
+			require.NoError(t, kubeClient.Get(ctx, kube.ObjectKey(rs.Namespace, rs.Name), sts))
+
+			var databaseCommand []string
+			for _, container := range sts.Spec.Template.Spec.Containers {
+				if container.Name == util.DatabaseContainerName {
+					databaseCommand = container.Command
+				}
+			}
+			assert.Equal(t, []string{"/mnt/proxy/proxy"}, databaseCommand)
+
+			proxyVolume := findVolumeByName(sts.Spec.Template.Spec.Volumes, "mongodb-proxy")
+			require.NotNil(t, proxyVolume, "the static-ga pod mounts the proxy as an image volume")
+			require.NotNil(t, proxyVolume.Image)
+			assert.Equal(t, imageURLs[util.MongodbProxyImageEnv], proxyVolume.Image.Reference)
+		})
+	}
+}
+
 func TestReplicaSetServiceName(t *testing.T) {
 	ctx := context.Background()
 	rs := DefaultReplicaSetBuilder().SetService("rs-svc").Build()

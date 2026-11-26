@@ -9,6 +9,7 @@ from kubetester.kubetester import (
     assert_container_count_with_static,
     assert_statefulset_architecture,
     get_migration_target_architecture,
+    get_static_ga_migration_target,
 )
 
 
@@ -168,13 +169,25 @@ class TestCreateOrUpdate(unittest.TestCase):
 
 class TestStaticGAArchitecture(unittest.TestCase):
     def test_migration_target_and_skip_marker(self):
-        for current, expected in (
-            ("non-static", "static-ga"),
-            ("static-ga", "non-static"),
+        """The variant default covers non-static to static-ga and static/static-ga to non-static."""
+        for current, expected, skipped in (
+            ("non-static", "static-ga", False),
+            ("static", "non-static", True),
+            ("static-ga", "non-static", False),
         ):
             with self.subTest(current=current), patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": current}):
                 self.assertEqual(get_migration_target_architecture(), expected)
-                self.assertFalse(_static_container_skip_marker().mark.args[0])
+                self.assertEqual(_static_container_skip_marker().mark.args[0], skipped)
+
+    def test_static_to_static_ga_is_not_a_variant_default_pair(self):
+        """The variant default never produces static to static-ga, so that migration names its target.
+
+        The existing migration tests cover non-static to static-ga and static/static-ga to non-static. The
+        static to static-ga pair needs an explicit target, which get_static_ga_migration_target() supplies.
+        """
+        self.assertEqual(get_static_ga_migration_target(), "static-ga")
+        with patch.dict(os.environ, {"MDB_DEFAULT_ARCHITECTURE": "static"}):
+            self.assertNotEqual(get_migration_target_architecture(), get_static_ga_migration_target())
 
     def test_architecture_assertion_distinguishes_proxy_and_non_static(self):
         cases = (
