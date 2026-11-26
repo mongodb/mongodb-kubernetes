@@ -3,7 +3,12 @@ import pytest
 from kubetester import try_load
 from kubetester.kubetester import assert_statefulset_architecture, ensure_ent_version
 from kubetester.kubetester import fixture as load_fixture
-from kubetester.kubetester import get_migration_target_architecture, get_static_ga_migration_target, is_multi_cluster
+from kubetester.kubetester import (
+    get_migration_target_architecture,
+    get_static_ga_migration_target,
+    is_multi_cluster,
+    run_periodically,
+)
 from kubetester.mongodb import MongoDB
 from kubetester.mongodb_proxy import query_proxy
 from kubetester.mongotester import MongoDBBackgroundTester, MongoTester
@@ -87,12 +92,19 @@ class TestShardedClusterMigrationStatic:
 
 
 @fixture(scope="module")
-def static_to_static_ga_mdb(namespace, custom_mdb_version: str) -> MongoDB:
-    """A second sharded cluster that starts on legacy static and moves to static-ga.
+def static_to_static_ga_mdb(namespace, custom_mdb_version: str, mdb: MongoDB) -> MongoDB:
+    """A sharded cluster that starts on legacy static and moves to static-ga.
 
     The variant default never selects this pair: get_migration_target_architecture() sends legacy static to
     non-static. The starting annotation is therefore pinned, and the target is named explicitly.
+
+    The operator allows one MongoDB cluster per Ops Manager project, and this namespace maps to one project.
+    This resource therefore replaces the one the previous class migrated, which is deleted first.
     """
+    if try_load(mdb):
+        mdb.delete()
+        run_periodically(lambda: not try_load(mdb), timeout=600, msg="the previous sharded cluster to be deleted")
+
     resource = MongoDB.from_yaml(
         load_fixture("sharded-cluster.yaml"),
         namespace=namespace,
