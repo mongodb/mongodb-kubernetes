@@ -211,6 +211,9 @@ func (r *ReplicaSetReconcilerHelper) Reconcile(ctx context.Context) (reconcile.R
 	if err := architectures.ValidateDatabaseImageType(rs.GetAnnotations(), reconciler.defaultArchitecture, reconciler.defaultImageType); err != nil {
 		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
 	}
+	if err := architectures.ValidateMongodbProxyImage(rs.GetAnnotations(), reconciler.defaultArchitecture, images.MongodbProxyImage(reconciler.imageUrls)); err != nil {
+		return r.updateStatus(ctx, workflow.Invalid("%s", err.Error()))
+	}
 	if warning := databaseContainerImageTypeAnnotationWarning(rs.GetAnnotations(), reconciler.defaultArchitecture); warning != "" {
 		log.Warn(warning)
 		rs.AddWarningIfNotExists(mdbstatus.Warning(warning))

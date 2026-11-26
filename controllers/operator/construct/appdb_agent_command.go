@@ -11,7 +11,7 @@ const (
 	appdbClusterFilePath                = "/var/lib/automation/config/cluster-config.json"
 	appdbAgentHealthStatusFilePathValue = "/var/log/mongodb-mms-automation/healthstatus/agent-health-status.json"
 	appdbAutomationAgentOptions         = " -skipMongoStart -noDaemonize -useLocalMongoDbTools"
-	appdbAutomationAgentProxyOptions    = " -noDaemonize -operatorMode -mongodProxyAddress=" + MongodbProxyAddress + " -binariesFixedPath=" + staticGAAgentToolsPath
+	appdbAutomationAgentProxyOptions    = " -noDaemonize -operatorMode -mongodProxyAddress=" + MongodbProxyAddress + " -mongodbToolsPath=" + staticGAAgentToolsPath
 
 	appdbReadinessProbeLoggerBackups  = "READINESS_PROBE_LOGGER_BACKUPS"
 	appdbReadinessProbeLoggerMaxSize  = "READINESS_PROBE_LOGGER_MAX_SIZE"
@@ -83,13 +83,11 @@ func AutomationAgentCommand(withStatic bool, withProxy bool, withAgentAPIKeyExpo
 	}
 
 	agentOptions := appdbAutomationAgentOptions
-	shellOptions := ""
 	if withProxy {
-		shellOptions = "set -e\n"
 		agentOptions = appdbAutomationAgentProxyOptions
 	}
 
-	return []string{"/bin/bash", "-c", imageVolumeCheck + shellOptions + GetMongodbUserCommand(withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + agentOptions + agentLogOptions}
+	return []string{"/bin/bash", "-c", imageVolumeCheck + GetMongodbUserCommand(withAgentAPIKeyExport) + downloadSnippet + BaseAgentCommand() + " -cluster=" + appdbClusterFilePath + agentOptions + agentLogOptions}
 }
 
 // GetMongodbUserCommand returns the bash preamble for the automation agent. When

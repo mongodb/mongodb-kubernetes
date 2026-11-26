@@ -71,12 +71,9 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		assert.Equal(t, testProxyImage, volume.Image.Reference)
 	})
 
-	t.Run("the agent container gets the MongoDB image and the proxy address", func(t *testing.T) {
+	t.Run("the agent container gets the init-database image and the proxy address", func(t *testing.T) {
 		agent := containerByName(t, sts, util.AgentContainerName)
 		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "unix:///var/run/mongodb-proxy/proxy.sock"})
-		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGOD_ROOT", Value: "/mnt/mongodb"})
-		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-binaries", MountPath: "/mnt/mongodb", ReadOnly: true})
-		assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_INIT_ROOT", Value: "/mnt/init-database"})
 		assert.Contains(t, agent.VolumeMounts, corev1.VolumeMount{Name: "mongodb-init-database", MountPath: "/mnt/init-database", ReadOnly: true})
 
 		initVolume, found := volumeByName(sts, "mongodb-init-database")
@@ -84,10 +81,9 @@ func TestMongodbProxyRunsMongodThroughTheProxy(t *testing.T) {
 		require.NotNil(t, initVolume.Image)
 		assert.Equal(t, testInitImage, initVolume.Image.Reference)
 
-		volume, found := volumeByName(sts, "mongodb-binaries")
-		require.True(t, found)
-		require.NotNil(t, volume.Image)
-		assert.Equal(t, testMongodbImage, volume.Image.Reference)
+		// The agent uses the tools from its own image, so the MongoDB image is not mounted into it.
+		_, found = volumeByName(sts, "mongodb-binaries")
+		assert.False(t, found)
 	})
 
 	t.Run("the proxy listens on a socket that only the agent and the database container mount", func(t *testing.T) {
@@ -182,7 +178,7 @@ func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 			if tc.wantProxy {
 				mongod := containerByName(t, sts, util.DatabaseContainerName)
 				agent := containerByName(t, sts, util.AgentContainerName)
-				assert.Equal(t, "268558157000.dkr.ecr.us-east-1.amazonaws.com/dev/mongodb-agent:nammn-agent-process-maintainer", agent.Image)
+				assert.Equal(t, staticGAAgentImageDefault, agent.Image)
 				assert.Equal(t, []string{"/mnt/proxy/proxy"}, mongod.Command)
 				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "MDB_MONGODB_PROXY_ADDRESS", Value: "unix:///var/run/mongodb-proxy/proxy.sock"})
 				for _, c := range sts.Spec.Template.Spec.Containers {
@@ -197,11 +193,9 @@ func TestMongodbProxyIsAutomaticForStaticGAOnly(t *testing.T) {
 				assert.NotEqual(t, []string{"/mnt/proxy/proxy"}, c.Command)
 				for _, e := range c.Env {
 					assert.NotEqual(t, "MDB_MONGODB_PROXY_ADDRESS", e.Name)
-					assert.NotEqual(t, "MDB_MONGOD_ROOT", e.Name)
-					assert.NotEqual(t, "MDB_INIT_ROOT", e.Name)
 				}
 			}
-			for _, volumeName := range []string{"mongodb-proxy", "mongodb-binaries", "mongodb-proxy-socket"} {
+			for _, volumeName := range []string{"mongodb-proxy", "mongodb-proxy-socket"} {
 				_, found := volumeByName(sts, volumeName)
 				assert.False(t, found, volumeName)
 			}
@@ -228,4 +222,13 @@ func TestStaticArchitectureWithoutTheProxyKeepsTheSharedProcessNamespace(t *test
 	}
 	_, found := volumeByName(sts, "mongodb-init-database")
 	assert.True(t, found)
+}
+
+func TestStaticGAAgentImageCanBeOverridden(t *testing.T) {
+	t.Setenv(util.StaticGAAgentImageEnv, "registry.example/mongodb-agent:proxy-support")
+
+	sts := proxyTestStatefulSet(nil, architectures.StaticGA, testProxyImage)
+
+	assert.Equal(t, "registry.example/mongodb-agent:proxy-support",
+		containerByName(t, sts, util.AgentContainerName).Image)
 }

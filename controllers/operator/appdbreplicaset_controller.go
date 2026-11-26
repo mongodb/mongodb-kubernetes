@@ -863,6 +863,10 @@ func (r *ReconcileAppDbReplicaSet) ReconcileAppDB(ctx context.Context, opsManage
 		opsManager.AddAppDBWarningIfNotExists(status.Warning(warning))
 	}
 
+	if err := architectures.ValidateMongodbProxyImage(opsManager.GetAnnotations(), r.defaultArchitecture, images.MongodbProxyImage(r.imageUrls)); err != nil {
+		return r.updateStatus(ctx, opsManager, workflow.Invalid("%s", err.Error()), log, appDbStatusOption)
+	}
+
 	// Ops Manager must own the AppDB StatefulSet before touching anything: a StatefulSet
 	// still owned by a MongoDB CR (reverse migration) is asked to be released and waited for.
 	appDBStatefulsetOwnershipStatus := r.ensureAppDBStatefulSetOwnership(ctx, opsManager, log)

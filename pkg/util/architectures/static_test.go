@@ -362,3 +362,27 @@ func TestGetMongoVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMongodbProxyImage(t *testing.T) {
+	tests := []struct {
+		name                string
+		annotations         map[string]string
+		defaultArchitecture DefaultArchitecture
+		proxyImage          string
+		wantError           bool
+	}{
+		{name: "static-ga with an image", defaultArchitecture: StaticGA, proxyImage: "registry.example/proxy:1"},
+		{name: "static-ga without an image", defaultArchitecture: StaticGA, wantError: true},
+		{name: "static-ga annotation without an image", defaultArchitecture: NonStatic, annotations: map[string]string{ArchitectureAnnotation: string(StaticGA)}, wantError: true},
+		{name: "legacy static without an image", defaultArchitecture: Static},
+		{name: "non-static without an image", defaultArchitecture: NonStatic},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMongodbProxyImage(tt.annotations, tt.defaultArchitecture, tt.proxyImage)
+			if (err != nil) != tt.wantError {
+				t.Fatalf("ValidateMongodbProxyImage() = %v, wantError %v", err, tt.wantError)
+			}
+		})
+	}
+}

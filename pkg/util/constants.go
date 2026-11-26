@@ -219,6 +219,10 @@ const (
 	// The image is mounted as an OCI image volume into the container that runs mongod/mongos.
 	MongodbProxyImageEnv = "MDB_MONGODB_PROXY_IMAGE"
 
+	// StaticGAAgentImageEnv overrides the Agent image of the static-ga architecture. The released Agent does not
+	// support -mongodProxyAddress yet, so static-ga defaults to a development build.
+	StaticGAAgentImageEnv = "MDB_STATIC_GA_AGENT_IMAGE"
+
 	MdbWebhookRegisterConfigurationEnv = "MDB_WEBHOOK_REGISTER_CONFIGURATION"
 	MdbWebhookPortEnv                  = "MDB_WEBHOOK_PORT"
 	MdbWebhookNameEnv                  = "MDB_WEBHOOK_NAME"

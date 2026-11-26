@@ -2,9 +2,9 @@
 
 import json
 import os
-import time
 from typing import Optional
 
+from kubetester import wait_until
 from kubetester.kubetester import KubernetesTester
 
 PROXY_SOCKET = "/var/run/mongodb-proxy/proxy.sock"
@@ -29,15 +29,17 @@ def proxy_helm_values(image: str) -> dict[str, str]:
 
 
 def run_operator_in_cluster(namespace: str, timeout_seconds: int = 180):
+    """Scales the operator Deployment to one replica and waits for it. A local test run installs the chart with zero
+    replicas, and the proxy image reaches the operator through its environment, so the operator must run in the cluster.
+    """
     apps = KubernetesTester.clients("appsv1")
     name = "mongodb-kubernetes-operator"
     apps.patch_namespaced_deployment_scale(name, namespace, {"spec": {"replicas": 1}})
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        if apps.read_namespaced_deployment(name, namespace).status.ready_replicas == 1:
-            return
-        time.sleep(2)
-    raise Exception(f"The operator did not become ready in {timeout_seconds}s")
+    wait_until(
+        lambda: apps.read_namespaced_deployment(name, namespace).status.ready_replicas == 1,
+        timeout=timeout_seconds,
+        name="the operator to become ready",
+    )
 
 
 def read_processes(pod: str, namespace: str, container: str) -> list[str]:
@@ -85,15 +87,6 @@ def mongod_identity(pod: str, namespace: str) -> str:
     return out.strip()
 
 
-def wait_until(description: str, check, timeout_seconds: int = 600, interval_seconds: int = 3):
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        if check():
-            return
-        time.sleep(interval_seconds)
-    raise Exception(f"Timed out after {timeout_seconds}s waiting for: {description}")
-
-
 def proxy_log(pod: str, namespace: str) -> list[dict]:
     """Returns the log entries of the proxy in the current database container (the mongod lines are left out)."""
     raw = KubernetesTester.clients("corev1").read_namespaced_pod_log(pod, namespace, container=DATABASE_CONTAINER)
@@ -124,7 +117,7 @@ def wait_for_new_mongod(pod: str, namespace: str, old_identity: str, timeout_sec
         identity = mongod_identity(pod, namespace)
         return bool(identity) and identity != old_identity and query_proxy(pod, namespace)["state"] == "running"
 
-    wait_until(f"{pod} to run a new mongod", restarted, timeout_seconds)
+    wait_until(restarted, timeout=timeout_seconds, name=f"{pod} to run a new mongod")
 
 
 def post_to_proxy(pod: str, namespace: str, path: str, body: dict) -> tuple[int, dict]:

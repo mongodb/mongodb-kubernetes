@@ -102,6 +102,15 @@ func ValidateDatabaseImageType(annotations map[string]string, defaultArchitectur
 	return nil
 }
 
+// ValidateMongodbProxyImage rejects static-ga when the operator has no proxy image. The proxy is mounted as an OCI
+// image volume, and Kubernetes rejects a Pod whose image volume has an empty reference.
+func ValidateMongodbProxyImage(annotations map[string]string, defaultArchitecture DefaultArchitecture, proxyImage string) error {
+	if IsRunningStaticGAArchitecture(annotations, defaultArchitecture) && proxyImage == "" {
+		return fmt.Errorf("the %s architecture needs the mongodb-proxy image; set %s on the operator", StaticGA, util.MongodbProxyImageEnv)
+	}
+	return nil
+}
+
 func SupportedImageTypes() []ImageType {
 	return []ImageType{ImageTypeUBI8, ImageTypeUBI9, ImageTypeUBI9Slim}
 }

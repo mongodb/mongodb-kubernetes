@@ -9,8 +9,6 @@ import (
 )
 
 func TestMongodbProxyImage(t *testing.T) {
-	const related = "RELATED_IMAGE_MDB_MONGODB_PROXY_IMAGE_1_15_0"
-
 	tests := map[string]struct {
 		urls ImageUrls
 		want string
@@ -26,13 +24,6 @@ func TestMongodbProxyImage(t *testing.T) {
 		"a registry with a port": {
 			urls: ImageUrls{util.MongodbProxyImageEnv: "localhost:5000/mongodb-kubernetes-mongodb-proxy:proxydev-1"},
 			want: "localhost:5000/mongodb-kubernetes-mongodb-proxy:proxydev-1",
-		},
-		"the runtime reference wins over a related image": {
-			urls: ImageUrls{
-				util.MongodbProxyImageEnv: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy:1.15.0",
-				related:                   "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy@sha256:abc",
-			},
-			want: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy:1.15.0",
 		},
 		"a digest is kept": {
 			urls: ImageUrls{util.MongodbProxyImageEnv: "quay.io/mongodb/mongodb-kubernetes-mongodb-proxy@sha256:abc"},

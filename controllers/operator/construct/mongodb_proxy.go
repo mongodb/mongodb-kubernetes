@@ -4,6 +4,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 )
 
 // In this mode mongod/mongos run in the `mongod` container as children of the mongodb-proxy, and the agent in
@@ -23,27 +26,9 @@ const (
 	mongodbProxyMountPath  = "/mnt/proxy"
 	mongodbProxyBinaryPath = mongodbProxyMountPath + "/proxy"
 
-	// The official MongoDB image is also mounted into the agent container. There is no shared process
-	// namespace to reach the binaries through /proc/<pid>/root any more, and the agent still needs them to
-	// find out which versions are installed and for the database tools.
-	mongodbBinariesVolumeName = "mongodb-binaries"
-	mongodbBinariesMountPath  = "/mnt/mongodb"
-
-	// The init-database image is mounted into the agent container as well. Its scripts and probes used to be
-	// reached through /proc/<pid>/root of the utilities container, which needs a shared process namespace.
-	mongodbInitDatabaseVolumeName = "mongodb-init-database"
-	mongodbInitDatabaseMountPath  = "/mnt/init-database"
-
-	// The agent runs the launcher and the probes from the mounted init-database image.
-	staticGAAgentLauncherPath  = mongodbInitDatabaseMountPath + "/scripts/agent-launcher.sh"
-	staticGAProbePath          = mongodbInitDatabaseMountPath + "/probes/probe.sh"
-	staticGAReadinessProbePath = mongodbInitDatabaseMountPath + "/probes/readinessprobe"
-
 	// Environment variables of the agent container, read by agent-launcher.sh and by the scripts of the agent
 	// image (setup-agent-files.sh and the probes).
 	mongodbProxyAddressEnv = "MDB_MONGODB_PROXY_ADDRESS"
-	mongodRootEnv          = "MDB_MONGOD_ROOT"
-	initRootEnv            = "MDB_INIT_ROOT"
 
 	// The agent image carries the database tools in /tools. The proxy starts mongod, so the agent
 	// needs no mongod path, only the tools path.
@@ -57,7 +42,7 @@ func imageVolume(name, reference string) corev1.Volume {
 		VolumeSource: corev1.VolumeSource{
 			Image: &corev1.ImageVolumeSource{
 				Reference:  reference,
-				PullPolicy: corev1.PullIfNotPresent,
+				PullPolicy: corev1.PullPolicy(env.ReadOrPanic(util.ImagePullPolicyEnv)), // nolint:forbidigo
 			},
 		},
 	}

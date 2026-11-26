@@ -169,6 +169,12 @@ agent:
   name: mongodb-agent
   version: 109.0.2.9380-1
 
+# The process proxy of the static-ga architecture. It is mounted as an OCI image volume into the container that runs
+# mongod/mongos. Leave name empty to keep the architecture unavailable.
+mongodbProxy:
+  name: ''
+  version: ''
+
 # This is only used by the MongoDBCommunity resource reconciler - START
 versionUpgradeHook:
   name: mongodb-kubernetes-operator-version-upgrade-post-start-hook
@@ -195,6 +201,7 @@ registry:
   initOpsManager: quay.io/mongodb
   opsManager: quay.io/mongodb
   agent: quay.io/mongodb
+  mongodbProxy: quay.io/mongodb
 
   # This is only used by the MongoDBCommunity resource reconciler - START
   versionUpgradeHook: quay.io/mongodb

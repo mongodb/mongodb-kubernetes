@@ -171,6 +171,9 @@ func (r *ReconcileMongoDbStandalone) Reconcile(ctx context.Context, request reco
 	if err := architectures.ValidateDatabaseImageType(s.GetAnnotations(), r.defaultArchitecture, r.defaultImageType); err != nil {
 		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
 	}
+	if err := architectures.ValidateMongodbProxyImage(s.GetAnnotations(), r.defaultArchitecture, images.MongodbProxyImage(r.imageUrls)); err != nil {
+		return r.updateStatus(ctx, s, workflow.Invalid("%s", err.Error()), log)
+	}
 	if warning := databaseContainerImageTypeAnnotationWarning(s.GetAnnotations(), r.defaultArchitecture); warning != "" {
 		log.Warn(warning)
 		s.AddWarningIfNotExists(mdbstatus.Warning(warning))

@@ -18,7 +18,7 @@ from typing import Optional
 
 import requests
 from kubernetes.client.rest import ApiException
-from kubetester import try_load
+from kubetester import try_load, wait_until
 from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.mongodb import MongoDB
@@ -38,16 +38,17 @@ from kubetester.mongodb_proxy import (
     restart_counts,
     run_operator_in_cluster,
     wait_for_new_mongod,
-    wait_until,
 )
 from kubetester.operator import Operator
 from kubetester.phase import Phase
 from pytest import fixture, mark, skip
-from tests.conftest import get_default_operator, local_operator
+from tests.conftest import get_default_operator, local_operator, pod_names
 
 
 @fixture(scope="module")
-def operator_with_proxy(namespace: str, operator_installation_config: dict[str, str]) -> Operator:
+def default_operator(namespace: str, operator_installation_config: dict[str, str]) -> Operator:
+    """The operator with the proxy image. tests/replicaset/conftest.py installs `default_operator` before every test,
+    so this definition makes the proxy-aware installation the only one."""
     image = proxy_image()
     if image is None:
         skip("MDB_MONGODB_PROXY_IMAGE is not set")
@@ -79,13 +80,13 @@ def replica_set(namespace: str, custom_mdb_version: str) -> MongoDB:
 
 
 @mark.e2e_replica_set_mongodb_proxy
-def test_install_operator(operator_with_proxy: Operator):
+def test_install_operator(default_operator: Operator):
     # Installing the fixture already waited for the operator and its webhook.
-    operator_with_proxy.wait_for_operator_ready()
+    default_operator.wait_for_operator_ready()
 
 
 @mark.e2e_replica_set_mongodb_proxy
-def test_replica_set_reaches_running_phase(operator_with_proxy: Operator, replica_set: MongoDB):
+def test_replica_set_reaches_running_phase(default_operator: Operator, replica_set: MongoDB):
     replica_set.update()
     # The agent starts mongod through the proxy, so a running replica set means the whole path works.
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
@@ -108,7 +109,8 @@ def test_pod_runs_the_proxy_in_the_database_container(replica_set: MongoDB, name
 
     volumes = {v.name: v for v in pod_spec.volumes}
     assert volumes["mongodb-proxy"].image.reference == proxy_image()
-    assert volumes["mongodb-binaries"].image is not None
+    # The agent uses the tools from its own image, so the MongoDB image is not mounted into it.
+    assert "mongodb-binaries" not in volumes
 
     # The socket is on a volume that only the agent and the database container mount.
     assert volumes["mongodb-proxy-socket"].empty_dir is not None
@@ -188,7 +190,7 @@ def test_log_of_mongod_is_in_the_log_of_the_database_container(replica_set: Mong
     file and copies each line to its stdout.
     """
     corev1 = KubernetesTester.clients("corev1")
-    for pod in pod_members(replica_set):
+    for pod in pod_names(replica_set.name, replica_set["spec"]["members"]):
 
         def has_mongod_log(pod=pod) -> bool:
             raw = corev1.read_namespaced_pod_log(pod, namespace, container=DATABASE_CONTAINER)
@@ -197,7 +199,7 @@ def test_log_of_mongod_is_in_the_log_of_the_database_container(replica_set: Mong
                 '"msg":"Waiting for connections"' in line and '"c":"NETWORK"' in line for line in raw.splitlines()
             )
 
-        wait_until(f"the log of mongod in the log of {pod}", has_mongod_log, timeout_seconds=120)
+        wait_until(has_mongod_log, timeout=120, name=f"the log of mongod in the log of {pod}")
 
 
 def wait_for_replaced_pod(pod: str, namespace: str, old_uid: str, timeout_seconds: int = 600):
@@ -239,13 +241,10 @@ def test_replica_set_is_still_running_after_a_pod_restart(replica_set: MongoDB, 
     assert status["state"] == "running", status
 
 
-def pod_members(replica_set: MongoDB) -> list[str]:
-    return [f"{replica_set.name}-{i}" for i in range(replica_set["spec"]["members"])]
-
-
 def pod_uids(replica_set: MongoDB, namespace: str) -> dict[str, str]:
     corev1 = KubernetesTester.clients("corev1")
-    return {pod: corev1.read_namespaced_pod(pod, namespace).metadata.uid for pod in pod_members(replica_set)}
+    pods = pod_names(replica_set.name, replica_set["spec"]["members"])
+    return {pod: corev1.read_namespaced_pod(pod, namespace).metadata.uid for pod in pods}
 
 
 @mark.e2e_replica_set_mongodb_proxy
@@ -255,7 +254,7 @@ def test_agent_restarts_mongod_through_the_proxy_on_a_config_change(replica_set:
     The pods stay as they are, so a new mongod can only come from the agent: the driver `shutdown` command, the
     process-down check against the proxy and a new `start` request.
     """
-    pods = pod_members(replica_set)
+    pods = pod_names(replica_set.name, replica_set["spec"]["members"])
     identities = {pod: mongod_identity(pod, namespace) for pod in pods}
     uids = pod_uids(replica_set, namespace)
     restarts = {pod: restart_counts(pod, namespace) for pod in pods}
@@ -375,9 +374,9 @@ def test_agent_starts_mongod_again_after_the_database_container_restarted(replic
     )
 
     wait_until(
-        "the database container to restart",
         lambda: restart_counts(pod, namespace)[DATABASE_CONTAINER] > before,
-        timeout_seconds=120,
+        timeout=120,
+        name="the database container to restart",
     )
     wait_for_new_mongod(pod, namespace, identity, timeout_seconds=600)
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
@@ -396,9 +395,9 @@ def test_agent_container_restart_does_not_restart_mongod(replica_set: MongoDB, n
     )
 
     wait_until(
-        "the agent container to restart",
         lambda: restart_counts(pod, namespace)[AGENT_CONTAINER] > before,
-        timeout_seconds=180,
+        timeout=180,
+        name="the agent container to restart",
     )
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
     # Give the restarted agent time to plan: it must find mongod running and leave it alone.
@@ -439,9 +438,9 @@ def test_agent_stops_a_leftover_ephemeral_mongod_when_it_starts(replica_set: Mon
         pod, namespace, ["bash", "-c", "kill -TERM 1"], container=AGENT_CONTAINER
     )
     wait_until(
-        "the agent container to restart",
         lambda: restart_counts(pod, namespace)[AGENT_CONTAINER] > restarts[AGENT_CONTAINER],
-        timeout_seconds=180,
+        timeout=180,
+        name="the agent container to restart",
     )
 
     def member_runs_again() -> bool:
@@ -454,7 +453,7 @@ def test_agent_stops_a_leftover_ephemeral_mongod_when_it_starts(replica_set: Mon
         )
 
     # the ephemeral mongod is a new process too, so only the role of the process in the proxy tells the member
-    wait_until(f"{pod} to run the member again", member_runs_again, 600)
+    wait_until(member_runs_again, timeout=600, name=f"{pod} to run the member again")
     stops = [e for e in proxy_events(pod, namespace, "stop requested") if e.get("role") == "ephemeral"]
     assert stops and all(e["http_status"] == 200 for e in stops), stops
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
@@ -521,7 +520,7 @@ def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, 
     the agent starts the secondary as a standalone on an ephemeral port, builds the index, stops it and starts the
     member again: the proxy gets a `start` request with the role `ephemeral`.
     """
-    pods = pod_members(replica_set)
+    pods = pod_names(replica_set.name, replica_set["spec"]["members"])
     uri = replica_set_uri(replica_set, namespace)
     assert len(pods) >= 3, "the agent builds the index in place on a replica set of fewer than three members"
 
@@ -559,7 +558,7 @@ def test_agent_runs_an_ephemeral_mongod_to_build_an_index(replica_set: MongoDB, 
                 return False
         return True
 
-    wait_until("the index on every member", built_on_all_members, timeout_seconds=900, interval_seconds=10)
+    wait_until(built_on_all_members, timeout=900, sleep_time=10, name="the index on every member")
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
 
     # Ops Manager changes the automation config itself while it works through the index builds, and an operator that
@@ -602,7 +601,7 @@ def test_agent_starts_mongod_with_scram_authentication(replica_set: MongoDB, nam
     # A publish that Ops Manager refuses as concurrent leaves the resource Failed until the operator tries again.
     replica_set.assert_reaches_phase(Phase.Running, timeout=1500, ignore_errors=True)
 
-    for pod in pod_members(replica_set):
+    for pod in pod_names(replica_set.name, replica_set["spec"]["members"]):
         assert query_proxy(pod, namespace)["state"] == "running", pod
         assert unauthenticated_result(pod, namespace) == "denied:Unauthorized", pod
 
@@ -618,7 +617,7 @@ def test_user_can_read_the_data_with_scram(replica_set: MongoDB, namespace: str)
     user.assert_reaches_phase(Phase.Updated, timeout=600)
 
     script = f'db.getSiblingDB("{INDEX_DATABASE}").{INDEX_COLLECTION}.countDocuments({{}})'
-    for pod in pod_members(replica_set):
+    for pod in pod_names(replica_set.name, replica_set["spec"]["members"]):
         assert mongosh(pod, namespace, script, member_uri(SCRAM_USER, SCRAM_PASSWORD)) == "100", pod
 
 
@@ -636,8 +635,8 @@ def test_agent_starts_mongod_again_after_it_was_killed_with_authentication(repli
     wait_for_new_mongod(pod, namespace, identity, timeout_seconds=600)
     replica_set.assert_reaches_phase(Phase.Running, timeout=900)
     wait_until(
-        "the restarted mongod to accept connections",
         lambda: mongosh(pod, namespace, "db.adminCommand({ping: 1}).ok", member_uri()) == "1",
+        name="the restarted mongod to accept connections",
     )
     assert unauthenticated_result(pod, namespace) == "denied:Unauthorized"
     script = f'db.getSiblingDB("{INDEX_DATABASE}").{INDEX_COLLECTION}.countDocuments({{}})'
@@ -660,6 +659,6 @@ def test_agent_starts_mongod_without_authentication_when_it_is_switched_off(repl
     replica_set.update()
 
     replica_set.assert_reaches_phase(Phase.Running, timeout=1500, ignore_errors=True)
-    for pod in pod_members(replica_set):
+    for pod in pod_names(replica_set.name, replica_set["spec"]["members"]):
         assert query_proxy(pod, namespace)["state"] == "running", pod
         assert unauthenticated_result(pod, namespace) == "allowed", pod

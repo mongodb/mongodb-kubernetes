@@ -412,11 +412,8 @@ func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
 
 	podSpec := sts.Spec.Template.Spec
 	assert.Nil(t, podSpec.ShareProcessNamespace)
-	require.Len(t, podSpec.InitContainers, 1)
-	initContainer := podSpec.InitContainers[0]
-	assert.Equal(t, InitDatabaseContainerName, initContainer.Name)
-	assert.Equal(t, opts.InitAppDBImage, initContainer.Image)
-	assert.True(t, containerMountsVolume(initContainer.VolumeMounts, "agent-scripts"))
+	// The static-ga AppDB runs no init container: the agent reads the probes from the image volume.
+	assert.Empty(t, podSpec.InitContainers)
 	assert.Equal(t, -1, getContainerIndexByName(podSpec.Containers, util.AgentContainerUtilitiesName))
 
 	agent := findContainerByName(t, podSpec.Containers, util.AgentContainerName)
@@ -425,17 +422,15 @@ func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
 	assert.Contains(t, agentCommand, "-cluster=/var/lib/automation/config/cluster-config.json")
 	assert.Contains(t, agentCommand, "-operatorMode")
 	assert.Contains(t, agentCommand, "-mongodProxyAddress="+MongodbProxyAddress)
-	assert.Contains(t, agentCommand, "-binariesFixedPath="+staticGAAgentToolsPath)
-	assert.NotContains(t, agentCommand, "MDB_MONGOD_ROOT")
+	assert.Contains(t, agentCommand, "-mongodbToolsPath="+staticGAAgentToolsPath)
+	assert.NotContains(t, agentCommand, "-binariesFixedPath")
 	assert.NotContains(t, agentCommand, "-skipMongoStart")
 	assert.NotContains(t, agentCommand, "-mmsBaseUrl")
 	assert.NotContains(t, agentCommand, "-mmsGroupId=")
-	assert.Contains(t, agent.Env, corev1.EnvVar{Name: mongodbProxyAddressEnv, Value: MongodbProxyAddress})
 	assert.NotContains(t, agentCommand, "/usr/local/bin/setup-agent-files.sh")
 	require.NotNil(t, agent.ReadinessProbe)
 	require.NotNil(t, agent.ReadinessProbe.Exec)
 	assert.Equal(t, []string{staticDatabaseReadinessProbeCmd}, agent.ReadinessProbe.Exec.Command)
-	assert.True(t, containerMountsVolume(agent.VolumeMounts, "agent-scripts"))
 
 	database := findContainerByName(t, podSpec.Containers, util.MongodbContainerName)
 	assert.Equal(t, []string{mongodbProxyBinaryPath}, database.Command)
@@ -449,10 +444,6 @@ func TestAppDbStatefulSet_StaticGAUsesProxyWithLocalConfig(t *testing.T) {
 	require.NotNil(t, proxyVolume.Image)
 	assert.Equal(t, opts.MongodbProxyImage, proxyVolume.Image.Reference)
 	assert.NotNil(t, findVolumeByName(podSpec.Volumes, mongodbProxySocketVolumeName))
-
-	scriptsVolume := findVolumeByName(podSpec.Volumes, "agent-scripts")
-	require.NotNil(t, scriptsVolume)
-	assert.NotNil(t, scriptsVolume.EmptyDir)
 
 	assert.True(t, containerMountsVolume(agent.VolumeMounts, "automation-config"))
 }
@@ -531,10 +522,11 @@ func TestAutomationAgentCommandStaticVsNonStatic(t *testing.T) {
 	t.Run("proxy static uses local Agent config", func(t *testing.T) {
 		cmd := AutomationAgentCommand(true, true, false, logLevel, logFile, maxLogFileDurationHours)
 		assert.Contains(t, cmd[2], "-cluster="+appdbClusterFilePath)
+		// The Agent rejects -mongodbToolsPath without -operatorMode, so the pair must stay together.
 		assert.Contains(t, cmd[2], "-operatorMode")
 		assert.Contains(t, cmd[2], "-mongodProxyAddress="+MongodbProxyAddress)
-		assert.Contains(t, cmd[2], "-binariesFixedPath="+staticGAAgentToolsPath)
-		assert.NotContains(t, cmd[2], "MDB_MONGOD_ROOT")
+		assert.Contains(t, cmd[2], "-mongodbToolsPath="+staticGAAgentToolsPath)
+		assert.NotContains(t, cmd[2], "-binariesFixedPath")
 		assert.NotContains(t, cmd[2], "-skipMongoStart")
 		assert.NotContains(t, cmd[2], "-mmsBaseUrl")
 	})

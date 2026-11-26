@@ -19,6 +19,7 @@ import (
 	"github.com/mongodb/mongodb-kubernetes/pkg/kube/podtemplatespec"
 	"github.com/mongodb/mongodb-kubernetes/pkg/statefulset"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util"
+	"github.com/mongodb/mongodb-kubernetes/pkg/util/architectures"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/env"
 	"github.com/mongodb/mongodb-kubernetes/pkg/util/merge"
 	"github.com/mongodb/mongodb-kubernetes/pkg/vault"
@@ -49,7 +50,7 @@ func newAgentRuntime(variables map[string]string) agentRuntime {
 
 func databaseAgentSettings(opts DatabaseStatefulSetOptions, runtime agentRuntime) mdbv1.StartupParameters {
 	settings := resolveAgentSettings(databaseAgentBaseSettings(opts, runtime), opts.AgentSettingsSource())
-	if runtime.architecture == "static-ga" {
+	if runtime.architecture == string(architectures.StaticGA) {
 		settings[mongodbToolsPathFlag] = staticGAAgentToolsPath
 	}
 	return settings
@@ -74,7 +75,7 @@ func databaseAgentBaseSettings(opts DatabaseStatefulSetOptions, runtime agentRun
 		settings["cluster"] = "/var/lib/mongodb-automation/cluster-config.json"
 		settings["serveStatusPort"] = "5000"
 	}
-	if runtime.architecture == "static-ga" {
+	if runtime.architecture == string(architectures.StaticGA) {
 		settings["operatorMode"] = strconv.FormatBool(true)
 	} else if runtime.architecture != "" {
 		settings["operatorMode"] = strconv.FormatBool(true)
