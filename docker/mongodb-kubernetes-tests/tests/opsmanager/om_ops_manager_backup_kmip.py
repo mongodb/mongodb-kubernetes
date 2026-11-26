@@ -1,7 +1,8 @@
+from datetime import datetime, timezone
 from typing import Iterator, Optional
 
 import pymongo
-from kubetester import create_or_update_secret, read_secret, try_load
+from kubetester import create_or_update_secret, read_secret, run_periodically, try_load
 from kubetester.awss3client import AwsS3Client
 from kubetester.certs import create_tls_certs
 from kubetester.kmip import KMIPDeployment
@@ -176,3 +177,50 @@ class TestBackupForMongodb:
         cluster_id = mdb_latest_project.get_backup_cluster_id(expected_config_count=1)
         snapshots = mdb_latest_project.api_get_snapshots(cluster_id)
         assert snapshots[0]["parts"][0]["encryptionEnabled"]
+
+    def test_rotate_kmip_master_key(
+        self, mdb_latest: MongoDB, mdb_latest_project: OMTester, mdb_latest_test_collection
+    ):
+        mdb_latest_project.wait_agents_ready()
+        config = mdb_latest_project.api_get_automation_config()
+        mongods = [process for process in config["processes"] if process["processType"] == "mongod"]
+        assert len(mongods) == mdb_latest["spec"]["members"]
+        names = {process["name"] for process in mongods}
+        rotation_request = datetime.now(timezone.utc).replace(microsecond=0)
+        for process in mongods:
+            process["lastKmipMasterKeyRotation"] = rotation_request.isoformat().replace("+00:00", "Z")
+        mdb_latest_project.api_put_automation_config(config)
+
+        # The status API can still report the goal from before the PUT.
+        def rotation_goal_reached():
+            status: dict = mdb_latest_project.api_get_automation_status()
+            goal = status.get("goalVersion")
+            if goal is None or goal <= config["version"]:
+                return False
+            pending = names - {
+                process["name"]
+                for process in status.get("processes", [])
+                if process.get("lastGoalVersionAchieved") == goal
+            }
+            return not pending, f"members still rotating: {pending}"
+
+        run_periodically(rotation_goal_reached, timeout=1800, sleep_time=10, msg="KMIP master key rotation")
+
+        mdb_latest.assert_reaches_phase(Phase.Running, timeout=900)
+        status = mdb_latest.tester().client.admin.command("replSetGetStatus", read_preference=ReadPreference.PRIMARY)
+        members = status["members"]
+        assert len(members) == len(mongods)
+        assert any(member["stateStr"] == "PRIMARY" for member in members)
+        for member in members:
+            assert member["health"] == 1, f"{member['name']} is not healthy"
+            # ponytail: The Agent writes this unreplicated note only after restarting the member.
+            # The recorded value is the requested timestamp, or the later instant at which the Agent rotated the key.
+            with pymongo.MongoClient(
+                member["name"], directConnection=True, serverSelectionTimeoutMS=120000, tz_aware=True
+            ) as client:
+                note = client.local.clustermanager.find_one()
+            assert note, member["name"]
+            recorded = note.get("lastKmipMasterKeyRotation")
+            assert recorded is not None and recorded >= rotation_request, f"{member['name']}: {recorded}"
+
+        assert mdb_latest_test_collection.find_one({"_id": TEST_DATA["_id"]}) == TEST_DATA

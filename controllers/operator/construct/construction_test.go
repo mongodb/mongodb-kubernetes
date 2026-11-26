@@ -25,39 +25,99 @@ func TestBuildStatefulSet_PersistentFlagStatic(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).Build()
 	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 10)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(new(true)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 10)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
 
 	// If no persistence is set then we still mount init scripts
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(new(false)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 10)
 	assert.Len(t, set.Spec.Template.Spec.Containers[1].VolumeMounts, 7)
+}
+
+func TestBuildStatefulSet_StaticMountsInitDatabaseImage(t *testing.T) {
+	mdb := mdbv1.NewReplicaSetBuilder().Build()
+	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static), func(o *DatabaseStatefulSetOptions) { o.InitDatabaseImage = "init-database:1.0" }), zap.S())
+	spec := set.Spec.Template.Spec
+
+	assert.Len(t, spec.Containers, 2)
+	for _, c := range spec.Containers {
+		assert.NotEqual(t, util.AgentContainerUtilitiesName, c.Name)
+	}
+	// The agent still reads the mongod binaries through /proc/<pid>/root of the mongod container.
+	assert.Equal(t, new(true), spec.ShareProcessNamespace)
+
+	volume := findVolumeByName(spec.Volumes, initDatabaseVolumeName)
+	if assert.NotNil(t, volume) && assert.NotNil(t, volume.Image) {
+		assert.Equal(t, "init-database:1.0", volume.Image.Reference)
+	}
+
+	agent := spec.Containers[0]
+	assert.Equal(t, util.AgentContainerName, agent.Name)
+	assert.Contains(t, agent.VolumeMounts, initDatabaseImageVolumeMount())
+	assert.Equal(t, staticAgentLauncherCommand, agent.Command)
+	assert.Contains(t, agent.Command[2], "exec "+staticAgentLauncherPath)
+	assert.Equal(t, []string{staticDatabaseLivenessProbeCmd}, agent.LivenessProbe.Exec.Command)
+	assert.Equal(t, []string{staticDatabaseReadinessProbeCmd}, agent.ReadinessProbe.Exec.Command)
+	assert.Equal(t, []string{staticDatabaseLivenessProbeCmd}, agent.StartupProbe.Exec.Command)
+
+	assert.NotContains(t, spec.Containers[1].VolumeMounts, initDatabaseImageVolumeMount())
+}
+
+func TestBuildStatefulSet_StaticIgnoresHolderContainerInPodTemplate(t *testing.T) {
+	podSpec := mdbv1.NewPodSpecWrapperBuilder().Build()
+	podSpec.PodTemplateWrapper.PodTemplate.Spec.Containers = []corev1.Container{
+		{Name: util.AgentContainerUtilitiesName, Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}}},
+		{Name: "my-sidecar", Image: "sidecar:1.0"},
+	}
+	mdb := mdbv1.NewReplicaSetBuilder().SetPodSpec(&podSpec.MongoDbPodSpec).Build()
+
+	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.Static)), zap.S())
+
+	var names []string
+	for _, c := range set.Spec.Template.Spec.Containers {
+		names = append(names, c.Name)
+	}
+	assert.ElementsMatch(t, []string{util.AgentContainerName, util.DatabaseContainerName, "my-sidecar"}, names)
+	assert.Len(t, mdb.Spec.PodSpec.PodTemplateWrapper.PodTemplate.Spec.Containers, 2, "the resource's pod template must not be modified")
+}
+
+func TestWithoutHolderContainer(t *testing.T) {
+	spec := appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{
+		{Name: util.AgentContainerUtilitiesName},
+		{Name: "my-sidecar"},
+	}}}}
+
+	filtered := WithoutHolderContainer(spec, zap.S())
+
+	assert.Equal(t, []corev1.Container{{Name: "my-sidecar"}}, filtered.Template.Spec.Containers)
+	assert.Len(t, spec.Template.Spec.Containers, 2, "the input must not be modified")
+	assert.Empty(t, WithoutHolderContainer(appsv1.StatefulSetSpec{}, nil).Template.Spec.Containers)
 }
 
 func TestBuildStatefulSet_PersistentFlag(t *testing.T) {
 	mdb := mdbv1.NewReplicaSetBuilder().SetPersistent(nil).Build()
 	set := DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 9)
 
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(new(true)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 1)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 9)
 
 	// If no persistence is set then we still mount init scripts
 	mdb = mdbv1.NewReplicaSetBuilder().SetPersistent(new(false)).Build()
 	set = DatabaseStatefulSet(*mdb, ReplicaSetOptions(GetPodEnvOptions(), WithDefaultArchitecture(architectures.NonStatic)), zap.S())
 	assert.Len(t, set.Spec.VolumeClaimTemplates, 0)
-	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 8)
+	assert.Len(t, set.Spec.Template.Spec.Containers[0].VolumeMounts, 9)
 }
 
 // TestBuildStatefulSet_PersistentVolumeClaimSingle checks that one persistent volume claim is created that is mounted by
@@ -76,6 +136,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingle(t *testing.T) {
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
 		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
+		{Name: AgentSettingsVolume, MountPath: AgentSettingsPath, ReadOnly: true},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathLogs, SubPath: util.PvcNameLogs},
@@ -99,10 +160,12 @@ func TestBuildStatefulSet_PersistentVolumeClaimSingleStatic(t *testing.T) {
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
 		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
+		{Name: AgentSettingsVolume, MountPath: AgentSettingsPath, ReadOnly: true},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData, SubPath: util.PvcNameData},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathJournal, SubPath: util.PvcNameJournal},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathLogs, SubPath: util.PvcNameLogs},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: false},
+		{Name: initDatabaseVolumeName, MountPath: initDatabaseMountPath, ReadOnly: true},
 	})
 }
 
@@ -131,6 +194,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultiple(t *testing.T) {
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
 		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
+		{Name: AgentSettingsVolume, MountPath: AgentSettingsPath, ReadOnly: true},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
 		{Name: util.PvcNameJournal, MountPath: util.PvcMountPathJournal},
@@ -160,6 +224,7 @@ func TestBuildStatefulSet_PersistentVolumeClaimMultipleDefaults(t *testing.T) {
 		{Name: util.PvMms, MountPath: util.PvcMountPathTmp, SubPath: util.PvcNameTmp},
 		{Name: util.PvMms, MountPath: util.DefaultPvcMmsMountPath, SubPath: util.PvcMms},
 		{Name: AgentAPIKeyVolumeName, MountPath: AgentAPIKeySecretPath},
+		{Name: AgentSettingsVolume, MountPath: AgentSettingsPath, ReadOnly: true},
 		{Name: util.PvcNameData, MountPath: util.PvcMountPathData},
 		{Name: PvcNameDatabaseScripts, MountPath: PvcMountPathScripts, ReadOnly: true},
 		{Name: util.PvcNameJournal, MountPath: util.PvcMountPathJournal},

@@ -1036,8 +1036,13 @@ func TestVoyageAI_AllModelVariants(t *testing.T) {
 		{vaiv1.VoyageAIModelVoyage4Lite, "quay.io/mongodb/voyageai/voyage-4-lite:1.0.0"},
 		{vaiv1.VoyageAIModelRerank25, "quay.io/mongodb/voyageai/rerank-2.5:1.0.0"},
 		{vaiv1.VoyageAIModelRerank25Lite, "quay.io/mongodb/voyageai/rerank-2.5-lite:1.0.0"},
+		{vaiv1.VoyageAIModelRerank3, "quay.io/mongodb/voyageai/rerank-3:1.0.0"},
+		{vaiv1.VoyageAIModelRerank3Lite, "quay.io/mongodb/voyageai/rerank-3-lite:1.0.0"},
+		{vaiv1.VoyageAIModelRerank3PubSec, "quay.io/mongodb/voyageai/rerank-3-pubsec:1.0.0"},
 		{vaiv1.VoyageAIModelVoyageContext4, "quay.io/mongodb/voyageai/voyage-context-4:1.0.0"},
 		{vaiv1.VoyageAIModelVoyageCode3, "quay.io/mongodb/voyageai/voyage-code-3:1.0.0"},
+		{vaiv1.VoyageAIModelVoyageCode4, "quay.io/mongodb/voyageai/voyage-code-4:1.0.0"},
+		{vaiv1.VoyageAIModelVoyageMultimodal35, "quay.io/mongodb/voyageai/voyage-multimodal-3.5:1.0.0"},
 	}
 
 	for _, tc := range tests {

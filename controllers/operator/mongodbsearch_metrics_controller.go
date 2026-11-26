@@ -37,7 +37,6 @@ import (
 	searchv1 "github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/search"
 	"github.com/mongodb/mongodb-kubernetes/api/mongodb/v1/status"
 	omapi "github.com/mongodb/mongodb-kubernetes/controllers/om/api"
-	"github.com/mongodb/mongodb-kubernetes/controllers/operator/agents"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/construct"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/project"
 	"github.com/mongodb/mongodb-kubernetes/controllers/operator/secrets"
@@ -740,7 +739,7 @@ func (r *MongoDBSearchMetricsForwarderReconciler) resolveFromEnterpriseSource(so
 
 	return forwarderContext{
 		projectConfigMapRef: corev1.LocalObjectReference{Name: source.GetProjectConfigMapName()},
-		agentApiKeySecret:   corev1.LocalObjectReference{Name: agents.ApiKeySecretName(groupId)},
+		agentApiKeySecret:   corev1.LocalObjectReference{Name: mdbv1.AgentAPIKeySecretName(groupId)},
 	}, groupId, workflow.OK()
 }
 

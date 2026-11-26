@@ -1203,7 +1203,7 @@ func TestReconcile_DeletionFinalizerLifecycle(t *testing.T) {
 			objects := []client.Object{
 				mdb, search,
 				newTestProjectConfigMap(testProjectCMName, testNamespace, testOMBaseURL),
-				// Internal enterprise sources resolve the agent key secret from the project id; see agents.ApiKeySecretName.
+				// Internal enterprise sources resolve the agent key secret from the project id; see mdbv1.AgentAPIKeySecretName.
 				newTestAgentKeySecret(testGroupID+"-group-secret", testNamespace),
 			}
 			if tc.stateReplicas > 0 {

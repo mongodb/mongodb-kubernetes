@@ -5,7 +5,7 @@ from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kubetester import create_configmap, create_secret, delete_secret, get_statefulset, read_secret, try_load
 from kubetester.certs import create_mongodb_tls_certs, create_ops_manager_tls_certs
-from kubetester.kubetester import KubernetesTester, assert_container_count_with_static
+from kubetester.kubetester import KubernetesTester
 from kubetester.kubetester import fixture as yaml_fixture
 from kubetester.kubetester import get_pods, is_default_architecture_static, run_periodically
 from kubetester.operator import Operator
@@ -271,7 +271,7 @@ def test_appdb_reached_running_and_pod_count(ops_manager: MongoDBOpsManager, nam
     # check AppDB has 3 containers: mongodb-agent, mongod, vault-agent
     for pod_name in get_pods(ops_manager.name + "-db-{}", 3):
         pod = client.CoreV1Api().read_namespaced_pod(pod_name, namespace)
-        assert_container_count_with_static(len(pod.spec.containers), 3)
+        assert len(pod.spec.containers) == 3
 
 
 @mark.e2e_vault_setup_om
