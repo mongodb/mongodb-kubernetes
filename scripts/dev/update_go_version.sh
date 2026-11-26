@@ -42,6 +42,11 @@ DEV_SCRIPT_FILES=(
     "scripts/dev/contexts/evg-private-context"
 )
 
+# The devcontainer installs this exact Go and sets GOTOOLCHAIN=local, so a go.mod that is newer breaks `go mod download`
+DEVCONTAINER_FILES=(
+    ".devcontainer/devcontainer.json"
+)
+
 # Hook version
 HOOK_CONFIG_FILES=(
     ".pre-commit-config.yaml"
@@ -83,6 +88,7 @@ update_files "^go .*" "go ${FULL_VERSION}" "${GO_MOD_FILES[@]}"
 update_files "^golang .*" "golang ${FULL_VERSION}" "${TOOL_VERSION_FILES[@]}"
 update_files "golang:[0-9.]*" "golang:${MINOR_VERSION}" "${DOCKERFILE_FILES[@]}"
 update_files "/opt/golang/go[0-9.]*" "/opt/golang/go${MINOR_VERSION}" "${DEV_SCRIPT_FILES[@]}"
+update_files "\"version\": \"[0-9]*\.[0-9]*\.[0-9]*\"" "\"version\": \"${FULL_VERSION}\"" "${DEVCONTAINER_FILES[@]}"
 update_files "language_version:.*" "language_version: ${FULL_VERSION}" "${HOOK_CONFIG_FILES[@]}"
 
 echo ""
