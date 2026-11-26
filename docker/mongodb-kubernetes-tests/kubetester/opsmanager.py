@@ -65,9 +65,23 @@ class MongoDBOpsManager(CustomObject, MongoDBCommon):
         om.allow_mdb_rc_versions()
         return om
 
-    def trigger_architecture_migration(self):
+    def trigger_architecture_migration(self, target_architecture: Optional[str] = None):
+        """Move the resource to another architecture by rewriting its architecture annotation.
+
+        The three architectures are ``static`` (legacy static containers), ``static-ga`` (static containers
+        with the mongodb-proxy) and ``non-static``. Any of them can be a target.
+
+        With ``target_architecture`` the resource moves to exactly that architecture. Use this for a pair the
+        variant default does not produce, such as ``static`` to ``static-ga``.
+
+        Without it the target comes from ``get_migration_target_architecture()``, which follows the variant
+        default: ``non-static`` moves to ``static-ga``, and both ``static`` and ``static-ga`` move to
+        ``non-static``. That covers the pairs the existing migration tests run, but never ``static`` to
+        ``static-ga``.
+        """
         self.load()
-        self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": get_migration_target_architecture()})
+        target = target_architecture or get_migration_target_architecture()
+        self["metadata"]["annotations"].update({"mongodb.com/v1.architecture": target})
         self.update()
 
     def trigger_om_sts_restart(self):
