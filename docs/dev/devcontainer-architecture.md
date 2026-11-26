@@ -12,16 +12,17 @@ made by hand; `wt-ctl` only writes that file and starts things. To use it, follo
 | Path | What |
 |---|---|
 | `scripts/dev/wt-ctl` | Shim: loads the invoking checkout's env through `scripts/dev/devenv`, then runs `python3 -m wt_ctl` |
-| `scripts/dev/wt_ctl/` | `cli.py` has the parser and the dispatch, `create.py`, `delete.py`, `status.py` and `auth_cli.py` one verb each. `runner.py` is the only module that starts processes. `domains/` wraps one outside system each: the worktree index, kind, the devcontainer CLI and compose, kubeconfigs, the kfp daemon, registry credentials, git worktrees |
-| `.devcontainer/` | Image (`Dockerfile`, `features/`), `compose.yml`, lifecycle scripts in `scripts/`, the tmux layout `tmuxp/mck.yaml` |
+| `scripts/dev/wt_ctl/` | `cli.py` has the parser and the dispatch, `create.py`, `delete.py`, `status.py` and `auth_cli.py` one verb each. `runner.py` is the only module that starts processes. `domains/` wraps one outside system each: the worktree index, kind, the devcontainer CLI and compose, kubeconfigs, the kfp daemon, registry credentials, git worktrees, Evergreen hosts and their ssh path |
+| `.devcontainer/` | Image (`Dockerfile`, `features/`, `autossh.Dockerfile`), `compose.yml`, `devcontainer.json`, `shell-init.sh`, `evg-host-ssh.conf`, lifecycle scripts in `scripts/`, the tmux layout `tmuxp/mck.yaml` |
 | `scripts/dev/op_run.sh`, `e2e_run.sh` | The operator and one e2e marker, run inside the container |
 | `scripts/dev/wt_ctl/tests/` | Unit tests of the pure functions: `python -m pytest scripts/dev/wt_ctl/tests` |
 
 ## The worktree
 
-`wt-ctl create <branch>` creates the worktree with master's `scripts/dev/create_worktree.sh`, or adopts the worktree
-that has the branch checked out with `init_worktree.sh`. It deletes the state those scripts copy from the invoking
-checkout (kubeconfigs, registry store), and writes two files:
+`wt-ctl create <branch>` creates the worktree with `scripts/dev/create_worktree.sh` of the checkout it runs from (the main
+checkout when it runs inside the worktree), or adopts the worktree that has the branch checked out with `init_worktree.sh`.
+A branch that does not exist is cut from the current branch of that checkout. It deletes the state those scripts copy from the invoking
+checkout (kubeconfigs, registry store), and writes two files, and a third for a worktree on an Evergreen host:
 
 - `.devcontainer/.env` pins the worktree index `N` (0 to 126) and the compose network values. Compose cannot call code, so
   it does the arithmetic of the network itself: a `/23` per worktree in `172.16.0.0/16`, the container addresses in its
@@ -29,10 +30,13 @@ checkout (kubeconfigs, registry store), and writes two files:
 - `.generated/worktree-context` has literal `export` lines: `WORKTREE_PREFIX="devc<N>-"` and the six
   `KIND_METALLB_RANGE_*` pools of `root-context` with the third octet set to `128 + N`. `root-context` sources it, so
   the prefix reaches the kind cluster names, the test namespace and the MetalLB pools of every script. `.generated/` is
-  already gitignored, and `evg_host.sh sync` copies this one file to an Evergreen host.
+  already gitignored, and `evg_host.sh sync` copies this one file to an Evergreen host. For a worktree on an Evergreen
+  host it also has an `EVG_HOST_NAME` line.
+- `.generated/.current-evg-host` (a worktree on an Evergreen host only) holds the host's display name; the host's ssh
+  address goes to `.generated/.current-evg-host-address` once the host runs.
 
 The index is recorded only in the checkout's `.devcontainer/.env`. `create` takes the lowest index that no worktree of
-the repository pins, under a lock in the main checkout's `.generated/wt-ctl/`, and removing the worktree frees it.
+the repository pins and whose compose network overlaps no docker network that exists, under a lock in the main checkout's `.generated/wt-ctl/`, and removing the worktree frees it.
 
 All worktrees share one docker network, `kind`, and one daemon, so the pools of the worktrees must not overlap: the row
 `128 + N` of the `172.18.0.0/16` network belongs to worktree `N`, and `devc<N>-` keeps the cluster names apart.
@@ -62,7 +66,10 @@ context of the host file to `CLUSTER_NAME`.
 
 ## What `create` runs
 
-Each step logs to `logs/setup_worktree/<step>.log` in the new worktree.
+The steps `context`, `kind clusters`, `devcontainer`, `prepare-local-e2e` and `operator` log to
+`logs/setup_worktree/` in the new worktree as `context.log`, `kind_clusters.log`, `devcontainer.log`,
+`prepare_local_e2e.log` and `op_run.log`; the other steps print to the terminal only. The `worktree` step logs to
+`logs/setup_worktree/worktree-<branch_dir>.log` in the checkout `create` runs from.
 
 1. `worktree`: `create_worktree.sh <branch>`; `init_worktree.sh` for a worktree of the branch that has no
    `private-context` yet; nothing for one that has.
@@ -81,7 +88,8 @@ Each step logs to `logs/setup_worktree/<step>.log` in the new worktree.
 6. `kubeconfig`: the container's copies of the kubeconfig, and the host one registered with the kfp daemon on a Mac.
 7. `devcontainer`: `.devcontainer/scripts/initialize.sh` (compose override files, the main `.git` mount), then
    `devcontainer build` and `up`, then the store as the container's `~/.docker/config.json`, then the `kind` network
-   join on Linux, or the check that the `evg-host-proxy` sidecar reaches the Evergreen host.
+   join on Linux, or, for a worktree on an Evergreen host, a restart of an `evg-host-proxy` sidecar that still tunnels to
+   another host, then the check that the sidecar reaches the Evergreen host.
 8. `prepare-local-e2e`: in the container, stop the operator, wait for the apiserver, `make prepare-local-e2e`, then
    refresh the kubeconfigs (an Evergreen worktree's `multicluster.devc.kubeconfig` gets its proxy-url). Left out with
    `--skip-prepare-e2e`.
@@ -90,7 +98,7 @@ Each step logs to `logs/setup_worktree/<step>.log` in the new worktree.
 The compose project is `<branch_dir>_devcontainer`, lower case, with the services `devcontainer` and `k8s-proxy` (the
 kube-forwarding-proxy: the container's DNS server, which answers `*.svc.cluster.local` with virtual addresses and
 forwards them into the cluster) and the proxy sidecars `evg-host-proxy` and `gost-proxy` that worktrees on an Evergreen host use.
-`delete` takes the compose project down with its images and its `venv`, `bin` and `ssh-auth-sock` volumes. The cache
+`delete --devcontainer` (or `--all`) takes the compose project down with its images and its `venv`, `bin` and `ssh-auth-sock` volumes. The cache
 volumes `mck-devcontainer-{gomodcache,gocache,uvcache,helmcache}` are shared and stay.
 
 ## What is not isolated

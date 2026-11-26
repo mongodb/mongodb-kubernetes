@@ -8,7 +8,7 @@ daemon, or on one Evergreen host.
 ## The worktree prefix
 
 Each worktree has a prefix, `devc<N>-`, where `N` is a number from 0 to 126 that `create` picks (the lowest one no
-worktree of the repository has). The prefix, kept in `.generated/worktree-context` as `WORKTREE_PREFIX`, marks what
+worktree of the repository has, and whose compose network overlaps no docker network that exists). The prefix, kept in `.generated/worktree-context` as `WORKTREE_PREFIX`, marks what
 the worktree owns:
 
 - its kind clusters (`devc<N>-kind`, `devc<N>-e2e-operator`, and so on) and their kubeconfig,
@@ -21,7 +21,7 @@ prefixes. A checkout without the file, like one you made by hand, has no prefix 
 
 ## Prerequisites
 
-- Docker, the `devcontainer` CLI (`npm i -g @devcontainers/cli`), `kind`, `python3` and `tmux`.
+- Docker, the `devcontainer` CLI (`npm i -g @devcontainers/cli`), `kind`, `kubectl`, `python3` and the `aws` CLI (it mints the registry token).
 - For a worktree on an Evergreen host: the `evergreen` CLI, logged in, `ssh`, `rsync`, `jq`, VPN, and an ssh agent that
   holds the key Evergreen puts on its hosts (`ssh-add ~/.ssh/evg-host`).
 - A checkout to run `wt-ctl` from that has been through `make switch context=<context>`, so that `.generated/` and
@@ -36,8 +36,9 @@ prefixes. A checkout without the file, like one you made by hand, has no prefix 
 
 ## Commands
 
-Run `create` from the checkout you branch from, or inside a worktree you made by hand. The other verbs act on the
-worktree of the current directory, except `delete`, which names the branch.
+Run `create` from the checkout you branch from, or inside a worktree you made by hand. `attach`, `kubeconfig`, `kfp`
+and `auth` act on the worktree of the current directory, `status` lists every worktree, and `delete` and
+`network allocate` take a branch.
 
 - `wt-ctl create [--local-kind] [--single-cluster|--multi-cluster] [--context <name>] [<branch>]` creates the worktree
   `../<branch with / as _>`, or adopts the worktree that already has the branch checked out (one you made with
@@ -113,7 +114,7 @@ scans the tree while `isort` rewrites its files: run `make precommit` again. Com
 scripts/dev/wt-ctl attach -- /workspace/scripts/dev/e2e_run.sh e2e_replica_set_readiness_probe
 ```
 
-`e2e_run.sh` takes a pytest marker or a path under `tests/`. The output goes to `logs/test.log` in the worktree, the
+`e2e_run.sh` takes a pytest marker or a path under `tests/`. The output goes to `logs/test-<target>-<time>.log` in the worktree, which `logs/test.log` links to, the
 JUnit report to `logs/myreport.xml`, and the exit code is pytest's. The operator runs in the container and logs to
 `logs/operator.log`. To start a marker from a clean namespace, run
 `wt-ctl create --skip-recreate <branch>` (with `--local-kind` for a worktree on your laptop): it resets the test
@@ -132,7 +133,7 @@ the same prefix.
 A spawned host lives 24 hours, which is Evergreen's default. `--host-hours N` (minimum 24) extends a host that `create`
 spawns to about N hours and says so on spawn (`host <name> expires in about N hours`); a host that already exists keeps its
 expiry. Hosts bill while they run, so ask for no more than you need. `wt-ctl status` shows the state of each worktree's
-host: `running`, `GONE` for a host that is terminated or no longer in `evergreen host list --mine`, or `unknown` when
+host: `running`, `GONE` for a host that is terminated, decommissioned, quarantined or failed, or no longer in `evergreen host list --mine`, or `unknown` when
 the list cannot be read (no login, no VPN).
 
 The clusters are reached through ssh. The `evg-host-proxy` sidecar of the worktree's compose project opens a tunnel to
@@ -152,8 +153,8 @@ spawned (it marks it with `~/.wt-ctl-host`) terminates the host. A host you spaw
 answer are left running, with a message. `auth refresh` puts the worktree's registry credentials on the host too, because
 the nodes there mount `~/.docker/config.json`, and `auth status` shows its time left.
 
-The container has the `evergreen` CLI of the host's build, installed when the container is created, and a copy of
-`~/.evergreen.yml` and of the access token in `~/.kanopy`, without the refresh token. The token lasts as long as the
+The container has the `evergreen` CLI of the host's build, installed when the container is created, a read-only mount of
+`~/.evergreen.yml` and a copy of the access token in `~/.kanopy`, without the refresh token. The token lasts as long as the
 host's did when the container started. When it expires `evergreen` asks for a login: do not complete it, because that
 logs you out on the host. Run `evergreen client get-oauth-token` on the host and restart the container.
 
@@ -171,8 +172,9 @@ the same before it opens the container, with a warning instead of an error when 
 time left, and `e2e_run.sh` refuses to start with an expired token, because the first pull would fail minutes in.
 Through `attach` you only see that refusal when the renewal failed.
 
-`wt-ctl auth status` exits 0 when every copy is fine, 1 when one is expiring and 3 when one is expired or missing.
-`wt-ctl auth refresh` renews the token and rolls it to the container and the pull secrets of every cluster; run it
+`wt-ctl auth status` exits 0 when every copy is fine, 1 when one is expiring and 3 when one is expired or missing; a
+devcontainer that is not running and an Evergreen host that does not answer are noted and count as fine.
+`wt-ctl auth refresh` renews the token when under 4 hours are left and rolls it to the container and the pull secrets of every cluster; run it
 on the host; it refuses in the container, so that the host writes the store and every copy. `--force` mints a new token even when the current one has
 time left. Both verbs act on the current worktree only.
 
@@ -201,8 +203,8 @@ creates does name `host.docker.internal` (and the node address, as kind's does),
 `kubectl` runs by hand on the host keep their discovery cache under `~/.kube/cache` unless you also set
 `KUBECACHEDIR=<worktree>/.generated/cache/kube`, as `wt-ctl` does.
 
-After you edit Go code, restart the operator with `wt-ctl attach -- /workspace/scripts/dev/op_run.sh --detach`. Add
-`--stop` to stop it.
+After you edit Go code, restart the operator with `wt-ctl attach -- /workspace/scripts/dev/op_run.sh --detach`.
+`op_run.sh --stop` stops it.
 
 ## Git in the container
 
@@ -229,9 +231,9 @@ The unit tests of the pure logic (worktree index, kubeconfig rewrite, registry t
 `scripts/dev/run_python.sh -m pytest scripts/dev/wt_ctl/tests` and are part of `unit_tests_python`.
 
 Two integration tests run real kind clusters, and neither is collected by `unit_tests_python`. They need docker, `kind`,
-`kubectl`, a `private-context`, about 14 GB of free memory, a git checkout (the worktrees are worktrees of `HEAD`, so
-commit what you want tested) and an ECR login, or `KIND_NODE_IMAGE` set to an image you have pulled. The second also
-needs the `devcontainer` CLI. Both refuse to start when clusters from an earlier run are left over, and they delete
+`kubectl`, a `private-context`, a git checkout (the worktrees are worktrees of `HEAD`, so commit what you want
+tested) and an ECR login, or `KIND_NODE_IMAGE` set to an image you have pulled. The first needs about 10 GB of free
+memory and your `~/.docker/config.json` (the nodes mount it), the second about 14 GB and the `devcontainer` CLI. Both refuse to start when clusters from an earlier run are left over, and they delete
 only what they created.
 
 - `scripts/test/kind_prefix_integration.py` checks the prefixes without `wt-ctl`: two worktrees with different prefixes
@@ -305,12 +307,13 @@ scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios R1,R2,H1
 scripts/dev/run_python.sh scripts/test/wt_ctl_acceptance.py --scenarios S1,S2,S3   # together on one host
 ```
 
-Use a terminal per line to run the lines side by side. The output is one line per scenario, `L1 PASS 7m42s` or
-`S2 FAIL <first failed check>`, and the exit code is 1 if one failed. The end of a failed marker's output goes to
+Run the scenarios you want in one command, as above: a second run started while the first one is going refuses to
+start (an `acc-*` branch exists), and the check that the machine is as it was at the start would fail the first one
+anyway. The output is one line per scenario, `L1 PASS 7m42s` or `S2 FAIL <first failed check> 12m03s`, and the exit code is 1 if one failed. The end of a failed marker's output goes to
 stderr; the worktree's `logs/` are deleted with the worktree.
 
 Commit what you want tested first (the worktrees are worktrees of `HEAD`). The prerequisites are the ones of the
-integration tests, plus Cloud QA values (`OM_HOST`, `OM_USER`, `OM_API_KEY`) in `private-context` and the
+integration tests, plus Cloud QA values (`OM_USER`, `OM_API_KEY`, `OM_ORGID`) in `private-context` and the
 `LOCAL_OPERATOR` line above. R, H and S also need the `evergreen` CLI login, VPN and the ssh agent key. L1 and L2 are
 Evergreen tasks. R, H and S are not: `create` spawns hosts as the logged-in user and reaches them through your ssh agent,
 which a task host does not have. A run that was killed leaves worktrees and branches behind: `wt-ctl status`,
@@ -352,7 +355,8 @@ checkout you ran it from).
   clusters on the host are lost. Run `wt-ctl create <branch>`: it spawns a new host, restarts the `evg-host-proxy`
   sidecar, which still tunnels to the old address, recreates the clusters and sets the namespace and the operator up
   again. Add `--host-hours` to keep the new host longer than 24 hours.
-- `no context in .generated/`: run `make switch context=<context>` in the checkout you run `create` from.
+- `no context in <path>/.generated: run make switch context=<context> there first`: run it in the checkout you run
+  `create` from.
 - Pulls fail with `403 Forbidden` or `authorization token has expired`: run `wt-ctl auth status`, then
   `wt-ctl auth refresh --force` on the host.
 - A recreate of the kind clusters of a worktree leaves a running operator with a stale kubeconfig. Run
