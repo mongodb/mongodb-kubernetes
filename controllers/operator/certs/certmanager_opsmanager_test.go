@@ -504,7 +504,7 @@ func TestManagedServerCertificateRenewalStatus(t *testing.T) {
 
 func TestServerCertificateOwnerThreading(t *testing.T) {
 	var renewals *apistatus.CertificateRenewalStatus
-	owner := newServerCertificateOwner(managedTestOM(), &omv1.ManagedCertificate{}, ServerCertificateOptions{
+	owner := NewServerCertificateOwner(managedTestOM(), &omv1.ManagedCertificate{}, ServerCertificateOptions{
 		NamingBase:  "example-managed-backup",
 		PruneTarget: OpsManagerPruneTargetBackup,
 		OnRenewals: func(status *apistatus.CertificateRenewalStatus) {

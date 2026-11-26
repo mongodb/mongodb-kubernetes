@@ -269,8 +269,14 @@ func TestOpsManagerManagedMultiClusterTrustCopies(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, source.Data, remote.Data)
-			assert.Equal(t, manager.GetOwnerLabels(), remote.Labels)
+			assert.Equal(t, certs.ManagedCertificateOwnerLabels(manager), remote.Labels)
 			assert.Empty(t, remote.OwnerReferences)
+
+			source.Data[tc.key] = "rotated trust"
+			require.NoError(t, central.Update(ctx, source))
+			require.NoError(t, tc.copy())
+			require.NoError(t, r.memberClustersMap["west"].Get(ctx, kube.ObjectKey(manager.Namespace, tc.name), remote))
+			assert.Equal(t, "rotated trust", remote.Data[tc.key], "a later reconcile must refresh the copy this controller owns")
 		})
 	}
 }

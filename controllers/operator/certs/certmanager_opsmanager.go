@@ -49,7 +49,7 @@ type serverCertificateOwner struct {
 	setRenewals func(*mdbstatus.CertificateRenewalStatus)
 }
 
-func newServerCertificateOwner(owner v1.ObjectOwner, cfg *omv1.ManagedCertificate, opts ServerCertificateOptions) serverCertificateOwner {
+func NewServerCertificateOwner(owner v1.ObjectOwner, cfg *omv1.ManagedCertificate, opts ServerCertificateOptions) serverCertificateOwner {
 	return serverCertificateOwner{
 		ObjectOwner:      owner,
 		name:             opts.NamingBase,
@@ -108,7 +108,7 @@ func EnsureServerCertificateAndCA(
 		return workflow.Failed(xerrors.New(msg)), IssuanceFailedCondition(msg), false
 	}
 
-	res := newServerCertificateOwner(owner, cfg, opts)
+	res := NewServerCertificateOwner(owner, cfg, opts)
 	subject, commonName := serverSubject(cfg.Subject)
 	spec := certSpec(res, categoryServer, opts.SecretName, opts.DNSNames, commonName, subject, memberServerCertUsages)
 	spec.IPAddresses = opts.IPAddresses

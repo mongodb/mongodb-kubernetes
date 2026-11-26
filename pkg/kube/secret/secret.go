@@ -3,6 +3,7 @@ package secret
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 
@@ -186,8 +187,10 @@ func CreateOrUpdateIfNeeded(ctx context.Context, getUpdateCreator GetUpdateCreat
 		return err
 	}
 
-	// Our secret builder never sets or uses secret.stringData, so we should only rely on secret.Data
-	if reflect.DeepEqual(secret.Data, oldSecret.Data) {
+	// Our secret builder never sets or uses secret.stringData, so we should only rely on secret.Data.
+	// Labels are compared too: a copy written before an ownership label existed has the same data,
+	// and skipping it would leave the label off.
+	if reflect.DeepEqual(secret.Data, oldSecret.Data) && maps.Equal(secret.Labels, oldSecret.Labels) {
 		return nil
 	}
 

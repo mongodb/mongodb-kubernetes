@@ -37,7 +37,6 @@ from tests.opsmanager.om_external_appdb_test_helpers import (
     write_sentinel_doc,
 )
 
-OWNER_LABEL = "mongodb.com/v1.mongodbOpsManagerResourceOwner"
 FORWARD_OM_NAME = "forward-managed-mc"
 FORWARD_META_OM_NAME = "forward-managed-mc-meta"
 FORWARD_MEMBER_COUNTS: list[int | None] = [2, 1]
@@ -175,7 +174,9 @@ class TestMultiClusterManagedOpsManagerForwardMigration:
                     ref["kind"] == "MongoDBOpsManager" and ref["name"] == primary_om.name for ref in entry["owners"]
                 ), cluster
             else:
-                assert entry["labels"].get(OWNER_LABEL) == primary_om.name, cluster
+                assert (
+                    entry["labels"].get(MANAGED_CERTIFICATE_OWNER_UID_LABEL) == primary_om["metadata"]["uid"]
+                ), cluster
         self.__class__.om_pod_uids = {pod.metadata.uid for _, pod in primary_om.read_om_pods()}
         assert self.om_pod_uids
         self.__class__.ca_bundle_hashes = _om_appdb_ca_bundle_hashes(primary_om)
@@ -257,8 +258,6 @@ class TestMultiClusterManagedOpsManagerForwardMigration:
             for key, entry in before.items():
                 assert graph[key]["uid"] == entry["uid"], f"{cluster}: {key}"
                 assert graph[key]["data"] == entry["data"], f"{cluster}: {key}"
-            if not central:
-                assert graph[bundle_key]["labels"].get(OWNER_LABEL) is None, cluster
 
     def test_primary_om_did_not_roll(self, primary_om: MongoDBOpsManager):
         primary_om.load()

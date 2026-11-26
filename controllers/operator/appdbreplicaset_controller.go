@@ -1383,9 +1383,23 @@ func (r *ReconcileAppDbReplicaSet) ensureTLSSecretAndCreatePEMIfNeeded(ctx conte
 
 		secretHash := enterprisepem.ReadHashFromSecret(ctx, r.SecretClient, om.Namespace, secretName, appdbSecretPath, log)
 
+		// The sweep finds this secret by the UID label. A user-supplied TLS secret stays unlabeled,
+		// as it did. The owner reference is only set in the cluster that holds the Ops Manager:
+		// a reference to an owner Kubernetes cannot find makes it delete the secret immediately.
+		var ownerLabels map[string]string
+		if rs.GetSecurity().IsManagedCertificateEnabled() {
+			ownerLabels = certs.ManagedCertificateOwnerLabels(certs.AppDBManagedCertificateOwner(om))
+		}
+
 		var errs error
 		for _, memberCluster := range r.helper.GetHealthyMemberClusters() {
-			err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(om.Namespace, secretName), secretHash, data, nil, nil, certs.AppDB)
+			// A user-supplied TLS secret keeps the owner reference it always had. A managed
+			// certificate only gets one in the cluster that holds the Ops Manager.
+			ownerReferences := r.helper.ownerReferences
+			if rs.GetSecurity().IsManagedCertificateEnabled() && !memberCluster.Legacy {
+				ownerReferences = nil
+			}
+			err = certs.CreateOrUpdatePEMSecretWithPreviousCert(ctx, memberCluster.SecretClient, kube.ObjectKey(om.Namespace, secretName), secretHash, data, ownerReferences, ownerLabels, certs.AppDB)
 			if err != nil {
 				errs = errors.Join(errs, xerrors.Errorf("can't create concatenated PEM certificate in cluster %s: %w", memberCluster.Name, err))
 				continue
@@ -1471,7 +1485,7 @@ func (r *ReconcileAppDbReplicaSet) replicateTLSCAConfigMap(ctx context.Context, 
 			targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
 		}
 		return certs.ReplicateManagedCABundlesToMemberClusters(ctx, r.client, appDBSpec.Namespace,
-			[]string{caConfigMapName}, targets, appDBSpec.GetOwnerLabels(), log)
+			[]string{caConfigMapName}, targets, certs.ManagedCertificateOwnerLabels(om), log)
 	}
 
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(appDBSpec.Namespace, caConfigMapName))
@@ -1505,7 +1519,7 @@ func (r *ReconcileAppDbReplicaSet) replicateSSLMMSCAConfigMap(ctx context.Contex
 			targets = append(targets, certs.MemberClusterTarget{Name: memberCluster.Name, Client: memberCluster.Client})
 		}
 		return certs.ReplicateManagedCABundlesToMemberClusters(ctx, r.client, appDBSpec.Namespace,
-			[]string{caConfigMapName}, targets, appDBSpec.GetOwnerLabels(), log)
+			[]string{caConfigMapName}, targets, certs.ManagedCertificateOwnerLabels(om), log)
 	}
 
 	cm, err := r.client.GetConfigMap(ctx, kube.ObjectKey(appDBSpec.Namespace, caConfigMapName))

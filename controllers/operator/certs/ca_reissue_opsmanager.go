@@ -55,7 +55,7 @@ func ReissueServerCertificateOnRotatedSelfSignedCA(
 
 	// Built the same way EnsureServerCertificateAndCA does, so the reissue looks at the same
 	// certificates and secrets.
-	res := newServerCertificateOwner(owner, cfg, opts)
+	res := NewServerCertificateOwner(owner, cfg, opts)
 	if hasUserIssuer(res, categoryServer) {
 		return 0, nil
 	}
