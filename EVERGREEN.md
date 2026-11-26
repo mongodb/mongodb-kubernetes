@@ -58,8 +58,8 @@ every major version bump.
 
 ### Release-style preflight only (no image push, no Pyxis submit)
 
-Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, but **does not** run *
-*`release_images`** (nothing is built/pushed) and sets **`preflight_submit: false`** (check only).
+Runs the same **`preflight_release_operator_images_task_group`** as a real tag release, using existing published images
+without building or pushing images, and sets **`preflight_submit: false`** (check only).
 
 You must pass versions for tags that **already exist on Quay** (typically match **`release.json`** on your branch: *
 *`mongodbOperator`**, readiness hook versions, etc.).
@@ -236,7 +236,6 @@ can be triggered manually via CLI aliases; most can also be pulled into a PR via
 | `release_all_agents_manually`     | Release all agent versions manually                             |
 | `release_current_agents_manually` | Release the current agent versions manually                     |
 | `public_docs_snippets`            | Public docs snippets refresh (generation + PR creation)         |
-| `smoke_test_release`              | Smoke suite against released images                             |
 | `periodic_teardowns`              | Periodic teardown variants                                      |
 
 ### Usage

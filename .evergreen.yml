@@ -321,9 +321,6 @@ patch_aliases:
   - alias: "release_current_agents_manually"
     variant_tags: [ "release_current_agents_manually" ]
     task: ".*"
-  - alias: "smoke_test_release"
-    variant_tags: [ "e2e_smoke_release_test_suite" ]
-    task_tags: [ "patch-run" ]
   - alias: "smoke_test"
     variant_tags: [ "e2e_smoke_test_suite" ]
     task_tags: [ "patch-run" ]
