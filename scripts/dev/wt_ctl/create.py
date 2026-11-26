@@ -10,6 +10,7 @@ same branch. The files a worktree keeps of its own are ``.generated/``, with its
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -32,26 +33,11 @@ from .domains.registry_auth import copy_to_container, ensure_store, push_to_host
 from .envfile import inside_container, read_env_file
 from .errors import WtCtlError
 from .paths import WorktreeRefs, devc_dir, logs_dir, shared_state_dir, worktree_path_for
+from .preflight import preflight, target_commit
 from .runner import Runner
 
 DEFAULT_SINGLE_CONTEXT = "root-context"
 DEFAULT_MULTI_CONTEXT = "e2e_multi_cluster_kind"
-
-# create_worktree.sh copies the invoking checkout's .generated/, and with it that worktree's clusters, registry
-# store and kubeconfigs. A new worktree starts without them.
-INHERITED_STATE = (
-    ".generated/registry-auth",
-    ".generated/wt-ctl",
-    ".generated/kind-kubeconfigs",
-    ".generated/current.kubeconfig",
-    ".generated/current.devc.kubeconfig",
-    ".generated/multicluster_kubeconfig",
-    ".generated/multicluster.devc.kubeconfig",
-    ".generated/.current_topology",
-    ".generated/.current-evg-host",
-    ".generated/.current-evg-host-address",
-    ".generated/ssh",
-)
 
 
 def resolve_topology(
@@ -100,6 +86,7 @@ class Create:
 
     def run(self) -> None:
         need_yaml()
+        self.step("preflight", self.preflight)
         self.step("worktree", self.create_worktree)
         self.step("prefix", self.write_prefix)
         multi = self.step("context", self.switch_context)
@@ -126,16 +113,28 @@ class Create:
     def log(self, name: str) -> Path:
         return logs_dir(self.wt) / f"{name}.log"
 
+    def preflight(self) -> None:
+        checkout = self.wt if self.wt.is_dir() else self.host
+        target = "HEAD" if self.wt.is_dir() else target_commit(self.runner, checkout, self.args.branch)
+        # A worktree that has its index resumes, and low disk must not block that. Anything else allocates.
+        disk_path = None
+        if read_pin(self.wt) is None:
+            disk_path = self.wt if self.wt.is_dir() else self.wt.parent
+        preflight(self.runner, checkout, target, disk_path, bool(self.evg_name) and not self.args.skip_evg)
+
     def create_worktree(self) -> None:
         """Make the worktree, or adopt one made by hand with ``git worktree add``: ``init_worktree.sh`` copies in the
         private-context, ``bin/`` and a context from the invoking checkout, or from the main checkout when ``create``
         runs inside the worktree itself, and builds the venv, as for a new worktree."""
-        private = self.wt / "scripts" / "dev" / "contexts" / "private-context"
-        if private.is_file():
-            if not (self.wt / ".generated" / ".current_context").is_file():
-                raise WtCtlError(
-                    f"no context in {self.wt / '.generated'}: run `make switch context=<context>` there first"
-                )
+        # What init_worktree.sh leaves when it is done. A worktree that lacks one of these, such as one whose venv build
+        # failed, is finished by the init below, which keeps what the worktree already has.
+        venv = Path(os.environ.get("PROJECT_VENV_PATH") or self.wt / "venv")
+        done = (
+            self.wt / "scripts" / "dev" / "contexts" / "private-context",
+            self.wt / ".generated" / ".current_context",
+            venv / "bin" / "activate",
+        )
+        if all(f.is_file() for f in done):
             return
         source = self.host if self.host != self.wt else self.refs.main_repo_root
         contexts = source / "scripts" / "dev" / "contexts"
@@ -152,9 +151,6 @@ class Create:
         else:
             argv = [str(scripts / "create_worktree.sh"), self.args.branch]
         self.runner.stream(argv, log_path=log, cwd=source, env=env)
-        for relative in INHERITED_STATE:
-            path = self.wt / relative
-            shutil.rmtree(path) if path.is_dir() else path.unlink(missing_ok=True)
         # Like private-context (init_worktree.sh copies that one), the gitignored compose overrides belong to the user.
         overrides = devc_dir(source) / "compose.user.yml"
         if overrides.is_file() and source != self.wt:

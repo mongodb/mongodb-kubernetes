@@ -21,8 +21,9 @@ made by hand; `wt-ctl` only writes that file and starts things. To use it, follo
 
 `wt-ctl create <branch>` creates the worktree with `scripts/dev/create_worktree.sh` of the checkout it runs from (the main
 checkout when it runs inside the worktree), or adopts the worktree that has the branch checked out with `init_worktree.sh`.
-A branch that does not exist is cut from the current branch of that checkout. It deletes the state those scripts copy from the invoking
-checkout (kubeconfigs, registry store), and writes two files, and a third for a worktree on an Evergreen host:
+A branch that does not exist is cut from the current branch of that checkout. Those scripts copy only the name of the invoking checkout's context (`.generated/.current_context`), because the rest of
+`.generated/` (kubeconfigs, registry store, host files, cache) belongs to that checkout; `make switch` then writes the env
+files of the new worktree. `create` writes two files, and a third for a worktree on an Evergreen host:
 
 - `.devcontainer/.env` pins the worktree index `N` (0 to 126) and the compose network values. Compose cannot call code, so
   it does the arithmetic of the network itself: a `/23` per worktree in `172.16.0.0/16`, the container addresses in its
@@ -71,8 +72,17 @@ The steps `context`, `kind clusters`, `devcontainer`, `prepare-local-e2e` and `o
 `prepare_local_e2e.log` and `op_run.log`; the other steps print to the terminal only. The `worktree` step logs to
 `logs/setup_worktree/worktree-<branch_dir>.log` in the checkout `create` runs from.
 
-1. `worktree`: `create_worktree.sh <branch>`; `init_worktree.sh` for a worktree of the branch that has no
-   `private-context` yet; nothing for one that has.
+A `preflight` step runs before the first one. It stops `create` when less than `MCK_DEVC_MIN_FREE_GIB` (default 10) are
+free on the filesystem of a worktree with no valid `MCK_DEVC_INDEX` pin. Pinned worktrees skip the disk threshold on
+reruns, including a first create that failed after writing the pin and still needs to build clusters or a container.
+The worktree initialization, including its host venv, runs before the pin is written. A resume needs room for any
+unfinished steps. The preflight also stops when the ssh agent holds no key and a host is to be spawned or reused.
+It warns, and goes on, when the worktree's target commit is more than 30 commits behind the already fetched
+`upstream/master` or `origin/master`. An existing worktree uses its `HEAD`; a new worktree uses the local branch,
+the branch of exactly one remote, or the invoking checkout's `HEAD` for a new branch. The lookup makes no network call.
+
+1. `worktree`: `create_worktree.sh <branch>`; `init_worktree.sh` for a worktree of the branch that lacks its
+   `private-context`, its context or its venv (`PROJECT_VENV_PATH` or `venv/`); nothing for one that has all three.
 2. `prefix`: the index, `.devcontainer/.env` and `.generated/worktree-context`.
 3. `context`: `switch_context.sh` for the requested context, then for the default one of the other topology when the
    requested topology does not match. The result is recorded in `.generated/.current_topology`.
@@ -98,7 +108,7 @@ The steps `context`, `kind clusters`, `devcontainer`, `prepare-local-e2e` and `o
 The compose project is `<branch_dir>_devcontainer`, lower case, with the services `devcontainer` and `k8s-proxy` (the
 kube-forwarding-proxy: the container's DNS server, which answers `*.svc.cluster.local` with virtual addresses and
 forwards them into the cluster) and the proxy sidecars `evg-host-proxy` and `gost-proxy` that worktrees on an Evergreen host use.
-`delete --devcontainer` (or `--all`) takes the compose project down with its images and its `venv`, `bin` and `ssh-auth-sock` volumes. The cache
+`delete --devcontainer` (or `--all`) takes the compose project down with its images and its `venv`, `bin`, `ssh-auth-sock` and docker-in-docker volumes (the volumes of that compose project only). The cache
 volumes `mck-devcontainer-{gomodcache,gocache,uvcache,helmcache}` are shared and stay.
 
 ## What is not isolated

@@ -32,7 +32,10 @@ if (Path(sys.prefix) / "bin" / "activate").is_file():
 
 def run(*cmd, cwd=None, check=True):
     p = subprocess.run([str(c) for c in cmd], cwd=cwd, env=ENV, text=True, capture_output=True)
-    assert not check or p.returncode == 0, f"{cmd} failed:\n{p.stdout[-2000:]}\n{p.stderr[-3000:]}"
+    if check and p.returncode != 0:
+        words = " ".join([Path(str(cmd[0])).name, *map(str, cmd[1:])])
+        last = (p.stderr.strip() or p.stdout.strip() or "no output").splitlines()[-1]
+        raise AssertionError(f"{words} failed (rc={p.returncode}): {last}\n{p.stdout[-2000:]}\n{p.stderr[-3000:]}")
     return p.stdout.strip()
 
 

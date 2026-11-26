@@ -108,9 +108,12 @@ class KindDomain:
                 return f"{cluster}: {reason}"
         return None
 
-    def delete_clusters(self, prefix: str) -> None:
+    def delete_clusters(self, prefix: str, kubeconfig: Path) -> None:
+        """Delete the clusters that carry ``prefix``. kind locks ``<kubeconfig>.lock`` without a retry and fails when
+        another kind holds it, so this uses the worktree's own file: the one of the invoking checkout is shared by
+        every delete that runs from it."""
         for name in self.clusters(prefix):
-            self.runner.stream(["kind", "delete", "cluster", "--name", name])
+            self.runner.stream(["kind", "delete", "cluster", "--name", name], env={"KUBECONFIG": str(kubeconfig)})
 
     def join_network(self, worktree: Path, project: str) -> None:
         """Put the devcontainer and its k8s-proxy on the ``kind`` network, which the Linux host reaches the
