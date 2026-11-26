@@ -62,13 +62,14 @@ COPY --from=micro / /mnt/rootfs
 # same source packages (net-snmp, cyrus-sasl/saslauthd), which would pull in systemd, perl and more without being used.
 # - procps-ng, net-tools, ncurses, util-linux, openssl, findutils, grep, sed, gawk: Ops Manager bin/ scripts
 # - curl: loading MongoDB binaries into mongodb-releases for local mode (kubectl exec ... curl)
+# - tar: kubectl cp uses it to upload local-mode archives into mongodb-releases
 RUN dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
         --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
         upgrade \
     && dnf -y --installroot=/mnt/rootfs --setopt=reposdir=/etc/yum.repos.d --releasever=9 \
         --setopt=install_weak_deps=0 --setopt=tsflags=nodocs --disableplugin=subscription-manager \
         install \
-        curl libcurl \
+        curl libcurl tar \
         cyrus-sasl-lib cyrus-sasl-gssapi cyrus-sasl-plain krb5-libs lm_sensors-libs \
         net-snmp-libs net-snmp-agent-libs openldap openssl rpm-libs net-tools procps-ng ncurses \
         util-linux findutils grep sed gawk \
