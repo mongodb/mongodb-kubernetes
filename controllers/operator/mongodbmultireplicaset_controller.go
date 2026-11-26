@@ -1108,7 +1108,7 @@ func (r *ReconcileMongoDbMultiReplicaSet) reconcileStatefulSets(ctx context.Cont
 		}
 
 		stsOptions := opts(*mrs)
-		sts := mconstruct.MultiClusterStatefulSetFromOptions(*mrs, stsOptions)
+		sts := mconstruct.MultiClusterStatefulSetFromOptions(*mrs, stsOptions, log)
 		if err := create.ReconcileDatabaseAgentSettings(ctx, memberClient, secretMemberClient, sts, stsOptions); err != nil {
 			return workflow.Failed(xerrors.Errorf("cannot render agent settings for cluster %s: %w", item.ClusterName, err))
 		}

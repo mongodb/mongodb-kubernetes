@@ -98,6 +98,6 @@ func MultiClusterStatefulSet(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptFunc fun
 	return construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, log)
 }
 
-func MultiClusterStatefulSetFromOptions(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptions construct.DatabaseStatefulSetOptions) appsv1.StatefulSet {
-	return construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, nil)
+func MultiClusterStatefulSetFromOptions(mdbm mdbmultiv1.MongoDBMultiCluster, stsOptions construct.DatabaseStatefulSetOptions, log *zap.SugaredLogger) appsv1.StatefulSet {
+	return construct.DatabaseStatefulSetHelper(&mdbm, &stsOptions, log)
 }

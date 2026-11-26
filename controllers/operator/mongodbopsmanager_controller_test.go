@@ -3774,9 +3774,10 @@ func TestOpsManagerManagedCAConsumableByMongoDBProjectConfig(t *testing.T) {
 				assert.True(t, cfg.SSLRequireValidMMSServerCertificates)
 				assert.Equal(t, "managed-om-managed-om-ca-bundle", cfg.SSLMMSCAConfigMap)
 				assert.Equal(t, string(omCA), cfg.SSLMMSCAConfigMapContents)
-				sts := operatorConstruct.DatabaseStatefulSet(*rs, operatorConstruct.ReplicaSetOptions(func(opts *operatorConstruct.DatabaseStatefulSetOptions) {
+				stsOptions := operatorConstruct.ReplicaSetOptions(func(opts *operatorConstruct.DatabaseStatefulSetOptions) {
 					opts.PodVars = &env.PodEnvVars{BaseURL: cfg.BaseURL, SSLProjectConfig: cfg.SSLProjectConfig}
-				}), zap.S())
+				})
+				sts := operatorConstruct.DatabaseStatefulSet(*rs, stsOptions, zap.S())
 				volumes := map[string]string{}
 				for _, volume := range sts.Spec.Template.Spec.Volumes {
 					if volume.ConfigMap != nil {
@@ -3788,7 +3789,10 @@ func TestOpsManagerManagedCAConsumableByMongoDBProjectConfig(t *testing.T) {
 				assert.Equal(t, "workload-managed-server-ca-bundle", volumes["secret-ca"])
 				agent := sts.Spec.Template.Spec.Containers[0]
 				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "SSL_TRUSTED_MMS_SERVER_CERTIFICATE", Value: "/mongodb-automation/certs/mms-ca.crt"})
-				assert.Contains(t, agent.Env, corev1.EnvVar{Name: "SSL_REQUIRE_VALID_MMS_CERTIFICATES", Value: "true"})
+				// SSL_REQUIRE_VALID_MMS_CERTIFICATES reaches the agent through the settings file.
+				settings, err := operatorConstruct.DatabaseAgentSettingsConfigMap(sts, *operatorConstruct.AgentContainer(sts), stsOptions(*rs))
+				require.NoError(t, err)
+				assert.Contains(t, settings.Data[operatorConstruct.AgentSettingsFileName], "tlsRequireValidMMSServerCertificates=true\n")
 				deployment := om.NewDeployment()
 				deployment.ConfigureTLS(rs.GetSecurity(), rs.GetSecurity().GetTLSCAFilePath(util.TLSCaMountPath+"/ca-pem"), "")
 				assert.Equal(t, util.TLSCaMountPath+"/ca-pem", deployment["tls"].(map[string]any)["CAFilePath"])
