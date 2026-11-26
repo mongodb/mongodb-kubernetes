@@ -174,7 +174,9 @@ class TestMultiClusterManagedOpsManagerForwardMigration:
                     ref["kind"] == "MongoDBOpsManager" and ref["name"] == primary_om.name for ref in entry["owners"]
                 ), cluster
             else:
-                assert entry["labels"].get(MANAGED_CERTIFICATE_OWNER_UID_LABEL) == primary_om["metadata"]["uid"], cluster
+                assert (
+                    entry["labels"].get(MANAGED_CERTIFICATE_OWNER_UID_LABEL) == primary_om["metadata"]["uid"]
+                ), cluster
         self.__class__.om_pod_uids = {pod.metadata.uid for _, pod in primary_om.read_om_pods()}
         assert self.om_pod_uids
         self.__class__.ca_bundle_hashes = _om_appdb_ca_bundle_hashes(primary_om)
