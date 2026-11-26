@@ -176,7 +176,6 @@ spec:
     {{- $mongodbImageEnv := "MONGODB_IMAGE" -}}
     {{- $initDatabaseVersion := print .Values.initDatabase.version (.Values.build | default "") -}}
     {{- $mongodbProxyImageEnv := "MDB_MONGODB_PROXY_IMAGE" -}}
-    {{- $mongodbProxyVersion := print .Values.mongodbProxy.version (.Values.build | default "") -}}
     {{- $databaseVersion := print .Values.database.version (.Values.build | default "") -}}
     {{- $initOpsManagerVersion := print .Values.initOpsManager.version (.Values.build | default "") -}}
     {{- $agentVersion := .Values.agent.version }}
@@ -189,8 +188,11 @@ spec:
               value: {{ .Values.registry.initDatabase }}/{{ .Values.initDatabase.name }}
             - name: INIT_DATABASE_VERSION
               value: {{ $initDatabaseVersion | quote }}
+            {{- if .Values.mongodbProxy }}
+            {{- $mongodbProxyVersion := print .Values.mongodbProxy.version (.Values.build | default "") }}
             - name: {{ $mongodbProxyImageEnv }}
               value: "{{ .Values.registry.mongodbProxy }}/{{ .Values.mongodbProxy.name }}:{{ $mongodbProxyVersion }}"
+            {{- end }}
             - name: DATABASE_VERSION
               value: {{ $databaseVersion | quote }}
             # Ops Manager
