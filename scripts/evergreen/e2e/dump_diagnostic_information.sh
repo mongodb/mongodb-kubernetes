@@ -12,6 +12,9 @@ source scripts/funcs/printing
 # cannot stall the rest of the dump. The fallback covers hosts without coreutils timeout.
 DUMP_COMMAND_TIMEOUT_SECONDS=120
 
+# The proxy serves its API on this Unix socket, on a volume that the agent container mounts.
+PROXY_SOCKET="/var/run/mongodb-proxy/proxy.sock"
+
 run_with_timeout() {
     if command -v timeout > /dev/null 2>&1; then
         timeout "${DUMP_COMMAND_TIMEOUT_SECONDS}" "$@"
@@ -190,12 +193,27 @@ is_mdb_resource_pod() {
     kubectl --context="${context}" exec "${pod}" -n "${namespace}" -- ls /var/log/mongodb-mms-automation/automation-agent-verbose.log &>/dev/null
 }
 
+# dump_pod_proxy_state writes the current process state for a pod that runs the proxy.
+dump_pod_proxy_state() {
+    local context="${1}" pod="${2}" namespace="${3}" prefix="${4}"
+    local artifact="logs/${prefix}${pod}-proxy-state.json"
+    run_with_timeout kubectl --context="${context}" exec -n "${namespace}" "${pod}" -c mongodb-agent -- \
+        curl -fsS --noproxy '*' --unix-socket "${PROXY_SOCKET}" http://proxy/v1/process > "${artifact}" 2>/dev/null || rm -f "${artifact}"
+}
+
 # dump_pod_logs dumps agent and mongodb logs.
 dump_pod_logs() {
     local context="${1}"
     local pod="${2}"
     local namespace="${3}"
     local prefix="${4}"
+
+    local proxy_volume
+    proxy_volume=$(run_with_timeout kubectl --context="${context}" get pod -n "${namespace}" "${pod}" \
+        -o jsonpath='{.spec.volumes[?(@.name=="mongodb-proxy-socket")].name}')
+    if [[ "${proxy_volume}" == "mongodb-proxy-socket" ]]; then
+        dump_pod_proxy_state "${context}" "${pod}" "${namespace}" "${prefix}"
+    fi
 
     if is_mdb_resource_pod "${context}" "${pod}" "${namespace}"; then
         # for MDB resource Pods, we dump the log files from the file system

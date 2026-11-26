@@ -11,6 +11,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
 from lib.base_logger import logger
+from scripts.release import atomic_pipeline
 from scripts.release.argparse_utils import (
     get_image_builder_from_arg,
     get_platforms_from_arg,
@@ -39,6 +40,7 @@ from scripts.release.build.build_info import (
     MEKO_TESTS_IBM_POWER_IMAGE,
     MEKO_TESTS_IBM_Z_IMAGE,
     MEKO_TESTS_IMAGE,
+    MONGODB_PROXY_IMAGE,
     OPERATOR_IMAGE,
     OPERATOR_RACE_IMAGE,
     OPS_MANAGER_IMAGE,
@@ -80,6 +82,8 @@ def get_builder_function_for_image_name() -> Dict[str, Callable]:
         INIT_OPS_MANAGER_IMAGE: build_init_om_image,
         # Ops Manager image
         OPS_MANAGER_IMAGE: build_om_image,
+        # mongodb-proxy, mounted into the database container as an OCI image volume
+        MONGODB_PROXY_IMAGE: atomic_pipeline.build_image,
     }
 
     return image_builders

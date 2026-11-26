@@ -7,20 +7,21 @@ Note, that the script must be called from the root of the project
 Usage:
     update_helm_values_files.py
 """
+
 import json
 import sys
 from typing import List
 
-from agent_matrix import get_supported_version_for_image
 from git import Repo
-from helm_files_handler import (
+
+from scripts.evergreen.release.agent_matrix import get_supported_version_for_image
+from scripts.evergreen.release.helm_files_handler import (
     get_value_in_yaml_file,
     set_value_in_yaml_file,
     update_all_helm_values_files,
     update_community_agent_image_in_file,
     update_community_agent_image_in_go_file,
 )
-
 from scripts.release.constants import DEFAULT_RELEASE_INITIAL_VERSION, DEFAULT_REPOSITORY_PATH
 from scripts.release.version import find_previous_version
 
@@ -33,6 +34,12 @@ RELEASE_JSON_TO_HELM_KEY = {
     "readinessProbeVersion": "readinessProbe",
     "versionUpgradeHookVersion": "versionUpgradeHook",
 }
+
+
+# Third-party images used by MongoDBSearch whose versions are tracked in release.json (search.*Version)
+# and bumped by scripts/dev/bump_third_party_images.py.
+METRICS_FORWARDER_IMAGE_REPO = "otel/opentelemetry-collector-contrib"
+ENVOY_IMAGE_REPO = "envoyproxy/envoy"
 
 
 def load_release():
@@ -84,6 +91,24 @@ def update_community_manifests(agent_version: str):
     update_community_agent_image_in_go_file("mongodb-community-operator/test/e2e/setup/test_config.go", agent_version)
 
 
+def update_search_images(release):
+    set_value_in_yaml_file(
+        "helm_chart/values.yaml",
+        "search.version",
+        release["search"]["version"],
+    )
+    set_value_in_yaml_file(
+        "helm_chart/values.yaml",
+        "search.metricsForwarderImage",
+        f"{METRICS_FORWARDER_IMAGE_REPO}:{release['search']['metricsForwarderVersion']}",
+    )
+    set_value_in_yaml_file(
+        "helm_chart/values.yaml",
+        "search.envoyImage",
+        f"{ENVOY_IMAGE_REPO}:{release['search']['envoyVersion']}",
+    )
+
+
 def update_helm_charts(operator_version, release, agent_version):
     set_value_in_yaml_file(
         "helm_chart/values-openshift.yaml",
@@ -104,7 +129,7 @@ def update_helm_charts(operator_version, release, agent_version):
     set_value_in_yaml_file("helm_chart/values.yaml", "operator.version", operator_version)
     set_value_in_yaml_file("helm_chart/Chart.yaml", "version", operator_version)
 
-    set_value_in_yaml_file("helm_chart/values.yaml", "search.version", release["search"]["version"])
+    update_search_images(release)
     set_value_in_yaml_file("helm_chart/values.yaml", "community.agent.version", agent_version)
 
 
